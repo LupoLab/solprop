@@ -72,7 +72,6 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.precision import PrecisionName
 from solprop.translate.responses import KerrForm
 
 __all__ = [
@@ -485,7 +484,6 @@ def prop_gnlse(
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
     backend: str = "auto",
-    precision: PrecisionName = "double",
     resume: bool | Literal["interpolated"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
@@ -609,9 +607,7 @@ def prop_gnlse(
         what it drew.
     rtol : float or None, optional
         Relative tolerance of the step controller, dimensionless and positive.
-        ``None`` takes :data:`~solprop.driver.defaults.DEFAULT_RTOL`, ``1e-7``, or
-        under ``precision="single"`` the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, ``1e-6``. The map
+        ``None`` takes :data:`~solprop.driver.defaults.DEFAULT_RTOL`, ``1e-7``. The map
         from this local tolerance to the global error at the output is problem dependent
         and misses by one to three orders either way, so calibrate rather than assume
         (``docs/dev/stepper.md`` section 3).
@@ -679,16 +675,6 @@ def prop_gnlse(
         isn't installed or this processor is below its baseline. There is no fallback,
         and import or construction errors stay visible.
         :func:`solprop.backends.registry.available` lists what can be used.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
-        binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``; the default noise
-        resolves to none, and the Adams method and an explicit noise model are refused.
-        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
-        refuse it.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` when its record and this run's have one
         configuration hash; otherwise it is refused, naming what changed. Only a
@@ -792,7 +778,6 @@ def prop_gnlse(
         absorber_scheme=absorber_scheme,
         boundary_check=boundary_check,
         backend=backend,
-        precision=precision,
         materials=materials,
     )
     logger.debug(
@@ -871,7 +856,6 @@ def prop_capillary(
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    precision: PrecisionName = "double",
     polarisation: str | float | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
@@ -1006,7 +990,7 @@ def prop_capillary(
         ``HE_11`` to ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal
         order -- on a constant or a varying guide, and a scalar run. It carries the
         default ``"input"`` noise and refuses ``"modified"``. ``numpy_ref`` and
-        ``native`` execute it (``method="cf4"`` on ``numpy_ref`` alone).
+        ``native`` execute it.
         ``None``, the default, carries no wall: the modes keep their own Marcatili
         loss, and a multimode taper its taper coupling (below).
     taper_coupling : bool, optional
@@ -1117,9 +1101,8 @@ def prop_capillary(
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, ``1e-6``, in either
-        precision (it equals the single-precision floor). Calibrate it for a production
-        run (``docs/dev/stepper.md`` section 3).
+        :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, ``1e-6``. Calibrate it for a
+        production run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
         (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
@@ -1166,16 +1149,6 @@ def prop_capillary(
         Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
         isn't installed or this processor is below its baseline. There is no fallback,
         and import or construction errors stay visible.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
-        binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``; the default noise
-        resolves to none, and the Adams method and an explicit noise model are refused.
-        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
-        refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1317,7 +1290,6 @@ def prop_capillary(
         polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
-        precision=precision,
         polarisation=polarisation,
         materials=materials,
         tdse=tdse,
@@ -1405,7 +1377,6 @@ def prop_waveguide(
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    precision: PrecisionName = "double",
     polarisation: str | float | None = None,
     taper_coupling: bool = True,
     output: Output | Path | str | None = None,
@@ -1638,9 +1609,8 @@ def prop_waveguide(
         Entropy of the noise generator.
     rtol : float or None, optional
         Relative step tolerance. ``None`` takes
-        :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL`, ``1e-5``, in either
-        precision. Calibrate it for a production run (``docs/dev/stepper.md``
-        section 3).
+        :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL`, ``1e-5``. Calibrate it for a
+        production run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts; ``1e-10`` by default
         (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
@@ -1685,16 +1655,6 @@ def prop_waveguide(
         Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
         isn't installed or this processor is below its baseline. There is no fallback,
         and import or construction errors stay visible.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
-        binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` stays this interface's ``1e-5``, above the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``; the default noise
-        resolves to none, and the Adams method and an explicit noise model are refused.
-        ``numpy_ref`` runs it as the reference; ``native`` and ``backend="auto"``
-        refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional
@@ -1791,7 +1751,6 @@ def prop_waveguide(
         polarisation_taper=polarisation_taper,
         node_budget=node_budget,
         backend=backend,
-        precision=precision,
         polarisation=polarisation,
         taper_coupling=taper_coupling,
         materials=materials,

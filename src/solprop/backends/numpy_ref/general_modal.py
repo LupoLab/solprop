@@ -80,54 +80,34 @@ import itertools
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Int32, Num
 
 from solprop import fourier
-from solprop.backends.node_chunk import NodeChunkPlan
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.nonlinear.responses import dispersive_cubic
 from solprop.translate.modal_tables import ModalTransformTables
-from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import (
-    DELAYED_MODEL_ID,
-    KERR_MODEL_FORMS,
-    MODEL_ID_SEPARATOR,
     DispersiveKerrTerms,
     KerrForm,
-    RegionalResponseTables,
 )
 
 __all__ = [
-    "BUFFERS_PER_GENERAL_NODE",
-    "DELAYED_TERMS",
-    "PAIR_BUFFERS_PER_GENERAL_NODE",
     "PAIR_HISTORIES",
     "GeneralMaps",
     "delayed_polarisation",
     "dispersive_polarisation",
     "expand_pair_history",
-    "general_dispersive_buffers",
     "general_memory",
-    "general_node_chunk",
-    "general_planned_chunk",
     "general_source",
-    "node_delayed_maps",
-    "node_kerr_form",
-    "node_kerr_tensor",
-    "refuse_regional_responses",
     "symmetric_cubic",
     "symmetric_kerr_coefficients",
     "symmetric_monomials",
 ]
 
 logger = logging.getLogger(__name__)
-
-DELAYED_TERMS = 2
-"""Delayed channels the silica tensor Raman model carries: trace and rank two."""
 
 PAIR_HISTORIES = 6
 """Independent entries of the real symmetric pair history of three components.
@@ -139,29 +119,6 @@ node and not nine.
 
 _UPPER = ((0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2))
 """The six stored pair entries, in order."""
-
-BUFFERS_PER_GENERAL_NODE = 4
-"""Chunk buffers the general source holds per node, each ``n_components`` wide.
-
-The synthesised fine spectrum, the analytic time field, the polarisation in time and
-its one-sided spectrum.
-"""
-
-PAIR_BUFFERS_PER_GENERAL_NODE = 2
-"""Chunk buffers the general source holds per node, each ``n_components`` **squared**.
-
-The tensor contraction is written in two steps rather than as one four-operand
-``einsum``, so that every intermediate it allocates is a buffer this module names:
-the pair history ``E_k conj(E_l)`` and the tensor contracted against it. A single
-``einsum`` with ``optimize=True`` allocates the same intermediates and names none of
-them, which a memory ledger cannot report.
-
-The static maps ``S`` and ``Q``, the per-node tensor, the dense E/H reference, its
-reciprocal partners and the coefficient dual are whole-problem allocations, counted
-row by row by :func:`general_memory`; they do not shrink with the chunk, which is why
-the counts here and :data:`solprop.backends.node_chunk.BUFFERS_PER_NODE` are different
-and neither reuses the other.
-"""
 
 
 @dataclass(frozen=True, eq=False)
@@ -205,8 +162,8 @@ class GeneralMaps:
         Which field the tensor is contracted against: the analytic signal, whose
         polarisation carries the fundamental band alone, or the real
         three-component field, whose cubic carries the third harmonic. Read from
-        the record's ``model_id`` by :func:`node_kerr_form`; `tensor` already
-        carries the normalisation that goes with it.
+        the record's ``model_id`` by :func:`solprop.translate.general.node_kerr_form`;
+        `tensor` already carries the normalisation that goes with it.
     dispersive : solprop.translate.responses.DispersiveKerrTerms or None
         The gas regions' dispersive channels (SEP 6), each acting at the nodes of
         its own region, or ``None``.
@@ -334,179 +291,6 @@ class GeneralMaps:
         return int(self.synthesis.shape[2])
 
 
-def refuse_regional_responses(
-    tables: ModalTransformTables,
-    regional: RegionalResponseTables | None,
-    *,
-    backend: str = "numpy_ref",
-) -> None:
-    """Refuse a per-region response this route does not execute, before it allocates.
-
-    Called from the backend's admission list, where it runs before the driver's
-    buffers exist, and again from :func:`node_kerr_tensor`, which is public and must
-    not build a tensor from a record it cannot read. Neither call allocates.
-
-    A component count that disagrees with the reference is the dangerous one: a
-    one-component tensor **broadcasts** into the three-component contraction and
-    propagates a meaningless polarisation, and a two-component one dies inside
-    ``einsum`` with a shape message that names no leaf.
-
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The guide's reference, which fixes the component count.
-    regional : solprop.translate.responses.RegionalResponseTables or None
-        The compiled per-region responses, or ``None`` for a linear guide.
-    backend : str, optional
-        The registry name each refusal names.
-
-    Raises
-    ------
-    BackendError
-        Naming the leaf and what about it is not executed.
-    """
-    if regional is None:
-        return
-    components = int(tables.electric.shape[2])
-    if regional.n_components != components:
-        msg = (
-            f"responses.regional_responses contracts over {regional.n_components} "
-            f"Cartesian component(s) and transform.modal_tables resolves "
-            f"{components}; {backend} executes the general modal route over the "
-            "reference's own components, and a narrower tensor would broadcast into "
-            "a polarisation that means nothing"
-        )
-        raise BackendError(msg)
-    if regional.chi3.shape[0] != 1 or regional.chi3.shape[1] != 1:
-        msg = (
-            f"{backend} executes a general modal guide of constant geometry, and "
-            f"responses.regional_responses.chi3 carries {regional.chi3.shape[0]} "
-            f"interval(s) of degree {regional.chi3.shape[1] - 1} along z; a varying "
-            "susceptibility is not supported on this route"
-        )
-        raise BackendError(msg)
-    tags = regional.model_id.split(MODEL_ID_SEPARATOR)
-    unknown = [one for one in tags[1:] if one != DELAYED_MODEL_ID]
-    if tags[0] not in KERR_MODEL_FORMS or unknown:
-        msg = (
-            f"responses.regional_responses declares model_id "
-            f"{regional.model_id!r} and {backend} executes the instantaneous "
-            f"isotropic cubic in its two declared forms, "
-            f"{sorted(KERR_MODEL_FORMS)}, optionally beside "
-            f"{DELAYED_MODEL_ID!r}; a model this package does not know must "
-            "not be evaluated as one it does"
-        )
-        raise BackendError(msg)
-    if (DELAYED_MODEL_ID in tags) != bool(regional.n_terms):
-        msg = (
-            f"responses.regional_responses declares model_id "
-            f"{regional.model_id!r} and {regional.n_terms} delayed term(s): a "
-            "record's model identity and its term axis must agree, or the run "
-            "would execute a model its own file does not name"
-        )
-        raise BackendError(msg)
-    if regional.n_terms and regional.n_terms != DELAYED_TERMS:
-        msg = (
-            f"{backend} executes the {DELAYED_TERMS} delayed channels of the "
-            f"silica tensor Raman model -- the trace and the traceless rank-two "
-            f"one -- and this record carries {regional.n_terms}"
-        )
-        raise BackendError(msg)
-    weight = regional.temporal_weight
-    if regional.n_terms and not np.all(weight == weight[0]):
-        msg = (
-            "responses.regional_responses.temporal_weight is not uniform, and a "
-            "delayed response is evaluated as a transform product on the doubled "
-            "fine axis, which is a convolution only against a uniform quadrature "
-            "weight; a non-uniform temporal grid needs a different evaluation"
-        )
-        raise BackendError(msg)
-
-
-def node_kerr_tensor(
-    tables: ModalTransformTables, regional: RegionalResponseTables | None
-) -> Float[np.ndarray, "n_nodes 3 3 3 3"]:
-    """Sum each node's material responses into one susceptibility tensor.
-
-    A response acts in one material region and a node belongs to exactly one, so the
-    tensor a node sees is ``sum_r chi3_r T_r`` over the responses of its region. Two
-    responses in one region add, which is what superposed instantaneous
-    susceptibilities do; a region no response names contributes nothing, which is how
-    a linear cladding is declared.
-
-    ``chi3`` is stored as Chebyshev coefficients along z. This route propagates
-    constant geometry, so one interval of degree zero is required and the single
-    coefficient is the value.
-
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The guide's reference, whose ``region_index`` owns each node's region.
-    regional : solprop.translate.responses.RegionalResponseTables or None
-        The compiled per-region responses, or ``None`` for a linear guide.
-
-    Returns
-    -------
-    numpy.ndarray
-        The per-node tensor, float64, shape ``(n_nodes, 3, 3, 3, 3)``, in m²/V².
-
-    Raises
-    ------
-    BackendError
-        If the responses do not resolve the reference's components, the
-        susceptibility varies along z, or a delayed term is declared.
-    """
-    refuse_regional_responses(tables, regional)
-    nodes = int(tables.region_index.size)
-    components = int(tables.electric.shape[2])
-    summed = np.zeros((nodes, *(components,) * 4))
-    if regional is None:
-        return summed
-    for index, region in enumerate(regional.response_region):
-        rows = tables.region_index == region
-        chi3 = float(regional.chi3[0, 0, index])
-        summed[rows] += chi3 * regional.instantaneous_tensor[index]
-    return summed
-
-
-def node_kerr_form(regional: RegionalResponseTables | None) -> KerrForm:
-    """Return which cubic a compiled per-region record declares.
-
-    The form is a physical-model choice and travels in ``model_id``, which is a
-    representation tag inside the resume identity already; it is **not** a leaf
-    field, because adding one would move a contract row for a string the record can
-    carry.
-
-    Parameters
-    ----------
-    regional : solprop.translate.responses.RegionalResponseTables or None
-        The compiled per-region responses, or ``None`` for a linear guide, whose
-        zero tensor makes the form immaterial.
-
-    Returns
-    -------
-    {'analytic', 'real'}
-        The declared form; ``"analytic"`` for a linear guide.
-
-    Raises
-    ------
-    BackendError
-        If the record declares a model identity this backend does not execute.
-    """
-    if regional is None:
-        return "analytic"
-    form = KERR_MODEL_FORMS.get(regional.model_id.split(MODEL_ID_SEPARATOR)[0])
-    if form is None:
-        msg = (
-            f"responses.regional_responses declares model_id "
-            f"{regional.model_id!r} and numpy_ref executes the instantaneous "
-            f"isotropic cubic in its two declared forms, "
-            f"{sorted(KERR_MODEL_FORMS)}"
-        )
-        raise BackendError(msg)
-    return cast("KerrForm", form)
-
-
 def symmetric_monomials(n_components: int) -> tuple[tuple[int, int, int], ...]:
     """Return the real cubic's monomials ``(j, k, l)``, ``j <= k <= l``, in order.
 
@@ -629,60 +413,6 @@ def symmetric_cubic(
             monomial = pairs[j, k] * field[:, last]
             total += coefficients[:, :, position, None] * monomial[:, None, :]
     return total
-
-
-def node_delayed_maps(
-    tables: ModalTransformTables, regional: RegionalResponseTables | None
-) -> tuple[
-    Int32[np.ndarray, " n_nodes"],
-    Float[np.ndarray, "n_responses n_terms 3 3 3 3"] | None,
-    Complex[np.ndarray, "n_responses n_terms n_rfft"] | None,
-]:
-    """Derive the delayed response's per-node ownership, tensors and kernel spectra.
-
-    A delayed response has **memory**, so unlike the instantaneous tensor it cannot
-    be summed into one per-node array: two regions may declare different kernels and
-    a convolution is not linear in the kernel's owner. What is derived instead is
-    the response each node belongs to, each response's ``chi3_r D[term]``, and each
-    kernel's transform on the doubled fine axis, already scaled by the temporal
-    quadrature weight so that the transform product is the causal integral.
-
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The guide's reference, whose ``region_index`` owns each node's region.
-    regional : solprop.translate.responses.RegionalResponseTables or None
-        The compiled per-region responses, or ``None`` for a linear guide.
-
-    Returns
-    -------
-    tuple
-        The per-node response index (``-1`` where a node's region declares none),
-        the scaled delayed tensors and the kernel spectra, the last two ``None``
-        when no region declares a delayed response.
-
-    Raises
-    ------
-    BackendError
-        Naming the leaf and what about it is not executed.
-    """
-    refuse_regional_responses(tables, regional)
-    nodes = int(tables.region_index.size)
-    owner = np.full(nodes, -1, dtype=np.int32)
-    if regional is None:
-        return owner, None, None
-    for index, region in enumerate(regional.response_region):
-        owner[tables.region_index == region] = index
-    if not regional.n_terms:
-        return owner, None, None
-    n_to = int(regional.temporal_weight.size)
-    scaled = (
-        regional.delayed_tensor * regional.chi3[0, 0][:, None, None, None, None, None]
-    )
-    spectra = np.fft.rfft(regional.delayed_kernel[0, 0], n=2 * n_to, axis=-1) * float(
-        regional.temporal_weight[0]
-    )
-    return owner, scaled, spectra
 
 
 def expand_pair_history(
@@ -815,133 +545,6 @@ def dispersive_polarisation(
             field[nodes], weights, kind="field", sector=terms.sector
         )
     return total
-
-
-def general_dispersive_buffers(leaf: DispersiveKerrTerms | None) -> int:
-    """Return the buffers per node and component SEP 6's response adds to a chunk.
-
-    The compiled general workspace holds, for each node of a chunk and each of its
-    components, every filtered field's spectrum and time series and every product and
-    its spectrum: two complex-equivalent buffers per field and two per product. The
-    symmetric evaluator has one field and one product per region with a gas fill (a
-    mixture's under its mixture filter); the polynomial two fields and two products per
-    group of equal leg bound, and one cube per region
-    (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`).
-
-    Parameters
-    ----------
-    leaf : solprop.translate.responses.DispersiveKerrTerms or None
-        The route's dispersive channels, or ``None``.
-
-    Returns
-    -------
-    int
-        Complex-equivalent buffers per node and component; zero without the leaf.
-    """
-    if leaf is None:
-        return 0
-    groups = len(leaf.groups())
-    if leaf.evaluator == "symmetric":
-        fields = products = groups
-    else:
-        regions = 1 if leaf.regions is None else len(set(leaf.regions.tolist()))
-        fields, products = 2 * groups, regions + 2 * groups
-    return 2 * (fields + products)
-
-
-def general_node_chunk(
-    n_components: int,
-    n_to: int,
-    n_omega_fine: int,
-    budget: int,
-    *,
-    dispersive: int = 0,
-) -> int:
-    """Return the nodes the general source may hold at once within a byte budget.
-
-    The chunk bounds the space-domain work alone:
-    :data:`BUFFERS_PER_GENERAL_NODE` complex buffers per node and component,
-    :data:`PAIR_BUFFERS_PER_GENERAL_NODE` per node and component squared, and SEP 6's
-    dispersive response's own (:func:`general_dispersive_buffers`), over the longer of
-    the fine time axis and the fine spectrum. The maps, the reference and the dual are
-    whole-problem allocations that no chunk shrinks (:func:`general_memory`).
-
-    Parameters
-    ----------
-    n_components : int
-        Cartesian components of the local field, positive.
-    n_to : int
-        Fine time samples, positive.
-    n_omega_fine : int
-        Fine spectral bins, positive.
-    budget : int
-        Bytes the chunk buffers may occupy in total, positive.
-    dispersive : int, optional
-        The dispersive response's complex buffers per node and component; zero, the
-        default, without one.
-
-    Returns
-    -------
-    int
-        The chunk size, at least one.
-
-    Raises
-    ------
-    BackendError
-        If the budget is not positive.
-
-    Examples
-    --------
-    >>> from solprop.backends.numpy_ref.general_modal import general_node_chunk
-    >>> general_node_chunk(3, 1024, 513, 64 * 2**20)
-    136
-    """
-    if budget <= 0:
-        msg = f"the general node budget must be positive, got {budget!r}"
-        raise BackendError(msg)
-    samples = max(n_to, n_omega_fine)
-    columns = (BUFFERS_PER_GENERAL_NODE + dispersive) * n_components + (
-        PAIR_BUFFERS_PER_GENERAL_NODE * n_components**2
-    )
-    per_node = columns * samples * np.dtype(np.complex128).itemsize
-    return int(max(1, budget // per_node))
-
-
-def general_planned_chunk(problem: PropagationProblem, plan: NodeChunkPlan) -> int:
-    """Return the general route's node chunk under a backend's node-chunk plan.
-
-    The route's own rule (:func:`general_node_chunk`) within the plan's budget -- the
-    explicit one, or :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET` -- or
-    the plan's exact chunk when one was forced, bounded by the node count. Both
-    compiled backends take it, so that they execute the same chunks.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A problem that carries ``transform.modal_tables``.
-    plan : solprop.backends.node_chunk.NodeChunkPlan
-        The backend's plan (:func:`solprop.backends.node_chunk.plan_node_chunk`).
-
-    Returns
-    -------
-    int
-        Nodes the general source holds at once, between one and the node count.
-    """
-    tables = problem.transform.modal_tables
-    assert tables is not None
-    nodes = int(tables.region_index.size)
-    chunk = (
-        plan.requested
-        if plan.requested is not None
-        else general_node_chunk(
-            int(tables.electric.shape[2]),
-            problem.grids.n_to,
-            int(tables.omega_fine.size),
-            plan.budget,
-            dispersive=general_dispersive_buffers(problem.responses.dispersive_kerr),
-        )
-    )
-    return min(chunk, nodes)
 
 
 def general_memory(

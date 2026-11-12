@@ -4,11 +4,12 @@
 
 """SEP 16 phase 2: the exponential Adams formulation on the reference backend.
 
-The formulation shares the Adams march's lifecycle (``solprop.backends.multistep``):
-these tests check what is its own -- the record, exactness on the linear flow, order,
-agreement with the Runge-Kutta march and the transported formulation, dense
-observation, the call ledger and budget -- and the two capabilities SEP 16 phase 2
-adds to both formulations: the ``modified`` noise and prescribed schedules.
+The formulation shares the Adams march's lifecycle
+(``solprop.backends.numpy_ref.multistep``): these tests check what is its own -- the
+record, exactness on the linear flow, order, agreement with the Runge-Kutta march and
+the transported formulation, dense observation, the call ledger and budget -- and the
+two capabilities SEP 16 phase 2 adds to both formulations: the ``modified`` noise and
+prescribed schedules.
 """
 
 import dataclasses
@@ -27,19 +28,18 @@ from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
-from solprop.backends.multistep import (
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
     compensation_tables,
     exponential_tables,
     fused_tables,
     trial_tables,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
     ResponseBudgetError,
     SolpropWarning,
-    StepperError,
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid
@@ -47,7 +47,6 @@ from solprop.noise import modified_noise
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     PEC_REAL_INTERVAL,
-    ComparisonMultistep,
     Multistep,
     march_policy,
 )
@@ -121,23 +120,12 @@ def test_the_record_names_the_formulation():
         "equal_approach=True, max_growth=2.0, min_factor=0.2, safety=0.8, "
         "formulation='exponential', carrier_frame='off')"
     )
-    assert repr(ComparisonMultistep(corrector="pece", order=4)) == (
-        "ComparisonMultistep(order=4, variable_order=False, max_calls=None, "
-        "interval_cap=False, equal_approach=True, max_growth=2.0, min_factor=0.2, "
-        "safety=0.8, formulation='interaction', carrier_frame='off', corrector='pece', "
-        "corrector_order=None, interpolant='adams')"
-    )
     assert repr(INTERACTION).endswith(
         "safety=0.8, formulation='interaction', carrier_frame='off')"
     )
     assert EXPONENTIAL.name == "exponential-adams-pec5/6-variable"
     assert Multistep() == EXPONENTIAL
     assert INTERACTION != EXPONENTIAL
-
-
-def test_comparison_variants_keep_the_interaction_formulation():
-    with pytest.raises(StepperError, match="interaction formulation only"):
-        ComparisonMultistep(corrector="pece", order=4, formulation="exponential")
 
 
 @pytest.mark.parametrize("responses", ["none", "zero kerr"])
@@ -690,9 +678,11 @@ def test_a_backend_without_a_coupled_flow_hands_the_march_no_block(driver):
     assert driver._adams_block(stub, 0.0, 1e-3) is None
 
 
-def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
+def test_the_formulation_refuses_a_section_it_does_not_step(
+    narrow_grid, soliton_problem
+):
     # SEP 16 Q3: the exponential formulation steps constant-Schur and frozen-residual
-    # sections (phase 5); a CF4 section is excluded, and the shared check names it.
+    # sections (phase 5); any other section method is refused by name.
     problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[0.1], integrator=EXPONENTIAL
     )
@@ -712,11 +702,11 @@ def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
         coupled, run_request.stepper, "probe"
     )  # a constant-Schur section is stepped
     flow = object.__new__(type(flow))
-    object.__setattr__(flow, "section_methods", ("cf4",))
+    object.__setattr__(flow, "section_methods", ("diagonal",))
     coupled = dataclasses.replace(
         problem, linear=dataclasses.replace(problem.linear, coupled_flow=flow)
     )
-    with pytest.raises(BackendError, match="'cf4' section"):
+    with pytest.raises(BackendError, match="'diagonal' sections"):
         refuse_formulation(coupled, run_request.stepper, "probe")
 
 

@@ -23,7 +23,7 @@ default and every explicit budget chooses the chunk it chose then:
   temporal columns per component; a Cartesian or planar column holds
   :data:`FREE_COLUMN_BUFFERS`. A mode-averaged run has one node, and a general modal
   guide's static matrices are a placeholder of one (its route sizes its own chunk from
-  :func:`solprop.backends.numpy_ref.general_modal.general_node_chunk` at the same
+  :func:`general_node_chunk` at the same
   budget).
 - **The response admissions** then shrink the chunk until each node's envelope plasma,
   Raman, dispersive and held-current buffers fit the same budget, refusing a budget that
@@ -56,17 +56,22 @@ from solprop.translate.responses import ResponseStage
 if TYPE_CHECKING:
     from solprop.translate.modal import Transform
     from solprop.translate.problem import PropagationProblem
-    from solprop.translate.responses import CompiledResponses
+    from solprop.translate.responses import CompiledResponses, DispersiveKerrTerms
 
 __all__ = [
+    "BUFFERS_PER_GENERAL_NODE",
     "BUFFERS_PER_NODE",
     "DEFAULT_NODE_BUDGET",
     "DEFAULT_SPATIAL_NODE_BUDGET",
     "FREE_COLUMN_BUFFERS",
+    "PAIR_BUFFERS_PER_GENERAL_NODE",
     "ChunkSource",
     "NodeChunkPlan",
     "default_node_budget",
     "dispersive_node_buffers",
+    "general_dispersive_buffers",
+    "general_node_chunk",
+    "general_planned_chunk",
     "plan_node_chunk",
 ]
 
@@ -96,6 +101,30 @@ on an H200, IP-DOPRI5 was 1.3 times faster at one gibibyte than at 64 MiB.
 
 BUFFERS_PER_NODE = 3
 """Node-chunk buffers the fused pass holds: ``E``, ``P`` and the Raman drive."""
+
+BUFFERS_PER_GENERAL_NODE = 4
+"""Chunk buffers the general source holds per node, each ``n_components`` wide.
+
+The synthesised fine spectrum, the analytic time field, the polarisation in time and
+its one-sided spectrum.
+"""
+
+PAIR_BUFFERS_PER_GENERAL_NODE = 2
+"""Chunk buffers the general source holds per node, each ``n_components`` **squared**.
+
+The tensor contraction is written in two steps rather than as one four-operand
+``einsum``, so that every intermediate it allocates is a buffer this module names:
+the pair history ``E_k conj(E_l)`` and the tensor contracted against it. A single
+``einsum`` with ``optimize=True`` allocates the same intermediates and names none of
+them, which a memory ledger cannot report.
+
+The static maps ``S`` and ``Q``, the per-node tensor, the dense E/H reference, its
+reciprocal partners and the coefficient dual are whole-problem allocations, counted
+row by row by :func:`solprop.backends.numpy_ref.general_modal.general_memory`; they do
+not shrink with the chunk, which is why the counts here and :data:`BUFFERS_PER_NODE` are
+different and neither reuses the other.
+"""
+
 
 FREE_COLUMN_BUFFERS = 20
 """Complex-equivalent buffers per component a Cartesian or planar column holds.
@@ -528,3 +557,131 @@ def _dispersive_chunk(  # noqa: PLR0917 - called positionally
             "node_budget cannot hold one node of the dispersive electronic response"
         )
     return min(chunk, budget // per_node)
+
+
+def general_dispersive_buffers(leaf: DispersiveKerrTerms | None) -> int:
+    """Return the buffers per node and component SEP 6's response adds to a chunk.
+
+    The compiled general workspace holds, for each node of a chunk and each of its
+    components, every filtered field's spectrum and time series and every product and
+    its spectrum: two complex-equivalent buffers per field and two per product. The
+    symmetric evaluator has one field and one product per region with a gas fill (a
+    mixture's under its mixture filter); the polynomial two fields and two products per
+    group of equal leg bound, and one cube per region
+    (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`).
+
+    Parameters
+    ----------
+    leaf : solprop.translate.responses.DispersiveKerrTerms or None
+        The route's dispersive channels, or ``None``.
+
+    Returns
+    -------
+    int
+        Complex-equivalent buffers per node and component; zero without the leaf.
+    """
+    if leaf is None:
+        return 0
+    groups = len(leaf.groups())
+    if leaf.evaluator == "symmetric":
+        fields = products = groups
+    else:
+        regions = 1 if leaf.regions is None else len(set(leaf.regions.tolist()))
+        fields, products = 2 * groups, regions + 2 * groups
+    return 2 * (fields + products)
+
+
+def general_node_chunk(
+    n_components: int,
+    n_to: int,
+    n_omega_fine: int,
+    budget: int,
+    *,
+    dispersive: int = 0,
+) -> int:
+    """Return the nodes the general source may hold at once within a byte budget.
+
+    The chunk bounds the space-domain work alone:
+    :data:`BUFFERS_PER_GENERAL_NODE` complex buffers per node and component,
+    :data:`PAIR_BUFFERS_PER_GENERAL_NODE` per node and component squared, and SEP 6's
+    dispersive response's own (:func:`general_dispersive_buffers`), over the longer of
+    the fine time axis and the fine spectrum. The maps, the reference and the dual are
+    whole-problem allocations that no chunk shrinks
+    (:func:`solprop.backends.numpy_ref.general_modal.general_memory`).
+
+    Parameters
+    ----------
+    n_components : int
+        Cartesian components of the local field, positive.
+    n_to : int
+        Fine time samples, positive.
+    n_omega_fine : int
+        Fine spectral bins, positive.
+    budget : int
+        Bytes the chunk buffers may occupy in total, positive.
+    dispersive : int, optional
+        The dispersive response's complex buffers per node and component; zero, the
+        default, without one.
+
+    Returns
+    -------
+    int
+        The chunk size, at least one.
+
+    Raises
+    ------
+    BackendError
+        If the budget is not positive.
+
+    Examples
+    --------
+    >>> from solprop.backends.node_chunk import general_node_chunk
+    >>> general_node_chunk(3, 1024, 513, 64 * 2**20)
+    136
+    """
+    if budget <= 0:
+        msg = f"the general node budget must be positive, got {budget!r}"
+        raise BackendError(msg)
+    samples = max(n_to, n_omega_fine)
+    columns = (BUFFERS_PER_GENERAL_NODE + dispersive) * n_components + (
+        PAIR_BUFFERS_PER_GENERAL_NODE * n_components**2
+    )
+    per_node = columns * samples * np.dtype(np.complex128).itemsize
+    return int(max(1, budget // per_node))
+
+
+def general_planned_chunk(problem: PropagationProblem, plan: NodeChunkPlan) -> int:
+    """Return the general route's node chunk under a backend's node-chunk plan.
+
+    The route's own rule (:func:`general_node_chunk`) within the plan's budget -- the
+    explicit one, or :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET` -- or
+    the plan's exact chunk when one was forced, bounded by the node count. Both
+    compiled backends take it, so that they execute the same chunks.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        A problem that carries ``transform.modal_tables``.
+    plan : solprop.backends.node_chunk.NodeChunkPlan
+        The backend's plan (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+    Returns
+    -------
+    int
+        Nodes the general source holds at once, between one and the node count.
+    """
+    tables = problem.transform.modal_tables
+    assert tables is not None
+    nodes = int(tables.region_index.size)
+    chunk = (
+        plan.requested
+        if plan.requested is not None
+        else general_node_chunk(
+            int(tables.electric.shape[2]),
+            problem.grids.n_to,
+            int(tables.omega_fine.size),
+            plan.budget,
+            dispersive=general_dispersive_buffers(problem.responses.dispersive_kerr),
+        )
+    )
+    return min(chunk, nodes)

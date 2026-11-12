@@ -291,9 +291,7 @@ straight bore or a taper alike. The block is the run's loss model, so `loss=` mu
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
 model is refused beside it. It runs on `numpy_ref` and the native
-backend, CPU and GPU builds alike, with the default integration method;
-`CoherentWall(method="cf4")`, which integrates each section by commutator-free
-exponentials of its whole generator, runs on `numpy_ref` alone. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
+backend, CPU and GPU builds alike. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
 the [capillary guide](../waveguides/capillaries.md) and the gallery examples they link.
 
 **The taper coupling.** A multimode capillary whose radius varies along z carries the
@@ -367,7 +365,7 @@ z-profiles, a capillary run records the electron density, the peak ionisation ra
 peak on-axis intensity and the **quadrature error** -- the difference between the fixed
 rule's projection and its embedded coarse one. That last is an *alarm*, never a
 controller input: above
-{py:data}`~solprop.backends.numpy_ref.backend.QUADRATURE_ALARM` ($10^{-6}$) the backend
+{py:data}`~solprop.translate.modal.QUADRATURE_ALARM` ($10^{-6}$) the backend
 logs once per plane and the run continues, because a rule that cannot resolve the
 integrand is not something a smaller step can fix; raise `n_r` instead. On four HE₁ₘ
 modes at the default order its largest value in the RDW case is 1.0×10⁻⁶. See [statistics](../results/statistics-catalogue.md#backend-statistics).

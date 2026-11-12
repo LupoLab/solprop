@@ -28,7 +28,6 @@ from scripted_driver import HostScriptedDriver
 from solprop.backends.host.driver import INITIAL_STEP_STATS_CAPACITY, HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import BatchBackend, StepStats
 from solprop.exceptions import BackendError
 from solprop.log import BarReporter, LogReporter, NullReporter
@@ -38,7 +37,6 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule, reached
 from solprop.translate import routes
-from solprop.translate import run_request as run_requests
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
@@ -147,7 +145,7 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
 
 @pytest.mark.parametrize("diverged", [np.inf, np.nan], ids=["infinite", "nan"])
 def test_a_diverged_trial_is_rejected_shrunk_and_recorded_as_infinity(driver, diverged):
-    """A non-finite norm, as a binary32 propagator past ``exp(88.72)`` scores, rejects.
+    """A non-finite norm, as an overflowing propagator scores, rejects.
 
     The controller retries at its smallest factor, and the history records the trial as
     infinity, so the observation at the next plane reads it back rather than refusing
@@ -954,12 +952,6 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
 
 
 HOST_SURFACE: dict[str, str] = {
-    "_adams_adopt": (
-        "(self, advanced: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], "
-        "dz: float) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
     "_adams_block": "(self, z: float, dz: float) -> object",
     "_adams_lab_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
@@ -971,10 +963,6 @@ HOST_SURFACE: dict[str, str] = {
     "_adams_propagator": (
         "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
         "'n_batch n_modes n_pol n_omega']"
-    ),
-    "_adams_restore": (
-        "(self, z: float, state: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']) -> None"
     ),
     "_adams_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
@@ -992,17 +980,7 @@ HOST_SURFACE: dict[str, str] = {
     "_dense_stages": "(self) -> list[numpy.ndarray]",
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_march_to": "(self, target: float) -> None",
-    "_norm_controller": "(self) -> solprop.stepper.controller.PIController",
-    "_observed_field": (
-        "(self, state: _StateT) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
     "_on_accepted_step": "(self) -> None",
-    "_prefactor": (
-        "(self, "
-        "bundle: solprop.translate.stage.StageScalars) -> jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega']"
-    ),
     "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
     "_release_source_calls": "(self) -> None",
     "_reserve_source_calls": "(self, count: int) -> None",
@@ -1023,14 +1001,13 @@ HOST_SURFACE: dict[str, str] = {
 """Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
 
 The reference's own driver is no compiled seam, but its backends are written against
-these signatures: a change here changes what ``numpy_ref``, its single-precision
-backend and its group override, in the same commit."""
+these signatures: a change here changes what ``numpy_ref`` and its group override,
+in the same commit."""
 
 HOST_ATTRIBUTES = (
     "helpers",
     "max_batch",
     "name",
-    "observes_fresh_field",
     "propagator_default",
     "reads_transverse_edge",
 )
@@ -1040,7 +1017,7 @@ HOST_ATTRIBUTES = (
 def test_the_host_hooks_the_reference_overrides_are_frozen():
     overridden = {
         name
-        for backend in (NumpyRefBackend, NumpySingleBackend, NumpyBatchBackend)
+        for backend in (NumpyRefBackend, NumpyBatchBackend)
         for owner in backend.__mro__
         if owner.__module__.startswith("solprop.backends.numpy_ref")
         for name in vars(owner)
@@ -1111,7 +1088,6 @@ PROPAGATION_PROBLEM_FIELDS = (
     "responses",
     "initial",
     "route",
-    "precision",
     "split_crossing",
 )
 """The fields of the one descriptor that crosses into a backend, in order: the
@@ -1135,8 +1111,8 @@ ROUTE_VARIANT_FIELDS = {
 }
 """The closed route union: each variant and its fields, in order.
 
-A route is added or changed here, in `kernel-contract.md` and in native's
-`ROUTE_FIELDS` together (the contract's extension procedure, section 10)."""
+A route is added or changed here and in `kernel-contract.md` together (the contract's
+extension procedure, section 10)."""
 
 TDSE_SOURCE_FIELDS = ("descriptor", "current_numerator")
 SPATIAL_KINDS = ("radial", "cartesian", "planar", "line")
@@ -1162,15 +1138,3 @@ def test_the_descriptor_and_its_route_union_are_frozen():
         == TDSE_SOURCE_FIELDS
     )
     assert routes.SPATIAL_KINDS == SPATIAL_KINDS
-
-
-def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
-    native = pytest.importorskip("solprop_native")
-    assert set(native.PROBLEM_FIELDS) <= set(PROPAGATION_PROBLEM_FIELDS)
-    # The request's fields, and the stepper section it gathers for the march.
-    assert set(native.REQUEST_FIELDS) <= {*RUN_REQUEST_FIELDS, "stepper"}
-    for name, fields in native.ROUTE_FIELDS.items():
-        assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])
-    for name, fields in native.REQUEST_SECTION_FIELDS.items():
-        section = getattr(run_requests, name)
-        assert set(fields) <= {field.name for field in dataclasses.fields(section)}

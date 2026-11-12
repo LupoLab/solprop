@@ -19,10 +19,7 @@ kinks, the shot-noise field and the hard band mask.
 
 from collections.abc import Mapping, Sequence
 
-from solprop.backends.numpy_ref.backend import (
-    QUADRATURE_ALARM,
-    NumpyRefBackend,
-)
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import (
     accept_step,
     accumulate,
@@ -52,7 +49,6 @@ from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
-    "QUADRATURE_ALARM",
     "NumpyRefBackend",
     "accept_step",
     "accumulate",
@@ -86,7 +82,7 @@ def construct(
     tdse_binding: TDSEBinding | None = None,
     options: ExecutionOptions | None = None,
 ) -> NumpyRefBackend:
-    """Construct the reference for a problem in its precision (the registry's row).
+    """Construct the reference for a problem, as the registry selects it.
 
     Parameters
     ----------
@@ -108,19 +104,9 @@ def construct(
     Returns
     -------
     NumpyRefBackend
-        The binary64 reference, or its binary32 subclass
-        (:class:`~solprop.backends.numpy_ref.single.NumpySingleBackend`) for a
-        single-precision problem (SEP 33).
+        The reference.
     """
-    kind = NumpyRefBackend
-    if problem.precision.single:
-        # Imported here: the binary32 path is loaded only when it is asked for.
-        from solprop.backends.numpy_ref.single import (  # noqa: PLC0415
-            NumpySingleBackend,
-        )
-
-        kind = NumpySingleBackend
-    return kind(
+    return NumpyRefBackend(
         problem,
         request,
         grid=grid,

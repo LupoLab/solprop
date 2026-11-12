@@ -9,16 +9,15 @@ reference's own since SEP 47 phase 2 (the shared march it was copied from is del
 with the native backend's step driver, phase 5). The state-sized arithmetic is the
 shared stateless code (:mod:`solprop.backends.host`): the march hands every operation
 of its fused and exponential paths to the host engine
-(:class:`solprop.backends.multistep.HostHistory`), and the comparison variants' trials
-to :class:`solprop.backends.host.general.HostGeneralPath`. The decisions are
+(:class:`solprop.backends.numpy_ref.multistep.HostHistory`). The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of
-:mod:`solprop.backends.multistep`'s module documentation.
+:mod:`solprop.backends.numpy_ref.multistep`'s module documentation.
 """
 
 import math
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -26,24 +25,18 @@ from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.exponential import CarrierReference
 from solprop.backends.host.driver import HostDriver, reached, replay_tolerance
-from solprop.backends.multistep import (
+from solprop.backends.ledger import CallLedger, Derivative
+from solprop.backends.numpy_ref.multistep import (
     AdamsEngine,
     AdamsKernels,
-    CallLedger,
     ExponentialKernels,
     HostHistory,
-    _Derivative,
-    _State,
 )
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
 from solprop.stepper.schedule import FixedSchedule, landing
-from solprop.translate.tdse import TDSEPurpose
-
-if TYPE_CHECKING:
-    from solprop.backends.host.general import HostGeneralPath
 
 __all__ = ["HostAdamsMarch"]
 
@@ -64,10 +57,9 @@ class HostAdamsMarch:
         ``"transported"``, the delivered treatment, or ``"untransported"``, kept as a
         test witness only.
     engine : object, optional
-        An :class:`~solprop.backends.multistep.AdamsEngine` for the fused and
-        exponential paths, which the general path never takes, as the bridge's march
-        never takes a resident engine there; ``None``, the default, takes the host
-        engine (:class:`~solprop.backends.multistep.HostHistory`) over the backend's
+        An :class:`~solprop.backends.numpy_ref.multistep.AdamsEngine`; ``None``, the
+        default, takes the host engine
+        (:class:`~solprop.backends.numpy_ref.multistep.HostHistory`) over the backend's
         hooks. A scripted engine drives the controller alone, for the decision traces
         of SEP 39 section 7.1. Typed ``object`` because the engine protocol is
         structural and not checkable at run time; the members the path calls are
@@ -92,42 +84,22 @@ class HostAdamsMarch:
         self._method = method
         # Whether the run interpolates its planes, and with what (ADR-036, ADR-039).
         self._interpolate = backend._stepper.interpolate_planes
-        self._interpolant = getattr(method, "interpolant", "adams")
         self._kernels = AdamsKernels(helpers=backend.helpers)
         # SEP 16's exponential formulation keeps untransported samples in the same
         # store and shares everything else: the lifecycle, the controller, the ledger.
         self._exponential: ExponentialKernels | None = None
         if method.formulation == "exponential":
             self._exponential = ExponentialKernels(helpers=backend.helpers)
-        # The selected method's family, one-order-higher PEC, takes the fused path:
-        # three passes a step over a store of history rows instead of a list of arrays
-        # combined one product at a time.
-        self._fused = (
-            self._exponential is None
-            and method.corrector == "pec"
-            and all(
-                method.corrector_nodes(order) == order + 1
-                for order in range(1, method.order + 1)
-            )
-        )
         # Every state-sized operation goes to an engine (SEP 16 phase 3b), the host
-        # one unless a scripted engine is given. The general path's arithmetic stays
-        # in its own class.
-        if engine is not None and (self._fused or self._exponential is not None):
+        # one unless a scripted engine is given.
+        if engine is not None:
             _check_engine(engine, exponential=self._exponential is not None)
             self._engine: AdamsEngine = cast("AdamsEngine", engine)
         else:
             self._engine = HostHistory(
                 backend, method, self._kernels, self._exponential, compensation
             )
-        # The comparison variants' general path keeps its arithmetic in a class of its
-        # own (SEP 39 Q7); the selected method's paths never reach it.
-        self._general: HostGeneralPath | None = None
-        if not (self._fused or self._exponential is not None):
-            from solprop.backends.host import general  # noqa: PLC0415 - cycle
-
-            self._general = general.HostGeneralPath(self)
-        self._history: list[_Derivative] = []
+        self._history: list[Derivative] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
@@ -199,14 +171,9 @@ class HostAdamsMarch:
         -------
         solprop.output.schema.MarchSnapshot or None
             The snapshot, or ``None`` where there is nothing a resume could continue:
-            no history yet, the march ahead of an interpolated observation, or a march
-            that cannot carry its history (:meth:`export_refusal`).
+            no history yet, or the march ahead of an interpolated observation.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         export = self._engine.snapshot_rows
         backend = self._backend
@@ -237,37 +204,12 @@ class HostAdamsMarch:
             The state and every engine row, or ``None`` where :meth:`snapshot` returns
             ``None``.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         state = (
             math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
         )
         return state + self._engine.snapshot_nbytes()
-
-    def export_refusal(self) -> str | None:
-        """Return why this march cannot carry its history across a resume, or ``None``.
-
-        The fused and exponential paths keep their history in an engine, and every
-        engine exports and installs its rows
-        (:class:`~solprop.backends.multistep.AdamsEngine`, SEP 29 section 6.6). The
-        general path combines a list of host arrays one product at a time and keeps no
-        store a snapshot could hold.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when the march exports and installs its history.
-        """
-        if not (self._fused or self._exponential is not None):
-            return (
-                "the general Adams path keeps its history as host arrays a resume "
-                "does not carry"
-            )
-        return None
 
     def load(self, snapshot: MarchSnapshot) -> str | None:
         """Continue from a snapshot taken where the backend's state now stands.
@@ -301,7 +243,7 @@ class HostAdamsMarch:
             return str(error)
         backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
         self._history = [
-            _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
                 snapshot.positions, snapshot.identities, snapshot.slots, strict=True
             )
@@ -320,9 +262,6 @@ class HostAdamsMarch:
         - Returns: the reason, or ``None`` when the snapshot fits.
         """
         backend = self._backend
-        refusal = self.export_refusal()
-        if refusal is not None:
-            return refusal
         checks = (
             (
                 # Starting afresh is always safe.
@@ -360,23 +299,6 @@ class HostAdamsMarch:
             ),
         )
         return next((reason for failed, reason in checks if failed), None)
-
-    # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        - ``anchor``, ``position``: the frame's anchor and the evaluation position, m.
-        - Returns: ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 
@@ -543,9 +465,7 @@ class HostAdamsMarch:
         """Refuse a trial the call budget cannot pay for, before any call is made."""
         self._raise_floor()
         budget = self._policy.max_calls
-        cost = (0 if self._history else 1) + (
-            2 if self._method.corrector == "pece" else 1
-        )
+        cost = (0 if self._history else 1) + 1
         spent = self.ledger.total
         backend = self._backend
         if budget is not None and spent + cost > budget:
@@ -570,9 +490,8 @@ class HostAdamsMarch:
         backend = self._backend
         z = backend._z
         self.ledger.startup += 1
-        stored = self._fused or self._exponential is not None
-        value = self._engine.start(z, stored=stored)
-        self._history = [_Derivative(z, value, "accepted", 0 if stored else -1)]
+        value = self._engine.start(z)
+        self._history = [Derivative(z, value, "accepted", 0)]
         self._order = 1 if self._policy.variable_order else self._policy.order
 
     def _capped(self, proposal: float) -> float:
@@ -633,10 +552,7 @@ class HostAdamsMarch:
         """
         if self._exponential is not None:
             return self._attempt_exponential(dz, fixed=fixed, landing=landing)
-        if self._fused:
-            return self._attempt_fused(dz, fixed=fixed, landing=landing)
-        assert self._general is not None
-        return self._general.attempt(dz, fixed=fixed, landing=landing)
+        return self._attempt_fused(dz, fixed=fixed, landing=landing)
 
     def _attempt_fused(
         self,
@@ -723,7 +639,7 @@ class HostAdamsMarch:
                 engine.exponential_accept(rows, free, interpolate=self._interpolate)
             self._history = [
                 *keep,
-                _Derivative(z + dz, engine.value(free), "predicted", free),
+                Derivative(z + dz, engine.value(free), "predicted", free),
             ]
             self.ledger.accepted_steps += 1
             self._rejections = 0

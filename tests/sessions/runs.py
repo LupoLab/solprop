@@ -46,7 +46,7 @@ import numpy as np
 from sessions.executors import IDENTITY, Plane, Run, Started, drive
 from solprop.backends.events import EventBatch, ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.protocol import StepSummary
 from solprop.backends.registry import select
 from solprop.backends.session import ExecutionOptions, RunSession, Start
@@ -641,7 +641,7 @@ def adams_ledger(backend: Any, record: Mapping[str, object]) -> CallLedger:
 
     Returns
     -------
-    solprop.backends.multistep.CallLedger
+    solprop.backends.numpy_ref.multistep.CallLedger
         The ledger.
     """
     if backend.name == "numpy_ref":

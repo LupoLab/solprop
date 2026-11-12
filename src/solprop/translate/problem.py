@@ -87,7 +87,7 @@ from solprop.noise import NoiseRealisation
 from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
-from solprop.spatial import FAR_FIELD_STATISTICS, SpatialDispersion, SpatialMedium
+from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.spatial_absorber import (
     CROSSING_ADAPTIVE,
     CROSSING_FIXED,
@@ -101,16 +101,14 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
+from solprop.translate.admission import check_general_route, check_leaf_types
 from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     PiecewiseChebyshev,
 )
 from solprop.translate.coupled import (
-    CF4_GROWTH_LIMIT,
     CoupledFlowTables,
     advisory_step,
-    cf4_defect,
-    cf4_flow,
     constant_schur_flow,
     flow_edge_slack,
     frozen_residual_flow,
@@ -148,7 +146,6 @@ from solprop.translate.modal import (
 )
 from solprop.translate.planar import planar_operators, planar_transform
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.precision import DOUBLE, Precision
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,
@@ -198,7 +195,6 @@ __all__ = [
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
-    "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
@@ -348,8 +344,6 @@ class Flags:
         A plasma response is compiled.
     has_raman : bool
         A Raman kernel is compiled.
-    has_spectral_responses : bool
-        Responses are evaluated after the forward transform.
     has_noise : bool
         A shot-noise realisation is carried and added at every stage.
     has_temporal_absorber : bool
@@ -366,7 +360,7 @@ class Flags:
     Examples
     --------
     >>> from solprop.translate.problem import Flags
-    >>> flags = Flags(True, True, False, False, False, False, False, True, True)
+    >>> flags = Flags(True, True, False, False, False, False, True, True)
     >>> flags.constant_linop, flags.has_raman
     (True, False)
     """
@@ -375,7 +369,6 @@ class Flags:
     scalar_pol: bool
     has_plasma: bool
     has_raman: bool
-    has_spectral_responses: bool
     has_noise: bool
     has_temporal_absorber: bool
     constant_linop: bool
@@ -439,7 +432,6 @@ class Flags:
             scalar_pol=shape[1] == 1,
             has_plasma=bool(responses.population_channels),
             has_raman=bool(responses.raman_terms),
-            has_spectral_responses=bool(responses.spectral_responses),
             has_noise=initial.noise0 is not None,
             has_temporal_absorber=responses.temporal_absorber is not None,
             constant_linop=linear.phi_representation in ("constant", "separable"),
@@ -827,9 +819,6 @@ class PropagationProblem:
         What differs between routes, in exactly one variant of a closed union, each
         with the fields its executor needs (SEP 47 section 6.2): the transform
         (section 4) and the route's own leaves (:mod:`solprop.translate.routes`).
-    precision : solprop.translate.precision.Precision, optional
-        The arithmetic the run is held in (version 36): binary64 by default, or
-        binary32 under SEP 33's contract. Tables are binary64 here either way.
     split_crossing : solprop.boundaries.SplitCrossing or None, optional
         The split temporal collar's crossing limit (version 43): each bin's walk-off
         bucket, the collar's width and the launch's limit, which the boundary
@@ -864,7 +853,6 @@ class PropagationProblem:
     responses: CompiledResponses
     initial: Initial
     route: Route
-    precision: Precision = DOUBLE
     split_crossing: SplitCrossing | None = None
 
     @property
@@ -924,7 +912,9 @@ class PropagationProblem:
         the same range and, for the prefactor, carrying the state's value shape; a
         constant prefactor, when present, standing in for a table that is one interval
         of degree zero and agreeing with it; the hard kinks interval edges; the Raman
-        rows agreeing with the fine grid and with each other. What depends on the
+        rows agreeing with the fine grid and with each other; the general modal route
+        and the coupled flow ones solprop executes
+        (:func:`solprop.translate.admission.check_general_route`). What depends on the
         method, the step limits, the schedule, the planes or the statistics -- the
         tables covering the run, the schedule landing on its targets, the collar's
         stability, the exponent budget, the split collar's crossing and the method's
@@ -972,7 +962,6 @@ class PropagationProblem:
         """
         if run is not None:
             self._check_integrator(run.stepper)
-        self._check_precision(run)
         self._check_route(run)
         if run is not None and not self.initial.z < run.stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
@@ -987,6 +976,7 @@ class PropagationProblem:
         self._check_raman()
         self._check_dispersive()
         self._check_modal_leaves(run)
+        check_general_route(self)  # the route's policy, once its leaves are consistent
         self._check_tables(run)
 
     def validate_launch(self, request: "RunRequest") -> None:
@@ -1085,145 +1075,6 @@ class PropagationProblem:
                 "runs on the Adams route alone; use Multistep()"
             )
             raise TranslationError(msg)
-
-    def _check_precision(self, run: _RunPolicy | None) -> None:
-        """Refuse, by name, what no backend runs in single precision (SEP 33 5.1).
-
-        The general modal route (a moving guide among it), the hybrid planar kind,
-        coupled flows (``"cf4"`` sections among them), TDSE responses, the dispersive
-        electronic response, the far-field statistics and noise models are outside
-        SEP 33's scope, so every backend refuses them under ``precision="single"``.
-
-        - ``run``: the run's stepper section and statistics; ``None`` leaves the
-          statistics and the step's exponent to :func:`validate_run`.
-        """
-        if not isinstance(
-            self.precision, Precision
-        ):  # pragma: no cover - refused by the annotation where it is checked
-            raise TranslationError("precision must be a Precision record")
-        if not self.precision.single:
-            return
-        geometry = self.transform.geometry
-        refused = [
-            (self.transform.modal_tables is not None, "the general modal route"),
-            (
-                geometry is not None and geometry.kind == "slab",
-                "the hybrid planar kind",
-            ),
-            (self.linear.coupled_flow is not None, "a coupled flow"),
-            (tdse_of(self.route) is not None, "a TDSE response"),
-            (
-                self.responses.dispersive_kerr is not None,
-                "the dispersive electronic response",
-            ),
-            (
-                run is not None
-                and bool(
-                    set(FAR_FIELD_STATISTICS).intersection(
-                        (*run.stats.names, *run.stats.periodic)
-                    )
-                ),
-                "the far-field statistics",
-            ),
-            (
-                self.flags.has_noise or self.initial.noise_model != "none",
-                "a noise model (a known limitation of single precision)",
-            ),
-        ]
-        for refuse, name in refused:
-            if refuse:
-                msg = (
-                    f"precision='single' refuses {name}: no backend runs it in "
-                    "binary32 (SEP 33 section 5.1); use precision='double'"
-                )
-                raise TranslationError(msg)
-        if run is not None:
-            self._check_single_exponent(run.stepper)
-
-    def _check_single_exponent(self, stepper: StepperSettings) -> None:
-        """Refuse a step whose propagator or its inverse overflows binary32.
-
-        The Runge-Kutta interaction picture multiplies each stage by ``exp(-dPhi)`` and
-        the state by ``exp(dPhi)``; held in binary32, either is infinite once
-        ``|Re dPhi|`` passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches
-        709.78. A strong spectral collar on a long step is the usual cause. The
-        low-storage march and the exponential Adams flow apply forward flows only, so a
-        damped bin's flow underflows harmlessly towards zero and only growth,
-        ``Re dPhi > 0``, can overflow: they are held to ``max Re dPhi``, Adams's times
-        the reach of its history (a sample is carried up to ``order + 1`` steps). As
-        :meth:`_check_exponent_budget` does for binary64, a replayed schedule's
-        longest step, or the floor ``dz_min``, is held to the limit -- an adaptive
-        controller rejects a non-finite trial above its floor and shrinks -- and every
-        kind is checked: the exponent is evaluated from the operator itself over that
-        step at the start and the end of the run, which for a varying operator samples
-        its range.
-        """
-        schedule = stepper.schedule
-        step, source = (
-            (float(np.max(schedule.steps)), "replayed step")
-            if schedule is not None
-            else (stepper.dz_min, "step floor dz_min")
-        )
-        start = float(self.initial.z)
-        end = float(stepper.save_planes[-1])
-        step = min(step, end - start)
-        integrator = stepper.integrator
-        forward = not stepper.interpolate_planes and (
-            isinstance(integrator, LowStorageRungeKutta)
-            or (
-                isinstance(integrator, Multistep)
-                and integrator.formulation == "exponential"
-            )
-        )
-        reach = integrator.order + 1 if isinstance(integrator, Multistep) else 1
-        operator = self.linear.separable
-        geometry = self.transform.geometry
-        bounds = (
-            rate_bounds(operator)
-            if operator is not None
-            else radial_rate_bounds(self.linear)
-            if geometry is not None and geometry.kind == "radial"
-            else None
-        )
-        exponent = 0.0
-        if bounds is not None:
-            # A free-space operator's rates, bounded as the binary64 budget bounds
-            # them, without forming the volume (seconds on a 384^2 x 750 grid).
-            growth = reach * step * bounds.gain
-            exponent = growth if forward else max(step * bounds.loss, growth)
-        for first in () if bounds is not None else {start, end - step}:
-            real = np.real(delta_phi(self.linear, first, first + step))
-            found = reach * float(np.max(real)) if forward else np.max(np.abs(real))
-            exponent = max(exponent, float(found))
-        if exponent <= EXPONENT_BUDGET * LOG_FLT_MAX:
-            return
-        name = "growth Re dPhi" if forward else "|Re dPhi|"
-        message = (
-            f"precision='single': the {source} {step:.3e} m gives a propagator "
-            f"exponent {name} of {exponent:.1f}"
-        )
-        remedy = (
-            "take steps shorter than "
-            f"{step * EXPONENT_BUDGET * LOG_FLT_MAX / exponent:.3e} m, weaken the "
-            "collar with a larger boundary_length, or use precision='double'"
-        )
-        if exponent > LOG_FLT_MAX:
-            msg = (
-                f"{message}, past binary32's range exp({LOG_FLT_MAX:.2f}): the "
-                + (
-                    "forward flow overflows"
-                    if forward
-                    else "interaction picture's inverse propagator overflows"
-                )
-                + f"; {remedy}"
-            )
-            raise TranslationError(msg)
-        warnings.warn(
-            f"{message}, within a tenth of binary32's range exp({LOG_FLT_MAX:.2f}): "
-            f"the run completes only while the field stays small; {remedy}",
-            ExponentBudgetWarning,
-            stacklevel=5,
-        )
 
     def _check_tdse(self, source: TDSESource, stepper: StepperSettings | None) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route.
@@ -1968,10 +1819,8 @@ class PropagationProblem:
         The contract's tree walk *does* recurse into these records: every array they
         hold is checked for dtype, finiteness, contiguity and ownership like any
         other leaf. What the walk does not do is relate any of them to the canonical
-        state, and that is this method's work -- the channel counts, the component
-        count, the frequency axes and the positions along z.
-        Every leaf is ``None`` on every route that exists today, and the whole
-        method is then a single test of four references.
+        state, and that is this method's work -- each leaf's type, the channel and
+        component counts, the frequency axes and the positions along z.
 
         - ``run``: the run's stepper section and statistics; ``None`` leaves the run's
           extent along z to :func:`validate_run`.
@@ -1981,6 +1830,7 @@ class PropagationProblem:
         metric = self.linear.modal_metric
         flow = self.linear.coupled_flow
         regional = self.responses.regional_responses
+        check_leaf_types(self)
         if tables is not None:
             if self.transform.geometry is not None:
                 msg = (
@@ -2010,6 +1860,8 @@ class PropagationProblem:
                 f"state carries {n_modes}"
             )
             raise TranslationError(msg)
+        if metric is not None:  # its rows, before the route's policy reads them
+            metric.check_rows()
         if flow is not None and flow.n_modes != n_modes:
             msg = (
                 f"linear.coupled_flow couples {flow.n_modes} channel(s) and the state "
@@ -2058,6 +1910,15 @@ class PropagationProblem:
         - ``run``: the run's stepper section and statistics, whose last plane the leaves
           must reach; ``None`` checks the axes alone.
         """
+        if self.transform.modal_tables is not None and self.grid_kind != "field":
+            # Named first: every leaf below is tabulated on the increasing coarse axis
+            # of a field grid, so on another grid its axis checks would misname this.
+            msg = (
+                "solprop executes a general modal guide (transform.modal_tables) on a "
+                "field grid, whose canonical axis is increasing, and this problem is "
+                f"{self.grid_kind}"
+            )
+            raise TranslationError(msg)
         omega = self.grids.omega
         z_end = None if run is None else run.stepper.z_end
         for name, leaf in (
@@ -2218,13 +2079,13 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
 
     Everything :meth:`PropagationProblem.validate` checks, in the same order, and
     with it what depends on the run's policy: the method's admission on the route,
-    the save planes following the launch, the statistics the route and the
-    precision admit, the request's own arrays, the propagator mode on a separable
-    route, the tables and a general guide's leaves covering the run, a replayed
-    schedule landing on every save plane and hard kink, the in-stage collar's
-    stability, the split collar's crossing and the exponent budget. A backend calls
-    this where it is built (SEP 47 section 5.2), so an unsupported combination is
-    refused by name before any workspace exists.
+    the save planes following the launch, the statistics the route admits, the
+    request's own arrays, the propagator mode on a separable route, the tables and a
+    general guide's leaves covering the run, a replayed schedule landing on every save
+    plane and hard kink, the in-stage collar's stability, the split collar's crossing
+    and the exponent budget. A backend calls this where it is built (SEP 47 section
+    5.2), so an unsupported combination is refused by name before any workspace
+    exists.
 
     Parameters
     ----------
@@ -2267,9 +2128,6 @@ LOG_DBL_MAX = math.log(np.finfo(np.float64).max)
 IEEE Std 754-2019, doi:10.1109/IEEESTD.2019.8766229. A propagator factor
 ``exp(h lambda)`` past it is infinite on every backend (SEP 22 section 4.5).
 """
-
-LOG_FLT_MAX = math.log(float(np.finfo(np.float32).max))
-"""``log(FLT_MAX)``, about 88.72: binary32's largest finite ``exp`` (SEP 33)."""
 
 EXPONENT_BUDGET = 0.9
 """Fraction of :data:`LOG_DBL_MAX` above which translation warns of a step it cannot
@@ -2600,27 +2458,23 @@ def _crossing_clamped(
     design: SpatialAbsorberDesign | None,
     dz_max: float,
     dz_init: float,
-    *,
-    single: bool = False,
 ) -> tuple[float, float]:
     """Return the step bounds held to a collar's crossing limit (SEP 40 section 4.7).
 
     No adaptive step carries the protected band across the collar unseen; a run
     without a collar keeps its bounds. Every transverse design also holds the step to
     the safety ramp's exponent budget (section 6): the propagator's inverse factor
-    ``exp(alpha_s h / 2)`` stays within half the precision's range, so a strong ramp on
-    a fine grid cannot overflow it.
+    ``exp(alpha_s h / 2)`` stays within half binary64's range, so a strong ramp on a
+    fine grid cannot overflow it.
 
     - ``dz_max``: the requested largest step, m.
     - ``dz_init``: the requested first step, m.
-    - ``single``: whether the state is binary32, whose range is smaller.
     - Returns: the largest step and the first step, m.
     """
     if design is None:
         return dz_max, dz_init
     # A resolved design's ramp is never zero: every axis has a nonzero largest |k|.
-    budget = LOG_FLT_MAX if single else LOG_DBL_MAX
-    dz_max = min(dz_max, budget / design.ramp_strength)
+    dz_max = min(dz_max, LOG_DBL_MAX / design.ramp_strength)
     if design.has_collar:
         dz_max = min(dz_max, design.crossing_step)
     return dz_max, min(dz_init, dz_max)
@@ -3232,7 +3086,6 @@ def _wall_assembly(
     """
     block = tuple(modes)
     _check_wall_route(build)
-    _check_wall_method(wall, cast("MarcatiliMode", block[0]))
     if wall.impedance == "te_tm":
         return _vector_wall_assembly(wall, block, grid, frame, build)
     if not cast("MarcatiliMode", block[0]).z_constant:
@@ -3292,30 +3145,6 @@ def _wall_assembly(
         float(np.max(flow.generator_error)),
     )
     return replace(linear, coupled_flow=flow)
-
-
-def _check_wall_method(wall: CoherentWall, first: MarcatiliMode) -> None:
-    """Refuse, by name, a CF4 declaration the block it would integrate cannot take.
-
-    A guide that does not vary along z has one constant section, whose flow the
-    constant-Schur action integrates **exactly**, so there is nothing for a
-    commutator-free exponential to order and the declaration would otherwise be
-    silently ignored; a declaration that would change nothing is refused rather
-    than dropped. CF4 is admitted beside the vector block of ``impedance="te_tm"``
-    too: it integrates the stored expansion of whichever block the route built and
-    reads nothing else of it.
-    """
-    if wall.method != "cf4":
-        return
-    if first.z_constant:
-        msg = (
-            "CoherentWall(method='cf4') orders the exponentials of a generator that "
-            "varies along z, and this guide's does not: its one constant section is "
-            "integrated exactly by the constant-Schur action, which a CF4 "
-            "step would only reproduce to rounding. Declare the default method, or a "
-            "radius or pressure that varies"
-        )
-        raise TranslationError(msg)
 
 
 def _vector_wall_assembly(
@@ -3505,34 +3334,17 @@ def _varying_wall_assembly(
         else f"capillary azimuthal order nu={operator.sector}"
     )
     _check_wall_total_varying(coefficients, linear, edges, block, grid, tail)
-    if wall.method == "cf4":
-        flow = cf4_flow(
-            grid.omega,
-            edges,
-            coefficients,
-            link,
-            dz_max=build.dz_max,
-            condition_limit=wall.condition_limit,
-            growth_limit=CF4_GROWTH_LIMIT
-            if wall.growth_limit is None
-            else wall.growth_limit,
-            fallback=wall.fallback,
-            representation_error=tail,
-            gauge_id=gauge_id,
-            certificate_id="cf4",
-        )
-    else:
-        flow = frozen_residual_flow(
-            grid.omega,
-            edges,
-            coefficients,
-            link,
-            dz_max=build.dz_max,
-            condition_limit=wall.condition_limit,
-            representation_error=tail,
-            gauge_id=gauge_id,
-            certificate_id="frozen-residual",
-        )
+    flow = frozen_residual_flow(
+        grid.omega,
+        edges,
+        coefficients,
+        link,
+        dz_max=build.dz_max,
+        condition_limit=wall.condition_limit,
+        representation_error=tail,
+        gauge_id=gauge_id,
+        certificate_id="frozen-residual",
+    )
     logger.debug(
         "coherent wall, varying (%s): %d channels over %d section(s), worst validity "
         "ratio %.3e (%s) at z = %.6g m, residual bound %.3e 1/m, largest conditioning "
@@ -3832,8 +3644,8 @@ def _channel_normalisation_at(
     ``-0.5 d ln(w_n/w_1)/dz = -0.5 (w_n'/w_n - w_1'/w_1)``, real, so the
     optics/internal conjugation leaves it alone, zero for channel 1 by construction
     and zero where the guide does not vary. It is part of the generator, so the
-    frozen block carries it at the section midpoint, the explicit residual carries
-    its variation, and CF4 integrates it with the rest. The slope is the analytic
+    frozen block carries it at the section midpoint and the explicit residual carries
+    its variation. The slope is the analytic
     :meth:`solprop.modes.capillary.MarcatiliMode.dneff_dz`, never a difference.
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
@@ -4078,12 +3890,6 @@ def validate_coupled_flow(
     fixed schedule is replayed, its own largest step, which the controller can neither
     shorten nor reject.
 
-    A flow with a ``"cf4"`` section has no explicit residual there and no advisory step,
-    but a flow error the embedded pair cannot see: the largest declared step's
-    step-doubling defect estimate (:func:`solprop.translate.coupled.cf4_defect`) is
-    warned on when it exceeds the controller's relative tolerance -- an asymptotic
-    estimator, and advisory like the first.
-
     Parameters
     ----------
     problem : PropagationProblem
@@ -4097,8 +3903,7 @@ def validate_coupled_flow(
     -----
     solprop.exceptions.SolpropWarning
         Naming the step that exceeds the limit, with the term, the section, the
-        frequency, ``K``, the conditioning factor and the limit; or, for a CF4 flow,
-        the step, the section, the frequency, the defect estimate and the tolerance.
+        frequency, ``K``, the conditioning factor and the limit.
 
     Examples
     --------
@@ -4111,8 +3916,6 @@ def validate_coupled_flow(
         return
     # Over the bins the explicit residual is applied on: the requested band.
     _warn_advisory_step(flow, stepper, problem.grids.inband_mask)
-    if "cf4" in flow.section_methods:
-        _warn_cf4_defect(flow, stepper, problem.linear.hard_kinks)
 
 
 def _declared_steps(settings: StepperSettings) -> dict[str, float]:
@@ -4179,50 +3982,6 @@ def _warn_advisory_step(
         "real eigenvalues is locally growing relative to the frozen frame and no "
         f"positive step makes it contractive. Nothing here changes your schedule: "
         f"{advice}",
-        SolpropWarning,
-        stacklevel=3,
-    )
-
-
-def _warn_cf4_defect(
-    flow: CoupledFlowTables,
-    settings: StepperSettings,
-    kinks: Float[np.ndarray, " n_kinks"],
-) -> None:
-    """Warn when a CF4 flow's estimated local defect exceeds the controller's tolerance.
-
-    The CF4 counterpart of the advisory step, and as advisory as it: a CF4
-    section's flow error is invisible to the embedded Runge-Kutta pair, which compares
-    two combinations of the same stages, so the controller can neither see nor bound
-    it, and the only step that governs it is the one the run declares. The
-    step-doubling estimate of :func:`solprop.translate.coupled.cf4_defect` at the
-    largest declared step is compared with the controller's relative tolerance, which
-    is what the pair holds the rest of each step to. It is an **asymptotic
-    estimator**, not a bound, and the warning says so; nothing here changes the
-    caller's tolerances or schedule.
-
-    - ``flow``: the leaf, carrying at least one ``"cf4"`` section.
-    - ``kinks``: the run's hard kinks in m, at which every step ends.
-    """
-    declared = _declared_steps(settings)
-    name = max(declared, key=lambda key: declared[key])
-    step = declared[name]
-    defect = cf4_defect(flow, step, kinks)
-    section, bin_index = np.unravel_index(int(np.argmax(defect)), defect.shape)
-    largest = float(defect[section, bin_index])
-    tolerance = float(settings.controller.rtol)
-    if largest <= tolerance:
-        return
-    warnings.warn(
-        f"the coherent wall's CF4 flow has an estimated local defect of {largest:.4g} "
-        f"per step of {step:.4g} m ({name}) on section {int(section)} at bin "
-        f"{int(bin_index)}, {float(flow.omega[bin_index]):.6g} rad/s, above the "
-        f"controller's relative tolerance {tolerance:.4g}: the embedded pair does not "
-        "see a CF4 flow's error, so only the declared step governs it, and at this "
-        "one the run is at most fourth order with a linear share the controller "
-        "cannot hold. The estimate is step doubling, asymptotic and not a bound. "
-        "Nothing here changes your schedule: cap the step, or "
-        "declare the default method, deliberately",
         SolpropWarning,
         stacklevel=3,
     )
@@ -4872,7 +4631,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     evanescent_rate: float | None = None,
     spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
-    precision: Precision = DOUBLE,
 ) -> Translation:
     """Turn the physics objects of a run into a validated kernel problem.
 
@@ -5016,7 +4774,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         or, with ``impedance="te_tm"``, of one azimuthal order, on a constant or a
         varying guide. With it ``Phi`` carries the mode-independent carrier alone
         and the modal part of the flow becomes ``linear.coupled_flow``, which every
-        backend executes (a CF4 section ``numpy_ref`` alone). A general modal guide,
+        backend executes. A general modal guide,
         a spatial geometry, a polarisation axis and a noise model are refused beside
         it by name.
     taper_coupling : bool, optional
@@ -5051,10 +4809,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         The budgets a radial medium varying along z must meet for its forward
         amplitude transport (SEP 34 section 4.5); None, the default, is
         ``AdiabaticAccuracy()``. A path exceeding them is refused.
-    precision : solprop.translate.precision.Precision, optional
-        The arithmetic the run is held in (SEP 33): :data:`~.precision.DOUBLE`, the
-        default, or :data:`~.precision.SINGLE`. The tables are built in binary64
-        either way; what single precision refuses is refused here.
 
     Returns
     -------
@@ -5275,9 +5029,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         prefactor_index,
         None if reuse is None else reuse.initial,
     )
-    dz_max, dz_init = _crossing_clamped(
-        design, dz_max, dz_init, single=precision.single
-    )
+    dz_max, dz_init = _crossing_clamped(design, dz_max, dz_init)
     geometry = transform.geometry
     crossing = _split_crossing(
         compiled,
@@ -5329,7 +5081,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
             flux=flux,
             transverse=design,
         ),
-        precision=precision,
         split_crossing=crossing,
     )
     # The run module builds on this one, for the stepper section.

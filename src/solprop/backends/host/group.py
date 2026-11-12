@@ -446,7 +446,6 @@ def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
     schedule = settings.schedule
     if schedule is None:
         raise BackendError("lockstep execution requires an explicit fixed schedule")
-    _refuse_mixed_precisions(members)
     for member in members:
         if not isinstance(member, Backend):
             raise BackendError("lockstep members must implement the backend protocol")
@@ -493,19 +492,6 @@ def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
         ):
             raise BackendError("lockstep members require the same statistics request")
         _refuse_mixed_guides(problem, first._problem)
-
-
-def _refuse_mixed_precisions(members: tuple[HostDriver[object], ...]) -> None:
-    """Refuse members whose problems do not share one precision.
-
-    Each member's trial keeps its own format, and the runner's common step and norms
-    would mix them.
-
-    - ``members``: loaded workspaces, at least one.
-    """
-    first = members[0]._problem.precision
-    if any(member._problem.precision != first for member in members):
-        raise BackendError("lockstep execution refuses mixed precisions")
 
 
 def _general_leaves(problem: PropagationProblem) -> object:

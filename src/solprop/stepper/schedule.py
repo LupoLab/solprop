@@ -235,18 +235,16 @@ class FixedSchedule:  # numpydoc ignore=PR02
         neighbouring orders' defect estimates, with a hysteresis margin, and a replay
         makes that choice afresh. Where the adaptive run rejected a step it waits a
         step before raising the order, which a replay never has to, so a replay can
-        differ from the adaptive run there. In another precision or on another
-        backend, rounding decides a choice whose estimates lie near the margin, so
-        two replays can take different orders, and so make different truncation
-        errors; two replays in one precision on one backend are identical. To
-        compare the arithmetic alone, replay with fixed orders, ``RungeKutta()`` or
-        ``Multistep(variable_order=False)``, whose order rises from one to ``order``
-        as its history accrues, reading no estimate: two such replays of one
-        schedule differ by rounding alone. Single precision refuses ``Multistep()``,
-        so a comparison across precisions is a Runge-Kutta one. Recording the order
-        sequence in the schedule would also fix a variable-order replay's orders;
-        that would extend the saved schedule and is not done, since a fixed order
-        gives the comparison without it.
+        differ from the adaptive run there. On another backend, rounding decides a
+        choice whose estimates lie near the margin, so two replays can take different
+        orders, and so make different truncation errors; two replays on one backend
+        are identical. To compare the arithmetic alone, replay with fixed orders,
+        ``RungeKutta()`` or ``Multistep(variable_order=False)``, whose order rises from
+        one to ``order`` as its history accrues, reading no estimate: two such replays
+        of one schedule differ by rounding alone. Recording the order sequence in the
+        schedule would also fix a variable-order replay's orders; that would extend the
+        saved schedule and is not done, since a fixed order gives the comparison
+        without it.
 
         **Limits.**
 

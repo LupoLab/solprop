@@ -35,6 +35,7 @@ from solprop.backends.node_chunk import (
     NodeChunkPlan,
     _even_chunk,
     default_node_budget,
+    general_planned_chunk,
     plan_node_chunk,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -539,9 +540,6 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
         strand,
     )
     from solprop.backends.numpy_ref.backend import _general_maps  # noqa: PLC0415
-    from solprop.backends.numpy_ref.general_modal import (  # noqa: PLC0415
-        general_planned_chunk,
-    )
 
     problem, run_request, _ = general_problem(strand(ARGON_FILL), "symmetric", "real")
     automatic = plan_node_chunk(problem)

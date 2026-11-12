@@ -28,7 +28,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -63,7 +63,7 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import ControlRecord, PIController
+from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import (
     FixedSchedule,
@@ -329,19 +329,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         stage tables' Clenshaw rows and the Adams basis -- which the driver, march and
         engines pass down rather than choosing one (SEP 29 section 6.6): ``PLAIN``, the
         uncompiled forms, for the NumPy reference.
-    observes_fresh_field : bool
-        Whether ``_observed_field`` makes a new array at every call and keeps no
-        reference to it, so that :meth:`observe` can say its field is owned
-        (:attr:`solprop.backends.protocol.Observation.field_owned`). ``False`` by
-        default: the array-backed state is observed as it is, frozen, and left
-        behind by the next step.
     """
 
     name: str = "driver"
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
-    observes_fresh_field: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -562,7 +555,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         (SEP 16 section 4.5), with ``G_s`` the frozen block of the section the step is
         anchored in. ``None``, the default, is a problem with no coupled flow; a
         backend that holds one returns its
-        :class:`~solprop.backends.multistep.CoupledBlock`.
+        :class:`~solprop.backends.numpy_ref.multistep.CoupledBlock`.
 
         - ``z``: where the step starts, m.
         - ``dz``: the step, m.
@@ -616,15 +609,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._z = z
         self._state = cast(_StateT, state)
 
-    @property
-    def _norm_controller(self) -> PIController:
-        """Return the controller whose tolerances scale this backend's error norms.
-
-        The problem's own; a backend whose state is held at a scale ``s`` divides its
-        absolute tolerance by ``s`` (SEP 33 section 4.3).
-        """
-        return self._stepper.controller
-
     def _observed_field(
         self, state: _StateT
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
@@ -632,8 +616,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Array-backed CPU implementations use the identity. A device backend overrides
         this hook to synchronize and copy without teaching the shared march its state
-        representation, and sets :attr:`observes_fresh_field` when every call makes a
-        new array.
+        representation.
 
         - Returns: an owning host ``complex128`` field in canonical layout.
         """
@@ -897,17 +880,15 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         return self._adams.snapshot_nbytes()
 
     def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
+        """Return ``None``: every march the reference admits carries its history.
 
         Returns
         -------
-        str or None
-            The reason
-            (:meth:`solprop.backends.host.adams.HostAdamsMarch.export_refusal`), or
-            ``None`` for a march that exports and installs its history and for the
-            Runge-Kutta and low-storage marches, which keep none.
+        None
+            The Adams engines export and install their rows; the Runge-Kutta and
+            low-storage marches keep none.
         """
-        return None if self._adams is None else self._adams.export_refusal()
+        return None
 
     def restore_march(self, snapshot: MarchSnapshot) -> str | None:
         """Continue the Adams march from a snapshot at the loaded position.
@@ -961,7 +942,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if logical and self._adams is not None:
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
-            from solprop.backends.multistep import CallLedger  # noqa: PLC0415
+            from solprop.backends.ledger import CallLedger  # noqa: PLC0415
 
             self._adams.ledger = CallLedger.from_record(logical)
 
@@ -1381,13 +1362,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         state = self._require_state()
         history = _history_record(self._history)
         whole = self._observed_field(state) if field else None
-        if whole is not None and not self.observes_fresh_field:
+        if whole is not None:
             # The state itself, frozen as an observed array always was so that the
             # next step replaces it rather than accepting in place, and held, so the
             # observation takes a view of it without a copy. A state that only views
             # memory the march owns is frozen but not held, and the observation copies
-            # it. A fresh export stays writeable beneath the observation, which copies
-            # it once: the session converts that copy in place (SEP 47 section 5.4).
+            # it.
             hold(whole)
         plane = Observation(
             z=self._z,
@@ -1397,7 +1377,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             n_steps=history.n_steps,
             n_rejected=history.n_rejected,
             step_stats=self._drain_step_stats(),
-            field_owned=field and self.observes_fresh_field,
         )
         self._history = []
         self._clock = time.perf_counter()
@@ -2213,12 +2192,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _collar_can_rest(self) -> bool:
         """Return whether this run's stages may leave a quiet temporal collar out.
 
-        One rule for every backend: a binary64 modal or radial stage with the
-        in-stage (``"nonlinear"``) scheme and a temporal collar alone. The
-        low-storage march, coupled flows, the general modal route, a real-space
-        collar sharing the term, single precision, and the Cartesian, line and
-        planar routes, whose stages keep the term whatever the monitor says, keep
-        the collar in every stage (SEP 21 D15).
+        One rule for every backend: a modal or radial stage with the in-stage
+        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
+        coupled flows, the general modal route, a real-space collar sharing the term,
+        and the Cartesian, line and planar routes, whose stages keep the term whatever
+        the monitor says, keep the collar in every stage (SEP 21 D15).
 
         - Returns: True when the term may be left out while the collar is quiet.
         """
@@ -2234,7 +2212,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             and responses.absorber_scheme == "nonlinear"
             and problem.linear.coupled_flow is None
             and problem.transform.modal_tables is None
-            and not problem.precision.single
             and resting_geometry
         )
 
@@ -2379,7 +2356,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         A rule with a node on the axis hands over that node's row from this
         observation's node scan; otherwise the axis row is scanned once
-        (:func:`solprop.backends.populations.axis_populations`).
+        (:func:`solprop.backends.numpy_ref.populations.axis_populations`).
 
         - ``field``: one batch member at this plane, shape (n_modes, n_pol, n_omega), or
           ``None`` from a backend whose :meth:`_axis_row_populations` reads its own
@@ -2439,7 +2416,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         if field is None:
             raise BackendError("the on-axis statistics scan needs the field")
-        from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
+        from solprop.backends.numpy_ref.populations import (  # noqa: PLC0415 - a cycle
             axis_populations,
         )
 

@@ -16,7 +16,7 @@ from numpy.testing import assert_array_equal
 from sessions.executors import IDENTITY, Started, drive
 from sessions.runs import run as session_run
 from solprop.backends import registry
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session

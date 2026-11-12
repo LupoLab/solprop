@@ -10,6 +10,7 @@ import copy
 import dataclasses
 import functools
 import math
+import re
 from types import SimpleNamespace
 from typing import NoReturn, cast
 
@@ -26,7 +27,7 @@ from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.noise import NoiseModel
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
@@ -36,11 +37,9 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate import masks
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagationProblem, assemble
-from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import terms
 
 import solprop_native
@@ -165,15 +164,6 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
         session.close()
 
 
-def test_a_solprop_without_a_descriptor_member_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The seam is the descriptors and the bundles, not solprop's version string."""
-    monkeypatch.delattr(RunRequest, "stepper")
-    with pytest.raises(BackendError, match=r"has no RunRequest\.stepper"):
-        check_build()
-
-
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
@@ -201,32 +191,6 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     backend.close()
     with pytest.raises(RuntimeError, match="closed"):
         state.stage_to_host(0)
-
-
-def test_a_stage_bundle_without_a_packed_field_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        solprop_native,
-        "STAGE_SCALARS_FIELDS",
-        (*solprop_native.STAGE_SCALARS_FIELDS, "gone"),
-    )
-    with pytest.raises(BackendError, match=r"has no StageScalars\.gone"):
-        check_build()
-
-
-def test_a_march_policy_field_either_way_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The native march reads exactly the policy it was built against (SEP 39): a field
-    # it lacks, or one solprop added that it would not honour, refuses the build.
-    fields = solprop_native.MARCH_POLICY_FIELDS
-    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", (*fields, "gone"))
-    with pytest.raises(BackendError, match=r"has no MarchPolicy\.gone"):
-        check_build()
-    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", fields[1:])
-    with pytest.raises(BackendError, match=r"MarchPolicy has order, which this build"):
-        check_build()
 
 
 def test_the_solprop_version_is_recorded_and_never_compared(
@@ -331,26 +295,17 @@ def test_the_record_names_the_low_storage_march_s_flows(
         backend.close()
 
 
-def test_an_order_that_omits_a_held_response_is_refused(
+def test_a_problem_without_its_responses_is_linear_and_admitted(
     phase_a_case: PhaseACase,
 ) -> None:
-    # Native reads each response's own leaf, not the order, so the omitted Kerr term
-    # would still run. Removing the response as well is a consistent, linear problem.
+    # The response order is derived from the leaves, so removing the Kerr leaf
+    # removes its stage too: a consistent, linear problem.
     problem, run_request, grid = phase_a_case
-    responses = problem.responses
-    accumulate_only = responses.response_order[-1:]
-    omitted = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(responses, response_order=accumulate_only),
-    )
-    with pytest.raises(BackendError, match="response_order omits kerr"):
-        NativeBackend(omitted, run_request, grid=grid)
     linear = dataclasses.replace(
         problem,
-        responses=dataclasses.replace(
-            responses, response_order=accumulate_only, kerr_coefficients=None
-        ),
+        responses=dataclasses.replace(problem.responses, kerr_coefficients=None),
     )
+    assert len(linear.responses.response_order) == 1
     NativeBackend(linear, run_request, grid=grid).close()
 
 
@@ -516,17 +471,15 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
 
     The version check cannot catch these: this wheel and the problem both declare 14.
     All four leaves are executed (the general modal route and the coupled flow), in
-    the combinations solprop's one
-    admission list admits, which this adapter runs under its own name. A lone table,
-    metric or response is refused by that list before anything is allocated; the
-    coupled flow is a real leaf here, a constant-Schur section carrying two
-    Chebyshev degrees, which the list refuses as the reference does.
+    the combinations solprop's problem validation admits, which this adapter runs
+    where it is built. A lone table, metric or response is refused there before
+    anything is allocated: a sentinel by its type, the coupled flow, a real leaf of
+    another grid, by its axis.
 
     The sentinel is set with ``object.__setattr__`` on a copy rather than through
     ``dataclasses.replace``, which re-runs the group's own validation: solprop's
     ``Transform`` refuses a ``modal_tables`` record beside the static matrices that
-    record replaces, so a ``replace`` never reaches this adapter at all. What is
-    under test here is the adapter's refusal, not solprop's.
+    record replaces, so a ``replace`` never reaches this adapter at all.
     """
     problem, run_request, grid = phase_a_case
     assert getattr(getattr(problem, group), leaf) is None
@@ -541,18 +494,20 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
         object.__setattr__(spoiled, "route", route)
     else:
         spoiled = dataclasses.replace(problem, **{group: spoiled_group})
-    expected = {
-        "coupled_flow": r"native executes a constant-Schur coupled flow",
-        "modal_metric": r"native executes linear\.modal_metric",
-        "modal_tables": r"native executes a general modal guide",
-        "regional_responses": r"native executes responses\.regional_responses",
-    }[leaf]
-    with pytest.raises(BackendError, match=expected):
+    # Refused by name: its type or its consistency with the state first, then the
+    # route's policy. Tables on the modal route are its transform's, which the route
+    # names.
+    expected = (
+        "with general modal tables"
+        if leaf == "modal_tables"
+        else re.escape(f"{group}.{leaf}")
+    )
+    with pytest.raises(TranslationError, match=expected):
         NativeBackend(spoiled, run_request, grid=grid)
 
 
 def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
-    """Return a leaf the shared admission list refuses on this problem."""
+    """Return a leaf the problem's validation refuses on this problem."""
     if leaf != "coupled_flow":
         return object()
     n_omega = problem.shape[-1]
@@ -573,22 +528,6 @@ def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
         "lab",
         "schur",
     )
-
-
-@pytest.mark.parametrize(
-    ("flags", "message"),
-    [
-        ({"has_spectral_responses": True}, "spectral responses other than envelope"),
-    ],
-)
-def test_unsupported_contracts_are_refused_by_name(
-    phase_a_case: PhaseACase, flags: dict[str, bool], message: str
-) -> None:
-    problem, run_request, grid = phase_a_case
-    changed = dataclasses.replace(problem.flags, **flags)
-    spoiled = dataclasses.replace(problem, flags=changed)
-    with pytest.raises(BackendError, match=message):
-        NativeBackend(spoiled, run_request, grid=grid)
 
 
 @pytest.mark.parametrize(
@@ -806,99 +745,6 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     assert ledger["error_partials"] == 3 * np.dtype(np.float64).itemsize
     assert all(value >= 0 for value in ledger.values())
     backend.close()
-
-
-def test_build_refuses_a_missing_separable_residual(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        solprop_native,
-        "SEPARABLE_OPERATOR_FIELDS",
-        (*solprop_native.SEPARABLE_OPERATOR_FIELDS, "missing_residual"),
-    )
-    with pytest.raises(
-        BackendError, match=r"has no SeparableOperator\.missing_residual"
-    ):
-        solprop_native.check_build()
-
-
-@pytest.mark.parametrize(
-    ("tuple_name", "bundle"),
-    [
-        ("LINEAR_OPERATOR_FIELDS", "LinearOperator"),
-        ("TRANSFORM_FIELDS", "Transform"),
-        ("RESPONSE_FIELDS", "CompiledResponses"),
-        ("MODAL_TABLES_FIELDS", "ModalTransformTables"),
-        ("REGIONAL_RESPONSE_FIELDS", "RegionalResponseTables"),
-        ("COUPLED_FLOW_FIELDS", "CoupledFlowTables"),
-        ("DISPERSIVE_KERR_FIELDS", "DispersiveKerrTerms"),
-        ("PROBLEM_FIELDS", "PropagationProblem"),
-        ("REQUEST_FIELDS", "RunRequest"),
-    ],
-)
-def test_build_refuses_a_renamed_general_modal_leaf(
-    monkeypatch: pytest.MonkeyPatch, tuple_name: str, bundle: str
-) -> None:
-    """A renamed leaf is named by `check_build`, not an `AttributeError` later.
-
-    Reading `problem.linear.coupled_flow` on a solprop that renamed it raises an
-    `AttributeError` from inside the adapter's refusal, with no useful context; the
-    frozen name is looked up once, at build check, and reported with the member.
-    """
-    monkeypatch.setattr(
-        solprop_native,
-        tuple_name,
-        (*getattr(solprop_native, tuple_name), "renamed_leaf"),
-    )
-    with pytest.raises(BackendError, match=rf"has no {bundle}\.renamed_leaf"):
-        solprop_native.check_build()
-
-
-def test_build_refuses_a_renamed_request_section_member(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A renamed member of a request section is named by `check_build`."""
-    sections = dict(solprop_native.REQUEST_SECTION_FIELDS)
-    sections["ObservationRequest"] = (*sections["ObservationRequest"], "renamed_leaf")
-    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
-    with pytest.raises(BackendError, match=r"has no ObservationRequest\.renamed_leaf"):
-        solprop_native.check_build()
-
-
-def test_build_refuses_a_missing_request_section(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A request section solprop no longer defines is named by `check_build`."""
-    sections = {**solprop_native.REQUEST_SECTION_FIELDS, "RenamedSpec": ("method",)}
-    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
-    with pytest.raises(
-        BackendError, match=r"solprop\.translate\.run_request\.RenamedSpec"
-    ):
-        solprop_native.check_build()
-
-
-def test_the_leaf_member_tuples_name_what_the_installed_solprop_has() -> None:
-    """Each nested member the adapter reads exists as a field or property today.
-
-    `check_build` passing already says so; this names the three tuples and the classes
-    they guard, so a tuple entry that no class has fails here
-    by name before any backend is built.
-    """
-    from solprop.translate.coupled import CoupledFlowTables
-    from solprop.translate.modal_tables import ModalTransformTables
-    from solprop.translate.responses import DispersiveKerrTerms, RegionalResponseTables
-
-    for bundle, wanted in (
-        (ModalTransformTables, solprop_native.MODAL_TABLES_FIELDS),
-        (RegionalResponseTables, solprop_native.REGIONAL_RESPONSE_FIELDS),
-        (CoupledFlowTables, solprop_native.COUPLED_FLOW_FIELDS),
-        (DispersiveKerrTerms, solprop_native.DISPERSIVE_KERR_FIELDS),
-    ):
-        fields = {field.name for field in dataclasses.fields(bundle)}
-        for name in wanted:
-            assert name in fields or isinstance(getattr(bundle, name), property), (
-                f"{bundle.__name__}.{name}"
-            )
 
 
 @pytest.mark.parametrize("kind", ["radial", "free"])
@@ -1130,11 +976,3 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     assert payloads["nonlinear"]["stash_plasma"] is True
     assert payloads["split_step"]["split_step_absorber"] is True
     assert payloads["split_step"]["stash_plasma"] is False
-
-
-def test_the_held_current_collar_member_is_checked_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(masks, "Grids", dataclasses.make_dataclass("Grids", []))
-    with pytest.raises(BackendError, match=r"has no Grids\.t_window_fine_derivative"):
-        check_build()

@@ -33,8 +33,11 @@ class ServiceError(SolpropError, RuntimeError):
     """The front end's service refused a message, a run's record or a machine."""
 
 
-PROTOCOL: Final = 1
-"""The version of these messages; a peer of another version is refused."""
+PROTOCOL: Final = 2
+"""The version of these messages; a peer of another version is refused.
+
+2: the ``run_options`` reply lists the installed backends under ``backends``, in
+place of ``double`` and ``single`` (ADR-077)."""
 
 TERMINAL: Final = frozenset({"finished", "stopped", "failed", "lost"})
 """The event kinds that end a run's stream: never coalesced, never dropped."""

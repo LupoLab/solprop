@@ -24,7 +24,7 @@ from solprop.backends.exponential import (
     exponential_weights,
     phi_functions,
 )
-from solprop.backends.multistep import ExponentialKernels
+from solprop.backends.numpy_ref.multistep import ExponentialKernels
 from solprop.exceptions import StepperError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 

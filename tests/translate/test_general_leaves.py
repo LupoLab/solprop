@@ -28,6 +28,7 @@ from solprop.modes import MarcatiliMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
+from solprop.translate import problem as problem_module
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
@@ -587,7 +588,7 @@ def test_a_flow_prints_one_line_and_a_block():
         generator_error=np.zeros((2, 3)),
         residual_norm_bound=np.zeros((2, 3)),
         inverse_condition_bound=np.ones((2, 3)),
-        section_methods=("diagonal", "cf4"),
+        section_methods=("diagonal", "frozen_residual"),
     )
     assert "2 sections" in repr(wide)
 
@@ -665,22 +666,22 @@ def test_a_delayed_tensor_must_have_six_axes():
 def test_a_delayed_regional_term_is_carried_with_its_kernel_and_support():
     """A regional term's tensor, kernel and support arrays must agree."""
     record = kerr_regions(
-        delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-        delayed_kernel=np.zeros((1, 1, 1, 1, 16)),
-        kernel_valid_samples=np.zeros((1, 1), dtype=np.int32),
+        delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+        delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
+        kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
     )
-    assert record.n_terms == 1
+    assert record.n_terms == 2
     with pytest.raises(TranslationError, match="delayed_kernel must have shape"):
         kerr_regions(
-            delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-            delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
-            kernel_valid_samples=np.zeros((1, 1), dtype=np.int32),
+            delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 3, 16)),
+            kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
         )
     with pytest.raises(TranslationError, match="kernel_valid_samples must have shape"):
         kerr_regions(
-            delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-            delayed_kernel=np.zeros((1, 1, 1, 1, 16)),
-            kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
+            delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
+            kernel_valid_samples=np.zeros((1, 3), dtype=np.int32),
         )
 
 
@@ -901,9 +902,17 @@ def furnished(strand, strand_grid, strand_request):
 
 
 def test_four_leaves_on_the_canonical_grids_validate(
-    furnished, strand, strand_grid, strand_request
+    furnished, strand, strand_grid, strand_request, monkeypatch
 ):
-    """Every axis of every leaf is the state's own, so the whole problem validates."""
+    """Every axis of every leaf is the state's own, so the whole problem validates.
+
+    The leaves are structural fixtures, not a combination solprop executes: the
+    general route's policy (``check_general_route``) refuses them by name, and is set
+    aside here so that what is checked is the structure alone.
+    """
+    with pytest.raises(TranslationError, match=r"^solprop executes"):
+        validate_run(furnished, strand_request)
+    monkeypatch.setattr(problem_module, "check_general_route", lambda problem: None)
     tables = furnished.transform.modal_tables
     metric = furnished.linear.modal_metric
     flow = furnished.linear.coupled_flow

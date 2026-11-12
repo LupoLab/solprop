@@ -1562,8 +1562,7 @@ class CoherentWall(Displayed):
     run. It carries the default ``"input"`` noise, drawn in the channel basis at the
     entrance and propagated like any field, and refuses the ``"modified"`` model, whose
     transport through a nonunitary coupled flow is not measured. ``numpy_ref`` and
-    ``native`` execute the ``linear.coupled_flow`` leaf it becomes (``method="cf4"`` on
-    ``numpy_ref`` alone).
+    ``native`` execute the ``linear.coupled_flow`` leaf it becomes.
 
     **The vector boundary response** is ``impedance="te_tm"``. The scalar
     block above condenses one *impedance-averaged* Robin condition, which is what a
@@ -1582,7 +1581,7 @@ class CoherentWall(Displayed):
         their own impedances. It names the **wall's** two impedances and not the state's
         polarisation axis: a ``"te_tm"`` run still carries one transverse component per
         channel. On a guide that varies along z -- a taper, a pressure gradient -- the
-        vector block takes the same frozen or CF4 route as the scalar one, with a
+        vector block takes the same frozen-residual route as the scalar one, with a
         connection that is each radial family's own and nothing between the families
         (:func:`wall_connection`). Which families the run carries is the **mode set's**
         business and not this field's: a set retaining one hybrid family alone is a
@@ -1615,36 +1614,11 @@ class CoherentWall(Displayed):
         discard the residual. It has no effect on a constant guide, whose residual is
         exactly zero and which takes the single-section constant-Schur flow whatever
         this says.
-    method : str
-        How a guide that varies along z is integrated. ``"frozen_residual"``, the
-        default, is the frozen-residual split: each section's
-        generator frozen inside the exponential and its variation in the explicit
-        residual the Runge-Kutta source carries, fifth order. ``"cf4"`` integrates the
-        **whole** section generator by the fourth-order commutator-free exponential,
-        with no explicit residual and so no advisory step, but at most **fourth**
-        order and with a flow error the embedded pair does not see
-        (:func:`solprop.translate.coupled.cf4_flow`). It is admitted only behind two
-        guards: the internal-growth bound of the CF4 factors against `growth_limit`
-        and the pair
-        conditioning against `condition_limit`, for either impedance. It is refused
-        by name on a guide that does not vary at all, whose flow the constant-Schur
-        action already integrates exactly.
-    growth_limit : float or None
-        Largest admitted internal-growth bound of a CF4 section, dimensionless and at
-        least one; ``None`` takes
-        :data:`solprop.translate.coupled.CF4_GROWTH_LIMIT`. Declaring it without
-        ``method="cf4"`` is refused, because nothing would read it.
-    fallback : str or None
-        What a section the CF4 guards reject becomes: ``None`` refuses it by name,
-        ``"frozen_residual"`` integrates it with the frozen-residual split and warns
-        naming it.
-        Declaring it without ``method="cf4"`` is refused.
 
     Raises
     ------
     ModeError
-        If a limit or the section count is out of range, or if a method, a growth
-        limit or a fallback is declared where nothing would honour it.
+        If a limit or the section count is out of range.
 
     Examples
     --------
@@ -1659,9 +1633,6 @@ class CoherentWall(Displayed):
     validity_limit: float = 0.25
     sections: int = 1
     impedance: WallImpedance = "mean"
-    method: Literal["frozen_residual", "cf4"] = "frozen_residual"
-    growth_limit: float | None = None
-    fallback: Literal["frozen_residual"] | None = None
 
     def __post_init__(self) -> None:
         """Check the wall impedance, both limits and the section count.
@@ -1707,42 +1678,6 @@ class CoherentWall(Displayed):
                 f"{self.validity_limit!r}"
             )
             raise ModeError(msg)
-        self._check_method()
-
-    def _check_method(self) -> None:
-        """Check the varying-section method and the two declarations only CF4 reads."""
-        if self.method not in ("frozen_residual", "cf4"):
-            msg = (
-                "CoherentWall.method is 'frozen_residual' or 'cf4' for a guide that "
-                f"varies along z, got {self.method!r}"
-            )
-            raise ModeError(msg)
-        if self.method != "cf4" and (
-            self.growth_limit is not None or self.fallback is not None
-        ):
-            msg = (
-                "CoherentWall.growth_limit and fallback are the CF4 guards' and are "
-                f"read only with method='cf4'; this declares method={self.method!r} "
-                f"with growth_limit={self.growth_limit!r} and "
-                f"fallback={self.fallback!r}"
-            )
-            raise ModeError(msg)
-        if self.fallback not in (None, "frozen_residual"):
-            msg = (
-                "CoherentWall.fallback is None, which refuses a section the CF4 "
-                "guards reject, or 'frozen_residual', which integrates it with the "
-                f"frozen split; got {self.fallback!r}"
-            )
-            raise ModeError(msg)
-        if self.growth_limit is not None and not (
-            math.isfinite(self.growth_limit) and self.growth_limit >= 1.0
-        ):
-            msg = (
-                "CoherentWall.growth_limit bounds the product of CF4's internal "
-                "factors against the exact action's and is at least one, got "
-                f"{self.growth_limit!r}"
-            )
-            raise ModeError(msg)
 
     def __repr__(self) -> str:
         """Return a one-line description.
@@ -1751,8 +1686,7 @@ class CoherentWall(Displayed):
         -------
         str
             For example ``CoherentWall(impedance=mean, condition_limit=10000,
-            validity_limit=0.25, sections=1)``; a CF4 wall adds its method, growth
-            limit and fallback, which the default frozen split does not carry.
+            validity_limit=0.25, sections=1)``.
         """
         rows = [
             ("impedance", self.impedance),
@@ -1760,13 +1694,6 @@ class CoherentWall(Displayed):
             ("validity_limit", f"{self.validity_limit:g}"),
             ("sections", f"{self.sections:d}"),
         ]
-        if self.method == "cf4":
-            limit = "default" if self.growth_limit is None else f"{self.growth_limit:g}"
-            rows += [
-                ("method", self.method),
-                ("growth_limit", limit),
-                ("fallback", str(self.fallback)),
-            ]
         return line("CoherentWall", rows)
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
@@ -1779,23 +1706,13 @@ class CoherentWall(Displayed):
             ("condition limit", f"{self.condition_limit:g}"),
             ("validity limit", f"{self.validity_limit:g}"),
             ("sections per interval", f"{self.sections:d}"),
-            ("varying method", self._method_text()),
             ("model", self._model_text()),
         ]
 
     def _model_text(self) -> str:
         """Return the printed one-line model the declaration builds."""
         wall = "TE/TM impedances" if self.impedance == "te_tm" else "mean impedance"
-        if self.method == "cf4":
-            return f"{wall}, paraxial, commutator-free per section"
         return f"{wall}, paraxial, frozen per section"
-
-    def _method_text(self) -> str:
-        """Return the printed varying-section method with the CF4 guards it declares."""
-        if self.method != "cf4":
-            return self.method
-        limit = "default" if self.growth_limit is None else f"{self.growth_limit:g}"
-        return f"cf4, growth limit {limit}, fallback {self.fallback}"
 
 
 @dataclass(frozen=True, eq=False)

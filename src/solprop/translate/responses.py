@@ -52,6 +52,7 @@ along z carries the array instead, in ``prefactor_constant``, and a backend take
 fast path.
 """
 
+import functools
 import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -126,6 +127,7 @@ from solprop.translate.spatial import SeparableOperator, separable_values
 
 __all__ = [
     "DELAYED_MODEL_ID",
+    "DELAYED_TERMS",
     "KERR_FORM_MODEL_IDS",
     "KERR_MODEL_FORMS",
     "MODEL_ID_SEPARATOR",
@@ -1387,6 +1389,17 @@ class RegionalResponseTables(Displayed):
                 f"{components}, got {delayed.shape}"
             )
             raise TranslationError(msg)
+        terms = int(delayed.shape[1])
+        if terms and (terms != DELAYED_TERMS or components != MAX_N_COMPONENTS):
+            # The one check of the delayed channels: both backends execute the silica
+            # tensor model's channels on three components and nothing else.
+            msg = (
+                f"regional_responses carries {terms} delayed term(s) on {components} "
+                f"component(s); the delayed response is the {DELAYED_TERMS} delayed "
+                "channels of the silica tensor Raman model -- the trace and the "
+                f"traceless rank-two one -- on {MAX_N_COMPONENTS} Cartesian components"
+            )
+            raise TranslationError(msg)
         object.__setattr__(self, "delayed_tensor", delayed)
 
     def _validate_tables(self) -> None:
@@ -1519,6 +1532,9 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
 
 DELAYED_MODEL_ID: Final[str] = "silica-tensor-raman"
 """The model tag a compiled record carries when a region declares a delayed term."""
+
+DELAYED_TERMS: Final[int] = 2
+"""Delayed channels the silica tensor Raman model carries: trace and rank two."""
 
 MODEL_ID_SEPARATOR: Final[str] = "+"
 """What joins the model tags of one compiled record's ``model_id``.
@@ -1754,8 +1770,6 @@ class CompiledResponses:
 
     Attributes
     ----------
-    response_order : tuple of ResponseStage
-        The fused-pass sequence, in execution order.
     kerr_coefficients : KerrCoefficients or None
         The compiled Kerr term, or ``None`` when no Kerr response was declared.
     ionisation_table : tuple of RateTable
@@ -1774,8 +1788,6 @@ class CompiledResponses:
     density : solprop.translate.chebyshev.PiecewiseChebyshev
         Number density along z, in m^-3 for a gas or dimensionless 1 for a medium whose
         ``chi3`` is already absolute, as a table.
-    spectral_responses : tuple of EnvelopePlasmaAssembly
-        Typed post-transform assembly; empty or the ``envelope_plasma`` record.
     envelope_plasma : EnvelopePlasmaAssembly or None
         Independent envelope populations, cycle data and spectral multipliers.
     prefactor_representation : {'constant', 'expansion', 'table'}
@@ -1845,13 +1857,11 @@ class CompiledResponses:
     (<ResponseStage.KERR: 'kerr'>, <ResponseStage.ACCUMULATE: 'accumulate'>)
     """
 
-    response_order: tuple[ResponseStage, ...]
     kerr_coefficients: KerrCoefficients | None
     ionisation_table: tuple[RateTable, ...]
     plasma_channels: tuple[PlasmaChannel, ...]
     raman_terms: tuple[RamanCoefficients, ...]
     density: PiecewiseChebyshev
-    spectral_responses: tuple[EnvelopePlasmaAssembly, ...]
     prefactor_representation: PhiRepresentation
     prefactor: PiecewiseChebyshev | None
     prefactor_expansion: ParameterExpansion | None
@@ -1881,11 +1891,6 @@ class CompiledResponses:
             Naming the offending field.
         """
         self._check_prefactor_representation()
-        expected = () if self.envelope_plasma is None else (self.envelope_plasma,)
-        if self.spectral_responses != expected:
-            raise TranslationError(
-                "spectral_responses must name the envelope plasma assembly"
-            )
         if self.envelope_plasma is not None and self.plasma_channels:
             raise TranslationError("field and envelope plasma channels cannot coexist")
         if self.plasma_integral.policy != "trapezoid" and not self.plasma_channels:
@@ -1909,6 +1914,35 @@ class CompiledResponses:
                 "both absent; the two absorber schemes need one axis each"
             )
             raise TranslationError(msg)
+
+    @functools.cached_property
+    def response_order(self) -> tuple[ResponseStage, ...]:  # numpydoc ignore=RT01
+        """The fused-pass sequence the compiled leaves imply, in execution order.
+
+        Derived rather than stored, so that a stage is never named without its leaf nor
+        a leaf held without its stage; it always ends in ``ACCUMULATE``. Formed once,
+        on first reading, since every stage reads it.
+        """
+        envelope = self.envelope_plasma is not None
+        stages: list[ResponseStage] = []
+        if envelope:
+            stages += [
+                ResponseStage.ENVELOPE_CYCLE,
+                ResponseStage.ENVELOPE_POPULATION,
+                ResponseStage.ENVELOPE_SOURCES,
+            ]
+        elif self.ionisation_table:
+            stages += [ResponseStage.INTENSITY, ResponseStage.IONISATION_RATE]
+        if self.plasma_channels:
+            stages += [ResponseStage.PLASMA_SCAN, ResponseStage.PLASMA_CURRENT]
+        if self.kerr_coefficients is not None:
+            stages.append(ResponseStage.KERR)
+        if self.dispersive_kerr is not None:
+            stages.append(ResponseStage.DISPERSIVE_KERR)
+        if self.raman_terms:
+            stages.append(ResponseStage.RAMAN_DRIVE)
+        stages.append(ResponseStage.ACCUMULATE)
+        return tuple(stages)
 
     @property
     def harmonic_carrier(self) -> bool:  # numpydoc ignore=RT01
@@ -3031,26 +3065,6 @@ def compile_responses(
         )
     )
     compiled = CompiledResponses(
-        response_order=_response_order(
-            bool(kerr),
-            bool(tables) and not envelope,
-            bool(compiled_plasma),
-            bool(raman),
-            has_dispersive=compiled_dispersive is not None,
-        )
-        if not envelope
-        else (
-            ResponseStage.ENVELOPE_CYCLE,
-            ResponseStage.ENVELOPE_POPULATION,
-            ResponseStage.ENVELOPE_SOURCES,
-            *_response_order(
-                bool(kerr),
-                False,
-                False,
-                bool(raman),
-                has_dispersive=compiled_dispersive is not None,
-            ),
-        ),
         kerr_coefficients=compiled_kerr,
         ionisation_table=tables,
         plasma_channels=compiled_plasma,
@@ -3060,7 +3074,6 @@ def compile_responses(
         labels=material.labels,
         species_names=material.names,
         species_densities=density_tables,
-        spectral_responses=() if compiled_envelope is None else (compiled_envelope,),
         envelope_plasma=compiled_envelope,
         prefactor_representation=_prefactor_kind(constant, expansion is not None)
         if supplied is None
@@ -3239,33 +3252,6 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
     - Returns: the converged table, with read-only arrays.
     """
     return _frozen_table(build_rate_table(rate, field_range))
-
-
-def _response_order(
-    has_kerr: bool,
-    has_ionisation: bool,
-    has_plasma: bool,
-    has_raman: bool,
-    *,
-    has_dispersive: bool = False,
-) -> tuple[ResponseStage, ...]:
-    """Return the fused-pass sequence the declared content implies.
-
-    - Returns: the stages in execution order, always ending in ``ACCUMULATE``.
-    """
-    stages: list[ResponseStage] = []
-    if has_ionisation:
-        stages += [ResponseStage.INTENSITY, ResponseStage.IONISATION_RATE]
-    if has_plasma:
-        stages += [ResponseStage.PLASMA_SCAN, ResponseStage.PLASMA_CURRENT]
-    if has_kerr:
-        stages.append(ResponseStage.KERR)
-    if has_dispersive:
-        stages.append(ResponseStage.DISPERSIVE_KERR)
-    if has_raman:
-        stages.append(ResponseStage.RAMAN_DRIVE)
-    stages.append(ResponseStage.ACCUMULATE)
-    return tuple(stages)
 
 
 def raman_coefficients(

@@ -240,7 +240,7 @@ evaluates one of each.
 would not build again, a run longer than the declared path, the `modified` noise model
 (the `input` draw is part of the launch and is admitted), the reference's lockstep
 batch (a native `Batch` group runs each member in its own session), a fixed
-schedule that straddles a kink, a CF4 flow or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref` and `native` on
+schedule that straddles a kink, or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref` and `native` on
 the CPU and on a GPU. A declared circular basis is honoured: the metric then stays
 the identity, the basis being unitary and the measured Gram departure unitarily
 invariant.

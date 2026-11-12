@@ -83,7 +83,7 @@ def fibre(
     itinerary : list of float
         The save planes, m, the last at `stop`.
     options : dict
-        The backend, precision and grid variant (``benchmarks.builders.variant``).
+        The backend, noise and grid variant (``benchmarks.builders.variant``).
 
     Returns
     -------

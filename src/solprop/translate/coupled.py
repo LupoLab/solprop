@@ -10,7 +10,7 @@ linear flow and the output layer all read, and :class:`CoupledFlowTables`, the f
 or ordered representation of a generator whose channels couple.
 
 :class:`CoupledFlowTables` is the record, its validation and its printing, built by
-:func:`constant_schur_flow`, :func:`frozen_residual_flow` and :func:`cf4_flow` for the
+:func:`constant_schur_flow` and :func:`frozen_residual_flow` for the
 routes whose channels couple -- a capillary's coherent wall and taper coupling, and a
 general modal guide whose declared basis or motion couples its channels. Everywhere
 else it is ``None`` and a guide propagates through the diagonal cumulative flow.
@@ -28,7 +28,6 @@ like the rest of the contract; there is no fourth conversion site.
 
 import logging
 import math
-import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -36,11 +35,11 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 from numpy.polynomial import chebyshev as chebyshev_basis
-from scipy.linalg import expm, schur
+from scipy.linalg import schur
 
 from solprop._display import Displayed, engineering, line
 from solprop._ownership import frozen_copy
-from solprop.exceptions import SolpropWarning, TranslationError
+from solprop.exceptions import TranslationError
 from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
 from solprop.modes.protocol import ChannelLabel
@@ -53,20 +52,16 @@ from solprop.translate.chebyshev import (
 )
 
 __all__ = [
-    "CF4_GROWTH_LIMIT",
-    "CF4_NODES",
-    "CF4_WEIGHTS",
     "MAX_SECTION_DEGREE",
     "SECTION_TOL",
+    "CoupledFlowFactors",
     "CoupledFlowTables",
     "MetricKind",
     "ModalMetricTables",
     "SectionMethod",
     "advisory_step",
-    "cf4_defect",
-    "cf4_flow",
-    "cf4_growth_bound",
     "constant_schur_flow",
+    "coupled_flow_factors",
     "dense_metric",
     "eigenbasis_limit",
     "flow_edge_slack",
@@ -96,14 +91,12 @@ matrix a nonorthogonal basis needs, which a declared unitary change of basis
 produces.
 """
 
-SectionMethod = Literal["diagonal", "constant_schur", "frozen_residual", "cf4"]
+SectionMethod = Literal["diagonal", "constant_schur", "frozen_residual"]
 """How one interval of a coupled flow is integrated.
 
 ``"diagonal"`` is the existing cumulative commuting flow; ``"constant_schur"`` is the
 Schur matrix-function action of a constant coherent block; ``"frozen_residual"`` freezes
-the block inside the section and leaves its variation to the explicit source; ``"cf4"``
-is the commutator-free fourth-order flow of the whole section generator, admitted by
-:func:`cf4_flow` behind its internal-growth and source-feedback guards.
+the block inside the section and leaves its variation to the explicit source.
 """
 
 
@@ -302,6 +295,31 @@ class ModalMetricTables(Displayed):
         """How many coarse frequencies the metric is tabulated on."""
         return len(self.omega)
 
+    def check_rows(self) -> None:
+        """Check the certificate rows against the record's own axes, by name.
+
+        Construction checks them; a leaf replaced past it is checked again by
+        :meth:`solprop.translate.problem.PropagationProblem.validate` before anything
+        reads a row.
+
+        Raises
+        ------
+        TranslationError
+            If ``error``, ``minimum_eigenvalue`` or ``maximum_eigenvalue`` is not one
+            row per interval of ``z_edges`` (:func:`interval_count`) by one column per
+            coarse frequency.
+        """
+        rows = (interval_count(len(self.z_edges)), self.n_omega)
+        for name in ("error", "minimum_eigenvalue", "maximum_eigenvalue"):
+            shape = np.shape(getattr(self, name))
+            if shape != rows:
+                msg = (
+                    f"linear.modal_metric.{name} has shape {shape}, expected {rows}: "
+                    "one row per interval of its z_edges, one column per coarse "
+                    "frequency"
+                )
+                raise TranslationError(msg)
+
     def __repr__(self) -> str:
         """Return a one-line description, never an array.
 
@@ -477,19 +495,17 @@ class CoupledFlowTables(Displayed):
     """A generator whose channels couple, frozen or ordered along z.
 
     The leaf of contract section 3 that carries the coherent wall operator and the
-    taper coupling. ``numpy_ref`` executes three combinations. The first is the dense
+    taper coupling. ``numpy_ref`` and ``native`` execute two combinations. The first is
+    the dense
     generator of a single constant section, ``section_methods ==
     ("constant_schur",)``, no connection and an exactly zero residual, built by
     :func:`constant_schur_flow` from a constant coherent block. The second is the
     dense generator of any number of ``"frozen_residual"`` sections at any degree
     along z, with the taper connection and an explicit residual the Runge-Kutta
     source carries, built by :func:`frozen_residual_flow` from the same block
-    evaluated along the declared profile. The third is ``"cf4"`` sections, built by
-    :func:`cf4_flow` from the same expansion, whose whole generator the backend
-    integrates by the commutator-free fourth-order exponential with no explicit
-    residual, mixed with ``"frozen_residual"`` sections only where a declared
-    fallback put them. Every other method, representation and mixture is refused by
-    name at the backend, and the native backend refuses ``"cf4"`` sections.
+    evaluated along the declared profile. Every other method, representation and
+    mixture is refused by name by the problem's validation
+    (:func:`solprop.translate.admission.check_general_route`).
 
     The dense ``generator`` is optional. The factored alternative combines fixed
     matrices with scalar weights, rank-one wall terms and connection coefficients
@@ -528,15 +544,13 @@ class CoupledFlowTables(Displayed):
         Non-negative dimensionless representation error, shape
         ``(n_intervals, n_omega)``.
     residual_norm_bound : numpy.ndarray
-        Non-negative bound in 1/m on the explicit residual, same shape; zero on a
-        ``"cf4"`` section, which has none.
+        Non-negative bound in 1/m on the explicit residual, same shape.
     inverse_condition_bound : numpy.ndarray
         Dimensionless bound of at least one on the conditioning of the inverse
-        action, same shape; on a ``"cf4"`` section, on the product of the four factor
-        norms of a forward and inverse pair (:func:`cf4_flow`).
+        action, same shape.
     section_methods : tuple of str
-        One of ``"diagonal"``, ``"constant_schur"``, ``"frozen_residual"`` or
-        ``"cf4"`` per interval.
+        One of ``"diagonal"``, ``"constant_schur"`` or ``"frozen_residual"`` per
+        interval.
     gauge_id, certificate_id : str
         Non-empty identities; scalars, never arrays, enter resume identity.
 
@@ -844,7 +858,7 @@ class CoupledFlowTables(Displayed):
                 f"got {len(methods)} for {intervals}"
             )
             raise TranslationError(msg)
-        allowed = ("diagonal", "constant_schur", "frozen_residual", "cf4")
+        allowed = ("diagonal", "constant_schur", "frozen_residual")
         unknown = [method for method in methods if method not in allowed]
         if unknown:
             msg = (
@@ -1703,6 +1717,105 @@ def frozen_generator(
     return np.tensordot(weights, block, axes=1)
 
 
+@dataclass(frozen=True, eq=False)
+class CoupledFlowFactors:
+    """A coupled flow's frozen blocks and Schur factors on its active bins.
+
+    What both backends execute a flow from, derived once from the leaf
+    (:func:`coupled_flow_factors`); a decomposition is not a contract row, so it is
+    formed from the stored generator rather than carried across the seam.
+
+    Attributes
+    ----------
+    active : numpy.ndarray
+        Bool, ``(n_omega,)``: the bins the generator is non-zero at; the rest of the
+        band has an identity action.
+    vectors, triangular : numpy.ndarray
+        Complex128, ``(n_intervals, n_active, n_modes, n_modes)``: each section's Schur
+        factors ``Z`` and ``T`` per active bin (:func:`schur_blocks`).
+    frozen : numpy.ndarray
+        Complex128, same shape: each section's frozen block (:func:`frozen_generator`),
+        in 1/m.
+    condition_bound : numpy.ndarray
+        Float64, ``(n_intervals, n_active)``: the declared conditioning row.
+    residual_terms : numpy.ndarray or None
+        Complex128, ``(n_intervals * n_deg, n_active, n_modes, n_modes)``: a
+        frozen-residual flow's generator less its connection, flattened over
+        ``(n_intervals, n_deg)``; ``None`` for a constant-Schur flow.
+    """
+
+    active: Bool[np.ndarray, " n_omega"]
+    vectors: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    triangular: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    frozen: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    condition_bound: Float[np.ndarray, "n_intervals n_active"]
+    residual_terms: Complex[np.ndarray, "n_terms n_active n_modes n_modes"] | None
+
+
+def coupled_flow_factors(flow: CoupledFlowTables) -> CoupledFlowFactors:
+    """Freeze and decompose each section of a dense coupled flow on its active bins.
+
+    Parameters
+    ----------
+    flow : CoupledFlowTables
+        A leaf of the dense representation, as the problem's validation admits it.
+
+    Returns
+    -------
+    CoupledFlowFactors
+        The frozen blocks, their Schur factors, the conditioning row and the residual.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.coupled import constant_schur_flow, coupled_flow_factors
+    >>> block = np.zeros((2, 2, 3), dtype=complex)
+    >>> block[0, 1] = block[1, 0] = 1j
+    >>> flow = constant_schur_flow(
+    ...     np.linspace(1e15, 2e15, 3), np.array([0.0, 1e-3]), block,
+    ...     dz_max=1e-4, condition_limit=10.0, gauge_id="lab",
+    ...     certificate_id="schur",
+    ... )
+    >>> coupled_flow_factors(flow).frozen.shape
+    (1, 3, 2, 2)
+    """
+    generator = flow.generator
+    assert generator is not None
+    sections = len(flow.section_methods)
+    active = np.asarray(np.any(generator != 0.0, axis=(0, 1, 2, 3)), dtype=np.bool_)
+    frozen = np.ascontiguousarray(
+        np.stack(
+            [
+                np.moveaxis(frozen_generator(flow, index)[:, :, active], -1, 0)
+                for index in range(sections)
+            ]
+        ),
+        dtype=np.complex128,
+    )
+    factors = [schur_blocks(np.moveaxis(block, 0, -1)) for block in frozen]
+    residual = None
+    if flow.section_methods != ("constant_schur",):
+        terms = generator[:, :, :, :, active]
+        if flow.connection is not None:
+            terms = terms - flow.connection[:, :, :, :, active]
+        residual = np.ascontiguousarray(
+            np.moveaxis(terms, (2, 3), (-2, -1)).reshape(
+                sections * flow.n_deg, -1, flow.n_modes, flow.n_modes
+            ),
+            dtype=np.complex128,
+        )
+    return CoupledFlowFactors(
+        active=active,
+        vectors=np.stack([pair[0] for pair in factors]),
+        triangular=np.stack([pair[1] for pair in factors]),
+        frozen=frozen,
+        condition_bound=np.ascontiguousarray(
+            flow.inverse_condition_bound[:, active], dtype=np.float64
+        ),
+        residual_terms=residual,
+    )
+
+
 def flow_weights(
     flow: CoupledFlowTables, z: float, section: int | None = None
 ) -> Float[np.ndarray, " n_flow_terms"]:
@@ -2181,580 +2294,12 @@ def _residual_enclosure(
     return np.sum(np.linalg.norm(moved, ord=2, axis=(-2, -1)), axis=0)
 
 
-CF4_NODES: tuple[float, float] = (
-    0.5 - math.sqrt(3.0) / 6.0,
-    0.5 + math.sqrt(3.0) / 6.0,
-)
-"""The two Gauss-Legendre nodes of a CF4 step, as fractions of its length."""
-
-CF4_WEIGHTS: tuple[float, float] = (
-    (3.0 - 2.0 * math.sqrt(3.0)) / 12.0,
-    (3.0 + 2.0 * math.sqrt(3.0)) / 12.0,
-)
-"""``(a, b)`` of the two-exponential CF4: ``a + b = 1/2`` and ``b - a = 1/sqrt(3)``.
-
-Matching the integral of the generator fixes the sum, and matching the cubic Magnus
-term ``-h^3 [A_0, A_1]/12`` against the product's BCH commutator
-``-h^3 (b - a)[A_0, A_1]/(4 sqrt(3))`` fixes the difference. ``a = -0.0386751`` is
-**negative**, and is forced by the two-exponential ansatz: it is why a factor of a
-dissipative flow need not be contractive, and why :func:`cf4_flow` guards the growth
-of its internal factors.
-"""
-
-_CF4_GROWTH_EXPONENT: float = (2.0 * math.sqrt(3.0) - 3.0) / 6.0
-"""``2|a| = 0.0773503``: the excess growth rate of the two forward factors' product.
-
-Each factor's exponent is ``h(a A_early + b A_late)`` or ``h(b A_early + a A_late)``
-with ``a < 0 < b``. The logarithmic norm is subadditive and ``mu(c A) = c mu_min(A)``
-for ``c < 0``, so with every Hermitian-part eigenvalue of the generator in
-``[m_lo, m_hi]`` each factor has ``mu <= b m_hi - |a| m_lo``, and the two together
-``m_hi + 2|a|(m_hi - m_lo)``, because ``2b = 1 + 2|a|``. The exact action is bounded by
-``exp(h m_hi)``; the factors' product can exceed that by at most
-``exp(2|a| h (m_hi - m_lo))``.
-"""
-
-_CF4_CONDITION_EXPONENT: float = 2.0 / math.sqrt(3.0)
-"""``1 + 4|a| = 2/sqrt(3)``: the rate of the factor-norm product of a CF4 pair.
-
-The inverse factors have ``mu <= -b m_lo + |a| m_hi`` each, so the four factor norms of
-one forward-and-inverse pair multiply to at most ``exp((1 + 4|a|) h (m_hi - m_lo))``,
-against ``exp(h (m_hi - m_lo))`` for the exact flow.
-"""
-
-CF4_GROWTH_LIMIT: float = 2.0
-"""Default limit on a CF4 section's internal growth bound, dimensionless.
-
-A section whose bound ``exp(2|a| dz_max (m_hi - m_lo))`` exceeds it is refused by name
-(or falls back to ``"frozen_residual"`` where that is declared). Two is at most one bit
-of the state's scale lost to the product of the internal factors, and corresponds to
-``dz_max (m_hi - m_lo) <= 8.96`` -- about the nine e-foldings of the Hermitian spread
-that the default ``CoherentWall.condition_limit`` of 1e4 admits. It is a **proposal**
-reasoned from that bound, not a threshold established by experiment.
-"""
-
-
-def _hermitian_enclosure(
-    coefficients: Complex[
-        np.ndarray, "n_intervals_h n_deg_h n_modes_h_out n_modes_h_in n_omega_h"
-    ],
-    connection: Complex[
-        np.ndarray, "n_intervals_k n_deg_k n_modes_k_out n_modes_k_in n_omega_k"
-    ]
-    | None,
-) -> tuple[Float[np.ndarray, "n_intervals_l n_omega_l"], Float[np.ndarray, "n_i n_w"]]:
-    """Return an enclosure of the Hermitian-part spectrum of each section's generator.
-
-    The generator a CF4 step exponentiates is ``L(z) = G(z) - C(z)``, the whole of it.
-    With ``L = sum_k l_k T_k(x)`` on a section, the Hermitian part is
-    ``Herm(l_0) + sum_{k>=1} Herm(l_k) T_k(x)`` and ``|T_k| <= 1``, so by Weyl's
-    inequality every eigenvalue of ``Herm L(z)``, at every position of the section, lies
-    within ``sum_{k>=1} ||Herm l_k||_2`` of the spectrum of ``Herm l_0``. That is an
-    enclosure of the stored interpolant, not a sampled range. The connection is real
-    and antisymmetric in the true-power amplitude, so in the kernel's it has a small
-    symmetric part, of the order of the channels' weight spread; it is subtracted with
-    the rest, because the enclosure is of what is exponentiated.
-
-    - ``coefficients``: the generator's Chebyshev coefficients in 1/m.
-    - ``connection``: the connection's, in the same layout, or ``None``.
-    - Returns: the lower and upper ends ``m_lo`` and ``m_hi`` in 1/m, each of shape
-      ``(n_intervals, n_omega)``.
-    """
-    terms = coefficients if connection is None else coefficients - connection
-    moved = np.moveaxis(terms, (2, 3), (-2, -1))
-    hermitian = 0.5 * (moved + np.conj(np.swapaxes(moved, -1, -2)))
-    centre = np.linalg.eigvalsh(hermitian[:, 0])
-    radius = np.zeros(centre.shape[:2])
-    if hermitian.shape[1] > 1:
-        radius = np.sum(np.linalg.norm(hermitian[:, 1:], ord=2, axis=(-2, -1)), axis=1)
-    return centre[..., 0] - radius, centre[..., -1] + radius
-
-
-def _reach_spread(
-    edges: Float[np.ndarray, " n_edges_r"],
-    lower: Float[np.ndarray, "n_intervals_r n_omega_r"],
-    upper: Float[np.ndarray, "n_intervals_r2 n_omega_r2"],
-    dz_max: float,
-) -> Float[np.ndarray, "n_intervals_s n_omega_s"]:
-    """Return the Hermitian spread every step anchored in a section can meet.
-
-    A step anchored in section ``s`` starts inside it and is at most ``dz_max`` long, so
-    its Gauss nodes lie in ``[lo_s, hi_s + dz_max]``, which may reach into the sections
-    after it: its enclosure is the union of theirs. The spread is taken over that
-    union, so that a certificate declared on a section holds for every step the
-    controller may anchor there.
-
-    - ``edges``: the section edges in m.
-    - ``lower``, ``upper``: each section's enclosure, 1/m, shape ``(n_intervals,
-      n_omega)``.
-    - ``dz_max``: largest step, m.
-    - Returns: ``m_hi - m_lo`` over each section's reach, 1/m, non-negative.
-    """
-    intervals = lower.shape[0]
-    spread = np.empty_like(lower)
-    for index in range(intervals):
-        reach = int(np.searchsorted(edges, edges[index + 1] + dz_max, side="left"))
-        last = min(max(reach, index + 1), intervals)
-        spread[index] = np.max(upper[index:last], axis=0) - np.min(
-            lower[index:last], axis=0
-        )
-    return spread
-
-
-def cf4_flow(
-    omega: Float[np.ndarray, " n_omega"],
-    z_edges: Float[np.ndarray, " n_edges"],
-    generator: Complex[
-        np.ndarray,
-        "n_intervals_c4 n_deg_c4 n_modes_c4_out n_modes_c4_in n_omega_c4",
-    ],
-    connection: Complex[
-        np.ndarray,
-        "n_intervals_cc n_deg_cc n_modes_cc_out n_modes_cc_in n_omega_cc",
-    ]
-    | None,
-    *,
-    dz_max: float,
-    condition_limit: float,
-    growth_limit: float = CF4_GROWTH_LIMIT,
-    fallback: Literal["frozen_residual"] | None = None,
-    representation_error: float,
-    gauge_id: str,
-    certificate_id: str,
-) -> CoupledFlowTables:
-    """Build the CF4 coupled flow of a varying guide, with its two guards.
-
-    The certified alternative to :func:`frozen_residual_flow`:
-    nothing is frozen and nothing is left to an explicit residual. A step of length
-    ``h`` from ``z`` applies the fourth-order commutator-free exponential of the whole
-    section generator ``L = G - C``,
-
-    ``U(h) = exp(h (a A_1 + b A_2)) exp(h (b A_1 + a A_2))``,
-
-    with ``A_j = L(z + c_j h)`` at the Gauss nodes ``c = 1/2 -+ sqrt(3)/6`` and
-    ``a, b = (3 -+ 2 sqrt(3))/12``; the early-weighted factor acts first. Its local
-    error is ``O(h^5)`` on a smooth section, so a run with it is at most **fourth**
-    order globally, and the embedded Runge-Kutta pair does not see that error at all
-    (:func:`cf4_defect`). Every section takes the same Chebyshev expansion
-    :func:`frozen_residual_flow` does; what differs is the certificate.
-
-    **The internal-growth guard**, before admission. ``a`` is negative, so a factor of
-    a dissipative flow can grow: a block with eigenvalues 0 and -200/m over 1 m
-    has internal factors of norm 1898 against an exact action of 0.96. With every
-    Hermitian-part eigenvalue of ``L`` over the reach of a step enclosed in
-    ``[m_lo, m_hi]`` (Weyl's inequality on the stored expansion), the logarithmic norm
-    bounds the product of the two forward factors by ``exp(h m_hi)`` -- the largest the
-    exact action can be -- times the **growth bound**
-    ``exp((2 sqrt(3) - 3)/6 dz_max (m_hi - m_lo))``, and the four factors of a forward
-    and inverse pair by ``exp((2/sqrt(3)) dz_max (m_hi - m_lo))``, which is the
-    ``inverse_condition_bound`` a CF4 section declares and the backend checks per step
-    against the factors it actually forms. A section whose growth bound exceeds
-    `growth_limit`, or whose conditioning exceeds `condition_limit`, is **refused by
-    name** -- or, only when `fallback` says so, takes ``"frozen_residual"`` instead,
-    with a warning naming it.
-
-    The rows of a CF4 section: ``generator_error`` is the expansion's relative tail
-    alone, there being no Schur action to diagnose; ``residual_norm_bound`` is zero,
-    there being no explicit residual; ``inverse_condition_bound`` is the pair bound
-    above. A fallback section carries exactly the rows :func:`frozen_residual_flow`
-    gives it.
-
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        The canonical coarse angular frequencies in rad/s, increasing.
-    z_edges : numpy.ndarray
-        The section edges in m, shape ``(n_intervals + 1,)``, covering the run.
-    generator : numpy.ndarray
-        Chebyshev coefficients along z of the complete internal-convention generator in
-        1/m, shape ``(n_intervals, n_deg, n_modes, n_modes, n_omega)``.
-    connection : numpy.ndarray or None
-        The taper connection's coefficients in the same layout, or ``None``.
-    dz_max : float
-        Largest step the run may take, m, positive.
-    condition_limit : float
-        Largest admitted conditioning of a step's flow action, at least one.
-    growth_limit : float, optional
-        Largest admitted growth bound of a CF4 section, at least one. Default
-        :data:`CF4_GROWTH_LIMIT`.
-    fallback : {None, 'frozen_residual'}, optional
-        What a section the guards reject becomes. ``None``, the default, refuses it.
-    representation_error : float
-        The relative Chebyshev tail of the expansions, non-negative.
-    gauge_id : str
-        The basis's phase and coordinate identity.
-    certificate_id : str
-        Identity of the certificate the bounds came from.
-
-    Returns
-    -------
-    CoupledFlowTables
-        The validated leaf, ``"cf4"`` on every admitted section.
-
-    Raises
-    ------
-    TranslationError
-        If a limit or the fallback is out of range, on everything
-        :func:`frozen_residual_flow` refuses, if a section fails a guard with no
-        fallback declared, or if a fallback section fails the frozen conditioning.
-
-    Warns
-    -----
-    solprop.exceptions.SolpropWarning
-        Naming every section that fell back, the guard that rejected it and its bound.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.translate.coupled import cf4_flow
-    >>> block = np.zeros((2, 1, 2, 2, 3), dtype=complex)
-    >>> block[:, 0, 0, 0] = block[:, 0, 1, 1] = -1.0
-    >>> flow = cf4_flow(
-    ...     np.linspace(1e15, 2e15, 3), np.array([0.0, 5e-4, 1e-3]), block, None,
-    ...     dz_max=1e-4, condition_limit=10.0, representation_error=0.0,
-    ...     gauge_id="lab", certificate_id="cf4",
-    ... )
-    >>> flow.section_methods, float(flow.inverse_condition_bound.max())
-    (('cf4', 'cf4'), 1.0)
-    """
-    if not (math.isfinite(float(growth_limit)) and float(growth_limit) >= 1.0):
-        msg = (
-            "a CF4 flow's growth_limit bounds the product of its internal factors "
-            f"against the exact action's and is at least one, got {growth_limit!r}"
-        )
-        raise TranslationError(msg)
-    if fallback not in (None, "frozen_residual"):
-        msg = (
-            "a CF4 flow falls back to 'frozen_residual' where that is declared and "
-            f"refuses otherwise; got fallback={fallback!r}"
-        )
-        raise TranslationError(msg)
-    # The frozen split supplies the validation of every array and the rows a fallback
-    # section keeps. Its own conditioning limit is lifted here and applied below to
-    # the sections that actually fall back, because a CF4 section's conditioning is
-    # its own pair bound and not the frozen block's.
-    base = frozen_residual_flow(
-        omega,
-        z_edges,
-        generator,
-        connection,
-        dz_max=dz_max,
-        condition_limit=math.inf,
-        representation_error=representation_error,
-        gauge_id=gauge_id,
-        certificate_id=certificate_id,
-    )
-    assert base.generator is not None
-    lower, upper = _hermitian_enclosure(base.generator, base.connection)
-    spread = _reach_spread(base.z_edges, lower, upper, float(dz_max))
-    with np.errstate(over="ignore"):
-        conditioning = np.exp(_CF4_CONDITION_EXPONENT * float(dz_max) * spread)
-        growth = np.exp(_CF4_GROWTH_EXPONENT * float(dz_max) * spread)
-    rejected = [
-        index
-        for index in range(spread.shape[0])
-        if float(np.max(growth[index])) > float(growth_limit)
-        or float(np.max(conditioning[index])) > float(condition_limit)
-    ]
-    reasons = [
-        _cf4_rejection(
-            index,
-            base.omega,
-            growth[index],
-            conditioning[index],
-            growth_limit=float(growth_limit),
-            condition_limit=float(condition_limit),
-            dz_max=float(dz_max),
-        )
-        for index in rejected
-    ]
-    if rejected and fallback is None:
-        msg = (
-            f"a CF4 coupled flow's guards reject {len(rejected)} of its "
-            f"{spread.shape[0]} section(s): {'; '.join(reasons)}. Cap dz_max, divide "
-            "the sections, raise the limit deliberately, or declare "
-            "fallback='frozen_residual' to integrate those sections with the frozen "
-            "split instead"
-        )
-        raise TranslationError(msg)
-    for index in rejected:
-        frozen = float(np.max(base.inverse_condition_bound[index]))
-        if frozen > float(condition_limit):
-            msg = (
-                f"a CF4 coupled flow's section {index} is rejected by its guards "
-                f"({reasons[rejected.index(index)]}) and cannot fall back either: its "
-                f"frozen block's conditioning is {frozen:.4g} over dz_max = "
-                f"{float(dz_max):.4g} m, above the {float(condition_limit):.4g} "
-                "admitted. Cap dz_max"
-            )
-            raise TranslationError(msg)
-    if rejected:
-        warnings.warn(
-            f"a CF4 coupled flow's guards reject {len(rejected)} of its "
-            f"{spread.shape[0]} section(s), which fall back to 'frozen_residual' as "
-            f"declared: {'; '.join(reasons)}",
-            SolpropWarning,
-            stacklevel=2,
-        )
-    error = np.array(base.generator_error)
-    residual = np.array(base.residual_norm_bound)
-    bound = np.array(base.inverse_condition_bound)
-    methods: list[SectionMethod] = []
-    for index in range(spread.shape[0]):
-        if index in rejected:
-            methods.append("frozen_residual")
-            continue
-        methods.append("cf4")
-        error[index] = float(representation_error)
-        residual[index] = 0.0
-        bound[index] = np.maximum(conditioning[index], 1.0)
-    return CoupledFlowTables(
-        base.omega,
-        base.z_edges,
-        base.generator,
-        None,
-        None,
-        None,
-        None,
-        base.connection,
-        error,
-        residual,
-        bound,
-        tuple(methods),
-        gauge_id,
-        certificate_id,
-    )
-
-
-def _cf4_rejection(
-    index: int,
-    omega: Float[np.ndarray, " n_omega"],
-    growth: Float[np.ndarray, " n_omega_g"],
-    conditioning: Float[np.ndarray, " n_omega_c"],
-    *,
-    growth_limit: float,
-    condition_limit: float,
-    dz_max: float,
-) -> str:
-    """Return the clause naming why a CF4 section was rejected.
-
-    - ``omega``: the frequency axis in rad/s.
-    - ``dz_max``: the step they were declared over, m.
-    - Returns: one clause naming both bounds at the frequency where they are largest --
-      the same frequency for both, each being increasing in the same spread.
-    """
-    worst = int(np.argmax(growth))
-    return (
-        f"section {index} has internal growth bound {float(growth[worst]):.4g} "
-        f"(limit {growth_limit:.4g}) and pair conditioning "
-        f"{float(conditioning[worst]):.4g} (limit {condition_limit:.4g}) over dz_max "
-        f"= {dz_max:.4g} m at {float(omega[worst]):.6g} rad/s"
-    )
-
-
-def cf4_growth_bound(
-    flow: CoupledFlowTables,
-) -> Float[np.ndarray, "n_intervals n_omega"]:
-    """Return the internal growth bound of every section, dimensionless.
-
-    ``exp((2 sqrt(3) - 3)/6 dz_max (m_hi - m_lo))`` for a ``"cf4"`` section, read back
-    from the conditioning row it declares, ``exp((2/sqrt(3)) dz_max (m_hi - m_lo))``:
-    the growth bound is that row to the power ``(2 - sqrt(3))/4``, so it needs no row
-    of its own (:func:`cf4_flow`). Every other section returns one, having no internal
-    factors to grow.
-
-    Parameters
-    ----------
-    flow : CoupledFlowTables
-        The leaf.
-
-    Returns
-    -------
-    numpy.ndarray
-        Float64, shape ``(n_intervals, n_omega)``, at least one.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.translate.coupled import cf4_flow, cf4_growth_bound
-    >>> block = np.zeros((1, 1, 2, 2, 1), dtype=complex)
-    >>> block[0, 0, 1, 1] = -100.0
-    >>> flow = cf4_flow(
-    ...     np.array([1e15]), np.array([0.0, 1e-3]), block, None, dz_max=1e-3,
-    ...     condition_limit=10.0, representation_error=0.0, gauge_id="lab",
-    ...     certificate_id="cf4",
-    ... )
-    >>> f"{float(cf4_growth_bound(flow)[0, 0]):.6f}"
-    '1.007765'
-    """
-    rows = np.ones_like(flow.inverse_condition_bound)
-    power = _CF4_GROWTH_EXPONENT / _CF4_CONDITION_EXPONENT
-    for index, method in enumerate(flow.section_methods):
-        if method == "cf4":
-            rows[index] = flow.inverse_condition_bound[index] ** power
-    return rows
-
-
-def _flow_generator_at(
-    flow: CoupledFlowTables,
-    terms: Complex[np.ndarray, "n_flow_terms n_modes_g_out n_modes_g_in n_omega_g"],
-    z: float,
-    section: int,
-) -> Complex[np.ndarray, "n_omega_o n_modes_o_out n_modes_o_in"]:
-    """Return ``L(z) = G(z) - C(z)`` of a step anchored in `section`, frequency first.
-
-    - ``terms``: the flattened coefficients of ``G - C`` in 1/m.
-    - ``z``: position in m.
-    - Returns: the generator in 1/m, shape ``(n_omega, n_modes, n_modes)``.
-    """
-    combined = np.tensordot(flow_weights(flow, z, section), terms, axes=1)
-    return np.ascontiguousarray(np.moveaxis(combined, -1, 0))
-
-
-def _cf4_action(
-    flow: CoupledFlowTables,
-    terms: Complex[np.ndarray, "n_flow_terms n_modes_a_out n_modes_a_in n_omega_a"],
-    z: float,
-    length: float,
-    section: int,
-) -> Complex[np.ndarray, "n_omega_x n_modes_x_out n_modes_x_in"]:
-    """Return the CF4 forward action over ``[z, z + length]``, by SciPy's exponential.
-
-    The translation layer's own evaluation, independent of the backend's scaled Taylor
-    series: the estimator and the executor are two implementations of one formula.
-
-    - ``terms``: the flattened coefficients of ``G - C`` in 1/m.
-    - ``z``: where the step starts, m.
-    - ``length``: its length, m, positive.
-    """
-    early = _flow_generator_at(flow, terms, z + CF4_NODES[0] * length, section)
-    late = _flow_generator_at(flow, terms, z + CF4_NODES[1] * length, section)
-    small, large = CF4_WEIGHTS
-    first = expm(length * (large * early + small * late))
-    second = expm(length * (small * early + large * late))
-    return second @ first
-
-
-def cf4_defect(
-    flow: CoupledFlowTables,
-    dz: float,
-    kinks: Sequence[float] | Float[np.ndarray, " n_kinks"] = (),
-) -> Float[np.ndarray, "n_intervals n_omega"]:
-    """Return the step-doubling estimate of every CF4 section's local flow defect.
-
-    **The source-feedback estimator, and what kind of statement it is.** In the
-    interaction picture ``u = U b`` the stage source is ``g = U^-1 N(U b)``, and a CF4
-    run uses an approximation ``V`` of every stage's ``U``. With ``||U - V|| <= delta``,
-    the source is perturbed by at most ``||V^-1|| delta (||U^-1|| ||N|| + L ||b||)`` --
-    ``L`` the source's Lipschitz constant on a ball containing both states -- and the
-    step's end is moved by ``delta ||b||`` directly. The direct term is ``O(h^5)`` per
-    step; the feedback term enters the state through one more factor ``h`` and is
-    ``O(h^6)``. The
-    run is therefore **at most fourth order** in the flow's own error, and the embedded
-    Runge-Kutta pair, which sees only the difference of two stage combinations, does
-    not see it at all. No Lipschitz constant of the material response is available on
-    a containing state ball -- Kerr, Raman and plasma each have their own, and none is
-    enclosed by this package -- so the rigorous envelope is **not** what is declared.
-    What is declared is the **asymptotic estimator**: two half steps have one sixteenth
-    of the leading error of a full one, so ``(16/15) ||V(h) - V(h/2)^2||`` estimates the
-    full step's local defect, qualified by observable refinement (measured against
-    an independent DOP853 solution of the flow alone, and by the run's own order). It
-    is neither a bound nor valid near a kink, at the rounding floor, or outside the
-    asymptotic regime -- which nothing but this estimate polices: the internal-growth
-    guard bounds growth from the Hermitian spread alone, so a
-    lossless section admits any step, and far outside the regime the estimate
-    **underestimates** (0.19 against a true 0.38 at ``Δβ h = 100``). It is what
-    :func:`solprop.translate.problem.validate_coupled_flow` compares with the
-    controller's tolerance.
-
-    Each CF4 section is sampled with a step of length `dz` aligned with its start, its
-    middle and its end, and the largest relative defect is kept, because the steepest
-    part of a taper is where the defect is. A sampled step ends at the first of
-    `kinks` after its start, and at the end of the run, because a step the driver
-    takes does: adaptive stepping lands on every hard kink and a fixed schedule that
-    straddles one is refused, and a CF4 step across a corner of the
-    generator is not fourth order at all. Every other section returns zero.
-
-    Parameters
-    ----------
-    flow : CoupledFlowTables
-        The leaf, dense.
-    dz : float
-        The step to estimate over, m, positive.
-    kinks : sequence of float, optional
-        The run's hard kinks in m (``linear.hard_kinks``), which no step crosses.
-
-    Returns
-    -------
-    numpy.ndarray
-        The relative defect ``||V(h) - U(h)||_2 / ||U(h)||_2``, estimated, shape
-        ``(n_intervals, n_omega)``.
-
-    Raises
-    ------
-    TranslationError
-        If the flow is factored or `dz` is not positive.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.translate.coupled import cf4_defect, cf4_flow
-    >>> block = np.zeros((1, 1, 2, 2, 1), dtype=complex)
-    >>> block[0, 0, 1, 1] = -100.0
-    >>> flow = cf4_flow(
-    ...     np.array([1e15]), np.array([0.0, 1e-3]), block, None, dz_max=1e-3,
-    ...     condition_limit=10.0, representation_error=0.0, gauge_id="lab",
-    ...     certificate_id="cf4",
-    ... )
-    >>> bool(cf4_defect(flow, 1e-3).max() < 1e-15)
-    True
-    """
-    if flow.generator is None:
-        msg = "a factored coupled flow has no dense generator to take a CF4 step of"
-        raise TranslationError(msg)
-    if not (float(dz) > 0.0):
-        msg = f"a CF4 defect is estimated over a positive step, got {dz!r}"
-        raise TranslationError(msg)
-    edges = flow.z_edges
-    step = float(dz)
-    stops = np.unique(np.append(np.asarray(kinks, dtype=float), float(edges[-1])))
-    slack = flow_edge_slack(flow)
-    terms = (
-        flow.generator if flow.connection is None else flow.generator - flow.connection
-    )
-    terms = terms.reshape(-1, *terms.shape[2:])
-    defect = np.zeros(flow.inverse_condition_bound.shape)
-    for index, method in enumerate(flow.section_methods):
-        if method != "cf4":
-            continue
-        lo, hi = float(edges[index]), float(edges[index + 1])
-        spare = max(hi - lo - step, 0.0)
-        for anchor in sorted({lo, lo + 0.5 * spare, lo + spare}):
-            following = stops[stops > anchor + slack]
-            length = min(step, float(following[0]) - anchor)
-            coarse = _cf4_action(flow, terms, anchor, length, index)
-            fine = _cf4_action(
-                flow, terms, anchor + 0.5 * length, 0.5 * length, index
-            ) @ _cf4_action(flow, terms, anchor, 0.5 * length, index)
-            relative = (
-                16.0
-                / 15.0
-                * np.linalg.norm(coarse - fine, ord=2, axis=(-2, -1))
-                / np.linalg.norm(fine, ord=2, axis=(-2, -1))
-            )
-            defect[index] = np.maximum(defect[index], relative)
-    return defect
-
-
 def wall_identity(
     flow: CoupledFlowTables,
     limits: WallLimits,
     *,
     channels: Sequence[ChannelLabel],
     impedance: WallImpedance = "mean",
-    growth_limit: float | None = None,
-    fallback: str | None = None,
-    dz_max: float | None = None,
-    kinks: Sequence[float] | Float[np.ndarray, " n_kinks"] = (),
     scored: Bool[np.ndarray, " n_omega"] | None = None,
     n_components: int = 1,
     has_noise: bool = False,
@@ -2799,16 +2344,6 @@ def wall_identity(
         :func:`solprop.output.capability.capability_of` still reads it as the ordinary
         modal basis and the ordinary accessors stay admitted. A resume across a
         changed wall impedance is refused by this field.
-    growth_limit : float or None, optional
-        The CF4 growth limit the flow was admitted under; required, with `dz_max`,
-        exactly when a section is ``"cf4"``.
-    fallback : str or None, optional
-        The declared fallback of a CF4 flow, recorded as declared.
-    dz_max : float or None, optional
-        The largest step, m, over which the CF4 defect is estimated.
-    kinks : sequence of float, optional
-        The run's hard kinks in m, at which a sampled CF4 step ends
-        (:func:`cf4_defect`).
     scored : numpy.ndarray of bool, optional
         The error norm's bins, over which the recorded advisory step is taken, as the
         run's warning takes it (:func:`advisory_step`); ``None`` takes every bin.
@@ -2823,18 +2358,7 @@ def wall_identity(
     Returns
     -------
     collections.abc.Mapping
-        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`. A flow with
-        a ``"cf4"`` section adds a ``flow.cf4`` entry beside ``advisory_step`` -- a
-        new key entry, as ``flow`` itself is, and absent from every other flow,
-        whose record is therefore unchanged: the largest internal growth bound
-        (:func:`cf4_growth_bound`), the limit it was held to, the declared fallback,
-        and the largest step-doubling defect estimate at `dz_max`
-        (:func:`cf4_defect`), named as the asymptotic estimator it is.
-
-    Raises
-    ------
-    TranslationError
-        If a CF4 flow is recorded without its growth limit or its step.
+        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`.
 
     Examples
     --------
@@ -2878,25 +2402,6 @@ def wall_identity(
             float(np.min(advisory_step(flow, scored)))
         ),
     }
-    if "cf4" in flow.section_methods:
-        if growth_limit is None or dz_max is None:
-            msg = (
-                "a CF4 coupled flow's record carries the growth limit it was admitted "
-                "under and the step its defect is estimated over; pass growth_limit "
-                "and dz_max"
-            )
-            raise TranslationError(msg)
-        record["cf4"] = {
-            "growth_bound": quantised_measurement(
-                float(np.max(cf4_growth_bound(flow)))
-            ),
-            "growth_limit": float(growth_limit),
-            "fallback": fallback,
-            "defect": quantised_measurement(
-                float(np.max(cf4_defect(flow, dz_max, kinks)))
-            ),
-            "defect_estimator": "step doubling, asymptotic",
-        }
     return {
         "basis": (
             "capillary HE_1m" if impedance == "mean" else "capillary azimuthal order"

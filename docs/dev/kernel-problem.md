@@ -180,8 +180,8 @@ a replayed fixed schedule lands on every save plane and every hard kink. A failu
 ## What is compiled
 
 The instantaneous Kerr response, the delayed Raman response and the plasma response
-compile, each into its own leaf of `responses`, and `responses.response_order` lists the
-passes a stage makes, in order.
+compile, each into its own leaf of `responses`, and `responses.response_order`, derived
+from those leaves, lists the passes a stage makes, in order.
 
 **Plasma.** A plasma carries its own ionisation rate, so it supplies the run's
 `ionisation_table` tuple and, beside it, one labelled

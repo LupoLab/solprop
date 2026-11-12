@@ -29,13 +29,9 @@ Luna's scope and its most valuable design choices, and is designed around the fo
 - a clean, fast-loading Python package that plays well with NumPy, SciPy, matplotlib and h5py.
 
 **Priorities, in order:** accuracy and reliability; then as much CPU performance as can be
-had; then GPU performance (ADR-020). Double precision by default: realistic modelling always
-carries noise, so the stepper's job is efficiency at sufficient accuracy, not extended
-precision. Single precision is an explicit per-run choice, `precision="single"`, under
-SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
-the controller, host scalars and propagator exponents in binary64, every narrowed table
-with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
-single-precision path is its oracle; `native` computes in binary64 only.
+had; then GPU performance (ADR-020). Double precision throughout, on every backend
+(ADR-077): realistic modelling always carries noise, so the stepper's job is efficiency at
+sufficient accuracy, not extended precision.
 
 ## 2. The model
 
@@ -217,10 +213,10 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
-| `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
-| `backends/numpy_ref/` | Reference execution | B |
-| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the inherited driver and marches in `backends/` (`driver.py`, `multistep.py`, `low_storage.py`) remain the native backend's base class until SEP 47 phase 5 removes them, though no run is served through them, and the parts the Python sessions compose are in `backends/session_core.py` | B |
+| `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
+| `backends/` | Registry and protocols, sessions, the Adams call ledger both backends keep (`ledger.py`), node chunks, scalar bodies, spatial and population statistics | B |
+| `backends/numpy_ref/` | Reference execution, its Adams kernels and tables (`multistep.py`) and its on-axis scan (`populations.py`) | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the parts the Python sessions compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -700,13 +696,12 @@ chooses its own group: `start_group` asks the first member to prepare it,
   refuses step planes and groups only points of one execution layout
   (`solprop.driver.batch.compatible_groups`).
 - **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
-  prepared by `HostPreparedGroup`) serves every `numpy_ref` group, in both precisions.
+  prepared by `HostPreparedGroup`) serves every `numpy_ref` group.
   It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
-  member-axis stage arithmetic in binary64, which `select_batch` builds from the
-  registry row), which adopts the loaded member backends, each with its own tables,
+  member-axis stage arithmetic, which `select_batch` builds), which adopts the loaded member backends, each with its own tables,
   state and noise, and advances them through each common step in turn. It keeps that
   runner rather than composing one `HostSession` per member, because the runner's
-  arithmetic, failure positions and precision rule are what a reference group means:
+  arithmetic and failure positions are what a reference group means:
   the module docstring gives the reasons.
 
 Admission uses memory ledgers and a free-device-memory query with headroom.
@@ -864,17 +859,13 @@ linearly — a capillary's coherent wall, the taper coupling of a moving multimo
 block on the general modal route — the problem carries the optional
 `linear.coupled_flow` leaf (`translate/coupled.py`) beside the diagonal Φ table. Its
 generator does not commute with itself at different z, so the flow is built per
-section of the operator table's breakpoints, in one of three ways:
+section of the operator table's breakpoints, in one of two ways:
 
 - `"constant_schur"`: a constant block per section, whose exponential is formed from its
   Schur decomposition and is exact over any step inside the section;
 - `"frozen_residual"`: the block frozen per section inside the exponential, and the rest of
   the generator — its z variation and the connection — as an explicit residual that the
-  Runge–Kutta source carries, so the embedded pair sees its error;
-- `"cf4"`: a fourth-order commutator-free exponential of the whole generator at Gauss
-  nodes of each stage interval, whose flow error the embedded pair does not see
-  ([stepper.md](stepper.md) §2); admitted on `numpy_ref` only and never selected by
-  default.
+  Runge–Kutta source carries, so the embedded pair sees its error.
 
 The coupled flow runs on `numpy_ref` and the native CPU build, which forms
 the per-bin flow actions in its own kernels and agrees with the reference to a derived

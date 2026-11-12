@@ -1021,8 +1021,8 @@ class SplitCrossing:
         numpy.ndarray
             Shape ``(SPLIT_RATE_BUCKETS,)``, in the state's units of energy.
         """
-        # In the state's own precision, without a state-sized temporary: the shares
-        # are what the limit reads, so the order of summing is free.
+        # Without a state-sized temporary: the shares are what the limit reads, so
+        # the order of summing is free.
         spectrum = np.asarray(field_spectrum)
         re, im = np.real(spectrum), np.imag(spectrum)
         weights = None if columns is None else np.asarray(columns, dtype=np.float64)

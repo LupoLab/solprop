@@ -45,7 +45,6 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int, Num
 
 from solprop import boundaries, fourier
-from solprop.backends.numpy_ref import transforms
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.fourier import GridKind
@@ -201,11 +200,7 @@ def to_time(
     """
     n_modes, n_pol = spectrum.shape[:2]
     n_omega_fine = fourier.n_omega_for(n_to, kind)
-    # The spectrum's own precision: complex128, or complex64 on SEP 33's
-    # single-precision path.
-    fine = np.zeros(
-        (n_modes * n_pol, n_omega_fine), dtype=np.result_type(spectrum, np.complex64)
-    )
+    fine = np.zeros((n_modes * n_pol, n_omega_fine), dtype=np.complex128)
     fine[..., crop_index] = spectrum.reshape(n_modes * n_pol, -1)
     return fourier.inverse(fine, kind=kind).reshape(n_modes, n_pol, n_to)
 
@@ -593,8 +588,8 @@ def raman_polarisation(
     # pass reproduce the oracle rather than merely agree with it.
     for node in range(field_t.shape[0]):
         drive[node, :n_to] = raman_drive(field_t[node], kind=kind, thg=thg)
-    convolved = transforms.irfft(
-        spectrum * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = np.fft.irfft(
+        spectrum * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     return (EPS0 * density) * field_t * convolved[:, np.newaxis, :]
 
@@ -639,8 +634,8 @@ def _vector_raman_polarisation(
             2 * half * (np.real(x) * np.real(y) + np.imag(x) * np.imag(y))
         )
     kernels = spectrum if n_drives == 1 else spectrum[[0, 1, 1]]
-    convolved = transforms.irfft(
-        kernels * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = np.fft.irfft(
+        kernels * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     if n_drives == 1:
         return (EPS0 * density) * field_t * convolved
@@ -1234,7 +1229,7 @@ def tensor_raman_spectrum(
                 amplitude[channel] += weights[channel] * damped
             offset += 1
         total += density * component.fraction * amplitude
-    return transforms.rfft(total, axis=-1) * dt
+    return np.fft.rfft(total, axis=-1) * dt
 
 
 def nonlinear_polarisation(
@@ -1538,8 +1533,8 @@ def held_plasma_spectrum(
     numpy.ndarray
         Polarisation-equivalent spectrum in raw DFT units, with inactive bins zero.
     """
-    current = transforms.rfft(gated, axis=-1)[..., crop_index]
-    derivative = transforms.rfft(edge, axis=-1)[..., crop_index]
+    current = np.fft.rfft(gated, axis=-1)[..., crop_index]
+    derivative = np.fft.rfft(edge, axis=-1)[..., crop_index]
     result = np.zeros_like(current)
     q = 1j * omega[active]
     result[..., active] = current[..., active] / q - derivative[..., active] / q**2
@@ -1653,19 +1648,16 @@ def _magnitude(
 
 
 def _kerr(responses: CompiledResponses) -> KerrCoefficients:
-    """Return the compiled Kerr coefficients a declared Kerr stage promised."""
-    if responses.kerr_coefficients is None:
-        msg = "response_order names the Kerr stage but no coefficients were compiled"
-        raise BackendError(msg)
+    """Return the compiled Kerr coefficients, which the Kerr stage implies."""
+    assert responses.kerr_coefficients is not None
     return responses.kerr_coefficients
 
 
 def _plasma(responses: CompiledResponses) -> PlasmaCoefficients:
-    """Return the compiled plasma group a declared plasma stage promised."""
-    if responses.plasma_coefficients is None:
-        msg = "response_order names a plasma stage but no coefficients were compiled"
-        raise BackendError(msg)
-    return responses.plasma_coefficients
+    """Return the compiled plasma group, which a plasma stage implies."""
+    plasma = responses.plasma_coefficients
+    assert plasma is not None
+    return plasma
 
 
 def _raman_thg(responses: CompiledResponses) -> bool:
@@ -1676,20 +1668,13 @@ def _raman_thg(responses: CompiledResponses) -> bool:
     Kerr and Raman responses agree about it on a field grid, refused a field-grid Raman
     with no Kerr beside it, and a backend read the answer off the Kerr term's own flag.
     Both refusals stand -- they are what makes the agreement true -- but the answer is
-    now carried, so it is read where it belongs. An envelope grid's drive is ``|A|^2/2``
+    now carried, so it is read where it belongs: the stage runs exactly when the leaf is
+    present. An envelope grid's drive is ``|A|^2/2``
     whatever it says, which is why the value is not checked there.
 
     - Returns: True when the drive is ``E^2`` rather than ``|E_a|^2/2``.
     """
-    compiled = responses.raman_terms
-    if not compiled:
-        msg = (
-            "the fused pass reached the raman_drive stage with no "
-            "responses.raman_coefficients; the stage is in response_order exactly when "
-            "the leaf is present"
-        )
-        raise BackendError(msg)
-    return compiled[0].thg
+    return responses.raman_terms[0].thg
 
 
 def _raman(
@@ -1707,20 +1692,12 @@ def _raman(
 
 def _plasma_rate(responses: CompiledResponses) -> RateTable:
     """Return the rate table the ionisation stage reads."""
-    if len(responses.ionisation_table) != 1:
-        msg = "response_order names the ionisation stage but no rate table was compiled"
-        raise BackendError(msg)
     return responses.ionisation_table[0]
 
 
 def _checked[T](value: T | None) -> T:
-    """Return a stage result the compiled order guarantees is present."""
-    if value is None:
-        msg = (
-            "a plasma stage ran before the one that feeds it; response_order is out of "
-            "sequence"
-        )
-        raise BackendError(msg)
+    """Return a stage result the derived order guarantees is present."""
+    assert value is not None
     return value
 
 
@@ -2047,24 +2024,15 @@ def apply_temporal_rate(
     absorber cannot be folded into ``Phi`` because it is not diagonal in omega, and a
     per-step *window* would give total absorption ``W^n`` and no converged answer; as a
     rate the factors telescope, so the total is ``exp(-alpha(t) L / 2)`` however the
-    steps fall. ``alpha`` is a power coefficient, hence the half on the field.
-
-    A complex128 state takes that product as written, in binary64. A complex64 state,
-    the single-precision path's (SEP 33), takes it in binary32 as the correction
-    ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)`` formed in
-    binary64 and rounded once: the factor is exactly one outside the collar, so the
-    round trip's binary32 rounding falls on the collar's correction alone, not on the
-    whole state. The two forms are the same step in exact
-    arithmetic only when ``F[F^-1[y]] = y``. On a field grid that needs the DC bin,
-    and the Nyquist bin of an even ``n_t``, to be real: the real inverse transform
-    drops their imaginary parts, which the product form loses and the correction
-    form keeps. The backends' finishes mask both bins before the collar, so the
-    forms agree there.
+    steps fall. ``alpha`` is a power coefficient, hence the half on the field. On a
+    field grid the real inverse transform drops the imaginary parts of the DC bin, and
+    of the Nyquist bin of an even ``n_t``; the backends' finishes mask both bins before
+    the collar.
 
     Parameters
     ----------
     state : numpy.ndarray
-        The state, complex128 or complex64, shape
+        The state, complex128, shape
         ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts. On a
         field grid its DC and Nyquist bins are real (above).
     rate : numpy.ndarray
@@ -2078,7 +2046,7 @@ def apply_temporal_rate(
     Returns
     -------
     numpy.ndarray
-        The absorbed state, same shape, units and precision.
+        The absorbed state, same shape and units.
 
     Examples
     --------
@@ -2088,13 +2056,6 @@ def apply_temporal_rate(
     >>> absorbed = apply_temporal_rate(state, np.zeros(4), 1.0, kind="field")
     >>> bool(np.allclose(absorbed, state))
     True
-    >>> narrow = apply_temporal_rate(state.astype(np.complex64), np.ones(4), 1.0,
-    ...                              kind="field")
-    >>> narrow.dtype
-    dtype('complex64')
     """
     time = fourier.inverse(state, kind=kind)
-    if state.dtype == np.complex64:
-        change = np.expm1(-0.5 * rate * dz).astype(np.float32)
-        return state + fourier.forward(time * change, kind=kind)
     return fourier.forward(time * np.exp(-0.5 * rate * dz), kind=kind)

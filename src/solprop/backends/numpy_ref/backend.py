@@ -35,11 +35,12 @@ from solprop.backends.exponential import refuse_carrier_frame, refuse_formulatio
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
-from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref import passes, transforms
-from solprop.backends.numpy_ref.admission import (
-    refuse_general_route,
+from solprop.backends.node_chunk import (
+    NodeChunkPlan,
+    general_planned_chunk,
+    plan_node_chunk,
 )
+from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.envelope_plasma import (
     envelope_populations,
     envelope_sources,
@@ -47,11 +48,7 @@ from solprop.backends.numpy_ref.envelope_plasma import (
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     general_memory,
-    general_planned_chunk,
     general_source,
-    node_delayed_maps,
-    node_kerr_form,
-    node_kerr_tensor,
 )
 from solprop.backends.numpy_ref.tdse import (
     atomic_edge_source,
@@ -97,15 +94,17 @@ from solprop.stats import (
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import (
-    CF4_NODES,
-    CF4_WEIGHTS,
-    CoupledFlowTables,
-    flow_weights,
-    frozen_generator,
+    CoupledFlowFactors,
+    coupled_flow_factors,
     metric_at,
-    schur_blocks,
+)
+from solprop.translate.general import (
+    node_delayed_maps,
+    node_kerr_form,
+    node_kerr_tensor,
 )
 from solprop.translate.linop import power_weight_at
+from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
     MAX_N_POL,
@@ -132,21 +131,9 @@ from solprop.translate.tdse_source import (
     steady_current_certificate,
 )
 
-__all__ = ["QUADRATURE_ALARM", "BlockResidual", "NumpyRefBackend", "SourceTables"]
+__all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
 
 logger = logging.getLogger(__name__)
-
-QUADRATURE_ALARM = 1e-6
-"""Relative quadrature error above which the alarm is logged, once per plane.
-
-The fixed rule integrates the Kerr quartic of a mode set to the reference's own
-rounding -- 2e-14 at ``n_r = 32`` for four HE_1m modes
-(``docs/guide/waveguides/mode-sets.md``) -- so
-anything a millionth of the polarisation is not the rule converging slowly but the
-integrand being unresolved, which no step size can fix. It also sits at the loose end
-of the tolerances a run asks the controller for, so an alarm means the quadrature has
-become the largest error in the step. The number is a judgement, not a measurement.
-"""
 
 
 class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
@@ -276,8 +263,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None] | None
         ) = None
         self._kind: GridKind = problem.grid_kind
-        # The tables a source evaluation reads, as the problem holds them; the
-        # single-precision path narrows them on upload (SEP 33).
         self._tables = SourceTables.of(problem)
         self._carrier = _harmonic_carrier(problem)
         self._embedded = _embedded_projection(problem)
@@ -289,7 +274,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._block_residual: BlockResidual | None = None
         self._flow_cache: (
             tuple[
-                tuple[int, float, float | None],
+                tuple[int, float],
                 dict[float, tuple[np.ndarray | None, np.ndarray | None]],
             ]
             | None
@@ -349,16 +334,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 "replayed" if self._stepper.schedule is not None else "adaptive",
             )
 
-    def _propagator(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Return the stage propagator ``exp(dPhi)`` of a binary64 exponent.
-
-        The single-precision path rounds the binary64 exponential once (SEP 33
-        section 4.2); here it is the exponential itself.
-        """
-        return np.exp(exponent)
-
     def _envelope_sources(
         self, field_t: Complex[np.ndarray, "n_nodes n_pol n_to"], bundle: StageScalars
     ) -> tuple[
@@ -408,15 +383,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._problem.grids.norm_mask,
             self._stepper.controller,
         )
-
-    def _rounded(
-        self, values: Inexact[np.ndarray, "*shape"]
-    ) -> Inexact[np.ndarray, "*shape"]:
-        """Return a binary64 array a pass multiplies by, in the run's precision.
-
-        The identity here; the single-precision path rounds it once (SEP 33).
-        """
-        return values
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
@@ -703,7 +669,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if channels:
             if transform.geometry is not None and transform.geometry.kind == "free":
                 nx, ny = transform.geometry.shape
-                physical = transforms.ifft2(
+                physical = np.fft.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
                 nodes = passes.to_time(
@@ -804,7 +770,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         physical = (
             slab_synthesis(self._problem.transform, field) / grids.pad_scale
             if geometry.kind == "slab"
-            else transforms.ifft2(
+            else np.fft.ifft2(
                 field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
             ).reshape(field.shape)
         )
@@ -852,7 +818,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 slab_synthesis(self._problem.transform, field)
                 / self._problem.grids.pad_scale
                 if geometry.kind == "slab"
-                else transforms.ifft2(
+                else np.fft.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
             )
@@ -1180,7 +1146,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             bundle, propagator = held[2], held[3]
         else:
             bundle = self._stage_scalars(anchor, position)
-            propagator = self._propagator(self._delta_phi(bundle))
+            propagator = np.exp(self._delta_phi(bundle))
         self._adams_held = None
         noise = self._noise_at(bundle)
         field_in = lab if noise is None else lab + noise
@@ -1203,10 +1169,13 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         - ``z``: where the step starts, m.
         - ``dz``: the step, m.
-        - Returns: the step's :class:`~solprop.backends.multistep.CoupledBlock`, or
-          ``None`` without a coupled flow.
+        - Returns: the step's
+          :class:`~solprop.backends.numpy_ref.multistep.CoupledBlock`, or ``None``
+          without a coupled flow.
         """
-        from solprop.backends.multistep import CoupledBlock  # noqa: PLC0415 - cycle
+        from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415 - cycle
+            CoupledBlock,
+        )
 
         flow = self._flow
         if flow is None:
@@ -1215,7 +1184,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         section = bundle.flow_section
         assert section is not None
         residual = None
-        if flow.residual_terms is not None and not flow.cf4[section]:
+        if flow.residual_terms is not None:
             if self._block_residual is None:
                 self._block_residual = BlockResidual(flow)
             residual = functools.partial(self._block_residual, section)
@@ -1265,7 +1234,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         - ``anchor``, ``position``: the step's anchor and its end, m.
         """
         bundle = self._stage_scalars(anchor, position)
-        propagator = self._propagator(self._delta_phi(bundle))
+        propagator = np.exp(self._delta_phi(bundle))
         if self._adams is not None:
             self._adams_held = (anchor, position, bundle, propagator)
         return propagator
@@ -1299,12 +1268,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         second-order approximation: whatever block the exponential carries, the
         residual is the rest of the generator.
 
-        A step anchored in a ``"cf4"`` section carries **no** residual: its flow
-        actions are the commutator-free exponentials of the whole generator over each
-        stage's own length (:func:`_cf4_action`), so the source is the material
-        response alone and the flow's own error is outside what the embedded pair
-        measures: a known limitation of the controller on a CF4 section.
-
         - ``z``: position at the start of the step, m.
         - ``dz``: length of the trial step, m, positive.
         - Returns: the scaled error norm and the state at the end of the step.
@@ -1318,7 +1281,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
         exponents = self._exponents(z, dz)
         step = self._stage_scalars(z, z + dz)
-        actions = self._flow_actions(z, step.flow_section, dz)
+        actions = self._flow_actions(step.flow_section, dz)
         stages: list[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]] = []
         solution = np.zeros_like(state)
         error = np.zeros_like(state)
@@ -1338,10 +1301,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 self._channels(state, forward),
                 self._channels(combination, forward),
                 dz,
-                self._propagator(exponent),
+                np.exp(exponent),
                 self._noise_at(bundle),
             )
-            back = self._propagator(-exponent)
+            back = np.exp(-exponent)
             self._rk_source_evaluations += 1
             drive = self._nonlinear(lab, bundle, back)
             residual = self._residual(lab, step.flow_section, bundle)
@@ -1355,7 +1318,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             error = passes.accumulate(error, stage, float(tableau.error_weights[index]))
         # Kept for the continuous extension of an accepted step (SEP 14 phase 3).
         self._last_stages = stages
-        propagator = self._propagator(exponents(1.0, step))
+        propagator = np.exp(exponents(1.0, step))
         whole = actions(1.0)[0]
         advanced = passes.accept_step(
             self._channels(state, whole),
@@ -1396,14 +1359,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         ``None`` for every problem but a ``"frozen_residual"`` coupled flow: the
         constant section has an identically zero residual and is not
-        multiplied by one, so its arithmetic is bit for bit what it was; a step
-        anchored in a ``"cf4"`` section has none either, its whole generator being in
-        the exponential.
+        multiplied by one, so its arithmetic is bit for bit what it was.
 
         - Returns: ``R_s(z_1) u`` in the state's layout, or ``None``.
         """
         flow = self._flow
-        if flow is None or flow.residual_terms is None or flow.cf4[section]:
+        if flow is None or flow.residual_terms is None:
             return None
         assert bundle.flow_weights is not None
         return _residual_drive(
@@ -1414,7 +1375,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
 
     def _flow_actions(
-        self, z: float, section: int, dz: float
+        self, section: int, dz: float
     ) -> Callable[
         [float],
         tuple[
@@ -1442,15 +1403,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         the flow (``docs/dev/stepper.md`` section 2). The conditioning of a held
         length was measured when it was built.
 
-        A step anchored in a ``"cf4"`` section is not frozen: its actions are the
-        commutator-free exponentials of the generator at Gauss nodes **inside** each
-        stage's own interval, so they depend on where the step starts as well as on
-        its length, and the key carries `z`. Within one step the six fractions are
-        still computed once each; between steps nothing is reused. Every one of them
-        is checked against the section's declared pair bound, factor by factor
-        (:func:`_check_cf4_growth`).
-
-        - ``z``: where the step starts, m.
         - ``dz``: length of the trial step, m.
         - Returns: ``fraction -> (U, U^-1)``, each ``None`` when no coupled flow is
           carried.
@@ -1459,8 +1411,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if flow is None:
             return lambda fraction: (None, None)  # noqa: ARG005
         held = self._flow_cache
-        cf4 = bool(flow.cf4[section])
-        key = (section, dz, float(z) if cf4 else None)
+        key = (section, dz)
         cache: dict[float, tuple[np.ndarray | None, np.ndarray | None]] = (
             held[1] if held is not None and held[0] == key else {}
         )
@@ -1478,17 +1429,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             if fraction == 0.0:
                 return None, None
             if fraction not in cache:
-                if cf4:
-                    forward, inverse, growth = _cf4_action(
-                        flow, float(z), fraction * dz, section
-                    )
-                    _check_cf4_growth(flow, section, growth, fraction * dz)
-                    cache[fraction] = (forward, inverse)
-                else:
-                    pair = _flow_action(flow, section, fraction * dz)
-                    if fraction == 1.0:
-                        _check_flow_conditioning(flow, section, pair, dz)
-                    cache[fraction] = pair
+                pair = _flow_action(flow, section, fraction * dz)
+                if fraction == 1.0:
+                    _check_flow_conditioning(flow, section, pair, dz)
+                cache[fraction] = pair
             return cache[fraction]
 
         return action
@@ -1548,9 +1492,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return masked
         if (monitor := self._split_monitor) is not None:
             # The time factor acts alike on every column of any transverse basis, so
-            # the stored state's power is what the split takes of, wherever it acts;
-            # read as the physical state, which a single-precision state is scaled
-            # from. What it finds is what the occupancies are judged on.
+            # the stored state's power is what the split takes of, wherever it acts.
+            # What it finds is what the occupancies are judged on.
             sums = monitor.split_sums(self._observed_field(masked), dz)
             self._split_removed += float(sums[0])
             self._split_found = sums[1:]
@@ -1570,7 +1513,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if geometry is not None and geometry.kind == "free":
             nx, ny = geometry.shape
             shape = (ny, nx, *masked.shape[2:])
-            physical = transforms.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
+            physical = np.fft.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
                 masked.shape[1:]
             )
             chunk = self.node_chunk
@@ -1579,7 +1522,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 physical[rows] = passes.apply_temporal_rate(
                     physical[rows][None], rate, dz, kind=self._kind
                 )[0]
-            result = transforms.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
+            result = np.fft.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
                 masked.shape
             )
             return self._apply_mask(result)
@@ -1651,15 +1594,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
         if self._alarm > QUADRATURE_ALARM and not self._alarm_reported:
             self._alarm_reported = True
-            logger.warning(
-                "the transverse quadrature reproduces the nonlinear polarisation to "
-                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
-                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
-                "the mode set) and no step size can fix it",
-                self._alarm,
-                self._last_bundle.z1,
-                QUADRATURE_ALARM,
-            )
+            warn_quadrature(self._alarm, self._last_bundle.z1)
 
     def _nonlinear(
         self,
@@ -1732,10 +1667,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 assert self._last_envelope is not None
                 drive, loss, _, _ = self._last_envelope
                 factors = responses.envelope_plasma.factors
-                spectrum += self._rounded(factors.drude) * passes.to_frequency(
+                spectrum += factors.drude * passes.to_frequency(
                     drive, grids.crop_index, kind=self._kind
                 )
-                spectrum += self._rounded(factors.loss) * passes.to_frequency(
+                spectrum += factors.loss * passes.to_frequency(
                     loss, grids.crop_index, kind=self._kind
                 )
         return passes.stage_output(
@@ -1911,8 +1846,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Transform three nodal streams, combine, then project once in frequency."""
         problem = self._problem
         transform, grids = problem.transform, problem.grids
-        # The field's own precision: complex128, or complex64 under SEP 33.
-        spectrum = np.zeros(problem.shape, dtype=np.result_type(modal_t, np.complex64))
+        spectrum = np.zeros(problem.shape, dtype=np.complex128)
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         for first in range(0, transform.n_nodes, self.node_chunk):
             rows = slice(
@@ -1965,8 +1899,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return result
         scratch = np.empty_like(lab[0])
         if len(responses.response_order) > 1:
-            transforms.ifft2(
-                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            scratch.reshape(shape)[...] = np.fft.ifft2(
+                lab[0].reshape(shape), axes=(0, 1)
             )
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             for first in range(0, transform.n_nodes, self.node_chunk):
@@ -1984,33 +1918,31 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 if responses.envelope_plasma is not None:
                     drive, loss = self._envelope_sources(field_t, bundle)
                     factors = responses.envelope_plasma.factors
-                    scratch[rows] += self._rounded(factors.drude) * passes.to_frequency(
+                    scratch[rows] += factors.drude * passes.to_frequency(
                         drive, grids.crop_index, kind=self._kind
                     )
-                    scratch[rows] += self._rounded(factors.loss) * passes.to_frequency(
+                    scratch[rows] += factors.loss * passes.to_frequency(
                         loss, grids.crop_index, kind=self._kind
                     )
             view = scratch.reshape(shape)
-            transforms.fft2(view, axes=(0, 1), out=view)
+            view[...] = np.fft.fft2(view, axes=(0, 1))
             data = problem.linear.separable
             assert data is not None
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
-                result[0, rows] = (
-                    self._rounded(prefactor) * self._tables.omega_window * scratch[rows]
-                )
+                result[0, rows] = prefactor * self._tables.omega_window * scratch[rows]
         if self._in_stage_absorber:
             # The rate is additive to the normalised material term. Reusing the
             # transverse scratch avoids a second retained physical spectral volume.
-            transforms.ifft2(
-                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            scratch.reshape(shape)[...] = np.fft.ifft2(
+                lab[0].reshape(shape), axes=(0, 1)
             )
             temporal = self._tables.temporal_rate
             timed = temporal is not None and responses.absorber_scheme == "nonlinear"
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
-                rate = self._rounded(geometry.absorber_rate[rows, None, None])
+                rate = geometry.absorber_rate[rows, None, None]
                 if not timed:
                     # A rate of the node alone commutes with the temporal transforms:
                     # a spatial-only pass needs no temporal pair (SEP 40 section 4.7).
@@ -2025,7 +1957,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     kind=self._kind,
                 )
             view = scratch.reshape(shape)
-            transforms.fft2(view, axes=(0, 1), out=view)
+            view[...] = np.fft.fft2(view, axes=(0, 1))
             result[0] += grids.active_mask * scratch
         return result * inverse_propagator
 
@@ -2413,8 +2345,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 class SourceTables:
     """The problem's tables a source evaluation multiplies by.
 
-    Read through this record rather than off the problem so that the single-precision
-    path can hold them narrowed (SEP 33 section 4.2) while the passes stay the same.
+    The arrays the passes read, gathered once from the problem.
 
     Attributes
     ----------
@@ -2515,19 +2446,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
     _refuse_adams(problem, stepper)
-    # One list for every backend: the coupled flow first, then the
-    # general modal route, each refusal naming this backend.
-    refuse_general_route(problem, backend="numpy_ref", moving_maps=True)
-    if (
-        problem.flags.has_spectral_responses
-        and problem.responses.envelope_plasma is None
-    ):
-        msg = (
-            "numpy_ref executes the Kerr, Raman and plasma terms and this problem "
-            "declares spectral responses; a term silently dropped would run, converge "
-            "and be wrong"
-        )
-        raise BackendError(msg)
     if (
         problem.flags.has_raman
         and problem.transform.n_pol * problem.shape[1] > 1
@@ -2664,15 +2582,13 @@ def _general_maps(
 
 
 @dataclass(frozen=True)
-class _CoupledFlow:
+class _CoupledFlow(CoupledFlowFactors):
     """What ``numpy_ref`` holds to execute one coherent block, frozen per section.
 
-    The Schur factors are the backend's own: they are computed here from the leaf's
-    generator rather than carried across the seam, because a decomposition is not a
-    contract row and no schema has one for it. The
-    **section** axis leads them and the frequency axis follows, and only the bins the
-    generator is non-zero at are held: the rest of the band has an identity action and
-    the state is masked to zero there anyway.
+    The shared factors (:class:`~solprop.translate.coupled.CoupledFlowFactors`, which
+    native reads too), with the section axis leading and only the bins the generator
+    is non-zero at held: the rest of the band has an identity action and the state is
+    masked to zero there anyway.
 
     A ``"constant_schur"`` leaf is the one-section case with no residual at all, and
     goes through exactly the constant-section arithmetic. A ``"frozen_residual"`` leaf
@@ -2687,49 +2603,17 @@ class _CoupledFlow:
 
     Attributes
     ----------
-    active : numpy.ndarray
-        Which bins carry a block, bool, shape ``(n_omega,)``.
     residual_bins : numpy.ndarray
         Which bins the explicit residual is applied at, bool, shape ``(n_omega,)``:
         `active` and the problem's ``grids.inband_mask``, the requested band: in the
         collar beyond it the wall model is outside its validity, and the residual is
         left out whether or not the error norm scores there.
-    vectors, triangular : numpy.ndarray
-        ``Z`` and ``T`` of ``G_s = Z T Z^H`` per section, shape
-        ``(n_sections, n_active, n_modes, n_modes)``.
-    frozen : numpy.ndarray
-        The frozen generator of each section in 1/m, same layout.
-    condition_bound : numpy.ndarray
-        The leaf's declared ``norm(U) norm(U^-1)`` per section and active bin,
-        dimensionless, shape ``(n_sections, n_active)``.
-    residual_terms : numpy.ndarray or None
-        The coefficients of ``G(z) - C(z)`` in 1/m, shape
-        ``(n_intervals * n_deg, n_active, n_modes, n_modes)``; ``None`` for a leaf with
-        no explicit residual. A ``"cf4"`` section exponentiates the same combination
-        at its Gauss nodes.
     n_modes : int
         Channels the block couples.
-    cf4 : numpy.ndarray
-        Which sections are ``"cf4"``, bool, shape ``(n_sections,)``.
-    leaf : solprop.translate.coupled.CoupledFlowTables
-        The leaf itself, whose edges and degree axis a CF4 node's weights are built
-        on (:func:`solprop.translate.coupled.flow_weights`).
     """
 
-    active: Bool[np.ndarray, " n_omega_flow"]
     residual_bins: Bool[np.ndarray, " n_omega_scored"]
-    vectors: Complex[np.ndarray, "n_sections_v n_active_v n_modes_v_out n_modes_v_in"]
-    triangular: Complex[
-        np.ndarray, "n_sections_t n_active_t n_modes_t_out n_modes_t_in"
-    ]
-    frozen: Complex[np.ndarray, "n_sections_f n_active_f n_modes_f_out n_modes_f_in"]
-    condition_bound: Float[np.ndarray, "n_sections_c n_active_c"]
-    residual_terms: (
-        Complex[np.ndarray, "n_terms_r n_active_r n_modes_r_out n_modes_r_in"] | None
-    )
     n_modes: int
-    cf4: Bool[np.ndarray, " n_sections_cf4"]
-    leaf: CoupledFlowTables
 
 
 _TAYLOR_ORDER = 16
@@ -2820,95 +2704,6 @@ def _flow_action(
     forward = vectors @ _triangular_exponential(exponent, backend=backend) @ adjoint
     inverse = vectors @ _triangular_exponential(-exponent, backend=backend) @ adjoint
     return forward, inverse
-
-
-def _cf4_action(
-    flow: _CoupledFlow, z: float, length: float, section: int
-) -> tuple[
-    Complex[np.ndarray, "n_active_c4f n_modes_c4f_out n_modes_c4f_in"],
-    Complex[np.ndarray, "n_active_c4i n_modes_c4i_out n_modes_c4i_in"],
-    Float[np.ndarray, " n_active_c4g"],
-]:
-    """Return the CF4 forward and inverse actions over ``[z, z + length]``.
-
-    ``V = exp(B_2) exp(B_1)`` with ``B_1 = l (b A_1 + a A_2)`` acting first and
-    ``B_2 = l (a A_1 + b A_2)`` second, ``A_j`` the whole generator ``G - C`` at the
-    Gauss nodes ``z + c_j l`` (:data:`solprop.translate.coupled.CF4_NODES`, ``a, b``
-    :data:`solprop.translate.coupled.CF4_WEIGHTS`). The inverse is
-    ``exp(-B_1) exp(-B_2)``: the exact inverse of the approximation, formed from the
-    negated exponents and never by a solve, so the interaction picture's forward and
-    backward actions are inverse to rounding and a zero source reproduces ``V``
-    exactly.
-
-    The generator at a node is the stage bundle's own evaluation form, applied at a
-    position that is not a stage: ``flow_weights`` of the node, resolved against the
-    step's section, combined over the held terms. Every node lies strictly inside the
-    step, so no edge rule is ever exercised by it.
-
-    - ``z``: where the step starts, m.
-    - ``length``: the stage's own length ``c_i h``, m, positive.
-    - Returns: the two actions, shape ``(n_active, n_modes, n_modes)``, and the product
-      of the four factors' spectral norms per active bin -- the quantity the CF4
-      factor-norm guard is declared on.
-    """
-    assert flow.residual_terms is not None
-    early, late = (
-        combine(
-            flow_weights(flow.leaf, float(z) + node * float(length), section),
-            flow.residual_terms,
-        )
-        for node in CF4_NODES
-    )
-    small, large = CF4_WEIGHTS
-    first = float(length) * (large * early + small * late)
-    second = float(length) * (small * early + large * late)
-    factors = (
-        _triangular_exponential(first),
-        _triangular_exponential(second),
-        _triangular_exponential(-first),
-        _triangular_exponential(-second),
-    )
-    growth = np.prod(
-        [np.linalg.norm(factor, ord=2, axis=(-2, -1)) for factor in factors], axis=0
-    )
-    return factors[1] @ factors[0], factors[2] @ factors[3], growth
-
-
-def _check_cf4_growth(
-    flow: _CoupledFlow,
-    section: int,
-    growth: Float[np.ndarray, " n_active_g"],
-    length: float,
-) -> None:
-    """Refuse a CF4 action whose internal factors exceed the declared pair bound.
-
-    The CF4 factor-norm guard at the executor. The leaf declares, for a ``"cf4"``
-    section, ``exp((2/sqrt(3)) dz_max (m_hi - m_lo))``: a bound on the product of the
-    four factor norms of any forward and inverse pair a step anchored there can form
-    (:func:`solprop.translate.coupled.cf4_flow`). Here the four norms are **measured**,
-    from the factors actually formed, and compared with it, so a certificate declared
-    over too short a step or a generator it was not built from is caught per step rather
-    than trusted. It bounds the forward product's excess over the exact action and the
-    inverse action the source is carried back by, together.
-
-    - ``length``: the stage length it was formed over, m, used in the refusal.
-    """
-    declared = flow.condition_bound[section]
-    # The same allowance as the frozen check: the bound is on the exact factors, and
-    # what exceeds it by less than the rounding of four spectral norms is arithmetic.
-    allowance = 1.0 + 64.0 * flow.n_modes * float(np.finfo(float).eps)
-    excess = growth / (declared * allowance)
-    if np.any(excess > 1.0):
-        worst = int(np.argmax(excess))
-        msg = (
-            f"numpy_ref measured a CF4 factor-norm product of "
-            f"{float(growth[worst]):.12g} over a stage of {length:.4g} m, above the "
-            f"{float(declared[worst]):.12g} the certificate declares at active bin "
-            f"{worst} of section {section}: the negative CF4 weight lets a factor of a "
-            "dissipative flow grow beyond the exact action. Lower "
-            "dz_max, which is what the bound was declared over"
-        )
-        raise BackendError(msg)
 
 
 def _residual_action(
@@ -3130,36 +2925,13 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     if flow is None:
         return None
     assert flow.generator is not None
+    factors = coupled_flow_factors(flow)
+    active, residual = factors.active, factors.residual_terms
     sections = len(flow.section_methods)
-    active = np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))
-    frozen = np.stack(
-        [
-            np.moveaxis(frozen_generator(flow, index)[:, :, active], -1, 0)
-            for index in range(sections)
-        ]
-    )
-    factors = [schur_blocks(np.moveaxis(block, 0, -1)) for block in frozen]
-    residual = None
-    if flow.section_methods != ("constant_schur",):
-        terms = flow.generator[:, :, :, :, active]
-        if flow.connection is not None:
-            terms = terms - flow.connection[:, :, :, :, active]
-        residual = np.ascontiguousarray(
-            np.moveaxis(terms, (2, 3), (-2, -1)).reshape(
-                sections * flow.n_deg, -1, flow.n_modes, flow.n_modes
-            )
-        )
     held = _CoupledFlow(
-        active=active,
+        **vars(factors),
         residual_bins=active & problem.grids.inband_mask,
-        vectors=np.stack([pair[0] for pair in factors]),
-        triangular=np.stack([pair[1] for pair in factors]),
-        frozen=frozen,
-        condition_bound=np.ascontiguousarray(flow.inverse_condition_bound[:, active]),
-        residual_terms=residual,
         n_modes=flow.n_modes,
-        cf4=np.array([method == "cf4" for method in flow.section_methods]),
-        leaf=flow,
     )
     logger.debug(
         "coupled flow: %d channel(s) on %d of %d bins over %d section(s), %s, largest "

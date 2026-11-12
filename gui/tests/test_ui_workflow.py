@@ -1318,19 +1318,18 @@ def test_a_run_s_backend_and_threads_are_chosen_on_the_sheet(
     qtbot.waitUntil(lambda: not options.backend.isEnabled(), timeout=WAIT_MS)
 
 
-def test_a_recipe_s_retired_backend_is_shown_and_leaving_it_runs_in_double(
+def test_a_recipe_s_retired_backend_is_shown_until_another_is_picked(
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
     """An mlx-era recipe (SEP 47 retired mlx) shows its backend, not "Automatic"."""
     options = window.sheet.run_options
     qtbot.waitUntil(lambda: options.threads.count() > 0, timeout=WAIT_MS)
-    assert options.single == ("numpy_ref",)
     window.begin_class("capillary")
     qtbot.waitUntil(lambda: window.sheet.problem is not None, timeout=WAIT_MS)
     qtbot.waitUntil(options.backend.isEnabled, timeout=WAIT_MS)
     model = window.document.model
     assert model is not None
-    window.document.edit_values([("backend", "mlx"), ("precision", "single")])
+    window.document.edit_values([("backend", "mlx")])
     qtbot.waitUntil(lambda: options.backend.currentData() == "mlx", timeout=WAIT_MS)
     assert options.backend.currentText() == "mlx (not available)"
     shown = options.backend.model()
@@ -1338,18 +1337,16 @@ def test_a_recipe_s_retired_backend_is_shown_and_leaving_it_runs_in_double(
     item = shown.item(options.backend.currentIndex())
     assert not item.isEnabled()
     assert "mlx" in item.toolTip()
-    # A binary64 backend picked: the recipe returns to double precision.
+    # An installed backend picked: the retired one leaves the list.
     native = options.backend.findData("native")
     options.backend.setCurrentIndex(native)
     options.backend.activated.emit(native)
-    assert (model.get("backend"), model.get("precision")) == ("native", "double")
-    assert "double precision" in window.statusBar().currentMessage()
+    assert model.get("backend") == "native"
     qtbot.waitUntil(lambda: options.backend.findData("mlx") == -1, timeout=WAIT_MS)
-    # The reference computes single precision too, and keeps it.
     window.document.undo.undo()
-    assert (model.get("backend"), model.get("precision")) == ("mlx", "single")
+    assert model.get("backend") == "mlx"
     window._backend_chosen("numpy_ref")
-    assert (model.get("backend"), model.get("precision")) == ("numpy_ref", "single")
+    assert model.get("backend") == "numpy_ref"
 
 
 def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:

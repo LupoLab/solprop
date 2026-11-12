@@ -22,10 +22,9 @@ repeat the first:
 
 | request | native usable | processor below the floor, or its features unreadable | native fails to load | no native package |
 |---|---|---|---|---|
-| double precision, `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
+| `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
 | `native` by name | `native` | as above | as above | as above |
 | TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
-| single precision, `auto` | refuses, naming `numpy_ref`; native isn't consulted | the same | the same | the same |
 | `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
 
 `"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
@@ -47,10 +46,9 @@ what runs it: a CPU build of the native backend, in a second environment, or
 
 `Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
 the default of some interfaces
-([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
-the binary64 backends for their supported configurations; single precision admits
-`Multistep()` in its exponential formulation on `numpy_ref`. Beside a coupled flow, Adams requires its
-exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
+([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available on
+both backends for their supported configurations. Beside a coupled flow, Adams requires its
+exponential formulation. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
 
@@ -88,8 +86,6 @@ supported on the supported platforms:
 | feature | reached by | tracked by |
 |---|---|---|
 | the [TDSE response](../media/tdse.md) | `auto` or by name | |
-| `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
-| [single precision](single-precision.md) | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
 
 The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
 `tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by
@@ -98,23 +94,19 @@ a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
 exception.
 
-## The removed `numba_cpu` backend
+## Retired backends
 
-solprop once had a third double-precision backend, `numba_cpu`, and 0.1.0 is the last
-release with it. Naming it now raises {py:class}`~solprop.exceptions.BackendError`, naming
-`native` and `numpy_ref`, so a script or recipe that selects it needs `backend="native"`, or
-no `backend=` at all. Output, snapshots and a scan's execution metadata that record
-`numba_cpu` still load, and keep saying so: the record is not rewritten.
+solprop has exactly two backends, `native` and `numpy_ref`, and will have no other. It once
+had two more: `numba_cpu`, a third double-precision backend whose last release is 0.1.0,
+and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
+raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
+any name that is neither does, so a script or recipe that selects one needs
+`backend="native"`, or no `backend=` at all. Output, snapshots and a scan's execution
+metadata that record a retired backend still load, and keep saying so: a recorded name is
+not a request, and the record is not rewritten. A run started on a release that had the
+backend finishes on that release.
 
-The backend is an execution resource, so changing it does not change a run's identity. A
-run can continue on `native` or `numpy_ref`, with its script's or recipe's backend changed
-deliberately, through the normal [resume](../results/resuming.md) checks; the original
-execution record stays and the new one is added. Adams history crosses to the new backend,
-except a frozen-residual coupled flow's: a host engine's history continues on `numpy_ref`,
-and on native starts afresh and says why. Anything refused is recovered with
-`solprop==0.1.0`.
-
-Its settings are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
+The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
 `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
 `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
 
@@ -143,9 +135,8 @@ ten steps before committing a long campaign to one backend.
   ([execution resources](resources.md#memory)) before raising the channel count, the node
   count or the grid.
 - **The coupled flow** (a coherent wall, a varying wall, a split block): both CPU
-  backends run the constant-Schur and frozen-residual sections;
-  `CoherentWall(method="cf4")` runs on `numpy_ref` alone. A single small wall run gains
-  nothing past a few threads. On a varying wall the flow's actions are re-formed every
+  backends run the constant-Schur and frozen-residual sections. A single small wall run
+  gains nothing past a few threads. On a varying wall the flow's actions are re-formed every
   adaptive step, in a few per cent of a step on the native backend.
 - **On a GPU** (a CUDA or HIP build of the native backend): pick it for large grids. Every general-route,
   coupled-flow and moving-guide case measured ran faster on either a data-centre NVIDIA

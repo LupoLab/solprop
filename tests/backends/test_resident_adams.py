@@ -10,9 +10,7 @@ trial arithmetic, the norms, adoption, transport and dense observation stay in t
 native state. These tests pin
 that every case takes the resident engine, since SEP 47's phase 5 the only one native
 has (the host-engine comparisons went with the inherited driver's fallbacks), and hold
-its device-formed divisor to the reference's. The generic Hermite interpolant is a
-comparison method's (``ComparisonMultistep``), which native refuses (solprop SEP 47
-section 6.3); the reference steps it (``test_multistep_march.py``). The parity of
+its device-formed divisor to the reference's. The parity of
 either against the reference backend is the shared suites'
 (``test_exponential_routes.py``,
 ``test_compiled_multistep.py``).

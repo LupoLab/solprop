@@ -23,6 +23,8 @@ placeholders and the assembly's refusals -- is
 
 import copy
 import dataclasses
+import functools
+import re
 
 import numpy as np
 import pytest
@@ -42,26 +44,22 @@ from sessions.runs import run as session_run
 from solprop import fourier
 from solprop import stats as stats_module
 from solprop.backends import select
+from solprop.backends.node_chunk import general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.backend import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
     expand_pair_history,
     general_memory,
-    general_node_chunk,
     general_source,
-    node_delayed_maps,
-    node_kerr_form,
-    node_kerr_tensor,
     symmetric_cubic,
     symmetric_kerr_coefficients,
     symmetric_monomials,
 )
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.nonlinear.raman import SilicaTensorResponse
@@ -69,8 +67,14 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables, metric_at
-from solprop.translate.general import metric_departure
+from solprop.translate.general import (
+    metric_departure,
+    node_delayed_maps,
+    node_kerr_form,
+    node_kerr_tensor,
+)
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import Translation, _walk_arrays, assemble
 from solprop.translate.responses import (
@@ -92,10 +96,9 @@ GROUP = {
 def leaf_value(name, problem):
     """Return a value for one leaf that the backend must refuse.
 
-    Three of the four are built for real. ``modal_tables`` is a dense E/H reference of
-    a guide this problem has no provider for, so it stands in as a sentinel installed
-    past the constructor: the refusal reads the field for ``None`` and nothing else,
-    and it fires before ``validate`` ever looks inside.
+    All four are built for real, for another problem than this one: ``modal_tables``
+    is the strand's reference (:func:`strand_tables`), whose channels and grids are
+    not this problem's.
     """
     n_omega = problem.shape[-1]
     n_modes = problem.shape[0]
@@ -142,7 +145,20 @@ def leaf_value(name, problem):
             "isotropic-kerr",
             "dense-nodes",
         )
-    return object()
+    return strand_tables()
+
+
+def frozen(values):
+    """Return a read-only copy, as every array crossing the seam is."""
+    copied = np.array(values)
+    copied.setflags(write=False)
+    return copied
+
+
+@functools.cache
+def strand_tables():
+    """The 1.5 um strand's E/H reference, built once."""
+    return strand_case((("HE", 1, 1, "even"),)).route.tables
 
 
 def with_leaf(problem, name):
@@ -210,23 +226,15 @@ def test_the_disabled_route_puts_no_new_array_across_the_seam(disabled):
 def test_every_backend_refuses_every_general_modal_leaf_by_name(
     backend_class, backend_name, disabled, disabled_run, soliton_grid, leaf
 ):
-    """A leaf a backend has no kernel for is refused by its dotted name.
+    """A leaf beside a problem it does not belong to is refused by its dotted name.
 
-    `numpy_ref` executes three of the four as the general modal route and the
-    fourth, `linear.coupled_flow`, as the coherent wall block, so it names all four
-    in `admits` and checks the exact representation itself
-    (`test_the_reference_refuses_...` below and `tests/modes/test_wall_operator.py`).
-    ``native`` executes all four too, and runs the shared admission list under its own
-    name, which refuses a spoiled leaf here and names it.
+    The refusal is the problem's own validation, which both backends run where they
+    are built, so it is the same on each: the leaf's consistency with the state first,
+    then the route's policy.
     """
     assert backend_name in BACKEND_NAMES
-    if backend_name == "numpy_ref":
-        pytest.skip("numpy_ref executes every schema-12 leaf in one combination")
     spoiled = with_leaf(disabled, leaf)
-    expected = f"does not execute {GROUP[leaf]}.{leaf}"
-    if backend_name == "native":
-        expected = "native executes (a general modal guide|a constant-Schur|.* as part)"
-    with pytest.raises(BackendError, match=expected):
+    with pytest.raises(TranslationError, match=re.escape(f"{GROUP[leaf]}.{leaf}")):
         backend_class(spoiled, disabled_run.request, grid=soliton_grid)
 
 
@@ -629,12 +637,12 @@ def test_the_reference_refuses_a_diagonal_metric_by_name(strand):
     problem, run_request = spoiled_problem(
         strand, metric=("linear", "modal_metric", metric)
     )
-    with pytest.raises(BackendError, match="kind 'diagonal'"):
+    with pytest.raises(TranslationError, match="kind 'diagonal'"):
         NumpyRefBackend(problem, run_request, grid=strand.grid)
     absent, absent_request = spoiled_problem(
         strand, metric=("linear", "modal_metric", None)
     )
-    with pytest.raises(BackendError, match="is absent"):
+    with pytest.raises(TranslationError, match="is absent"):
         NumpyRefBackend(absent, absent_request, grid=strand.grid)
 
 
@@ -695,7 +703,7 @@ def test_the_reference_refuses_a_dense_metric_of_another_basis(circular_strand):
         amplitudes=(1.0, 0.0),
         metric=("linear", "modal_metric", elsewhere),
     )
-    with pytest.raises(BackendError, match="describes the basis 'elsewhere'"):
+    with pytest.raises(TranslationError, match="describes the basis 'elsewhere'"):
         NumpyRefBackend(spoiled, spoiled_request, grid=circular_strand.grid)
 
 
@@ -708,13 +716,13 @@ def test_the_reference_refuses_a_dense_metric_too_far_from_orthonormal(
     metric = problem.linear.modal_metric
     assert metric is not None and metric.dense is not None
     skewed = dataclasses.replace(metric)
-    object.__setattr__(skewed, "dense", metric.dense * 1.5)
+    object.__setattr__(skewed, "dense", frozen(metric.dense * 1.5))
     spoiled, spoiled_request = spoiled_problem(
         circular_strand,
         amplitudes=(1.0, 0.0),
         metric=("linear", "modal_metric", skewed),
     )
-    with pytest.raises(BackendError, match=r"dense and 0\.5"):
+    with pytest.raises(TranslationError, match=r"dense and 0\.5"):
         NumpyRefBackend(spoiled, spoiled_request, grid=circular_strand.grid)
 
 
@@ -742,8 +750,26 @@ def test_the_reference_refuses_an_identity_metric_that_is_not_the_identity(stran
     problem, run_request = spoiled_problem(
         strand, metric=("linear", "modal_metric", metric)
     )
-    with pytest.raises(BackendError, match=r"linear\.modal_metric\.error is 0\.5"):
+    with pytest.raises(TranslationError, match=r"linear\.modal_metric\.error is 0\.5"):
         NumpyRefBackend(problem, run_request, grid=strand.grid)
+
+
+def test_a_mis_shaped_metric_certificate_is_refused_by_name(strand):
+    """A certificate row set past the record's construction is checked by name.
+
+    The leaf's consistency with its own axes is checked before the route's policy
+    reads a row, so a hand-built leaf meets a named refusal, not an indexing error.
+    """
+    _, state = continuous_wave(strand, [1.0])
+    problem = general_problem(strand, state).problem
+    assert problem.linear.modal_metric is not None
+    metric = dataclasses.replace(problem.linear.modal_metric)
+    short = np.zeros(3)
+    short.setflags(write=False)
+    object.__setattr__(metric, "error", short)
+    spoiled, _ = spoiled_problem(strand, metric=("linear", "modal_metric", metric))
+    with pytest.raises(TranslationError, match=r"modal_metric\.error has shape \(3,\)"):
+        spoiled.validate()
 
 
 def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
@@ -752,8 +778,52 @@ def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
     """A leaf of the general route without the reference it belongs to."""
     for leaf in ("modal_metric", "regional_responses"):
         spoiled = with_leaf(disabled, leaf)
-        with pytest.raises(BackendError, match=r"no transform\.modal_tables"):
+        with pytest.raises(
+            TranslationError,
+            match=re.escape(f"{GROUP[leaf]}.{leaf}"),
+        ):
             NumpyRefBackend(spoiled, disabled_run.request, grid=soliton_grid)
+
+
+def test_a_metric_on_the_problem_s_own_grid_with_no_tables_is_refused(strand):
+    """A metric consistent with the state, on a guide with no reference, is the route's.
+
+    The strand's own identity metric beside the plain modal problem on the same field
+    grid: every structural check passes, and the route's policy names the tables it
+    lacks.
+    """
+    _, state = continuous_wave(strand, [1.0])
+    metric = general_problem(strand, state).problem.linear.modal_metric
+    plain = general_problem(strand, state, general=None).problem
+    assert plain.transform.modal_tables is None
+    linear = dataclasses.replace(plain.linear)
+    object.__setattr__(linear, "modal_metric", metric)
+    spoiled = dataclasses.replace(plain, linear=linear)
+    with pytest.raises(
+        TranslationError,
+        match=r"^solprop executes linear\.modal_metric as part of the general modal "
+        r"route, and this problem carries no transform\.modal_tables",
+    ):
+        spoiled.validate()
+
+
+@pytest.mark.parametrize("leaf", ["coupled_flow", "modal_metric", "regional_responses"])
+def test_a_leaf_that_is_not_its_record_type_is_refused_by_type(strand, leaf):
+    """A hand-built problem holding something else in a leaf meets a named refusal."""
+    _, state = continuous_wave(strand, [1.0])
+    problem = general_problem(strand, state).problem
+    group = dataclasses.replace(getattr(problem, GROUP[leaf]))
+    object.__setattr__(group, leaf, object())
+    spoiled = dataclasses.replace(problem, **{GROUP[leaf]: group})
+    kind = {
+        "coupled_flow": "CoupledFlowTables",
+        "modal_metric": "ModalMetricTables",
+        "regional_responses": "RegionalResponseTables",
+    }[leaf]
+    with pytest.raises(
+        TranslationError, match=rf"^{GROUP[leaf]}\.{leaf} is a object, not a {kind}$"
+    ):
+        spoiled.validate()
 
 
 def test_the_reference_refuses_a_reference_with_no_execution_map(strand):
@@ -764,7 +834,7 @@ def test_the_reference_refuses_a_reference_with_no_execution_map(strand):
     problem, run_request = spoiled_problem(
         strand, maps=("transform", "modal_tables", tables)
     )
-    with pytest.raises(BackendError, match="carries neither"):
+    with pytest.raises(TranslationError, match="carries neither"):
         NumpyRefBackend(problem, run_request, grid=strand.grid)
 
 
@@ -778,26 +848,31 @@ def test_the_reference_refuses_moving_maps_without_their_connection(strand):
     tables = dataclasses.replace(strand.route.tables)
     assert strand.route.tables.synthesis is not None
     object.__setattr__(
-        tables, "synthesis", np.repeat(strand.route.tables.synthesis, 2, axis=1)
+        tables, "synthesis", frozen(np.repeat(strand.route.tables.synthesis, 2, axis=1))
     )
     problem, run_request = spoiled_problem(
         strand, maps=("transform", "modal_tables", tables)
     )
-    with pytest.raises(BackendError, match="carries no coupled flow"):
+    with pytest.raises(TranslationError, match="carries no coupled flow"):
         NumpyRefBackend(problem, run_request, grid=strand.grid)
-    # A backend that has not built moving maps refuses them by name, whatever else.
-    with pytest.raises(BackendError, match=r"native executes .* of constant geometry"):
-        refuse_general_route(problem, backend="native")
 
 
 def test_the_reference_refuses_a_power_weight_that_is_not_one(strand):
-    """The Poynting amplitude is the true-power amplitude: the weight is one."""
+    """The Poynting amplitude is the true-power amplitude: the weight is one.
+
+    Taken on the route's policy itself: the constant is spoiled alone, which the
+    problem's structure refuses first, as disagreeing with its own table.
+    """
     _, state = continuous_wave(strand, [1.0])
     problem, run_request = general_problem(strand, state)
     linear = dataclasses.replace(problem.linear)
-    object.__setattr__(linear, "power_weight_constant", np.full(problem.shape, 1.5))
+    object.__setattr__(
+        linear, "power_weight_constant", frozen(np.full(problem.shape, 1.5))
+    )
     spoiled = dataclasses.replace(problem, linear=linear)
-    with pytest.raises(BackendError, match="constant one"):
+    with pytest.raises(TranslationError, match="constant one"):
+        check_general_route(spoiled)
+    with pytest.raises(TranslationError, match="power_weight_constant must match"):
         NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
@@ -905,6 +980,8 @@ def spoiled_response(strand, name, value):
     response = regional_responses(
         [CHI3], [0], n_to=strand.grid.n_to, dt_fine=strand.grid.dt_fine
     )
+    if isinstance(value, np.ndarray):
+        value.setflags(write=False)
     object.__setattr__(response, name, value)
     return response
 
@@ -930,9 +1007,9 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
     propagates a meaningless polarisation, and two died inside `einsum` with a shape
     message naming no leaf.
 
-    Checked through the backend's constructor rather than through
-    `node_kerr_tensor`, because that is where it matters: the refusal is in the
-    admission list, which runs before the backend allocates a stage.
+    Checked through the backend's constructor, because that is where it matters: the
+    refusal is in the problem's own validation, which runs before the backend
+    allocates a stage.
     """
     problem, run_request = spoiled_problem(
         strand,
@@ -942,40 +1019,30 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
             spoiled_response(strand, name, value),
         ),
     )
-    with pytest.raises(BackendError, match=message):
+    with pytest.raises(TranslationError, match=message):
         NumpyRefBackend(problem, run_request, grid=strand.grid)
-    # And the public helper refuses the same record, before its own allocation.
-    with pytest.raises(BackendError, match=message):
-        node_kerr_tensor(strand.route.tables, spoiled_response(strand, name, value))
+    # And the problem refuses it alone, with no request.
+    with pytest.raises(TranslationError, match=message):
+        problem.validate()
+    if "Cartesian" not in message:
+        # The public derivation refuses the same record, by the same rule, before it
+        # builds anything; the component count is the problem's structure.
+        with pytest.raises(TranslationError, match=message):
+            node_kerr_tensor(strand.route.tables, spoiled_response(strand, name, value))
 
 
 def test_an_unknown_model_identity_is_not_executed_as_one_the_backend_knows(strand):
     """A model this package does not know is refused, not read as its neighbour.
 
     The instantaneous form travels in `model_id` rather than in a leaf field of its
-    own, because a field would move a contract row; the price is that the backend
-    must refuse an identity outside the declared vocabulary instead of defaulting.
+    own, because a field would move a contract row; the price is that an identity
+    outside the declared vocabulary must be refused instead of defaulting.
     """
     spoiled = spoiled_response(strand, "model_id", "isotropic-quartic")
-    with pytest.raises(BackendError, match="isotropic-quartic"):
+    with pytest.raises(TranslationError, match="isotropic-quartic"):
         node_kerr_form(spoiled)
     assert node_kerr_form(None) == "analytic"
     assert node_kerr_form(strand.route.responses) == "real"
-
-
-def test_the_reference_refuses_a_state_with_a_polarisation_axis(strand):
-    """A general guide's components are its own; the state keeps `n_pol = 1`.
-
-    Two state polarisations beside a general reference would leave the pass
-    returning a one-wide source for `stage_output` to broadcast onto a two-wide
-    prefactor -- two polarisations driven by one channel's polarisation.
-    """
-    _, state = continuous_wave(strand, [1.0])
-    problem, run_request = general_problem(strand, state)
-    n_modes, _, n_omega = problem.shape
-    spoiled = dataclasses.replace(problem, shape=(n_modes, 2, n_omega))
-    with pytest.raises(BackendError, match="n_pol = 1, and this problem carries 2"):
-        NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
 def test_a_linear_guide_has_no_polarisation_at_any_node(strand):
@@ -1272,11 +1339,16 @@ def pre_c2b_review_source(state, synthesis, maps, crop_index, *, n_to, pad_scale
 
 
 def test_the_reference_refuses_a_general_route_on_an_envelope_grid(strand):
-    """A leaf is tabulated on the canonical coarse grid, which is increasing."""
+    """A leaf is tabulated on a field grid's increasing coarse axis: refused by name."""
     _, state = continuous_wave(strand, [1.0])
     problem, run_request = general_problem(strand, state)
     spoiled = dataclasses.replace(problem, grid_kind="envelope")
-    with pytest.raises(BackendError, match="on a field grid"):
+    with pytest.raises(
+        TranslationError,
+        match=r"^solprop executes a general modal guide \(transform\.modal_tables\) on "
+        r"a field grid, whose canonical axis is increasing, and this problem is "
+        r"envelope$",
+    ):
         NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
@@ -1908,12 +1980,16 @@ def test_a_delayed_record_whose_identity_disagrees_with_it_is_refused(strand):
         dt_fine=grid.dt_fine,
     )
     object.__setattr__(regional, "model_id", "isotropic-kerr")
-    with pytest.raises(BackendError, match="must agree"):
-        node_delayed_maps(strand.route.tables, regional)
     plain = regional_responses([CHI3], [0], n_to=grid.n_to, dt_fine=grid.dt_fine)
     object.__setattr__(plain, "model_id", "isotropic-kerr+silica-tensor-raman")
-    with pytest.raises(BackendError, match="must agree"):
-        node_delayed_maps(strand.route.tables, plain)
+    for spoiled in (regional, plain):
+        problem, _ = spoiled_problem(
+            strand, responses=("responses", "regional_responses", spoiled)
+        )
+        with pytest.raises(TranslationError, match="must agree"):
+            problem.validate()
+        with pytest.raises(TranslationError, match="must agree"):
+            node_delayed_maps(strand.route.tables, spoiled)
 
 
 def test_a_delayed_response_refuses_a_non_uniform_temporal_weight(strand):
@@ -1928,13 +2004,22 @@ def test_a_delayed_response_refuses_a_non_uniform_temporal_weight(strand):
     )
     weight = np.array(regional.temporal_weight, dtype=float)
     weight[3] *= 1.5
+    weight.setflags(write=False)
     object.__setattr__(regional, "temporal_weight", weight)
-    with pytest.raises(BackendError, match="not uniform"):
+    problem, _ = spoiled_problem(
+        strand, responses=("responses", "regional_responses", regional)
+    )
+    with pytest.raises(TranslationError, match="not uniform"):
+        problem.validate()
+    with pytest.raises(TranslationError, match="not uniform"):
         node_delayed_maps(strand.route.tables, regional)
 
 
 def test_a_record_with_more_delayed_terms_than_the_model_has_is_refused(strand):
-    """Two channels, named; a third is not executed as one of them."""
+    """Two channels, named; a third is refused when the record is built.
+
+    The translation-time check is the one raise site for both backends.
+    """
     grid = strand.grid
     regional = regional_responses(
         [CHI3],
@@ -1943,13 +2028,13 @@ def test_a_record_with_more_delayed_terms_than_the_model_has_is_refused(strand):
         n_to=grid.n_to,
         dt_fine=grid.dt_fine,
     )
-    object.__setattr__(regional, "delayed_tensor", np.zeros((1, 3, 3, 3, 3, 3)))
-    object.__setattr__(
-        regional, "delayed_kernel", np.zeros((1, 1, 1, 3, 2 * grid.n_to))
-    )
-    object.__setattr__(regional, "kernel_valid_samples", np.zeros((1, 3), np.int32))
-    with pytest.raises(BackendError, match="delayed channels"):
-        node_delayed_maps(strand.route.tables, regional)
+    with pytest.raises(TranslationError, match="2 delayed channels"):
+        dataclasses.replace(
+            regional,
+            delayed_tensor=np.zeros((1, 3, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 3, 2 * grid.n_to)),
+            kernel_valid_samples=np.zeros((1, 3), np.int32),
+        )
 
 
 def test_two_regions_meet_their_own_kernels_and_only_theirs(strand):

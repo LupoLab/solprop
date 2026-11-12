@@ -272,7 +272,6 @@ def test_run_health_reads_what_the_record_holds(
 ) -> None:
     assert results._health_facts({}) == {
         "backend": None,
-        "precision": None,
         "threads": None,
         "wall_time": None,
         "peak_memory": None,

@@ -175,34 +175,6 @@ def test_auto_sizes_cost_no_more_than_the_power_of_two():
         assert auto.n_to % auto.n_t == 0
 
 
-def test_a_single_precision_interface_grid_is_the_double_one():
-    from solprop.driver import Simulation  # noqa: PLC0415
-    from solprop.translate.precision import PrecisionName  # noqa: PLC0415
-
-    sizes = {}
-    runs: tuple[tuple[PrecisionName, str], ...] = (
-        ("double", "auto"),
-        ("single", "numpy_ref"),
-    )
-    for precision, backend in runs:
-        simulation = Simulation.from_capillary(
-            125e-6,
-            1.5,
-            "He",
-            (0.8, 0.0),
-            wavelength=800e-9,
-            wavelength_limits=(90e-9, 4e-6),
-            trange=400e-15,
-            fwhm=7.5e-15,
-            energy=275e-6,
-            precision=precision,
-            backend=backend,
-            noise=None,
-        )
-        sizes[precision, backend] = simulation.grid.n_to
-    assert sizes["double", "auto"] == sizes["single", "numpy_ref"] == 10240
-
-
 @pytest.mark.parametrize("grid_name", ["field_grid", "envelope_grid"])
 def test_coarse_and_fine_grids_satisfy_the_invariants(grid_name, request):
     grid = request.getfixturevalue(grid_name)

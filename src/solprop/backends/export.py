@@ -99,9 +99,9 @@ def apply_recipe(
         of `state`; required when ``recipe.power`` and ignored otherwise.
     out : numpy.ndarray or None, optional
         The destination, complex128, C-contiguous, the shape of `state`, not
-        overlapping it; a new array by default. `state` itself converts in place, for a
-        session that owns the only reference to it; each step is elementwise, so the
-        result is the same bits.
+        overlapping it; a new array by default. `state` itself converts in place,
+        where the caller holds the only reference to it; each step is elementwise, so
+        the result is the same bits.
 
     Returns
     -------

@@ -7,11 +7,10 @@
 On a coupled section the step's reference is ``(Delta Phi / h) I + G_s``, the frozen
 block of the section beside the cumulative diagonal, which is a multiple of the identity
 in the channel axis; the trial's flow and moments are matrix functions of it on the bins
-that carry a block (:func:`solprop.backends.multistep.coupled_moments`). These tests
-check the matrix moments against independent evaluations, the march against the
+that carry a block (:func:`solprop.backends.numpy_ref.multistep.coupled_moments`). These
+tests check the matrix moments against independent evaluations, the march against the
 Runge-Kutta march on the constant-Schur cases of ``tests/flow_parity.py``, exactness
-without a source, and what stays refused: the interaction formulation and the CF4 and
-(until it is delivered) frozen-residual sections.
+without a source, and what stays refused: the interaction formulation.
 """
 
 import dataclasses
@@ -29,12 +28,12 @@ from sessions.runs import adams_ledger
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.multistep import (
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
     CoupledBlock,
     CoupledExponentialKernels,
     coupled_moments,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError, SolpropWarning
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta

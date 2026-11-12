@@ -46,14 +46,14 @@ from solprop.backends.exponential import (
     refuse_carrier_frame,
 )
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.multistep import (
-    CallLedger,
+from solprop.backends.ledger import CallLedger
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
     CoupledBlock,
     ExponentialKernels,
     HostHistory,
     coupled_moments,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError
@@ -66,7 +66,6 @@ from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     CARRIER_PHASE_CAP,
     PEC_REAL_INTERVAL,
-    ComparisonMultistep,
     Multistep,
     lagrange_coefficients,
 )
@@ -351,8 +350,6 @@ def test_the_policy_is_a_field_of_the_method():
 def test_a_shift_needs_the_exponential_formulation():
     with pytest.raises(StepperError, match="needs the exponential formulation"):
         Multistep(formulation="interaction", carrier_frame="scalar")
-    with pytest.raises(StepperError, match="needs the exponential formulation"):
-        ComparisonMultistep(carrier_frame="scalar")
 
 
 def test_the_refusals_name_the_policy_and_the_route():
@@ -365,8 +362,6 @@ def test_the_refusals_name_the_policy_and_the_route():
     for kind in ("free", "radial", "slab"):
         spatial = _carrier_refusal("scalar", "numpy_ref", everything, kind)
         assert spatial is not None and f"free-space route ('{kind}'" in spatial
-    single = _carrier_refusal("scalar", "numpy_ref", everything, None, single=True)
-    assert single is not None and "not qualified in single precision" in single
     # Off, or delivered on a guided route: nothing to refuse.
     assert _carrier_refusal("off", "native", frozenset(), "free") is None
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None

@@ -435,7 +435,7 @@ def _health_facts(execution: Mapping[str, object]) -> dict[str, object]:
     """Return what a run's record says about how it ran.
 
     - ``execution``: the run's ``execution`` record.
-    - Returns: ``backend``, ``precision``, ``threads``, ``wall_time`` (s),
+    - Returns: ``backend``, ``threads``, ``wall_time`` (s),
       ``peak_memory`` (bytes) and ``plasma_source`` (its check and limit), each ``None``
       where the record has none.
     """
@@ -445,7 +445,6 @@ def _health_facts(execution: Mapping[str, object]) -> dict[str, object]:
     source = plasma if isinstance(plasma, Mapping) else {}
     return {
         "backend": execution.get("backend"),
-        "precision": execution.get("precision"),
         "threads": execution.get("thread_count"),
         "wall_time": held.get("wall_time_s"),
         "peak_memory": held.get("peak_rss_bytes"),

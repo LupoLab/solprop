@@ -21,10 +21,9 @@ __all__ = ["NumpyBatchBackend", "lockstep_runner"]
 
 
 def lockstep_runner(owners: Sequence[Backend]) -> BatchBackend:
-    """Build the reference's lockstep runner for loaded members (the registry's row).
+    """Build the reference's lockstep runner for loaded members.
 
-    :func:`solprop.backends.registry.select_batch` reads it from the reference's
-    registry row.
+    What :func:`solprop.backends.registry.select_batch` returns for the reference.
 
     Parameters
     ----------
@@ -35,17 +34,8 @@ def lockstep_runner(owners: Sequence[Backend]) -> BatchBackend:
     -------
     solprop.backends.protocol.BatchBackend
         :class:`NumpyBatchBackend`, or :class:`~solprop.backends.host.group.HostGroup`
-        when a member is single precision or carries a coupled flow.
+        when a member carries a coupled flow.
     """
-    from solprop.backends.numpy_ref.single import (  # noqa: PLC0415 - lazy precision
-        NumpySingleBackend,
-    )
-
-    if any(isinstance(owner, NumpySingleBackend) for owner in owners):
-        # NumpyBatchBackend's stage arithmetic over the member axis is binary64; the
-        # single-precision path's members each take their own binary32 trial. The
-        # group's member validation refuses mixed precisions.
-        return HostGroup(cast("Sequence[HostDriver[object]]", owners))
     hosts = cast("Sequence[HostDriver[object]]", owners)
     if any(host._problem.linear.coupled_flow is not None for host in hosts):
         # NumpyBatchBackend's stage arithmetic over the member axis applies neither a
@@ -72,8 +62,7 @@ class NumpyBatchBackend(HostGroup):
     Raises
     ------
     BackendError
-        If the fixed-schedule contract, backend or tableau differs between members,
-        or a member is single precision.
+        If the fixed-schedule contract, backend or tableau differs between members.
     """
 
     helpers = PLAIN
@@ -98,18 +87,6 @@ class NumpyBatchBackend(HostGroup):
                     "its explicit residual, so a coupled member would propagate "
                     "only the diagonal half of its own equation. Run each member "
                     "on its own"
-                )
-                raise BackendError(msg)
-            # Its stage arithmetic over the member axis is binary64: binary64
-            # propagators and the plain error norm. Single-precision members each
-            # take their own binary32 trial through `HostGroup`, which
-            # `lockstep_runner` builds for them.
-            if member._problem.precision.single:
-                msg = (
-                    "the numpy_ref lockstep batch evaluates its stage arithmetic in "
-                    "binary64 and refuses a single-precision member; batch "
-                    "single-precision members with HostGroup, as "
-                    "registry.select_batch does"
                 )
                 raise BackendError(msg)
         super().__init__([cast(HostDriver[object], member) for member in members])

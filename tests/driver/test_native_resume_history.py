@@ -43,13 +43,11 @@ from solprop.backends.registry import available, select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
-from solprop.exceptions import SolpropWarning
 from solprop.grid import EnvelopeGrid
 from solprop.output import open_file
 from solprop.output.hdf5 import resume
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep, RungeKutta
-from solprop.stepper.multistep import ComparisonMultistep
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="needs solprop-native"),
@@ -521,23 +519,6 @@ def test_a_snapshot_from_elsewhere_or_another_march_is_not_continued(build_simul
             assert pending_snapshot(session) is None
         finally:
             session.close()
-
-
-@pytest.mark.medium
-def test_a_march_that_cannot_carry_its_history_warns_on_resume(
-    build_simulation, tmp_path
-):
-    # The general path of a comparison method keeps host arrays no snapshot holds:
-    # its resume restarts the history, once, with a warning that says why.
-    build = soliton(
-        build_simulation, "numpy_ref", integrator=ComparisonMultistep(order=3)
-    )
-    path = tmp_path / "run.h5"
-    run_until(build(), path, after=2)
-    assert resume(path).march is None
-    with pytest.warns(SolpropWarning, match="general Adams path") as caught:
-        build().run(path, resume=True, progress="none")
-    assert len([one for one in caught if AFRESH in str(one.message)]) == 1
 
 
 @pytest.mark.medium

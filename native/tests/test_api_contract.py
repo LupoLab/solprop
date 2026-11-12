@@ -65,23 +65,6 @@ class PhaseBThreadRecord(ThreadRecord):
 
 def test_public_surface_is_exact() -> None:
     assert native.__all__ == [
-        "COUPLED_FLOW_FIELDS",
-        "DISPERSIVE_KERR_FIELDS",
-        "LINEAR_OPERATOR_FIELDS",
-        "MARCH_POLICY_FIELDS",
-        "MODAL_TABLES_FIELDS",
-        "PROBLEM_FIELDS",
-        "REGIONAL_RESPONSE_FIELDS",
-        "REQUEST_FIELDS",
-        "REQUEST_SECTION_FIELDS",
-        "RESPONSE_FIELDS",
-        "ROUTE_FIELDS",
-        "SEPARABLE_OPERATOR_FIELDS",
-        "STAGE_SCALARS_FIELDS",
-        "STAGE_TERMS_FIELDS",
-        "TRANSFORM_FIELDS",
-        "WATCH_POLICY_FIELDS",
-        "WATCH_STATE_FIELDS",
         "BuildInfo",
         "NativeBackend",
         "__version__",
@@ -215,7 +198,6 @@ def test_build_info_is_frozen_and_complete() -> None:
     else:
         pytest.fail(f"unknown device backend {info.device_backend!r}")
     assert info.fft_planner.startswith("Kokkos-FFT persistent Plan")
-    assert info.precision == "complex128"
     assert info.layout == "LayoutRight"
     assert info.fast_math_enabled is False
 

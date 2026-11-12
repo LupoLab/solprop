@@ -15,7 +15,6 @@ from numpy.testing import assert_array_equal
 from gated_source import _gated_source
 from mixture_cases import AnalyticRate
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0, C
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode
@@ -182,11 +181,12 @@ def test_luna_mixture_field_witness(tag, backend_class):
     check_luna_mixture_field_witness(tag, backend_class)
 
 
-def test_luna_plasma_witness_retains_the_historical_gated_equation():
-    # The archived array and its tolerance retain their original equation. The
-    # production current source has independent all-backend mixture ladders.
+def test_luna_plasma_witness_retains_the_historical_gated_equation(backend_class):
+    # The archived array and its tolerance retain their original equation, which
+    # both backends run privately. The production current source has independent
+    # all-backend mixture ladders.
     with _gated_source():
-        check_luna_mixture_field_witness("PLASMA", NumpyRefBackend)
+        check_luna_mixture_field_witness("PLASMA", backend_class)
 
 
 def check_luna_mixture_field_witness(tag, backend_class):

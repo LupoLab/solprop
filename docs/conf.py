@@ -262,7 +262,6 @@ sphinx_gallery_conf = {
             "examples/processes",
             "examples/supercontinuum",
             "examples/waveguides",
-            "examples/performance",
         ]
     ),
     "within_subsection_order": "FileNameSortKey",

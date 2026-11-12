@@ -844,7 +844,7 @@ Withdrawn (development-process record, not a design decision).
   operators. Both are the same predict–evaluate–correct recurrence with one call a
   step, the same history lifecycle, controller, budget and observations.
 - **Decision:** `Multistep.formulation` selects `"interaction"` (SEP 13's method) or
-  `"exponential"`. The march is shared (`solprop.backends.multistep.AdamsMarch`); the
+  `"exponential"`. The march is shared (`solprop.backends.numpy_ref.multistep.AdamsMarch`); the
   exponential formulation stores untransported samples in the same history store,
   evaluates its source through the protected hook `StepDriver._adams_lab_source`, forms
   the moments $k!\varphi_{k+1}(h D)$ once per trial (`solprop.backends.exponential`) and

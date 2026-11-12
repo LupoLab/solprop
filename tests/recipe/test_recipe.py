@@ -130,20 +130,59 @@ def test_get_and_set_take_paths_and_check_the_value(recipe):
 def test_a_recipe_naming_the_retired_mlx_backend_is_refused_by_name():
     """SEP 47 retired mlx: its recipe is refused, never run on another backend."""
     retired = Recipe.loads(GNLSE.replace('backend = "numpy_ref"', 'backend = "mlx"'))
-    with pytest.raises(BackendError, match="mlx backend was retired in SEP 47"):
+    with pytest.raises(BackendError, match="'mlx' is not a backend"):
         retired.build()
 
 
-def test_a_grid_s_retired_transforms_keyword_is_refused_by_name():
-    """SEP 47 removed the grids' transforms keyword with the mlx backend."""
+@pytest.mark.parametrize(
+    ("old", "new", "parameter", "reason"),
+    [
+        (
+            'trange = "300 fs"',
+            'trange = "300 fs", transforms = "fftw"',
+            "grid.transforms",
+            "transforms was retired in SEP 47",
+        ),
+        (
+            'type = "CoherentWall"',
+            'type = "CoherentWall", method = "cf4"',
+            "wall.method",
+            "CF4 coupled-flow sections were retired",
+        ),
+        (
+            'type = "CoherentWall"',
+            'type = "CoherentWall", growth_limit = 2.0',
+            "wall.growth_limit",
+            "the default frozen-residual flow is used",
+        ),
+        (
+            'type = "CoherentWall"',
+            'type = "CoherentWall", fallback = "frozen_residual"',
+            "wall.fallback",
+            "remove the key",
+        ),
+    ],
+)
+def test_a_retired_object_keyword_is_refused_with_its_reason(
+    old, new, parameter, reason
+):
+    """A retired keyword names why it went and the fix, not an unknown key."""
     text = Recipe.example("coherent_wall").to_text()
-    assert 'trange = "300 fs"' in text
-    retired = Recipe.loads(
-        text.replace('trange = "300 fs"', 'trange = "300 fs", transforms = "fftw"', 1)
-    )
-    (issue,) = retired.check()
-    assert issue.parameter == "grid.transforms"
-    assert "transforms was retired in SEP 47" in issue.message
+    assert old in text
+    (issue,) = Recipe.loads(text.replace(old, new, 1)).check()
+    assert issue.parameter == parameter
+    assert reason in issue.message
+    assert "unknown key" not in issue.message
+
+
+def test_a_double_precision_recipe_still_loads_and_single_is_refused():
+    """``precision = "double"`` is what solprop does anyway, so it is dropped."""
+    double = Recipe.loads(GNLSE.replace("[build]\n", '[build]\nprecision = "double"\n'))
+    with pytest.raises(RecipeError):
+        double.get("precision")
+    assert _hash(double.build()) == _hash(Recipe.loads(GNLSE).build())
+    with pytest.raises(RecipeError, match=r"binary64 only \(ADR-077\); remove the key"):
+        Recipe.loads(GNLSE.replace("[build]\n", '[build]\nprecision = "single"\n'))
 
 
 def test_unknown_keys_and_routes_are_refused():

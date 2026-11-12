@@ -57,8 +57,8 @@ Two functions turn an adaptive run into a schedule.
 reads the `step_history` a run writes to its output, which records every attempt with its
 start, its length and whether it was accepted, and drops the rejected attempts. Replaying
 the schedule with the same save planes repeats the run's step positions without its
-controller. With a method whose orders are fixed (below), that is how two precisions or
-two backends are compared on one discretisation; `prop_gnlse` steps with `RungeKutta()`
+controller. With a method whose orders are fixed (below), that is how two backends
+are compared on one discretisation; `prop_gnlse` steps with `RungeKutta()`
 (a few seconds):
 
 ```python
@@ -100,7 +100,7 @@ def steps_of(run):
 
 schedule = steps_of(soliton())
 one = soliton(schedule=schedule)
-other = soliton(schedule=schedule)  # change backend= or precision= here to compare
+other = soliton(schedule=schedule)  # change backend= here to compare
 print(np.array_equal(steps_of(one).steps, schedule.steps))  # True
 ```
 
@@ -113,18 +113,16 @@ makes that choice afresh, so its orders can differ in two ways:
 
 - from the adaptive run's, where that run rejected a step: it then waits a step before
   raising the order, which a replay never has to;
-- from another replay's in another precision or on another backend, where an estimate
+- from another replay's on another backend, where an estimate
   lies near the margin: rounding decides the choice there, and a different order
   sequence makes a different truncation error.
 
-Two replays in one precision on one backend are identical. To compare the arithmetic
+Two replays on one backend are identical. To compare the arithmetic
 alone, replay with fixed orders: `RungeKutta()`, as above, or
 `Multistep(variable_order=False)`, whose order rises from one as its history accrues to
 `order` and stays there, by a rule that reads no estimate. Two such replays of one
 schedule make the same truncation errors, so their difference is rounding alone.
-Single precision steps with each interface's own default, so a comparison across
-precisions replays the same method; name `Multistep(variable_order=False)` or
-`RungeKutta()` on both to fix its orders. Recording the order sequence in the schedule
+Recording the order sequence in the schedule
 would also fix a variable-order replay's orders, and make it match its adaptive run;
 that would extend the saved schedule and is not done, since a fixed order gives the
 comparison without it.

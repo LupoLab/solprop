@@ -54,8 +54,7 @@ namespace solprop_native::engines {
 /** The Adams march's dense output (solprop's `_ResidentAdams.march_stepped`, `observe`,
     `hold` and `restore`): the interaction formulation's corrector interpolant, or the
     exponential formulation's corrector with its compensation and carrier frame, over
-    the last accepted step the engine kept. The cubic Hermite interpolant is a
-    comparison method's, which a session refuses. */
+    the last accepted step the engine kept. */
 class AdamsDense final : public session::Dense {
 public:
   AdamsDense(GeneralState& state, const stage::Tables& tables, stage::Anchor& anchor,

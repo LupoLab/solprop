@@ -113,14 +113,12 @@ with `SOLPROP_TEST_BACKEND=native`).
 
 ### The kernel contract
 
-This source implements solprop's kernel contract. A build pins no solprop version: it
-requires the solprop members listed in the exported tuples `DRIVER_SURFACE`,
-`STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and the other `*_FIELDS` tuples, which
-`check_build()` looks up, naming any that are missing. In an editable checkout it also
-compares `build_info().source_digest`, the digest of what the extension was compiled from,
-with this directory's sources. Rebuild with `uv sync --reinstall-package solprop-native`
-when it refuses for either reason; a wheel carries no sources, and solprop's metadata pins it
-to solprop's own version. The version recorded at configure time
+This source implements solprop's kernel contract, whose fields solprop's frozen tables
+hold (`tests/backends/test_driver.py`). A build pins no solprop version. In an editable
+checkout `check_build()` compares `build_info().source_digest`, the digest of what the
+extension was compiled from, with this directory's sources. Rebuild with
+`uv sync --reinstall-package solprop-native` when it refuses; a wheel carries no sources,
+and solprop's metadata pins it to solprop's own version. The version recorded at configure time
 (`solprop_version_built_against`: the repository's version, or `unknown` for a direct
 CMake configure) is provenance only. The TDSE electronic response is refused by name
 before anything is allocated; TDSE propagation uses `backend="numpy_ref"`.

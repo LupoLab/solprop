@@ -38,7 +38,7 @@ import math
 import numpy as np
 import pytest
 
-from backends.planar_cases import CASES, planar_case
+from backends.planar_cases import CASES, linear_responses, planar_case
 from bounds import gamma, step_evaluations
 from sessions.executors import committed_steps
 from sessions.runs import run as session_run
@@ -184,17 +184,15 @@ def test_the_responses_are_exercised(cases, name):
     grid, space, problem, run_request = cases(name)
     linear = dataclasses.replace(
         problem,
-        responses=dataclasses.replace(
-            problem.responses, response_order=problem.responses.response_order[:1]
-        ),
+        responses=linear_responses(problem.responses),
     )
     schedule = run_request.stepper.schedule
     assert schedule is not None
     count = min(schedule.steps.size, RUN_STEPS)
     length = grid.length * count / schedule.steps.size
     bound = ladder_bound(name, grid, space, problem, run_request, count, length)
-    # On the oracle, which reads ``response_order``: a run within the bound of it is
-    # then the nonlinear run, and not a linear one.
+    # On the oracle: a run within the bound of it is then the nonlinear run, and not a
+    # linear one.
     stepped = with_steps(run_request, count, length)
     nonlinear, _ = run(NumpyRefBackend, problem, stepped, grid, length)
     plain, _ = run(NumpyRefBackend, linear, stepped, grid, length)

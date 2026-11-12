@@ -208,33 +208,6 @@ def test_the_history_covers_only_what_happened_since_the_last_observation(
 # --------------------------------------------------------------------- the refusals
 
 
-def declare(translation, substitute, **overrides):
-    """Return the problem with one or more flags declared, as a compiler would."""
-    problem, run_request = translation
-    return Translation(
-        substitute(
-            problem,
-            flags=dataclasses.replace(problem.flags, **overrides),
-            validate=False,
-        ),
-        run_request,
-    )
-
-
-def test_a_declared_term_this_backend_cannot_execute_is_refused_by_name(
-    backend_class, soliton_problem, narrow_grid, substitute
-):
-    """A term silently dropped would run, converge and be wrong. The Kerr, Raman and
-    plasma terms execute; the spectral-domain responses do not."""
-    problem, run_request = declare(
-        soliton_problem(narrow_grid, 1, save_planes=[LENGTH]),
-        substitute,
-        has_spectral_responses=True,
-    )
-    with pytest.raises(BackendError, match="spectral responses"):
-        backend_class(problem, run_request)
-
-
 def test_a_declared_raman_kernel_is_executed_rather_than_refused(
     backend_class, backend_name, linear_problem, narrow_grid
 ):
