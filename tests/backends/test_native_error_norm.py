@@ -93,7 +93,7 @@ def _operands(backend, reference, problem, run_request, dz):
     reference.set_initial(problem.initial.field0, None)
     reference._trial_step(0.0, dz)
     step = reference._stage_scalars(0.0, dz)
-    propagator = reference._propagator(reference._exponents(0.0, dz)(1.0, step))
+    propagator = np.exp(reference._exponents(0.0, dz)(1.0, step))
     return stages, propagator
 
 
