@@ -1036,7 +1036,7 @@ def optimise_cep(
     def _peak(phase: float) -> float:
         """Return minus the largest value of the real field at one added phase.
 
-        - ``phase``: Carrier-envelope phase added, rad.
+        - ``phase``: carrier-envelope phase added, rad.
         - Returns: minus the peak of the real field, in the square root of W.
         """
         t, amplitude = _to_time(

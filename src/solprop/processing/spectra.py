@@ -315,6 +315,9 @@ def _check_width(width: float) -> None:
 def _check_limits(limits: tuple[float, ...], axis: SpectralAxis) -> None:
     """Refuse limits that name no light on their axis.
 
+    A wavelength limit must be positive; a frequency limit may be zero, as the lower
+    edge of a low-pass band.
+
     - ``limits``: the pass band, in m, Hz or rad/s as ``axis`` says.
     - ``axis``: the axis of ``spec_range``.
     """
