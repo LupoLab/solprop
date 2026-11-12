@@ -75,3 +75,6 @@ CheckOptions:
   bugprone-unused-return-value.AllowCastToVoid: true
   # A shift or mask by a positive literal (`std::size_t{64} << 20`) is not a sign bug.
   bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  # De Morgan's rewrite of `!(a <= x && x <= b)` changes what a NaN gives: the guards
+  # are written to refuse NaN.
+  readability-simplify-boolean-expr.SimplifyDeMorgan: false
