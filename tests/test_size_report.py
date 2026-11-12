@@ -135,20 +135,45 @@ def test_clones_find_a_copied_window_and_its_pair():
     assert pairs == [("a", "b", 1)]
 
 
+def _budget(**allow: int) -> dict:
+    return {
+        "private_docstrings": {"max_sectioned": 2},
+        "modules": {
+            "max_lines": 10,
+            "headroom_percent": 2,
+            "headroom_lines": 5,
+            "allow": {f"src/solprop/{k}.py": v for k, v in allow.items()},
+        },
+        "private_imports": {"max_cross_package": 0},
+    }
+
+
 def test_check_reports_each_exceeded_cap():
     report = size_report._Report()
     report.packages["driver"] = size_report._Package(sectioned_private=3)
-    report.module_lines = {"src/solprop/big.py": 11, "src/solprop/old.py": 20}
+    report.module_lines = {"src/solprop/big.py": 11, "src/solprop/old.py": 21}
     report.private_imports = ["src/solprop/a.py:1 solprop.b._c"]
-    budget = {
-        "private_docstrings": {"max_sectioned": 2},
-        "modules": {"max_lines": 10, "allow": {"src/solprop/old.py": 20}},
-        "private_imports": {"max_cross_package": 0},
-    }
+    budget = _budget(old=20)
     failures = size_report._check(report, budget)
-    assert len(failures) == 3
+    assert len(failures) == 4
     assert "src/solprop/big.py has 11 lines (cap 10)" in failures
+    assert "src/solprop/old.py has 21 lines (cap 20)" in failures
+    budget = _budget(old=21)
     budget["private_docstrings"]["max_sectioned"] = 3
     budget["modules"]["max_lines"] = 11
     budget["private_imports"]["max_cross_package"] = 1
     assert size_report._check(report, budget) == []
+
+
+def test_check_refuses_stale_allow_entries():
+    report = size_report._Report()
+    report.module_lines = {"src/solprop/old.py": 300, "src/solprop/small.py": 8}
+    # The headroom of a 300-line module is max(5, 2 % of 300) = 6 lines.
+    assert size_report._check(report, _budget(old=306)) == []
+    failures = size_report._check(report, _budget(old=307, small=12, gone=20))
+    assert failures == [
+        "src/solprop/old.py has 300 lines, so its allow entry 307 is stale: "
+        "set it to 306",
+        "src/solprop/small.py is under 10 lines: remove its allow entry",
+        "src/solprop/gone.py is allowed 20 lines but no longer exists",
+    ]

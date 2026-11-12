@@ -379,11 +379,29 @@ def _check(report: _Report, budget: dict[str, Any]) -> list[str]:  # TOML tables
         failures.append(
             f"{sectioned} private docstrings have numpydoc sections (cap {cap})"
         )
-    limit: int = budget["modules"]["max_lines"]
-    allowed: dict[str, int] = budget["modules"]["allow"]
+    modules = budget["modules"]
+    limit: int = modules["max_lines"]
+    allowed: dict[str, int] = modules["allow"]
+
+    def headroom(n: int) -> int:
+        return max(
+            modules["headroom_lines"], -(-n * modules["headroom_percent"] // 100)
+        )
+
     for label, n in report.module_lines.items():
         if label.startswith(_ROOTS[0]) and n > allowed.get(label, limit):
             failures.append(f"{label} has {n} lines (cap {allowed.get(label, limit)})")
+    for label, cap in allowed.items():
+        n = report.module_lines.get(label)
+        if n is None:
+            failures.append(f"{label} is allowed {cap} lines but no longer exists")
+        elif n <= limit:
+            failures.append(f"{label} is under {limit} lines: remove its allow entry")
+        elif cap - n > headroom(n):
+            failures.append(
+                f"{label} has {n} lines, so its allow entry {cap} is stale: "
+                f"set it to {n + headroom(n)}"
+            )
     imports = [i for i in report.private_imports if i.startswith(_ROOTS[0])]
     cap = budget["private_imports"]["max_cross_package"]
     if len(imports) > cap:

@@ -191,8 +191,10 @@ when its name starts with an underscore, as `AGENTS.md` asks.
 
 `poe size-check`, in `poe check` and CI's static job, holds `src/solprop` to the ratchets in
 `tools/size_budget.toml`: the number of private docstrings with numpydoc sections, a
-4,000-line cap on a module (the modules already larger are listed, each capped at its
-present size), and the number of private names imported across packages. A cap is lowered
+4,000-line cap on a module, and the number of private names imported across packages. The
+modules already larger are listed, each capped at its size plus a headroom of 2 % (at least
+50 lines); the check also fails on an entry looser than that, or for a module that is gone
+or now under the cap, so a module that shrinks tightens its entry in the same change. A cap is lowered
 when the code improves and never raised to let a change through.
 `.github/workflows/size.yml` adds a soft budget: a pull request whose net growth of
 `src/solprop` against its merge base exceeds 1,500 lines fails unless a maintainer gives it
