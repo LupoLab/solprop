@@ -42,10 +42,10 @@ namespace solprop_native {
  * column writes the same separate current and non-plasma polarisation streams.
  *
  * A CPU build runs it as a team column (`GeneralWorkspace::team_band_plasma_column`,
- * src/general/trial.cpp): the field is a row over t, and each running integral is a band
- * filter over the row (`team_band_filter`, a parallel stencil with a K-sample halo,
- * reflected at the row's ends) followed by a chunked trapezoid scan of the filtered row
- * (`team_trapezoid_window`). These are solprop SEP 25 section 6.7.4
+ * src/general/trial.cpp): the field is a row over t, and each running integral is a
+ * band filter over the row (`team_band_filter`, a parallel stencil with a K-sample
+ * halo, reflected at the row's ends) followed by a chunked trapezoid scan of the
+ * filtered row (`team_trapezoid_window`). These are solprop SEP 25 section 6.7.4
  * whole-row passes, with the final polarisation integral removed by SEP 27:
  *
  *   1. per channel: rates (parallel over t; the raw rates are kept for the loss current
