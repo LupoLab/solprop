@@ -65,10 +65,6 @@
 #include <utility>
 #include <vector>
 
-// The binding code is rewritten around bound structs next (nanobind's ndarray aliases
-// and dicts become const& or bound types there); its by-value parameters wait for it.
-// NOLINTBEGIN(performance-unnecessary-value-param): the bindings' rewrite takes these
-
 namespace nb = nanobind;
 using namespace nb::literals;
 
@@ -4504,5 +4500,3 @@ NB_MODULE(_core, module_) {
     throw std::runtime_error(
         "cannot register the Kokkos runtime's shutdown at interpreter exit");
 }
-
-// NOLINTEND(performance-unnecessary-value-param)

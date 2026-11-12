@@ -88,6 +88,7 @@ CheckOptions:
   # De Morgan's rewrite of `!(a <= x && x <= b)` changes what a NaN gives: the guards
   # are written to refuse NaN.
   readability-simplify-boolean-expr.SimplifyDeMorgan: false
-  # Kokkos views (and the aliases named ...View) are reference-counted handles,
-  # passed by value by convention.
-  performance-unnecessary-value-param.AllowedTypes: 'View'
+  # Reference-counted handles, passed by value by convention: Kokkos views (and the
+  # aliases named ...View), and nanobind's handles and ndarrays (nb::dict, nb::object,
+  # nb::handle, nb::ndarray and the bindings' ...Input and ...Array aliases of it).
+  performance-unnecessary-value-param.AllowedTypes: 'View;nb::;nanobind::;Input$;Array$'
