@@ -190,15 +190,7 @@ def _guide(problem: PropagationProblem) -> object:
     responses' model and policy, and a split block's flow, as the reference group
     compares them; ``None`` off the general modal route.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A member's problem.
-
-    Returns
-    -------
-    object
-        A scalar-and-string description, or ``None``.
+    - Returns: a scalar-and-string description, or ``None``.
     """
     tables = problem.transform.modal_tables
     if tables is None:
@@ -290,15 +282,7 @@ class NativePreparedGroup:
 def _member_refusal(request: RunRequest) -> str | None:
     """Return why one member's request falls outside a group's windows, or ``None``.
 
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The member's run request.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None``.
+    - Returns: the reason, or ``None``.
     """
     # A coupled flow is admitted: the lockstep batch this replaced refused one because
     # its fused accepted update applied no flow action, and a native group fuses
@@ -319,21 +303,7 @@ def _same_group(
 ) -> bool:
     """Return whether a member shares member 0's schedule, planes, method and spec.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The member's problem.
-    request : solprop.translate.run_request.RunRequest
-        The member's request, which replays a schedule.
-    first_problem : solprop.translate.problem.PropagationProblem
-        Member 0's problem.
-    first : solprop.translate.run_request.RunRequest
-        Member 0's request, which replays a schedule.
-
-    Returns
-    -------
-    bool
-        True when they agree.
+    - Returns: True when they agree.
     """
     assert request.replay is not None
     assert first.replay is not None
@@ -353,23 +323,7 @@ def _same_group(
 
 
 def _bound(event: Event, receipt: Receipt, member: int) -> Event:
-    """Return a member's event with its ticket, if any, rebound to the group's batch.
-
-    Parameters
-    ----------
-    event : solprop.backends.events.Event
-        The member's event, its ticket the member session's.
-    receipt : solprop.backends.events.Receipt
-        The group batch's receipt.
-    member : int
-        The member's position, which the group's ticket names.
-
-    Returns
-    -------
-    solprop.backends.events.Event
-        The event, its ticket naming the group's batch and the member; the same event
-        without one.
-    """
+    """Return a member's event with its ticket, if any, rebound to the group's batch."""
     ticket = cast("ExportTicket | None", getattr(event, "ticket", None))
     if ticket is None:
         return event
@@ -402,10 +356,7 @@ class _Window:
     def joined(self) -> tuple[BackendHistory, StepStats]:
         """Return the window's attempts and rows so far, as one record.
 
-        Returns
-        -------
-        tuple
-            The joined history and rows.
+        - Returns: the joined history and rows.
         """
         return join_attempts(self.chunks)
 
@@ -613,25 +564,7 @@ class NativeGroupSession:
         return self._sessions[member].noise_phase(self._held(member, ticket))
 
     def _held(self, member: int, ticket: ExportTicket) -> ExportTicket:
-        """Return the member's own pending ticket that a group ticket stands for.
-
-        Parameters
-        ----------
-        member : int
-            The member's position, already checked.
-        ticket : solprop.backends.events.ExportTicket
-            A ticket of the pending group batch, for this member.
-
-        Returns
-        -------
-        solprop.backends.events.ExportTicket
-            The member session's ticket.
-
-        Raises
-        ------
-        solprop.backends.session.SessionError
-            If the ticket is not one of this member's in the pending batch.
-        """
+        """Return the member's own pending ticket that a group ticket stands for."""
         held = self._tickets.get(member)
         if held is None or held.generation != ticket.generation:
             msg = (
@@ -746,23 +679,7 @@ class NativeGroupSession:
     # -- internals ------------------------------------------------------------------
 
     def _member(self, member: int) -> int:
-        """Return a valid member position.
-
-        Parameters
-        ----------
-        member : int
-            The position asked for.
-
-        Returns
-        -------
-        int
-            The same position.
-
-        Raises
-        ------
-        solprop.backends.session.SessionError
-            If the group has no such member.
-        """
+        """Return a valid member position."""
         if not 0 <= member < len(self._sessions):
             msg = f"the group has {len(self._sessions)} members, not a member {member}"
             raise SessionError(msg)
@@ -771,19 +688,10 @@ class NativeGroupSession:
     def _window(self, *, stepping: bool, final: bool) -> GroupBatch:
         """Run every running member to its window's end, in rounds; report it.
 
-        Parameters
-        ----------
-        stepping : bool
-            Whether the window takes common steps (a save plane's): the stop token is
-            polled before its first round. The launch and the completion take none;
-            any later round of any window is polled too.
-        final : bool
-            Whether it is the completion, which ends the group.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            Each member's events.
+        - ``stepping``: the window takes common steps (a save plane's), so the stop
+          token is polled before its first round. The launch and the completion take
+          none; any later round of any window is polled too.
+        - ``final``: the window is the completion, which ends the group.
         """
         windows = {
             index: _Window()
@@ -827,18 +735,8 @@ class NativeGroupSession:
     def _turn(self, index: int, window: _Window) -> BaseException | None:
         """Advance one member by a round of common steps, or to its window's end.
 
-        Parameters
-        ----------
-        index : int
-            The member's position.
-        window : _Window
-            Its progress through the window, extended here.
-
-        Returns
-        -------
-        BaseException or None
-            A group-wide failure the member reported, which ends the group; ``None``
-            otherwise, its window's end, if reached, in `window`.
+        - Returns: a group-wide failure the member reported, which ends the group;
+          ``None`` otherwise, its window's end, if reached, in `window`.
         """
         session = self._sessions[index]
         made = 0
@@ -883,14 +781,7 @@ class NativeGroupSession:
         warning's committed endpoint, with its field there eligible for a checkpoint,
         as a lone run of it ends (SEP 47 section 5.5). The group asks for no snapshot.
 
-        Parameters
-        ----------
-        index : int
-            The member's position.
-        window : _Window
-            Its window, ended here when the warning is raised.
-        event : solprop.backends.events.ServiceRequired
-            The barrier.
+        - ``window``: its window, ended here when the warning is raised.
         """
         if event.kind is not ServiceKind.WARNING:
             return
@@ -914,21 +805,9 @@ class NativeGroupSession:
     ) -> GroupBatch:
         """End every running member with a group-wide stop or failure.
 
-        Parameters
-        ----------
-        outcome : solprop.backends.events.Outcome
-            Stopped or failed.
-        error : BaseException
-            The primary failure, which the failing member's own terminal carries, or
-            the stop request.
-        windows : dict
-            The window's progress of each member running when it began.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            Each running member's terminal event at its own committed position; a
-            member that ended in this window keeps its own terminal event.
+        - ``windows``: the window's progress of each member running when it began.
+        - Returns: each running member's terminal event at its own committed position; a
+          member that ended in this window keeps its own terminal event.
         """
         events: list[tuple[Event, ...]] = [()] * len(self._sessions)
         for index, window in windows.items():
@@ -970,19 +849,7 @@ class NativeGroupSession:
     ) -> GroupBatch:
         """Issue a window's events under a new receipt, its tickets the group's.
 
-        Parameters
-        ----------
-        members : list
-            Each member's events, their tickets the member sessions'.
-        outcome : solprop.backends.events.Outcome or None, optional
-            The group's outcome, when the batch ends it.
-        error : BaseException or None, optional
-            A group-wide failure's primary error.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            The batch.
+        - ``outcome``: the group's outcome, when the batch ends it.
         """
         receipt = self._ledger.issue(outcome=outcome)
         for index, events in enumerate(members):
@@ -998,22 +865,7 @@ class NativeGroupSession:
 
 
 def _with_chunk(event: Event, history: BackendHistory, rows: StepStats) -> Event:
-    """Return a member's window-ending event carrying the whole window's chunk.
-
-    Parameters
-    ----------
-    event : solprop.backends.events.Event
-        The observation or terminal event that ended the member's window.
-    history : solprop.backends.protocol.BackendHistory
-        The window's attempts, joined.
-    rows : solprop.backends.protocol.StepStats
-        Its periodic rows, joined.
-
-    Returns
-    -------
-    solprop.backends.events.Event
-        The event with that chunk.
-    """
+    """Return a member's window-ending event carrying the whole window's chunk."""
     return cast(
         "Event",
         dataclasses.replace(cast("Any", event), history=history, step_stats=rows),

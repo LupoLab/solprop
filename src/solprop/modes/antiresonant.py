@@ -147,17 +147,7 @@ LEGACY_CONVENTIONS: Final = _Conventions(20.0, False, False, False)
 def _positive(value: float, name: str) -> None:
     """Check a positive finite dimension.
 
-    Parameters
-    ----------
-    value : float
-        Dimension in m.
-    name : str
-        Name used in the diagnostic.
-
-    Raises
-    ------
-    ModeError
-        If the dimension is nonpositive or nonfinite.
+    - ``value``: dimension in m.
     """
     if not math.isfinite(value) or value <= 0:
         raise ModeError(f"{name} must be positive and finite, got {value}")
@@ -166,20 +156,7 @@ def _positive(value: float, name: str) -> None:
 def _tube_angle(n_tubes: int) -> float:
     """Return the sine of half the angular tube spacing.
 
-    Parameters
-    ----------
-    n_tubes : int
-        Number of tubes, at least three.
-
-    Returns
-    -------
-    float
-        Sine of pi divided by the count.
-
-    Raises
-    ------
-    ModeError
-        If the count is invalid.
+    - ``n_tubes``: number of tubes, at least three.
     """
     if isinstance(n_tubes, bool) or not isinstance(n_tubes, int) or n_tubes < 3:
         raise ModeError("n_tubes must be an integer >= 3")
@@ -273,15 +250,7 @@ def tube_radius_from_gap(core_radius: float, n_tubes: int, gap: float) -> float:
 def _check_gap(gap: float) -> None:
     """Check that tubes do not overlap.
 
-    Parameters
-    ----------
-    gap : float
-        Tube separation in m.
-
-    Raises
-    ------
-    ModeError
-        If the gap is negative or nonfinite.
+    - ``gap``: tube separation in m.
     """
     if not math.isfinite(gap) or gap < 0:
         raise ModeError(f"tube gap must be nonnegative and finite, got {gap} m")
@@ -328,10 +297,7 @@ class TubeLattice(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "TubeLattice: a single ring of cladding tubes", [
             ("wall thickness", engineering(self.wall_thickness, "m")),
@@ -485,19 +451,7 @@ class _Spectral:
         self,
         other: "_Spectral | complex | Inexact[np.ndarray, '...']",
     ) -> "_Spectral":
-        """Apply the sum rule.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Apply the sum rule."""
         if isinstance(other, _Spectral):
             return _Spectral(self.value + other.value, self.slope + other.slope)
         return _Spectral(self.value + other, self.slope)
@@ -505,67 +459,25 @@ class _Spectral:
     __radd__ = __add__
 
     def __neg__(self) -> "_Spectral":
-        """Negate value and slope.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Negate value and slope."""
         return _Spectral(-self.value, -self.slope)
 
     def __sub__(
         self,
         other: "_Spectral | complex | Inexact[np.ndarray, '...']",
     ) -> "_Spectral":
-        """Subtract a spectral quantity.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Subtract a spectral quantity."""
         return self + (-other)
 
     def __rsub__(self, other: "complex | Inexact[np.ndarray, '...']") -> "_Spectral":
-        """Subtract from a constant.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Subtract from a constant."""
         return -self + other
 
     def __mul__(
         self,
         other: "_Spectral | complex | Inexact[np.ndarray, '...']",
     ) -> "_Spectral":
-        """Apply the product rule.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Apply the product rule."""
         if isinstance(other, _Spectral):
             return _Spectral(
                 self.value * other.value,
@@ -579,19 +491,7 @@ class _Spectral:
         self,
         other: "_Spectral | complex | Inexact[np.ndarray, '...']",
     ) -> "_Spectral":
-        """Apply the quotient rule.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Apply the quotient rule."""
         if isinstance(other, _Spectral):
             value = self.value / other.value
             return _Spectral(value, (self.slope - value * other.slope) / other.value)
@@ -601,62 +501,22 @@ class _Spectral:
         self,
         other: "complex | Inexact[np.ndarray, '...']",
     ) -> "_Spectral":
-        """Divide a constant by a spectral quantity.
-
-        Parameters
-        ----------
-        other : _Spectral, complex or numpy.ndarray
-            Other operand with its slope, or a frequency-independent constant,
-            scalar or broadcastable.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Divide a constant by a spectral quantity."""
         return (self**-1) * other
 
     def __pow__(self, power: float) -> "_Spectral":
-        """Apply the constant-exponent power rule.
-
-        Parameters
-        ----------
-        power : float
-            Constant exponent.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Apply the constant-exponent power rule."""
         return _Spectral(
             self.value**power, power * self.value ** (power - 1) * self.slope
         )
 
     def __rpow__(self, base: float) -> "_Spectral":
-        """Differentiate a frequency-dependent exponent.
-
-        Parameters
-        ----------
-        base : float
-            Positive constant base.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Differentiate a frequency-dependent exponent."""
         value = base**self.value
         return _Spectral(value, value * math.log(base) * self.slope)
 
     def exp(self) -> "_Spectral":
-        """Apply the exponential chain rule.
-
-        Returns
-        -------
-        _Spectral
-            Resulting value and analytic frequency slope.
-        """
+        """Apply the exponential chain rule."""
         value = np.exp(self.value)
         return _Spectral(value, value * self.slope)
 
@@ -712,23 +572,13 @@ def _cutoffs(
 ) -> tuple[_Spectral, _Spectral]:
     """Evaluate the HE and EH resonance fits of the 2019 paper, eqs. 4-5.
 
-    Parameters
-    ----------
-    mu : numpy.ndarray
-        Azimuthal tube-mode indices, positive, as a column so the cutoffs come out
-        with one row per index.
-    nu : int
-        Radial tube-mode index, positive.
-    ratio : float
-        Dimensionless wall thickness divided by outer tube radius.
-    tube : _Spectral
-        Real tube index and its slope in s/rad.
-
-    Returns
-    -------
-    tuple of _Spectral
-        HE and EH dimensionless cutoff frequencies and their slopes, shape
-        ``(n_terms, n_omega)``.
+    - ``mu``: azimuthal tube-mode indices, positive, as a column so the cutoffs come out
+      with one row per index.
+    - ``nu``: radial tube-mode index, positive.
+    - ``ratio``: wall thickness divided by the outer tube radius.
+    - ``tube``: real tube index and its slope in s/rad.
+    - Returns: HE and EH dimensionless cutoff frequencies and their slopes, shape
+      ``(n_terms, n_omega)``.
     """
     if nu == 1:
         he = (
@@ -761,19 +611,8 @@ def _resonance_sums(
 ) -> tuple[_Spectral, _Spectral]:
     """Sum loss resonances and the fundamental-mode dispersion correction.
 
-    Parameters
-    ----------
-    frequency : _Spectral
-        Dimensionless normalised frequency and its slope.
-    tube : _Spectral
-        Real tube index and its slope.
-    lattice : TubeLattice
-        Wall, tube dimensions and truncation count.
-
-    Returns
-    -------
-    tuple of _Spectral
-        Weighted loss and dispersion sums with analytic slopes.
+    - ``frequency``: dimensionless normalised frequency and its slope.
+    - Returns: weighted loss and dispersion sums with analytic slopes.
     """
     ratio = lattice.wall_thickness / lattice.tube_radius
     # One row per azimuthal index: the cutoffs and Lorentzians of every mu are
@@ -839,14 +678,7 @@ class VincettiMode(MarcatiliMode):
     lattice: TubeLattice
 
     def _check_arguments(self) -> None:
-        """Validate the parent inputs and the tube geometry.
-
-        Raises
-        ------
-        ModeError
-            If the reduced model is requested or a declared radius gives
-            overlapping tubes.
-        """
+        """Validate the parent inputs and the tube geometry."""
         super()._check_arguments()
         if self.model == "reduced":
             raise ModeError('VincettiMode does not support model="reduced"')
@@ -936,22 +768,10 @@ class VincettiMode(MarcatiliMode):
     ) -> _SpectralFit:
         """Evaluate the empirical index, radius and dispersion fits together.
 
-        Parameters
-        ----------
-        terms : _VincettiTerms
-            Frequency samples, including both material slopes.
-        radius : float
-            Core radius in m.
-        density : float or numpy.ndarray
-            Number density in m^-3, scalar or per species.
-        conventions : _Conventions, optional
-            Which form of the disputed terms to evaluate; solprop's by default.
-
-        Returns
-        -------
-        _SpectralFit
-            Refractivity, gas index, effective radius, dispersion correction and
-            waveguide decrement, each paired with its analytic frequency derivative.
+        - ``radius``: core radius in m.
+        - ``density``: number density in m^-3, scalar or per species.
+        - ``conventions``: which form of the disputed terms to evaluate; solprop's by
+          default.
         """
         # Zeroing only the Bessel root uses precisely the parent's susceptibility
         # reduction and stable refractivity arithmetic, including complex species.
@@ -1028,24 +848,9 @@ class VincettiMode(MarcatiliMode):
     ) -> tuple[Inexact[np.ndarray, " n_omega"], Inexact[np.ndarray, " n_omega"]]:
         """Return refractivity and slope before the inherited loss policy.
 
-        Parameters
-        ----------
-        terms : MarcatiliTerms
-            Samples from this mode, carrying its tube material.
-        radius : float
-            Core radius in m.
-        density : float or numpy.ndarray
-            Number density in m^-3, scalar or per species.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and derivative in s/rad, shape ``(n_omega,)``.
-
-        Raises
-        ------
-        ModeError
-            If samples were taken from another model.
+        - ``radius``: core radius in m.
+        - ``density``: number density in m^-3, scalar or per species.
+        - Returns: refractivity and derivative in s/rad, shape ``(n_omega,)``.
         """
         if not isinstance(terms, _VincettiTerms):
             raise ModeError("VincettiMode requires its own sampled_terms")
@@ -1096,22 +901,13 @@ class VincettiMode(MarcatiliMode):
         return np.asarray(area)
 
     def _area_rows(self) -> list[tuple[str, object]]:
-        """Return no area row: this mode's area is not a constant of the geometry.
-
-        Returns
-        -------
-        list of tuple
-            Empty.
-        """
+        """Return no area row: this mode's area is not a constant of the geometry."""
         return []
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         title, rows = super()._describe()
         lattice = self.lattice

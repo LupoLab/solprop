@@ -151,28 +151,14 @@ class EdgeConfig:
     values: Mapping[str, object]
 
     def native(self) -> dict[str, object]:
-        """Return the configuration as ``_core`` reads it.
-
-        Returns
-        -------
-        dict
-            Its fields.
-        """
+        """Return the configuration as ``_core`` reads it."""
         return dict(self.values)
 
 
 def declared(problem: PropagationProblem) -> bool:
     """Return whether a run declares content above ``discard_above``.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-
-    Returns
-    -------
-    bool
-        True when its transverse specification sets ``discard_above``.
+    - Returns: True when its transverse specification sets ``discard_above``.
     """
     design = transverse_of(problem.route)
     return design is not None and design.specification.discard_above is not None
@@ -183,20 +169,7 @@ def edge_config(
 ) -> EdgeConfig:
     """Return the native edge's configuration for a run's fresh edge.
 
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's fresh edge; it is not changed.
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem: its declared content, as ``HostDriver.attach_monitor``
-        hands it to the edge's launch.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section: its fixed schedule, if any.
-
-    Returns
-    -------
-    EdgeConfig
-        The configuration.
+    - ``stepper``: the run's stepper section: its fixed schedule, if any.
     """
     schedule = stepper.schedule
     steps = None if schedule is None else np.asarray(schedule.steps)
@@ -215,22 +188,6 @@ def config_of(
     Every threshold is formed here as the edge forms it, so that the native edge
     compares the same numbers: ``budget ** 2``, ``(stop_factor * budget) ** 2``, the
     longest fixed step, and the input noise's share of the weights and count of modes.
-
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        A fresh edge; it is not changed.
-    steps : numpy.ndarray or None
-        A fixed schedule's steps, as :meth:`TransverseEdge.launch` takes them.
-    declared : bool
-        Whether content above ``discard_above`` was declared.
-    reads : bool, optional
-        Whether the backend reads the edge; every native session does.
-
-    Returns
-    -------
-    EdgeConfig
-        The configuration.
     """
     design = edge.design
     faces = edge._faces  # pyright: ignore[reportPrivateUsage]
@@ -290,20 +247,11 @@ def noise_readings(
     requested collar's strip. They are formed here from the same draw, the same way,
     once (``transverse::Noise``), so the native launch judges the same numbers.
 
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's fresh edge; it is not changed.
-    noise : numpy.ndarray
-        The input noise's draw, shape ``(n_modes, n_pol, n_omega)``, a host array.
-    clean : numpy.ndarray or None
-        Each column's unweighted launch energy without that noise
-        (``NativeBackend._launch_clean_columns``), or ``None``.
-
-    Returns
-    -------
-    dict
-        The readings, as ``transverse::Noise`` takes them.
+    - ``noise``: the input noise's draw, shape ``(n_modes, n_pol, n_omega)``, a host
+      array.
+    - ``clean``: each column's unweighted launch energy without that noise
+      (``NativeBackend._launch_clean_columns``), or ``None``.
+    - Returns: the readings, as ``transverse::Noise`` takes them.
     """
     reduction = edge.reduction
     columns = reduction.column_power(noise)
@@ -338,25 +286,9 @@ def resumption(record: object, faces: int) -> dict[str, object]:
     reads, made whole as it makes them and refused as it refuses them. Which fields are
     restored, their defaults and the status a resume keeps are native.
 
-    Parameters
-    ----------
-    record : object
-        The ``transverse`` entry of the earlier monitor record, or anything else when
-        there is none.
-    faces : int
-        The edge's faces.
-
-    Returns
-    -------
-    dict
-        The resumption, as ``_core`` reads it.
-
-    Raises
-    ------
-    ValueError
-        For reads that are not a number Python's ``int`` takes, as solprop's resume.
-    OverflowError
-        Likewise, for infinite reads.
+    - ``record``: the ``transverse`` entry of the earlier monitor record, or anything
+      else when there is none.
+    - Returns: the resumption, as ``_core`` reads it.
     """
     if not isinstance(record, Mapping):
         return {"record": False}
@@ -390,20 +322,6 @@ def _per_face(
     """Return a record's per-face list, or ``None`` when it has no value per face.
 
     As ``TransverseEdge.resume``'s ``numbers`` reads it.
-
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        The edge's record.
-    name : str
-        The field.
-    faces : int
-        The edge's faces.
-
-    Returns
-    -------
-    list of float or None
-        One value per face.
     """
     value = record.get(name)
     if not isinstance(value, list) or len(cast("list[object]", value)) != faces:
@@ -414,47 +332,16 @@ def _per_face(
 def record_of(edge: TransverseEdge, native: Mapping[str, object]) -> dict[str, object]:
     """Format the native edge's record as :meth:`TransverseEdge.summary` does.
 
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's edge, which names the faces.
-    native : collections.abc.Mapping
-        ``_core``'s record: every number, NaN where nothing was measured.
-
-    Returns
-    -------
-    dict
-        The record, with ``None`` for what was never measured.
+    - ``native``: ``_core``'s record: every number, NaN where nothing was measured.
+    - Returns: the record, with ``None`` for what was never measured.
     """
 
     def number(name: str) -> float:
-        """Return a recorded number.
-
-        Parameters
-        ----------
-        name : str
-            The field.
-
-        Returns
-        -------
-        float
-            The value.
-        """
+        """Return a recorded number."""
         return float(cast("float", native[name]))
 
     def numbers(name: str) -> list[float]:
-        """Return a recorded per-face list.
-
-        Parameters
-        ----------
-        name : str
-            The field.
-
-        Returns
-        -------
-        list of float
-            One value per face.
-        """
+        """Return a recorded per-face list."""
         return [float(one) for one in cast("list[float]", native[name])]
 
     launch = number("launch_energy")
@@ -523,18 +410,7 @@ class EdgeNotice:
 
     @classmethod
     def of(cls, native: Mapping[str, object]) -> EdgeNotice:
-        """Return the notice ``_core`` reports.
-
-        Parameters
-        ----------
-        native : collections.abc.Mapping
-            A notice's dictionary.
-
-        Returns
-        -------
-        EdgeNotice
-            The notice.
-        """
+        """Return the notice ``_core`` reports."""
         return cls(
             NoticeKind(int(cast("int", native["kind"]))),
             bool(native["stop"]),
@@ -547,43 +423,12 @@ class EdgeNotice:
 
 
 def _face(edge: TransverseEdge, notice: EdgeNotice) -> str:
-    """Return the name of the face a notice names.
-
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's edge.
-    notice : EdgeNotice
-        The notice.
-
-    Returns
-    -------
-    str
-        The face's name.
-    """
+    """Return the name of the face a notice names."""
     return edge._faces[notice.face].name  # pyright: ignore[reportPrivateUsage]
 
 
 def notice_warning(edge: TransverseEdge, notice: EdgeNotice) -> BoundaryWarning:
-    """Return a native edge's warning, as the edge issues it.
-
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's edge.
-    notice : EdgeNotice
-        The warning's verdict.
-
-    Returns
-    -------
-    solprop.exceptions.BoundaryWarning
-        The warning.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        For a stop, or a kind that does not warn.
-    """
+    """Return a native edge's warning, as the edge issues it."""
     kind = notice.kind
     if notice.stop or kind is NoticeKind.NONE:
         msg = f"the native transverse edge warned with a {kind.name.lower()} notice"
@@ -608,21 +453,7 @@ def notice_warning(edge: TransverseEdge, notice: EdgeNotice) -> BoundaryWarning:
 
 
 def notice_error(edge: TransverseEdge, notice: EdgeNotice) -> BaseException:
-    """Return the exception a native edge's stop reports, as the edge raises it.
-
-    Parameters
-    ----------
-    edge : solprop.transverse_monitor.TransverseEdge
-        The run's edge.
-    notice : EdgeNotice
-        The stop's verdict.
-
-    Returns
-    -------
-    BaseException
-        The :class:`~solprop.exceptions.BoundaryError`; a
-        :class:`~solprop.exceptions.BackendError` for a notice that does not stop.
-    """
+    """Return the exception a native edge's stop reports, as the edge raises it."""
     stop = (edge.stop_factor * edge.budget) ** 2
     kind = notice.kind
     if not notice.stop:
@@ -655,10 +486,7 @@ def notice_error(edge: TransverseEdge, notice: EdgeNotice) -> BaseException:
 def log_finish(native: Mapping[str, object]) -> None:
     """Log the native edge's verdict at the end of a run, as the edge logs it.
 
-    Parameters
-    ----------
-    native : collections.abc.Mapping
-        ``_core``'s record, with its ``finish``.
+    - ``native``: ``_core``'s record, with its ``finish``.
     """
     finish = cast("Mapping[str, object]", native["finish"])
     _log_finish(
@@ -675,15 +503,7 @@ def log_declared(native: Mapping[str, object]) -> bool:
     As :meth:`TransverseEdge.launch` logs it, for a launch it judged: one with energy,
     not resumed.
 
-    Parameters
-    ----------
-    native : collections.abc.Mapping
-        ``_core``'s record.
-
-    Returns
-    -------
-    bool
-        Whether the edge has launched, so that there is nothing left to log.
+    - ``native``: ``_core``'s record.
     """
     launch = float(cast("float", native["launch_energy"]))
     if math.isnan(launch) and not native["resumed"]:

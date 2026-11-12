@@ -76,22 +76,8 @@ logger = logging.getLogger(__name__)
 def _normalisation(mode: Mode, z: float) -> float:
     """Return a mode's closed-form normalisation.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``N`` in W.
-
-    Raises
-    ------
-    ModeError
-        If the mode has no closed-form normalisation.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``N`` in W.
     """
     closed_form: Callable[[float], float] | None = getattr(mode, "normalisation", None)
     if not callable(closed_form):
@@ -144,21 +130,12 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
         0.5 * EPS0 * C / math.sqrt(_normalisation(first, z) * _normalisation(second, z))
     )
 
-    def integrand(inner: float, outer: float) -> float:
+    def _integrand(inner: float, outer: float) -> float:
         """Return the product of the two profiles times the area element.
 
-        Parameters
-        ----------
-        inner : float
-            The first cross-section coordinate, ``r`` or ``x`` in m. dblquad passes
-            the *inner* variable first, which is why the order looks reversed.
-        outer : float
-            The second coordinate, ``theta`` in rad or ``y`` in m.
-
-        Returns
-        -------
-        float
-            The integrand of the overlap.
+        - ``inner``: the first cross-section coordinate, ``r`` or ``x`` in m. dblquad
+          passes the *inner* variable first, which is why the order looks reversed.
+        - ``outer``: the second coordinate, ``theta`` in rad or ``y`` in m.
         """
         point = np.array([[inner, outer]])
         product = float(np.sum(first.field(point, z) * second.field(point, z)))
@@ -169,7 +146,7 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
         return scale * _overlap_along_x(first, second, (lower[0], upper[0]), z)
     # The outer variable is the second coordinate and the inner the first, with the
     # polar Jacobian r folded into the integrand above.
-    value, _ = dblquad(integrand, lower[1], upper[1], lower[0], upper[0])
+    value, _ = dblquad(_integrand, lower[1], upper[1], lower[0], upper[0])
     return scale * value
 
 
@@ -178,33 +155,15 @@ def _overlap_along_x(
 ) -> float:
     """Return the integral over x of two slab profiles' product, per metre of y.
 
-    Parameters
-    ----------
-    first, second : Mode
-        Slab modes sharing one gap.
-    limits : tuple of float
-        The gap's edges in m.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``int e_1 . e_2 dx`` in m, integrated adaptively.
+    - ``limits``: the gap's edges in m.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``int e_1 . e_2 dx`` in m, integrated adaptively.
     """
 
     def along_x(x: float) -> float:
         """Return the product of the two slab profiles at one x.
 
-        Parameters
-        ----------
-        x : float
-            Transverse coordinate in m.
-
-        Returns
-        -------
-        float
-            The integrand of the per-unit-width overlap.
+        - ``x``: transverse coordinate in m.
         """
         point = np.array([[x, 0.0]])
         return float(np.sum(first.field(point, z) * second.field(point, z)))
@@ -310,15 +269,8 @@ def _measure_of(mode: Mode) -> TransverseMeasure:
     specified mode keeps its source in its dispersion's ``mode``, and its area --
     ``aeff()`` of that source unless one was declared -- is in the source's units.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-
-    Returns
-    -------
-    str
-        The first declared ``transverse_measure`` along the chain, else ``"area"``.
+    - Returns: the first declared ``transverse_measure`` along the chain, else
+      ``"area"``.
     """
     one: object = mode
     while one is not None:
@@ -425,18 +377,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     def _same_stepindex_guide(self, mode: Mode) -> bool:
-        """Check whether a channel shares the first physical guide.
-
-        Parameters
-        ----------
-        mode : StepIndexMode
-            Existing bound lossless mode.
-
-        Returns
-        -------
-        bool
-            Whether radius paths and both material laws agree.
-        """
+        """Check whether a channel shares the first physical guide."""
         first = self.modes[0]
         return (
             isinstance(first, StepIndexMode)
@@ -863,10 +804,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         count = len(self.modes)
         return f"ModeCollection: {count} mode{'s' * (count != 1)}", [

@@ -310,10 +310,7 @@ class GradedIndexProvider(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "GradedIndexProvider: radial P1 elements, exact Bessel exterior", [
             ("sector", f"{self.family}{self.azimuthal_order}"),
@@ -360,15 +357,8 @@ class GradedIndexProvider(Displayed):
     def _radius(self, z: float) -> float:
         """Evaluate and validate the declared radius path.
 
-        Parameters
-        ----------
-        z : float
-            Position in m within the declared path.
-
-        Returns
-        -------
-        float
-            Positive core radius in m.
+        - ``z``: position in m within the declared path.
+        - Returns: positive core radius in m.
         """
         path = as_profile(self.radius)
         value = float(path(np.array([z], dtype=float))[0])
@@ -554,23 +544,7 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_points"]:
         """Evaluate the lossless radial permittivity on both materials.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        radial_fraction : numpy.ndarray
-            Dimensionless radii divided by the core radius, shape (n_points,);
-            anything above one takes the exterior value.
-
-        Returns
-        -------
-        numpy.ndarray
-            Relative permittivity, shape (n_points,).
-
-        Raises
-        ------
-        ModeError
-            If a permittivity is lossy, non-finite or not positive.
+        - ``omega``: positive angular frequency in rad/s.
         """
         core = self.permittivity.permittivity(omega, np.minimum(radial_fraction, 1.0))
         exterior = self.exterior.permittivity(np.array([omega], dtype=float))[0]
@@ -586,16 +560,8 @@ class GradedIndexProvider(Displayed):
     def _weak_guidance_contrast(self, omega: float) -> float:
         """Return the axis-to-exterior relative permittivity contrast.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-
-        Returns
-        -------
-        float
-            Dimensionless ``eps_axis / eps_exterior - 1``, the quantity the LP
-            weak-guidance approximation is declared valid over.
+        ``eps_axis / eps_exterior - 1``: the quantity the LP weak-guidance approximation
+        is declared valid over.
         """
         axis = float(self._eps(omega, np.zeros(1))[0])
         exterior = float(self._eps(omega, np.full(1, 2.0))[0])
@@ -605,23 +571,9 @@ class GradedIndexProvider(Displayed):
     def _solution(self, omega: float, z: float) -> _RadialSolution:
         """Solve the variational eigenproblem with an exact exterior.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        z : float
-            Position in m within the declared path.
-
-        Returns
-        -------
-        _RadialSolution
-            Dimensionless radial mesh, profiles, beta and interface defects.
-
-        Raises
-        ------
-        ModeError
-            If the frequency, the LP contrast or a requested channel's binding
-            is outside the provider's declared validity.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``z``: position in m within the declared path.
+        - Returns: dimensionless radial mesh, profiles, beta and interface defects.
         """
         radius = self._radius(z)
         if (
@@ -733,23 +685,7 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Return the one-sided derivative-trace defect at the material interface.
 
-        Parameters
-        ----------
-        nodes : numpy.ndarray
-            Dimensionless radial mesh, shape (n_radial_nodes,).
-        profiles : numpy.ndarray
-            Nodal eigenfunctions, shape (n_radial_profiles, n_modes_profiles).
-        omega : float
-            Positive angular frequency in rad/s.
-        exterior : float
-            Exterior relative permittivity, dimensionless.
-
-        Returns
-        -------
-        numpy.ndarray
-            Scaled defect of the continuous quantity of the sector, shape
-            (n_modes,): the radial gradient for TE/TM and its inverse-permittivity
-            weighting for TM, the plain slope for LP.
+        - ``omega``: positive angular frequency in rad/s.
         """
         interface = int(np.searchsorted(nodes, 1.0))
         left = (profiles[interface] - profiles[interface - 1]) / (
@@ -771,20 +707,8 @@ class GradedIndexProvider(Displayed):
     ) -> None:
         """Refuse a channel the declared finite domain cannot carry.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-
-        Raises
-        ------
-        ModeError
-            If a channel keeps more than :data:`MAX_EXTERIOR_TAIL_FRACTION` of its
-            power beyond the matching radius.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
         """
         # Above cutoff is not the same as bound on this domain: a channel whose
         # exterior decay is slow puts its power in the analytic continuation, not
@@ -812,20 +736,10 @@ class GradedIndexProvider(Displayed):
     ]:
         """Assemble the radial weak mass and Helmholtz operators.
 
-        Parameters
-        ----------
-        omega : float
-            Positive angular frequency in rad/s.
-        nodes : numpy.ndarray
-            Explicit dimensionless radial mesh, shape (n_radial_nodes,),
-            increasing from the axis to the matching radius.
-        wave_number : float
-            Vacuum wave number multiplied by core radius, dimensionless.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Dimensionless mass and operator matrices on the radial nodes.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``nodes``: explicit dimensionless radial mesh, shape (n_radial_nodes,),
+          increasing from the axis to the matching radius.
+        - Returns: dimensionless mass and operator matrices on the radial nodes.
         """
         mass = np.zeros((nodes.size, nodes.size))
         operator = np.zeros_like(mass)
@@ -1104,19 +1018,9 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Integrate full-domain power independently of requested field nodes.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Positive power norms in W, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - Returns: positive power norms in W, shape (n_modes,).
         """
         key = (omega, radius)
         if key in solution.norms:
@@ -1177,21 +1081,10 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Integrate the squared decaying radial profile exactly.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-        lower : float
-            Lower integration radius divided by core radius.
-
-        Returns
-        -------
-        numpy.ndarray
-            Dimensionless radial integrals, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - ``lower``: lower integration radius divided by the core radius.
+        - Returns: dimensionless radial integrals, shape (n_modes,).
         """
         exterior = float(
             np.real(self.exterior.permittivity(np.array([omega], dtype=float))[0])
@@ -1262,21 +1155,9 @@ class GradedIndexProvider(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Return the exact power fraction of each channel beyond a radius.
 
-        Parameters
-        ----------
-        solution : _RadialSolution
-            Solved radial eigenfunctions and propagation constants.
-        omega : float
-            Positive angular frequency in rad/s.
-        radius : float
-            Core radius in m.
-        outer_radius : float
-            Radius in m at or beyond the Bessel matching radius.
-
-        Returns
-        -------
-        numpy.ndarray
-            Per-channel discarded power fractions, shape (n_modes,).
+        - ``omega``: positive angular frequency in rad/s.
+        - ``radius``: core radius in m.
+        - ``outer_radius``: radius in m at or beyond the Bessel matching radius.
         """
         exterior = float(
             np.real(self.exterior.permittivity(np.array([omega], dtype=float))[0])

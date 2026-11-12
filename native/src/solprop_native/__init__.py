@@ -875,16 +875,6 @@ def _source_digest(root: Path) -> str:
     ``CMakeLists.txt`` and each C++ source and header under ``src`` and ``include``, the
     paths relative to `root` and sorted bytewise, and the digest is the SHA-256 of the
     record.
-
-    Parameters
-    ----------
-    root
-        The ``native`` directory of a checkout.
-
-    Returns
-    -------
-    str
-        The digest in lowercase hexadecimal.
     """
     paths = ["CMakeLists.txt"]
     for folder in ("src", "include"):
@@ -905,11 +895,8 @@ def _source_digest(root: Path) -> str:
 def _checkout_digest() -> str | None:
     """Return this editable checkout's source digest, computed once per process.
 
-    Returns
-    -------
-    str or None
-        The digest, or ``None`` for an installed wheel, which has no sources beside it
-        and which solprop's metadata pins to its own version.
+    - Returns: the digest, or ``None`` for an installed wheel, which has no sources
+      beside it and which solprop's metadata pins to its own version.
     """
     root = Path(__file__).parents[2]
     return _source_digest(root) if (root / "CMakeLists.txt").is_file() else None

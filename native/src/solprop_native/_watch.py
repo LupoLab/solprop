@@ -148,13 +148,7 @@ class MonitorConfig:
     can_rest: bool
 
     def native(self) -> dict[str, object]:
-        """Return the configuration as ``_core`` reads it.
-
-        Returns
-        -------
-        dict
-            Its fields.
-        """
+        """Return the configuration as ``_core`` reads it."""
         return {
             "policy": dict(self.policy),
             "floor_share": self.floor_share,
@@ -196,10 +190,7 @@ class Resumption:
     def native(self) -> dict[str, object]:
         """Return the resumption as ``_core`` reads it.
 
-        Returns
-        -------
-        dict
-            Its fields, the numbers flattened in and absent lists left out.
+        - Returns: its fields, the numbers flattened in and absent lists left out.
         """
         out: dict[str, object] = {
             "record": self.record,
@@ -246,15 +237,7 @@ class Notice:
     def of(cls, native: Mapping[str, object]) -> Notice:
         """Return the notice ``_core`` reports.
 
-        Parameters
-        ----------
-        native : collections.abc.Mapping
-            ``SessionEvent.notice``.
-
-        Returns
-        -------
-        Notice
-            The notice.
+        - ``native``: ``SessionEvent.notice``.
         """
         return cls(
             NoticeKind(int(cast("int", native["kind"]))),
@@ -274,21 +257,6 @@ def monitor_config(
     The predictions' policy is the monitor's own (:meth:`BoundaryMonitor.watch_policy`)
     with the split collar's crossing limit the driver would give it
     (``HostDriver.attach_monitor``).
-
-    Parameters
-    ----------
-    monitor : solprop.monitor.BoundaryMonitor
-        The run's fresh monitor; it is not changed.
-    crossing : solprop.boundaries.SplitCrossing or None
-        The split collar's crossing limit (the problem's, under the split scheme).
-    can_rest : bool
-        Whether the route's stages may leave a quiet collar out
-        (``HostDriver._collar_can_rest``).
-
-    Returns
-    -------
-    MonitorConfig
-        The configuration.
     """
     configured = dataclasses.replace(monitor, crossing=crossing)
     policy = configured.watch_policy()
@@ -309,18 +277,6 @@ def _number(record: Mapping[str, object], name: str) -> float | None:
 
     As :func:`solprop.monitor._number` reads it, without its default, which the native
     reconstruction applies.
-
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        A monitor record.
-    name : str
-        The field.
-
-    Returns
-    -------
-    float or None
-        The value.
     """
     value = record.get(name)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -337,20 +293,8 @@ def resumption(record: Mapping[str, object] | None) -> Resumption:
     record's launch energy makes it read the counts. Which numbers are restored,
     their defaults and the fallbacks are native.
 
-    Parameters
-    ----------
-    record : collections.abc.Mapping or None
-        The ``boundary_monitor`` record of the latest earlier execution, or ``None``.
-
-    Returns
-    -------
-    Resumption
-        The resumption.
-
-    Raises
-    ------
-    solprop.exceptions.BoundaryError
-        For a count that is not finite or is negative.
+    - ``record``: the ``boundary_monitor`` record of the latest earlier execution, or
+      ``None``.
     """
     if record is None:
         return Resumption(record=False)
@@ -400,15 +344,8 @@ def resumption(record: Mapping[str, object] | None) -> Resumption:
 def unwatched_of(stretches: Sequence[tuple[float, float]]) -> list[list[float]]:
     """Return the stretches a resumed run ran without a monitor, as lists.
 
-    Parameters
-    ----------
-    stretches : collections.abc.Sequence of tuple of float
-        ``(start, end)`` in m.
-
-    Returns
-    -------
-    list
-        ``[start, end]`` pairs.
+    - ``stretches``: ``(start, end)`` in m.
+    - Returns: ``[start, end]`` pairs.
     """
     return [[float(start), float(end)] for start, end in stretches]
 
@@ -416,31 +353,14 @@ def unwatched_of(stretches: Sequence[tuple[float, float]]) -> list[list[float]]:
 def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, object]:
     """Format the native monitor's record as :meth:`BoundaryMonitor.summary` does.
 
-    Parameters
-    ----------
-    check : solprop.monitor.BoundaryCheck
-        The run's thresholds, which head the record.
-    native : collections.abc.Mapping
-        ``_core``'s record: every number, NaN where nothing was measured.
-
-    Returns
-    -------
-    dict
-        The record, with ``None`` for what was never measured.
+    - ``native``: ``_core``'s record: every number, NaN where nothing was measured.
+    - Returns: the record, with ``None`` for what was never measured.
     """
 
     def finite(value: object) -> float | None:
         """Return a number, or ``None`` when it was never measured (not finite).
 
-        Parameters
-        ----------
-        value : object
-            A recorded number.
-
-        Returns
-        -------
-        float or None
-            The value, or ``None``.
+        - Returns: the value, or ``None``.
         """
         number = float(cast("float", value))
         return number if math.isfinite(number) else None
@@ -489,25 +409,7 @@ def record_of(check: BoundaryCheck, native: Mapping[str, object]) -> dict[str, o
 
 
 def notice_warning(check: BoundaryCheck, notice: Notice) -> Warning:
-    """Return a native warning, as solprop's monitor issues it.
-
-    Parameters
-    ----------
-    check : solprop.monitor.BoundaryCheck
-        The run's thresholds.
-    notice : Notice
-        The warning's verdict.
-
-    Returns
-    -------
-    Warning
-        The :class:`~solprop.exceptions.BoundaryWarning`, with its attributes.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        For a kind that does not warn.
-    """
+    """Return a native warning, as solprop's monitor issues it."""
     if notice.kind is NoticeKind.GUARD:
         z = None if notice.launch else notice.z
         return _boundary_warning(_guard_message(check, notice.value, z, stop=False))
@@ -522,11 +424,6 @@ def _zero_division() -> ZeroDivisionError:
 
     Raised as the monitor's own float division raises it, so that its message is this
     interpreter's.
-
-    Returns
-    -------
-    ZeroDivisionError
-        The error.
     """
     zero = 0.0
     try:
@@ -540,20 +437,10 @@ def _zero_division() -> ZeroDivisionError:
 def notice_error(check: BoundaryCheck, notice: Notice) -> BaseException:
     """Return the exception a native monitor's stop reports, as solprop's raises it.
 
-    Parameters
-    ----------
-    check : solprop.monitor.BoundaryCheck
-        The run's thresholds.
-    notice : Notice
-        The stop's verdict.
-
-    Returns
-    -------
-    BaseException
-        A :class:`~solprop.exceptions.BoundaryError`; a
-        :class:`~solprop.exceptions.BackendError` for a reading the split left empty;
-        the :class:`ZeroDivisionError` solprop's monitor raises on light after a launch
-        that held none.
+    - Returns: a :class:`~solprop.exceptions.BoundaryError`; a
+      :class:`~solprop.exceptions.BackendError` for a reading the split left empty; the
+      :class:`ZeroDivisionError` solprop's monitor raises on light after a launch that
+      held none.
     """
     kind = notice.kind
     if kind is NoticeKind.GUARD:
@@ -578,19 +465,9 @@ def _split_crossing_message(z: float, cap: float, step: float) -> str:
     The reference's text (``HostDriver._refuse_scheduled_crossing``), for the cap
     the native session holds (SEP 47 section 6.4).
 
-    Parameters
-    ----------
-    z : float
-        Where the cap was read, m.
-    cap : float
-        The split temporal collar's crossing limit, m.
-    step : float
-        The schedule's longest step before the next check, m.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``z``: where the cap was read, m.
+    - ``cap``: the split temporal collar's crossing limit, m.
+    - ``step``: the schedule's longest step before the next check, m.
     """
     return (
         f"at z = {z:.6e} m the split temporal collar's crossing limit "

@@ -270,10 +270,7 @@ class ModalConnection(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ModalConnection: the cost of a basis that moves along z", [
             ("channels", self.n_modes),
@@ -495,22 +492,7 @@ def _panel_identity(
 ) -> tuple[float, tuple[float, ...], int, int]:
     """Return the truncation radius, panel edges and resolution a rule declares.
 
-    Parameters
-    ----------
-    provider : solprop.modes.vector.ModalProvider
-        The guide, named in the refusal.
-    identity : collections.abc.Mapping
-        One rule's own identity.
-
-    Returns
-    -------
-    tuple
-        The outer radius in m, its panel edges in m, and the two node counts.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If the rule does not declare all four.
+    - Returns: the outer radius in m, its panel edges in m, and the two node counts.
     """
     scalars = ("outer_radius", "n_r", "n_theta")
     missing = [
@@ -535,17 +517,8 @@ def _panel_identity(
 def _interfaces(provider: ModalProvider, z: float) -> tuple[float, ...]:
     """Return a provider's declared material radii at one position, increasing.
 
-    Parameters
-    ----------
-    provider : solprop.modes.vector.ModalProvider
-        The guide.
-    z : float
-        Position in m.
-
-    Returns
-    -------
-    tuple of float
-        The distinct positive finite radii in m, increasing.
+    - ``z``: position in m.
+    - Returns: the distinct positive finite radii in m, increasing.
     """
     values: set[float] = set()
     for region in provider.regions:
@@ -767,26 +740,10 @@ def _measured_connection(
 ) -> ModalConnection:
     """Measure and certify the connection at one frequency on a built stencil.
 
-    Parameters
-    ----------
-    provider : solprop.modes.vector.ModalProvider
-        The guide.
-    omega : float
-        Positive angular frequency in rad/s.
-    z : float
-        Position in m.
-    stencil : tuple
-        The three positions in m, the step in m and one rule per position, from
-        :func:`_stencil` and :func:`connection_nodes`.
-    degenerate_blocks : sequence of sequence of int
-        Channel blocks the tracking may rotate inside.
-    basis : solprop.modes.guide.ChannelBasis or None
-        A declared constant unitary change of the channel coordinates.
-
-    Returns
-    -------
-    ModalConnection
-        The connection, the metric, its measured rate and the certificate.
+    - ``omega``: positive angular frequency in rad/s.
+    - ``z``: position in m.
+    - ``stencil``: the three positions in m, the step in m and one rule per position,
+      from :func:`_stencil` and :func:`connection_nodes`.
     """
     # Imported here: solprop.translate imports solprop.modes, so a module-level
     # import of the tracking would close a cycle through the translate package body.
@@ -882,20 +839,10 @@ def _flux_pairing(
     ``X(A, B)_mn = int (A_n x conj(B_m)).zhat dA``. Taking the Gram with the same
     two einsums is what makes ``S + S^H`` the derivative of the Gram itself.
 
-    Parameters
-    ----------
-    electric, magnetic : numpy.ndarray
-        The derivatives ``dE/dz`` and ``dH/dz`` in V/(m sqrt(W) m) and
-        A/(m sqrt(W) m), shape ``(n_nodes, 3, n_modes)``.
-    sample : solprop.modes.vector.ModalSample
-        The centre sample, whose fields fill the left-hand slot.
-    weights : numpy.ndarray
-        The shared area weights in m², shape ``(n_nodes,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``S`` in 1/m, shape ``(n_modes, n_modes)``.
+    - ``sample``: the centre sample, whose fields fill the left-hand slot.
+    - ``electric``, ``magnetic``: the derivatives ``dE/dz`` and ``dH/dz`` in V/(m
+      sqrt(W) m) and A/(m sqrt(W) m), shape ``(n_nodes, 3, n_modes)``.
+    - Returns: ``S`` in 1/m, shape ``(n_modes, n_modes)``.
     """
     field, magnetics = sample.electric, sample.magnetic
     left = np.einsum(
@@ -912,24 +859,10 @@ def _stencil(
 ) -> tuple[tuple[float, float, float], float]:
     """Return three positions the provider can be solved at, and the step used.
 
-    Parameters
-    ----------
-    provider : solprop.modes.vector.ModalProvider
-        The guide, whose z domain and breakpoints bound the stencil.
-    z : float
-        The position in m.
-    step : float or None
-        The declared step in m, or ``None`` for :data:`STEP_FRACTION` of the scale.
-
-    Returns
-    -------
-    tuple
-        The three increasing positions in m and the step in m.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If `step` is out of range or no stencil of it fits inside the z domain.
+    - ``z``: the position in m.
+    - ``step``: the declared step in m, or ``None`` for :data:`STEP_FRACTION` of the
+      scale.
+    - Returns: the three increasing positions in m and the step in m.
     """
     low, high = (float(one) for one in provider.z_domain)
     # The scale is the interval `z` lies in, not the whole domain: a derivative
@@ -969,17 +902,9 @@ def _lagrange_slope(positions: Sequence[float], z: float) -> tuple[float, float,
     Exact for a quadratic through `positions`, so a shifted stencil carries the same
     order as a centred one and a centred one reduces to ``(-1, 0, 1)/(2h)``.
 
-    Parameters
-    ----------
-    positions : sequence of float
-        Three distinct increasing positions in m.
-    z : float
-        Where the derivative is taken, m.
-
-    Returns
-    -------
-    tuple of float
-        The weights in 1/m, summing to zero.
+    - ``positions``: three distinct increasing positions in m.
+    - ``z``: where the derivative is taken, m.
+    - Returns: the weights in 1/m, summing to zero.
     """
     first, second, third = (float(one) for one in positions)
     return (

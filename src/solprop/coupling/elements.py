@@ -246,20 +246,9 @@ class SpatialState:
 def _unit_frame(frame: ArrayLike) -> Float[np.ndarray, "3 3"]:
     """Return a validated, read-only right-handed orthonormal frame.
 
-    Parameters
-    ----------
-    frame : array_like
-        Rows x, y and forward direction in laboratory coordinates, shape ``(3, 3)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        A read-only float64 copy.
-
-    Raises
-    ------
-    CouplingError
-        If the frame is not finite, orthonormal and right-handed.
+    - ``frame``: rows x, y and forward direction in laboratory coordinates, shape ``(3,
+      3)``.
+    - Returns: a read-only float64 copy.
     """
     values = np.array(frame, dtype=np.float64, copy=True)
     if (
@@ -472,36 +461,12 @@ class Element(Protocol):
 
 
 def _band(grid: TimeGrid) -> Bool[np.ndarray, " n_omega"]:
-    """Return the bins that can carry field: active and at positive frequency.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask, shape ``(n_omega,)``.
-    """
+    """Return the bins that can carry field: active and at positive frequency."""
     return grid.active_mask & (grid.omega > 0)
 
 
 def _index(medium: SpatialMedium, grid: TimeGrid) -> Complex[np.ndarray, " n_omega"]:
-    """Return the medium's complex index on the band, zero elsewhere.
-
-    Parameters
-    ----------
-    medium : solprop.spatial.SpatialMedium
-        Homogeneous medium.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Refractive index, dimensionless, shape ``(n_omega,)``.
-    """
+    """Return the medium's complex index on the band, zero elsewhere."""
     band = _band(grid)
     index = np.zeros(grid.n_omega, dtype=np.complex128)
     index[band] = medium.index(grid.omega[band])
@@ -511,17 +476,7 @@ def _index(medium: SpatialMedium, grid: TimeGrid) -> Complex[np.ndarray, " n_ome
 def _same_medium(first: SpatialMedium, second: SpatialMedium, grid: TimeGrid) -> bool:
     """Return whether two media have the same index on the band.
 
-    Parameters
-    ----------
-    first, second : solprop.spatial.SpatialMedium
-        The media.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-
-    Returns
-    -------
-    bool
-        True for the same object or exactly equal indices on every band bin.
+    True for the same object or exactly equal indices on every band bin: no tolerance.
     """
     return first is second or bool(
         np.array_equal(_index(first, grid), _index(second, grid))
@@ -531,15 +486,7 @@ def _same_medium(first: SpatialMedium, second: SpatialMedium, grid: TimeGrid) ->
 def _transverse_squares(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_modes"]:
     """Return the squared transverse wave number of each stored column.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``k_r**2`` or ``kperp_sq`` in m^-2, shape ``(n_modes,)``.
+    - Returns: ``k_r**2`` or ``kperp_sq`` in m^-2, shape ``(n_modes,)``.
     """
     return space.k_r**2 if isinstance(space, RadialGrid) else space.kperp_sq
 
@@ -549,18 +496,8 @@ def _to_field(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Synthesise the field samples from a stored transverse spectrum.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Field samples in the internal temporal convention, V/m times the temporal
-        DFT scaling, at the grid's nodes (x fastest on a Cartesian grid).
+    - Returns: field samples in the internal temporal convention, V/m times the temporal
+      DFT scaling, at the grid's nodes (x fastest on a Cartesian grid).
     """
     if isinstance(space, RadialGrid):
         return np.moveaxis(space.hankel.inverse(np.moveaxis(spectrum, 0, -1)), -1, 0)
@@ -573,17 +510,7 @@ def _to_spectrum(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Transform field samples to the stored transverse spectrum.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-    samples : numpy.ndarray
-        Field samples at the grid's nodes, shape ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The raw Hankel or DFT spectrum of the samples, the same shape.
+    - Returns: the raw Hankel or DFT spectrum of the samples, the same shape.
     """
     if isinstance(space, RadialGrid):
         return np.moveaxis(space.hankel.forward(np.moveaxis(samples, 0, -1)), -1, 0)
@@ -594,15 +521,8 @@ def _to_spectrum(
 def _nodes(space: RadialGrid | FreeGrid) -> tuple[np.ndarray, np.ndarray]:
     """Return the x and y coordinates of the grid's nodes.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation; radial nodes lie on the x axis.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``x`` and ``y`` in m, each shape ``(n_nodes,)``, x fastest.
+    - ``space``: transverse representation; radial nodes lie on the x axis.
+    - Returns: ``x`` and ``y`` in m, each shape ``(n_nodes,)``, x fastest.
     """
     if isinstance(space, RadialGrid):
         return np.asarray(space.r), np.zeros(space.n_r)
@@ -615,15 +535,7 @@ def _nodes(space: RadialGrid | FreeGrid) -> tuple[np.ndarray, np.ndarray]:
 def _flux(state: SpatialState) -> SpatialFlux:
     """Resolve the axial-flux measure of the state's plane.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The plane; its medium is homogeneous, so the position is immaterial.
-
-    Returns
-    -------
-    solprop.spatial.SpatialFlux
-        The measure of SEP 34.
+    The plane's medium is homogeneous, so the position is immaterial.
     """
     return SpatialFlux.resolve(state.grid, state.space, state.medium, z=0.0)
 
@@ -647,17 +559,7 @@ class _Measured:
 def _measure(state: SpatialState, flux: SpatialFlux) -> _Measured:
     """Measure the physical energy of a state.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The plane.
-    flux : solprop.spatial.SpatialFlux
-        Its measure.
-
-    Returns
-    -------
-    _Measured
-        Total and per-bin energy, J.
+    - Returns: total and per-bin energy, J.
     """
     return _Measured(
         spatial_energy(state.spectrum, flux),
@@ -687,10 +589,7 @@ class _Angular:
     def total(self) -> float:
         """Return the whole reference-measure content.
 
-        Returns
-        -------
-        float
-            ``cone + tail`` in J.
+        - Returns: ``cone + tail`` in J.
         """
         return self.cone + self.tail
 
@@ -704,19 +603,9 @@ def _angular_content(
     in place of the axial admittance; the obliquity of a propagating column is the
     admittance over the index, :math:`\cos\theta`.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The plane.
-    flux : solprop.spatial.SpatialFlux
-        Its measure.
-    cone_cosine : float
-        :math:`\cos\theta_*`; columns with a smaller obliquity are the tail.
-
-    Returns
-    -------
-    _Angular
-        The split content, J.
+    - ``cone_cosine``: :math:`\cos\theta_*`; columns with a smaller obliquity are the
+      tail.
+    - Returns: the split content, J.
     """
     grid = state.grid
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -753,21 +642,8 @@ def _reference_norm(
 ) -> float:
     """Return the squared reference-measure norm of a spectrum, up to a constant.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    index : numpy.ndarray
-        Real index per bin, zero off band, shape ``(n_omega,)``.
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    float
-        ``sum v_j gamma_k n_k |X_jpk|^2``, in the units of ``|X|^2`` m^-2 s.
+    - ``index``: real index per bin, zero off band.
+    - Returns: ``sum v_j gamma_k n_k |X_jpk|^2``, in the units of ``|X|^2`` m^-2 s.
     """
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
     density = np.sum(np.abs(spectrum) ** 2, axis=1)
@@ -779,16 +655,6 @@ def _edge_nodes(space: RadialGrid | FreeGrid) -> Bool[np.ndarray, " n_nodes"]:
 
     The room outside the requested size where the grid has some, otherwise the
     outer tenth of each half-width.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask over the nodes, shape ``(n_nodes,)``.
     """
     if space.collar_fraction > 0:
         return np.asarray(space.window < 1)
@@ -809,21 +675,7 @@ def _node_content(
 ) -> Float[np.ndarray, " n_modes"]:
     """Return each node's reference-measure content, up to a constant.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    index : numpy.ndarray
-        Real index per bin, zero off band.
-    samples : numpy.ndarray
-        Field samples at the nodes, shape ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Area-weighted content per node, shape ``(n_modes,)``.
+    - ``index``: real index per bin, zero off band.
     """
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
     density = np.sum(np.abs(samples) ** 2, axis=1)
@@ -835,16 +687,8 @@ def _node_content(
 def _edge_share(state: SpatialState) -> float:
     """Return the share of the field in the window's outer band.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The plane.
-
-    Returns
-    -------
-    float
-        Reference-measure share of the field at the edge nodes, in [0, 1]; zero for
-        a zero field.
+    - Returns: Reference-measure share of the field at the edge nodes, in [0, 1]; zero
+      for a zero field.
     """
     index = np.real(_index(state.medium, state.grid))
     content = _node_content(
@@ -863,16 +707,6 @@ def _round_trip_error(state: SpatialState) -> float:
     and transformed back differs by :math:`\delta` in the reference norm, which
     bounds the relative energy discrepancy by :math:`2\delta+\delta^2` (SEP 31
     §4.7). On a Cartesian grid it is rounding.
-
-    Parameters
-    ----------
-    state : SpatialState
-        The plane.
-
-    Returns
-    -------
-    float
-        :math:`2\delta+\delta^2`; zero for a zero field.
     """
     index = np.real(_index(state.medium, state.grid))
     norm = _reference_norm(state.space, state.grid, index, state.spectrum)
@@ -922,25 +756,9 @@ def _report(
 ) -> ElementReport:
     """Close an element's ledger and build its report.
 
-    Parameters
-    ----------
-    element : str
-        Description of the element.
-    measured_in, measured_out : _Measured
-        Energies of the input and output planes.
-    specified_loss : float, optional
-        Declared loss, J.
-    removed : float, optional
-        Intentional removal, J.
-    numerical_error : float, optional
-        Estimated numerical error, J.
-    extras : _Extras or None, optional
-        The optional report fields.
-
-    Returns
-    -------
-    ElementReport
-        The report, with the approximation error that closes the ledger.
+    - ``specified_loss``: declared loss, J.
+    - ``removed``: intentional removal, J.
+    - ``numerical_error``: estimated numerical error, J.
     """
     extras = _Extras() if extras is None else extras
     approximation = measured_out.energy - measured_in.energy + specified_loss + removed
@@ -970,24 +788,8 @@ def _spectral_values(
 ) -> Complex[np.ndarray, " n_band"]:
     """Evaluate a constant or a function of frequency on the band.
 
-    Parameters
-    ----------
-    values : float, complex or callable
-        A constant, or a function of positive angular frequency.
-    omega : numpy.ndarray
-        Band frequencies in rad/s, shape ``(n_band,)``.
-    name : str
-        The quantity, for messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex values, shape ``(n_band,)``.
-
-    Raises
-    ------
-    CouplingError
-        If the values are not finite or do not match the band.
+    - ``values``: a constant, or a function of positive angular frequency.
+    - ``omega``: band frequencies in rad/s, shape ``(n_band,)``.
     """
     result = values(omega) if callable(values) else values
     array = np.broadcast_to(np.asarray(result, dtype=np.complex128), omega.shape)
@@ -998,18 +800,7 @@ def _spectral_values(
 
 
 def _check_model_error(model_error: float) -> None:
-    """Refuse a model-error budget outside (0, 1).
-
-    Parameters
-    ----------
-    model_error : float
-        The budget.
-
-    Raises
-    ------
-    CouplingError
-        If it is not finite and strictly between zero and one.
-    """
+    """Refuse a model-error budget outside (0, 1)."""
     if not (math.isfinite(model_error) and 0 < model_error < 1):
         msg = f"model_error is a required budget in (0, 1), got {model_error!r}"
         raise CouplingError(msg)
@@ -1019,18 +810,7 @@ def _check_model_error(model_error: float) -> None:
 
 
 def _occupied(content: Float[np.ndarray, " n_modes"]) -> Bool[np.ndarray, " n_modes"]:
-    """Return the nodes whose content is above the diagnostic floor.
-
-    Parameters
-    ----------
-    content : numpy.ndarray
-        Content per node.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask; all False for a zero field.
-    """
+    """Return the nodes whose content is above the diagnostic floor."""
     peak = float(np.max(content)) if content.size else 0.0
     return content > _OCCUPIED * peak if peak > 0 else np.zeros(content.shape, bool)
 
@@ -1045,20 +825,10 @@ def _phase_step(
     A step of pi or more samples the screen's phase below its Nyquist rate: the
     spatial frequencies it generates alias onto the grid.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-    transmission : numpy.ndarray
-        Optics-convention transmission at the nodes, shape ``(n_modes, n_band)``.
-    occupied : numpy.ndarray
-        Nodes that hold field, shape ``(n_modes,)``.
-
-    Returns
-    -------
-    float
-        The largest step in rad over neighbours that are both occupied and both
-        transmitting; zero if there are none.
+    - ``transmission``: Optics-convention transmission at the nodes, shape ``(n_modes,
+      n_band)``.
+    - Returns: the largest step in rad over neighbours that are both occupied and both
+      transmitting; zero if there are none.
     """
     pairs: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
     if isinstance(space, RadialGrid):
@@ -1091,36 +861,13 @@ def _apply_screen(
 ) -> ElementResult:
     """Apply a thin local screen and certify it against its budget.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The input plane.
-    transmission : numpy.ndarray
-        Optics-convention field transmission at the nodes on the band bins,
-        shape ``(n_modes, n_band)``.
-    element : str
-        Description, for the report.
-    model_error : float
-        The required budget in (0, 1).
-    phase_only : bool
-        Whether the screen is declared unit-modulus; its local loss is then zero.
-    gradient : numpy.ndarray or None, optional
-        The screen's analytic phase gradient magnitude in rad/m at the nodes,
-        shape ``(n_modes, n_band)``, when it is known. Sampled phases wrap, so
-        only an analytic gradient detects a step beyond pi.
-    notes : tuple of str, optional
-        Statements for the report.
-
-    Returns
-    -------
-    ElementResult
-        The output plane and its report with the certificate.
-
-    Raises
-    ------
-    CouplingError
-        If the screen amplifies anywhere, its phase is undersampled where the
-        field is, or the certificate exceeds the budget.
+    - ``transmission``: Optics-convention field transmission at the nodes on the band
+      bins, shape ``(n_modes, n_band)``.
+    - ``model_error``: the required budget in (0, 1).
+    - ``phase_only``: the screen is declared unit-modulus, so its local loss is zero.
+    - ``gradient``: the screen's analytic phase gradient magnitude in rad/m at the
+      nodes, shape ``(n_modes, n_band)``, when it is known. Sampled phases wrap, so only
+      an analytic gradient detects a step beyond pi.
     """
     _check_model_error(model_error)
     if not np.all(np.isfinite(transmission)):
@@ -1189,27 +936,7 @@ def _screen_certificate(
 ) -> ScreenCertificate:
     """Evaluate the thin-screen defect on input and output and admit or refuse.
 
-    Parameters
-    ----------
-    before, after : SpatialState
-        The input and output planes, on one representation and medium.
-    flux : solprop.spatial.SpatialFlux
-        Their common measure.
-    model_error : float
-        The budget in (0, 1).
-    numerical : float
-        Relative numerical error added to the ratio.
-
-    Returns
-    -------
-    ScreenCertificate
-        The admitted certificate.
-
-    Raises
-    ------
-    CouplingError
-        If a nonzero input carries no forward flux or the defect ratio exceeds
-        the budget.
+    - ``model_error``: the budget in (0, 1).
     """
     cosine = 1 - model_error / 8
     if not np.any(before.spectrum):
@@ -1245,26 +972,9 @@ def _evaluate_transmission(
 ) -> Complex[np.ndarray, "n_nodes n_band"]:
     """Evaluate a transmission callable and check its shape.
 
-    Parameters
-    ----------
-    transmission : callable
-        ``T(x, y, omega)`` in the optics convention.
-    x, y : numpy.ndarray
-        Node positions in m, shape ``(n_nodes,)``.
-    omega : numpy.ndarray
-        Band frequencies in rad/s, shape ``(n_band,)``.
-    element : str
-        Description, for messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        The transmission, shape ``(n_nodes, n_band)``.
-
-    Raises
-    ------
-    CouplingError
-        If the result does not broadcast to ``(n_nodes, n_band)``.
+    - ``transmission``: ``T(x, y, omega)`` in the optics convention.
+    - ``x``, ``y``: node positions in m, shape ``(n_nodes,)``.
+    - ``omega``: band frequencies in rad/s, shape ``(n_band,)``.
     """
     values = np.asarray(transmission(x, y, omega), dtype=np.complex128)
     try:
@@ -1288,26 +998,7 @@ def _symmetric_transmission(
     The order-zero Hankel representation holds a cylindrically symmetric field; a
     screen that depends on the azimuth would break it silently.
 
-    Parameters
-    ----------
-    transmission : callable
-        ``T(x, y, omega)``.
-    space : solprop.grid.RadialGrid
-        Radial representation.
-    omega : numpy.ndarray
-        Band frequencies in rad/s.
-    element : str
-        Description, for messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        The transmission at the radial nodes, shape ``(n_r, n_band)``.
-
-    Raises
-    ------
-    CouplingError
-        If the transmission depends on the azimuth.
+    - ``omega``: band frequencies in rad/s.
     """
     radius = np.asarray(space.r)
     reference = _evaluate_transmission(
@@ -1534,22 +1225,8 @@ class Aperture:
     ) -> Float[np.ndarray, " n_nodes"]:
         """Return the weight of a shape other than a circle at the nodes.
 
-        Parameters
-        ----------
-        radial : bool
-            Whether the plane is on a radial grid.
-        x, y : numpy.ndarray
-            The nodes in m, shape ``(n_nodes,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The weight in ``[0, 1]``, shape ``(n_nodes,)``.
-
-        Raises
-        ------
-        CouplingError
-            As :meth:`apply` documents.
+        - ``x``, ``y``: the nodes in m, shape ``(n_nodes,)``.
+        - Returns: the weight in ``[0, 1]``, shape ``(n_nodes,)``.
         """
         shape = self.shape
         assert shape is not None  # a circle does not come here
@@ -1807,25 +1484,10 @@ def _uniform_result(
     the ledger closes to rounding. Across a medium change the loss is the declared
     reflection and the rest is obliquity.
 
-    Parameters
-    ----------
-    before, after : SpatialState
-        The input and output planes.
-    element : str
-        Description.
-    removed_bins : numpy.ndarray or None, optional
-        Bins set to exactly zero by the element; their input energy is reported as
-        removed.
-    reflected : numpy.ndarray or None, optional
-        Declared reflectance per bin across a medium change; the specified loss is
-        then ``sum(R * spectrum_in)``.
-    extras : _Extras or None, optional
-        The optional report fields.
-
-    Returns
-    -------
-    ElementResult
-        The output plane and its report.
+    - ``removed_bins``: bins the element sets to exactly zero; their input energy is
+      reported as removed.
+    - ``reflected``: declared reflectance per bin across a medium change; the specified
+      loss is then ``sum(R * spectrum_in)``.
     """
     measured_in = _measure(before, _flux(before))
     measured_out = _measure(after, _flux(after))
@@ -1858,17 +1520,7 @@ def _apply_jones(
     A scalar state is polarised along x. It stays scalar when the map creates no
     y component and becomes a two-component state otherwise.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The input plane.
-    jones : numpy.ndarray
-        Jones matrices acting on ``(E_x, E_y)``, shape ``(n_band, 2, 2)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The new internal spectrum, shape ``(n_modes, 1 or 2, n_omega)``.
+    - Returns: the new internal spectrum, shape ``(n_modes, 1 or 2, n_omega)``.
     """
     band = _band(state.grid)
     stored = np.zeros((state.grid.n_omega, 2, 2), dtype=np.complex128)
@@ -1885,20 +1537,7 @@ def _apply_jones(
 def _check_passive_jones(
     jones: Complex[np.ndarray, "n_band 2 2"], element: str
 ) -> None:
-    """Refuse a Jones map that amplifies some polarisation.
-
-    Parameters
-    ----------
-    jones : numpy.ndarray
-        Jones matrices, shape ``(n_band, 2, 2)``.
-    element : str
-        Description, for messages.
-
-    Raises
-    ------
-    CouplingError
-        If a matrix is not finite or its largest singular value exceeds one.
-    """
+    """Refuse a Jones map that amplifies some polarisation."""
     if not np.all(np.isfinite(jones)):
         msg = f"{element}: the Jones matrices must be finite"
         raise CouplingError(msg)
@@ -1966,22 +1605,7 @@ def _unit_vector(
 ) -> Float[np.ndarray, " 3"]:
     """Return a normalised three-vector.
 
-    Parameters
-    ----------
-    vector : sequence of float or numpy.ndarray
-        Three finite components, not all zero.
-    name : str
-        The quantity, for messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        The unit vector, shape ``(3,)``.
-
-    Raises
-    ------
-    CouplingError
-        If the vector is not a finite nonzero three-vector.
+    - ``vector``: three finite components, not all zero.
     """
     array = np.asarray(vector, dtype=np.float64)
     if array.shape != (3,) or not np.all(np.isfinite(array)) or not np.any(array):
@@ -2035,15 +1659,8 @@ class Mirror:
     def _geometry(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Validate the directions and return them normalised.
 
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Incoming direction, outgoing direction and s axis, each shape ``(3,)``.
-
-        Raises
-        ------
-        CouplingError
-            If the directions do not define a reflection with this s axis.
+        - Returns: incoming direction, outgoing direction and s axis, each shape
+          ``(3,)``.
         """
         incident = _unit_vector(self.incident, "incident")
         outgoing = _unit_vector(self.outgoing, "outgoing")
@@ -2124,25 +1741,7 @@ def _mirror_image(
 ) -> Complex[np.ndarray, "n_modes n_components n_omega"]:
     """Reflect a Cartesian field's transverse pattern through a local axis.
 
-    Parameters
-    ----------
-    space : solprop.grid.FreeGrid
-        Cartesian representation.
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_components, n_omega)``.
-    image : numpy.ndarray
-        The 2x2 position map, ``diag(-1, 1)`` or ``diag(1, -1)`` to rounding.
-
-    Returns
-    -------
-    numpy.ndarray
-        The reflected spectrum.
-
-    Raises
-    ------
-    CouplingError
-        If the map is not a reflection through x or y, or the reflected axis has
-        an odd sample count and so is not symmetric about zero.
+    - ``image``: the 2x2 position map, ``diag(-1, 1)`` or ``diag(1, -1)`` to rounding.
     """
     flips = np.round(np.diag(image))
     if np.max(np.abs(image - np.diag(flips))) > _FRAME_TOLERANCE:
@@ -2251,16 +1850,8 @@ def _known_calibration(  # noqa: PLR0911 - one return per known element type
 ) -> tuple[SpectralCalibration, ...] | None:
     """Return the affine-phase record of a known optics element.
 
-    Parameters
-    ----------
-    transfer : solprop.optics.TransferFunction
-        The element.
-
-    Returns
-    -------
-    tuple of SpectralCalibration or None
-        One record per factor (a chain gives one per member), or None for an
-        unknown type.
+    - Returns: one record per factor (a chain gives one per member), or None for an
+      unknown type.
     """
     if isinstance(transfer, Chain):
         records: list[SpectralCalibration] = []
@@ -2314,15 +1905,7 @@ def _known_calibration(  # noqa: PLR0911 - one return per known element type
 def _phase_only(transfer: TransferFunction) -> bool | None:
     """Return whether a known optics model omits all loss.
 
-    Parameters
-    ----------
-    transfer : solprop.optics.TransferFunction
-        The element.
-
-    Returns
-    -------
-    bool or None
-        True for a phase-only model, False for one with loss, None if unknown.
+    - Returns: True for a phase-only model, False for one with loss, None if unknown.
     """
     if isinstance(transfer, Chain):
         members = [_phase_only(member) for member in transfer.elements]
@@ -2341,16 +1924,8 @@ def _phase_only(transfer: TransferFunction) -> bool | None:
 def _reconstruction(transfer: TransferFunction) -> bool:
     """Return whether a known optics element is a reconstruction operation.
 
-    Parameters
-    ----------
-    transfer : solprop.optics.TransferFunction
-        The element.
-
-    Returns
-    -------
-    bool
-        True for a negative material length or an inverse mirror phase, in the
-        element or any member of a chain.
+    True for a negative material length or an inverse mirror phase, in the element or
+    any member of a chain.
     """
     if isinstance(transfer, Chain):
         return any(_reconstruction(member) for member in transfer.elements)
@@ -2397,18 +1972,7 @@ class SpectralTransfer:
     reconstruction: bool = False
 
     def _calibrations(self) -> tuple[SpectralCalibration, ...]:
-        """Return the affine-phase records, derived or given.
-
-        Returns
-        -------
-        tuple of SpectralCalibration
-            One record per factor.
-
-        Raises
-        ------
-        CouplingError
-            If an unknown callable carries no calibration.
-        """
+        """Return the affine-phase records, derived or given."""
         if isinstance(self.calibration, SpectralCalibration):
             return (self.calibration,)
         if self.calibration is not None:
@@ -2600,19 +2164,7 @@ class FreeSpace:
     beyond_window: Literal["refuse", "remove"] = "refuse"
 
     def _validate(self, state: SpatialState) -> None:
-        """Check the element against the plane.
-
-        Parameters
-        ----------
-        state : SpatialState
-            The input plane.
-
-        Raises
-        ------
-        CouplingError
-            If the distance, method, band limit or output plane is invalid, or
-            the gap's medium is not the plane's.
-        """
+        """Check the element against the plane."""
         if not (math.isfinite(self.distance) and math.isfinite(self.frame_phase)):
             msg = (
                 f"distance and frame_phase must be finite, got {self.distance!r} and "
@@ -2648,15 +2200,7 @@ class FreeSpace:
     def _delay(self, state: SpatialState) -> float:
         """Return the delay removed from the whole field.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The input plane.
-
-        Returns
-        -------
-        float
-            ``frame_delay``, or ``beta1(omega0) L`` in s.
+        - Returns: ``frame_delay``, or ``beta1(omega0) L`` in s.
         """
         if self.frame_delay is not None:
             return self.frame_delay
@@ -2738,18 +2282,7 @@ class FreeSpace:
         return ElementResult(result, report)
 
     def _check_edge(self, edge: float) -> None:
-        """Refuse a same-grid result that fills the window's outer band.
-
-        Parameters
-        ----------
-        edge : float
-            Reference-measure share of the propagated field in the outer band.
-
-        Raises
-        ------
-        CouplingError
-            If `edge` exceeds ``edge_tolerance``.
-        """
+        """Refuse a same-grid result that fills the window's outer band."""
         if edge <= self.edge_tolerance:
             return
         # The wrap test follows rays per column; a field that has spread into the
@@ -2774,25 +2307,7 @@ class FreeSpace:
     ) -> tuple[SpatialState, float]:
         """Refuse evanescent content, or remove the declared angular band.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The input plane.
-        flux : solprop.spatial.SpatialFlux
-            Its measure.
-        measured : _Measured
-            Its energy.
-
-        Returns
-        -------
-        tuple
-            The retained plane and the physical energy removed, J.
-
-        Raises
-        ------
-        CouplingError
-            If evanescent content exceeds its tolerance, or any remains for a
-            backward propagation.
+        - Returns: the retained plane and the physical energy removed, J.
         """
         content = _angular_content(state, flux, 1.0)
         if self.band_limit is None:
@@ -2821,19 +2336,9 @@ class FreeSpace:
     ) -> Complex[np.ndarray, "n_chunk n_omega"]:
         """Return the longitudinal wave number of a chunk of columns.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The plane.
-        columns : slice
-            Transverse columns.
-
-        Returns
-        -------
-        numpy.ndarray
-            :math:`k_z` in m^-1 with nonnegative imaginary part for a lossless
-            medium (decay of a nonpropagating column), shape ``(n_chunk, n_omega)``;
-            zero off band.
+        - Returns: :math:`k_z` in m^-1 with nonnegative imaginary part for a lossless
+          medium (decay of a nonpropagating column), shape ``(n_chunk, n_omega)``; zero
+          off band.
         """
         grid = state.grid
         band = _band(grid)
@@ -2849,26 +2354,9 @@ class FreeSpace:
     ) -> tuple[SpatialState, float, float, dict[str, float]]:
         """Propagate the stored spectrum exactly on its own grid.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The (band-limited) input plane.
-        flux : solprop.spatial.SpatialFlux
-            Its measure.
-        delay : float
-            Delay removed from the whole field, s.
-
-        Returns
-        -------
-        tuple
-            The propagated plane, the energy absorbed by the medium in J, the
-            energy removed beyond the window in J, and the wrap diagnostics.
-
-        Raises
-        ------
-        CouplingError
-            If content whose rays leave the window exceeds ``sampling_tolerance``
-            and its removal is not declared.
+        - ``delay``: delay removed from the whole field, s.
+        - Returns: the propagated plane, the energy absorbed by the medium in J, the
+          energy removed beyond the window in J, and the wrap diagnostics.
         """
         grid = state.grid
         band = _band(grid)
@@ -2936,29 +2424,8 @@ class FreeSpace:
     ) -> ElementResult:
         """Evaluate the Fresnel integral of the source samples at the output nodes.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The input plane, for the medium and grid.
-        kept : SpatialState
-            The band-limited input plane.
-        measured_in : _Measured
-            Energy of the input plane.
-        removed : float
-            Energy removed by the band limit, J.
-        delay : float
-            Delay removed from the whole field, s.
-
-        Returns
-        -------
-        ElementResult
-            The output plane and the report.
-
-        Raises
-        ------
-        CouplingError
-            If the distance is not positive or the kernel is undersampled on the
-            source grid.
+        - ``removed``: energy removed by the band limit, J.
+        - ``delay``: delay removed from the whole field, s.
         """
         output = self.output
         assert output is not None
@@ -3052,22 +2519,9 @@ class _WrapCount:
         beyond the window's half-width the periodic (Cartesian) or reflecting
         (radial) representation folds them back.
 
-        Parameters
-        ----------
-        state : SpatialState
-            The plane.
-        columns : slice
-            Transverse columns.
-        k_z : numpy.ndarray
-            Their longitudinal wave numbers, shape ``(n_chunk, n_omega)``.
-        distance : float
-            Propagation distance in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            True where a propagating column's rays move beyond the window's
-            half-width, shape ``(n_chunk, n_omega)``.
+        - ``distance``: propagation distance in m.
+        - Returns: True where a propagating column's rays move beyond the window's
+          half-width, shape ``(n_chunk, n_omega)``.
         """
         grid = state.grid
         space = state.space
@@ -3104,10 +2558,7 @@ class _WrapCount:
     def share(self) -> float:
         """Return the wrapped share.
 
-        Returns
-        -------
-        float
-            Share in [0, 1]; zero for a zero field.
+        - Returns: share in [0, 1]; zero for a zero field.
         """
         return 0.0 if self.total == 0 else self.wrapped / self.total
 
@@ -3117,19 +2568,9 @@ def _share_beyond(
 ) -> float:
     """Return the reference-measure share in columns beyond a transverse wave number.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The plane.
-    index : numpy.ndarray
-        Real index per bin, zero off band.
-    limit : float
-        Transverse wave number in rad/m; a nonpositive limit counts every column.
-
-    Returns
-    -------
-    float
-        Share in [0, 1]; zero for a zero field.
+    - ``limit``: transverse wave number in rad/m; a nonpositive limit counts every
+      column.
+    - Returns: share in [0, 1]; zero for a zero field.
     """
     grid = state.grid
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -3147,15 +2588,7 @@ def _share_beyond(
 def _spacing(space: RadialGrid | FreeGrid) -> float:
     """Return the largest spacing between neighbouring nodes.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse representation.
-
-    Returns
-    -------
-    float
-        Spacing in m.
+    - Returns: spacing in m.
     """
     if isinstance(space, RadialGrid):
         return float(np.max(np.diff(np.concatenate([[0.0], space.r]))))
@@ -3172,18 +2605,6 @@ def _angular_output(
     first-sample origin, the Nyquist column split symmetrically. Nodes outside the
     source window are zero. The kernel is built in blocks of output nodes; no
     transverse-by-transverse-by-frequency array is formed.
-
-    Parameters
-    ----------
-    state : SpatialState
-        The source plane.
-    output : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The output representation, of the same kind.
-
-    Returns
-    -------
-    numpy.ndarray
-        The output's stored spectrum, shape ``(n_out, n_pol, n_omega)``.
     """
     space = state.space
     spectrum = state.spectrum
@@ -3227,20 +2648,11 @@ def _interpolant(
 ) -> Complex[np.ndarray, "n_source n_target"]:
     """Return the trigonometric interpolation kernel of one periodic axis.
 
-    Parameters
-    ----------
-    axis : numpy.ndarray
-        Source sample positions in m, uniform, shape ``(n_source,)``.
-    frequencies : numpy.ndarray
-        Their DFT angular frequencies in rad/m, FFT order.
-    target : numpy.ndarray
-        Output positions in m, shape ``(n_target,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``exp(i k (x' - x_0))``, zero for outputs outside the source period; the
-        Nyquist row of an even axis is the cosine, so a real field stays real.
+    - ``axis``: source sample positions in m, uniform, shape ``(n_source,)``.
+    - ``frequencies``: their DFT angular frequencies in rad/m, FFT order.
+    - ``target``: output positions in m, shape ``(n_target,)``.
+    - Returns: ``exp(i k (x' - x_0))``, zero for outputs outside the source period; the
+      Nyquist row of an even axis is the cosine, so a real field stays real.
     """
     origin = float(axis[0])
     spacing = float(axis[1] - axis[0])
@@ -3269,21 +2681,8 @@ def _fresnel_bin(
     \Delta A`, separable in x and y. The real part of ``k`` sets the phases and
     the imaginary part attenuates through ``exp(ikL)`` only.
 
-    Parameters
-    ----------
-    source, output : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Source and output representations, of one kind.
-    samples : numpy.ndarray
-        Source field samples at one bin, shape ``(n_source, n_pol)``.
-    wavenumber : complex
-        :math:`k = \omega n / c` in m^-1.
-    distance : float
-        Positive distance in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Output samples at that bin, shape ``(n_target, n_pol)``.
+    - ``wavenumber``: :math:`k = \omega n / c` in m^-1.
+    - ``distance``: positive distance in m.
     """
     k = wavenumber.real
     prefactor = (wavenumber / (1j * distance)) * np.exp(1j * wavenumber * distance)

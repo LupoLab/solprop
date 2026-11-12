@@ -100,25 +100,7 @@ def temperature_range(gas: GasLike) -> tuple[float, float]:
 
 
 def _member(gas: GasLike, quantity: str) -> OptmatGas:
-    """Return the data source behind a declaration, or refuse a custom species.
-
-    Parameters
-    ----------
-    gas : Gas, str or Species
-        The gas.
-    quantity : str
-        The property asked for, named in the error.
-
-    Returns
-    -------
-    OptmatGas
-        The optmat equation of state and transport of a name or a species.
-
-    Raises
-    ------
-    MaterialError
-        If the gas is unknown, or a custom species without optmat's data.
-    """
+    """Return the data source behind a declaration, or refuse a custom species."""
     if isinstance(gas, Species):
         state = gas.equation_of_state
         if isinstance(state, OptmatGas):
@@ -138,23 +120,8 @@ def _composition(
 ) -> tuple[tuple[OptmatGas, float], ...]:
     """Resolve a gas or a mole-fraction mapping to its data sources and fractions.
 
-    Parameters
-    ----------
-    gas : Gas, str, Species or Mapping
-        One gas, or gases to mole fractions summing to one.
-    quantity : str
-        The property asked for, named in errors.
-
-    Returns
-    -------
-    tuple
-        ``(member, fraction)`` pairs with positive fractions, one per distinct gas.
-
-    Raises
-    ------
-    MaterialError
-        If a fraction is negative or not finite, the fractions do not sum to one, or
-        a gas carries no optmat data.
+    - Returns: ``(member, fraction)`` pairs with positive fractions, one per distinct
+      gas.
     """
     if not isinstance(gas, Mapping):
         return ((_member(gas, quantity), 1.0),)
@@ -175,18 +142,10 @@ def _composition(
 def _viscosity(parts: tuple[tuple[OptmatGas, float], ...], temperature: float) -> float:
     """Return a composition's dilute viscosity.
 
-    Parameters
-    ----------
-    parts : tuple
-        ``(OptmatGas, fraction)`` pairs from :func:`_composition`.
-    temperature : float
-        Temperature in K.
-
-    Returns
-    -------
-    float
-        Dynamic viscosity in Pa s: the gas's own, or optmat's Wilke rule over the
-        constituents (air's resolved into its own).
+    - ``parts``: ``(OptmatGas, fraction)`` pairs from :func:`_composition`.
+    - ``temperature``: temperature in K.
+    - Returns: dynamic viscosity in Pa s: the gas's own, or optmat's Wilke rule over the
+      constituents (air's resolved into its own).
     """
     from optmat.gas.transport import mixture_viscosity  # noqa: PLC0415 - optmat is lazy
 

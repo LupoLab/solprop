@@ -248,20 +248,8 @@ class SlabMode(_WallPairFill):
     def _half_gap(self, z: float) -> float:
         """Return the positive half-gap at one longitudinal position.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        float
-            Half-gap ``a`` in m.
-
-        Raises
-        ------
-        ModeError
-            If the half-gap is non-positive or non-finite there.
+        - ``z``: position in m.
+        - Returns: Half-gap ``a`` in m.
         """
         a = float(self.width_x(np.asarray([z]))[0])
         if not (math.isfinite(a) and a > 0):
@@ -443,22 +431,8 @@ class SlabMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Evaluate the one-wall-pair reflection model before the loss policy.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Core and wall samples, with holomorphic frequency continuation allowed.
-        a : float
-            Positive half-gap in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its frequency derivative in s/rad.
-
-        Raises
-        ------
-        ModeError
-            If the wall contrast vanishes or the model produces a non-finite result.
+        - ``a``: positive half-gap in m.
+        - Returns: refractivity and its frequency derivative in s/rad.
         """
         te, dte, tm, dtm = self._wall_coefficients(terms)
         # E parallel to the plates is the TE-like (s) reflection, E normal to them
@@ -480,17 +454,10 @@ class SlabMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Apply the shared loss policy and floor to the local model.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its derivative in s/rad after loss and floor policies.
+        - ``omega``: positive frequencies in rad/s.
+        - ``z``: position in m.
+        - Returns: refractivity and its derivative in s/rad after loss and floor
+          policies.
         """
         a = self._half_gap(z)
         terms = self._terms(omega, z)
@@ -615,10 +582,7 @@ class SlabMode(_WallPairFill):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         cladding = self.cladding_index
         return f"SlabMode {self.channel_label.display_label}", [
@@ -910,20 +874,7 @@ def gaussian_to_per_unit_width(value: float, w_y: float) -> float:
 def _checked_radius(w_y: float) -> float:
     """Return a Gaussian radius after checking it.
 
-    Parameters
-    ----------
-    w_y : float
-        1/e field radius in m.
-
-    Returns
-    -------
-    float
-        The same radius.
-
-    Raises
-    ------
-    ModeError
-        If it is not positive and finite.
+    - ``w_y``: 1/e field radius in m.
     """
     if not (math.isfinite(w_y) and w_y > 0):
         raise ModeError(f"the Gaussian radius w_y must be positive, got {w_y!r}")
@@ -1226,10 +1177,7 @@ class PlanarGrid(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         labels = ", ".join(mode.channel_label.display_label for mode in self.modes)
         return "PlanarGrid: slab modes in x, periodic samples in y", [
@@ -1247,20 +1195,7 @@ class PlanarGrid(Displayed):
 
 
 def _check_planar_modes(modes: Sequence[Mode]) -> None:
-    """Refuse, by name, a mode set the hybrid planar transform cannot carry.
-
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The proposed channels.
-
-    Raises
-    ------
-    ModeError
-        Naming what is wrong: an empty set, a mode that is not a slab mode, a
-        repeated channel, different gaps, TE and TM together, different fills, or a
-        gap that varies along z.
-    """
+    """Refuse, by name, a mode set the hybrid planar transform cannot carry."""
     if not modes:
         raise ModeError("a planar grid needs at least one slab mode")
     for mode in modes:

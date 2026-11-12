@@ -98,18 +98,9 @@ def _read_cgroup_cpus(root: Path) -> int | None:
 def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
     """Count the cores, given as CPU bitmasks, that hold any of ``cpus``.
 
-    Parameters
-    ----------
-    masks : sequence of int
-        One bitmask per physical core: bit ``n`` set when CPU ``n`` is one of its
-        hardware threads.
-    cpus : sequence of int
-        The CPU indices the process may run on.
-
-    Returns
-    -------
-    int
-        The number of cores holding at least one of ``cpus``.
+    - ``masks``: one bitmask per physical core: bit ``n`` set when CPU ``n`` is one of
+      its hardware threads.
+    - Returns: the number of cores holding at least one of ``cpus``.
     """
     wanted = sum(1 << cpu for cpu in cpus)
     return sum(1 for mask in masks if mask & wanted)
@@ -118,17 +109,8 @@ def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
 def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
     """Count the distinct (package, core) pairs of ``cpus`` in a sysfs CPU tree.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on.
-    root : Path
-        The sysfs CPU directory, ``/sys/devices/system/cpu`` on a running system.
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` if any CPU's topology is unreadable.
+    - Returns: the number of physical cores, or ``None`` if any CPU's topology is
+      unreadable.
     """
     pairs: set[tuple[str, str]] = set()
     for cpu in cpus:
@@ -148,15 +130,7 @@ def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
 def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Windows
     """Count the physical cores holding ``cpus`` from Windows' processor table.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on (processor group 0).
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` if the table cannot be read.
+    - Returns: the number of physical cores, or ``None`` if the table cannot be read.
     """
     import ctypes
 
@@ -198,18 +172,8 @@ def physical_cores(
     reads each CPU's package and core from ``root``; Windows asks the kernel. macOS on
     Apple silicon has one thread per core, so the CPUs are the cores.
 
-    Parameters
-    ----------
-    cpus : sequence of int
-        The CPU indices the process may run on.
-    root : Path, optional
-        The sysfs CPU directory, read on Linux.
-
-    Returns
-    -------
-    int or None
-        The number of physical cores, or ``None`` on other platforms or when the
-        topology cannot be read.
+    - Returns: the number of physical cores, or ``None`` on other platforms or when the
+      topology cannot be read.
     """
     if sys.platform.startswith("linux"):
         return _linux_cores(cpus, root)

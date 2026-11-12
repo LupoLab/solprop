@@ -36,21 +36,9 @@ def _radial(
 ]:
     """Evaluate the scaled radial function, slope and axis limit.
 
-    Parameters
-    ----------
-    order : int
-        Non-negative angular Bessel order.
-    argument : numpy.ndarray
-        Dimensionless Bessel arguments, shape (n_points,).
-    edge : float
-        Dimensionless Bessel argument at the interface.
-    inside : bool
-        Whether to use the regular core solution.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Dimensionless radial function, argument derivative and divided value.
+    - ``edge``: dimensionless Bessel argument at the interface.
+    - ``inside``: the regular core solution (``J``) rather than the cladding one.
+    - Returns: dimensionless radial function, argument derivative and divided value.
     """
     if inside:
         value = jv(order, argument) / jv(order, edge)
@@ -115,19 +103,8 @@ class _FieldParameters:
 def _field_parameters(mode: StepIndexMode, omega: float, z: float) -> _FieldParameters:
     """Solve the position-independent parameters of one transverse field.
 
-    Parameters
-    ----------
-    mode : StepIndexMode
-        Existing bound lossless mode.
-    omega : float
-        Positive angular frequency in rad/s.
-    z : float
-        Axial position in m within the declared path.
-
-    Returns
-    -------
-    _FieldParameters
-        Immutable scalar parameters for this frequency and axial position.
+    - ``omega``: positive angular frequency in rad/s.
+    - ``z``: axial position in m within the declared path.
     """
     if not np.isfinite(omega) or omega <= 0 or not np.isfinite(z):
         raise ModeError("omega must be positive and z finite")
@@ -186,23 +163,11 @@ def _fields(
 ) -> tuple[Complex[np.ndarray, "n_points 3"], Complex[np.ndarray, "n_points 3"]]:
     """Recover full Maxwell fields from analytic longitudinal amplitudes.
 
-    Parameters
-    ----------
-    mode : StepIndexMode
-        Existing bound lossless mode.
-    points : numpy.ndarray
-        Explicit radial fractions or Cartesian points as required by this helper.
-    omega : float
-        Positive angular frequency in rad/s.
-    z : float
-        Position in m within the declared path.
-    exterior : bool or None, optional
-        Force one side for an exact interface trace; None follows each point.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Unnormalised E and H, each shape (n_points, 3).
+    - ``omega``: positive angular frequency in rad/s.
+    - ``z``: position in m within the declared path.
+    - ``exterior``: force one side for an exact interface trace; None follows each
+      point.
+    - Returns: unnormalised E and H, each shape (n_points, 3).
     """
     if points.ndim != 2 or points.shape[1] != 2 or not np.all(np.isfinite(points)):
         raise ModeError("points must be finite Cartesian (x, y) pairs")
@@ -219,19 +184,10 @@ def _prepared_fields(
 ) -> tuple[Complex[np.ndarray, "n_points 3"], Complex[np.ndarray, "n_points 3"]]:
     """Evaluate one solved mode at Cartesian positions without solving it again.
 
-    Parameters
-    ----------
-    parameters : _FieldParameters
-        Immutable solution at the requested frequency and axial position.
-    points : numpy.ndarray
-        Cartesian positions in m, shape (n_points, 2).
-    exterior : bool or None, optional
-        Force one side for an exact interface trace; None follows each point.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Unnormalised E and H, each shape (n_points, 3).
+    - ``points``: Cartesian positions in m, shape (n_points, 2).
+    - ``exterior``: force one side for an exact interface trace; None follows each
+      point.
+    - Returns: unnormalised E and H, each shape (n_points, 3).
     """
     radius, k, beta = parameters.radius, parameters.k, parameters.beta
     u, w, core, clad = parameters.u, parameters.w, parameters.core, parameters.clad
@@ -336,21 +292,11 @@ def _power(
 ) -> tuple[float, float]:
     """Integrate signed full-domain or exterior-tail Poynting power.
 
-    Parameters
-    ----------
-    mode : StepIndexMode
-        Existing bound lossless mode.
-    omega : float
-        Positive angular frequency in rad/s.
-    z : float
-        Position in m within the declared path.
-    start : float, optional
-        Lower integration radius divided by the core radius.
-
-    Returns
-    -------
-    tuple of float
-        Power in W and the adaptive absolute integration error in W.
+    - ``omega``: positive angular frequency in rad/s.
+    - ``z``: position in m within the declared path.
+    - ``start``: lower integration radius divided by the core radius; ``start >= 1``
+      integrates an exterior tail alone.
+    - Returns: power in W and the adaptive absolute integration error in W.
     """
     # The quadrature varies radius alone. Resolve the eigenpair and material
     # values once for this integral, without caching a mutable profile's inputs.
@@ -359,17 +305,9 @@ def _power(
     angles = np.arange(2 * mode.n + 3) * 2 * np.pi / (2 * mode.n + 3)
 
     def integrand(x: float) -> float:
-        """Evaluate the angularly integrated radial flux.
+        """Evaluate the angularly integrated radial flux at ``x = r / a``.
 
-        Parameters
-        ----------
-        x : float
-            Radius divided by the core radius.
-
-        Returns
-        -------
-        float
-            Dimensionless-radius integrand before the squared-radius factor.
+        The caller multiplies by the squared radius, the Jacobian of ``x``.
         """
         points = radius * x * np.column_stack((np.cos(angles), np.sin(angles)))
         e, h = _prepared_fields(parameters, points)

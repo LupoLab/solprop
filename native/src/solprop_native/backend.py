@@ -189,13 +189,7 @@ class _envelope_errors:
         error: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Raise a refinement failure leaving the call as solprop's error.
-
-        Raises
-        ------
-        solprop.exceptions.ConvergenceError
-            If the call raised the extension's ``EnvelopeConvergenceError``.
-        """
+        """Raise a refinement failure leaving the call as solprop's error."""
         del kind, traceback
         if isinstance(error, _core.EnvelopeConvergenceError):
             raise ConvergenceError(str(error)) from error
@@ -563,28 +557,11 @@ class NativeBackend:
         the Adams record's history and accounting started afresh; a session or a
         timing probe goes on from here.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            The state, ``complex128`` of shape ``(n_modes, n_pol, n_omega)``, of any
-            strides.
-        noise : solprop.noise.NoiseRealisation or None
-            The realisation, or ``None`` for the problem's own.
-        z : float
-            Where the state belongs, m.
-        resume : bool
-            Whether the state came back from a saved plane, taking no ``input`` draw.
-
-        Returns
-        -------
-        solprop_native._load.Loaded
-            The load, kept as the backend's (`_loaded`), its field emptied once the
-            state holds it.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If the backend is closed, or the start does not fit the problem.
+        - ``field``: the state, ``complex128`` of shape ``(n_modes, n_pol, n_omega)``,
+          of any strides.
+        - ``noise``: the realisation, or ``None`` for the problem's own.
+        - ``z``: where the state belongs, m.
+        - ``resume``: the state came back from a saved plane, taking no ``input`` draw.
         """
         if self._closed:
             raise BackendError("this backend is closed; its buffers were released")
@@ -611,10 +588,7 @@ class NativeBackend:
     def _install(self, field: ComplexArray) -> None:
         """Load a resumed history's own state, with the loaded noise realisation.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            The state as the interrupted run held it, contiguous.
+        - ``field``: the state as the interrupted run held it, contiguous.
         """
         loaded = self._loaded
         self._native_state.set_initial(
@@ -627,19 +601,9 @@ class NativeBackend:
     def _restore(self, start: Start, loaded: Loaded) -> tuple[str | None, float]:
         """Restore a resumed start's ledgers and method history after its load.
 
-        Parameters
-        ----------
-        start : solprop.backends.session.Start
-            The start, with any persisted ledgers and snapshot.
-        loaded : solprop_native._load.Loaded
-            Its load.
-
-        Returns
-        -------
-        tuple
-            Why the snapshot's history was not installed (``None`` when it was or none
-            was given), and the next step's proposal, m: the snapshot's when its
-            history continues, else ``dz_init``.
+        - Returns: why the snapshot's history was not installed (``None`` when it was or
+          none was given), and the next step's proposal, m: the snapshot's when its
+          history continues, else ``dz_init``.
         """
         adams = self._adams
         proposal = float(self._stepper.dz_init)
@@ -681,12 +645,6 @@ class NativeBackend:
         Either formulation keeps its history, its step arithmetic and its norms in the
         native state (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6),
         whose interaction formulation the admission refuses (`_refuse_adams`).
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            For the untransported compensation, a reference test witness that native
-            does not step.
         """
         # A varying operator's exponential formulation carries the transported
         # compensation natively, as does a frozen-residual flow's residual, whatever
@@ -1189,13 +1147,7 @@ class NativeBackend:
             self._bind_edge_lines(edge)
 
     def _bind_edge_lines(self, edge: TransverseEdge) -> None:
-        """Hand native a requested collar's lines, as arrays (solprop SEP 44).
-
-        Parameters
-        ----------
-        edge : solprop.transverse_monitor.TransverseEdge
-            The run's edge, whose lines may be none.
-        """
+        """Hand native a requested collar's lines, as arrays (solprop SEP 44)."""
         lines = edge.reduction.lines
         axes = {"r": 0, "x": 1, "y": 2}
         none = 2**64 - 1
@@ -1259,24 +1211,8 @@ class NativeBackend:
     ) -> _EdgeReading:
         """Read the state for the transverse edge where it lives (solprop SEP 44).
 
-        Parameters
-        ----------
-        state : solprop_native._core.State
-            This backend's state.
-        edge : solprop.transverse_monitor.TransverseEdge
-            The run's edge.
-        faces : bool, optional
-            Whether the regions, the columns and any collar's strip are wanted.
-        current : bool, optional
-            Whether a collar's inward current is wanted.
-        full : bool, optional
-            Whether every node is wanted, as a launch wants.
-
-        Returns
-        -------
-        solprop.transverse_monitor._EdgeReading
-            The reading, of which only numbers crossed. A requested collar still reduces
-            a host copy of the state.
+        - Returns: the reading, of which only numbers crossed. A requested collar still
+          reduces a host copy of the state.
         """
         if state is not self._native_state:
             raise BackendError("the read state does not belong to this backend")
@@ -1321,16 +1257,8 @@ class NativeBackend:
         no state on the host; only a launch that resumed without its edge's record has
         none, and then the loaded state crosses once.
 
-        Parameters
-        ----------
-        edge : solprop.transverse_monitor.TransverseEdge
-            The run's edge.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The unweighted energies, or ``None`` with no draw, no ramp or on a resumed
-            launch.
+        - Returns: the unweighted energies, or ``None`` with no draw, no ramp or on a
+          resumed launch.
         """
         loaded = self._loaded
         floor = None if loaded is None else loaded.floor
@@ -1674,10 +1602,7 @@ class NativeBackend:
 def _adopt_nothing(z: float | None) -> None:
     """Adopt nothing: the backend keeps no march state beside the native state.
 
-    Parameters
-    ----------
-    z : float or None
-        Where the engine's state moved, m; unused.
+    - ``z``: where the engine's state moved, m; unused.
     """
     del z
 
@@ -1698,11 +1623,6 @@ def _build_facts() -> _BuildFacts:
 
     Reading them costs about a millisecond (the package metadata lookup and the native
     record), which a per-plane metadata record paid at every saved plane.
-
-    Returns
-    -------
-    _BuildFacts
-        The build record as a mapping, solprop's version and the device team sizes.
     """
     native_record = {
         key: value for key, value in _core.build_record().items() if value is not None
@@ -1926,13 +1846,6 @@ class _ResidentAdams:
         the history as it was. The trial in flight and the last step's interpolant
         are forgotten, as ``HostHistory.load_rows`` forgets them: the march's next step
         is a new trial.
-
-        Raises
-        ------
-        BackendError
-            Naming the native backend and the mismatch: rows of another engine (a host
-            engine's frozen-residual weights), a row this history lacks or does not
-            keep, or one of the wrong shape or type.
         """
         names = self.native.adams_row_names()
         weights = sorted(name for name in rows if name.startswith("weights_"))
@@ -2455,16 +2368,6 @@ class _NativeAdamsMarch:
     (:meth:`resume`, :meth:`restore_ledger`). A native session hands it to the native
     state once (:meth:`start_state`, :meth:`_configure`) and holds the march's state
     there from then on (solprop SEP 47 section 5.2).
-
-    Parameters
-    ----------
-    backend : NativeBackend
-        The backend, whose resident history (``_adams_engine``) the march keeps.
-    method : solprop.stepper.multistep.Multistep
-        The method.
-    engine : object, optional
-        The history to keep instead of the backend's resident one: a scripted
-        harness's, in the decision-trace tests.
     """
 
     def __init__(
@@ -2564,17 +2467,8 @@ class _NativeAdamsMarch:
     ) -> None:
         """Restore a resumed run's logical call counts, not its history.
 
-        Parameters
-        ----------
-        logical : collections.abc.Mapping
-            The persisted logical counts; empty installs nothing.
-        atomic : collections.abc.Mapping or None, optional
-            Persisted atomic counts, which only the TDSE reference keeps.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If atomic counts are given.
+        - ``logical``: the persisted logical counts; empty installs nothing.
+        - ``atomic``: persisted atomic counts, which only the TDSE reference keeps.
         """
         if atomic:
             raise BackendError("native does not restore atomic response call ledgers")
@@ -2588,18 +2482,9 @@ class _NativeAdamsMarch:
         to this record; the snapshot's state and proposal are the caller's to load. A
         snapshot that cannot continue the march changes nothing.
 
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The snapshot a file holds.
-        z : float
-            The loaded position, m.
-
-        Returns
-        -------
-        str or None
-            ``None`` when the history was installed, otherwise why the march starts
-            afresh, as a resume did before snapshots were kept.
+        - ``z``: the loaded position, m.
+        - Returns: ``None`` when the history was installed, otherwise why the march
+          starts afresh, as a resume did before snapshots were kept.
         """
         reason = self._refusal(snapshot, z)
         if reason is not None:
@@ -2662,20 +2547,11 @@ class _NativeAdamsMarch:
     def start_state(self, z: float, proposal: float, cursor: int) -> dict[str, object]:
         """Return the march's state at a start, as the native call takes it.
 
-        Parameters
-        ----------
-        z : float
-            The loaded position, m.
-        proposal : float
-            The next step's proposal, m: ``dz_init``, or a resumed snapshot's.
-        cursor : int
-            The replayed schedule's edge index at `z`.
-
-        Returns
-        -------
-        dict
-            The position, the proposal, the order, the rejection flags, the cursor, the
-            history's entries and the ledger's counts.
+        - ``z``: the loaded position, m.
+        - ``proposal``: the next step's proposal, m: ``dz_init``, or a resumed
+          snapshot's.
+        - Returns: the position, the proposal, the order, the rejection flags, the
+          cursor, the history's entries and the ledger's counts.
         """
         ledger = self.ledger
         return {
@@ -2724,11 +2600,6 @@ class _NativeAdamsMarch:
 
         A session forms the call budget's own error (``NativeSession._budget_error``)
         before it asks here.
-
-        Raises
-        ------
-        solprop.exceptions.ConvergenceError
-            At the step floor, for a diverged replay or a native refinement.
         """
         if reason == _FLOOR:
             proposed = float(result["floor_proposal"])
@@ -2757,13 +2628,7 @@ class _NativeAdamsMarch:
 
 
 def _raise_native(result: Mapping[str, Any]) -> None:
-    """Raise a native march's error as the exception class its category names.
-
-    Raises
-    ------
-    solprop.exceptions.ConvergenceError, ValueError, BackendError, RuntimeError
-        By the result's category.
-    """
+    """Raise a native march's error as the exception class its category names."""
     message = str(result["message"])
     category = int(result["category"])
     if category == _CONVERGENCE:
@@ -2798,13 +2663,6 @@ class _ResidentLowStorage:
     ``stiffness`` is NaN. Recovering ``g1`` and ``F2`` needs ``C``, which is elided on
     the Cartesian and line routes the march is for or split across the exchange's two
     evaluations, and two more reductions a step.
-
-    Parameters
-    ----------
-    backend : NativeBackend
-        The backend whose native state this engine steps.
-    method : solprop.stepper.low_storage.LowStorageRungeKutta
-        The march.
 
     Attributes
     ----------
@@ -2842,18 +2700,8 @@ class _ResidentLowStorage:
     def step(self, z: float, dz: float) -> float:
         """Take one step in four native register passes, accepted in place.
 
-        Parameters
-        ----------
-        z : float
-            Where the step starts, m.
-        dz : float
-            The step, m, positive.
-
-        Returns
-        -------
-        float
-            The accepted state's squared norm over the norm mask, before the boundary
-            treatments.
+        - ``z``: where the step starts, m.
+        - ``dz``: the step, m, positive.
         """
         backend = self._backend
         if (counters := _counters.active) is not None:
@@ -2938,11 +2786,6 @@ class _ZTables:
     low-storage march), so none of one call's positions is evicted by another of its
     own. A compensated Adams march reads ``D = dPhi/dz`` from the derivative table
     (``linear.rate``) into one more ``Phi`` slot, ``rate_slot``.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A problem that took the z table for ``Phi``, the prefactor or both.
 
     Attributes
     ----------
@@ -3035,15 +2878,8 @@ class _ZTables:
     def load(self, positions: Sequence[float]) -> dict[float, int]:
         """Return each position's slot, evaluating those no slot holds, in one call.
 
-        Parameters
-        ----------
-        positions : sequence of float
-            The positions one native call reads, m, at most ``slots`` distinct.
-
-        Returns
-        -------
-        dict
-            Position to slot.
+        - ``positions``: the positions one native call reads, m, at most ``slots``
+          distinct.
         """
         assert self._native is not None
         wanted = [float(z) for z in positions]
@@ -3069,17 +2905,9 @@ class _ZTables:
     def rate(self, z: float, *, before: bool) -> RealArray:
         """Evaluate ``D(z)`` into the rate slot; return its weights over the terms.
 
-        Parameters
-        ----------
-        z : float
-            Position, m.
-        before : bool
-            Read an interior breakpoint from the interval ending there.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_phi,)``, one at the rate slot.
+        - ``z``: position, m.
+        - ``before``: read an interior breakpoint from the interval ending there.
+        - Returns: shape ``(n_phi,)``, one at the rate slot.
         """
         assert self._native is not None
         assert self.rate_slot is not None
@@ -3116,17 +2944,6 @@ def _refuse_reference_only(stepper: StepperSettings) -> None:
     The benchmark-only comparison family and a controller that decides in Python run
     on ``numpy_ref`` alone; native refuses them, on CPU and device builds alike, before
     anything is allocated.
-
-    Parameters
-    ----------
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepping policy.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        Naming the comparison variant, a method type native does not step, or the
-        controller's overridden methods.
     """
     integrator = stepper.integrator
     if isinstance(integrator, ComparisonMultistep):
@@ -3380,15 +3197,7 @@ def _host_flow(problem: PropagationProblem) -> _HostFlow | None:
     The Schur decompositions (one per active bin and section) are the expensive part
     of admitting a coupled flow, so the decomposition is kept with the problem.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-
-    Returns
-    -------
-    _HostFlow or None
-        The decomposition, or ``None`` without a coupled flow.
+    - Returns: the decomposition, or ``None`` without a coupled flow.
     """
     if problem not in _HOST_FLOWS:
         _HOST_FLOWS[problem] = _decomposed_flow(problem)

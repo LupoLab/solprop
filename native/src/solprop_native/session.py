@@ -271,19 +271,7 @@ def _diverged(
     so the state is lost with it, and the terminal event that carries this error is
     poisoned.
 
-    Parameters
-    ----------
-    name : str
-        The backend's name.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section, whose method names the march.
-    event : solprop_native._core.SessionEvent
-        The terminal record: where the step started and its length.
-
-    Returns
-    -------
-    solprop.exceptions.ConvergenceError
-        The divergence.
+    - ``event``: the terminal record: where the step started and its length.
     """
     method = cast("LowStorageRungeKutta", stepper.integrator)
     return ConvergenceError(
@@ -307,17 +295,7 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     refuses before it starts, and
     :func:`solprop.backends.populations.axis_refusal`), are refused by name.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    spec : solprop.stats.StatsSpec
-        The plane statistics and their periodic subset.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None``.
+    - Returns: the reason, or ``None``.
     """
     names = tuple(spec.names)
     if not names:
@@ -352,22 +330,9 @@ def _refuse_foreign_monitor(
     """Refuse a boundary monitor built for another grid or mode set, by name.
 
     Its weights would be read out of bounds by the compiled sums, so they are held to
-    the grid's samples and the state's modes before they are bound, as the reference
-    refuses them where it attaches the monitor.
-
-    Parameters
-    ----------
-    name : str
-        The backend's name, for the message.
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    monitor : solprop.monitor.BoundaryMonitor
-        The request's monitor.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If the weights are not ``(4, n_t)`` or the columns not ``(n_modes,)``.
+    the grid's samples (weights ``(4, n_t)``) and the state's modes (columns
+    ``(n_modes,)``) before they are bound, as the reference refuses them where it
+    attaches the monitor.
     """
     n_t = problem.grids.n_t
     n_modes = problem.shape[0]
@@ -588,29 +553,7 @@ class NativeSession:
         modes: Sequence[Mode] | None,
         profiles: Mapping[str, ZProfile] | None,
     ) -> StatisticsLowering:
-        """Lower statistics for the native plan, with their far-field tables.
-
-        Parameters
-        ----------
-        names : tuple of str
-            The statistics.
-        grid : solprop.grid.TimeGrid or None
-            The time grid.
-        modes : sequence of Mode or None
-            The mode set.
-        profiles : mapping or None
-            The z profiles.
-
-        Returns
-        -------
-        solprop_native._statistics.StatisticsLowering
-            The lowering.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Naming an input a statistic lacks.
-        """
+        """Lower statistics for the native plan, with their far-field tables."""
         apertures = None
         if self._spatial and names:
             tables = self._far_field.for_spec(self._spec)
@@ -636,17 +579,8 @@ class NativeSession:
     ) -> tuple[str, dict[str, object]]:
         """Load the start and configure the backend's native march; return its state.
 
-        Parameters
-        ----------
-        backend : solprop_native.backend.NativeBackend
-            The freshly built backend.
-        start : solprop.backends.session.Start
-            Where the run starts.
-
-        Returns
-        -------
-        tuple
-            The march's kind and its state at the start, as the native call takes it.
+        - Returns: the march's kind and its state at the start, as the native call takes
+          it.
         """
         driver = self._driver(backend)
         integrator = self._stepper.integrator
@@ -730,18 +664,8 @@ class NativeSession:
         them: the native edge resumes exactly when the record's resumption holds a
         launch baseline (:func:`solprop_native._transverse.resumption`).
 
-        Parameters
-        ----------
-        driver : solprop_native.backend.NativeBackend
-            The loaded backend, its state not yet leased.
-        start : solprop.backends.session.Start
-            Where the run starts, with a monitored resume's continuation.
-
-        Returns
-        -------
-        dict or None
-            The readings (:func:`solprop_native._transverse.noise_readings`), or
-            ``None`` without an edge or input noise.
+        - Returns: the readings (:func:`solprop_native._transverse.noise_readings`), or
+          ``None`` without an edge or input noise.
         """
         edge = None if self._monitor is None else self._monitor.transverse
         assert self._loaded is not None  # `_prepare` loaded the start
@@ -762,33 +686,12 @@ class NativeSession:
         restore, its march records and policies, its stage tables and monitor
         binding); confined here and typed ``Any`` because those members are the
         backend's own, shared within this package alone.
-
-        Parameters
-        ----------
-        backend : solprop_native.backend.NativeBackend or None
-            The backend.
-
-        Returns
-        -------
-        Any
-            The same object.
         """
         assert backend is not None
         return backend
 
     def _plan(self, start: Start) -> dict[str, object]:
-        """Return the observation request and itinerary for the native session.
-
-        Parameters
-        ----------
-        start : solprop.backends.session.Start
-            Where the run starts.
-
-        Returns
-        -------
-        dict
-            The plan.
-        """
+        """Return the observation request and itinerary for the native session."""
         observation = self._request.observation
         schedule = (
             None if self._request.replay is None else self._request.replay.schedule
@@ -816,12 +719,9 @@ class NativeSession:
     def _dense_plan(self) -> dict[str, object]:
         """Return the dense output the native session interpolates planes with.
 
-        Returns
-        -------
-        dict
-            The tableau's dense-output weights, one per stage, empty for Adams: those
-            of :func:`~solprop.stepper.tableau.continuous_extension`, which the
-            translation requires of a Runge-Kutta run with interpolated planes.
+        - Returns: the tableau's dense-output weights, one per stage, empty for Adams:
+          those of :func:`~solprop.stepper.tableau.continuous_extension`, which the
+          translation requires of a Runge-Kutta run with interpolated planes.
         """
         stepper = self._stepper
         if isinstance(stepper.integrator, Multistep):
@@ -833,15 +733,7 @@ class NativeSession:
     def _monitor_plan(self, start: Start) -> dict[str, object] | None:
         """Return the native monitor's configuration and any record it continues.
 
-        Parameters
-        ----------
-        start : solprop.backends.session.Start
-            Where the run starts, with a monitored resume's continuation.
-
-        Returns
-        -------
-        dict or None
-            The monitor's plan, or ``None`` without a monitor.
+        - Returns: the monitor's plan, or ``None`` without a monitor.
         """
         monitor = self._monitor
         if monitor is None:
@@ -874,16 +766,9 @@ class NativeSession:
     def _continuation(self, continuation: Mapping[str, object]) -> dict[str, object]:
         """Return a monitored resume's continuation as the native session reads it.
 
-        Parameters
-        ----------
-        continuation : collections.abc.Mapping
-            As :attr:`solprop.backends.session.Start.monitor`.
-
-        Returns
-        -------
-        dict
-            The earlier record's resumption and its transverse edge's, whether the run
-            resumes at a saved plane, and the stretches run since without a monitor.
+        - Returns: the earlier record's resumption and its transverse edge's, whether
+          the run resumes at a saved plane, and the stretches run since without a
+          monitor.
         """
         record = continuation.get("record")
         edge = None if self._monitor is None else self._monitor.transverse
@@ -1058,11 +943,6 @@ class NativeSession:
         (``Session::quadrature_peak``); the warning
         is given once between two observations, as the reference gives it once a
         plane.
-
-        Parameters
-        ----------
-        event : solprop.backends.events.Event
-            The advance's event; an observation starts the next plane's watch.
         """
         if self.closed:
             return
@@ -1089,17 +969,7 @@ class NativeSession:
     ) -> tuple[BackendHistory, Event]:
         """Return a native batch's chunk of attempts and its one event.
 
-        Parameters
-        ----------
-        batch : solprop_native._core.SessionBatch
-            The batch, pending.
-        receipt : solprop.backends.events.Receipt
-            Its receipt.
-
-        Returns
-        -------
-        tuple
-            The attempts since the previous event, and the event carrying them.
+        - Returns: the attempts since the previous event, and the event carrying them.
         """
         # Each batch is one event and the chunk since the previous one, delivered once.
         chunk = self._history(batch.attempts)
@@ -1465,11 +1335,6 @@ class NativeSession:
 
         A Radau rule's axis node is read from the node scan the species reduction
         makes anyway; any other rule scans the axis row itself, which counts here.
-
-        Returns
-        -------
-        int
-            The scans since the session started.
         """
         backend = self._backend
         if backend is None or backend.closed:
@@ -1488,10 +1353,7 @@ class NativeSession:
         orders of the steps accepted since the last call are appended, so that the
         record's run-length encoding is extended rather than redone.
 
-        Returns
-        -------
-        solprop.backends.multistep.CallLedger or None
-            The ledger, or ``None`` for a Runge-Kutta march.
+        - Returns: the ledger, or ``None`` for a Runge-Kutta march.
         """
         calls = self._calls
         if calls is None or self.closed:
@@ -1719,17 +1581,9 @@ class NativeSession:
     # -- translation ----------------------------------------------------------------
 
     def _check_destination(self, out: np.ndarray) -> None:
-        """Refuse a destination that cannot hold an export (as ``apply_recipe`` does).
+        """Refuse a destination that cannot hold an export.
 
-        Parameters
-        ----------
-        out : numpy.ndarray
-            The proposed destination.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            Naming the mismatch.
+        The same check ``apply_recipe`` makes.
         """
         refusal = destination_refusal(out, self._shape)
         if refusal is not None:
@@ -1738,33 +1592,14 @@ class NativeSession:
     def _plane_stats(self, batch: _core.SessionBatch) -> dict[str, np.ndarray]:
         """Return a batch's plane statistics by name.
 
-        Parameters
-        ----------
-        batch : solprop_native._core.SessionBatch
-            The batch.
-
-        Returns
-        -------
-        dict
-            The statistics, empty when the batch carries none.
+        - Returns: the statistics, empty when the batch carries none.
         """
         if not batch.event.has_stats:
             return {}
         return self._plane_lowering.unpack(batch.plane_stats[0])
 
     def _chunk_rows(self, batch: _core.SessionBatch) -> StepStats:
-        """Return a batch's chunk of periodic rows, its steps indexing the chunk.
-
-        Parameters
-        ----------
-        batch : solprop_native._core.SessionBatch
-            The batch.
-
-        Returns
-        -------
-        solprop.backends.protocol.StepStats
-            The rows taken since the previous event.
-        """
+        """Return a batch's chunk of periodic rows, its steps indexing the chunk."""
         z = batch.row_z.reshape(-1)
         step = batch.row_step.reshape(-1).astype(np.int64)
         if z.size == 0:
@@ -1777,13 +1612,7 @@ class NativeSession:
         return StepStats(z, step, values)
 
     def _no_rows(self) -> StepStats:
-        """Return no rows: no names before the first row, then each row's shape.
-
-        Returns
-        -------
-        solprop.backends.protocol.StepStats
-            Empty rows, as the driver's buffer drains them.
-        """
+        """Return no rows: no names before the first row, then each row's shape."""
         return StepStats(
             np.empty(0),
             np.empty(0, dtype=np.int64),
@@ -1797,15 +1626,7 @@ class NativeSession:
     def _history(attempts: np.ndarray) -> BackendHistory:
         """Return a chunk's attempt rows as a history.
 
-        Parameters
-        ----------
-        attempts : numpy.ndarray
-            The rows, ``(n, 5)``: end, step, norm, acceptance, wall time.
-
-        Returns
-        -------
-        solprop.backends.protocol.BackendHistory
-            The attempts.
+        - ``attempts``: ``(n, 5)`` rows: end, step, norm, acceptance, wall time.
         """
         return BackendHistory(
             z=np.ascontiguousarray(attempts[:, 0]),
@@ -1822,19 +1643,7 @@ class NativeSession:
         chunk: BackendHistory,
         limit: int,
     ) -> None:
-        """Count a delivered batch for the benchmarks: one return to Python.
-
-        Parameters
-        ----------
-        counters : solprop_native._counters.Counters
-            The active counters.
-        batch : solprop_native._core.SessionBatch
-            The batch.
-        chunk : solprop.backends.protocol.BackendHistory
-            Its attempts.
-        limit : int
-            The ``advance``'s attempt bound.
-        """
+        """Count a delivered batch for the benchmarks: one return to Python."""
         event = batch.event
         attempts = chunk.n_steps
         rows = int(batch.row_z.size)
@@ -1863,13 +1672,7 @@ class NativeSession:
         )
 
     def _count(self, chunk: BackendHistory) -> None:
-        """Count a delivered chunk's attempts toward the next observation's summary.
-
-        Parameters
-        ----------
-        chunk : solprop.backends.protocol.BackendHistory
-            The attempts one event delivered; their wall times start at that chunk.
-        """
+        """Count a delivered chunk's attempts toward the next observation's summary."""
         self._plane_norms.extend(chunk.error_norm[chunk.accepted].tolist())
         self._plane_steps += chunk.n_steps
         self._plane_rejected += chunk.n_rejected
@@ -1882,15 +1685,7 @@ class NativeSession:
         Formed from every chunk since the previous observation, as the driver forms
         it from the same attempts, and started afresh.
 
-        Parameters
-        ----------
-        z : float
-            Its position, m.
-
-        Returns
-        -------
-        solprop.backends.protocol.StepSummary
-            The summary.
+        - ``z``: its position, m.
         """
         record = ControlRecord.from_norms(
             self._stepper.controller,
@@ -1917,24 +1712,7 @@ class NativeSession:
         chunk: BackendHistory,
         rows: StepStats,
     ) -> Event:
-        """Translate a batch's native event record and its chunk.
-
-        Parameters
-        ----------
-        batch : solprop_native._core.SessionBatch
-            The batch.
-        receipt : solprop.backends.events.Receipt
-            Its receipt.
-        chunk : solprop.backends.protocol.BackendHistory
-            Its attempts, since the previous event.
-        rows : solprop.backends.protocol.StepStats
-            Its periodic rows, likewise.
-
-        Returns
-        -------
-        solprop.backends.events.Event
-            The event.
-        """
+        """Translate a batch's native event record and its chunk."""
         event = batch.event
         ticket = (
             ExportTicket(receipt, event.generation, event.z) if event.ticket else None
@@ -2017,16 +1795,6 @@ class NativeSession:
         Formed from the session's own ledger, position and committed field, as the
         backend's march forms it from its own (:func:`~solprop.backends.multistep.
         budget_error`).
-
-        Parameters
-        ----------
-        event : solprop_native._core.SessionEvent
-            The terminal record, its batch pending.
-
-        Returns
-        -------
-        BaseException
-            The budget's error.
         """
         calls = self._sync_calls()
         assert calls is not None
@@ -2043,16 +1811,8 @@ class NativeSession:
     def _abandoned_step(self, event: _core.SessionEvent) -> float:
         """Return the length of the step a poisoned terminal event left in flight.
 
-        Parameters
-        ----------
-        event : solprop_native._core.SessionEvent
-            The terminal record.
-
-        Returns
-        -------
-        float
-            The diverged step's length, or the schedule's step at the failure's cursor,
-            m.
+        - Returns: the diverged step's length, or the schedule's step at the failure's
+          cursor, m.
         """
         if event.reason == _DIVERGED:
             return float(event.replay_dz)
@@ -2063,15 +1823,7 @@ class NativeSession:
     def _warning(self, native: Mapping[str, object]) -> Warning:
         """Return a warning barrier's warning, the monitor's or its edge's.
 
-        Parameters
-        ----------
-        native : collections.abc.Mapping
-            ``SessionEvent.notice``.
-
-        Returns
-        -------
-        Warning
-            The warning, as solprop's monitor or edge issues it.
+        - ``native``: ``SessionEvent.notice``.
         """
         monitor = self._monitor
         assert monitor is not None
@@ -2108,18 +1860,6 @@ class NativeSession:
 
         A failure is formatted by the backend's own march adapter, as its native call
         would have raised it.
-
-        Parameters
-        ----------
-        event : solprop_native._core.SessionEvent
-            The terminal record.
-        outcome : solprop.backends.events.Outcome
-            Stopped or failed.
-
-        Returns
-        -------
-        BaseException
-            The stop request or the primary failure.
         """
         if outcome is Outcome.STOPPED:
             return StopRequested(self._stop)
@@ -2187,12 +1927,6 @@ class _NativeRungeKuttaMarch:
     rejection's, and the boundary checks -- runs natively in the session from one
     policy record (the kernel contract's section 12), which this hands the native
     state once.
-
-    Parameters
-    ----------
-    backend : NativeBackend
-        The backend whose native state steps the march; a scripted harness stands in
-        for it in the decision-trace tests.
     """
 
     def __init__(self, backend: Any) -> None:
@@ -2202,16 +1936,8 @@ class _NativeRungeKuttaMarch:
     def _policy(self, interval: float | None = None) -> dict[str, object]:
         """Return the run's controller and landing record (kernel contract 12).
 
-        Parameters
-        ----------
-        interval : float or None, optional
-            A resting collar's quiet interval, m; ``None`` for a session, whose
-            native monitor holds its own.
-
-        Returns
-        -------
-        dict
-            The record the native march reads.
+        - ``interval``: a resting collar's quiet interval, m; ``None`` for a session,
+          whose native monitor holds its own.
         """
         backend = self._driver
         stepper = backend._stepper
@@ -2279,26 +2005,10 @@ def _raise_rk(
 ) -> None:
     """Raise the error a native Runge-Kutta march returned with, if any.
 
-    Parameters
-    ----------
-    reason : int
-        The call's return reason.
-    result : collections.abc.Mapping
-        Its result: the diverged replay's step and norm, the floor's proposal, or a
-        native error's message and category.
-    name : str
-        The backend's name, for a diverged replay's message.
-    dz_min : float
-        The step floor, m.
-    at : tuple of float and int
-        The position, m, and the replay's cursor the diverged step started from.
-    n_steps : int
-        The replayed schedule's steps.
-
-    Raises
-    ------
-    solprop.exceptions.ConvergenceError
-        For a diverged replay, the step floor or a native convergence failure.
+    - ``result``: its result: the diverged replay's step and norm, the floor's proposal,
+      or a native error's message and category.
+    - ``dz_min``: the step floor, m.
+    - ``at``: the position, m, and the replay's cursor the diverged step started from.
     """
     if reason == _DIVERGED:
         z, cursor = at

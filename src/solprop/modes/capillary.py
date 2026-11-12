@@ -243,19 +243,9 @@ def _cladding_term_and_derivative(
     with ``Re e < 1`` -- a metal, or silica in the extreme ultraviolet -- is handled
     rather than producing a NaN.
 
-    Parameters
-    ----------
-    permittivity : numpy.ndarray
-        Complex relative permittivity of the cladding, shape ``(n_omega,)``.
-    dpermittivity : numpy.ndarray
-        Its analytic frequency derivative in s/rad, same shape.
-    kind : str
-        ``"HE"``, ``"TE"`` or ``"TM"``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``v_n(omega)`` and ``dv_n/domega``.
+    - ``dpermittivity``: its analytic frequency derivative in s/rad, same shape.
+    - ``kind``: ``"HE"``, ``"TE"`` or ``"TM"``.
+    - Returns: ``v_n(omega)`` and ``dv_n/domega``.
     """
     offset = np.asarray(permittivity - 1.0, dtype=complex)
     root = np.sqrt(offset)
@@ -385,14 +375,7 @@ class MarcatiliMode(GasFillMixin):
     _terms_origin: ClassVar["MarcatiliMode | None"] = None
 
     def _check_arguments(self) -> None:
-        """Check the constructor arguments against each other.
-
-        Raises
-        ------
-        ModeError
-            If the family and the azimuthal index disagree, or the model, the
-            temperature or the loss specification is unusable.
-        """
+        """Check the constructor arguments against each other."""
         if not math.isfinite(self.phi):
             raise ModeError(f"phi must be finite, got {self.phi!r}")
         if self.kind not in ("HE", "TE", "TM"):
@@ -460,20 +443,14 @@ class MarcatiliMode(GasFillMixin):
         Marcatili's area is a constant times the radius squared, so it costs nothing;
         a subclass whose area is frequency dependent or tabulated returns no row.
 
-        Returns
-        -------
-        list of tuple
-            ``(key, value)`` rows.
+        - Returns: ``(key, value)`` rows.
         """
         return [("effective area", f"{self.aeff() * 1e12:.4g} um^2")]
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
         cladding = self.cladding_index
@@ -854,15 +831,8 @@ class MarcatiliMode(GasFillMixin):
     def _sample_terms(self, values: Float[np.ndarray, " n_omega"]) -> MarcatiliTerms:
         """Sample the gas and cladding models at validated frequencies.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            Finite, strictly positive angular frequencies in rad/s.
-
-        Returns
-        -------
-        MarcatiliTerms
-            The frequency-only terms, as :meth:`sampled_terms` documents.
+        - ``values``: finite, strictly positive angular frequencies in rad/s.
+        - Returns: the frequency-only terms, as :meth:`sampled_terms` documents.
         """
         susceptibility, dsusceptibility = self._sampled_susceptibility(values)
         if isinstance(self.cladding_index, GlassIndex):
@@ -888,17 +858,8 @@ class MarcatiliMode(GasFillMixin):
     ) -> tuple[Inexact[np.ndarray, " n_omega"], Inexact[np.ndarray, " n_omega"]]:
         """Return the waveguide term of the full model and its frequency derivative.
 
-        Parameters
-        ----------
-        terms : MarcatiliTerms
-            The sampled frequency-dependent quantities.
-        radius : float
-            Core radius in m at the position of interest.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``w = (u/(ka))^2 (1 - i v/(ka))^2`` and ``dw/domega``.
+        - ``radius``: core radius in m at the position of interest.
+        - Returns: ``w = (u/(ka))^2 (1 - i v/(ka))^2`` and ``dw/domega``.
         """
         omega = terms.omega
         scale = C / (omega * radius)
@@ -920,20 +881,11 @@ class MarcatiliMode(GasFillMixin):
     ) -> tuple[Inexact[np.ndarray, " n_omega"], Inexact[np.ndarray, " n_omega"]]:
         """Return ``n_eff - 1`` and ``dn_eff/domega`` before the loss specification.
 
-        Parameters
-        ----------
-        terms : MarcatiliTerms
-            The sampled frequency-dependent quantities.
-        radius : float
-            Core radius in m.
-        density : float or numpy.ndarray
-            Number density in m^-3, scalar for the existing gas spelling or one
-            entry per sampled mixture component.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The refractivity and its derivative, with the model's own loss included.
+        - ``radius``: core radius in m.
+        - ``density``: number density in m^-3, scalar for the existing gas spelling or
+          one entry per sampled mixture component.
+        - Returns: the refractivity and its derivative, with the model's own loss
+          included.
         """
         omega = terms.omega
         if terms.core_susceptibility.ndim == 1:
@@ -1321,17 +1273,8 @@ class MarcatiliMode(GasFillMixin):
         The ``z`` counterpart of ``_apply_loss`` and ``_floored``, zeroing the slope
         wherever they zero the frequency derivative.
 
-        Parameters
-        ----------
-        refractivity : numpy.ndarray
-            The model's ``n_eff - 1`` with its own loss, before the specification.
-        derivative : numpy.ndarray
-            Its ``z`` derivative in 1/m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The ``z`` derivative of what :meth:`neff` returns, in 1/m.
+        - ``derivative``: its ``z`` derivative in 1/m.
+        - Returns: the ``z`` derivative of what :meth:`neff` returns, in 1/m.
         """
         specification = self.loss
         if callable(specification):
@@ -1353,21 +1296,9 @@ class MarcatiliMode(GasFillMixin):
     ) -> tuple[float, float | Float[np.ndarray, " n_species"]]:
         """Return the core radius and the number density at one position.
 
-        Parameters
-        ----------
-        z : float
-            Position along the waveguide, m.
-
-        Returns
-        -------
-        tuple of float
-            Core radius in m and number density in m^-3 -- the two scalars that carry
-            the whole z dependence of the effective index.
-
-        Raises
-        ------
-        ModeError
-            If the core radius is not positive there.
+        - ``z``: position along the waveguide, m.
+        - Returns: core radius in m and number density in m^-3 -- the two scalars that
+          carry the whole z dependence of the effective index.
         """
         position = np.array([float(z)])
         radius = float(self.core_radius(position)[0])
@@ -1518,11 +1449,8 @@ class MarcatiliMode(GasFillMixin):
     def _effective_area_factor(self) -> float:
         """Return the radius-independent part of the effective area.
 
-        Returns
-        -------
-        float
-            ``A_eff / a^2``, the ratio of the squared second moment of the transverse
-            profile to its fourth moment, evaluated once at construction.
+        - Returns: ``A_eff / a^2``, the ratio of the squared second moment of the
+          transverse profile to its fourth moment, evaluated once at construction.
         """
         order = self.n if self.kind == "HE" else 2
         denominator = quad(
@@ -1557,10 +1485,7 @@ def _shared_sampling() -> Iterator[None]:
 
     A scope opened inside another is the enclosing one.
 
-    Yields
-    ------
-    None
-        Nothing; the scope ends when the block exits.
+    - Yields: nothing; the scope ends when the block exits.
     """
     if _SHARED_TERMS.get() is not None:
         # Nested in an enclosing scope, which keeps sharing its terms.
@@ -1576,15 +1501,7 @@ def _shared_sampling() -> Iterator[None]:
 def _same_rows(first: tuple[object, ...], second: tuple[object, ...]) -> bool:
     """Return whether two fills' row descriptions name the same models and absences.
 
-    Parameters
-    ----------
-    first, second : tuple
-        :meth:`~solprop.modes.fill.GasFillMixin._fill_rows` of each fill.
-
-    Returns
-    -------
-    bool
-        True when the models are the same objects, in order, with equal absences.
+    - Returns: True when the models are the same objects, in order, with equal absences.
     """
     if len(first) != len(second):
         return False
@@ -1602,20 +1519,7 @@ def _checked_omega(
 ) -> Float[np.ndarray, " n_omega"]:
     """Validate an angular-frequency argument for a capillary mode.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies in rad/s, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values as a float array.
-
-    Raises
-    ------
-    ModeError
-        If any value is not finite or not strictly positive.
+    - ``omega``: angular frequencies in rad/s, shape ``(n_omega,)``.
     """
     values = np.asarray(omega, dtype=float)
     if not np.all(np.isfinite(values)):
@@ -1827,14 +1731,7 @@ class CoherentWall(Displayed):
         self._check_method()
 
     def _check_method(self) -> None:
-        """Check the varying-section method and the two declarations only CF4 reads.
-
-        Raises
-        ------
-        ModeError
-            If the method is unknown, or if a growth limit or a fallback is declared
-            without CF4 or out of range.
-        """
+        """Check the varying-section method and the two declarations only CF4 reads."""
         if self.method not in ("frozen_residual", "cf4"):
             msg = (
                 "CoherentWall.method is 'frozen_residual' or 'cf4' for a guide that "
@@ -1896,10 +1793,7 @@ class CoherentWall(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "CoherentWall: the condensed Robin wall of a capillary block", [
             ("wall impedance", self.impedance),
@@ -1911,26 +1805,14 @@ class CoherentWall(Displayed):
         ]
 
     def _model_text(self) -> str:
-        """Return the printed one-line model the declaration builds.
-
-        Returns
-        -------
-        str
-            The wall impedance, the paraxial generator and the flow it takes.
-        """
+        """Return the printed one-line model the declaration builds."""
         wall = "TE/TM impedances" if self.impedance == "te_tm" else "mean impedance"
         if self.method == "cf4":
             return f"{wall}, paraxial, commutator-free per section"
         return f"{wall}, paraxial, frozen per section"
 
     def _method_text(self) -> str:
-        """Return the printed varying-section method with the CF4 guards it declares.
-
-        Returns
-        -------
-        str
-            For example ``cf4, growth limit 2 (default), fallback frozen_residual``.
-        """
+        """Return the printed varying-section method with the CF4 guards it declares."""
         if self.method != "cf4":
             return self.method
         limit = "default" if self.growth_limit is None else f"{self.growth_limit:g}"
@@ -2050,10 +1932,7 @@ class WallLimits(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "WallLimits: where the condensed paraxial wall model stops being one", [
             ("channels", self.n_modes),
@@ -2162,10 +2041,7 @@ class WallOperator(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         band = self.generator[:, :, self.active]
         loss = -np.real(np.einsum("mmw->mw", band)) if band.size else np.zeros((1, 1))
@@ -2367,10 +2243,7 @@ class VectorWallOperator(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         band = self.generator[:, :, self.active]
         loss = -np.real(np.einsum("mmw->mw", band)) if band.size else np.zeros((1, 1))
@@ -2417,28 +2290,13 @@ def _wall_block_modes(
     ``model="reduced"``, whose leading-order expansion of ``n_eff`` is a different
     carrier, would be overridden by the block it sits beside.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set of the run, in the state's channel order. It is typed as the
-        protocol rather than as :class:`MarcatiliMode` so that a set carrying another
-        kind of mode reaches the refusal below and is named, instead of failing the
-        runtime type check the test session installs.
-    wall : bool, optional
-        Whether the block is a coherent wall's. The **taper coupling** alone
-        (:func:`taper_connection`) reads the radial orders and the radius, never the
-        loss or the capillary model, so ``False`` admits any loss and either model
-        and keeps every other condition.
-
-    Returns
-    -------
-    tuple of MarcatiliMode
-        The same modes, as a tuple.
-
-    Raises
-    ------
-    ModeError
-        Naming what makes the set incompatible.
+    - ``modes``: typed as the protocol rather than as :class:`MarcatiliMode` so that a
+      set carrying another kind of mode reaches the refusal here and is named, instead
+      of failing the runtime type check the test session installs.
+    - ``wall``: whether the block is a coherent wall's. The taper coupling alone
+      (:func:`taper_connection`) reads the radial orders and the radius, never the loss
+      or the capillary model, so ``False`` admits any loss and either model and keeps
+      every other condition.
     """
     block = tuple(modes)
     if not block:
@@ -2485,15 +2343,7 @@ def _wall_channel_settings(mode: MarcatiliMode) -> tuple[tuple[str, object], ...
     and two tapers that agree at the entrance are two different guides everywhere
     else.
 
-    Parameters
-    ----------
-    mode : MarcatiliMode
-        One channel of the block.
-
-    Returns
-    -------
-    tuple
-        ``(name, value)`` pairs, comparable and printable.
+    - Returns: ``(name, value)`` pairs, comparable and printable.
     """
     return (
         ("phi", mode.phi),
@@ -2511,20 +2361,12 @@ def _wall_channel_settings(mode: MarcatiliMode) -> tuple[tuple[str, object], ...
 def _profile_key(profile: ZProfile) -> str:
     """Return a comparable, printable identity of one declared z profile.
 
-    Parameters
-    ----------
-    profile : solprop.profiles.ZProfile
-        The declared path.
-
-    Returns
-    -------
-    str
-        The sorted identity mapping of :func:`solprop.profiles.profile_identity`,
-        rendered so that two paths compare equal exactly when the identity does. A
-        path that has no structural identity -- an arbitrary callable -- is keyed on
-        the object itself, so two channels sharing one declared path agree and two
-        that were handed separate callables are refused, which is the conservative
-        answer for something this package cannot inspect.
+    - Returns: the sorted identity mapping of :func:`solprop.profiles.profile_identity`,
+      rendered so that two paths compare equal exactly when the identity does. A path
+      that has no structural identity -- an arbitrary callable -- is keyed on the object
+      itself, so two channels sharing one declared path agree and two that were handed
+      separate callables are refused, which is the conservative answer for something
+      this package cannot inspect.
     """
     try:
         identity = profile_identity(profile)
@@ -2538,20 +2380,9 @@ def _check_wall_channels(
 ) -> None:
     """Refuse a block whose channels do not declare one guide, by name.
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The contiguous ``HE_11`` to ``HE_1N`` set, in channel order.
-    wall : bool, optional
-        Whether the block is a coherent wall's, which is the loss model and needs the
-        full capillary model. ``False`` -- the taper coupling alone -- skips those two
-        conditions and names the taper coupling in the others.
-
-    Raises
-    ------
-    ModeError
-        Naming the channel and the loss or capillary model the block would override,
-        the channel whose section varies, or the setting two channels disagree on.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set, in channel order.
+    - ``wall``: ``False`` (the taper coupling alone) skips the loss and capillary-model
+      conditions, which only the wall needs, and names the taper coupling in the rest.
     """
     owner = "a coherent wall block" if wall else "the taper coupling"
     for index, mode in enumerate(block):
@@ -2630,23 +2461,13 @@ def _check_wall_guide(
     middle of the band and differs between them is not a thing this package can
     build.
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The contiguous ``HE_11`` to ``HE_1N`` set, in channel order.
-    band : numpy.ndarray
-        The active frequencies in rad/s, ascending, non-empty.
-    probe : str or None, optional
-        Which family's cladding term to compare the channels through. ``None``
-        compares each channel's own, which is right when they share one family. A
-        **vector** block does not: its families are the point of it, and their
-        cladding terms differ by construction, so it compares every channel through
-        one named kind, which is the same permittivity read the same way.
-
-    Raises
-    ------
-    ModeError
-        Naming the channel whose cladding or fill is not the lowest channel's.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set, in channel order.
+    - ``band``: the active frequencies in rad/s, ascending, non-empty.
+    - ``probe``: which family's cladding term to compare the channels through. ``None``
+      compares each channel's own, which is right when they share one family. A
+      **vector** block does not: its families are the point of it, and their cladding
+      terms differ by construction, so it compares every channel through one named kind,
+      which is the same permittivity read the same way.
     """
     if len(block) == 1:
         return
@@ -2682,17 +2503,7 @@ def _core_susceptibility(
 ) -> Complex[np.ndarray, " n_omega"]:
     """Return the core susceptibility of a fill at one position.
 
-    Parameters
-    ----------
-    terms : MarcatiliTerms
-        The sampled frequency-dependent quantities.
-    density : float or numpy.ndarray
-        Number density in m^-3, scalar or one entry per sampled species.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``chi(omega)``, complex, shape ``(n_omega,)``.
+    - ``density``: number density in m^-3, scalar or one entry per sampled species.
     """
     if terms.core_susceptibility.ndim == 1:
         return np.asarray(terms.core_susceptibility * density, dtype=complex)
@@ -2860,20 +2671,7 @@ def _vector_wall_families(
     must be the contiguous ``m = 1 .. N_f`` set the condensation truncates.
     Everything else is refused by name.
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The channels in the state's order.
-
-    Returns
-    -------
-    tuple
-        The order ``nu`` and its families, in channel order.
-
-    Raises
-    ------
-    ModeError
-        Naming what makes the set more or less than one azimuthal order.
+    - Returns: the order ``nu`` and its families, in channel order.
     """
     runs: list[list[MarcatiliMode]] = []
     for mode in block:
@@ -2953,20 +2751,7 @@ def _vector_wall_block(
 ) -> tuple[int, tuple[WallFamily, ...], tuple[MarcatiliMode, ...]]:
     """Check a mode set is one azimuthal order of a bare capillary, and split it.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set of the run, in the state's channel order.
-
-    Returns
-    -------
-    tuple
-        The azimuthal order, its families and the same modes as a tuple.
-
-    Raises
-    ------
-    ModeError
-        Naming what makes the set incompatible.
+    - Returns: the azimuthal order, its families and the same modes as a tuple.
     """
     block = tuple(modes)
     if not block:
@@ -3000,17 +2785,9 @@ def _vector_impedances(
     deliberate: a constant, tabulated or mixed cladding then reaches the wall model by
     exactly the path any TE or TM channel of this guide would take.
 
-    Parameters
-    ----------
-    mode : MarcatiliMode
-        The channel the block reads its guide from.
-    band : numpy.ndarray
-        The active frequencies in rad/s, ascending, strictly positive.
-
-    Returns
-    -------
-    numpy.ndarray
-        The radial and tangential impedances in m, complex, shape ``(2, n_active)``.
+    - ``band``: the active frequencies in rad/s, ascending, strictly positive.
+    - Returns: the radial and tangential impedances in m, complex, shape ``(2,
+      n_active)``.
     """
     vacuum = band / C
     return np.stack(
@@ -3423,17 +3200,8 @@ def _scalar_connection(
 ) -> Float[np.ndarray, "n_modes_scalar_out n_modes_scalar_in"]:
     """Return the connection of a checked ``HE_1m`` block at one position.
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The checked block.
-    z : float
-        Position in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``C`` in 1/m.
+    - ``z``: position in m.
+    - Returns: ``C`` in 1/m.
     """
     first = block[0]
     radius = float(first.core_radius(np.array([float(z)]))[0])
@@ -3447,19 +3215,9 @@ def _bessel_connection(
 ) -> Float[np.ndarray, "n_family_out n_family_in"]:
     """Return the connection of one radial family of Bessel order `order`.
 
-    Parameters
-    ----------
-    zeros : numpy.ndarray
-        The family's retained zeros ``u_m`` of ``J_order``, ascending.
-    order : int
-        The family's Bessel order ``p``, ``>= 0``.
-    rate : float
-        ``a'/a`` in 1/m.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``C`` of the family in 1/m, real, antisymmetric, with a zero diagonal.
+    - ``order``: the family's Bessel order ``p``, ``>= 0``.
+    - ``rate``: ``a'/a`` in 1/m.
+    - Returns: ``C`` of the family in 1/m, real, antisymmetric, with a zero diagonal.
     """
     count = zeros.size
     signs = np.sign(jv(order + 1, zeros))
@@ -3575,26 +3333,13 @@ def _judged_bins(
 ) -> Bool[np.ndarray, " n_band"]:
     """Return which evaluated bins a wall block's validity ratios are taken over.
 
-    Parameters
-    ----------
-    mask : numpy.ndarray
-        The evaluated bins, bool, shape ``(n_omega,)``, at least one true.
-    scored : numpy.ndarray or None
-        The scored bins, bool, shape ``(n_omega,)``; ``None`` takes every evaluated
-        bin.
-
-    Returns
-    -------
-    numpy.ndarray
-        Bool over the evaluated bins alone, at least one true. A scored mask that
-        holds **no** evaluated bin -- requested limits narrower than one bin, which
-        a monochromatic study grid can declare -- takes every evaluated bin, the
-        conservative choice: it never admits a block the whole band would refuse.
-
-    Raises
-    ------
-    ModeError
-        If `scored` does not match the frequency axis.
+    - ``mask``: the evaluated bins, bool, shape ``(n_omega,)``, at least one true.
+    - ``scored``: the scored bins, bool, shape ``(n_omega,)``; ``None`` takes every
+      evaluated bin.
+    - Returns: bool over the evaluated bins alone, at least one true. A scored mask that
+      holds **no** evaluated bin -- requested limits narrower than one bin, which a
+      monochromatic study grid can declare -- takes every evaluated bin, the
+      conservative choice: it never admits a block the whole band would refuse.
     """
     if scored is None:
         return np.ones(int(np.count_nonzero(mask)), dtype=bool)
@@ -3616,19 +3361,9 @@ def _scattered(
 ) -> np.ndarray:
     """Return active-band values placed back on the whole frequency axis.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The values on the active bins, with the frequency axis last.
-    mask : numpy.ndarray
-        Which bins those are, bool, shape ``(n_omega,)``.
-    leading : tuple of int
-        The shape in front of the frequency axis.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex, shape ``(*leading, n_omega)``, exactly zero off the mask.
+    - ``values``: the values on the active bins, with the frequency axis last.
+    - ``leading``: the shape in front of the frequency axis.
+    - Returns: complex, shape ``(*leading, n_omega)``, exactly zero off the mask.
     """
     out = np.zeros((*leading, len(mask)), dtype=complex)
     out[..., mask] = values
@@ -3663,21 +3398,8 @@ def _check_wall_passivity(
     against a sign slipped into this arithmetic, not against a cladding a caller can
     pass today.
 
-    Parameters
-    ----------
-    generator : numpy.ndarray
-        The optics generator on the active band, shape ``(n_modes, n_modes, n_omega)``.
-    wavenumber : numpy.ndarray
-        The in-core wavenumber on the active band, 1/m.
-    radius : float
-        Core radius in m.
-    count : int
-        Channel count, used in the refusal.
-
-    Raises
-    ------
-    ModeError
-        If any Hermitian eigenvalue is positive beyond the rounding of the block.
+    - ``wavenumber``: the in-core wavenumber on the active band, 1/m.
+    - ``radius``: core radius in m.
     """
     moved = np.moveaxis(generator, (0, 1), (-2, -1))
     hermitian = 0.5 * (moved + np.conj(np.swapaxes(moved, -1, -2)))
@@ -3697,25 +3419,7 @@ def _check_wall_passivity(
 
 
 def _check_wall_limits(limits: WallLimits, validity_limit: float) -> None:
-    """Refuse or warn on the validity ratios of a wall block, by name.
-
-    Parameters
-    ----------
-    limits : WallLimits
-        The measured ratios.
-    validity_limit : float
-        Largest admitted ratio.
-
-    Raises
-    ------
-    ModeError
-        If the worst ratio exceeds `validity_limit`.
-
-    Warns
-    -----
-    GrazingIncidenceWarning
-        If it exceeds a tenth of `validity_limit`.
-    """
+    """Refuse or warn on the validity ratios of a wall block, by name."""
     name, value = limits.named()
     if value > validity_limit:
         msg = (

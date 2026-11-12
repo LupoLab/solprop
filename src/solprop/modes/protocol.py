@@ -173,10 +173,7 @@ class ChannelLabel(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"ChannelLabel: {self.display_label}", [
             ("family", self.family),

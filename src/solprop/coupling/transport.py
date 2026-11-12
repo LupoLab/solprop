@@ -123,25 +123,7 @@ class TransportReport:
 
 
 def _as_element(item: object, position: int) -> Element:
-    """Return an element, adapting a frequency-only transfer function.
-
-    Parameters
-    ----------
-    item : object
-        An element, or an :class:`solprop.optics.TransferFunction` such as a chain.
-    position : int
-        Its position, for messages.
-
-    Returns
-    -------
-    Element
-        The element itself, or its :class:`SpectralTransfer` adapter.
-
-    Raises
-    ------
-    CouplingError
-        If the item is neither.
-    """
+    """Return an element, adapting a frequency-only transfer function."""
     if isinstance(item, Element):
         return item
     if isinstance(item, TransferFunction):
@@ -169,21 +151,9 @@ def _frame_term(
     :func:`solprop.coupling.plane.reference_at`. Without a frame only the delay
     :math:`\beta_1(\omega_0)L` at the grid's reference frequency is removed.
 
-    Parameters
-    ----------
-    frame : solprop.linear.Frame or None
-        The plane's frame, or None.
-    medium : solprop.spatial.SpatialMedium
-        The gap's homogeneous medium.
-    grid : solprop.grid.TimeGrid
-        The temporal grid.
-    distance : float
-        The gap's length, m.
-
-    Returns
-    -------
-    tuple
-        The phase in rad, the delay in s, and a description of the source.
+    - ``frame``: the plane's frame, or None.
+    - ``distance``: the gap's length, m.
+    - Returns: the phase in rad, the delay in s, and a description of the source.
     """
     reference = grid.omega0 if frame is None else frame.omega0
     at = np.array([reference])
@@ -204,20 +174,7 @@ def _frame_term(
 def _state(plane: FieldPlane) -> SpatialState:
     """Return the internal spatial state of a radial or Cartesian plane.
 
-    Parameters
-    ----------
-    plane : FieldPlane
-        The plane.
-
-    Returns
-    -------
-    SpatialState
-        Its internal-convention spectrum on its grids, medium and local frame.
-
-    Raises
-    ------
-    CouplingError
-        If the plane is modal or planar, or carries no medium.
+    - Returns: its internal-convention spectrum on its grids, medium and local frame.
     """
     if plane.kind in ("modal", "general_modal"):
         msg = (
@@ -251,23 +208,10 @@ def _sequence(
 ) -> tuple[SpatialState, TransportReport]:
     """Apply an ordered sequence to an internal state and keep the ledger.
 
-    Parameters
-    ----------
-    state : SpatialState
-        The field at the first plane.
-    elements : sequence
-        Elements or transfer functions, applied in order.
-    frame : solprop.linear.Frame or None, optional
-        The frame of each free-space gap without an explicit ``frame_delay``.
-    track : bool, optional
-        Whether the caller tracks a reference, so that a gap without an explicit
-        ``frame_delay`` takes its frame term from `frame`. Default False: the
-        element's own default applies.
-
-    Returns
-    -------
-    tuple
-        The last state and the sequential report.
+    - ``track``: the caller tracks a reference, so a gap without an explicit
+      ``frame_delay`` takes its frame term from `frame`; otherwise the element's own
+      default applies.
+    - Returns: the last state and the sequential report.
     """
     current = state
     reports: list[ElementReport] = []
@@ -310,18 +254,6 @@ def _reference(
     Each free-space gap adds the phase and delay it removed. A spectral element
     that drops its constant phase or its group delay, or does not say, leaves that
     term uncalibrated: the physical element adds what its model omits.
-
-    Parameters
-    ----------
-    reference : PlaneReference
-        The input reference.
-    reports : sequence of ElementReport
-        The element reports, in order.
-
-    Returns
-    -------
-    PlaneReference
-        The output reference.
     """
     phase, delay = reference.phase, reference.delay
     known = set(reference.calibrated)
@@ -351,26 +283,8 @@ def _geometry(
     current normal and keeps its origin otherwise; a gap leaves it away from any
     declared jump (no side); its axes are the state's frame, turned by any mirror.
 
-    Parameters
-    ----------
-    plane : FieldPlane
-        The input plane.
-    state : SpatialState
-        The output state, whose frame holds the output axes.
-    elements : sequence
-        The applied elements, in order.
-    declared : PlaneGeometry or None
-        The caller's output geometry, checked against the output axes.
-
-    Returns
-    -------
-    PlaneGeometry
-        The output geometry.
-
-    Raises
-    ------
-    CouplingError
-        If a declared geometry's normal or x axis is not the transported one.
+    - ``state``: the output state, whose frame holds the output axes.
+    - ``declared``: the caller's output geometry, checked against the output axes.
     """
     row_normal, row_x = state.frame[2], state.frame[0]
     normal = (float(row_normal[0]), float(row_normal[1]), float(row_normal[2]))

@@ -384,25 +384,8 @@ def modal_kerr_coefficient(
 def _metric_entry(metric: ArrayLike | float | None, channel: int | None) -> float:
     r"""Return ``[W^-1]_mm`` for one channel of a declared flux metric.
 
-    Parameters
-    ----------
-    metric : array_like, float or None
-        The square Hermitian metric, one channel's diagonal entry ``W_mm``, or
-        ``None`` for the identity.
-    channel : int or None
-        The row a square metric is read at.
-
-    Returns
-    -------
-    float
-        The diagonal entry of ``W^-1`` this channel's coefficient is scaled by:
-        one for the identity, ``1/W_mm`` for a scalar.
-
-    Raises
-    ------
-    ModeError
-        If the metric is not a positive scalar or a Hermitian positive-definite
-        matrix, or `channel` is missing, out of range or given without a matrix.
+    - ``metric``: the square Hermitian metric, one channel's diagonal entry ``W_mm``, or
+      ``None`` for the identity.
     """
     if metric is None:
         if channel not in (None, 0):

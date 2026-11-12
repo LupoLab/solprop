@@ -290,16 +290,8 @@ axis populations' domain (:func:`solprop.backends.populations.axis_statistics`).
 def translated(error: BaseException) -> BaseException:
     """Return the reference's exception for a native statistics refusal.
 
-    Parameters
-    ----------
-    error : BaseException
-        What the native evaluation raised, or a failure's message as an exception.
-
-    Returns
-    -------
-    BaseException
-        The :class:`~solprop.exceptions.SolpropError` the reference raises for the
-        same condition, or `error` itself when the refusal is not one of them.
+    - Returns: the :class:`~solprop.exceptions.SolpropError` the reference raises for
+      the same condition, or `error` itself when the refusal is not one of them.
     """
     message = str(error)
     for marker, kind in _TRANSLATED:
@@ -311,15 +303,7 @@ def translated(error: BaseException) -> BaseException:
 def _route(problem: PropagationProblem) -> str:
     """Return the route a problem's statistics read.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-
-    Returns
-    -------
-    str
-        ``"general"``, ``"spatial"`` or ``"modal"``.
+    - Returns: ``"general"``, ``"spatial"`` or ``"modal"``.
     """
     if problem.transform.modal_tables is not None:
         return "general"
@@ -331,15 +315,7 @@ def _route(problem: PropagationProblem) -> str:
 def _metric_varies(problem: PropagationProblem) -> bool:
     """Return whether a basis's metric varies inside one of its intervals.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-
-    Returns
-    -------
-    bool
-        True when the dense metric has terms beyond degree zero.
+    - Returns: True when the dense metric has terms beyond degree zero.
     """
     metric = problem.linear.modal_metric
     if metric is None or metric.kind == "identity" or metric.dense is None:
@@ -348,22 +324,7 @@ def _metric_varies(problem: PropagationProblem) -> bool:
 
 
 def uncovered(problem: PropagationProblem, names: Sequence[str]) -> tuple[str, ...]:
-    """Return the names the native plan does not evaluate on this problem's route.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    names : sequence of str
-        Requested statistics.
-
-    Returns
-    -------
-    tuple of str
-        The names the plan leaves, in request order: a statistic of another route
-        and, on a basis whose metric varies inside an interval, its metric
-        statistics (:func:`metric_refusal`).
-    """
+    """Return the names the native plan does not evaluate on this problem's route."""
     route = _route(problem)
     admitted = _ADMITTED[route]
     if route == "general" and _metric_varies(problem):
@@ -401,18 +362,7 @@ class StatisticsLowering:
     )
 
     def subset(self, names: Sequence[str]) -> StatisticsLowering:
-        """Return the plan of some of the names, from the same lowered inputs.
-
-        Parameters
-        ----------
-        names : sequence of str
-            Outputs of this lowering.
-
-        Returns
-        -------
-        StatisticsLowering
-            Their plan, reading the same tables.
-        """
+        """Return the plan of some of the names, from the same lowered inputs."""
         names = tuple(names)
         values = dict(self.values, outputs=[STATISTIC_IDS[name] for name in names])
         return StatisticsLowering(
@@ -426,20 +376,7 @@ class StatisticsLowering:
     def unpack(self, packed: np.ndarray) -> dict[str, np.ndarray]:
         """Name the packed values and give each its catalogue shape.
 
-        Parameters
-        ----------
-        packed : numpy.ndarray
-            The native evaluation, in :attr:`names` order.
-
-        Returns
-        -------
-        dict
-            The outputs by name, without a batch axis; arithmetic-free.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If the evaluation's size is not what the names take.
+        - Returns: the outputs by name, without a batch axis; arithmetic-free.
         """
         values = np.asarray(packed, dtype=np.float64).reshape(-1)
         out: dict[str, np.ndarray] = {}
@@ -460,21 +397,8 @@ def _packed(
 ) -> dict[str, object]:
     """Return a :meth:`PiecewiseChebyshev.packed` table as the native plan reads it.
 
-    Parameters
-    ----------
-    edges : numpy.ndarray
-        The breakpoints, m.
-    lower, upper : float
-        The span widened by its slack, m.
-    coefficients : numpy.ndarray
-        ``(n_intervals, n_terms, n_values)``.
-    dtype : type
-        The slot's type, float64 or complex128.
-
-    Returns
-    -------
-    dict
-        The plan's table.
+    - ``edges``: the breakpoints, m.
+    - ``lower``, ``upper``: the span widened by its slack, m.
     """
     return {
         "edges": np.ascontiguousarray(edges, dtype=np.float64),
@@ -487,23 +411,7 @@ def _packed(
 
 
 def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
-    """Return a problem's real table as the native plan reads it.
-
-    Parameters
-    ----------
-    table : solprop.translate.chebyshev.PiecewiseChebyshev or None
-        The table.
-
-    Returns
-    -------
-    dict or None
-        Its :meth:`~solprop.translate.chebyshev.PiecewiseChebyshev.packed` form.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If it is complex.
-    """
+    """Return a problem's real table as the native plan reads it."""
     if table is None:
         return None
     edges, lower, upper, coefficients = table.packed()
@@ -516,20 +424,8 @@ def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
 def _root(metric: np.ndarray) -> np.ndarray:
     """Return the metric's square root as :func:`solprop.stats._whitened` forms it.
 
-    Parameters
-    ----------
-    metric : numpy.ndarray
-        ``W``, ``(n_modes, n_modes, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``W^(1/2)``, ``(n_omega, n_modes, n_modes)``.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the metric is not positive definite at some frequency, as the reference.
+    ``W`` is ``(n_modes, n_modes, n_omega)``; ``W^(1/2)`` comes back frequency first,
+    ``(n_omega, n_modes, n_modes)``.
     """
     values, vectors = np.linalg.eigh(np.moveaxis(metric, (0, 1), (-2, -1)))
     if np.any(values <= 0.0):
@@ -550,21 +446,6 @@ def _root_table(problem: PropagationProblem) -> dict[str, object] | None:
     the host), so its root there is the root of the very values the reference reads
     at every position of the interval: exact, as a table of degree zero over the
     reference's own breakpoints and slack.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The general modal problem.
-
-    Returns
-    -------
-    dict or None
-        The table as the native plan reads it.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        For a metric that is not dense and constant on each interval.
     """
     from solprop.translate.coupled import metric_at
 
@@ -598,20 +479,9 @@ def _measured(
 ) -> tuple[float, float]:
     """Return a table's largest error against a profile on a check set.
 
-    Parameters
-    ----------
-    table : solprop.translate.chebyshev.PiecewiseChebyshev
-        A scalar table.
-    profile : solprop.profiles.ZProfile
-        The path it stands for.
-    check : numpy.ndarray
-        Positions, m.
-
-    Returns
-    -------
-    tuple of float
-        The largest absolute error, in the profile's units, and the largest
-        magnitude of the profile on the check set.
+    - ``check``: positions, m.
+    - Returns: the largest absolute error, in the profile's units, and the largest
+      magnitude of the profile on the check set.
     """
     exact = np.asarray(profile(check), dtype=np.float64)
     # The compiled Clenshaw pass: the same operations in the same order as the plain
@@ -631,19 +501,8 @@ def _check_set(
     A uniform grid over the run, every declared knot of the profile inside it, and
     every edge of the table and every interval's midpoint.
 
-    Parameters
-    ----------
-    profile : solprop.profiles.ZProfile
-        The path.
-    start, end : float
-        The run's span, m.
-    edges : numpy.ndarray
-        The table's breakpoints, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The positions, increasing.
+    - ``start``, ``end``: the run's span, m.
+    - ``edges``: the table's breakpoints, m.
     """
     knots = np.asarray(profile.breakpoints, dtype=np.float64)
     inside = edges[(edges >= start) & (edges <= end)]
@@ -689,22 +548,9 @@ def _profile_table(
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and its record, lowered once per problem.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    name : str
-        The statistic.
-    profile : solprop.profiles.ZProfile
-        The path it reads.
-    z_end : float
-        The run's last plane, m (:attr:`solprop.translate.problem.StepperSettings.
-        z_end`).
-
-    Returns
-    -------
-    tuple
-        The table, and its record for ``statistics_tables`` (a copy).
+    - ``z_end``: the run's last plane, m
+      (:attr:`solprop.translate.problem.StepperSettings. z_end`).
+    - Returns: the table, and its record for ``statistics_tables`` (a copy).
     """
     held = _PROFILE_TABLES.setdefault(problem, {})
     cached = held.get((name, z_end))
@@ -731,26 +577,8 @@ def _lowered_profile_table(
     gradient's square root near its floor) moves by more than rounding level of its
     scale over that ulp.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    name : str
-        The statistic.
-    profile : solprop.profiles.ZProfile
-        The path it reads.
-    z_end : float
-        The run's last plane, m.
-
-    Returns
-    -------
-    tuple
-        The table, and its record for ``statistics_tables``.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        Naming the statistic when no table reaches :data:`PROFILE_TOLERANCE`.
+    - ``z_end``: the run's last plane, m.
+    - Returns: the table, and its record for ``statistics_tables``.
     """
     from solprop.translate.linop import DEFAULT_MARGIN, profile_table
     from solprop.translate.problem import (
@@ -810,24 +638,7 @@ def _lowered_profile_table(
 def _shape(
     problem: PropagationProblem, name: str, n_windows: int, plan: Mapping[str, object]
 ) -> tuple[int, ...]:
-    """Return an output's shape on this problem, without a batch axis.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    name : str
-        The output.
-    n_windows : int
-        Its spec's energy windows.
-    plan : dict
-        The plan's extents.
-
-    Returns
-    -------
-    tuple of int
-        The shape.
-    """
+    """Return an output's shape on this problem, without a batch axis."""
     modes, pol, n_omega = problem.shape
     apertures = int(np.asarray(plan["apertures"]).shape[0])
     regions = int(np.asarray(plan["regions"]).shape[0])
@@ -867,16 +678,6 @@ def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
 
     ``HostDriver._on_axis_synthesis`` before its taper: the single node ``r = 0`` of
     :func:`~solprop.modes.quadrature.on_axis_rule`, rows x and y.
-
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``(2, n_modes)``.
     """
     rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
     return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
@@ -893,17 +694,7 @@ def metric_refusal(problem: PropagationProblem, names: Sequence[str]) -> str | N
     built-in route builds such a metric (:func:`solprop.translate.coupled.
     dense_metric` is constant on each interval).
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    names : sequence of str
-        The statistics asked for.
-
-    Returns
-    -------
-    str or None
-        The refusal, or ``None``.
+    - Returns: the refusal, or ``None``.
     """
     if _route(problem) != "general" or not _metric_varies(problem):
         return None
@@ -979,24 +770,11 @@ def _zdw_tables(
     constant around each (:func:`_plane_tables`); otherwise it is fitted
     (:func:`_lowered_zdw_tables`).
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    modes : sequence of Mode
-        The propagated modes, in state order.
-    grid : solprop.grid.TimeGrid
-        The time grid, whose band the roots are searched in.
-    z_end : float
-        The run's last plane, m.
-    planes : sequence of float or None, optional
-        Every position the statistic will be taken at, or ``None`` when they are not
-        all known before the run (step planes, interpolated planes, a caller's own).
-
-    Returns
-    -------
-    tuple
-        The tables, and their record for ``statistics_tables`` (a copy).
+    - ``z_end``: the run's last plane, m.
+    - ``planes``: every position the statistic will be taken at, or ``None`` when they
+      are not all known before the run (step planes, interpolated planes, a caller's
+      own).
+    - Returns: the tables, and their record for ``statistics_tables`` (a copy).
     """
     held = _ZDW_TABLES.setdefault(problem, {})
     identity = tuple(id(mode) for mode in modes)
@@ -1025,21 +803,9 @@ def _plane_tables(
     between neighbours, so that it holds the reference's own root at each, to the
     bit: the run's searches, made once before it rather than at each plane.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The propagated modes.
-    grid : solprop.grid.TimeGrid
-        The time grid.
-    positions : sequence of float
-        The positions, increasing and distinct, m.
-    z_end : float
-        The run's last plane, m.
-
-    Returns
-    -------
-    tuple
-        The tables, one per mode, and their record (error zero).
+    - ``positions``: the positions, increasing and distinct, m.
+    - ``z_end``: the run's last plane, m.
+    - Returns: the tables, one per mode, and their record (error zero).
     """
     import warnings
 
@@ -1115,31 +881,8 @@ def _lowered_zdw_tables(
     statistic is refused by name; so is a mode whose band holds a root over part of
     the run only.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    modes : sequence of Mode
-        The propagated modes.
-    grid : solprop.grid.TimeGrid
-        The time grid.
-    z_end : float
-        The run's last plane, m.
-
-    Returns
-    -------
-    tuple
-        The tables, one per mode, and the record of the largest measured error.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        Naming the mode whose root no table represents within :data:`ZDW_TOLERANCE`.
-
-    Warns
-    -----
-    solprop.exceptions.SolpropWarning
-        Once, if a mode's band holds no zero at the run's start.
+    - ``z_end``: the run's last plane, m.
+    - Returns: the tables, one per mode, and the record of the largest measured error.
     """
     import warnings
 
@@ -1260,16 +1003,6 @@ def _width_rule(problem: PropagationProblem) -> dict[str, object]:
     line's x, or a plane's axes and the angles its rings sample, which its axes alone
     fix. The fluence's term count fixes its rounding budget
     (:func:`~solprop.backends.spatial.fluence_budget`).
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The spatial problem.
-
-    Returns
-    -------
-    dict
-        The plan's width entries.
     """
     geometry = problem.transform.geometry
     assert geometry is not None
@@ -1320,44 +1053,17 @@ def lower(
 ) -> StatisticsLowering:
     """Lower statistics for native evaluation, once.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    spec : solprop.stats.StatsSpec
-        The windows the names read.
-    names : sequence of str
-        The outputs, each one the plan evaluates on this route (:func:`uncovered`),
-        and :data:`NODE_POPULATIONS`.
-    grid : solprop.grid.TimeGrid or None
-        The time grid; the widths and the general spectral flux read it.
-    modes : sequence of Mode or None, optional
-        The mode set; ``peak_intensity`` and the on-axis plasma statistics on a modal
-        route read its axis synthesis.
-    profiles : mapping or None, optional
-        The z profiles the profile statistics read (:func:`_profile_table`).
-    apertures : tuple or None, optional
-        A spatial route's far-field tables packed for the native pass (the adapter's
-        ``_aperture_payload``): the apertures, the regions and the exponent.
-    on_axis : numpy.ndarray or None, optional
-        The mode set's synthesis on the axis at the reference position, when the
-        caller already built it (``HostDriver._on_axis``); built here otherwise.
-    z_end : float
-        The run's last plane, m, which a profile statistic's table must reach.
-    planes : sequence of float or None, optional
-        Every position the plane statistics will be taken at, when the run fixes
-        them all before it starts; ``zdw`` is then searched exactly there
-        (:func:`_zdw_tables`).
-
-    Returns
-    -------
-    StatisticsLowering
-        The plan and the shapes.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        Naming a statistic the plan does not evaluate here, or an input it lacks.
+    - ``modes``: the mode set; ``peak_intensity`` and the on-axis plasma statistics on a
+      modal route read its axis synthesis.
+    - ``apertures``: a spatial route's far-field tables packed for the native pass (the
+      adapter's ``_aperture_payload``): the apertures, the regions and the exponent.
+    - ``on_axis``: the mode set's synthesis on the axis at the reference position, when
+      the caller already built it (``HostDriver._on_axis``); built here otherwise.
+    - ``z_end``: the run's last plane, m, which a profile statistic's table must reach.
+    - ``planes``: every position the plane statistics will be taken at, when the run
+      fixes them all before it starts; ``zdw`` is then searched exactly there
+      (:func:`_zdw_tables`).
+    - Returns: the plan and the shapes.
     """
     names = tuple(names)
     left = uncovered(problem, [name for name in names if name != NODE_POPULATIONS])

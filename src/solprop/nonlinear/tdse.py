@@ -58,31 +58,13 @@ _PRESET_IDENTITY = re.compile(
 
 
 def _positive(value: float, name: str) -> None:
-    """Require a finite positive real scalar, excluding booleans.
-
-    Parameters
-    ----------
-    value : float
-        Candidate scalar in the calling field's declared SI units.
-    name : str
-        Field name used in the diagnostic.
-    """
+    """Require a finite positive real scalar, excluding booleans."""
     if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
         raise MaterialError(f"{name} must be positive and finite")
 
 
 def _count(value: int, name: str, minimum: int = 1) -> None:
-    """Require a plain integer above the declared lower bound.
-
-    Parameters
-    ----------
-    value : int
-        Candidate dimensionless count.
-    name : str
-        Field name used in the diagnostic.
-    minimum : int, optional
-        Inclusive lower bound, default 1.
-    """
+    """Require a plain integer above the declared lower bound."""
     if type(value) is not int or value < minimum:
         raise MaterialError(f"{name} must be an integer >= {minimum}")
 
@@ -90,12 +72,7 @@ def _count(value: int, name: str, minimum: int = 1) -> None:
 def _text(value: str, name: str) -> None:
     """Require a nonempty identifier or source description.
 
-    Parameters
-    ----------
-    value : str
-        Candidate text, which must contain a non-whitespace character.
-    name : str
-        Field name used in the diagnostic.
+    - ``value``: candidate text, which must contain a non-whitespace character.
     """
     if not isinstance(value, str) or not value.strip():
         raise MaterialError(f"{name} must be a nonempty string")
@@ -104,12 +81,7 @@ def _text(value: str, name: str) -> None:
 def _strings(values: tuple[str, ...], name: str) -> None:
     """Keep sequence metadata immutable and free of empty entries.
 
-    Parameters
-    ----------
-    values : tuple of str
-        Candidate immutable nonempty strings; the tuple itself may be empty.
-    name : str
-        Field name used in the diagnostic.
+    - ``values``: candidate immutable nonempty strings; the tuple itself may be empty.
     """
     if type(values) is not tuple:
         raise MaterialError(f"{name} must be a tuple")
@@ -253,12 +225,9 @@ class TDSEBasis:
 def _radial_axis(edges: Sequence[float], orders: Sequence[int]) -> None:
     """Validate an immutable finite-element axis starting at zero.
 
-    Parameters
-    ----------
-    edges : sequence of float
-        Candidate element boundaries in m, beginning with zero; must be a tuple.
-    orders : sequence of int
-        Candidate points per element, each between 2 and 64; must be a tuple.
+    - ``edges``: candidate element boundaries in m, beginning with zero; must be a
+      tuple.
+    - ``orders``: candidate points per element, each between 2 and 64; must be a tuple.
     """
     if type(edges) is not tuple or type(orders) is not tuple:
         raise MaterialError("radial_edges and radial_orders must be tuples")
@@ -834,13 +803,7 @@ class TDSEGasResponse:
             raise MaterialError("consistency must be a TDSEConsistency record")
 
     def _validate_hacc(self, basis: HaccBasis) -> None:
-        """Apply the whole-atom rules of SEP 20 section 5.1 to a haCC response.
-
-        Parameters
-        ----------
-        basis : HaccBasis
-            The response's validated haCC basis.
-        """
+        """Apply the whole-atom rules of SEP 20 section 5.1 to a haCC response."""
         if self.kerr_model != "tdse_native":
             raise MaterialError(
                 f"haCC refuses kerr_model={self.kerr_model!r}: the provider has no "

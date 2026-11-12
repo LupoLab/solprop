@@ -31,17 +31,7 @@ __all__ = ["NativeProbe"]
 
 
 class NativeProbe:
-    """The native backend's :class:`~solprop.backends.protocol.TimingProbe`.
-
-    Parameters
-    ----------
-    backend : solprop_native.backend.NativeBackend
-        The backend, loaded from the probe's start.
-    loaded : solprop_native._load.Loaded
-        That load, which a readback loads again.
-    noise : solprop.noise.NoiseRealisation or None
-        The realisation the start carried, loaded again with the kept state.
-    """
+    """The native backend's :class:`~solprop.backends.protocol.TimingProbe`."""
 
     def __init__(
         self,
@@ -58,13 +48,9 @@ class NativeProbe:
     def trial(self, z: float | None = None, dz: float | None = None) -> None:
         """Take one trial step and keep its end state for :meth:`field`.
 
-        Parameters
-        ----------
-        z : float or None, optional
-            Where the trial starts, m; the loaded position by default.
-        dz : float or None, optional
-            Its length, m, positive; the problem's ``dz_init`` by default, or the
-            scheduled step at the loaded position for the low-storage march.
+        - ``z``: where the trial starts, m; the loaded position by default.
+        - ``dz``: its length, m, positive; the problem's ``dz_init`` by default, or the
+          scheduled step at the loaded position for the low-storage march.
         """
         backend = self._backend
         start = self._loaded.z if z is None else float(z)
@@ -92,17 +78,8 @@ class NativeProbe:
         state is kept first and loaded again after, exactly, so that the probe still
         commits nothing.
 
-        Returns
-        -------
-        numpy.ndarray
-            An owning copy, internal units and the FFT convention, shape
-            ``(n_modes, n_pol, n_omega)``.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            With no trial since the last readback, or for the low-storage march, which
-            has no trial state.
+        - Returns: an owning copy, internal units and the FFT convention, shape
+          ``(n_modes, n_pol, n_omega)``.
         """
         backend = self._backend
         if backend._resident_low_storage is not None:  # pyright: ignore[reportPrivateUsage]
