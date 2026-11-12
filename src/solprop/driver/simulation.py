@@ -46,7 +46,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
-from solprop._ownership import borrow, frozen_copy, hold
+from solprop._ownership import borrow, frozen_copy, hold, hold_view
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
@@ -9275,7 +9275,9 @@ def _built_state(
     build = getattr(type(pulse), "build", None)
     own = getattr(build, "__module__", None) == _PULSE_MODULE
     if own and spectrum.dtype == np.complex128:
-        return hold(spectrum)
+        # A build may give a new array its leading axes by indexing: the memory
+        # beneath is what is held.
+        return hold_view(spectrum)
     return _held_state(spectrum)
 
 

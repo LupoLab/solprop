@@ -20,7 +20,7 @@ import weakref
 
 import numpy as np
 
-__all__ = ["borrow", "frozen_copy", "hold", "is_held"]
+__all__ = ["borrow", "frozen_copy", "hold", "hold_view", "is_held"]
 
 _HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
 """The arrays solprop froze as its own, by ``id``.
@@ -63,6 +63,39 @@ def hold(values: np.ndarray) -> np.ndarray:
     values.setflags(write=False)
     if values.base is None:
         _HELD[id(values)] = values
+    return values
+
+
+def hold_view(values: np.ndarray) -> np.ndarray:
+    """Freeze a view of memory solprop has just made, and hold the array that owns it.
+
+    For a fresh build handed out as a view, such as a spectrum given its leading axes
+    by indexing: :func:`hold` would freeze the view alone, and it would not be held.
+    Only for a view whose memory no one else refers to.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The view, or an array that owns its memory.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, read-only, and held when the memory beneath it is an array's.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop._ownership import hold_view, is_held
+    >>> is_held(hold_view(np.arange(3.0)[np.newaxis]))
+    True
+    """
+    owner = values
+    while isinstance(owner.base, np.ndarray):
+        owner = owner.base
+    if owner.base is None:
+        hold(owner)
+    values.setflags(write=False)
     return values
 
 
