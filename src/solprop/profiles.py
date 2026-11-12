@@ -341,7 +341,7 @@ class ZProfile(Protocol):
     def breakpoints(
         self,
     ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
-        """Positions in m where the path jumps or kinks, increasing."""
+        """The positions in m where the path jumps or kinks, increasing."""
         ...
 
     @property

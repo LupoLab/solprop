@@ -113,7 +113,7 @@ class DispersionPath(Protocol):
     def breakpoints(
         self,
     ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
-        """Positions in m where the path kinks; may be empty."""
+        """The positions in m where the path kinks; may be empty."""
         ...
 
     @property

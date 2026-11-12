@@ -132,7 +132,7 @@ class ModelIdentityLike(Protocol):
 
     @property
     def status(self) -> str:  # numpydoc ignore=RT01
-        """Its status, one of :data:`STATUSES`."""
+        """The status, one of :data:`STATUSES`."""
         ...
 
     @property
@@ -142,7 +142,7 @@ class ModelIdentityLike(Protocol):
 
     @property
     def modified(self) -> tuple[tuple[str, str], ...]:  # numpydoc ignore=RT01
-        """Overrides applied, ``(name, value)`` sorted by name."""
+        """The overrides applied, ``(name, value)`` sorted by name."""
         ...
 
     @property
