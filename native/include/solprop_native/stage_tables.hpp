@@ -7,6 +7,7 @@
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <algorithm>
 #include <array>
@@ -57,8 +58,7 @@ struct Table {
         chebyshev::clenshaw_points(&z, 1, edges.data(), edges.size(), lower, upper,
                                    coefficients.data(), n_terms, n_values, out);
     if (bad >= 0)
-      throw std::invalid_argument("z = " + std::to_string(z) +
-                                  " is outside a stage table's span");
+      refuse("z = ", z, " is outside a stage table's span");
   }
 
   /** The table's single value at `z`. The scalar tables are checked to hold one value
@@ -77,8 +77,7 @@ struct Table {
    */
   void closing(const double z, double* out, const bool before = true) const {
     if (z < lower || z > upper)
-      throw std::invalid_argument("z = " + std::to_string(z) +
-                                  " is outside a stage table's span");
+      refuse("z = ", z, " is outside a stage table's span");
     std::size_t index = chebyshev::interval_index(z, edges.data(), edges.size());
     if (before && index > 0 && z <= edges[index])
       --index;
@@ -260,10 +259,8 @@ struct ZSlots {
       if (std::ranges::find(wanted, z) == wanted.end())
         wanted.push_back(z);
     if (wanted.size() > slots)
-      throw std::invalid_argument("a native call reads the z table at " +
-                                  std::to_string(wanted.size()) +
-                                  " positions, more than the " + std::to_string(slots) +
-                                  " slots this problem holds");
+      refuse("a native call reads the z table at ", wanted.size(),
+             " positions, more than the ", slots, " slots this problem holds");
     std::vector<std::size_t> slot_of(wanted.size(), slots);
     std::vector<bool> taken(slots, false);
     for (std::size_t index = 0; index < wanted.size(); ++index) {
@@ -401,8 +398,7 @@ inline Row row(const Tables& tables, Anchor& anchor, const double z0, const doub
     out.prefactor[at_slot] = 1.0;
   } else if (tables.prefactor == Terms::constant) {
     if (!(tables.prefactor_low <= z1 && z1 <= tables.prefactor_high))
-      throw std::invalid_argument("z = " + std::to_string(z1) +
-                                  " lies outside the prefactor's table");
+      refuse("z = ", z1, " lies outside the prefactor's table");
     out.prefactor = {1.0};
   } else {
     out.prefactor.resize(tables.prefactor_weights.n_values);
@@ -566,14 +562,13 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
 inline void require_scalar_tables(const Tables& tables) {
   const auto scalar = [](const Table& table, const std::string& name) {
     if (table.present() && table.n_values != 1)
-      throw std::invalid_argument("the stage table " + name + " holds " +
-                                  std::to_string(table.n_values) +
-                                  " values where one is read");
+      refuse("the stage table ", name, " holds ", table.n_values,
+             " values where one is read");
   };
   const auto scalars = [&scalar](const std::vector<Table>& list,
                                  const std::string& name) {
     for (std::size_t index = 0; index < list.size(); ++index)
-      scalar(list[index], name + "[" + std::to_string(index) + "]");
+      scalar(list[index], concat(name, "[", index, "]"));
   };
   scalar(tables.density, "density");
   scalar(tables.taper, "taper");

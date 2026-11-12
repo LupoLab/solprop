@@ -6,6 +6,7 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/vmath.hpp"
 
 #include <nanobind/ndarray.h>
@@ -40,7 +41,7 @@ template <class T, std::size_t Rank>
 using Output = nb::ndarray<T, nb::ndim<Rank>, nb::c_contig, nb::device::cpu>;
 
 std::string shape_text(const std::size_t rows, const std::size_t columns) {
-  return "(" + std::to_string(rows) + ", " + std::to_string(columns) + ")";
+  return concat("(", rows, ", ", columns, ")");
 }
 
 template <class Stored>
@@ -53,16 +54,14 @@ std::ptrdiff_t clenshaw_points(const Input<double, 1>& z, const Input<double, 1>
     throw std::invalid_argument(
         "clenshaw_points: edges needs at least two breakpoints");
   if (c.shape(0) != n_edges - 1 || c.shape(1) < 1)
-    throw std::invalid_argument("clenshaw_points: coefficients of shape " +
-                                shape_text(c.shape(0), c.shape(1)) +
-                                "[...] do not match " + std::to_string(n_edges) +
-                                " breakpoints with at least one term");
+    refuse("clenshaw_points: coefficients of shape ",
+           shape_text(c.shape(0), c.shape(1)), "[...] do not match ", n_edges,
+           " breakpoints with at least one term");
   const std::size_t n_points = z.shape(0);
   const std::size_t n_values = c.shape(2);
   if (out.shape(0) != n_points || out.shape(1) != n_values)
-    throw std::invalid_argument("clenshaw_points: out has shape " +
-                                shape_text(out.shape(0), out.shape(1)) + ", expected " +
-                                shape_text(n_points, n_values));
+    refuse("clenshaw_points: out has shape ", shape_text(out.shape(0), out.shape(1)),
+           ", expected ", shape_text(n_points, n_values));
   return chebyshev::clenshaw_points(z.data(), n_points, edges.data(), n_edges, lower,
                                     upper, c.data(), c.shape(1), n_values, out.data());
 }
@@ -72,14 +71,11 @@ void basis_rows(const Input<double, 1>& points, const double upper,
                 const Output<double, 1>& weights) {
   const std::size_t n = points.shape(0);
   if (n > lagrange::max_nodes)
-    throw std::invalid_argument("basis_rows: " + std::to_string(n) +
-                                " nodes exceed the " +
-                                std::to_string(lagrange::max_nodes) + " supported");
+    refuse("basis_rows: ", n, " nodes exceed the ", lagrange::max_nodes, " supported");
   if (rows.shape(0) != n || rows.shape(1) != n || weights.shape(0) != n)
-    throw std::invalid_argument(
-        "basis_rows: rows " + shape_text(rows.shape(0), rows.shape(1)) +
-        " and weights (" + std::to_string(weights.shape(0)) +
-        ",) must be (n, n) and (n,) for n = " + std::to_string(n) + " nodes");
+    refuse("basis_rows: rows ", shape_text(rows.shape(0), rows.shape(1)),
+           " and weights (", weights.shape(0), ",) must be (n, n) and (n,) for n = ", n,
+           " nodes");
   lagrange::basis_rows(points.data(), n, upper, integrate, rows.data(), weights.data());
 }
 
@@ -96,10 +92,8 @@ void trial_tables(const Input<double, 1>& nodes, const std::size_t order,
       std::ranges::all_of(orders, [](const std::size_t value) { return value > 0; });
   if (n_orders == 0 || n_orders > 3 || !scored || order == 0 || order > highest ||
       highest > n || highest + 1 > lagrange::max_nodes)
-    throw std::invalid_argument("trial_tables: order " + std::to_string(order) +
-                                " and " + std::to_string(n_orders) +
-                                " scored orders up to " + std::to_string(highest) +
-                                " do not fit " + std::to_string(n) + " nodes");
+    refuse("trial_tables: order ", order, " and ", n_orders, " scored orders up to ",
+           highest, " do not fit ", n, " nodes");
   const std::size_t width = highest + 1;
   const std::size_t carried_size = compensated ? order : 0;
   if (predictor.shape(0) != order || predictor.shape(1) != order ||
@@ -110,11 +104,10 @@ void trial_tables(const Input<double, 1>& nodes, const std::size_t order,
       endpoint.shape(0) != (compensated ? order + 1 : 0) ||
       defects.shape(0) != (compensated ? n_orders : 0) ||
       defects.shape(1) != (compensated ? width : 0))
-    throw std::invalid_argument(
-        "trial_tables: the tables must be (order, order), (width, width) and "
-        "(n_orders, 2 width), and the compensation's (width - 1,), (order,), "
-        "(order + 1,) and (n_orders, width) when compensated, else empty; order " +
-        std::to_string(order) + ", width " + std::to_string(width));
+    refuse("trial_tables: the tables must be (order, order), (width, width) and "
+           "(n_orders, 2 width), and the compensation's (width - 1,), (order,), "
+           "(order + 1,) and (n_orders, width) when compensated, else empty; order ",
+           order, ", width ", width);
   lagrange::trial_tables(nodes.data(), order, orders.data(), n_orders, width,
                          compensated, predictor.data(), corrector.data(),
                          factored.data(), spans.data(), carried.data(), endpoint.data(),
@@ -124,9 +117,7 @@ void trial_tables(const Input<double, 1>& nodes, const std::size_t order,
 void require_length(const char* name, const std::size_t expected,
                     const std::size_t actual) {
   if (actual != expected)
-    throw std::invalid_argument(std::string(name) + ": the arrays have lengths " +
-                                std::to_string(expected) + " and " +
-                                std::to_string(actual));
+    refuse(name, ": the arrays have lengths ", expected, " and ", actual);
 }
 
 void vector_exp(const Input<double, 1>& x, const Output<double, 1>& out) {

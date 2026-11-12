@@ -91,16 +91,19 @@ def read_moments(module, grid, values):
     try:
         # The payload and the step's resident rows are the backend's own; the state
         # they open is this test's, so nothing is loaded into the backend's.
-        payload = backend_module._native_problem(
-            problem, run_request, backend._terms, None, None
+        payload = backend_module._lower(
+            problem, run_request, backend_module._LowerPlan(terms=backend._terms)
         )
         arrays, material = backend._resident_arrays(0.0, 1e-3)
     finally:
         backend.close()
-    terms = np.zeros_like(payload["phi_terms"])
+    terms = np.zeros_like(payload.linear.phi_terms).reshape(
+        payload.linear.n_phi_terms, -1, payload.dims.n_omega
+    )
     assert terms.shape[1] == 1
     terms[0, 0, bins] = values
-    state = backend_module._core.State(payload | {"phi_terms": terms})
+    payload.linear.phi_terms = terms
+    state = backend_module._core.State(payload)
     try:
         (phi_delta, *rest) = arrays
         step = np.zeros_like(phi_delta)

@@ -68,17 +68,17 @@ Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n
   Case data;
   auto& problem = data.problem;
   const std::size_t n = 9;
-  problem.n_x = n_x;
-  problem.n_y = n_y;
-  problem.n_omega = n;
-  problem.n_t = envelope ? n : 2 * (n - 1);
-  problem.n_pol_state = n_pol;
-  problem.n_modes = n_x * n_y;
-  problem.dt = 1.5e-15;
-  problem.family =
+  problem.spatial.n_x = n_x;
+  problem.spatial.n_y = n_y;
+  problem.dims.n_omega = n;
+  problem.dims.n_t = envelope ? n : 2 * (n - 1);
+  problem.dims.n_pol_state = n_pol;
+  problem.dims.n_modes = n_x * n_y;
+  problem.grid.dt = 1.5e-15;
+  problem.dims.family =
       envelope ? native::FieldFamily::envelope : native::FieldFamily::field_real;
-  problem.spatial_k_x = fft_axis(n_x, n_y > 1 ? 1.5e6 : 1.0e5);
-  problem.spatial_k_y = n_y > 1 ? fft_axis(n_y, 1.2e6) : std::vector<double>{0.0};
+  problem.spatial.k_x = fft_axis(n_x, n_y > 1 ? 1.5e6 : 1.0e5);
+  problem.spatial.k_y = n_y > 1 ? fft_axis(n_y, 1.2e6) : std::vector<double>{0.0};
   const std::size_t columns = n_x * n_y;
   // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
   std::mt19937_64 random(7);
@@ -91,8 +91,8 @@ Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n
     const double phase = 0.3 * static_cast<double>(column);
     data.on_axis.emplace_back(std::cos(phase) / static_cast<double>(columns),
                               std::sin(phase) / static_cast<double>(columns));
-    const double kx = problem.spatial_k_x[column % n_x];
-    const double ky = problem.spatial_k_y[column / n_x];
+    const double kx = problem.spatial.k_x[column % n_x];
+    const double ky = problem.spatial.k_y[column / n_x];
     data.transverse.push_back(kx * kx + ky * ky);
     data.transverse_low.push_back(1e-3 * static_cast<double>(column % 3));
     data.transverse_rate.push_back(column % 2 == 0 ? 0.0 : 3.0);
@@ -152,13 +152,13 @@ template <class T> auto device(const char* label, const std::vector<T>& values) 
 // One row's table entry, by its constant.
 double& constant_of(Case& data, const std::size_t index,
                     const native::FarFieldConstant constant) {
-  const auto row = native::far_field_aperture_constants + data.problem.n_omega;
+  const auto row = native::far_field_aperture_constants + data.problem.dims.n_omega;
   return data.apertures[index * row + constant];
 }
 
 std::vector<double> run(Case& data, const std::uint64_t flags, const int profile,
                         const int exponent) {
-  const auto n = data.problem.n_omega;
+  const auto n = data.problem.dims.n_omega;
   // Every row takes `profile`; a test of mixed rows passes kPerRow and sets its own.
   std::vector<double> apertures = data.apertures;
   if (profile != kPerRow) {
@@ -166,7 +166,8 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
     for (std::size_t index = 0; index * row < apertures.size(); ++index)
       apertures[index * row + native::far_field_profile] = static_cast<double>(profile);
   }
-  const auto rows = data.problem.n_x * data.problem.n_y * data.problem.n_pol_state;
+  const auto rows = data.problem.spatial.n_x * data.problem.spatial.n_y *
+                    data.problem.dims.n_pol_state;
   native::FarFieldPass::ComplexView2 field("test.field", rows, n);
   const auto host = Kokkos::create_mirror_view(field);
   for (std::size_t row = 0; row < rows; ++row)
@@ -188,7 +189,6 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
       .active = device("test.active", data.active),
       .evanescent = data.evanescent};
   auto values = pass.run(flags, apertures, exponent, data.regions, 0.5, field, inputs);
-  pass.close();
   return values;
 }
 
@@ -197,7 +197,7 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
 // in TheShapesAreTheirFormulas.
 double host_weight(const Case& data, const std::size_t index, const double kx,
                    const double ky, const std::size_t bin, const int profile) {
-  const auto row = native::far_field_aperture_constants + data.problem.n_omega;
+  const auto row = native::far_field_aperture_constants + data.problem.dims.n_omega;
   const double* constants = &data.apertures[index * row];
   const double scale = constants[native::far_field_aperture_constants + bin];
   const double centre_x = constants[native::far_field_centre_x];
@@ -235,11 +235,11 @@ double host_weight(const Case& data, const std::size_t index, const double kx,
 std::vector<double> reference(const Case& data, const int profile, const int exponent,
                               const bool magnitude) {
   const auto& problem = data.problem;
-  const auto n = problem.n_omega;
-  const auto n_pol = problem.n_pol_state;
-  const auto columns = problem.n_x * problem.n_y;
-  const bool envelope = problem.family == native::FieldFamily::envelope;
-  const double dt = problem.dt;
+  const auto n = problem.dims.n_omega;
+  const auto n_pol = problem.dims.n_pol_state;
+  const auto columns = problem.spatial.n_x * problem.spatial.n_y;
+  const bool envelope = problem.dims.family == native::FieldFamily::envelope;
+  const double dt = problem.grid.dt;
   const double density =
       envelope ? dt * dt / (2.0 * std::numbers::pi) : 2.0 * dt * dt / std::numbers::pi;
   const std::size_t row = native::far_field_aperture_constants + n;
@@ -258,8 +258,8 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
     std::vector<std::complex<double>> closed(n_pol);
     std::vector<std::complex<double>> closed_axial(n_apertures * n_pol);
     for (std::size_t column = 0; column < columns; ++column) {
-      const double kx = problem.spatial_k_x[column % problem.n_x];
-      const double ky = problem.spatial_k_y[column / problem.n_x];
+      const double kx = problem.spatial.k_x[column % problem.spatial.n_x];
+      const double ky = problem.spatial.k_y[column / problem.spatial.n_x];
       double power = 0.0;
       for (std::size_t pol = 0; pol < n_pol; ++pol)
         power += std::norm(
@@ -284,7 +284,7 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
       const double weighted = data.weights[column] * power * closing.real();
       beam[bin] += weighted;
       const double energy = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 4.0) * dt /
-                            static_cast<double>(problem.n_t);
+                            static_cast<double>(problem.dims.n_t);
       absorbed[0] +=
           energy * weighted * (data.spectral_rate[bin] - data.user_rate[bin]);
       absorbed[4] += energy * weighted * data.user_rate[bin];
@@ -387,7 +387,7 @@ TEST_P(FarFieldPassAgainstHost, EveryStatisticMatchesTheSerialReduction) {
   expect_matches(actual, expected, magnitude, variant.n_x * variant.n_y);
   // Every channel but the evanescent one, which carries no axial flux, and every
   // aperture take part on this fixture.
-  const auto n = data.problem.n_omega;
+  const auto n = data.problem.dims.n_omega;
   for (const std::size_t channel : {0U, 1U, 3U, 4U})
     EXPECT_NE(actual[n + channel], 0.0) << channel;
   EXPECT_EQ(actual[n + 2], 0.0);
@@ -412,7 +412,8 @@ TEST(FarFieldPass, EveryRadiusPathMatchesTheSerialReduction) {
   // and a second distance (neither): each against the host reduction.
   for (const int path : {0, 1, 2}) {
     auto data = make_case(5, 4, 2, true, 1);
-    const std::size_t row = native::far_field_aperture_constants + data.problem.n_omega;
+    const std::size_t row =
+        native::far_field_aperture_constants + data.problem.dims.n_omega;
     for (std::size_t index = 1; index < 3; ++index) {
       if (path == 0) {
         data.apertures[index * row + native::far_field_centre_x] =
@@ -422,7 +423,7 @@ TEST(FarFieldPass, EveryRadiusPathMatchesTheSerialReduction) {
       }
       if (path == 2 && index == 2) {
         data.apertures[index * row + native::far_field_distance] = 0.3;
-        for (std::size_t bin = 0; bin < data.problem.n_omega; ++bin)
+        for (std::size_t bin = 0; bin < data.problem.dims.n_omega; ++bin)
           data.apertures[index * row + native::far_field_aperture_constants + bin] =
               0.3 * native::far_field_speed_of_light / data.omega[bin];
       }
@@ -438,7 +439,7 @@ TEST(FarFieldPass, MixedShapesAndProfilesMatchTheSerialReduction) {
   // ellipse, one distance and then two, so the shaped branch runs under both origins.
   for (const bool one_distance : {true, false}) {
     auto data = make_case(5, 4, 2, true, 1);
-    const std::size_t n = data.problem.n_omega;
+    const std::size_t n = data.problem.dims.n_omega;
     const std::size_t row = native::far_field_aperture_constants + n;
     const auto scale_row =
         std::vector<double>(data.apertures.begin() +
@@ -486,7 +487,7 @@ TEST(FarFieldPass, AHalfPlaneAndItsComplementTileTheColumns) {
   // In a band whose outer columns the map still reaches, both rows at one edge sum to
   // the terms of every column inside the disc: exactly one row holds each, by one sign.
   auto data = make_case(5, 4, 1, true, 0);
-  const std::size_t n = data.problem.n_omega;
+  const std::size_t n = data.problem.dims.n_omega;
   for (const auto shape_pair : {std::array{native::far_field_half_plane_x_ge,
                                            native::far_field_half_plane_x_lt},
                                 std::array{native::far_field_half_plane_y_ge,
@@ -501,11 +502,11 @@ TEST(FarFieldPass, AHalfPlaneAndItsComplementTileTheColumns) {
       constant_of(rows, index, native::far_field_centre_y) =
           shape_pair[0] == native::far_field_half_plane_x_ge ? 0.0 : -0.02;
     }
-    const auto columns = rows.problem.n_x * rows.problem.n_y;
+    const auto columns = rows.problem.spatial.n_x * rows.problem.spatial.n_y;
     for (std::size_t column = 0; column < columns; ++column)
       for (std::size_t bin = 0; bin < n; ++bin) {
-        const double kx = rows.problem.spatial_k_x[column % rows.problem.n_x];
-        const double ky = rows.problem.spatial_k_y[column / rows.problem.n_x];
+        const double kx = rows.problem.spatial.k_x[column % rows.problem.spatial.n_x];
+        const double ky = rows.problem.spatial.k_y[column / rows.problem.spatial.n_x];
         const double first = host_weight(rows, 0, kx, ky, bin, 0);
         const double second = host_weight(rows, 1, kx, ky, bin, 0);
         const double scale = rows.apertures[native::far_field_aperture_constants + bin];
@@ -607,7 +608,7 @@ TEST(FarFieldPass, TheShapesAreTheirFormulas) {
 TEST(FarFieldPass, APartialRequestPacksOnlyItsRows) {
   auto data = make_case(5, 4, 1, true, 1);
   const auto every = run(data, kEvery, 1, 2);
-  const auto n = data.problem.n_omega;
+  const auto n = data.problem.dims.n_omega;
   // The beam spectrum and the apertures' on-axis spectra alone: the same values as
   // the full request's rows, within the bound (another slot count, the same sums).
   const auto partial =
@@ -641,7 +642,7 @@ TEST(FarFieldPass, DeclaredAperturesCostNothingUnlessAsked) {
   data.apertures.clear();
   const auto bare = run(data, flags, 2, 1);
   ASSERT_EQ(declared.size(), bare.size());
-  const auto n = data.problem.n_omega;
+  const auto n = data.problem.dims.n_omega;
   constexpr auto absorbed = native::far_field_absorbed_channels;
   ASSERT_EQ(bare.size(), (1 + 4 + 1) * n + absorbed);
   const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
@@ -791,7 +792,7 @@ TEST(FarFieldPass, InvalidRequestsAreRefused) {
   EXPECT_THROW(static_cast<void>(run(bare, native::far_field_collected, 1, 2)),
                std::invalid_argument);
   auto radial = data;
-  radial.problem.n_x = 0;
+  radial.problem.spatial.n_x = 0;
   EXPECT_THROW(static_cast<void>(run(radial, kEvery, 1, 2)), std::invalid_argument);
 }
 

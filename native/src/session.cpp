@@ -5,6 +5,7 @@
 #include "solprop_native/session.hpp"
 
 #include "solprop_native/core.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -1000,9 +1001,9 @@ void Session::acknowledge(const std::uint64_t sequence) {
   const std::scoped_lock lock(mutex_);
   require_open();
   if (!pending_ || sequence != sequence_)
-    throw LifecycleError("receipt " + std::to_string(sequence) +
-                         " is not the pending batch's: a foreign, stale or repeated "
-                         "acknowledgment");
+    refuse<LifecycleError>("receipt ", sequence,
+                           " is not the pending batch's: a foreign, stale or repeated "
+                           "acknowledgment");
   pending_ = false;
   state_.store(outcome_.load() != Outcome::none ? State::finished : State::ready,
                std::memory_order_release);

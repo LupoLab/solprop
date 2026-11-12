@@ -152,7 +152,7 @@ from .backend import (
     _NO_SCHEDULE,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
-    _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
+    _low_storage_flows,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
     _raise_native,  # pyright: ignore[reportPrivateUsage]
 )
@@ -604,11 +604,12 @@ class NativeSession:
             kind = "low_storage"
             # The flows `_ResidentLowStorage` holds, and the operator's origin, from
             # which a constant operator's table is built.
-            payload = _low_storage_payload(
+            flows = _low_storage_flows(
                 self._problem, self._stepper, device=_on_device()
             )
+            assert flows is not None  # the march is the low-storage one
             backend._native_state.low_storage_configure(  # pyright: ignore[reportPrivateUsage]
-                int(cast("int", payload["low_storage_flows"])),
+                flows,
                 driver._terms.separable is not None,
                 float(self._problem.linear.z_span[0]),
             )

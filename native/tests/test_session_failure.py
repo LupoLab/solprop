@@ -13,10 +13,7 @@ an unresolved angular source is a ``ConvergenceError``, as the reference raises,
 
 from __future__ import annotations
 
-from typing import cast
-
 import numpy as np
-import numpy.typing as npt
 import pytest
 from solprop.backends.events import Terminal
 from solprop.backends.session import Start
@@ -24,9 +21,10 @@ from solprop.exceptions import ConvergenceError
 from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage]
+    _lower,  # pyright: ignore[reportPrivateUsage]
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
 
 
@@ -35,23 +33,22 @@ def test_an_unresolved_launch_statistic_ends_the_run_as_a_convergence_error(
     monkeypatch: pytest.MonkeyPatch, geometry: str
 ) -> None:
     problem, run_request, grid = envelope_case(geometry, 1, mixture=False)
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options(geometry).chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options(geometry).chunk),
     )
-    nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
+    nodes = payload.plasma.envelope_rule_nodes.reshape(-1, 4, 512)
     # Alternating incompatible rules fail refinement (`test_envelope_plasma.py`).
     for level in (1, 3):
         order = 64 << level
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
-    payload["envelope_rule_nodes"] = nodes
+    payload.plasma.envelope_rule_nodes = nodes
 
-    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
+    def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
         return payload
 
-    monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)
     )

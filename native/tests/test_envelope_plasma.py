@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-import numpy.typing as npt
 import pytest
 from legacy_geometry import LEGACY_GRID
 from session_runs import (
@@ -49,7 +48,8 @@ from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, _core, build_info
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
+    _lower,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
 )
 
 # The FFT collar extends beyond the neutral-gas index fit. These are current
@@ -371,41 +371,54 @@ def test_envelope_currents_steps_statistics_and_repeatability(
 
 @pytest.mark.parametrize(
     "corruption",
-    ["field", "shape", "nan", "weight", "inactive", "sign", "thg", "stash"],
+    ["field", "shape", "layout", "nan", "weight", "inactive", "sign", "thg", "stash"],
 )
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
     problem, run_request, _ = envelope_case("modal", 1, mixture=False)
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options("modal").chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options("modal").chunk),
     )
-    if corruption in ("field", "thg", "stash"):
-        key, value = {
-            "field": ("family", "field_real"),
-            "thg": ("harmonic_factor", 1.0),
-            "stash": ("stash_plasma", True),
-        }[corruption]
-        payload[key] = value
-    elif corruption in ("shape", "nan", "weight"):
-        key = (
-            "envelope_rule_nodes" if corruption != "weight" else "envelope_rule_weights"
-        )
-        array = cast(npt.NDArray[np.float64], payload[key]).copy()
-        if corruption == "shape":
-            payload[key] = array.ravel()
+    plasma = payload.plasma
+    shape = (plasma.n_channels, 4, 512)
+
+    def _spoil() -> None:
+        if corruption == "field":
+            payload.dims.family = _core.FieldFamily.field_real
+        elif corruption == "thg":
+            payload.kerr.harmonic_factor = 1.0
+        elif corruption == "stash":
+            plasma.stash = True
+        elif corruption in ("shape", "layout", "nan", "weight"):
+            weight = corruption == "weight"
+            rule = (
+                plasma.envelope_rule_weights if weight else plasma.envelope_rule_nodes
+            )
+            if corruption == "shape":
+                corrupted = rule
+            elif corruption == "layout":
+                # The rule's elements, its (n_channels, 4, 512) axes reversed.
+                corrupted = rule.reshape(shape[::-1])
+            else:
+                corrupted = rule.reshape(shape)
+                corrupted.flat[0] = np.nan if corruption == "nan" else 0.0
+            if weight:
+                plasma.envelope_rule_weights = corrupted
+            else:
+                plasma.envelope_rule_nodes = corrupted
         else:
-            array.flat[0] = np.nan if corruption == "nan" else 0.0
-            payload[key] = array
-    else:
-        array = cast(npt.NDArray[np.float64], payload["envelope_drude_factor"]).copy()
-        mask = problem.grids.active_mask & (problem.grids.omega > 0)
-        index = int(np.flatnonzero(mask if corruption == "sign" else ~mask)[0])
-        array[index] = 1.0
-        payload["envelope_drude_factor"] = array
-    with pytest.raises(ValueError, match="envelope"):
+            array = plasma.envelope_drude_factor
+            mask = problem.grids.active_mask & (problem.grids.omega > 0)
+            index = int(np.flatnonzero(mask if corruption == "sign" else ~mask)[0])
+            array[index] = 1.0
+            plasma.envelope_drude_factor = array
         _core.State(payload)
+
+    # A reordered rule keeps its elements: only its layout can refuse it.
+    match = "envelope rules require" if corruption == "layout" else "envelope"
+    with pytest.raises(ValueError, match=match):
+        _spoil()
 
 
 @pytest.mark.parametrize(
@@ -424,24 +437,23 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
     # No statistics: the failure is the first step's, inside the native march, as the
     # driver's was (the launch plane's populations would meet the bad rule first).
     run_request = run_request.for_run(stats=StatsSpec())
-    payload = _native_problem(
+    payload = _lower(
         problem,
         run_request,
-        terms(problem),
-        node_chunk=envelope_options(geometry).chunk,
+        _LowerPlan(terms=terms(problem), node_chunk=envelope_options(geometry).chunk),
     )
-    nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
+    nodes = payload.plasma.envelope_rule_nodes.reshape(-1, 4, 512)
     # Sorted interior nodes and normalized positive weights still satisfy native
     # shape/domain checks. Alternating incompatible rules must fail refinement.
     for level in (1, 3):
         order = 64 << level
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
-    payload["envelope_rule_nodes"] = nodes
+    payload.plasma.envelope_rule_nodes = nodes
 
-    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
+    def corrupt_payload(*args: object, **keywords: object) -> _core.Problem:
         return payload
 
-    monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
+    monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)
     )

@@ -51,45 +51,45 @@ std::size_t block(const std::size_t count) { return count * kActive * kModes * k
 native::Problem flow_problem(const bool residual) {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = 4;
-  problem.n_to = 8;
-  problem.n_omega = kOmega;
-  problem.n_stages = kStages;
-  problem.n_phi_terms = 1;
-  problem.n_prefactor_terms = 1;
-  problem.n_modes = kModes;
-  problem.family = native::FieldFamily::field_real;
-  problem.crop_index = {0, 1, 2, 3};
-  problem.active_mask.assign(kOmega, 1U);
-  problem.norm_mask.assign(kOmega, 1U);
-  problem.omega_window.assign(kOmega, 1.0);
-  problem.omega = {1.0, 2.0, 3.0, 4.0};
-  problem.dt = 0.25;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
+  problem.dims.n_t = 4;
+  problem.dims.n_to = 8;
+  problem.dims.n_omega = kOmega;
+  problem.stepper.n_stages = kStages;
+  problem.linear.n_phi_terms = 1;
+  problem.linear.n_prefactor_terms = 1;
+  problem.dims.n_modes = kModes;
+  problem.dims.family = native::FieldFamily::field_real;
+  problem.grid.crop_index = {0, 1, 2, 3};
+  problem.grid.active_mask.assign(kOmega, 1U);
+  problem.grid.norm_mask.assign(kOmega, 1U);
+  problem.grid.omega_window.assign(kOmega, 1.0);
+  problem.grid.omega = {1.0, 2.0, 3.0, 4.0};
+  problem.grid.dt = 0.25;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
   // A mode-independent carrier, as the flow requires: exp(dPhi) is a scalar per bin.
   for (std::size_t mode = 0; mode < kModes; ++mode)
     for (std::size_t index = 0; index < kOmega; ++index)
-      problem.phi_terms.emplace_back(-0.3, 5.0 * static_cast<double>(index));
-  problem.prefactor_terms.assign(kModes * kOmega, Complex(1.0, 0.0));
+      problem.linear.phi_terms.emplace_back(-0.3, 5.0 * static_cast<double>(index));
+  problem.linear.prefactor_terms.assign(kModes * kOmega, Complex(1.0, 0.0));
   // Heun's pair with a third stage at c = 1: a zero first fraction and a repeated
   // whole one, the two cases the action table has.
-  problem.tableau_matrix = {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0};
-  problem.tableau_nodes = {0.0, 1.0, 1.0};
-  problem.solution_weights = {0.5, 0.5, 0.0};
-  problem.error_weights = {0.5, 0.5, -1.0};
-  problem.synthesis_matrix.assign(kModes, 0.0);
-  problem.projection_matrix.assign(kModes, 0.0);
-  problem.coupled_flow = true;
-  problem.flow_active = kActive;
-  problem.flow_sections = kSections;
-  problem.flow_slot.assign(kSlot.begin(), kSlot.end());
+  problem.stepper.tableau_matrix = {0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0};
+  problem.stepper.tableau_nodes = {0.0, 1.0, 1.0};
+  problem.stepper.solution_weights = {0.5, 0.5, 0.0};
+  problem.stepper.error_weights = {0.5, 0.5, -1.0};
+  problem.transform.synthesis_matrix.assign(kModes, 0.0);
+  problem.transform.projection_matrix.assign(kModes, 0.0);
+  problem.flow.enabled = true;
+  problem.flow.active = kActive;
+  problem.flow.sections = kSections;
+  problem.flow.slot.assign(kSlot.begin(), kSlot.end());
   if (residual) {
-    problem.flow_terms = kTerms;
+    problem.flow.terms = kTerms;
     for (std::size_t index = 0; index < block(kSections); ++index)
-      problem.flow_frozen.emplace_back(fill(index + 3, 2.0), fill(index + 5, 1.5));
+      problem.flow.frozen.emplace_back(fill(index + 3, 2.0), fill(index + 5, 1.5));
     for (std::size_t index = 0; index < block(kTerms); ++index)
-      problem.flow_residual_terms.emplace_back(fill(index + 7, 2.5),
+      problem.flow.residual_terms.emplace_back(fill(index + 7, 2.5),
                                                fill(index + 11, 1.0));
   }
   return problem;
@@ -164,13 +164,13 @@ std::vector<Complex> reference_step(const native::Problem& problem, const Action
   std::vector<Complex> solution(current.size());
   const auto phase = [&](const std::size_t stage, const std::size_t mode,
                          const std::size_t index) {
-    return trial.phi_delta[stage] * problem.phi_terms[mode * kOmega + index];
+    return trial.phi_delta[stage] * problem.linear.phi_terms[mode * kOmega + index];
   };
   for (std::size_t stage = 0; stage < kStages; ++stage) {
     std::vector<Complex> sum(current.size());
     for (std::size_t previous = 0; previous < stage; ++previous)
       for (std::size_t element = 0; element < sum.size(); ++element)
-        sum[element] += problem.tableau_matrix[stage * kStages + previous] *
+        sum[element] += problem.stepper.tableau_matrix[stage * kStages + previous] *
                         stages[previous][element];
     std::vector<Complex> lab(current.size());
     std::vector<Complex> drive(current.size());
@@ -191,7 +191,7 @@ std::vector<Complex> reference_step(const native::Problem& problem, const Action
         lab[row * kOmega + index] =
             cexp(phase(stage, row, index)) * (state + kStep * carried);
       }
-      if (slot == 0 || problem.flow_terms == 0)
+      if (slot == 0 || problem.flow.terms == 0)
         continue;
       for (std::size_t row = 0; row < kModes; ++row) {
         Complex residual{};
@@ -200,13 +200,13 @@ std::vector<Complex> reference_step(const native::Problem& problem, const Action
           for (std::size_t term = 0; term < kTerms; ++term)
             combined +=
                 trial.flow_weights[stage * kTerms + term] *
-                problem.flow_residual_terms
+                problem.flow.residual_terms
                     [((term * kActive + slot - 1) * kModes + row) * kModes + column];
           combined -=
-              problem.flow_frozen[((trial.flow_section * kActive + slot - 1) * kModes +
-                                   row) *
-                                      kModes +
-                                  column];
+              problem.flow
+                  .frozen[((trial.flow_section * kActive + slot - 1) * kModes + row) *
+                              kModes +
+                          column];
           residual += combined * lab[column * kOmega + index];
         }
         drive[row * kOmega + index] = cexp(-phase(stage, row, index)) * residual;
@@ -227,7 +227,8 @@ std::vector<Complex> reference_step(const native::Problem& problem, const Action
         }
       }
     for (std::size_t element = 0; element < solution.size(); ++element)
-      solution[element] += problem.solution_weights[stage] * stage_value[element];
+      solution[element] +=
+          problem.stepper.solution_weights[stage] * stage_value[element];
     stages.push_back(stage_value);
   }
   std::vector<Complex> advanced(current.size());
@@ -291,9 +292,9 @@ TEST(CoupledFlow, ConstantBlockCarriesTheStepByItsWholeAction) {
   for (std::size_t row = 0; row < kModes; ++row) {
     const auto element = row * kOmega;
     EXPECT_NE(actual[element + 1],
-              start[element + 1] * cexp(kStep * problem.phi_terms[1]));
+              start[element + 1] * cexp(kStep * problem.linear.phi_terms[1]));
     EXPECT_LE(Kokkos::abs(actual[element] -
-                          start[element] * cexp(kStep * problem.phi_terms[0])),
+                          start[element] * cexp(kStep * problem.linear.phi_terms[0])),
               kBound * largest(expected));
   }
 }
@@ -326,7 +327,7 @@ TEST(CoupledFlow, RepeatedTrialsAgreeToRounding) {
 
 TEST(CoupledFlow, NoStageIsReusedAcrossSteps) {
   auto problem = flow_problem(false);
-  problem.first_same_as_last = true;
+  problem.stepper.first_same_as_last = true;
   const auto flow = actions();
   native::GeneralState state(problem);
   state.set_initial(initial(), {});
@@ -339,25 +340,25 @@ TEST(CoupledFlow, NoStageIsReusedAcrossSteps) {
 
 TEST(CoupledFlow, MalformedDataAreRefusedBeforeAllocation) {
   auto slot = flow_problem(false);
-  slot.flow_slot = {0, 2, 0, 1};
+  slot.flow.slot = {0, 2, 0, 1};
   EXPECT_THROW(native::GeneralState{slot}, std::invalid_argument);
   auto count = flow_problem(false);
-  count.flow_active = 3;
+  count.flow.active = 3;
   EXPECT_THROW(native::GeneralState{count}, std::invalid_argument);
   auto pol = flow_problem(false);
-  pol.n_pol_state = 2;
+  pol.dims.n_pol_state = 2;
   EXPECT_THROW(native::GeneralState{pol}, std::invalid_argument);
   auto noise = flow_problem(false);
-  noise.modified_noise = true;
+  noise.stepper.modified_noise = true;
   EXPECT_THROW(native::GeneralState{noise}, std::invalid_argument);
   auto terms = flow_problem(true);
-  terms.flow_residual_terms.pop_back();
+  terms.flow.residual_terms.pop_back();
   EXPECT_THROW(native::GeneralState{terms}, std::invalid_argument);
   auto stray = flow_problem(false);
-  stray.coupled_flow = false;
+  stray.flow.enabled = false;
   EXPECT_THROW(native::GeneralState{stray}, std::invalid_argument);
   auto nonfinite = flow_problem(true);
-  nonfinite.flow_frozen[0] = Complex(std::numeric_limits<double>::quiet_NaN(), 0.0);
+  nonfinite.flow.frozen[0] = Complex(std::numeric_limits<double>::quiet_NaN(), 0.0);
   EXPECT_THROW(native::GeneralState{nonfinite}, std::invalid_argument);
 }
 
@@ -369,9 +370,9 @@ TEST(CoupledFlow, ATwoComponentSynthesisLeavesTheFlowAsItIs) {
   for (const bool residual : {false, true}) {
     const auto scalar = flow_problem(residual);
     auto vector = scalar;
-    vector.n_pol_transform = 2;
-    vector.synthesis_matrix.assign(2 * kModes, 0.0);
-    vector.projection_matrix.assign(2 * kModes, 0.0);
+    vector.dims.n_pol_transform = 2;
+    vector.transform.synthesis_matrix.assign(2 * kModes, 0.0);
+    vector.transform.projection_matrix.assign(2 * kModes, 0.0);
     const auto flow = actions();
     const auto trial = scalars(residual, 1);
     const auto expected = native_step(scalar, flow, trial);
@@ -423,10 +424,10 @@ TEST(CoupledFlow, LedgerCountsTheFlowViewsAndIsZeroElsewhere) {
                            "flow_carried_solution", "flow_carried_error"})
     EXPECT_EQ(ledger.at(name), kModes * kOmega * complex_bytes) << name;
   auto plain = flow_problem(false);
-  plain.coupled_flow = false;
-  plain.flow_active = 0;
-  plain.flow_sections = 0;
-  plain.flow_slot.clear();
+  plain.flow.enabled = false;
+  plain.flow.active = 0;
+  plain.flow.sections = 0;
+  plain.flow.slot.clear();
   native::GeneralState other(plain);
   for (const auto& [name, bytes] : native::CoupledFlowAction::empty_ledger())
     EXPECT_EQ(other.memory_ledger().at(name), 0U) << name;
@@ -442,9 +443,9 @@ TEST(CoupledFlow, ZeroWeightTermsAreSkippedWithoutMovingABit) {
   const auto flow = actions();
   const auto trial = scalars(true, 1);
   auto padded = problem;
-  padded.flow_terms = 2 * kTerms;
+  padded.flow.terms = 2 * kTerms;
   for (std::size_t index = 0; index < block(kTerms); ++index)
-    padded.flow_residual_terms.emplace_back(fill(index + 53, 9.0),
+    padded.flow.residual_terms.emplace_back(fill(index + 53, 9.0),
                                             fill(index + 59, -7.0));
   auto padded_trial = trial;
   padded_trial.flow_weights.clear();
@@ -559,19 +560,19 @@ native::Problem forming_problem(const bool fallback) {
       const auto upper = triangular(section, bin);
       const auto [left, right] = eigenbasis(vectors, upper);
       for (std::size_t mode = 0; mode < kModes; ++mode)
-        problem.flow_eigenvalues.push_back(upper[mode * kModes + mode]);
+        problem.flow.eigenvalues.push_back(upper[mode * kModes + mode]);
       if (fallback) {
-        problem.flow_route.push_back(++route);
-        problem.flow_left.insert(problem.flow_left.end(), kModes * kModes, Complex{});
-        problem.flow_right.insert(problem.flow_right.end(), kModes * kModes, Complex{});
-        problem.flow_fallback_vectors.insert(problem.flow_fallback_vectors.end(),
+        problem.flow.route.push_back(++route);
+        problem.flow.left.insert(problem.flow.left.end(), kModes * kModes, Complex{});
+        problem.flow.right.insert(problem.flow.right.end(), kModes * kModes, Complex{});
+        problem.flow.fallback_vectors.insert(problem.flow.fallback_vectors.end(),
                                              vectors.begin(), vectors.end());
-        problem.flow_fallback_triangular.insert(problem.flow_fallback_triangular.end(),
+        problem.flow.fallback_triangular.insert(problem.flow.fallback_triangular.end(),
                                                 upper.begin(), upper.end());
       } else {
-        problem.flow_route.push_back(0);
-        problem.flow_left.insert(problem.flow_left.end(), left.begin(), left.end());
-        problem.flow_right.insert(problem.flow_right.end(), right.begin(), right.end());
+        problem.flow.route.push_back(0);
+        problem.flow.left.insert(problem.flow.left.end(), left.begin(), left.end());
+        problem.flow.right.insert(problem.flow.right.end(), right.begin(), right.end());
       }
     }
   return problem;
@@ -703,23 +704,23 @@ TEST(CoupledFlowFormation, FormationAndItsDataAreChecked) {
       static_cast<void>(state.form_flow_actions(0, kLength, {0.0, 0.5, 1.0, 0.0})),
       std::invalid_argument);
   auto numbering = forming_problem(true);
-  numbering.flow_route[0] = 2;
+  numbering.flow.route[0] = 2;
   EXPECT_THROW(native::GeneralState{numbering}, std::invalid_argument);
   auto fallback = forming_problem(true);
-  fallback.flow_fallback_vectors.pop_back();
+  fallback.flow.fallback_vectors.pop_back();
   EXPECT_THROW(native::GeneralState{fallback}, std::invalid_argument);
   auto partial = forming_problem(false);
-  partial.flow_right.pop_back();
+  partial.flow.right.pop_back();
   EXPECT_THROW(native::GeneralState{partial}, std::invalid_argument);
   auto nonfinite = forming_problem(false);
-  nonfinite.flow_eigenvalues[0] = Complex(std::numeric_limits<double>::infinity(), 0.0);
+  nonfinite.flow.eigenvalues[0] = Complex(std::numeric_limits<double>::infinity(), 0.0);
   EXPECT_THROW(native::GeneralState{nonfinite}, std::invalid_argument);
   auto stray = flow_problem(false);
-  stray.coupled_flow = false;
-  stray.flow_active = 0;
-  stray.flow_sections = 0;
-  stray.flow_slot.clear();
-  stray.flow_route = {0};
+  stray.flow.enabled = false;
+  stray.flow.active = 0;
+  stray.flow.sections = 0;
+  stray.flow.slot.clear();
+  stray.flow.route = {0};
   EXPECT_THROW(native::GeneralState{stray}, std::invalid_argument);
 }
 

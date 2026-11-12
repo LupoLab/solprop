@@ -5,6 +5,7 @@
 #include "solprop_native/adams_march.hpp"
 
 #include "solprop_native/core.hpp"
+#include "solprop_native/refuse.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -56,9 +57,8 @@ std::size_t bisect_right(const std::vector<double>& values, const double x) {
   return static_cast<std::size_t>(std::ranges::upper_bound(values, x) - values.begin());
 }
 
-void refuse(const char* field, const double value) {
-  throw std::invalid_argument(std::string("the Adams march's policy has ") + field +
-                              " = " + std::to_string(value));
+[[noreturn]] void refuse_policy(const char* field, const double value) {
+  refuse("the Adams march's policy has ", field, " = ", value);
 }
 
 bool increasing(const std::vector<double>& values) {
@@ -85,46 +85,46 @@ double strict_probe(const double a, const double b, const double c) {
 
 void validate(const Policy& policy) {
   if (policy.order < 1 || policy.order > 6)
-    refuse("order", static_cast<double>(policy.order));
+    refuse_policy("order", static_cast<double>(policy.order));
   if (policy.real_intervals.size() < policy.order)
-    refuse("real_intervals", static_cast<double>(policy.real_intervals.size()));
+    refuse_policy("real_intervals", static_cast<double>(policy.real_intervals.size()));
   if (!(policy.safety > 0.0 && policy.safety <= 1.0))
-    refuse("safety", policy.safety);
+    refuse_policy("safety", policy.safety);
   if (!(policy.max_growth > 1.0))
-    refuse("max_growth", policy.max_growth);
+    refuse_policy("max_growth", policy.max_growth);
   if (!(policy.min_factor > 0.0 && policy.min_factor < 1.0))
-    refuse("min_factor", policy.min_factor);
+    refuse_policy("min_factor", policy.min_factor);
   if (!(policy.rejection_growth > 0.0 && policy.rejection_growth <= 1.0))
-    refuse("rejection_growth", policy.rejection_growth);
+    refuse_policy("rejection_growth", policy.rejection_growth);
   if (!(policy.hysteresis >= 1.0))
-    refuse("hysteresis", policy.hysteresis);
+    refuse_policy("hysteresis", policy.hysteresis);
   if (policy.restart_after < 1)
-    refuse("restart_after", static_cast<double>(policy.restart_after));
+    refuse_policy("restart_after", static_cast<double>(policy.restart_after));
   if (!(policy.collar_stability > 0.0))
-    refuse("collar_stability", policy.collar_stability);
+    refuse_policy("collar_stability", policy.collar_stability);
   if (!(policy.collar_rate >= 0.0))
-    refuse("collar_rate", policy.collar_rate);
+    refuse_policy("collar_rate", policy.collar_rate);
   if (!(policy.carrier_cap > 0.0))
-    refuse("carrier_cap", policy.carrier_cap);
+    refuse_policy("carrier_cap", policy.carrier_cap);
   if (policy.has_budget && policy.max_calls < 1)
-    refuse("max_calls", static_cast<double>(policy.max_calls));
+    refuse_policy("max_calls", static_cast<double>(policy.max_calls));
   if (!(policy.dz_min >= 0.0 && policy.dz_min <= policy.dz_max) ||
       !std::isfinite(policy.dz_max))
-    refuse("dz_min", policy.dz_min);
+    refuse_policy("dz_min", policy.dz_min);
   if (!(policy.stretch >= 1.0) || !std::isfinite(policy.stretch))
-    refuse("stretch", policy.stretch);
+    refuse_policy("stretch", policy.stretch);
   if (!std::isfinite(policy.z_end))
-    refuse("z_end", policy.z_end);
+    refuse_policy("z_end", policy.z_end);
   if (policy.breakpoints.size() < 2 || !increasing(policy.breakpoints))
-    refuse("breakpoints", static_cast<double>(policy.breakpoints.size()));
+    refuse_policy("breakpoints", static_cast<double>(policy.breakpoints.size()));
   if (!increasing(policy.save_planes))
-    refuse("save_planes", static_cast<double>(policy.save_planes.size()));
+    refuse_policy("save_planes", static_cast<double>(policy.save_planes.size()));
   if (!increasing(policy.hard_kinks))
-    refuse("hard_kinks", static_cast<double>(policy.hard_kinks.size()));
+    refuse_policy("hard_kinks", static_cast<double>(policy.hard_kinks.size()));
   if (policy.landing_ulps < 1)
-    refuse("landing_ulps", policy.landing_ulps);
+    refuse_policy("landing_ulps", policy.landing_ulps);
   if (policy.has_quiet_interval && !(policy.quiet_interval > 0.0))
-    refuse("quiet_interval", policy.quiet_interval);
+    refuse_policy("quiet_interval", policy.quiet_interval);
 }
 
 double factor(const Policy& policy, const double norm, const std::size_t order,
@@ -258,17 +258,14 @@ double collar_reentry(const Policy& policy, const double proposal,
 Landing landing(const Policy& policy, const double z, const double dz,
                 const double z_end) {
   if (!(dz > 0.0) || !std::isfinite(dz))
-    throw std::invalid_argument("dz must be finite and positive, got " +
-                                std::to_string(dz));
+    refuse("dz must be finite and positive, got ", dz);
   const auto& edges = policy.breakpoints;
   if (!(edges.front() <= z && z <= edges.back()))
-    throw std::invalid_argument("z = " + std::to_string(z) +
-                                " m lies outside the operator table");
+    refuse("z = ", z, " m lies outside the operator table");
   const double tolerance =
       policy.landing_ulps * ulp(py_max(std::fabs(z), std::fabs(z_end)));
   if (z >= z_end - tolerance)
-    throw std::invalid_argument("z = " + std::to_string(z) +
-                                " m is already at or past z_end");
+    refuse("z = ", z, " m is already at or past z_end");
   const std::size_t found = bisect_right(edges, z);
   std::size_t index = found == 0 ? 0 : found - 1;
   index = std::min(index, edges.size() - 2);

@@ -404,20 +404,17 @@ class NativeBackend:
         self._execution_source = (
             _package.EXECUTION_SOURCE if cpu_execution is None else "given"
         )
-        self._native_state = _core.State(
-            _native_problem(
-                problem,
-                request,
-                self._terms,
-                self._flow,
-                self._z_tables,
-                node_chunk=self._node_chunk,
-                general_chunk=self._general_chunk,
-            )
-            | _low_storage_payload(problem, stepper, device=_on_device())
-            | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
-            | _planning_payload(fft_planning, stored)
+        plan = _LowerPlan(
+            terms=self._terms,
+            flow=self._flow,
+            tables=self._z_tables,
+            node_chunk=self._node_chunk,
+            general_chunk=self._general_chunk,
+            cpu_execution=cpu_execution,
+            fft_planning=_planning(fft_planning, stored),
+            device=_on_device(),
         )
+        self._native_state = _core.State(_lower(problem, request, plan))
         self._applied_execution = ExecutionRecord.from_native(
             self._native_state.cpu_execution
         )
@@ -429,18 +426,15 @@ class NativeBackend:
                 stored |= _keep_plans(self._native_state, wisdom)
                 self._native_state.close()
                 self._native_state = _core.State(
-                    _native_problem(
+                    _lower(
                         problem,
                         request,
-                        self._terms,
-                        self._flow,
-                        self._z_tables,
-                        node_chunk=self._node_chunk,
-                        general_chunk=self._general_chunk,
+                        dataclasses.replace(
+                            plan,
+                            cpu_execution=refined[0],
+                            fft_planning=_planning(fft_planning, stored),
+                        ),
                     )
-                    | _low_storage_payload(problem, stepper, device=_on_device())
-                    | {"cpu_execution": refined[0].native()}
-                    | _planning_payload(fft_planning, stored)
                 )
                 self._execution_source = refined[1]
                 self._applied_execution = ExecutionRecord.from_native(
@@ -2184,28 +2178,20 @@ def native_node_chunk(
     return chunk
 
 
-def _low_storage_payload(
+def _low_storage_flows(
     problem: PropagationProblem, stepper: StepperSettings, *, device: bool
-) -> dict[str, object]:
-    """Return the native problem's low-storage rows (solprop kernel schema 32).
+) -> int | None:
+    """Return the low-storage march's flow volumes, or None for another march.
 
-    The march's own allocation: its registers in place of the Runge-Kutta views, the
-    stage register elided where solprop's estimate elides it, and the flows solprop's
-    estimate counts -- except that a device build recomputes under ``"auto"``, where
-    the estimate's CPU count over-states it by the table. A device's input crosses the
-    state's layout through tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
+    The flows solprop's estimate counts (solprop kernel schema 32) -- except that a
+    device build recomputes under ``"auto"``, where the estimate's CPU count
+    over-states it by the table. A device's input crosses the state's layout through
+    tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
-        return {}
+        return None
     flows = low_storage_flows(problem, stepper, "native")
-    if device and stepper.propagator_mode == "auto":
-        flows = 0
-    return {
-        "low_storage": True,
-        "low_storage_stage_register": low_storage_stage_register(problem, "native"),
-        "low_storage_flows": flows,
-        "low_storage_tiled_input": device,
-    }
+    return 0 if device and stepper.propagator_mode == "auto" else flows
 
 
 _MARCH_COUNTERS = (
@@ -2642,8 +2628,9 @@ class _ResidentLowStorage:
         self.atomic = True
         problem = backend._problem  # pyright: ignore[reportPrivateUsage] - the owner's problem
         stepper = backend._stepper  # pyright: ignore[reportPrivateUsage] - the owner's policy
-        payload = _low_storage_payload(problem, stepper, device=_on_device())
-        self._flows = int(cast(int, payload["low_storage_flows"]))
+        flows = _low_storage_flows(problem, stepper, device=_on_device())
+        assert flows is not None  # the march is the low-storage one
+        self._flows = flows
         schedule = stepper.schedule
         assert schedule is not None  # the translation refused the march without one
         self._keys, self._edges = table_steps(schedule), schedule.edges
@@ -3086,47 +3073,6 @@ def _flow_allowance(modes: int) -> float:
     return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
 
 
-def _flow_payload(flow: _HostFlow | None) -> dict[str, object]:
-    """Pack a coupled flow's bins and residual data; its actions follow per step."""
-    if flow is None:
-        return {"coupled_flow": False}
-    slot = np.zeros(flow.active.size, dtype=np.uint64)
-    slot[flow.active] = np.arange(1, int(np.count_nonzero(flow.active)) + 1)
-    residual = flow.residual_terms
-    empty = np.empty(0, dtype=np.complex128)
-    # The bins formed by scaling and squaring are numbered 1, 2, ... in row-major
-    # (section, bin) order and carry their Schur factors; the rest take the
-    # eigenbasis, whose `W` and `Y` are zero where it is not used.
-    fallback = ~flow.route
-    route = np.zeros(flow.route.shape, dtype=np.uint64)
-    route[fallback] = np.arange(1, int(np.count_nonzero(fallback)) + 1)
-    # The residual's data are zero on the bins the error norm does not score, so the
-    # engine's residual there is an exact zero and the frozen flow alone carries them,
-    # as in solprop's reference. Every term is finite, so each
-    # product with a zero is a signed zero and the running sums stay +0: the source is
-    # what adding nothing leaves, but for the sign of a zero.
-    scored = flow.scored[None, :, None, None]
-    return {
-        "coupled_flow": True,
-        "flow_active": int(np.count_nonzero(flow.active)),
-        "flow_sections": int(flow.frozen.shape[0]),
-        "flow_terms": 0 if residual is None else int(residual.shape[0]),
-        "flow_slot": slot,
-        "flow_frozen": empty
-        if residual is None
-        else np.ascontiguousarray(np.where(scored, flow.frozen, 0.0)),
-        "flow_residual_terms": empty
-        if residual is None
-        else np.ascontiguousarray(np.where(scored, residual, 0.0)),
-        "flow_left": flow.left,
-        "flow_right": flow.right,
-        "flow_eigenvalues": flow.eigenvalues,
-        "flow_route": route.reshape(-1),
-        "flow_fallback_vectors": np.ascontiguousarray(flow.vectors[fallback]),
-        "flow_fallback_triangular": np.ascontiguousarray(flow.triangular[fallback]),
-    }
-
-
 _APERTURE_CONSTANTS = 11
 """The constants before an aperture row's scale row (``far_field.hpp``)."""
 
@@ -3205,21 +3151,22 @@ def _refined_record(
         return None
 
 
-def _planning_payload(
+def _planning(
     given: Mapping[str, object] | None, stored: Mapping[str, str]
-) -> dict[str, object]:
-    """Return the problem's ``fft_planning``: the one given, or the run's own.
+) -> dict[str, object] | None:
+    """Return the problem's FFT planning: the one given, or the run's own.
 
     A run's own is the profile's, or the plan policy's, offered the plans runs measured
     before (`stored`) and keeping those it measures (solprop ADR-076); one given, a
-    calibration's, plans on its own.
+    calibration's, plans on its own. None on a device, which plans with its vendor's
+    FFT.
     """
     if _on_device():
-        return {}
+        return None
     if given is not None:
-        return {"fft_planning": dict(given)}
+        return dict(given)
     chosen = _package.PLANNING or {"mode": "legacy"}
-    return {"fft_planning": dict(chosen) | {"stored": dict(stored), "keep": True}}
+    return dict(chosen) | {"stored": dict(stored), "keep": True}
 
 
 def _keep_plans(state: _core.State, path: Path | None) -> dict[str, str]:
@@ -3279,43 +3226,46 @@ def _planning_record(state: _core.State) -> dict[str, object]:
     }
 
 
-def _native_problem(
-    problem: PropagationProblem,
-    request: RunRequest,
-    fixed: StageTerms,
-    flow: _HostFlow | None = None,
-    tables: _ZTables | None = None,
-    *,
-    node_chunk: int | None = None,
-    general_chunk: int | None = None,
-) -> dict[str, object]:
+@dataclasses.dataclass(frozen=True)
+class _LowerPlan:
+    """The backend's choices a lowering takes beside the problem and its request.
+
+    `terms` are the fixed stage terms, `flow` a coupled flow's host factors and
+    `tables` the z tables; the chunks are the backend's lowered execution choices
+    (solprop SEP 47 section 6.5), the automatic plan's when absent. `cpu_execution`
+    is the workspace's CPU record (the process's when absent) and `fft_planning` its
+    FFT planning record (none on a device); `device` says the state is a device's.
+    """
+
+    terms: StageTerms
+    flow: _HostFlow | None = None
+    tables: _ZTables | None = None
+    node_chunk: int | None = None
+    general_chunk: int | None = None
+    cpu_execution: ExecutionRecord | None = None
+    fft_planning: Mapping[str, object] | None = None
+    device: bool = False
+
+
+def _lower(
+    problem: PropagationProblem, request: RunRequest, plan: _LowerPlan
+) -> _core.Problem:
+    """Fill the native problem's structs from solprop's problem, request and `plan`."""
     stepper = request.stepper
-    # The constructor hands its lowered chunks; a direct caller takes the automatic
-    # plan's (solprop SEP 47 section 6.5).
+    node_chunk = plan.node_chunk
     if node_chunk is None:
         node_chunk = native_node_chunk(
             problem, plan_node_chunk(problem), device=_on_device()
         )
+    general_chunk = plan.general_chunk
     if general_chunk is None and problem.transform.modal_tables is not None:
         general_chunk = general_planned_chunk(problem, plan_node_chunk(problem))
+    native = _core.Problem()
+    native.cpu_execution = (plan.cpu_execution or _package.EXECUTION).native()
+    if plan.fft_planning is not None:
+        native.fft_planning = dict(plan.fft_planning)
     kerr = problem.responses.kerr_coefficients
     dispersive = problem.responses.dispersive_kerr
-    # solprop SEP 6's number-conserving sector is formed on analytic signals, of the
-    # filtered fields and, for the polynomial, of the bare one; a Raman drive beside it
-    # is the cycle-averaged one, which reads the analytic signal too.
-    # The general modal route synthesises its own analytic signal on the real family.
-    family = (
-        "envelope"
-        if problem.grid_kind == "envelope"
-        else "field_analytic"
-        if (kerr is not None and kerr.analytic_signal)
-        or (
-            dispersive is not None
-            and dispersive.sector == "conserving"
-            and problem.transform.modal_tables is None
-        )
-        else "field_real"
-    )
     absorber = problem.responses.temporal_absorber
     absorber_fine = problem.responses.temporal_absorber_fine
     spatial_absorber = radial_absorber_matrix(
@@ -3324,46 +3274,6 @@ def _native_problem(
     temporal_in_stage = (
         absorber_fine is not None and problem.responses.absorber_scheme == "nonlinear"
     )
-    carrier = problem.grids.carrier_2w0
-    n_omega = problem.shape[-1]
-    phi_terms = fixed.phi
-    prefactor_terms = fixed.prefactor
-    spatial = fixed.separable
-    if spatial is not None:
-        phi = np.empty((1, 0, n_omega), dtype=np.complex128)
-        prefactor = np.empty((1, 0, n_omega), dtype=np.complex128)
-    else:
-        # A z table's terms are slots the native evaluation fills (solprop SEP 29 G1):
-        # an empty array whose leading extent is their count crosses in their place.
-        if tables is not None and tables.phi:
-            phi = np.empty((tables.n_phi, 0), dtype=np.complex128)
-        elif phi_terms is None:
-            raise BackendError("Kokkos requires a device-ready fixed-term problem")
-        else:
-            phi = np.ascontiguousarray(
-                phi_terms.reshape(phi_terms.shape[0], -1, n_omega)
-            )
-        if tables is not None and tables.prefactor:
-            prefactor = np.empty((tables.slots, 0), dtype=np.complex128)
-        elif prefactor_terms is None:
-            raise BackendError("Kokkos requires a device-ready fixed-term problem")
-        else:
-            prefactor = np.ascontiguousarray(
-                prefactor_terms.reshape(prefactor_terms.shape[0], -1, n_omega)
-            )
-    channels = problem.responses.population_channels
-    raman_terms = problem.responses.raman_terms
-    plasma = channels[0] if channels else None
-    raman = raman_terms[0] if raman_terms else None
-    rate = None if plasma is None else plasma.rate
-    coarse = (
-        np.empty(0, dtype=np.float64)
-        if problem.transform.n_nodes == 1
-        or np.array_equal(
-            problem.transform.projection_coarse, problem.transform.projection
-        )
-        else problem.transform.projection_coarse
-    )
     geometry = problem.transform.geometry
     # Free space and schema 15's hybrid planar kind share the separable operator and
     # the transverse FFT engine; the planar kind adds its slab rule in x.
@@ -3371,52 +3281,271 @@ def _native_problem(
     spatial_absorption = bool(spatial_absorber.size) or (
         free and geometry is not None and bool(np.any(geometry.absorber_rate))
     )
-    coarse_matrix = coarse
-    spatial_data: dict[str, object] = {}
-    if free and geometry is not None and spatial is not None:
-        spatial_data = {
-            "n_x": geometry.shape[0],
-            "n_y": geometry.shape[1],
-            "spatial_k_squared": spatial.k_squared,
-            "spatial_k_squared_low": spatial.k_squared_low,
-            "spatial_kperp_sq": spatial.kperp_sq,
-            "spatial_kperp_sq_low": spatial.kperp_sq_low,
-            "spatial_frame": spatial.frame,
-            "spatial_spectral_rate": spatial.spectral_rate,
-            "spatial_user_rate": spatial.user_rate,
-            "spatial_numerator": spatial.prefactor_numerator,
-            "spatial_clamped": spatial.prefactor_clamped,
-            "spatial_evanescent_rate": spatial.evanescent_rate,
-            "spatial_absorber_rate": geometry.absorber_rate,
-            # A transverse collar's rate per column (solprop kernel schema 31).
-            "spatial_kperp_rate": spatial.kperp_rate,
-        }
-        if geometry.kind == "free":
-            # solprop SEP 23: the stored axes and the slots of the problem's own
-            # far-field request, which size the native band partials.
-            k_x, k_y = geometry.spectral_axes
-            slots, _ = far_field_partials(problem, request.observation.stats)
-            spatial_data |= {
-                "spatial_k_x": np.ascontiguousarray(k_x, dtype=np.float64),
-                "spatial_k_y": np.ascontiguousarray(k_y, dtype=np.float64),
-                "spatial_far_field_slots": slots,
-            }
-        if geometry.kind == "slab":
-            spatial_data |= _slab_payload(problem)
-            # The reference scores no quadrature alarm on this kind, so no embedded
-            # Kronrod projection is packed.
-            coarse_matrix = np.empty(0, dtype=np.float64)
-    # The accepted step's last stage leaves the plasma statistics behind only when
-    # that stage's input is the committed field: a first-same-as-last
-    # tableau, no split-step absorber (applied to the field after the last stage)
-    # and no coupled flow; and not under the modified noise model, where that input
-    # carries the noise draw while solprop defines the statistics on the committed
-    # field its reference scans. Otherwise they are scanned afresh.
-    stash_plasma = (
-        plasma is not None
+
+    dims = native.dims
+    dims.n_omega = problem.shape[-1]
+    dims.n_t = problem.grids.n_t
+    dims.n_to = problem.grids.n_to
+    dims.n_modes = problem.shape[0]
+    dims.n_pol_state = problem.shape[1]
+    dims.n_pol_transform = problem.transform.n_pol
+    dims.n_nodes = problem.transform.n_nodes
+    # solprop SEP 47 section 6.5: the backend's execution choice, lowered by
+    # `native_node_chunk`.
+    dims.node_chunk = node_chunk
+    # solprop SEP 6's number-conserving sector is formed on analytic signals, of the
+    # filtered fields and, for the polynomial, of the bare one; a Raman drive beside
+    # it is the cycle-averaged one, which reads the analytic signal too. The general
+    # modal route synthesises its own analytic signal on the real family.
+    dims.family = (
+        _core.FieldFamily.envelope
+        if problem.grid_kind == "envelope"
+        else _core.FieldFamily.field_analytic
+        if (kerr is not None and kerr.analytic_signal)
+        or (
+            dispersive is not None
+            and dispersive.sector == "conserving"
+            and problem.transform.modal_tables is None
+        )
+        else _core.FieldFamily.field_real
+    )
+
+    grids = problem.grids
+    carrier = grids.carrier_2w0
+    grid = native.grid
+    grid.crop_index = np.ascontiguousarray(grids.crop_index, dtype=np.uint64)
+    grid.active_mask = np.ascontiguousarray(grids.active_mask)
+    grid.norm_mask = np.ascontiguousarray(grids.norm_mask)
+    grid.omega_window = np.ascontiguousarray(grids.omega_window)
+    grid.omega = np.ascontiguousarray(grids.omega)
+    grid.time_window = np.ascontiguousarray(grids.t_window_fine)
+    if problem.grid_kind == "field" and problem.responses.plasma_channels:
+        grid.time_window_derivative = np.ascontiguousarray(
+            grids.t_window_fine_derivative
+        )
+    if geometry is None:
+        grid.power_weight = np.ascontiguousarray(power_weight_at(problem, 0.0))
+    grid.carrier = np.ascontiguousarray(
+        np.ones(grids.n_to, dtype=np.complex128) if carrier is None else carrier
+    )
+    grid.dt_fine = grids.dt_fine
+    grid.dt = grids.dt
+
+    _lower_linear(native, problem, plan)
+    coarse_matrix = _lower_spatial(native, problem, request)
+    _lower_stepper(native, problem, stepper, device=plan.device)
+
+    native.absorber.in_stage = temporal_in_stage or spatial_absorption
+    native.absorber.split_step = (
+        absorber is not None and problem.responses.absorber_scheme == "split_step"
+    )
+    if temporal_in_stage:
+        native.absorber.fine = np.ascontiguousarray(absorber_fine, dtype=np.float64)
+    elif spatial_absorption:
+        native.absorber.fine = np.zeros(grids.n_to)
+    if absorber is not None:
+        native.absorber.coarse = np.ascontiguousarray(absorber, dtype=np.float64)
+
+    transform = native.transform
+    transform.synthesis_matrix = np.ascontiguousarray(problem.transform.synthesis)
+    transform.projection_matrix = np.ascontiguousarray(problem.transform.projection)
+    transform.projection_coarse_matrix = np.ascontiguousarray(coarse_matrix)
+    transform.synthesis = 0.0 if free else float(problem.transform.synthesis[0, 0])
+    transform.projection = 0.0 if free else float(problem.transform.projection[0, 0])
+
+    if kerr is not None:
+        native.kerr.nonlinear = True
+        native.kerr.coefficient = kerr.coefficient
+        native.kerr.self_factor = kerr.self_factor
+        native.kerr.conjugate_factor = kerr.conjugate_factor
+        native.kerr.harmonic_factor = kerr.harmonic_factor
+        native.kerr.take_real = kerr.take_real
+
+    _lower_plasma(native, problem, request)
+    _lower_raman(native, problem)
+    _lower_general(native, problem, general_chunk)
+    _lower_flow(native, plan.flow)
+    _lower_dispersive(native, problem)
+    _lower_flux(native, problem, request.observation.stats)
+    return native
+
+
+def _lower_linear(
+    native: _core.Problem, problem: PropagationProblem, plan: _LowerPlan
+) -> None:
+    """Fill the fixed terms, (n_terms, rows, n_omega): one empty term on a separable
+    route, a z table's slots."""
+    del problem
+    tables = plan.tables
+    linear = native.linear
+    n_omega = native.dims.n_omega
+    linear.phi_table = tables is not None and tables.phi
+    linear.prefactor_table = tables is not None and tables.prefactor
+    if plan.terms.separable is not None:
+        linear.n_phi_terms = 1
+        linear.n_prefactor_terms = 1
+        return
+    # A z table's terms are slots the native evaluation fills (solprop SEP 29 G1):
+    # their count crosses in their place.
+    if tables is not None and tables.phi:
+        linear.n_phi_terms = tables.n_phi
+    elif plan.terms.phi is None:
+        raise BackendError("Kokkos requires a device-ready fixed-term problem")
+    else:
+        linear.n_phi_terms = plan.terms.phi.shape[0]
+        linear.phi_terms = np.ascontiguousarray(
+            plan.terms.phi.reshape(plan.terms.phi.shape[0], -1, n_omega)
+        )
+    if tables is not None and tables.prefactor:
+        linear.n_prefactor_terms = tables.slots
+    elif plan.terms.prefactor is None:
+        raise BackendError("Kokkos requires a device-ready fixed-term problem")
+    else:
+        linear.n_prefactor_terms = plan.terms.prefactor.shape[0]
+        linear.prefactor_terms = np.ascontiguousarray(
+            plan.terms.prefactor.reshape(plan.terms.prefactor.shape[0], -1, n_omega)
+        )
+
+
+def _lower_spatial(
+    native: _core.Problem, problem: PropagationProblem, request: RunRequest
+) -> np.ndarray:
+    """Fill the separable operator and a radial run's rows; return the coarse matrix.
+
+    The quadrature alarm's embedded Kronrod projection is the transform's own unless
+    it is the plain projection or the route has one node, and the hybrid planar kind
+    packs none: the reference scores no alarm on it.
+    """
+    transform = problem.transform
+    coarse = (
+        np.empty(0, dtype=np.float64)
+        if transform.n_nodes == 1
+        or np.array_equal(transform.projection_coarse, transform.projection)
+        else transform.projection_coarse
+    )
+    geometry = transform.geometry
+    spatial = native.spatial
+    spatial.absorber_matrix = radial_absorber_matrix(transform, problem.grids.pad_scale)
+    if geometry is not None:
+        spatial.spectral_weights = geometry.spectral_weights
+        spatial.on_axis = geometry.on_axis
+    separable = problem.linear.separable
+    if geometry is None or geometry.kind not in ("free", "slab") or separable is None:
+        return coarse
+    spatial.n_x, spatial.n_y = geometry.shape
+    spatial.k_squared = separable.k_squared
+    spatial.k_squared_low = separable.k_squared_low
+    spatial.kperp_sq = separable.kperp_sq
+    spatial.kperp_sq_low = separable.kperp_sq_low
+    spatial.frame = separable.frame
+    spatial.spectral_rate = separable.spectral_rate
+    assert separable.user_rate is not None
+    assert separable.kperp_rate is not None
+    spatial.user_rate = separable.user_rate
+    spatial.numerator = separable.prefactor_numerator
+    spatial.clamped = separable.prefactor_clamped
+    spatial.evanescent_rate = separable.evanescent_rate
+    spatial.absorber_rate = geometry.absorber_rate
+    # A transverse collar's rate per column (solprop kernel schema 31).
+    spatial.kperp_rate = separable.kperp_rate
+    if geometry.kind == "free":
+        # solprop SEP 23: the stored axes and the slots of the problem's own
+        # far-field request, which size the native band partials.
+        k_x, k_y = geometry.spectral_axes
+        slots, _ = far_field_partials(problem, request.observation.stats)
+        spatial.k_x = np.ascontiguousarray(k_x, dtype=np.float64)
+        spatial.k_y = np.ascontiguousarray(k_y, dtype=np.float64)
+        spatial.far_field_slots = slots
+        return coarse
+    # Schema 15's `SeparableOperator.kappa_sq` is (n_channels, n_omega), column `c`
+    # belonging to channel `c % n_channels`; the geometry's collar rate depends on y
+    # alone (solprop checks it), so it is packed per column `p + n_p * iy`, the index
+    # of the temporal row it acts on.
+    assert separable.kappa_sq is not None
+    n_x, n_y = geometry.shape
+    n_p = separable.n_channels
+    spatial.n_p = n_p
+    spatial.kappa_sq = np.ascontiguousarray(separable.kappa_sq)
+    spatial.absorber_rate = np.ascontiguousarray(
+        np.repeat(geometry.absorber_rate.reshape(n_y, n_x)[:, 0], n_p)
+    )
+    return np.empty(0, dtype=np.float64)
+
+
+def _lower_stepper(
+    native: _core.Problem,
+    problem: PropagationProblem,
+    stepper: StepperSettings,
+    *,
+    device: bool,
+) -> None:
+    """Fill the tableau and the low-storage march's rows (solprop kernel schema 32)."""
+    tableau = stepper.tableau
+    native_stepper = native.stepper
+    native_stepper.n_stages = tableau.n_stages
+    native_stepper.tableau_matrix = np.ascontiguousarray(tableau.matrix)
+    native_stepper.tableau_nodes = np.ascontiguousarray(tableau.nodes)
+    native_stepper.solution_weights = np.ascontiguousarray(tableau.solution_weights)
+    native_stepper.error_weights = np.ascontiguousarray(tableau.error_weights)
+    native_stepper.first_same_as_last = tableau.first_same_as_last
+    native_stepper.weighted_controller = stepper.controller.weights is not None
+    native_stepper.modified_noise = problem.initial.noise_model == "modified"
+    flows = _low_storage_flows(problem, stepper, device=device)
+    if flows is None:
+        return
+    native_stepper.low_storage = True
+    native_stepper.low_storage_stage_register = low_storage_stage_register(
+        problem, "native"
+    )
+    native_stepper.low_storage_flows = flows
+    native_stepper.low_storage_tiled_input = device
+
+
+def _lower_plasma(
+    native: _core.Problem, problem: PropagationProblem, request: RunRequest
+) -> None:
+    """Fill the plasma columns: the first channel's rate, every channel's rows."""
+    channels = problem.responses.population_channels
+    channel = channels[0] if channels else None
+    plasma = native.plasma
+    # solprop SEP 18: the running-integral rule, one per problem.
+    plasma.band = problem.responses.plasma_integral.policy == "band"
+    plasma.taps = problem.responses.plasma_integral.taps
+    if channel is not None:
+        rate = channel.rate
+        plasma.enabled = True
+        # The private gated benchmark (solprop's tests/gated_source.py), read where
+        # the backend is built, as the reference reads it.
+        plasma.gated = _BENCHMARK_GATED.get()
+        plasma.charge_mass_ratio = channel.charge_mass_ratio
+        plasma.ionisation_potential = channel.ionisation_potential
+        plasma.log_field_min = rate.log_field_min
+        plasma.d_log_field = rate.d_log_field
+        plasma.field_min = rate.field_min
+        plasma.field_max = rate.field_max
+        plasma.rate_max = rate.rate_max
+        plasma.rate_intervals = rate.coefficients.shape[1]
+        plasma.rate_coefficients = np.ascontiguousarray(rate.coefficients)
+    plasma.stash = _stash_plasma(problem, request)
+    _lower_channels(native, problem)
+    _lower_envelope(native, problem)
+
+
+def _stash_plasma(problem: PropagationProblem, request: RunRequest) -> bool:
+    """Whether the accepted step's last stage leaves the plasma statistics behind.
+
+    Only when that stage's input is the committed field: a first-same-as-last tableau,
+    no split-step absorber (applied to the field after the last stage) and no coupled
+    flow; and not under the modified noise model, where that input carries the noise
+    draw while solprop defines the statistics on the committed field its reference
+    scans. Otherwise they are scanned afresh.
+    """
+    absorber = problem.responses.temporal_absorber
+    return (
+        bool(problem.responses.population_channels)
         and problem.responses.envelope_plasma is None
         and problem.initial.noise_model != "modified"
-        and stepper.tableau.first_same_as_last
+        and request.stepper.tableau.first_same_as_last
         and not (
             absorber is not None and problem.responses.absorber_scheme == "split_step"
         )
@@ -3431,133 +3560,35 @@ def _native_problem(
             & set(request.observation.stats.periodic)
         )
     )
-    return {
-        # solprop SEP 46: how the workspace's CPU operations thread, the process's
-        # record unless the backend was given one.
-        "cpu_execution": _package.EXECUTION.native(),
-        **spatial_data,
-        **_channel_payload(problem),
-        **_envelope_payload(problem),
-        **_general_payload(problem, general_chunk),
-        **_flow_payload(flow),
-        **_dispersive_payload(problem),
-        **_flux_payload(problem, request.observation.stats),
-        "n_omega": n_omega,
-        "n_t": problem.grids.n_t,
-        "n_to": problem.grids.n_to,
-        "n_stages": stepper.tableau.n_stages,
-        "n_modes": problem.shape[0],
-        "n_pol_state": problem.shape[1],
-        "n_pol_transform": problem.transform.n_pol,
-        "n_nodes": problem.transform.n_nodes,
-        # solprop SEP 47 section 6.5: the backend's execution choice, lowered by
-        # `native_node_chunk`.
-        "node_chunk": node_chunk,
-        "family": family,
-        "nonlinear": kerr is not None,
-        "modified_noise": problem.initial.noise_model == "modified",
-        "in_stage_absorber": temporal_in_stage or spatial_absorption,
-        "split_step_absorber": absorber is not None
-        and problem.responses.absorber_scheme == "split_step",
-        "first_same_as_last": stepper.tableau.first_same_as_last,
-        "crop_index": np.ascontiguousarray(problem.grids.crop_index, dtype=np.uint64),
-        "active_mask": np.ascontiguousarray(problem.grids.active_mask),
-        "norm_mask": np.ascontiguousarray(problem.grids.norm_mask),
-        "omega_window": np.ascontiguousarray(problem.grids.omega_window),
-        "omega": np.ascontiguousarray(problem.grids.omega),
-        "time_window": np.ascontiguousarray(problem.grids.t_window_fine),
-        "time_window_derivative": np.ascontiguousarray(
-            problem.grids.t_window_fine_derivative
-            if problem.grid_kind == "field" and problem.responses.plasma_channels
-            else np.empty(0)
-        ),
-        "absorber_fine": np.ascontiguousarray(
-            absorber_fine
-            if temporal_in_stage
-            else np.zeros(problem.grids.n_to)
-            if spatial_absorption
-            else np.empty(0),
-            dtype=np.float64,
-        ),
-        "spatial_absorber_matrix": spatial_absorber,
-        "spatial_spectral_weights": np.empty(0)
-        if geometry is None
-        else geometry.spectral_weights,
-        "spatial_on_axis": np.empty(0, dtype=np.complex128)
-        if geometry is None
-        else geometry.on_axis,
-        "absorber_coarse": np.ascontiguousarray(
-            np.empty(0) if absorber is None else absorber, dtype=np.float64
-        ),
-        "carrier": np.ascontiguousarray(
-            np.ones(problem.grids.n_to, dtype=np.complex128)
-            if carrier is None
-            else carrier
-        ),
-        "synthesis_matrix": np.ascontiguousarray(problem.transform.synthesis),
-        "projection_matrix": np.ascontiguousarray(problem.transform.projection),
-        "projection_coarse_matrix": np.ascontiguousarray(coarse_matrix),
-        "phi_terms": phi,
-        "prefactor_terms": prefactor,
-        "phi_table": tables is not None and tables.phi,
-        "prefactor_table": tables is not None and tables.prefactor,
-        "power_weight": np.ascontiguousarray(
-            np.empty(0) if geometry is not None else power_weight_at(problem, 0.0)
-        ),
-        "tableau_matrix": np.ascontiguousarray(stepper.tableau.matrix),
-        "tableau_nodes": np.ascontiguousarray(stepper.tableau.nodes),
-        "solution_weights": np.ascontiguousarray(stepper.tableau.solution_weights),
-        "error_weights": np.ascontiguousarray(stepper.tableau.error_weights),
-        "synthesis": 0.0 if free else float(problem.transform.synthesis[0, 0]),
-        "projection": 0.0 if free else float(problem.transform.projection[0, 0]),
-        "kerr_coefficient": 0.0 if kerr is None else kerr.coefficient,
-        "self_factor": 0.0 if kerr is None else kerr.self_factor,
-        "conjugate_factor": 0.0 if kerr is None else kerr.conjugate_factor,
-        "harmonic_factor": 0.0 if kerr is None else kerr.harmonic_factor,
-        "take_real": kerr is not None and kerr.take_real,
-        "plasma": plasma is not None,
-        # The private gated benchmark (solprop's tests/gated_source.py), read where
-        # the backend is built, as the reference reads it.
-        "plasma_gated": plasma is not None and _BENCHMARK_GATED.get(),
-        "raman": raman is not None,
-        "raman_thg": raman is not None
-        and bool(raman.thg)
-        and problem.grid_kind == "field",
-        "raman_tensor_capable": bool(raman_terms)
-        and all(term.tensor_capable for term in raman_terms),
-        "raman_tensor_weights": np.ascontiguousarray(
-            np.concatenate([term.tensor_weights for term in raman_terms], axis=0)
-            if raman_terms
-            else np.empty((0, 2), dtype=np.float64)
-        ),
-        "stash_plasma": stash_plasma,
-        "weighted_controller": stepper.controller.weights is not None,
-        "dt_fine": problem.grids.dt_fine,
-        "dt": problem.grids.dt,
-        "raman_fraction": 0.0 if raman is None else float(raman.fraction),
-        "raman_epsilon0": EPS0 if raman is not None else 0.0,
-        "raman_undamped": np.ascontiguousarray(
-            np.empty((0, 2 * problem.grids.n_to), dtype=np.float64)
-            if raman is None
-            else np.concatenate([term.undamped for term in raman_terms], axis=0)
-        ),
-        "charge_mass_ratio": 0.0 if plasma is None else plasma.charge_mass_ratio,
-        "ionisation_potential": 0.0 if plasma is None else plasma.ionisation_potential,
-        "log_field_min": 0.0 if rate is None else rate.log_field_min,
-        "d_log_field": 0.0 if rate is None else rate.d_log_field,
-        "field_min": 0.0 if rate is None else rate.field_min,
-        "field_max": 0.0 if rate is None else rate.field_max,
-        "rate_max": 0.0 if rate is None else rate.rate_max,
-        "rate_coefficients": np.ascontiguousarray(
-            np.empty((4, 0), dtype=np.float64) if rate is None else rate.coefficients
-        ),
-        # solprop SEP 18: the running-integral rule, one per problem.
-        "plasma_band": problem.responses.plasma_integral.policy == "band",
-        "plasma_taps": problem.responses.plasma_integral.taps,
-    }
 
 
-def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
+def _lower_raman(native: _core.Problem, problem: PropagationProblem) -> None:
+    """Fill the Raman terms, row-major (n_terms, 2 n_to) and (n_terms, 2)."""
+    terms = problem.responses.raman_terms
+    raman = native.raman
+    raman.n_components = len(terms)
+    raman.row_component = np.asarray(
+        [component for component, term in enumerate(terms) for _ in term.undamped],
+        dtype=np.float64,
+    )
+    raman.component_fraction = np.asarray([term.fraction for term in terms])
+    if not terms:
+        return
+    first = terms[0]
+    undamped = np.concatenate([term.undamped for term in terms], axis=0)
+    raman.enabled = True
+    raman.thg = bool(first.thg) and problem.grid_kind == "field"
+    raman.tensor_capable = all(term.tensor_capable for term in terms)
+    raman.n_terms = undamped.shape[0]
+    raman.fraction = float(first.fraction)
+    raman.epsilon0 = EPS0
+    raman.undamped = np.ascontiguousarray(undamped)
+    raman.tensor_weights = np.ascontiguousarray(
+        np.concatenate([term.tensor_weights for term in terms], axis=0)
+    )
+
+
+def _lower_dispersive(native: _core.Problem, problem: PropagationProblem) -> None:
     """Lay out solprop SEP 6's dispersive response for the native engine.
 
     The structure the native response takes on every route: the channels grouped as the
@@ -3576,7 +3607,7 @@ def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
     """
     leaf = problem.responses.dispersive_kerr
     if leaf is None:
-        return {"dispersive": False}
+        return
     tables = problem.transform.modal_tables
     general = tables is not None
     kind = "field" if general else problem.grid_kind
@@ -3648,70 +3679,62 @@ def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
     else:
         quartics = np.empty(0, dtype=np.float64)
     offsets = np.cumsum([0, *(len(group) for group in groups)])
-    route: dict[str, object] = {}
+    lowered = native.dispersive
     if tables is not None:
-        route = {
-            "dispersive_group_keys": np.asarray(keys, dtype=np.uint64),
-            "dispersive_node_region": np.ascontiguousarray(
-                tables.region_index, dtype=np.uint64
-            ),
-        }
-    return {
-        **route,
-        "dispersive": True,
-        "dispersive_symmetric": symmetric,
-        "dispersive_form": {"real": 0, "conserving": 1, "harmonic": 2}[form],
-        "dispersive_inputs": np.ascontiguousarray(stacked),
-        "dispersive_term_multipliers": np.ascontiguousarray(
-            np.array(multipliers, dtype=np.float64)
-        ),
-        "dispersive_term_rows": np.asarray(rows, dtype=np.uint64),
-        "dispersive_term_channels": np.asarray(channels, dtype=np.uint64),
-        "dispersive_coefficients": np.asarray(leaf.coefficients, dtype=np.float64),
-        "dispersive_pair_constants": np.ascontiguousarray(constants),
-        "dispersive_group_offsets": np.asarray(offsets, dtype=np.uint64),
-        "dispersive_group_members": np.asarray(
-            [channel for group in groups for channel in group], dtype=np.uint64
-        ),
-        "dispersive_quartics": quartics,
-        "dispersive_input_scale": np.ascontiguousarray(input_scale),
-        "dispersive_output_scale": np.ascontiguousarray(scale),
-    }
+        lowered.group_keys = np.asarray(keys, dtype=np.uint64)
+        lowered.node_region = np.ascontiguousarray(tables.region_index, dtype=np.uint64)
+    lowered.enabled = True
+    lowered.symmetric = symmetric
+    lowered.form = {"real": 0, "conserving": 1, "harmonic": 2}[form]
+    lowered.inputs = np.ascontiguousarray(stacked)
+    lowered.term_multipliers = np.ascontiguousarray(
+        np.array(multipliers, dtype=np.float64)
+    )
+    lowered.term_rows = np.asarray(rows, dtype=np.uint64)
+    lowered.term_channels = np.asarray(channels, dtype=np.uint64)
+    lowered.coefficients = np.asarray(leaf.coefficients, dtype=np.float64)
+    lowered.pair_constants = np.ascontiguousarray(constants)
+    lowered.group_offsets = np.asarray(offsets, dtype=np.uint64)
+    lowered.group_members = np.asarray(
+        [channel for group in groups for channel in group], dtype=np.uint64
+    )
+    lowered.quartics = quartics
+    lowered.input_scale = np.ascontiguousarray(input_scale)
+    lowered.output_scale = np.ascontiguousarray(scale)
 
 
-def _flux_payload(problem: PropagationProblem, stats: StatsSpec) -> dict[str, object]:
-    """Pack the plane measure of solprop SEP 34 (kernel schema 35).
+def _lower_flux(
+    native: _core.Problem, problem: PropagationProblem, stats: StatsSpec
+) -> None:
+    """Fill the plane measure of solprop SEP 34 (kernel schema 35).
 
     A separable run (Cartesian, line, planar) is measured by its own operator's root,
     which the native state already holds: nothing more is packed, and a plan that is
     not that operator is refused. A radial run packs the entrance's material and
     transverse squares and whether a material z table follows
-    (:func:`_upload_flux_table`); the admission record is not read. ``flux_closure``
+    (:func:`_upload_flux_table`); the admission record is not read. ``closure``
     sizes the magnetic closure's buffers for the run's own local statistics,
     `stats`.
     """
     flux = flux_of(problem.route)
     if flux is None:
-        return {}
-    closure = bool(set(stats.names) & LOCAL_FLUX_STATISTICS)
+        return
+    native.flux.closure = bool(set(stats.names) & LOCAL_FLUX_STATISTICS)
     if problem.linear.separable is not None:
         if flux.base is not problem.linear.separable or flux.material is not None:
             raise BackendError(
                 "solprop-native measures a separable run by its own operator's root, "
                 "and this plane measure is another"
             )
-        return {"flux_closure": closure}
+        return
     base = flux.base
-    return {
-        "flux_k_squared": np.ascontiguousarray(base.k_squared, dtype=np.complex128),
-        "flux_k_squared_low": np.ascontiguousarray(
-            base.k_squared_low, dtype=np.complex128
-        ),
-        "flux_kperp_sq": np.ascontiguousarray(base.kperp_sq, dtype=np.float64),
-        "flux_kperp_sq_low": np.ascontiguousarray(base.kperp_sq_low, dtype=np.float64),
-        "flux_table": flux.material is not None,
-        "flux_closure": closure,
-    }
+    native.flux.k_squared = np.ascontiguousarray(base.k_squared, dtype=np.complex128)
+    native.flux.k_squared_low = np.ascontiguousarray(
+        base.k_squared_low, dtype=np.complex128
+    )
+    native.flux.kperp_sq = np.ascontiguousarray(base.kperp_sq, dtype=np.float64)
+    native.flux.kperp_sq_low = np.ascontiguousarray(base.kperp_sq_low, dtype=np.float64)
+    native.flux.table = flux.material is not None
 
 
 def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None:
@@ -3734,111 +3757,78 @@ def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None
     )
 
 
-def _slab_payload(problem: PropagationProblem) -> dict[str, object]:
-    """Pack the hybrid planar kind's channels, wall terms and per-column collar rate.
-
-    Schema 15's ``SeparableOperator.kappa_sq`` is ``(n_channels, n_omega)``, column
-    ``c`` belonging to channel ``c % n_channels``; the geometry's collar rate depends on
-    y alone (solprop checks it), so it is packed per column ``p + n_p * iy``, the index
-    of the temporal row it acts on.
-    """
-    geometry = problem.transform.geometry
-    separable = problem.linear.separable
-    assert geometry is not None
-    assert separable is not None
-    assert separable.kappa_sq is not None
-    n_x, n_y = geometry.shape
-    n_p = separable.n_channels
-    return {
-        "n_p": n_p,
-        "spatial_kappa_sq": np.ascontiguousarray(separable.kappa_sq),
-        "spatial_absorber_rate": np.ascontiguousarray(
-            np.repeat(geometry.absorber_rate.reshape(n_y, n_x)[:, 0], n_p)
-        ),
-    }
-
-
-def _general_payload(
-    problem: PropagationProblem, chunk: int | None
-) -> dict[str, object]:
-    """Pack the general modal route's maps, derived as the reference derives them.
+def _lower_general(
+    native: _core.Problem, problem: PropagationProblem, chunk: int | None
+) -> None:
+    """Fill the general modal route's maps, derived as the reference derives them.
 
     The per-node tensor, the form and the delayed maps come from solprop's own
     derivations (``solprop.translate.general``), so both backends execute the same
     arrays; the chunk is the route's own at the same budget
     (:func:`solprop.backends.node_chunk.general_planned_chunk`), given as `chunk`.
-    Nothing is packed for a problem without ``transform.modal_tables``.
+    Nothing is filled for a problem without ``transform.modal_tables``.
     """
     tables = problem.transform.modal_tables
     if tables is None:
-        return {"general_modal": False}
+        return
     assert tables.synthesis is not None
     assert tables.projection is not None
-    regional = problem.responses.regional_responses
-    components = int(tables.electric.shape[2])
-    nodes = int(tables.region_index.size)
     assert chunk is not None
+    regional = problem.responses.regional_responses
     owner, delayed_tensor, delayed_spectrum = node_delayed_maps(tables, regional)
     terms = 0 if delayed_tensor is None else int(delayed_tensor.shape[1])
-    intervals, n_deg = (int(one) for one in tables.synthesis.shape[:2])
-    return {
-        "general_modal": True,
-        "general_real_form": node_kerr_form(regional) == "real",
-        # A moving guide's maps are every Chebyshev coefficient along z, flattened
-        # over (n_intervals, n_deg) in the order of the stage bundle's
-        # transform_weights; a constant guide's are the one coefficient.
-        "general_map_intervals": intervals,
-        "general_map_n_deg": n_deg,
-        "general_components": components,
-        "general_nodes": nodes,
-        "general_node_chunk": chunk,
-        "general_responses": 0 if delayed_tensor is None else delayed_tensor.shape[0],
-        "general_terms": terms,
-        "general_pad_scale": float(problem.grids.pad_scale),
-        "general_epsilon0": EPS0,
-        "general_synthesis": np.ascontiguousarray(tables.synthesis),
-        "general_projection": np.ascontiguousarray(tables.projection),
-        "general_tensor": np.ascontiguousarray(node_kerr_tensor(tables, regional)),
-        "general_frequency_factor": np.ascontiguousarray(
-            tables.source_frequency_factor, dtype=np.complex128
-        ),
-        "general_delayed_tensor": np.ascontiguousarray(
-            np.empty(0) if delayed_tensor is None else delayed_tensor
-        ),
-        "general_delayed_spectrum": np.ascontiguousarray(
-            np.empty(0, dtype=np.complex128)
-            if delayed_spectrum is None
-            else delayed_spectrum
-        ),
-        "general_node_response": np.ascontiguousarray(
-            np.empty(0, dtype=np.uint64) if not terms else owner.astype(np.int64) + 1,
-            dtype=np.uint64,
-        ),
-    }
+    general = native.general
+    general.enabled = True
+    general.real_form = node_kerr_form(regional) == "real"
+    # A moving guide's maps are every Chebyshev coefficient along z, flattened over
+    # (n_intervals, n_deg) in the order of the stage bundle's transform_weights; a
+    # constant guide's are the one coefficient.
+    general.map_intervals, general.map_n_deg = (
+        int(one) for one in tables.synthesis.shape[:2]
+    )
+    general.components = int(tables.electric.shape[2])
+    general.nodes = int(tables.region_index.size)
+    general.node_chunk = chunk
+    general.responses = 0 if delayed_tensor is None else delayed_tensor.shape[0]
+    general.terms = terms
+    general.pad_scale = float(problem.grids.pad_scale)
+    general.epsilon0 = EPS0
+    general.synthesis = np.ascontiguousarray(tables.synthesis)
+    general.projection = np.ascontiguousarray(tables.projection)
+    general.tensor = np.ascontiguousarray(node_kerr_tensor(tables, regional))
+    general.frequency_factor = np.ascontiguousarray(
+        tables.source_frequency_factor, dtype=np.complex128
+    )
+    if delayed_tensor is not None:
+        general.delayed_tensor = np.ascontiguousarray(delayed_tensor)
+    if delayed_spectrum is not None:
+        general.delayed_spectrum = np.ascontiguousarray(delayed_spectrum)
+    if terms:
+        general.node_response = np.ascontiguousarray(
+            owner.astype(np.int64) + 1, dtype=np.uint64
+        )
 
 
-def _envelope_payload(problem: PropagationProblem) -> dict[str, object]:
-    """Pack the accepted cycle rules and already masked spectral factors."""
+def _lower_envelope(native: _core.Problem, problem: PropagationProblem) -> None:
+    """Fill the accepted cycle rules, (n_channels, 4, 512), and masked factors."""
     assembly = problem.responses.envelope_plasma
     if assembly is None:
-        return {"envelope_plasma": False}
+        return
     nodes = np.zeros((len(assembly.channels), 4, 512))
     weights = np.zeros_like(nodes)
     for channel_index, channel in enumerate(assembly.channels):
         for level, rule in enumerate(channel.cycle.rules):
             nodes[channel_index, level, : len(rule.nodes)] = rule.nodes
             weights[channel_index, level, : len(rule.weights)] = rule.weights
-    return {
-        "envelope_plasma": True,
-        "envelope_rule_nodes": nodes,
-        "envelope_rule_weights": weights,
-        "envelope_drude_factor": assembly.factors.drude,
-        "envelope_loss_factor": assembly.factors.loss,
-    }
+    native.plasma.envelope = True
+    native.plasma.envelope_rule_nodes = nodes
+    native.plasma.envelope_rule_weights = weights
+    native.plasma.envelope_drude_factor = assembly.factors.drude
+    native.plasma.envelope_loss_factor = assembly.factors.loss
 
 
-def _channel_payload(problem: PropagationProblem) -> dict[str, object]:
-    """Pack independent rate tables without resampling their coefficients."""
+def _lower_channels(native: _core.Problem, problem: PropagationProblem) -> None:
+    """Fill independent rate tables without resampling their coefficients."""
     parameters: list[list[float]] = []
     coefficients: list[np.ndarray] = []
     offset = 0
@@ -3859,17 +3849,45 @@ def _channel_payload(problem: PropagationProblem) -> dict[str, object]:
         )
         coefficients.append(rate.coefficients.ravel())
         offset += rate.coefficients.size
-    terms = problem.responses.raman_terms
-    return {
-        "n_channels": len(parameters),
-        "channel_parameters": np.asarray(parameters, dtype=np.float64).reshape(-1, 9),
-        "channel_coefficients": np.concatenate(coefficients)
-        if coefficients
-        else np.empty(0),
-        "n_raman_components": len(terms),
-        "raman_row_component": np.asarray(
-            [component for component, term in enumerate(terms) for _ in term.undamped],
-            dtype=np.float64,
-        ),
-        "raman_component_fraction": np.asarray([term.fraction for term in terms]),
-    }
+    native.plasma.n_channels = len(parameters)
+    native.plasma.channel_parameters = np.asarray(parameters, dtype=np.float64).reshape(
+        -1, 9
+    )
+    if coefficients:
+        native.plasma.channel_coefficients = np.concatenate(coefficients)
+
+
+def _lower_flow(native: _core.Problem, flow: _HostFlow | None) -> None:
+    """Fill a coupled flow's bins and residual data; its actions follow per step."""
+    if flow is None:
+        return
+    slot = np.zeros(flow.active.size, dtype=np.uint64)
+    slot[flow.active] = np.arange(1, int(np.count_nonzero(flow.active)) + 1)
+    residual = flow.residual_terms
+    # The bins formed by scaling and squaring are numbered 1, 2, ... in row-major
+    # (section, bin) order and carry their Schur factors; the rest take the
+    # eigenbasis, whose `W` and `Y` are zero where it is not used.
+    fallback = ~flow.route
+    route = np.zeros(flow.route.shape, dtype=np.uint64)
+    route[fallback] = np.arange(1, int(np.count_nonzero(fallback)) + 1)
+    lowered = native.flow
+    lowered.enabled = True
+    lowered.active = int(np.count_nonzero(flow.active))
+    lowered.sections = int(flow.frozen.shape[0])
+    lowered.terms = 0 if residual is None else int(residual.shape[0])
+    lowered.slot = slot
+    if residual is not None:
+        # The residual's data are zero on the bins the error norm does not score, so
+        # the engine's residual there is an exact zero and the frozen flow alone
+        # carries them, as in solprop's reference. Every term is finite, so each
+        # product with a zero is a signed zero and the running sums stay +0: the
+        # source is what adding nothing leaves, but for the sign of a zero.
+        scored = flow.scored[None, :, None, None]
+        lowered.frozen = np.ascontiguousarray(np.where(scored, flow.frozen, 0.0))
+        lowered.residual_terms = np.ascontiguousarray(np.where(scored, residual, 0.0))
+    lowered.left = flow.left
+    lowered.right = flow.right
+    lowered.eigenvalues = flow.eigenvalues
+    lowered.route = route
+    lowered.fallback_vectors = np.ascontiguousarray(flow.vectors[fallback])
+    lowered.fallback_triangular = np.ascontiguousarray(flow.triangular[fallback])
