@@ -2422,7 +2422,7 @@ public:
   double quadrature_peak();
   std::string synthesis_provider() const;
   std::string projection_provider() const;
-  static std::string gemm_shape_policy();
+  static std::string_view gemm_shape_policy();
   std::size_t response_team_size() const noexcept;
   bool fsal_ready() const noexcept { return has_recycled_; }
   std::size_t rk_source_evaluations() const noexcept { return rk_source_evaluations_; }
@@ -3526,7 +3526,7 @@ std::string GeneralWorkspace::projection_provider() const {
   return std::string(use_blas_for_projection() ? provider : std::string_view("custom"));
 }
 
-std::string GeneralWorkspace::gemm_shape_policy() {
+std::string_view GeneralWorkspace::gemm_shape_policy() {
   return "host radial scalar envelope uses packed real BLAS for whole transforms "
          "with n_nodes/n_to >= 256 and a 22-column inventory within 64 MiB; "
          "device radial scalar envelope uses vendor complex BLAS with "
@@ -18127,7 +18127,7 @@ std::string GeneralState::projection_provider() const {
 }
 std::string GeneralState::gemm_shape_policy() const {
   const CpuTeamScope team(workspace_->cpu_team());
-  return GeneralWorkspace::gemm_shape_policy();
+  return std::string(GeneralWorkspace::gemm_shape_policy());
 }
 std::size_t GeneralState::response_team_size() const noexcept {
   return workspace_ ? workspace_->response_team_size() : 0;
