@@ -194,8 +194,8 @@ TEST(SessionMonitor, AWarningIsABarrierBeforeItsStepsRow) {
   ASSERT_FALSE(rows.empty());
   for (std::size_t index = 0; index < rows.size(); ++index)
     EXPECT_EQ(rows[index], 3.0 + static_cast<double>(index));
-  EXPECT_EQ(rows.back(),
-            static_cast<double>(3 + plane.attempts.size() / session::attempt_columns));
+  const std::size_t attempts = plane.attempts.size() / session::attempt_columns;
+  EXPECT_EQ(rows.back(), static_cast<double>(3 + attempts));
   next(run, session::EventKind::observation);
   next(run, session::EventKind::terminal);
   const auto record = run.monitor_record();
