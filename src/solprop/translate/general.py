@@ -409,15 +409,7 @@ class GeneralModalRoute(Displayed):
         self._check_metric()
 
     def _check_moving(self) -> None:
-        """Copy, validate and freeze a moving guide's flow expansions.
-
-        Raises
-        ------
-        TranslationError
-            If only one of the two is given, a split block is given beside them, a
-            shape disagrees with the tables' sections, degree, channels or grid, or
-            a value is not finite, or a measurement is negative.
-        """
+        """Copy, validate and freeze a moving guide's flow expansions."""
         generator, link = self.moving_generator, self.moving_connection
         for name, value in (
             ("moving_error", self.moving_error),
@@ -481,15 +473,7 @@ class GeneralModalRoute(Displayed):
         return self.moving_generator is not None
 
     def _check_coupled(self) -> None:
-        """Copy, validate and freeze a declared split block's generator.
-
-        Raises
-        ------
-        TranslationError
-            If the block is not square on this route's channels and grid, is not
-            finite, is diagonal after all, or the reference channel is not one of
-            them.
-        """
+        """Copy, validate and freeze a declared split block's generator."""
         block = self.coupled_generator
         if block is None:
             if self.reference_channel:
@@ -532,14 +516,7 @@ class GeneralModalRoute(Displayed):
         object.__setattr__(self, "reference_channel", int(self.reference_channel))
 
     def _check_metric(self) -> None:
-        """Bind a supplied dense metric to the reference it is meant to describe.
-
-        Raises
-        ------
-        TranslationError
-            If the metric is not dense, is on another basis, or is tabulated on
-            grids other than the tables' own.
-        """
+        """Bind a supplied dense metric to the reference it is meant to describe."""
         metric = self.metric_tables
         if metric is None:
             return
@@ -648,10 +625,7 @@ class GeneralModalRoute(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         responses = self.responses
         return "GeneralModalRoute: the seam leaves of one general modal guide", [
@@ -940,25 +914,7 @@ def _moving_route(
       whole of each channel's own normalisation, which a capillary carries in its
       flow's diagonal instead.
 
-    Parameters
-    ----------
-    guide : solprop.modes.guide.ModalGuide
-        A moving guide, whose sampling carries a path.
-    grid : solprop.grid.TimeGrid
-        The run's field grid.
-    z_max : float
-        Where the run ends, m.
-    launch : numpy.ndarray or None
-        The launched spectrum, for the occupied-support gate.
-    gram_atol : float
-        The basis budget.
-    regional : _Regional
-        The regions' compiled responses (:func:`_regional_responses`).
-
-    Returns
-    -------
-    GeneralModalRoute
-        The route, carrying the moving maps and flow.
+    - ``z_max``: where the run ends, m.
     """
     # Imported here: modal_path imports this module's siblings only, but keeping the
     # moving machinery out of the snapshot route's import path keeps that route's
@@ -1218,25 +1174,7 @@ def _warn_over_the_active_band(
     grid: TimeGrid,
     sampled: Complex[np.ndarray, "n_modes n_modes n_omega"],
 ) -> None:
-    """Warn where the interpolated basis leaves its budget inside the active band.
-
-    Parameters
-    ----------
-    active : float
-        The interpolated departure maximised over ``grid.active_mask``.
-    gram_atol : float
-        The budget the occupied departure is gated against.
-    grid : solprop.grid.TimeGrid
-        The run's grid, which names the worst bin's wavelength.
-    sampled : numpy.ndarray
-        The sampled flux Gram, shape ``(n_modes, n_modes, n_omega)``, from which
-        the worst bin is located.
-
-    Warns
-    -----
-    solprop.exceptions.GeneralModalBasisWarning
-        Naming the worst bin, its wavelength and the fix.
-    """
+    """Warn where the interpolated basis leaves its budget inside the active band."""
     if active <= gram_atol:
         return
     modes = sampled.shape[0]
@@ -1263,23 +1201,7 @@ def _sampled_metric(
     tables: ModalTransformTables,
     sampled: Complex[np.ndarray, "n_modes n_modes n_omega"],
 ) -> ModalMetricTables:
-    """Build the dense metric of a declared basis from the table's own flux Gram.
-
-    Parameters
-    ----------
-    table : solprop.translate.modal_tables.DenseModalTable
-        The tracked reference, already in the declared basis.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The flat record, whose coarse grid and positions the metric shares.
-    sampled : numpy.ndarray
-        The reference's flux Gram at those coarse bins, as
-        :func:`interpolated_gram` builds it.
-
-    Returns
-    -------
-    solprop.translate.coupled.ModalMetricTables
-        The dense metric of the declared basis.
-    """
+    """Build the dense metric of a declared basis from the table's own flux Gram."""
     coarse = tables.omega
     logger.debug(
         "dense modal metric: %d channels on %d coarse bins, largest departure from "
@@ -1597,16 +1519,8 @@ def guide_identity(guide: ModalGuide) -> Mapping[str, JsonValue]:
 def _gas_identity(gas: GasKerr) -> dict[str, JsonValue]:
     """Return a region's gas fill as a run records it.
 
-    Parameters
-    ----------
-    gas : solprop.modes.material.GasKerr
-        The fill.
-
-    Returns
-    -------
-    dict
-        Each population's label, species, density in m^-3 and optmat record
-        digests; the electronic law the run takes is recorded with its policy.
+    - Returns: each population's label, species, density in m^-3 and optmat record
+      digests; the electronic law the run takes is recorded with its policy.
     """
     return {
         "populations": [
@@ -1631,17 +1545,9 @@ def _gas_identity(gas: GasKerr) -> dict[str, JsonValue]:
 def _dispersive_identity(leaf: DispersiveKerrTerms) -> dict[str, JsonValue]:
     """Return a general modal route's dispersive channels as a run records them.
 
-    Parameters
-    ----------
-    leaf : solprop.translate.responses.DispersiveKerrTerms
-        The compiled channels.
-
-    Returns
-    -------
-    dict
-        The evaluator, the sector, the tensor approximation and each channel's
-        label and node region; the models and their support records are the
-        material manifest's.
+    - Returns: the evaluator, the sector, the tensor approximation and each channel's
+      label and node region; the models and their support records are the material
+      manifest's.
     """
     assert leaf.regions is not None
     return {
@@ -1660,17 +1566,9 @@ def _raman_identity(
 ) -> dict[str, JsonValue]:
     """Return a region's delayed response parameters as a run records them.
 
-    Parameters
-    ----------
-    parameters : solprop.physdata.raman_types.LinAgrawalRaman or SilicaBundle
-        The declared time constants and fraction, or an optmat tensor bundle.
-
-    Returns
-    -------
-    dict
-        The declared parameters field by field; an optmat bundle by its name, its
-        digest and its Raman fraction, the digest identifying its numbers (the
-        bundle's own model is recorded in the run's material manifest).
+    - Returns: the declared parameters field by field; an optmat bundle by its name, its
+      digest and its Raman fraction, the digest identifying its numbers (the bundle's
+      own model is recorded in the run's material manifest).
     """
     if isinstance(parameters, SilicaBundle):
         return {
@@ -1873,18 +1771,8 @@ def modal_identity(
 def _check_active_band(span: tuple[float, float], grid: TimeGrid) -> None:
     """Refuse a run whose active band reaches outside the guide's own knots.
 
-    Parameters
-    ----------
-    span : tuple of float
-        Lowest and highest knot the guide was solved at, rad/s.
-    grid : solprop.grid.TimeGrid
-        The run's grid, whose active mask is the band that must be covered.
-
-    Raises
-    ------
-    TranslationError
-        Naming both bands, in rad/s and in wavelength, and the factor in frequency
-        the active band spans.
+    - ``span``: lowest and highest knot the guide was solved at, rad/s.
+    - ``grid``: the run's grid, whose active mask is the band that must be covered.
     """
     active = grid.omega[grid.active_mask]
     low, high = float(active[0]), float(active[-1])
@@ -1926,36 +1814,15 @@ def _regional_responses(
     becomes a channel of SEP 6's dispersive cubic, in the sector `form` names, with
     the region as its node region.
 
-    Parameters
-    ----------
-    guide : solprop.modes.guide.ModalGuide
-        The guide whose regions own the responses.
-    grid : solprop.grid.TimeGrid
-        The run's grid, which supplies the fine temporal quadrature and the fine
-        spectral layout.
-    omega_reference : float
-        Frequency in rad/s at which a declared ``n2`` becomes an absolute ``chi3``,
-        and the carrier of a gas fill under a carrier policy.
-    form : {'analytic', 'real'}
-        Which instantaneous cubic the compiled tensor is; for a dispersive channel,
-        the number-conserving sector or the full cubic.
-    selection : solprop.physdata.selection.MaterialSelection or None
-        The run's material selection; ``None`` is ``MaterialSelection()``.
-    span : float
-        Length in m the density tables of the dispersive channels cover.
-
-    Returns
-    -------
-    _Regional
-        The constant cubics per responding region, in the guide's own region order
-        (``None`` when no region has one), and the dispersive channels (``None``
-        without a gas region under a dispersive policy).
-
-    Raises
-    ------
-    TranslationError
-        If a gas fill's species has no Kerr data, or no hyperpolarizability model
-        under a dispersive policy.
+    - ``grid``: the run's grid, which supplies the fine temporal quadrature and the fine
+      spectral layout.
+    - ``omega_reference``: frequency in rad/s at which a declared ``n2`` becomes an
+      absolute ``chi3``, and the carrier of a gas fill under a carrier policy.
+    - ``selection``: the run's material selection; ``None`` is ``MaterialSelection()``.
+    - ``span``: length in m the density tables of the dispersive channels cover.
+    - Returns: the constant cubics per responding region, in the guide's own region
+      order (``None`` when no region has one), and the dispersive channels (``None``
+      without a gas region under a dispersive policy).
     """
     active = grid.omega[grid.active_mask]
     band = (float(active[0]), float(active[-1]))
@@ -2040,29 +1907,9 @@ def _gas_responses(
 ) -> list[tuple[KerrResponse | DispersiveKerrResponse, float]]:
     """Resolve a region's gas fill under the run's electronic policy.
 
-    Parameters
-    ----------
-    region : solprop.modes.material.MaterialRegion
-        The region, for its name.
-    gas : solprop.modes.material.GasKerr
-        Its fill.
-    selection : solprop.physdata.selection.MaterialSelection
-        The run's material selection.
-    omega_reference : float
-        The run's carrier in rad/s.
-    form : {'analytic', 'real'}
-        The cubic's form: ``"real"`` keeps the full cubic.
-
-    Returns
-    -------
-    list of tuple
-        Per population, its electronic response, labelled
-        ``"<region>:<population>"``, and its number density in m^-3.
-
-    Raises
-    ------
-    TranslationError
-        Naming the region and the population whose data the policy cannot take.
+    - ``omega_reference``: the run's carrier in rad/s.
+    - Returns: per population, its electronic response, labelled
+      ``"<region>:<population>"``, and its number density in m^-3.
     """
     resolved: list[tuple[KerrResponse | DispersiveKerrResponse, float]] = []
     for component, density in zip(gas.fill.components, gas.densities(), strict=True):
@@ -2092,13 +1939,6 @@ def _log_gas_regions(
     A general modal guide's node field has three Cartesian components, so the
     any-polarisation band edge applies. The run is never refused for the frequencies
     its field occupies.
-
-    Parameters
-    ----------
-    responses : sequence of DispersiveKerrResponse
-        The gas regions' dispersive channels.
-    grid : solprop.grid.TimeGrid
-        The run's grid, whose active band is classified.
     """
     for response in responses:
         regions = response.model.regions(
@@ -2140,18 +1980,6 @@ def _check_harmonic_room(grid: TimeGrid, form: KerrForm) -> None:
     ``0.136 n_t`` bins on the default grid.
 
     The analytic-signal form generates no harmonic and is not gated here.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The run's field grid.
-    form : {'analytic', 'real'}
-        Which instantaneous cubic the compiled tensor is.
-
-    Raises
-    ------
-    TranslationError
-        Naming both sizes and the oversampling that fixes it.
     """
     if form != "real" or grid.n_to >= 2 * grid.n_t:
         return
@@ -2191,20 +2019,8 @@ def _check_declared_n2(
     here, naming the region and both intervals, rather than surfacing later as the
     material's own generic refusal from inside the leaf compile.
 
-    Parameters
-    ----------
-    region : solprop.modes.material.MaterialRegion
-        A region that declares a Kerr response.
-    band : tuple of float
-        Lowest and highest active frequency of the run, rad/s.
-    omega_reference : float
-        The frequency an undeclared conversion would use, rad/s.
-
-    Raises
-    ------
-    TranslationError
-        Naming the region, the measured spread and the two ways to declare it, or
-        naming a declared ``at`` outside the region's own index model.
+    - ``band``: lowest and highest active frequency of the run, rad/s.
+    - ``omega_reference``: the frequency an undeclared conversion would use, rad/s.
     """
     kerr = region.kerr
     if kerr is None or kerr.n2 is None:

@@ -205,22 +205,8 @@ def integration_record(rule: RunningIntegral) -> dict[str, object]:
 def _design(dt: float, band_edge: float) -> RunningIntegral:
     """Design and certify the band rule for one sample spacing and band edge.
 
-    Parameters
-    ----------
-    dt : float
-        Fine sample spacing, s.
-    band_edge : float
-        Upper edge of the apodised window, rad/s.
-
-    Returns
-    -------
-    RunningIntegral
-        The band rule with the smallest admitted ``K``.
-
-    Raises
-    ------
-    TranslationError
-        If no admitted design exists.
+    - ``dt``: fine sample spacing, s.
+    - ``band_edge``: upper edge of the apodised window, rad/s.
     """
     theta_b = band_edge * dt
     if not 0.0 < theta_b < math.pi:
@@ -275,19 +261,8 @@ def _fit(half: int, theta_b: float) -> tuple[Float[np.ndarray, " n_taps"], float
     which leaves a ``K``-unknown linear least-squares problem. Its columns are scaled to
     unit norm before the SVD-based solve.
 
-    Parameters
-    ----------
-    half : int
-        ``K``, the number of side taps.
-    theta_b : float
-        The band edge in ``omega dt``.
-
-    Returns
-    -------
-    taps : numpy.ndarray
-        ``(c_0, ..., c_K)``, with ``c_0 = 1 - 2 sum c_k``.
-    condition : float
-        The scaled design matrix's condition number; one when ``K <= 1``.
+    - Returns ``condition``: the scaled design matrix's condition number; one when ``K
+      <= 1``.
     """
     if half == 0:
         return np.ones(1), 1.0
@@ -306,20 +281,7 @@ def _fit(half: int, theta_b: float) -> tuple[Float[np.ndarray, " n_taps"], float
 def _composite(
     taps: Float[np.ndarray, " n_taps"], theta: Float[np.ndarray, " n"]
 ) -> Float[np.ndarray, " n"]:
-    """Return ``H = C rho``, the filtered trapezoid's multiplier.
-
-    Parameters
-    ----------
-    taps : numpy.ndarray
-        ``(c_0, ..., c_K)``.
-    theta : numpy.ndarray
-        ``omega dt``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The composite multiplier relative to the exact integral.
-    """
+    """Return ``H = C rho``, the filtered trapezoid's multiplier."""
     theta = np.asarray(theta, dtype=np.float64)
     response = np.full_like(theta, taps[0])
     for k in range(1, taps.size):
@@ -338,18 +300,6 @@ def _certified_max(
     rises above its sampled peak by orders of magnitude less than that, so the smaller
     peaks cannot decide the result and refining them would spend the search on rounding
     noise where ``H`` is flat.
-
-    Parameters
-    ----------
-    function : callable
-        Vectorised, from ``theta`` to a real array.
-    lower, upper : float
-        The interval.
-
-    Returns
-    -------
-    float
-        The certified maximum of the absolute value.
     """
     theta = np.linspace(lower, upper, CERTIFICATION_SAMPLES)
     values = np.abs(function(theta))

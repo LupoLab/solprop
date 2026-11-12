@@ -490,34 +490,13 @@ def build_expansion(
 def _joined_weights(
     integral: PiecewiseChebyshev, endpoint: PiecewiseChebyshev
 ) -> PiecewiseChebyshev:
-    """Join integral weights with endpoint differences on their common refinement.
-
-    Parameters
-    ----------
-    integral : PiecewiseChebyshev
-        Original integrated polynomial on its z intervals.
-    endpoint : PiecewiseChebyshev
-        Endpoint polynomial on the same physical span.
-
-    Returns
-    -------
-    PiecewiseChebyshev
-        Concatenated integral and endpoint-difference weights.
-    """
+    """Join integral weights with endpoint differences on their common refinement."""
     origin = endpoint(endpoint.z_span[0])
 
     def sample(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, "n_z n_terms"]:
         """Sample the index at the requested position.
 
-        Parameters
-        ----------
-        z : float or numpy.ndarray
-            Positions within the translated span, in metres.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values of the sampled weight polynomial at the requested positions.
+        - ``z``: positions within the translated span, in metres.
         """
         return np.stack(
             [
@@ -668,18 +647,10 @@ def parameter_roundoff_floor(
     ]
     steps = [_FLOOR_STEP_FRACTION * float(high - low) for low, high in ranges]
 
-    def at(point: Sequence[float]) -> Inexact[np.ndarray, " *value"]:
+    def _at(point: Sequence[float]) -> Inexact[np.ndarray, " *value"]:
         """Sample the quantity at one point of the box.
 
-        Parameters
-        ----------
-        point : sequence of float
-            One value per parameter, in axis order.
-
-        Returns
-        -------
-        numpy.ndarray
-            The quantity there.
+        - ``point``: one value per parameter, in axis order.
         """
         return np.asarray(value_at(dict(zip(names, point, strict=True))))
 
@@ -688,7 +659,7 @@ def parameter_roundoff_floor(
         index: [probes[axis][index[axis]] for axis in range(n_params)]
         for index in np.ndindex(shape)
     }
-    centre = np.stack([at(points[index]) for index in np.ndindex(shape)])
+    centre = np.stack([_at(points[index]) for index in np.ndindex(shape)])
     centre = centre.reshape(*shape, *centre.shape[1:])
     magnitude = np.abs(centre)
     global_envelope = float(magnitude.max())
@@ -708,7 +679,7 @@ def parameter_roundoff_floor(
             for offset in offsets[index[axis]]:
                 shifted = list(point)
                 shifted[axis] += offset * steps[axis]
-                stencil.append(centre[index] if offset == 0.0 else at(shifted))
+                stencil.append(centre[index] if offset == 0.0 else _at(shifted))
             noise[index] = np.abs(stencil[0] - 2.0 * stencil[1] + stencil[2])
         worst = max(worst, float(np.max(noise / scale)))
     return worst
@@ -819,22 +790,7 @@ def _parameter_ranges(
 ) -> Float[np.ndarray, "n_params two"]:
     """Bracket the values each path reaches over the tabulated range.
 
-    Parameters
-    ----------
-    paths : collections.abc.Mapping
-        The varying paths, by name.
-    z0, z1 : float
-        Ends of the range in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``(lo, hi)`` per path in the order of `paths`, shape ``(n_params, 2)``.
-
-    Raises
-    ------
-    TranslationError
-        If the range is empty, or a path does not vary over it.
+    - ``z0``, ``z1``: ends of the range in m.
     """
     if not z1 > z0:
         msg = f"need z1 > z0, got z0 = {z0!r}, z1 = {z1!r}"
@@ -879,24 +835,10 @@ def _resolve_parameters(
 ) -> tuple[Inexact[np.ndarray, " n_terms *value"], Int[np.ndarray, " n_params"]] | None:
     """Raise the degree of each parameter axis until every coefficient tail is small.
 
-    Parameters
-    ----------
-    value_at : callable
-        The sampler.
-    names : tuple of str
-        The parameter names, in axis order.
-    ranges : numpy.ndarray
-        ``(lo, hi)`` per parameter.
-    tol : float
-        Target bound on the uniform relative error.
-    n_max : int
-        Highest degree tried on an axis.
-
-    Returns
-    -------
-    tuple or None
-        The flattened terms and the trimmed degree per parameter, or ``None`` when an
-        axis is still unresolved at `n_max`.
+    - ``names``: the parameter names, in axis order.
+    - ``n_max``: highest degree tried on an axis.
+    - Returns: the flattened terms and the trimmed degree per parameter, or ``None``
+      when an axis is still unresolved at `n_max`.
     """
     n_params = len(names)
     degrees = [min(INITIAL_DEGREE, n_max) for _ in names]
@@ -959,24 +901,8 @@ def _sample_grid(
 ) -> Inexact[np.ndarray, " *shape"]:
     """Evaluate the quantity at every point of a tensor grid of parameter values.
 
-    Parameters
-    ----------
-    value_at : callable
-        The sampler.
-    names : tuple of str
-        The parameter names, in axis order.
-    points : sequence of numpy.ndarray
-        The nodes of each parameter axis.
-
-    Returns
-    -------
-    numpy.ndarray
-        Samples of shape ``(*node counts, *value_shape)``.
-
-    Raises
-    ------
-    TranslationError
-        If a sample is not finite, or the value shape or dtype changes between points.
+    - ``names``: the parameter names, in axis order.
+    - ``points``: the nodes of each parameter axis.
     """
     shape = tuple(int(axis.size) for axis in points)
     samples = []
@@ -1015,33 +941,11 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
 ) -> PiecewiseChebyshev:
     """Tabulate the products of the basis polynomials along the paths.
 
-    Parameters
-    ----------
-    paths : collections.abc.Mapping
-        The varying paths, by name.
-    names : tuple of str
-        The parameter names, in axis order.
-    ranges : numpy.ndarray
-        ``(lo, hi)`` per parameter.
-    degrees : numpy.ndarray
-        The retained degree per parameter.
-    z0, z1 : float
-        Ends of the range in m.
-    tol : float
-        Target bound on the uniform relative error.
-    kinks : array_like
-        Positions that must be interval edges; those outside the range are dropped.
-    n_max : int
-        Highest degree tried on an interval.
-    max_intervals : int
-        Interval budget.
-    integrate : bool
-        Whether to return the cumulative integrals from `z0`.
-
-    Returns
-    -------
-    solprop.translate.chebyshev.PiecewiseChebyshev
-        Value shape ``(n_terms,)``, float64, with read-only arrays.
+    - ``names``: the parameter names, in axis order.
+    - ``z0``, ``z1``: ends of the range in m.
+    - ``kinks``: positions that must be interval edges; those outside the range are
+      dropped.
+    - Returns: value shape ``(n_terms,)``, float64, with read-only arrays.
     """
 
     def products(
@@ -1049,15 +953,7 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
     ) -> Float[np.ndarray, "n_z n_terms"]:
         """Return the tensor product of the basis polynomials at each position.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_z, n_terms)``, the multi-index flattened in C order.
+        - ``z``: positions in m, shape ``(n_z,)``.
         """
         columns = [
             chebyshev_basis.chebvander(
@@ -1112,15 +1008,8 @@ def _mapping_noise(ranges: Float[np.ndarray, "n_params two"]) -> float:
     :data:`solprop.translate.chebyshev.DEFAULT_TOL` unless a range is narrower than
     about a thousandth of its values.
 
-    Parameters
-    ----------
-    ranges : numpy.ndarray
-        ``(lo, hi)`` per parameter.
-
-    Returns
-    -------
-    float
-        The floor, relative to the products' scale; zero when every range is empty.
+    - Returns: the floor, relative to the products' scale; zero when every range is
+      empty.
     """
     low, high = ranges[:, 0], ranges[:, 1]
     width = high - low
@@ -1139,25 +1028,7 @@ def _mapped(
 ) -> Float[np.ndarray, " n_z"]:
     """Map a path's values onto ``[-1, 1]`` over its expansion range.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The path at some positions.
-    span : numpy.ndarray
-        ``(lo, hi)`` of the expansion range.
-    name : str
-        The path's name, for the message.
-
-    Returns
-    -------
-    numpy.ndarray
-        The mapped values, clipped to ``[-1, 1]``.
-
-    Raises
-    ------
-    TranslationError
-        If a value lies more than :data:`RANGE_SLACK` of the range outside it, which
-        means the bracket is wrong and the series would be extrapolated.
+    - Returns: the mapped values, clipped to ``[-1, 1]``.
     """
     low, high = float(span[0]), float(span[1])
     mapped = (2.0 * np.asarray(values, dtype=np.float64) - low - high) / (high - low)
@@ -1175,15 +1046,7 @@ def _mapped(
 def _readonly(values: np.ndarray) -> np.ndarray:
     """Return a C-contiguous, read-only copy of an array.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
+    - Returns: the same values, C-contiguous and not writeable.
     """
     frozen = np.ascontiguousarray(values)
     frozen.setflags(write=False)
@@ -1191,13 +1054,7 @@ def _readonly(values: np.ndarray) -> np.ndarray:
 
 
 def _log_expansion(expansion: ParameterExpansion) -> None:
-    """Log the expansion's parameters, degrees and size at DEBUG level.
-
-    Parameters
-    ----------
-    expansion : ParameterExpansion
-        The expansion just built.
-    """
+    """Log the expansion's parameters, degrees and size at DEBUG level."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
     logger.debug(
