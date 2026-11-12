@@ -23,11 +23,15 @@
 #include <cstdint>
 #include <limits>
 
+// The order is Highway's: foreach_target.h re-includes this file once per target, then
+// highway.h and the -inl.h headers follow (clang-format would sort them).
+// clang-format off
 #undef HWY_TARGET_INCLUDE
 #define HWY_TARGET_INCLUDE "vmath_highway.cpp"
-#include <hwy/contrib/math/math-inl.h>
 #include <hwy/foreach_target.h> // IWYU pragma: keep
 #include <hwy/highway.h>
+#include <hwy/contrib/math/math-inl.h>
+// clang-format on
 
 HWY_BEFORE_NAMESPACE();
 namespace solprop_native::vmath::HWY_NAMESPACE {
