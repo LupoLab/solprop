@@ -124,6 +124,7 @@ from solprop.translate.spatial import SeparableOperator, separable_values
 
 __all__ = [
     "DELAYED_MODEL_ID",
+    "DELAYED_TERMS",
     "KERR_FORM_MODEL_IDS",
     "KERR_MODEL_FORMS",
     "MODEL_ID_SEPARATOR",
@@ -1406,6 +1407,17 @@ class RegionalResponseTables(Displayed):
                 f"{components}, got {delayed.shape}"
             )
             raise TranslationError(msg)
+        terms = int(delayed.shape[1])
+        if terms and (terms != DELAYED_TERMS or components != MAX_N_COMPONENTS):
+            # The one check of the delayed channels: both backends execute the silica
+            # tensor model's channels on three components and nothing else.
+            msg = (
+                f"regional_responses carries {terms} delayed term(s) on {components} "
+                f"component(s); the delayed response is the {DELAYED_TERMS} delayed "
+                "channels of the silica tensor Raman model -- the trace and the "
+                f"traceless rank-two one -- on {MAX_N_COMPONENTS} Cartesian components"
+            )
+            raise TranslationError(msg)
         delayed.setflags(write=False)
         object.__setattr__(self, "delayed_tensor", delayed)
 
@@ -1545,6 +1557,9 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
 
 DELAYED_MODEL_ID: Final[str] = "silica-tensor-raman"
 """The model tag a compiled record carries when a region declares a delayed term."""
+
+DELAYED_TERMS: Final[int] = 2
+"""Delayed channels the silica tensor Raman model carries: trace and rank two."""
 
 MODEL_ID_SEPARATOR: Final[str] = "+"
 """What joins the model tags of one compiled record's ``model_id``.

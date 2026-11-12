@@ -44,7 +44,6 @@ from solprop.backends.multistep import (
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.general_modal import (
-    DELAYED_TERMS,
     general_planned_chunk,
     node_delayed_maps,
     node_kerr_form,
@@ -3024,7 +3023,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # `StageScalars.transform_weights`, run here beside the frozen-residual flow that
     # carries their connection.
     refuse_general_route(problem, backend="native", moving_maps=True)
-    _refuse_native_route(problem)
     flags = problem.flags
     if problem.transform.n_pol * problem.shape[1] > 2:
         raise BackendError(
@@ -3043,30 +3041,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     ):
         raise BackendError(
             "vector Raman requires tensor-capable terms; found scalar_only"
-        )
-
-
-def _refuse_native_route(problem: PropagationProblem) -> None:
-    """Refuse what solprop's shared list admits and this backend has not built.
-
-    The general modal route and the coupled flow are admitted by solprop's one list,
-    :func:`solprop.backends.numpy_ref.admission.refuse_general_route`, run under this
-    backend's name before anything is allocated. What remains
-    here is this backend's own: the native delayed response contracts the six pair
-    histories of three Cartesian components, which the reference's arithmetic does
-    not require of a record.
-    """
-    tables = problem.transform.modal_tables
-    regional = problem.responses.regional_responses
-    if tables is None or regional is None or not regional.n_terms:
-        return
-    components = int(tables.electric.shape[2])
-    if regional.n_terms != DELAYED_TERMS or components != 3:
-        raise BackendError(
-            f"native executes the {DELAYED_TERMS} delayed channels of the silica "
-            "tensor Raman model on three components, and "
-            f"responses.regional_responses carries {regional.n_terms} term(s) on "
-            f"{components}"
         )
 
 
