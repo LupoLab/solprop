@@ -861,8 +861,8 @@ def plasma_coefficients(
                 "already carries a RateTable; the table states its own span"
             )
             raise TranslationError(msg)
-        # A table the caller built is the builder's memoised object, whose arrays are
-        # writeable; everything crossing the seam is frozen, so freeze a copy.
+        # A table the builder made is frozen and held already and crosses as it
+        # stands; one made any other way crosses as a frozen copy.
         table = _frozen_table(rate)
     elif not isinstance(rate, IonisationRate):
         # A bare callable satisfies the response's own EvaluableRate, but a table needs
