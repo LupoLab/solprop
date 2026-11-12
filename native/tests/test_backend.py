@@ -10,6 +10,7 @@ import copy
 import dataclasses
 import functools
 import math
+import re
 from types import SimpleNamespace
 from typing import NoReturn, cast
 
@@ -472,8 +473,8 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
     All four leaves are executed (the general modal route and the coupled flow), in
     the combinations solprop's problem validation admits, which this adapter runs
     where it is built. A lone table, metric or response is refused there before
-    anything is allocated; the coupled flow is a real leaf here, a constant-Schur
-    section carrying two Chebyshev degrees, which the list refuses.
+    anything is allocated: a sentinel by its type, the coupled flow, a real leaf of
+    another grid, by its axis.
 
     The sentinel is set with ``object.__setattr__`` on a copy rather than through
     ``dataclasses.replace``, which re-runs the group's own validation: solprop's
@@ -493,12 +494,14 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
         object.__setattr__(spoiled, "route", route)
     else:
         spoiled = dataclasses.replace(problem, **{group: spoiled_group})
-    expected = {
-        "coupled_flow": r"solprop executes a constant-Schur coupled flow",
-        "modal_metric": r"solprop executes linear\.modal_metric",
-        "modal_tables": r"solprop executes a general modal guide",
-        "regional_responses": r"transform\.modal_tables, which is absent",
-    }[leaf]
+    # Refused by name: its type or its consistency with the state first, then the
+    # route's policy. Tables on the modal route are its transform's, which the route
+    # names.
+    expected = (
+        "with general modal tables"
+        if leaf == "modal_tables"
+        else re.escape(f"{group}.{leaf}")
+    )
     with pytest.raises(TranslationError, match=expected):
         NativeBackend(spoiled, run_request, grid=grid)
 

@@ -788,7 +788,9 @@ def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
     assert tables is not None
     assert tables.synthesis is not None
     moving = dataclasses.replace(tables)
-    object.__setattr__(moving, "synthesis", np.repeat(tables.synthesis, 2, axis=1))
+    repeated = np.repeat(tables.synthesis, 2, axis=1)
+    repeated.setflags(write=False)
+    object.__setattr__(moving, "synthesis", repeated)
     transform = dataclasses.replace(problem.transform)
     object.__setattr__(transform, "modal_tables", moving)
     spoiled = dataclasses.replace(problem)

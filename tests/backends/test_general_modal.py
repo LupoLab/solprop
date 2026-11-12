@@ -23,6 +23,8 @@ placeholders and the assembly's refusals -- is
 
 import copy
 import dataclasses
+import functools
+import re
 
 import numpy as np
 import pytest
@@ -65,6 +67,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables, metric_at
 from solprop.translate.general import (
     metric_departure,
@@ -93,10 +96,9 @@ GROUP = {
 def leaf_value(name, problem):
     """Return a value for one leaf that the backend must refuse.
 
-    Three of the four are built for real. ``modal_tables`` is a dense E/H reference of
-    a guide this problem has no provider for, so it stands in as a sentinel installed
-    past the constructor: the refusal reads the field for ``None`` and nothing else,
-    and it fires before ``validate`` ever looks inside.
+    All four are built for real, for another problem than this one: ``modal_tables``
+    is the strand's reference (:func:`strand_tables`), whose channels and grids are
+    not this problem's.
     """
     n_omega = problem.shape[-1]
     n_modes = problem.shape[0]
@@ -143,7 +145,20 @@ def leaf_value(name, problem):
             "isotropic-kerr",
             "dense-nodes",
         )
-    return object()
+    return strand_tables()
+
+
+def frozen(values):
+    """Return a read-only copy, as every array crossing the seam is."""
+    copied = np.array(values)
+    copied.setflags(write=False)
+    return copied
+
+
+@functools.cache
+def strand_tables():
+    """The 1.5 um strand's E/H reference, built once."""
+    return strand_case((("HE", 1, 1, "even"),)).route.tables
 
 
 def with_leaf(problem, name):
@@ -214,15 +229,12 @@ def test_every_backend_refuses_every_general_modal_leaf_by_name(
     """A leaf beside a problem it does not belong to is refused by its dotted name.
 
     The refusal is the problem's own validation, which both backends run where they
-    are built, so it is the same on each.
+    are built, so it is the same on each: the leaf's consistency with the state first,
+    then the route's policy.
     """
     assert backend_name in BACKEND_NAMES
     spoiled = with_leaf(disabled, leaf)
-    expected = (
-        "solprop executes (a general modal guide|a constant-Schur|.* as part)"
-        "|indexes the node regions of transform.modal_tables"
-    )
-    with pytest.raises(TranslationError, match=expected):
+    with pytest.raises(TranslationError, match=re.escape(f"{GROUP[leaf]}.{leaf}")):
         backend_class(spoiled, disabled_run.request, grid=soliton_grid)
 
 
@@ -704,7 +716,7 @@ def test_the_reference_refuses_a_dense_metric_too_far_from_orthonormal(
     metric = problem.linear.modal_metric
     assert metric is not None and metric.dense is not None
     skewed = dataclasses.replace(metric)
-    object.__setattr__(skewed, "dense", metric.dense * 1.5)
+    object.__setattr__(skewed, "dense", frozen(metric.dense * 1.5))
     spoiled, spoiled_request = spoiled_problem(
         circular_strand,
         amplitudes=(1.0, 0.0),
@@ -742,6 +754,23 @@ def test_the_reference_refuses_an_identity_metric_that_is_not_the_identity(stran
         NumpyRefBackend(problem, run_request, grid=strand.grid)
 
 
+def test_a_mis_shaped_metric_certificate_is_refused_by_name(strand):
+    """A certificate row set past the record's construction is checked by name.
+
+    The leaf's consistency with its own axes is checked before the route's policy
+    reads a row, so a hand-built leaf meets a named refusal, not an indexing error.
+    """
+    _, state = continuous_wave(strand, [1.0])
+    problem = general_problem(strand, state).problem
+    metric = dataclasses.replace(problem.linear.modal_metric)
+    short = np.zeros(3)
+    short.setflags(write=False)
+    object.__setattr__(metric, "error", short)
+    spoiled, _ = spoiled_problem(strand, metric=("linear", "modal_metric", metric))
+    with pytest.raises(TranslationError, match=r"modal_metric\.error has shape \(3,\)"):
+        spoiled.validate()
+
+
 def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
     disabled, disabled_run, soliton_grid
 ):
@@ -750,7 +779,7 @@ def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
         spoiled = with_leaf(disabled, leaf)
         with pytest.raises(
             TranslationError,
-            match=r"no transform\.modal_tables|modal_tables, which is absent",
+            match=re.escape(f"{GROUP[leaf]}.{leaf}"),
         ):
             NumpyRefBackend(spoiled, disabled_run.request, grid=soliton_grid)
 
@@ -777,7 +806,7 @@ def test_the_reference_refuses_moving_maps_without_their_connection(strand):
     tables = dataclasses.replace(strand.route.tables)
     assert strand.route.tables.synthesis is not None
     object.__setattr__(
-        tables, "synthesis", np.repeat(strand.route.tables.synthesis, 2, axis=1)
+        tables, "synthesis", frozen(np.repeat(strand.route.tables.synthesis, 2, axis=1))
     )
     problem, run_request = spoiled_problem(
         strand, maps=("transform", "modal_tables", tables)
@@ -787,13 +816,21 @@ def test_the_reference_refuses_moving_maps_without_their_connection(strand):
 
 
 def test_the_reference_refuses_a_power_weight_that_is_not_one(strand):
-    """The Poynting amplitude is the true-power amplitude: the weight is one."""
+    """The Poynting amplitude is the true-power amplitude: the weight is one.
+
+    Taken on the route's policy itself: the constant is spoiled alone, which the
+    problem's structure refuses first, as disagreeing with its own table.
+    """
     _, state = continuous_wave(strand, [1.0])
     problem, run_request = general_problem(strand, state)
     linear = dataclasses.replace(problem.linear)
-    object.__setattr__(linear, "power_weight_constant", np.full(problem.shape, 1.5))
+    object.__setattr__(
+        linear, "power_weight_constant", frozen(np.full(problem.shape, 1.5))
+    )
     spoiled = dataclasses.replace(problem, linear=linear)
     with pytest.raises(TranslationError, match="constant one"):
+        check_general_route(spoiled)
+    with pytest.raises(TranslationError, match="power_weight_constant must match"):
         NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 
@@ -1260,11 +1297,14 @@ def pre_c2b_review_source(state, synthesis, maps, crop_index, *, n_to, pad_scale
 
 
 def test_the_reference_refuses_a_general_route_on_an_envelope_grid(strand):
-    """A leaf is tabulated on the canonical coarse grid, which is increasing."""
+    """A leaf is tabulated on the canonical coarse grid, which is increasing.
+
+    An envelope grid's spectra are not the leaf's, so its structure refuses it first.
+    """
     _, state = continuous_wave(strand, [1.0])
     problem, run_request = general_problem(strand, state)
     spoiled = dataclasses.replace(problem, grid_kind="envelope")
-    with pytest.raises(TranslationError, match="on a field grid"):
+    with pytest.raises(TranslationError, match=r"transform\.modal_tables\.omega_fine"):
         NumpyRefBackend(spoiled, run_request, grid=strand.grid)
 
 

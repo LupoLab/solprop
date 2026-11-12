@@ -28,11 +28,12 @@ from solprop.translate.general import (
 )
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.responses import RegionalResponseTables
 
 if TYPE_CHECKING:
     from solprop.translate.problem import PropagationProblem
 
-__all__ = ["check_general_route"]
+__all__ = ["check_general_route", "check_leaf_types"]
 
 
 def check_general_route(problem: "PropagationProblem") -> None:
@@ -73,6 +74,43 @@ def check_general_route(problem: "PropagationProblem") -> None:
         _check_flow_representation(flow)
         _check_flow_problem(problem, flow)
     _check_modal_route(problem)
+
+
+def check_leaf_types(problem: "PropagationProblem") -> None:
+    """Refuse a general-modal leaf that is not its record type, by name.
+
+    The first of the leaves' consistency checks
+    (:meth:`~solprop.translate.problem.PropagationProblem.validate`), so that a
+    hand-built problem holding something else there meets a named refusal rather than
+    an attribute error further in.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem to check.
+
+    Raises
+    ------
+    TranslationError
+        Naming the leaf, the type it holds and the type it must be.
+    """
+    for name, leaf, kind in (
+        (
+            "transform.modal_tables",
+            problem.transform.modal_tables,
+            ModalTransformTables,
+        ),
+        ("linear.modal_metric", problem.linear.modal_metric, ModalMetricTables),
+        ("linear.coupled_flow", problem.linear.coupled_flow, CoupledFlowTables),
+        (
+            "responses.regional_responses",
+            problem.responses.regional_responses,
+            RegionalResponseTables,
+        ),
+    ):
+        if leaf is not None and not isinstance(leaf, kind):
+            msg = f"{name} is a {type(leaf).__name__}, not a {kind.__name__}"
+            raise TranslationError(msg)
 
 
 def _check_flow_representation(flow: CoupledFlowTables) -> None:

@@ -297,6 +297,31 @@ class ModalMetricTables(Displayed):
         """How many coarse frequencies the metric is tabulated on."""
         return len(self.omega)
 
+    def check_rows(self) -> None:
+        """Check the certificate rows against the record's own axes, by name.
+
+        Construction checks them; a leaf replaced past it is checked again by
+        :meth:`solprop.translate.problem.PropagationProblem.validate` before anything
+        reads a row.
+
+        Raises
+        ------
+        TranslationError
+            If ``error``, ``minimum_eigenvalue`` or ``maximum_eigenvalue`` is not one
+            row per interval of ``z_edges`` (:func:`interval_count`) by one column per
+            coarse frequency.
+        """
+        rows = (interval_count(len(self.z_edges)), self.n_omega)
+        for name in ("error", "minimum_eigenvalue", "maximum_eigenvalue"):
+            shape = np.shape(getattr(self, name))
+            if shape != rows:
+                msg = (
+                    f"linear.modal_metric.{name} has shape {shape}, expected {rows}: "
+                    "one row per interval of its z_edges, one column per coarse "
+                    "frequency"
+                )
+                raise TranslationError(msg)
+
     def __repr__(self) -> str:
         """Return a one-line description, never an array.
 
@@ -482,7 +507,8 @@ class CoupledFlowTables(Displayed):
     along z, with the taper connection and an explicit residual the Runge-Kutta
     source carries, built by :func:`frozen_residual_flow` from the same block
     evaluated along the declared profile. Every other method, representation and
-    mixture is refused by name at the backend.
+    mixture is refused by name by the problem's validation
+    (:func:`solprop.translate.admission.check_general_route`).
 
     The dense ``generator`` is optional. The factored alternative combines fixed
     matrices with scalar weights, rank-one wall terms and connection coefficients

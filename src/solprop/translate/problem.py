@@ -101,7 +101,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
-from solprop.translate.admission import check_general_route
+from solprop.translate.admission import check_general_route, check_leaf_types
 from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
 from solprop.translate.coupled import (
     CoupledFlowTables,
@@ -1002,9 +1002,6 @@ class PropagationProblem:
         - ``run``: the run's stepper section and statistics, or ``None`` for the checks
           the problem makes alone.
         """
-        # The general route's and the coupled flow's policy first, as a backend read it
-        # before anything else.
-        check_general_route(self)
         if run is not None:
             self._check_integrator(run.stepper)
         self._check_route(run)
@@ -1021,6 +1018,7 @@ class PropagationProblem:
         self._check_raman()
         self._check_dispersive()
         self._check_modal_leaves(run)
+        check_general_route(self)  # the route's policy, once its leaves are consistent
         self._check_tables(run)
 
     def validate_launch(self, request: "RunRequest") -> None:
@@ -1865,10 +1863,8 @@ class PropagationProblem:
         The contract's tree walk *does* recurse into these records: every array they
         hold is checked for dtype, finiteness, contiguity and ownership like any
         other leaf. What the walk does not do is relate any of them to the canonical
-        state, and that is this method's work -- the channel counts, the component
-        count, the frequency axes and the positions along z.
-        Every leaf is ``None`` on every route that exists today, and the whole
-        method is then a single test of four references.
+        state, and that is this method's work -- each leaf's type, the channel and
+        component counts, the frequency axes and the positions along z.
 
         - ``run``: the run's stepper section and statistics; ``None`` leaves the run's
           extent along z to :func:`validate_run`.
@@ -1878,6 +1874,7 @@ class PropagationProblem:
         metric = self.linear.modal_metric
         flow = self.linear.coupled_flow
         regional = self.responses.regional_responses
+        check_leaf_types(self)
         if tables is not None:
             if self.transform.geometry is not None:
                 msg = (
@@ -1907,6 +1904,8 @@ class PropagationProblem:
                 f"state carries {n_modes}"
             )
             raise TranslationError(msg)
+        if metric is not None:  # its rows, before the route's policy reads them
+            metric.check_rows()
         if flow is not None and flow.n_modes != n_modes:
             msg = (
                 f"linear.coupled_flow couples {flow.n_modes} channel(s) and the state "

@@ -865,7 +865,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         )
 
     # Refused by the Adams path's check or the Runge-Kutta march's, by name either way.
-    with pytest.raises(TranslationError, match=r"'diagonal'"):
+    with pytest.raises((BackendError, TranslationError), match=r"'diagonal'"):
         NumpyRefBackend(spoiled(section_methods=("diagonal",)), run_request, grid=grid)
     with pytest.raises(TranslationError, match="executes no taper connection"):
         NumpyRefBackend(
