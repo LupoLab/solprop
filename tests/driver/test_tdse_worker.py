@@ -14,6 +14,7 @@ import json
 import sys
 import threading
 import warnings
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -103,17 +104,21 @@ def test_evaluations_through_the_worker_equal_the_provider_called_directly(worke
     assert len(workers) == 1 and not workers[0].alive
 
 
-@pytest.mark.parametrize(
-    ("factory", "message"),
-    [("stale_tdse", "does not match pinned"), ("cuda_tdse", "native build uses")],
-)
-def test_the_handshake_refuses_a_stale_or_other_provider_by_name(
-    monkeypatch, workers, factory, message
-):
-    monkeypatch.setattr(tdse, "_ADAPTER", f"source_adapters:{factory}")
-    with pytest.raises(BackendError, match=message):
+def test_the_handshake_refuses_another_execution_space_by_name(monkeypatch, workers):
+    monkeypatch.setattr(tdse, "_ADAPTER", "source_adapters:cuda_tdse")
+    with pytest.raises(BackendError, match="native build uses"):
         _bind(_descriptor(preset_basis(1)))
     assert len(workers) == 1 and not workers[0].alive
+
+
+def test_the_handshake_records_another_provider_revision(monkeypatch, workers):
+    monkeypatch.setattr(tdse, "_ADAPTER", "source_adapters:stale_tdse")
+    binding = _bind(_descriptor(preset_basis(1)))
+    try:
+        build = cast("Any", binding.metadata())["build"]
+        assert build["native"]["source_revision"] == "old0000"
+    finally:
+        binding.close()
 
 
 def test_a_failure_in_preparation_is_named_and_ends_the_worker(workers):

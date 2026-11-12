@@ -902,7 +902,7 @@ def check_consistency(
             basis,
             response.consistency,
             reference_wavelength=reference_wavelength,
-            provider_revision=tdse_runtime.pinned_revision(),
+            provider_revision=tdse_runtime.provider_revision(build),
             computed_on={
                 "execution_space": native.get("execution_space")
                 if isinstance(native, dict)
@@ -946,7 +946,6 @@ def _open_check_archive(
             "label": basis.label,
             "protocol": PROTOCOL_VERSION,
             "execution": asdict(execution),
-            "provider_pin": tdse_runtime.pinned_revision(),
         },
     )
 

@@ -425,9 +425,11 @@ provider: a run's evaluations, `basis_from_preset`, `hacc_preset`, `hacc_basis` 
   length is a protocol error before anything is allocated.
 - **Handshake.** The worker's first frame carries the protocol version and the provider's
   identity: its build record (source revision, execution space, Kokkos configuration) and
-  the worker's process id. The parent refuses a protocol mismatch, a revision other than
-  `_PROVIDER_REVISION` or an execution space other than `TDSEExecution.device` by name,
-  before any evaluation. The build record in a run's metadata is this report.
+  the worker's process id. The parent refuses a protocol mismatch or an execution space
+  other than `TDSEExecution.device` by name, before any evaluation. It pins no provider
+  revision: until Pyroraptor has a release, solprop uses whatever provider is installed,
+  by default the latest `main`, and records the revision it reports (maintainer,
+  2026-11-12). The build record in a run's metadata is this report.
 - **What crosses.** Preparation sends the descriptor's plain records (basis, model,
   outputs, chunks); the worker builds the models and plans and replies with its memory
   rows and plan records. Each atomic call sends one chunk's drive rows and receives its
@@ -562,7 +564,8 @@ worker:
 
 1. evaluations through the worker equal calling the manufactured provider directly, bit
    for bit, and the binding's call sequence, ledgers and archive are unchanged;
-2. the handshake refuses a protocol, revision or execution-space mismatch by name;
+2. the handshake refuses a protocol or execution-space mismatch by name, and records
+   another provider revision;
 3. a provider exception, a worker exit, a closed pipe, a malformed or oversized frame, and
    a failure during start-up and preparation each end as the named failure of §6.5, with
    the worker reaped and both pipe ends closed;
@@ -611,8 +614,9 @@ three atomic calls on the smallest preset, native against `numpy_ref` (class T),
 the worker, with Pyroraptor on the CPU and, where a GPU build is in use, on a GPU; and one
 cancellation during a call. Each check is reported in Part II with its configuration
 (provider revision, build, machine, threads or device). CI establishes the manufactured
-contracts, not compatibility with an installed provider; the handshake's revision and
-execution-space check (§6.5) refuses a mismatched provider at run time.
+contracts, not compatibility with an installed provider; the handshake's protocol and
+execution-space checks (§6.5) refuse a mismatched provider at run time, and the
+provider's revision is recorded with every run.
 
 ### 8. Documentation
 
@@ -652,8 +656,8 @@ providers.
   differ on Linux, macOS and Windows. Mitigation: §7.2 in CI on every platform CI runs;
   the reader thread avoids platform-specific polling.
 - **Provider compatibility untested in CI** (Q10). Mitigation: the handshake refuses a
-  mismatched revision or execution space by name; manual evidence with its configuration
-  (§7.4).
+  mismatched protocol or execution space by name, and records the provider's revision;
+  manual evidence with its configuration (§7.4).
 - **Python exceptions through C++.** Mitigation: caught at the binding layer, never inside
   a Kokkos kernel; §7.3 items 2–3 cover every entry point and the boundary.
 - **A shared-code defect invisible to parity.** Mitigation: §7.1's independent
@@ -722,8 +726,9 @@ Decided by the maintainer on 2026-11-12 (Part III, review follow-up):
 4. **Q9. Delivery.** One implementation pull request; Pyroraptor's changes in a linked
    companion (§11).
 5. **Q10. A real provider in CI.** None; by hand as used, reported with its configuration;
-   the optional import and revision check kept, and the worker's actual provider
-   identity reported (§6.5, §7.4).
+   the optional import kept, no revision pinned (the installed provider is used, by
+   default the latest `main`, until Pyroraptor has a release), and the worker's actual
+   provider identity recorded (§6.5, §7.4).
 6. **Q11. The transport.** Pipes only, arrays unchanged, bounded frames, transport copies
    in the memory ledger, responsive to cancellation (§6.5, §6.7).
 
@@ -1322,7 +1327,17 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     - `auto`.
 
     It amends ADR-077's "every feature except the TDSE response, for now", and
-    ADR-077's status now says so.
+    ADR-077's status now says so. The maintainer accepted it on 2026-11-12.
+  - No provider revision is pinned (maintainer, 2026-11-12): until Pyroraptor has a
+    release, solprop uses whatever provider is installed, by default the latest `main`.
+    `_PROVIDER_REVISION` and `pinned_revision` are gone, and the handshake no longer
+    refuses another revision. It still refuses another protocol version, and an
+    execution space other than `TDSEExecution.device`. The build record keeps the
+    revision, build and execution space the worker reports (no `source_pin`); a
+    preset's or a basis's `source` names the reported revision, the consistency cache
+    keys on it (`tdse.provider_revision`), and the archives' contexts drop
+    `provider_pin`. Tests now check that another revision is recorded, not refused;
+    the installed-provider test runs with any revision; a release note says so.
   - `testing.md` gains *Shared code and out-of-process providers*: the oracle boundary
     for shared code and the worker-contract tests. `backends.md` and
     `kernel-contract.md` now cite ADR-078.
@@ -1354,11 +1369,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   stay in solprop's process, as §6.5 asks, while the requests the parent's view of the
   haCC model makes must be served in the worker. Phase 2's report records what was
   examined for removal.
-- **Pending: the manual check of §7.4.** For the maintainer, with Pyroraptor at the
-  pinned revision `876b72d10b5286478125b842ea45548a5051b033`
-  (`solprop.driver.tdse._PROVIDER_REVISION`). Use a Pyroraptor checkout that contains
-  that commit: `git -C <pyroraptor> cat-file -e 876b72d10b52` must succeed. A squashed
-  public history may not contain it.
+- **The manual check of §7.4: procedure.** With Pyroraptor's latest `main` (no revision
+  is pinned), installed into solprop's environment.
 
   1. Set up the environment on the CPU. On macOS this needs Homebrew LLVM, `libomp` and
      FFTW; on Linux, `CXX=clang++`, as Pyroraptor's installation guide says.
@@ -1366,7 +1378,7 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
      ```sh
      cd <solprop checkout>   # this branch
      uv sync                 # solprop and its native CPU build
-     git -C <pyroraptor> checkout 876b72d10b5286478125b842ea45548a5051b033
+     git -C <pyroraptor> switch main && git -C <pyroraptor> pull
      uv pip install --python .venv/bin/python <pyroraptor>   # its CPU (OpenMP) build
      uv run --no-sync python -c "import pyroraptor as p; print(p.build_info())"
      ```
@@ -1656,6 +1668,10 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 - 2026-11-12: Phase 2 (the provider worker) reported in Part II; implementation pull
   request opened as a draft.
 - 2026-11-12: Phase 3 (the native hook) reported in Part II.
+- 2026-11-12: Phase 4 reported in Part II. ADR-078 accepted by John Travers. The
+  maintainer decided that solprop pins no Pyroraptor revision until Pyroraptor has a
+  release: the installed provider is used, by default the latest `main`, and its
+  reported revision recorded; §6.5, §7.2, §7.4, §9.3 and Q10 revised to match.
 
 ### AI review — 2026-11-12
 

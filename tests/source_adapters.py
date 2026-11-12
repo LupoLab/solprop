@@ -158,6 +158,7 @@ def manufactured_tdse():
 
 
 def stale_tdse():
+    """Serve the manufactured provider under another source revision."""
     from hacc_cases import FakeBuild  # noqa: PLC0415 - worker only
 
     return _adapter(_provider(build=FakeBuild(source_revision="old0000")))

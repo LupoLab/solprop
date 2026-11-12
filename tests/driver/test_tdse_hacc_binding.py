@@ -13,7 +13,7 @@ import dataclasses
 import inspect
 import json
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -296,22 +296,23 @@ def test_hacc_refuses_vendor_blas_device_and_missing_surface(fake):
     binding = _bind(_descriptor(preset_basis(1)), TDSEExecution(device="cuda"))
     binding.close()
     fake.hacc = object()
-    with pytest.raises(BackendError, match=r"no haCC consumer surface.*876b72d1"):
+    with pytest.raises(BackendError, match=r"no haCC consumer surface"):
         _bind(_descriptor(), TDSEExecution(device="cuda"))
 
 
-@pytest.mark.parametrize(
-    ("build", "device", "message"),
-    [
-        (FakeBuild("OpenMP", "c2833fa"), "cpu", "pinned"),
-        (FakeBuild("OpenMP"), "cuda", "native build"),
-    ],
-)
-def test_stale_revision_and_device_mismatch_are_refused(fake, build, device, message):
-    fake.build = build
-    with pytest.raises(BackendError, match=message):
-        _bind(_descriptor(), TDSEExecution(device=device))
+def test_a_device_mismatch_is_refused_and_any_revision_recorded(fake):
+    fake.build = FakeBuild("OpenMP")
+    with pytest.raises(BackendError, match="native build"):
+        _bind(_descriptor(), TDSEExecution(device="cuda"))
     assert fake.prepared == []
+    # No revision is pinned (SEP 49 section 6.5): another one runs, and is recorded.
+    fake.build = FakeBuild("OpenMP", "c2833fa")
+    binding = _bind(_descriptor(), TDSEExecution(device="cpu"))
+    build = cast("Any", binding.metadata())["build"]
+    assert build["native"]["source_revision"] == "c2833fa"
+    binding.close()
+    preset = tdse.hacc_preset(1)
+    assert preset.basis.source.startswith("pyroraptor@c2833fa: ")
 
 
 def test_plan_construction_driven_error_is_a_preparation_failure(fake):
@@ -656,7 +657,8 @@ def test_hacc_preset_returns_si_records_and_a_research_calibration(fake, ions, v
     assert fake.variant_requests == [variant]
     assert preset.basis.preset == preset.identity == expected.preset
     assert dataclasses.replace(preset.basis, source=expected.source) == expected
-    assert preset.basis.source.startswith("pyroraptor@876b72d1")
+    # The revision the provider's worker reported, not a pin.
+    assert preset.basis.source.startswith(f"pyroraptor@{fake.build.source_revision}: ")
     assert preset.variant == preset.basis.variant == variant
     assert preset.step_margin == (0.62 if variant == "standard" else 0.9)
     assert preset.max_atomic_step == expected.max_step_au * hacc_cases.AU_TIME
@@ -780,10 +782,6 @@ def test_resolvers_refuse_a_provider_without_the_hacc_surface(fake):
         tdse.hacc_preset(1)
     with pytest.raises(BackendError, match="haCC consumer surface"):
         tdse.hacc_basis(None, None, None, 1.0, 1.0, source="x")
-
-
-def test_pinned_revision_is_the_documented_pin():
-    assert tdse.pinned_revision() == "876b72d10b5286478125b842ea45548a5051b033"
 
 
 def test_window_record_is_reconstructed_unchanged(fake):

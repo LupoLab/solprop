@@ -40,12 +40,14 @@ is prepared; ordinary imports and non-TDSE runs never initialise its runtime. A 
 provider, an unsupported interpreter (the provider supports Python 3.14 only) or a
 missing capability is refused with a `BackendError`.
 
-solprop pins one provider source revision, `solprop.driver.tdse._PROVIDER_REVISION`
-(currently `876b72d10b5286478125b842ea45548a5051b033`);
-the binding checks the installed provider against it, and the source identity and the
-loaded native build identity are recorded separately with every run. A device build
-(CUDA or HIP) is selected explicitly through `TDSEExecution.device` and checked against
-the build's execution space, with no fallback.
+solprop pins no provider revision: until Pyroraptor has a release, it uses whatever
+provider is installed, by default the latest `main`
+([SEP 49](seps/sep-0049-tdse-on-native.md), ADR-078). The provider runs in a worker
+process, whose handshake refuses another protocol version; the revision, build and
+execution space it reports are recorded with every run, and a preset's source names
+that revision. A device build (CUDA or HIP) is selected explicitly through
+`TDSEExecution.device` and checked against the build's execution space, with no
+fallback.
 
 ## The native backend package
 

@@ -9,7 +9,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -448,7 +448,9 @@ def test_binding_memory_estimate_does_not_import_native_engine(monkeypatch):
 @pytest.mark.parametrize(
     "device,space", [("cpu", "OpenMP"), ("cuda", "Cuda"), ("hip", "HIP")]
 )
-def test_binding_requires_matching_device_and_revision(provider, device, space):
+def test_binding_requires_a_matching_device_and_records_any_revision(
+    provider, device, space
+):
     provider.build = _Build(space)
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
     assert "plan.1.state" in binding.memory_ledger()
@@ -457,9 +459,12 @@ def test_binding_requires_matching_device_and_revision(provider, device, space):
     provider.build = _Build("other")
     with pytest.raises(BackendError, match="native build"):
         tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    # No revision is pinned: another provider revision is used and recorded.
     provider.build = _Build(space, "old0000")
-    with pytest.raises(BackendError, match="pinned"):
-        tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    binding = tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    build = cast("Any", binding.metadata())["build"]
+    assert build["native"]["source_revision"] == "old0000"
+    binding.close()
 
 
 def test_binding_input_and_resume_contract(provider):
@@ -537,7 +542,10 @@ def test_binding_without_distribution_metadata_still_records_native_identity(
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
     metadata = _saved_metadata(binding)
     assert metadata["build"]["distribution"] is None
-    assert metadata["build"]["source_pin"].startswith(provider.build.source_revision)
+    assert metadata["build"]["native"]["source_revision"] == (
+        provider.build.source_revision
+    )
+    assert "source_pin" not in metadata["build"]
     assert provider.assembled == 1
     assert provider.calls == []
     binding.close()

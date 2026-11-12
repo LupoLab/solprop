@@ -87,11 +87,10 @@ __all__ = [
     "estimate_binding_memory",
     "hacc_basis",
     "hacc_preset",
-    "pinned_revision",
     "prepare_binding",
+    "provider_revision",
 ]
 
-_PROVIDER_REVISION = "876b72d10b5286478125b842ea45548a5051b033"
 _Preset = Literal["production", "high_accuracy", "strong_field"]
 _HaccVariant = Literal["standard", "fast"]
 # The adapter module the worker runs (SEP 49 section 6.5).
@@ -138,15 +137,26 @@ class _Channel(Protocol):
         ...
 
 
-def pinned_revision() -> str:
-    """Return the provider source revision this solprop is pinned to.
+def provider_revision(build: Mapping[str, object]) -> str:
+    """Return the provider source revision a build record names.
+
+    solprop pins no provider revision (SEP 49 section 6.5): it uses the installed
+    provider and records the revision its worker reports.
+
+    Parameters
+    ----------
+    build : collections.abc.Mapping
+        A binding's or diagnostic session's build record (``_build_record``).
 
     Returns
     -------
     str
-        Full Git revision; an installed build must report a prefix of it.
+        The provider's reported source revision, or ``""`` for an empty record.
     """
-    return _PROVIDER_REVISION
+    native = build.get("native")
+    if not isinstance(native, Mapping):
+        return ""
+    return str(cast("Mapping[str, object]", native).get("source_revision", ""))
 
 
 def _open_provider(
@@ -197,19 +207,16 @@ def _local_error(error: RemoteError, context: str) -> SolpropError:
 def _build_record(
     identity: Mapping[str, object], execution: TDSEExecution | None
 ) -> dict[str, object]:
-    """Refuse a stale provider or an execution-space mismatch the worker reported.
+    """Refuse an execution-space mismatch the worker reported; return its build.
+
+    No provider revision is refused: solprop uses the installed provider, whose
+    revision, build and execution space the record keeps (SEP 49 section 6.5).
 
     - ``identity``: the handshake's provider identity: its build and distribution.
     - ``execution``: required device family, or None when only resolving a preset.
     - Returns: serializable native build and installed distribution identities.
     """
     build = cast("Mapping[str, object]", identity["native"])
-    revision = str(build["source_revision"])
-    if len(revision) < 7 or not _PROVIDER_REVISION.startswith(revision):
-        raise BackendError(
-            f"TDSE native source {revision!r} does not match pinned "
-            f"{_PROVIDER_REVISION}"
-        )
     space = str(build["execution_space"]).lower()
     devices = {"cpu": {"openmp", "serial", "threads"}, "cuda": {"cuda"}, "hip": {"hip"}}
     if execution is not None and space not in devices[execution.device]:
@@ -219,7 +226,6 @@ def _build_record(
         )
     record: dict[str, object] = {
         "native": dict(build),
-        "source_pin": _PROVIDER_REVISION,
         "distribution": identity.get("distribution"),
     }
     if "direct_url" in identity:
@@ -227,16 +233,15 @@ def _build_record(
     return record
 
 
-def _query(kind: str, request: Mapping[str, object], *, checked: bool) -> Any:
+def _query(kind: str, request: Mapping[str, object]) -> tuple[Any, str]:
     """Ask a short-lived worker one question (a preset, a basis) and end it.
 
-    - ``checked``: refuse a stale provider first, as resolving a preset does.
+    - Returns: the reply, and the provider revision the worker reported.
     """
     worker = _open_provider()
     try:
-        if checked:
-            _build_record(worker.identity, None)
-        return worker.request(kind, {**request, "revision": _PROVIDER_REVISION})
+        revision = provider_revision(_build_record(worker.identity, None))
+        return worker.request(kind, dict(request)), revision
     except RemoteError as error:
         raise _local_error(error, "TDSE provider query failed") from error
     finally:
@@ -251,7 +256,7 @@ def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
     target : str
         Atomic target, currently ``helium`` only.
     preset : {'production', 'high_accuracy', 'strong_field'}
-        Name of the pinned provider's measured basis and spectral cut.
+        Name of the provider's measured basis and spectral cut.
 
     Returns
     -------
@@ -264,7 +269,7 @@ def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
     MaterialError
         If the target or preset is unsupported.
     BackendError
-        If the optional provider is missing or its native revision is stale.
+        If the optional provider is missing.
     """
     if target != "helium" or preset not in (
         "production",
@@ -272,13 +277,10 @@ def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
         "strong_field",
     ):
         raise MaterialError("TDSE requires helium and a supported provider preset")
-    fields = dict(
-        _query("basis_from_preset", {"target": target, "preset": preset}, checked=True)
-    )
+    reply, revision = _query("basis_from_preset", {"target": target, "preset": preset})
+    fields = dict(reply)
     provider_source = fields.pop("provider_source")
-    return TDSEBasis(
-        **fields, source=f"pyroraptor@{_PROVIDER_REVISION}: {provider_source}"
-    )
+    return TDSEBasis(**fields, source=f"pyroraptor@{revision}: {provider_source}")
 
 
 # ------------------------------------------------------------------- haCC records
@@ -416,7 +418,7 @@ def hacc_preset(ions: Literal[1, 2], variant: _HaccVariant = "standard") -> Hacc
         If ``ions`` is not the integer 1 or 2, or ``variant`` is not ``'standard'``
         or ``'fast'``.
     BackendError
-        If the optional provider is missing, stale or has no haCC surface, or its
+        If the optional provider is missing or has no haCC surface, or its
         preset's variant disagrees with the request.
 
     Examples
@@ -430,14 +432,14 @@ def hacc_preset(ions: Literal[1, 2], variant: _HaccVariant = "standard") -> Hacc
         raise MaterialError("hacc_preset needs ions=1 (haCC(1)) or ions=2 (haCC(5))")
     if not isinstance(variant, str) or variant not in ("standard", "fast"):
         raise MaterialError("hacc_preset needs variant='standard' or variant='fast'")
-    reply = _query("hacc_preset", {"ions": ions, "variant": variant}, checked=True)
+    reply, revision = _query("hacc_preset", {"ions": ions, "variant": variant})
     preset = cast("Mapping[str, Any]", reply["preset"])
     if preset["variant"] != variant:
         raise BackendError(
             f"the provider returned the {preset['variant']!r} haCC preset for the "
             f"{variant!r} variant"
         )
-    source = f"pyroraptor@{_PROVIDER_REVISION}: {preset['source']}"
+    source = f"pyroraptor@{revision}: {preset['source']}"
     basis = HaccBasis(
         **cast("dict[str, Any]", reply["fields"]),
         source=source,
@@ -512,7 +514,7 @@ def hacc_basis(
     """
     # The objects travel to the worker as records of their fields, and are checked
     # there against the provider's own classes (SEP 49 section 6.5).
-    fields = _query(
+    fields, _ = _query(
         "hacc_basis",
         {
             "atom": atom,
@@ -521,7 +523,6 @@ def hacc_basis(
             "cut_energy": cut_energy,
             "max_step_au": max_step_au,
         },
-        checked=False,
     )
     return HaccBasis(**cast("dict[str, Any]", fields), source=source)
 
@@ -1132,7 +1133,6 @@ class _ProviderBinding:
             "memory": dict(self._memory),
             "memory_limit": execution.memory_limit,
             "defer_plans": self._defer_plans,
-            "revision": _PROVIDER_REVISION,
         }
 
     def _ensure_worker(self) -> None:
@@ -2399,7 +2399,6 @@ class DiagnosticSession:
                         "memory": {},
                         "memory_limit": execution.memory_limit,
                         "defer_plans": True,
-                        "revision": _PROVIDER_REVISION,
                     },
                 ),
             )

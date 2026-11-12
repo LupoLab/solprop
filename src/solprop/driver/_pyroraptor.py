@@ -102,7 +102,7 @@ def _load_provider() -> _Provider:
     except (ImportError, OSError) as error:
         raise BackendError(
             "TDSE response requires the optional pyroraptor dependency; "
-            "install the pinned Pyroraptor revision into the environment, "
+            "install Pyroraptor into the environment, "
             "with a matching CPU, CUDA or HIP build"
         ) from error
 
@@ -141,15 +141,14 @@ def _is(value: object, kind: type) -> bool:
     return isinstance(value, kind)
 
 
-def _hacc_surface(provider: _Provider, revision: str) -> _Native:
+def _hacc_surface(provider: _Provider) -> _Native:
     """Return the provider's haCC namespace, refusing a build without it."""
     hacc = getattr(provider, "hacc", None)
     missing = [name for name in _HACC_SURFACE if not hasattr(hacc, name)]
     if missing:
         raise BackendError(
             "the installed TDSE provider has no haCC consumer surface "
-            f"(missing {', '.join(missing)}); install Pyroraptor at the pinned "
-            f"revision {revision}"
+            f"(missing {', '.join(missing)}); install a Pyroraptor build with it"
         )
     return hacc
 
@@ -484,7 +483,7 @@ class PyroraptorAdapter:
 
     def _hacc_preset(self, request: Mapping[str, Any]) -> object:
         """Return a qualified haCC preset's basis fields and its records."""
-        hacc = _hacc_surface(self._provider, request["revision"])
+        hacc = _hacc_surface(self._provider)
         preset = hacc.helium_preset(request["ions"], request["variant"])
         return {
             "fields": _hacc_fields(
@@ -500,7 +499,7 @@ class PyroraptorAdapter:
 
     def _hacc_basis(self, request: Mapping[str, Any]) -> object:
         """Return the basis fields of a caller's provider objects, sent as records."""
-        hacc = _hacc_surface(self._provider, request["revision"])
+        hacc = _hacc_surface(self._provider)
         return _hacc_fields(
             hacc,
             request["atom"],
@@ -620,7 +619,7 @@ class PyroraptorAdapter:
                 "TDSEExecution(complement='deterministic'), recorded as not "
                 "applicable"
             )
-        hacc = _hacc_surface(self._provider, request["revision"])
+        hacc = _hacc_surface(self._provider)
         atom, native_basis, gauge = _hacc_objects(self._provider, hacc, basis)
         preset: _Native = None
         if basis.preset is not None:

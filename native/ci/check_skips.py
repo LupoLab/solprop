@@ -40,7 +40,7 @@ EXPECTED: tuple[str, ...] = (
     r"the real Windows query",
     r"NumPy's interp may fuse off x86-64",
     # Other backends and packages a lane doesn't install.
-    r"Pyroraptor at the pinned revision is not installed",
+    r"Pyroraptor is not installed",
     # A lane on native has its wheel; these are the no-native lane's.
     r"solprop-native is installed",
     # Parametrized cases that apply to one backend's route only.

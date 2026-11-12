@@ -3429,7 +3429,7 @@ class Simulation(Displayed):
             binding,
             declared,
             reference_wavelength=self.grid.reference_wavelength,
-            provider_revision=tdse_runtime.pinned_revision(),
+            provider_revision=tdse_runtime.provider_revision(build),
             computed_on={
                 "execution_space": native.get("execution_space"),
                 "build": build,
@@ -7524,7 +7524,6 @@ def _open_tdse_archive(  # noqa: PLR0917 - called positionally
         "node_weights_m2": None if weights is None else weights.tolist(),
         "quadrature": metadata.quadrature,
         "execution": dataclasses.asdict(execution),
-        "provider_pin": tdse_runtime.pinned_revision(),
         # The file's own record on a resume, which the session holds and a snapshot
         # compares with.
         "optical_configuration_hash": (
