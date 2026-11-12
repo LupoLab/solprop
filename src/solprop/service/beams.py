@@ -43,21 +43,9 @@ def _even(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Put a map's columns on even bins within the run's window.
 
-    Parameters
-    ----------
-    path : str
-        The results file.
-    axis : str
-        The spectral axis.
-    x : numpy.ndarray
-        The columns' positions on it, ascending.
-    values : numpy.ndarray
-        The map, shape ``(n_rows, x.size)``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The even positions, and the map on them as single precision.
+    - ``axis``: the spectral axis.
+    - ``values``: the map, shape ``(n_rows, x.size)``.
+    - Returns: the even positions, and the map on them as single precision.
     """
     bins, image = even_rows(x, values.T, _window(path, axis, x, values.T), _ROWS)
     return bins, image.T.astype(np.float32)

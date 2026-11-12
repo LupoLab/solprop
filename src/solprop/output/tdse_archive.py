@@ -243,17 +243,8 @@ def _array(
 ) -> RecordField:
     """Return an array field.
 
-    Parameters
-    ----------
-    name, unit, axes : str
-        Attribute name, SI unit and axis names.
-    optional : bool
-        Whether ``None`` is admitted.
-
-    Returns
-    -------
-    RecordField
-        The field.
+    - ``name``, ``unit``, ``axes``: attribute name, SI unit and axis names.
+    - ``optional``: whether ``None`` is admitted.
     """
     return RecordField(name, "array", unit, axes, optional)
 
@@ -470,18 +461,7 @@ def structured_json(value: object) -> str:
 
 
 def _plain(value: object) -> object:  # noqa: PLR0911 - one return per value kind
-    """Return a JSON-compatible copy of one structured value.
-
-    Parameters
-    ----------
-    value : object
-        Any value.
-
-    Returns
-    -------
-    object
-        Plain containers and scalars.
-    """
+    """Return a JSON-compatible copy of one structured value."""
     if value is None or isinstance(value, bool | str):
         return value
     if isinstance(value, int):
@@ -514,52 +494,20 @@ def _plain(value: object) -> object:  # noqa: PLR0911 - one return per value kin
 
 
 def _now() -> str:
-    """Return the current UTC time in ISO 8601.
-
-    Returns
-    -------
-    str
-        Timestamp.
-    """
+    """Return the current UTC time in ISO 8601."""
     return datetime.now(UTC).isoformat()
 
 
 def _digest(data: bytes) -> str:
     """Return a short content address for a shared value.
 
-    Parameters
-    ----------
-    data : bytes
-        The value's bytes, with its dtype and shape folded in by the caller.
-
-    Returns
-    -------
-    str
-        Thirty-two hexadecimal characters of its SHA-256.
+    - ``data``: the value's bytes, with its dtype and shape folded in by the caller.
     """
     return hashlib.sha256(data).hexdigest()[:32]
 
 
 def _admit_array(value: object, where: str) -> np.ndarray:
-    """Return an array the archive can store with its exact dtype, or refuse it.
-
-    Parameters
-    ----------
-    value : object
-        A provider array.
-    where : str
-        Its path in the record, for the error.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array.
-
-    Raises
-    ------
-    TDSEArchiveError
-        If it is not a NumPy array of a numeric or boolean dtype.
-    """
+    """Return an array the archive can store with its exact dtype, or refuse it."""
     if not isinstance(value, np.ndarray):
         msg = f"cannot serialize {where}: expected a NumPy array, got {type(value)!r}"
         raise TDSEArchiveError(msg)
@@ -570,25 +518,7 @@ def _admit_array(value: object, where: str) -> np.ndarray:
 
 
 def _admit_scalar(value: object, where: str) -> np.ndarray:
-    """Return a numeric scalar as a zero-dimensional array of its own dtype.
-
-    Parameters
-    ----------
-    value : object
-        A Python or NumPy number.
-    where : str
-        Its path in the record, for the error.
-
-    Returns
-    -------
-    numpy.ndarray
-        Zero-dimensional array.
-
-    Raises
-    ------
-    TDSEArchiveError
-        If it is not a number.
-    """
+    """Return a numeric scalar as a zero-dimensional array of its own dtype."""
     if isinstance(value, bool | int | float | np.number | np.bool_):
         return np.asarray(value)
     msg = f"cannot serialize {where}: expected a number, got {type(value)!r}"
@@ -596,25 +526,7 @@ def _admit_scalar(value: object, where: str) -> np.ndarray:
 
 
 def _admit_labels(value: object, where: str) -> np.ndarray:
-    """Return integer order labels as an int64 vector.
-
-    Parameters
-    ----------
-    value : object
-        A tuple of integers.
-    where : str
-        Its path in the record, for the error.
-
-    Returns
-    -------
-    numpy.ndarray
-        The labels.
-
-    Raises
-    ------
-    TDSEArchiveError
-        If the value is not a tuple of plain integers.
-    """
+    """Return integer order labels as an int64 vector."""
     if not isinstance(value, tuple) or not all(
         isinstance(item, int) and not isinstance(item, bool)
         for item in cast("tuple[object, ...]", value)
@@ -625,25 +537,7 @@ def _admit_labels(value: object, where: str) -> np.ndarray:
 
 
 def _outcomes_json(value: object, where: str) -> str:
-    """Encode the per-row outcome records.
-
-    Parameters
-    ----------
-    value : object
-        A sequence of records with ``failure`` and ``failure_step``.
-    where : str
-        Its path in the record, for the error.
-
-    Returns
-    -------
-    str
-        JSON list of ``{"failure": ..., "failure_step": ...}``.
-
-    Raises
-    ------
-    TDSEArchiveError
-        If an outcome lacks either attribute.
-    """
+    """Encode the per-row outcome records."""
     if not isinstance(value, tuple | list):
         msg = f"cannot serialize {where}: outcomes must be a sequence"
         raise TDSEArchiveError(msg)
@@ -684,19 +578,10 @@ class _Counters:
 def _relative_reference(archive: Path, optical: Path | None) -> dict[str, object]:
     """Return where the optical file finds its archive.
 
-    Parameters
-    ----------
-    archive : pathlib.Path
-        The archive path.
-    optical : pathlib.Path or None
-        The optical HDF5 file, or None for an in-memory output.
-
-    Returns
-    -------
-    dict
-        ``path`` relative to the optical file's directory with ``relative_to =
-        "optical_file"``, or the absolute path with ``relative_to = None`` when there
-        is no optical file or no relative path exists.
+    - ``optical``: the optical HDF5 file, or None for an in-memory output.
+    - Returns: ``path`` relative to the optical file's directory with ``relative_to =
+      "optical_file"``, or the absolute path with ``relative_to = None`` when there is
+      no optical file or no relative path exists.
     """
     absolute = archive.resolve()
     if optical is not None:
@@ -890,14 +775,7 @@ class TDSEArchiveWriter:
     ) -> None:
         """Release a failed factory's ownership only after confirmed closure.
 
-        Parameters
-        ----------
-        file : h5py.File or None
-            Handle opened before setup failed, if any.
-        lease : WriterLock
-            Factory's acquired lease.
-        failure : BaseException
-            Primary error, with cleanup failures attached as notes.
+        - ``file``: handle opened before setup failed, if any.
         """
         if file is not None:
             try:
@@ -917,21 +795,7 @@ class TDSEArchiveWriter:
     ) -> None:
         """Validate an existing archive while its caller owns the handle.
 
-        Parameters
-        ----------
-        file : h5py.File
-            The file, open read-write under the persistent writer lease.
-        path : pathlib.Path
-            The existing path.
-        run_uuid : str
-            The identity it must carry.
-        resume : bool
-            Whether continuing is allowed at all.
-
-        Raises
-        ------
-        TDSEArchiveError
-            If the file is not this run's archive, or this is not a resume.
+        - ``run_uuid``: the identity it must carry.
         """
         schema = file.attrs.get("schema")
         stored = file.attrs.get("run_uuid")
@@ -1055,13 +919,7 @@ class TDSEArchiveWriter:
             raise TDSEArchiveError("the TDSE archive is suspended")
 
     def _require_session(self) -> h5py.Group:
-        """Return the live session; suspended writers cannot issue HDF5 operations.
-
-        Returns
-        -------
-        h5py.Group
-            Live session group.
-        """
+        """Return the live session; suspended writers cannot issue HDF5 operations."""
         self.ensure_writable()
         assert self._session is not None
         return self._session
@@ -1136,20 +994,7 @@ class TDSEArchiveWriter:
             raise self._fail(error, "snapshot reopening") from error
 
     def _fail(self, error: BaseException, what: str) -> TDSEArchiveError:
-        """Mark the writer failed and return the error to raise.
-
-        Parameters
-        ----------
-        error : BaseException
-            What went wrong.
-        what : str
-            What was being written.
-
-        Returns
-        -------
-        TDSEArchiveError
-            The failure, chained to `error`.
-        """
+        """Mark the writer failed and return the error to raise."""
         if isinstance(error, TDSEArchiveError):
             failure = error
         else:
@@ -1165,10 +1010,7 @@ class TDSEArchiveWriter:
     def _measure(self, started: float) -> None:
         """Add one write's duration and the file's growth to the counters.
 
-        Parameters
-        ----------
-        started : float
-            ``time.perf_counter()`` when the write began.
+        - ``started``: ``time.perf_counter()`` when the write began.
         """
         self._counters.seconds += time.perf_counter() - started
         # A file removed while open has no size to report; the counters stand.
@@ -1176,13 +1018,7 @@ class TDSEArchiveWriter:
             self._bytes_written = self.path.stat().st_size - self._start_size
 
     def _require_file(self) -> h5py.File:
-        """Return the open file.
-
-        Returns
-        -------
-        h5py.File
-            The file.
-        """
+        """Return the open file."""
         self.ensure_writable()
         assert self._file is not None
         return self._file
@@ -1190,15 +1026,8 @@ class TDSEArchiveWriter:
     def _shared(self, value: np.ndarray | str) -> h5py.Dataset:
         """Store an immutable value once in the session and return its dataset.
 
-        Parameters
-        ----------
-        value : numpy.ndarray or str
-            An array (stored with its dtype and shape) or JSON text.
-
-        Returns
-        -------
-        h5py.Dataset
-            The stored dataset, to hard-link where it is used.
+        - ``value``: an array (stored with its dtype and shape) or JSON text.
+        - Returns: the stored dataset, to hard-link where it is used.
         """
         shared = cast("h5py.Group", self._require_session()["shared"])
         if isinstance(value, str):
@@ -1218,16 +1047,8 @@ class TDSEArchiveWriter:
     ) -> None:
         """Write one array exactly, uncompressed and contiguous, with its labels.
 
-        Parameters
-        ----------
-        group : h5py.Group
-            Where it goes.
-        name : str
-            Dataset name.
-        value : numpy.ndarray
-            The array; its dtype and shape are kept.
-        **attrs : str
-            Unit and axis labels.
+        - ``value``: the array; its dtype and shape are kept.
+        - ``**attrs``: unit and axis labels.
         """
         dataset = group.create_dataset(name, data=value)
         for key, label in attrs.items():
@@ -1322,18 +1143,7 @@ class TDSEArchiveWriter:
         return identifier
 
     def _group(self, evaluation: int) -> h5py.Group:
-        """Return an evaluation group begun in this session.
-
-        Parameters
-        ----------
-        evaluation : int
-            Its identifier.
-
-        Returns
-        -------
-        h5py.Group
-            The group.
-        """
+        """Return an evaluation group begun in this session."""
         try:
             return self._open_evaluations[evaluation]
         except KeyError:
@@ -1376,19 +1186,7 @@ class TDSEArchiveWriter:
     def _write_record(
         self, group: h5py.Group, raw: object, schema: RecordSchema, where: str
     ) -> None:
-        """Store every field of one record under its serializer.
-
-        Parameters
-        ----------
-        group : h5py.Group
-            The record's group.
-        raw : object
-            The record.
-        schema : RecordSchema
-            Its serializer.
-        where : str
-            Its path, for errors.
-        """
+        """Store every field of one record under its serializer."""
         group.attrs["serializer"] = schema.serializer
         absent: list[str] = []
         for item in schema.fields:
@@ -1410,19 +1208,7 @@ class TDSEArchiveWriter:
     def _write_field(
         self, group: h5py.Group, item: RecordField, value: object, where: str
     ) -> None:
-        """Store one present field.
-
-        Parameters
-        ----------
-        group : h5py.Group
-            The record's group.
-        item : RecordField
-            The field's description.
-        value : object
-            Its value.
-        where : str
-            Its path, for errors.
-        """
+        """Store one present field."""
         if item.kind == "array":
             array = _admit_array(value, where)
             if item.name == "time":
@@ -1633,29 +1419,12 @@ def writer_memory(*, rows: int, samples: int) -> dict[str, int]:
 
 
 def _disk_full(error: BaseException) -> bool:
-    """Return whether an error reports a full disk.
-
-    Parameters
-    ----------
-    error : BaseException
-        A write error.
-
-    Returns
-    -------
-    bool
-        True for ``ENOSPC``.
-    """
+    """Return whether an error reports a full disk."""
     return isinstance(error, OSError) and error.errno == errno.ENOSPC
 
 
 def _cap_metadata_cache(file: h5py.File) -> None:
-    """Bound the open file's HDF5 metadata cache by the admitted size.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open archive.
-    """
+    """Bound the open file's HDF5 metadata cache by the admitted size."""
     config = file.id.get_mdc_config()
     config.set_initial_size = True
     config.initial_size = ARCHIVE_METADATA_CACHE_BYTES // 4
@@ -1665,18 +1434,7 @@ def _cap_metadata_cache(file: h5py.File) -> None:
 
 
 def _next_evaluation_id(sessions: h5py.Group) -> int:
-    """Return the identifier after every evaluation already in the file.
-
-    Parameters
-    ----------
-    sessions : h5py.Group
-        The file's sessions.
-
-    Returns
-    -------
-    int
-        One more than the largest stored identifier, or 0.
-    """
+    """Return the identifier after every evaluation already in the file."""
     largest = -1
     for name in sessions:
         try:
@@ -1809,20 +1567,7 @@ class ArchivedSession:
 
 
 def _attr(group: h5py.HLObject, name: str) -> object:
-    """Return an attribute as a plain Python value.
-
-    Parameters
-    ----------
-    group : h5py.HLObject
-        The owner: a file, group or dataset.
-    name : str
-        Attribute name.
-
-    Returns
-    -------
-    object
-        The value, with NumPy scalars as Python ones and arrays as lists.
-    """
+    """Return an attribute as a plain Python value."""
     value = group.attrs[name]
     if isinstance(value, np.ndarray):
         return cast("object", value.tolist())
@@ -1832,18 +1577,7 @@ def _attr(group: h5py.HLObject, name: str) -> object:
 
 
 def _text(dataset: object) -> str:
-    """Return the text of a string dataset.
-
-    Parameters
-    ----------
-    dataset : object
-        An h5py string dataset.
-
-    Returns
-    -------
-    str
-        Its text.
-    """
+    """Return the text of a string dataset."""
     return str(cast("h5py.Dataset", dataset).asstr()[()])
 
 
@@ -1930,13 +1664,7 @@ class TDSEArchiveReader:
         return str(_attr(self._file, "run_uuid"))
 
     def _sessions(self) -> list[h5py.Group]:
-        """Return the session groups in order.
-
-        Returns
-        -------
-        list of h5py.Group
-            The groups.
-        """
+        """Return the session groups in order."""
         sessions = cast("h5py.Group", self._file["sessions"])
         return [cast("h5py.Group", sessions[name]) for name in sorted(sessions)]
 
@@ -1952,18 +1680,7 @@ class TDSEArchiveReader:
         return tuple(self._session(group) for group in self._sessions())
 
     def _session(self, group: h5py.Group) -> ArchivedSession:
-        """Read one session's labels.
-
-        Parameters
-        ----------
-        group : h5py.Group
-            The session group.
-
-        Returns
-        -------
-        ArchivedSession
-            Its description.
-        """
+        """Read one session's labels."""
         trials: dict[int, str] = {}
         if "trials" in group:
             for name in cast("h5py.Group", group["trials"]):
@@ -2022,18 +1739,7 @@ class TDSEArchiveReader:
         return any(not item.complete for item in self.evaluations())
 
     def _evaluation_group(self, evaluation: ArchivedEvaluation) -> h5py.Group:
-        """Return the group of an evaluation.
-
-        Parameters
-        ----------
-        evaluation : ArchivedEvaluation
-            The evaluation.
-
-        Returns
-        -------
-        h5py.Group
-            Its group.
-        """
+        """Return the group of an evaluation."""
         session = self._sessions()[evaluation.session]
         evaluations = cast("h5py.Group", session["evaluations"])
         return cast(
@@ -2113,22 +1819,7 @@ class TDSEArchiveReader:
 def _evaluation(
     evaluations: h5py.Group, name: str, trials: Mapping[int, str]
 ) -> ArchivedEvaluation:
-    """Read one evaluation's labels, flagging anything incomplete.
-
-    Parameters
-    ----------
-    evaluations : h5py.Group
-        The session's evaluations.
-    name : str
-        The group's name.
-    trials : mapping
-        The session's trial decisions.
-
-    Returns
-    -------
-    ArchivedEvaluation
-        Its description.
-    """
+    """Read one evaluation's labels, flagging anything incomplete."""
     identifier = int(name.removeprefix("evaluation_"))
     try:
         group = cast("h5py.Group", evaluations[name])
@@ -2172,20 +1863,7 @@ def _evaluation(
 
 
 def _broken(identifier: int, evaluations: h5py.Group) -> ArchivedEvaluation:
-    """Describe an evaluation group that cannot be read at all.
-
-    Parameters
-    ----------
-    identifier : int
-        Its identifier.
-    evaluations : h5py.Group
-        The session's evaluations, for its session index.
-
-    Returns
-    -------
-    ArchivedEvaluation
-        Marked incomplete, with no labels.
-    """
+    """Describe an evaluation group that cannot be read at all."""
     session = evaluations.parent
     index = int(cast("int", _attr(session, "index")))
     return ArchivedEvaluation(
@@ -2210,18 +1888,8 @@ def _chunks(
 ) -> tuple[tuple[ArchivedChunk, ...], bool]:
     """Read an evaluation's chunk descriptions.
 
-    Parameters
-    ----------
-    group : h5py.Group
-        The evaluation group.
-    labels : mapping
-        Its labels, with ``n_chunks``.
-
-    Returns
-    -------
-    tuple
-        The chunks present, and whether every expected chunk stored its input and
-        its record.
+    - Returns: the chunks present, and whether every expected chunk stored its input and
+      its record.
     """
     expected = int(cast("int", labels.get("n_chunks", 0)))
     chunks: list[ArchivedChunk] = []
@@ -2253,15 +1921,7 @@ def _chunks(
 def _read_record(group: h5py.Group) -> dict[str, object]:
     """Read one stored record back into plain containers.
 
-    Parameters
-    ----------
-    group : h5py.Group
-        The record's group.
-
-    Returns
-    -------
-    dict
-        Field name to value, ``None`` for an absent field.
+    - Returns: field name to value, ``None`` for an absent field.
     """
     record: dict[str, object] = {"serializer": str(_attr(group, "serializer"))}
     for name in json.loads(str(_attr(group, "absent"))):

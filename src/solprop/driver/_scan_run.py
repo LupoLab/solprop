@@ -106,22 +106,7 @@ def launch_statistics(
     assembled with: the builders' own is in true sqrt(W), while ``initial.noise0``
     is already divided by the entrance weight.
 
-    Parameters
-    ----------
-    backend : solprop.backends.protocol.Backend
-        The constructed backend.
-    problem : solprop.translate.problem.PropagationProblem
-        Its problem.
-
-    Returns
-    -------
-    collections.abc.Mapping
-        The launch plane's statistics, without a batch axis.
-
-    Raises
-    ------
-    BaseException
-        The launch's own failure, when its statistics could not be evaluated.
+    - Returns: the launch plane's statistics, without a batch axis.
     """
     session = start_session(
         backend, problem, backend.request, Start.entrance(problem), owns=False
@@ -141,17 +126,7 @@ def launch_statistics(
 def _plane_index(index: int, count: int) -> int:
     """Resolve a saved-plane index and reject out-of-range selections.
 
-    Parameters
-    ----------
-    index : int
-        Global point index, or saved-plane index where specified.
-    count : int
-        Number of saved planes, including the input.
-
-    Returns
-    -------
-    int
-        Zero-based resolved saved-plane index.
+    - ``index``: global point index, or saved-plane index where specified.
     """
     resolved = index + count if index < 0 else index
     if not 0 <= resolved < count:
@@ -166,19 +141,7 @@ def _checked(
 ) -> np.ndarray:
     """Validate a reduction against its declared array contract.
 
-    Parameters
-    ----------
-    reduction : Reduction
-        Reduction declaration including shape, dtype and units.
-    value : np.ndarray
-        Value to validate or serialise.
-    metadata : RunMetadata
-        Complete single-run metadata.
-
-    Returns
-    -------
-    numpy.ndarray
-        Validated independent copy of the reduction result.
+    - ``reduction``: reduction declaration including shape, dtype and units.
     """
     array = np.asarray(value)
     expected = reduction.shape(metadata)
@@ -195,14 +158,7 @@ def _checked(
 class _Capture(MemoryOutput):
     """Keep statistics, selected fields and plane-local reductions only.
 
-    Parameters
-    ----------
-    options : _Options
-        Validated field, statistic and reduction retention policy.
-    simulation : Simulation
-        Simulation whose translated shape determines storage.
-    scratch : Path
-        Worker-local temporary directory.
+    - ``simulation``: simulation whose translated shape determines storage.
     """
 
     def __init__(
@@ -238,50 +194,26 @@ class _Capture(MemoryOutput):
     def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
         """Adopt the run's field retention, and hand it to the spool of a reduction.
 
-        Parameters
-        ----------
-        retention : solprop.output.schema.FieldRetention
-            Which planes keep their field, resolved.
-        field_shape : tuple of int
-            ``(n_modes, n_pol, n_omega)`` of the run's state.
+        - ``field_shape``: ``(n_modes, n_pol, n_omega)`` of the run's state.
         """
         super().retain(retention, field_shape)
         if self.spool is not None:
             self.spool.retain(retention, field_shape)
 
     def open(self, metadata: RunMetadata, *, force: bool = False) -> None:
-        """Initialize retained statistics and any temporary field spool.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            Complete single-run metadata.
-        force : bool
-            Whether to replace existing metadata.
-        """
+        """Initialize retained statistics and any temporary field spool."""
         super().open(metadata, force=force)
         if self.spool is not None:
             self.spool.open(metadata)
 
     def _keep(self, name: str, value: np.ndarray | float) -> None:
-        """Copy retained data before the backend reuses its buffers.
-
-        Parameters
-        ----------
-        name : str
-            Dataset path or column name.
-        value : np.ndarray | float
-            Value to validate or serialise.
-        """
+        """Copy retained data before the backend reuses its buffers."""
         self.arrays.setdefault(name, []).append(np.asarray(value).copy())
 
     def save(self, plane: SavedPlane) -> None:
         """Capture requested fields and statistics before the next step.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            Saved plane in the internal Fourier convention, or its index.
+        - ``plane``: saved plane in the internal Fourier convention, or its index.
         """
         metadata = self.metadata
         if metadata is None:
@@ -344,10 +276,7 @@ class _Capture(MemoryOutput):
         The capture keeps its columns itself rather than in the store; a stopped run
         reads this back before it records its terminal checkpoint.
 
-        Returns
-        -------
-        float
-            The position, m.
+        - Returns: the position, m.
         """
         return float(self.arrays["z"][-1])
 
@@ -360,10 +289,7 @@ class _Capture(MemoryOutput):
     def results(self) -> dict[str, np.ndarray]:
         """Combine retained columns and evaluate complete-output reducers.
 
-        Returns
-        -------
-        dict
-            Retained arrays keyed by their storage paths.
+        - Returns: retained arrays keyed by their storage paths.
         """
         if self.spool is not None:
             with open_file(self.custom_path) as output:
@@ -391,10 +317,8 @@ class _Capture(MemoryOutput):
 class _Display(NullScanReporter):
     """The outer display a named progress choice means: one bar, log lines, or nothing.
 
-    Parameters
-    ----------
-    choice : {'auto', 'bar', 'log', 'none'}
-        The named choice; ``"auto"`` draws a bar when the process is interactive.
+    - ``choice``: the named choice; ``"auto"`` draws a bar when the process is
+      interactive.
     """
 
     def __init__(self, choice: ProgressChoice) -> None:
@@ -404,13 +328,7 @@ class _Display(NullScanReporter):
         self.started = time.perf_counter()
 
     def scan_started(self, n_points: int) -> None:
-        """Draw the bar, when one is chosen.
-
-        Parameters
-        ----------
-        n_points : int
-            The selected points, the bar's extent.
-        """
+        """Draw the bar, when one is chosen."""
         self.started = time.perf_counter()
         if self.choice == "bar" or (self.choice == "auto" and is_interactive()):
             self.bar = BarReporter(position=0, leave=True, echo=False)
@@ -419,14 +337,9 @@ class _Display(NullScanReporter):
     def point_finished(self, index: int, status: str, wall: float) -> None:
         """Log a point that did not fail, and advance the bar.
 
-        Parameters
-        ----------
-        index : int
-            The point's global index.
-        status : str
-            Its status; a failure is logged with its traceback when it is collected.
-        wall : float
-            Its build and run time, s.
+        - ``status``: its status; a failure is logged with its traceback when it is
+          collected.
+        - ``wall``: its build and run time, s.
         """
         if status != "failed" and self.choice != "none":
             logger.info("scan point %d: %s (%.3f s)", index, status, wall)
@@ -446,13 +359,6 @@ class _ScanEvents:
     Lives in the controlling process only. A point's start is reported when it is
     dispatched (``Local``, ``Pool``) or, for an executor that reports none, just before
     its result is collected.
-
-    Parameters
-    ----------
-    reporter : solprop.log.ScanReporter
-        Where the events go.
-    scan : Scan
-        The scan, which looks a collected point up by its global index.
     """
 
     def __init__(self, reporter: ScanReporter, scan: Scan) -> None:
@@ -465,16 +371,8 @@ class _ScanEvents:
     def begin(self, point: ScanPoint) -> ProgressReporter | None:
         """Report a point's start and return the reporter for its run, if any.
 
-        Parameters
-        ----------
-        point : ScanPoint
-            The point dispatched.
-
-        Returns
-        -------
-        solprop.log.ProgressReporter or None
-            The reporter :meth:`solprop.log.WatchingScanReporter.point_reporter`
-            returned, or ``None``.
+        - Returns: the reporter :meth:`solprop.log.WatchingScanReporter.point_reporter`
+          returned, or ``None``.
         """
         self.started.add(point.index)
         self.reporter.point_started(point.index, point)
@@ -494,18 +392,8 @@ class _ScanEvents:
     ) -> None:
         """Make a reporter call a pool worker sent for its point's run.
 
-        Parameters
-        ----------
-        index : int
-            The point's global index.
-        call : str
-            ``"summary"``, ``"started"``, ``"plane"``, ``"finished"`` or
-            ``"interrupted"``.
-        args : tuple
-            The call's arguments as :class:`~solprop.driver.executors.pool.Pool`'s
-            worker sends them.
-        stop : StopFlag or None
-            The caller's flag, which a worker's stop stands for.
+        - ``call``: ``"summary"``, ``"started"``, ``"plane"``, ``"finished"`` or
+          ``"interrupted"``.
         """
         watcher = self.watchers.get(index)
         if watcher is None:
@@ -531,13 +419,7 @@ class _ScanEvents:
             watcher.interrupted(z, error)
 
     def finish(self, result: PointResult) -> None:
-        """Report a collected point, starting it first if nothing has.
-
-        Parameters
-        ----------
-        result : PointResult
-            The point's result.
-        """
+        """Report a collected point, starting it first if nothing has."""
         if result.index not in self.started:
             self.started.add(result.index)
             self.reporter.point_started(result.index, self.scan.point(result.index))
@@ -565,13 +447,7 @@ class _Work:
     _kept: SimulationRunner | None = field(default=None, init=False, repr=False)
 
     def __getstate__(self) -> dict[str, object]:
-        """Drop the controller's flag and reporter, which stay in its process.
-
-        Returns
-        -------
-        dict
-            The fields a worker needs.
-        """
+        """Drop the controller's flag and reporter, which stay in its process."""
         state: dict[str, object] = dict(self.__dict__)
         return state | {"stop": None, "events": None, "_kept": None}
 
@@ -595,17 +471,6 @@ class _Work:
         a scan in this process keeps it while each point is the last but for its input,
         which a builder arranges with :meth:`Simulation.with_input`. A point that isn't
         closes it first, so that two are never held, and one that raises takes it down.
-
-        Parameters
-        ----------
-        simulation : Simulation
-            The point, keeping the fields the scan reads.
-        capture : _Capture
-            Where its planes go.
-        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
-            Where progress goes.
-        stop : object or None
-            The point's stop flag.
         """
         if (
             not self.keeps_backend
@@ -626,65 +491,26 @@ class _Work:
             raise
 
     def dispatched(self, job: _Job) -> None:
-        """Report that a pool sent a point to a worker.
-
-        Parameters
-        ----------
-        job : _Job
-            The point.
-        """
+        """Report that a pool sent a point to a worker."""
         if self.events is not None:
             self.events.begin(job.point)
 
     def relay(self, job: _Job, call: str, args: tuple[object, ...]) -> None:
-        """Make a reporter call a pool worker sent for its point's run.
-
-        Parameters
-        ----------
-        job : _Job
-            The point the worker runs.
-        call : str
-            The reporter method.
-        args : tuple
-            Its arguments.
-        """
+        """Make a reporter call a pool worker sent for its point's run."""
         if self.events is not None:
             self.events.relay(job.point.index, call, args, self.stop)
 
     def stopped(self, job: _Job, wall_time: float = 0.0) -> PointResult:
         """Return the result of a point the stop flag stopped, which is not committed.
 
-        Parameters
-        ----------
-        job : _Job
-            The point.
-        wall_time : float, optional
-            What it ran for before it stopped, s.
-
-        Returns
-        -------
-        PointResult
-            Its ``"stopped"`` result.
+        - ``wall_time``: what it ran for before it stopped, s.
         """
         return PointResult(
             job.point.index, "stopped", error=STOPPED, wall_time=wall_time
         )
 
     def run_batch(self, jobs: Iterable[_Job], executor: Batch) -> Iterator[PointResult]:
-        """Delegate compatible jobs to the common lockstep scan driver.
-
-        Parameters
-        ----------
-        jobs : iterable of _Job
-            Global jobs, including previously completed configuration hashes.
-        executor : Batch
-            Batch-size and memory policy, with recorded admission calculations.
-
-        Yields
-        ------
-        PointResult
-            One durable result per dispatched point.
-        """
+        """Delegate compatible jobs to the common lockstep scan driver."""
         from solprop.driver._scan_batch import (  # noqa: PLC0415 - shared worker types
             execute,
         )
@@ -699,16 +525,6 @@ class _Work:
         that the point is reproducible and a rerun matches the record of its first
         run; noise the builder seeded must have used ``point.seed``. The draw goes on
         a copy: a builder may return one object for every point.
-
-        Parameters
-        ----------
-        job : _Job
-            Global point and previously committed configuration digest.
-
-        Returns
-        -------
-        Simulation
-            Constructed simulation with reproducible noise.
         """
         simulation = self.build(job.point)
         if not isinstance(simulation, Simulation):
@@ -759,15 +575,7 @@ class _Work:
     def probe(self, job: _Job) -> Mapping[str, int]:
         """Measure backend allocations without propagating a point.
 
-        Parameters
-        ----------
-        job : _Job
-            Global point and previously committed configuration digest.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            Peak RSS, baseline RSS and named backend allocation bytes.
+        - Returns: peak RSS, baseline RSS and named backend allocation bytes.
         """
         baseline = peak_rss()
         simulation = self.simulation(job)
@@ -792,20 +600,7 @@ class _Work:
             backend.close()
 
     def failure(self, job: _Job, error: str) -> PointResult:
-        """Record an abnormal worker exit without losing other completed points.
-
-        Parameters
-        ----------
-        job : _Job
-            Point assigned to the terminated worker.
-        error : str
-            Child traceback or abnormal-exit explanation.
-
-        Returns
-        -------
-        PointResult
-            Failure of this attempt, which never demotes a committed point.
-        """
+        """Record an abnormal worker exit without losing other completed points."""
         # A crash is a crash whatever the point's stored state: only `__call__`
         # can see a genuine configuration disagreement, and only it reports one.
         # Calling a dead worker a conflict aborted the whole scan through
@@ -817,17 +612,8 @@ class _Work:
     ) -> int:
         """Estimate retained plane data and reductions for resource admission.
 
-        Parameters
-        ----------
-        simulation : Simulation
-            Probed point with its final translation.
-        statistics : mapping
-            One plane of statistics with resolved species and mode axes.
-
-        Returns
-        -------
-        int
-            Retained array bytes; adaptive periodic rows use the memory headroom.
+        - ``statistics``: one plane of statistics with resolved species and mode axes.
+        - Returns: retained array bytes; adaptive periodic rows use the memory headroom.
         """
         count = len(simulation.settings.save_planes) + 1
         selected = (
@@ -880,18 +666,7 @@ class _Work:
         return field_bytes + stat_bytes + periodic_bytes + reduced_bytes + count * 8
 
     def __call__(self, job: _Job) -> PointResult:
-        """Run a point in this process, under the caller's flag and reporter.
-
-        Parameters
-        ----------
-        job : _Job
-            Global point and previously committed configuration digest.
-
-        Returns
-        -------
-        object
-            Completed calculation, captured point failure, or a stopped point.
-        """
+        """Run a point in this process, under the caller's flag and reporter."""
         reporter = None if self.events is None else self.events.begin(job.point)
         return self.run_point(job, self.stop, reporter)
 
@@ -900,20 +675,9 @@ class _Work:
     ) -> PointResult:
         """Execute the declared worker calculation.
 
-        Parameters
-        ----------
-        job : _Job
-            Global point and previously committed configuration digest.
-        stop : StopFlag or None
-            The flag the point's run polls; when it stops the run, the point is
-            ``"stopped"``, not done.
-        reporter : solprop.log.ProgressReporter or None
-            Where the point's run reports; ``None`` runs it silently.
-
-        Returns
-        -------
-        object
-            Completed calculation, captured point failure, or a stopped point.
+        - ``stop``: the flag the point's run polls; when it stops the run, the point is
+          ``"stopped"``, not done.
+        - ``reporter``: where the point's run reports; ``None`` runs it silently.
         """
         started = time.perf_counter()
         metadata_json = digest = ""
@@ -996,15 +760,7 @@ class _Work:
 def _closing_monitor(capture: _Capture | None) -> Mapping[str, object] | None:
     """Return a point's closing boundary-monitor record from its capture.
 
-    Parameters
-    ----------
-    capture : _Capture or None
-        The point's capture, once its run has recorded an outcome.
-
-    Returns
-    -------
-    collections.abc.Mapping or None
-        The record, or ``None`` when the point was not watched or never ran.
+    - Returns: the record, or ``None`` when the point was not watched or never ran.
     """
     outcome = None if capture is None else capture.outcome
     record = None if outcome is None else outcome.execution.get("boundary_monitor")
@@ -1017,16 +773,6 @@ def _field_retention(capture: _Capture) -> FieldRetention:
     The fields the scan retains, those its built-in reductions read at their target
     planes, and, while a custom reduction that reads fields spools the run, every
     field (SEP 22, Q3).
-
-    Parameters
-    ----------
-    capture : _Capture
-        The point's capture, which knows the selected and target planes.
-
-    Returns
-    -------
-    solprop.output.schema.FieldRetention
-        The rule, its plane indices resolved.
     """
     options = capture.options
     spooled = any(
@@ -1052,18 +798,6 @@ def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
 
     The builder's own simulation is left as it is: a builder may return one object for
     every point.
-
-    Parameters
-    ----------
-    simulation : Simulation
-        The point's simulation, translated.
-    capture : _Capture
-        The point's capture, which knows the selected and target planes.
-
-    Returns
-    -------
-    Simulation
-        A shallow copy sharing the translation, with the scan's field retention.
     """
     retention = _field_retention(capture)
     if retention.fields == "all":
@@ -1087,26 +821,9 @@ def _jobs(  # noqa: PLR0917 - called positionally
 ) -> Iterator[_Job]:
     """Claim eligible points lazily as dispatch capacity becomes available.
 
-    Parameters
-    ----------
-    scan : Scan
-        Cartesian scan or selection retaining global indices.
-    writer : ScanWriter
-        Controller-owned scan file.
-    retry : bool
-        Whether failed points are eligible.
-    age : float
-        Positive abandonment interval, s.
-    stop : StopFlag or None
-        Once set, no further point is claimed.
-    claims : dict
-        Filled with each claimed point's state and update time before the claim, so
-        that a stopped point is given back as it was (`_release`).
-
-    Yields
-    ------
-    object
-        Result of the declared operation.
+    - ``age``: positive abandonment interval, s.
+    - ``claims``: filled with each claimed point's state and update time before the
+      claim, so that a stopped point is given back as it was (`_release`).
     """
     for point in scan.points():
         if stop is not None and stop.is_set():
@@ -1128,14 +845,7 @@ def _release(writer: ScanWriter, index: int, claim: tuple[str, float]) -> None:
     A stopped point is not committed, so a rerun computes it again: left ``running``,
     a rerun would skip it for ``stale_age``.
 
-    Parameters
-    ----------
-    writer : ScanWriter
-        Controller-owned scan file.
-    index : int
-        The point's global index.
-    claim : tuple
-        Its state and update time before the claim.
+    - ``claim``: its state and update time before the claim.
     """
     state, updated = claim
     _dataset(writer.file, "points/status")[index] = state
@@ -1161,39 +871,8 @@ def execute_scan(
 ) -> ScanOutput:
     """Validate, dispatch and commit a scan through one writer.
 
-    Parameters
-    ----------
-    scan : Scan
-        Cartesian scan or selection retaining global indices.
-    build : Callable[[ScanPoint], Simulation]
-        Callable constructing a Simulation from a ScanPoint.
-    output : Path | str
-        Output handler for reductions, or collected destination path for execution.
-    executor : Executor | None
-        Execution policy; None selects the CLI policy or Local.
-    reductions : Sequence[Reduction]
-        Worker-side reduction declarations.
-    fields : str
-        Field retention mode: none, planes or all.
-    field_planes : Sequence[int]
-        Explicit saved-plane indices; negative indices count from the end.
-    stats : str | Sequence[str]
-        All, none, or explicit statistic names.
-    retry_failed : bool
-        Whether to dispatch previously failed points.
-    stale_age : float
-        Positive abandonment interval, s.
-    progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter
-        Outer progress display, or a reporter that replaces it.
-    stop : StopFlag or None, optional
-        The scan's stop flag; refused by Queue and Slurm.
-    recipe : solprop.output.schema.RecipeRecord or None, optional
-        The recipe the scan was built from, recorded once in its file.
-
-    Returns
-    -------
-    ScanOutput
-        Reader for the collected scan.
+    - ``executor``: execution policy; None selects the CLI policy or Local.
+    - ``stale_age``: positive abandonment interval, s.
     """
     _validate_options(fields, field_planes, stats, stale_age, reductions)
     if progress not in _PROGRESS_CHOICES and not isinstance(
@@ -1277,14 +956,8 @@ def _collect(
 ) -> None:
     """Commit a collected point, or give a stopped one back, and log a failure.
 
-    Parameters
-    ----------
-    result : PointResult
-        The point's result.
-    writer : ScanWriter or None
-        Local controller writer, or None for a durable queue.
-    claim : tuple or None
-        The point's state and update time before this scan claimed it.
+    - ``writer``: local controller writer, or None for a durable queue.
+    - ``claim``: the point's state and update time before this scan claimed it.
     """
     if result.status == "stopped":
         if writer is not None and claim is not None:
@@ -1320,16 +993,7 @@ def _finish_execution(
 ) -> None:
     """Record controller provenance and consolidate the durable output.
 
-    Parameters
-    ----------
-    executor : Executor
-        Selected execution policy and measured resource settings.
-    build : Callable[[ScanPoint], Simulation]
-        Builder whose source identifies this invocation.
-    writer : ScanWriter or None
-        Local controller writer, or None for a durable queue.
-    output : pathlib.Path or str
-        Collected scan destination.
+    - ``writer``: local controller writer, or None for a durable queue.
     """
     policy = (
         dataclasses.asdict(executor)
@@ -1363,18 +1027,7 @@ def _validate_options(
 ) -> None:
     """Reject ambiguous retention controls before opening the output.
 
-    Parameters
-    ----------
-    fields : str
-        Field retention mode: none, planes or all.
-    field_planes : Sequence[int]
-        Explicit saved-plane indices; negative indices count from the end.
-    stats : str | Sequence[str]
-        All, none, or explicit statistic names.
-    stale_age : float
-        Positive abandonment interval, s.
-    reductions : Sequence[Reduction]
-        Worker-side reduction declarations.
+    - ``stale_age``: positive abandonment interval, s.
     """
     refusal = field_retention_refusal(fields, field_planes)
     if refusal is not None:

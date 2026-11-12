@@ -88,17 +88,7 @@ def ssh_hosts(config: Path | None = None) -> list[str]:
 
 
 def _read_hosts(path: Path, found: list[str], seen: set[Path]) -> None:
-    """Add the hosts one configuration file names, following its includes.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-    found : list of str
-        Where the hosts go.
-    seen : set of pathlib.Path
-        The files already read, so an include loop ends.
-    """
+    """Add the hosts one configuration file names, following its includes."""
     try:
         resolved = path.expanduser().resolve()
         if resolved in seen:
@@ -308,15 +298,7 @@ def agent_command(
 
 
 def _drain(stream: BinaryIO, into: list[bytes]) -> None:
-    """Read a stream to its end, keeping what it said, and close it.
-
-    Parameters
-    ----------
-    stream : BinaryIO
-        The stream: a session's error output.
-    into : list of bytes
-        Where what it said goes.
-    """
+    """Read a stream to its end, keeping what it said, and close it."""
     with contextlib.suppress(OSError, ValueError):
         into.append(stream.read())
     with contextlib.suppress(OSError):
@@ -324,42 +306,13 @@ def _drain(stream: BinaryIO, into: list[bytes]) -> None:
 
 
 def _said(drainer: threading.Thread, errors: list[bytes]) -> str:
-    """Return what an ended session wrote to its error stream.
-
-    Parameters
-    ----------
-    drainer : threading.Thread
-        The thread reading that stream, which ends with it.
-    errors : list of bytes
-        Where it read the stream to.
-
-    Returns
-    -------
-    str
-        The text.
-    """
+    """Return what an ended session wrote to its error stream."""
     drainer.join(timeout=5)
     return b"".join(errors).decode("utf-8", "replace").strip()
 
 
 def _development(version: str) -> bool:
-    """Return whether a solprop version is a development build's.
-
-    Parameters
-    ----------
-    version : str
-        The version.
-
-    Returns
-    -------
-    bool
-        True for a ``.dev`` release or one with a local part.
-
-    Examples
-    --------
-    >>> _development("0.2.0"), _development("0.2.1.dev17+g8077f26c3.d20261107")
-    (False, True)
-    """
+    """Return whether a solprop version is a development build's."""
     return ".dev" in version or "+" in version
 
 
@@ -425,15 +378,7 @@ class Connection:
         self._thread.start()
 
     def _set(self, state: str, detail: object = None) -> None:
-        """Change the state and say so.
-
-        Parameters
-        ----------
-        state : str
-            The new state.
-        detail : object, optional
-            What goes with it.
-        """
+        """Change the state and say so."""
         self.state = state
         if state == "up":
             self._up.set()
@@ -462,13 +407,7 @@ class Connection:
         self._set("closed")
 
     def _session(self) -> str:
-        """Run one session to its end.
-
-        Returns
-        -------
-        str
-            Why it ended.
-        """
+        """Run one session to its end."""
         try:
             command, environment = self._command(self.machine)
         except ServiceError as error:
@@ -497,20 +436,7 @@ class Connection:
             stream.close()
 
     def _read(self, stream: BinaryIO, said: Callable[[], str]) -> str:
-        """Read a session's frames until it ends.
-
-        Parameters
-        ----------
-        stream : BinaryIO
-            The session's output.
-        said : Callable
-            Returns what the session wrote to its error stream, once it has ended.
-
-        Returns
-        -------
-        str
-            Why it ended.
-        """
+        """Read a session's frames until it ends."""
         try:
             greeting = read_frame(stream, skip_preface=True)
         except (EOFError, ServiceError) as error:
@@ -534,18 +460,7 @@ class Connection:
                 self._deliver(cast("dict[str, Any]", frame))
 
     def _no_helper(self, said: str) -> str:
-        """Return why a session gave no hello, as the user should read it.
-
-        Parameters
-        ----------
-        said : str
-            What ``ssh`` or the machine's shell wrote.
-
-        Returns
-        -------
-        str
-            The reason; a machine without solprop is refused, not retried.
-        """
+        """Return why a session gave no hello, as the user should read it."""
         missing = (
             "No module named" in said or "not found" in said or "No such file" in said
         )
@@ -559,18 +474,7 @@ class Connection:
         return said
 
     def _refusal(self, greeting: object) -> str | None:
-        """Return why a helper's hello is refused, or ``None`` to accept it.
-
-        Parameters
-        ----------
-        greeting : object
-            The first frame.
-
-        Returns
-        -------
-        str or None
-            The reason.
-        """
+        """Return why a helper's hello is refused, or ``None`` to accept it."""
         if not isinstance(greeting, dict) or greeting.get("kind") != "hello":
             return "the machine's helper did not say hello"
         hello = cast("dict[str, Any]", greeting)
@@ -596,13 +500,7 @@ class Connection:
         return None
 
     def _deliver(self, frame: dict[str, Any]) -> None:
-        """Hand a frame to whoever waits for it, or to the window.
-
-        Parameters
-        ----------
-        frame : dict
-            The frame.
-        """
+        """Hand a frame to whoever waits for it, or to the window."""
         if frame.get("kind") in {"reply", "error"}:
             with self._lock:
                 waiting = self._pending.pop(int(frame.get("id", -1)), None)
@@ -614,13 +512,7 @@ class Connection:
         self._on_frame(frame)
 
     def _fail_pending(self, reason: str) -> None:
-        """Answer every request still waiting with the session's end.
-
-        Parameters
-        ----------
-        reason : str
-            Why the session ended.
-        """
+        """Answer every request still waiting with the session's end."""
         with self._lock:
             pending, self._pending = self._pending, {}
         for event, box in pending.values():

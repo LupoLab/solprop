@@ -56,22 +56,7 @@ def name_seed(name: str, index: int) -> int:
     ``SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0]``, the
     derivation ``base_seed`` uses.
 
-    Parameters
-    ----------
-    name : str
-        The scan's name.
-    index : int
-        The point's global index.
-
-    Returns
-    -------
-    int
-        A non-negative 64-bit seed.
-
-    Examples
-    --------
-    >>> name_seed("rdw", 3) == name_seed("rdw", 3) != name_seed("rdw", 4)
-    True
+    - Returns: a non-negative 64-bit seed.
     """
     root = int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "little")
     sequence = np.random.SeedSequence([root, index])
@@ -141,10 +126,7 @@ class Scan(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             (name, f"{values.size} values, {values[0]:.6g} to {values[-1]:.6g}")

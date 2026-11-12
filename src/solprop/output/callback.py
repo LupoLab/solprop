@@ -39,18 +39,7 @@ __all__ = ["CallbackOutput"]
 
 
 def _not_held(what: str) -> OutputError:
-    """Return the refusal of a read, naming what was asked for.
-
-    Parameters
-    ----------
-    what : str
-        What the caller asked to read.
-
-    Returns
-    -------
-    solprop.exceptions.OutputError
-        The error to raise.
-    """
+    """Return the refusal of a read, naming what was asked for."""
     return OutputError(
         f"a CallbackOutput does not hold {what}: it gives each plane to its callable "
         "and keeps nothing. Keep what you need in the callable, or run into a "

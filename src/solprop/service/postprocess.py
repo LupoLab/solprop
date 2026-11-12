@@ -85,25 +85,7 @@ def catalogue(_payload: Payload) -> dict[str, list[str]]:
 
 
 def _number(values: Mapping[str, object], name: str) -> float:
-    """Return a stage's value as a number.
-
-    Parameters
-    ----------
-    values : Mapping
-        The stage's values.
-    name : str
-        The value.
-
-    Returns
-    -------
-    float
-        It.
-
-    Raises
-    ------
-    solprop.exceptions.SolpropError
-        If it is blank.
-    """
+    """Return a stage's value as a number."""
     value = values.get(name)
     if value is None:
         msg = f"the stage needs its {name.replace('_', ' ')}"
@@ -114,22 +96,7 @@ def _number(values: Mapping[str, object], name: str) -> float:
 def _range(values: Mapping[str, object], name: str) -> tuple[float, float] | None:
     """Return a stage's search range, or none where it is left blank.
 
-    Parameters
-    ----------
-    values : Mapping
-        The stage's values.
-    name : str
-        The range's name: ``name_min`` and ``name_max`` are read.
-
-    Returns
-    -------
-    tuple of float or None
-        The range, ascending; ``None`` when both ends are blank.
-
-    Raises
-    ------
-    solprop.exceptions.SolpropError
-        If one end is given and not the other.
+    - Returns: the range, ascending; ``None`` when both ends are blank.
     """
     low, high = values.get(f"{name}_min"), values.get(f"{name}_max")
     if low is None and high is None:
@@ -144,15 +111,7 @@ def _range(values: Mapping[str, object], name: str) -> tuple[float, float] | Non
 def _pressure(values: Mapping[str, object]) -> float | None:
     """Return a material's pressure, which only a gas takes.
 
-    Parameters
-    ----------
-    values : Mapping
-        The stage's values.
-
-    Returns
-    -------
-    float or None
-        The pressure in bar for a gas (one bar when left blank), else ``None``.
+    - Returns: the pressure in bar for a gas (one bar when left blank), else ``None``.
     """
     medium = str(values.get("medium"))
     if medium not in {gas.value for gas in Gas}:
@@ -167,17 +126,7 @@ def _prisms(values: Mapping[str, object], wavelength: float) -> PrismPair:
     The pair works within its band (a wavelength range): outside it, rays of a
     broad spectrum miss the faces.
 
-    Parameters
-    ----------
-    values : Mapping
-        The stage's values.
-    wavelength : float
-        The reference wavelength, m.
-
-    Returns
-    -------
-    solprop.optics.PrismPair
-        The pair.
+    - ``wavelength``: the reference wavelength, m.
     """
     glass = str(values.get("medium"))
     geometry = PrismGeometry(
@@ -199,17 +148,7 @@ def _prisms(values: Mapping[str, object], wavelength: float) -> PrismPair:
 def _gratings(values: Mapping[str, object], wavelength: float) -> GratingPair:
     """Return a stage's grating pair: first order, Littrow where no angle is given.
 
-    Parameters
-    ----------
-    values : Mapping
-        The stage's values.
-    wavelength : float
-        The reference wavelength, m.
-
-    Returns
-    -------
-    solprop.optics.GratingPair
-        The pair.
+    - ``wavelength``: the reference wavelength, m.
     """
     density = _number(values, "line_density")
     incidence = values.get("incidence")
@@ -361,17 +300,9 @@ def search(
 def _pulse(t: np.ndarray, power: np.ndarray) -> dict[str, float]:
     """Return a pulse's width and peak, as solprop measures them.
 
-    Parameters
-    ----------
-    t : numpy.ndarray
-        The time axis, s.
-    power : numpy.ndarray
-        The power, W.
-
-    Returns
-    -------
-    dict
-        ``fwhm`` (s) and ``peak`` (W).
+    - ``t``: the time axis, s.
+    - ``power``: the power, W.
+    - Returns: ``fwhm`` (s) and ``peak`` (W).
     """
     return {"fwhm": fwhm(t, power), "peak": float(np.max(power))}
 
@@ -464,23 +395,8 @@ def _powers(
 ) -> dict[str, object]:
     """Return the pulse before, after the elements and at the transform limit.
 
-    Parameters
-    ----------
-    handler : solprop.output.Output
-        The open file.
-    index : int
-        The plane.
-    selection : int or None
-        One mode, or ``None`` for their sum.
-    band : tuple of float or None
-        The bandpass.
-    elements : Sequence of TransferFunction
-        The compressor.
-
-    Returns
-    -------
-    dict
-        ``t``, ``before``, ``after``, ``limit`` and ``pulses``.
+    - ``selection``: one mode, or ``None`` for their sum.
+    - Returns: ``t``, ``before``, ``after``, ``limit`` and ``pulses``.
     """
     modes = "sum" if selection is None else selection
     common = {

@@ -116,18 +116,7 @@ class PlaneView:
         return _quantities(self.basis)
 
     def _reader(self) -> MemoryOutput:
-        """Return the plane as a one-plane output, fetching its field once if needed.
-
-        Returns
-        -------
-        solprop.output.memory.MemoryOutput
-            The output the processing functions read.
-
-        Raises
-        ------
-        DriverError
-            If the view is used after its call returned.
-        """
+        """Return the plane as a one-plane output, fetching its field once if needed."""
         if not self._open:
             raise DriverError(_EXPIRED)
         if self._output is None:

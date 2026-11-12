@@ -147,13 +147,7 @@ def pinned_revision() -> str:
 
 
 def _load_provider() -> _Provider:
-    """Load the optional package only when an atomic operation is requested.
-
-    Returns
-    -------
-    _Provider
-        Loaded public provider API; no native assembly has occurred.
-    """
+    """Load the optional package only when an atomic operation is requested."""
     if sys.version_info[:2] != (3, 14):
         raise BackendError("the pinned TDSE provider requires Python 3.14")
     try:
@@ -171,17 +165,8 @@ def _build_record(
 ) -> dict[str, object]:
     """Refuse stale native extensions and execution-space mismatches before setup.
 
-    Parameters
-    ----------
-    provider : _Provider
-        Loaded optional provider API.
-    execution : TDSEExecution or None
-        Required device family, or None when only resolving a preset.
-
-    Returns
-    -------
-    dict
-        Serializable native build and installed distribution identities.
+    - ``execution``: required device family, or None when only resolving a preset.
+    - Returns: serializable native build and installed distribution identities.
     """
     build = provider.build_info()
     revision = build.source_revision
@@ -213,23 +198,7 @@ def _build_record(
 
 
 def _hacc_surface(provider: _Provider) -> _Native:
-    """Return the provider's haCC namespace, refusing a build without it.
-
-    Parameters
-    ----------
-    provider : _Provider
-        Loaded optional provider API.
-
-    Returns
-    -------
-    object
-        The ``pyroraptor.hacc`` module.
-
-    Raises
-    ------
-    BackendError
-        If the installed provider has no complete haCC consumer surface.
-    """
+    """Return the provider's haCC namespace, refusing a build without it."""
     hacc = getattr(provider, "hacc", None)
     missing = [name for name in _HACC_SURFACE if not hasattr(hacc, name)]
     if missing:
@@ -306,31 +275,11 @@ def _hacc_fields(  # noqa: PLR0917 - called positionally
 ) -> dict[str, object]:
     """Convert provider haCC objects into the numeric fields of a ``HaccBasis``.
 
-    Parameters
-    ----------
-    hacc : object
-        The provider's haCC namespace.
-    atom : object
-        ``hacc.Helium``; ``hacc.Argon`` is refused by name.
-    basis : object
-        ``hacc.Basis``: radial axis, irECS and angular limit, SI.
-    gauge : object
-        ``hacc.MixedGauge`` or ``hacc.VelocityGauge``.
-    cut_energy : float
-        Spectral cut in J.
-    max_step_au : float
-        RK4 step ceiling in atomic units of time.
-
-    Returns
-    -------
-    dict
-        Every ``HaccBasis`` field but ``source`` and ``preset``.
-
-    Raises
-    ------
-    MaterialError
-        If the atom is argon or another non-helium record, the ion count is not 1 or
-        2, or a member cannot be represented.
+    - ``basis``: ``hacc.Basis``: radial axis, irECS and angular limit, SI.
+    - ``gauge``: ``hacc.MixedGauge`` or ``hacc.VelocityGauge``.
+    - ``cut_energy``: spectral cut in J.
+    - ``max_step_au``: RK4 step ceiling in atomic units of time.
+    - Returns: every ``HaccBasis`` field but ``source`` and ``preset``.
     """
     if isinstance(atom, hacc.Argon):
         raise MaterialError(
@@ -373,15 +322,7 @@ def _hacc_fields(  # noqa: PLR0917 - called positionally
 def _numeric_fields(basis: HaccBasis) -> dict[str, object]:
     """Return a ``HaccBasis``'s fields without its provenance and preset identity.
 
-    Parameters
-    ----------
-    basis : HaccBasis
-        Validated record.
-
-    Returns
-    -------
-    dict
-        The model and numerical fields compared against the provider.
+    - Returns: the model and numerical fields compared against the provider.
     """
     record = asdict(basis)
     del record["source"], record["preset"]
@@ -393,19 +334,7 @@ def _hacc_objects(
 ) -> tuple[_Native, _Native, _Native]:
     """Build the provider's atom, basis and gauge from a ``HaccBasis``.
 
-    Parameters
-    ----------
-    provider : _Provider
-        Loaded provider, for its radial basis and complex scaling.
-    hacc : object
-        Its haCC namespace.
-    basis : HaccBasis
-        Validated SI record.
-
-    Returns
-    -------
-    tuple
-        ``hacc.Helium``, ``hacc.Basis`` and the gauge.
+    - Returns: ``hacc.Helium``, ``hacc.Basis`` and the gauge.
     """
     angular = (
         hacc.AngularLimit(particle=basis.angular_order)
@@ -696,26 +625,15 @@ class _Chunk:
     def rows(self) -> int:
         """Return the number of rows in this contiguous chunk.
 
-        Returns
-        -------
-        int
-            Positive difference between the exclusive stop and inclusive start.
+        - Returns: positive difference between the exclusive stop and inclusive start.
         """
         return self.stop - self.start
 
 
 def _atomic_samples(descriptor: TDSEDescriptor) -> int:
-    """Return the samples the provider integrates over: the window's or the lattice's.
+    """Return the samples the provider integrates over.
 
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor
-        Admitted descriptor.
-
-    Returns
-    -------
-    int
-        Retained atomic samples.
+    The atomic window's when there is one, else the lattice's.
     """
     window = descriptor.atomic_window
     return descriptor.samples if window is None else window.samples
@@ -728,24 +646,12 @@ def _estimated_memory(
 ) -> dict[str, int]:
     """Estimate conservative data storage before allocating the native setup.
 
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor
-        Admitted output contract and SI sampling lattice.
-    chunks : tuple of _Chunk
-        Nonempty stable partition of all radial rows.
-    native_outputs : {'full', 'total_current'} or None, optional
-        The provider's output selection when a full archive widens the
-        descriptor's; None takes ``descriptor.outputs``.
-
-    Returns
-    -------
-    dict
-        Named conservative atomic storage estimates in bytes; vendor setup
-        workspaces and allocator overhead are not hard bounded. The haCC provider
-        offers no estimate before preparation (SEP 20, C7), so only its host
-        histories are estimated; its model and plans are admitted from their
-        measured ledgers.
+    - ``native_outputs``: the provider's output selection when a full archive widens the
+      descriptor's; None takes ``descriptor.outputs``.
+    - Returns: named conservative atomic storage estimates in bytes; vendor setup
+      workspaces and allocator overhead are not hard bounded. The haCC provider offers
+      no estimate before preparation (SEP 20, C7), so only its host histories are
+      estimated; its model and plans are admitted from their measured ledgers.
     """
     samples = _atomic_samples(descriptor)
     outputs = descriptor.outputs if native_outputs is None else native_outputs
@@ -776,12 +682,8 @@ def _estimated_memory(
 def _admit_memory(ledger: Mapping[str, int], limit: int | None) -> None:
     """Apply the declared atomic byte limit.
 
-    Parameters
-    ----------
-    ledger : mapping of str to int
-        Named persistent allocations or estimates in bytes.
-    limit : int or None
-        Positive byte ceiling, or None for an unrestricted allocation.
+    - ``ledger``: named persistent allocations or estimates in bytes.
+    - ``limit``: positive byte ceiling, or None for an unrestricted allocation.
     """
     total = sum(ledger.values())
     if limit is not None and total > limit:
@@ -791,18 +693,7 @@ def _admit_memory(ledger: Mapping[str, int], limit: int | None) -> None:
 
 
 def _json_default(value: object) -> object:
-    """Convert a public native record or array into JSON-compatible containers.
-
-    Parameters
-    ----------
-    value : object
-        Dataclass, host array or NumPy scalar requiring conversion.
-
-    Returns
-    -------
-    object
-        Dictionary, list or Python scalar with no native resource handle.
-    """
+    """Convert a public native record or array into JSON-compatible containers."""
     if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     if isinstance(value, np.ndarray):
@@ -815,32 +706,13 @@ def _json_default(value: object) -> object:
 def _encoded(value: object) -> str:
     """Encode finite metadata in a deterministic JSON representation.
 
-    Parameters
-    ----------
-    value : object
-        Nested public records, arrays and finite primitive values.
-
-    Returns
-    -------
-    str
-        Sorted JSON text; nonfinite values raise ValueError.
+    - ``value``: nested public records, arrays and finite primitive values.
     """
     return json.dumps(value, default=_json_default, sort_keys=True, allow_nan=False)
 
 
 def _failure_safe(value: object) -> object:
-    """Preserve nonfinite failed monitors as explicit strings in valid JSON.
-
-    Parameters
-    ----------
-    value : object
-        Nested failure diagnostics, including possibly nonfinite scalars.
-
-    Returns
-    -------
-    object
-        Independent JSON-compatible containers with tagged nonfinite strings.
-    """
+    """Preserve nonfinite failed monitors as explicit strings in valid JSON."""
     encoded = json.dumps(value, default=_json_default, sort_keys=True)
     return json.loads(encoded, parse_constant=lambda token: f"nonfinite:{token}")
 
@@ -850,17 +722,9 @@ def _input_diagnostics(
 ) -> object:
     """Measure field endpoints and area without changing the supplied waveform.
 
-    Parameters
-    ----------
-    fields : numpy.ndarray
-        Finite SI fields in V/m, shape (n_nodes, n_to).
-    spacing : float
-        Positive sample spacing in s.
-
-    Returns
-    -------
-    dict
-        Per-node peak and endpoint fields in V/m and pulse area in V s/m.
+    - ``fields``: finite SI fields in V/m, shape (n_nodes, n_to).
+    - ``spacing``: positive sample spacing in s.
+    - Returns: Per-node peak and endpoint fields in V/m and pulse area in V s/m.
     """
     return {
         "peak_field_v_per_m": np.max(np.abs(fields), axis=1),
@@ -880,18 +744,10 @@ def _drive_diagnostics(
     Multiplying by the gate need not preserve a zero-area drive; the area is
     recorded, never removed.
 
-    Parameters
-    ----------
-    drive : numpy.ndarray
-        The exact gated field passed to the provider, V/m.
-    spacing : float
-        Sample spacing in s.
-
-    Returns
-    -------
-    dict
-        Per-node area in V s/m, which is minus the vector potential at ``t_e``
-        when ``A(t_s) = 0``, and the endpoint fields in V/m.
+    - ``drive``: the exact gated field passed to the provider, V/m.
+    - ``spacing``: sample spacing in s.
+    - Returns: Per-node area in V s/m, which is minus the vector potential at ``t_e``
+      when ``A(t_s) = 0``, and the endpoint fields in V/m.
     """
     area = np.trapezoid(drive, dx=spacing, axis=1)
     return {
@@ -903,20 +759,7 @@ def _drive_diagnostics(
 
 
 def _row_chunks(execution: TDSEExecution, n_nodes: int) -> tuple[_Chunk, ...]:
-    """Partition radial rows into stable contiguous batches.
-
-    Parameters
-    ----------
-    execution : TDSEExecution
-        Positive maximum batch size and device-independent resource limits.
-    n_nodes : int
-        Positive total number of radial rows.
-
-    Returns
-    -------
-    tuple of _Chunk
-        Ordered chunks covering each row exactly once.
-    """
+    """Partition radial rows into stable contiguous batches."""
     if type(n_nodes) is not int or n_nodes < 1:
         raise BackendError("TDSE binding requires a positive integer n_nodes")
     return tuple(
@@ -928,19 +771,9 @@ def _row_chunks(execution: TDSEExecution, n_nodes: int) -> tuple[_Chunk, ...]:
 def _classify(error: BaseException, provider: _Provider) -> str:
     """Classify a provider-side exception for the failure record (SEP 20, 5.6).
 
-    Parameters
-    ----------
-    error : BaseException
-        The exception raised by, or after, a provider call.
-    provider : _Provider
-        Loaded provider, for its ``DrivenError``.
-
-    Returns
-    -------
-    str
-        ``native`` for a provider ``DrivenError``, ``interface`` for a
-        ``ValueError`` or ``TypeError`` from the provider, ``contract`` for a
-        solprop validation of the returned record, ``unexpected`` otherwise.
+    - Returns: ``native`` for a provider ``DrivenError``, ``interface`` for a
+      ``ValueError`` or ``TypeError`` from the provider, ``contract`` for a solprop
+      validation of the returned record, ``unexpected`` otherwise.
     """
     if isinstance(error, provider.DrivenError):
         return "native"
@@ -954,15 +787,8 @@ def _classify(error: BaseException, provider: _Provider) -> str:
 def _peak_intensity(fields: Float[np.ndarray, "n_nodes n_samples"]) -> list[float]:
     """Return each row's peak cycle-averaged intensity ``eps0 c E_max^2 / 2``.
 
-    Parameters
-    ----------
-    fields : numpy.ndarray
-        Real fields in V/m.
-
-    Returns
-    -------
-    list of float
-        Peak intensities in W/m^2, one per row.
+    - ``fields``: real fields in V/m.
+    - Returns: peak intensities in W/m^2, one per row.
     """
     peak = np.max(np.abs(fields), axis=1)
     return [float(value) for value in 0.5 * EPS0 * C * peak**2]
@@ -1080,19 +906,8 @@ class _HaccModel:
     plan built on it (SEP 20, C1). A preset is checked against the installed
     provider's identity and fields; a custom basis is admitted as unqualified.
 
-    Parameters
-    ----------
-    provider : _Provider
-        Loaded, pin-checked provider.
-    basis : HaccBasis
-        Validated record.
-    execution : TDSEExecution
-        Device and memory limit.
-    stack : ExitStack
-        Owner of the model's lifetime.
-    archive : {'required', 'full'}, optional
-        ``"full"`` builds every plan with the provider's full record for a full
-        archive; the source still reads the same total and order-one currents.
+    - ``archive``: ``"full"`` builds every plan with the provider's full record for a
+      full archive; the source still reads the same total and order-one currents.
     """
 
     def __init__(
@@ -1147,18 +962,7 @@ class _HaccModel:
             self.outputs = "full"
 
     def _verified_preset(self, execution: TDSEExecution) -> _Native:
-        """Refuse a preset the installed provider does not reproduce.
-
-        Parameters
-        ----------
-        execution : TDSEExecution
-            Requested device family.
-
-        Returns
-        -------
-        object
-            The provider's ``HeliumPreset``.
-        """
+        """Refuse a preset the installed provider does not reproduce."""
         preset = self.hacc.helium_preset(self.basis.ions, self.basis.variant)
         if preset.identity != self.basis.preset:
             raise BackendError(
@@ -1187,14 +991,7 @@ class _HaccModel:
 
     @property
     def closure(self) -> bool:
-        """Return whether the plans carry the escaped-electron closure.
-
-        Returns
-        -------
-        bool
-            True for a preset and for a custom mixed-gauge basis whose plans the
-            provider qualified; False before a custom basis's first plan.
-        """
+        """Return whether the plans carry the escaped-electron closure."""
         return self._closure is True
 
     def plan(self, *, rows: int, spacing: float, samples: int) -> _Native:
@@ -1206,19 +1003,7 @@ class _HaccModel:
         a full archive every plan is full, and a custom mixed-gauge basis takes its
         closure from the first plan's ``total_current_qualified``.
 
-        Parameters
-        ----------
-        rows : int
-            Atoms per evaluation.
-        spacing : float
-            Response spacing in s.
-        samples : int
-            Retained atomic samples.
-
-        Returns
-        -------
-        object
-            An unentered ``hacc.ResponsePlan``.
+        - ``spacing``: response spacing in s.
         """
         arguments = {
             "rows": rows,
@@ -1253,14 +1038,7 @@ class _HaccModel:
     ) -> None:
         """Require a plan or result's ``info`` to describe exactly this model.
 
-        Parameters
-        ----------
-        info : object
-            ``hacc.ResponsePlanInfo``.
-        rows, samples : int
-            Expected extents.
-        spacing : float
-            Expected spacing in s.
+        - ``spacing``: expected spacing in s.
         """
         if (
             info.rows != rows
@@ -1287,11 +1065,8 @@ class _HaccModel:
     def record(self) -> dict[str, object]:
         """Return the model's provenance for run metadata.
 
-        Returns
-        -------
-        dict
-            Label, preset identity or custom flag, qualification, closure, the
-            preset's accuracy and domain, and the complement policy.
+        - Returns: label, preset identity or custom flag, qualification, closure, the
+          preset's accuracy and domain, and the complement policy.
         """
         preset = self.preset
         return {
@@ -1326,18 +1101,8 @@ class _HaccModel:
 class _ProviderBinding:
     """Keep the optional runtime private to the driver and expose only the seam.
 
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor
-        Admitted scientific configuration and fixed time lattice.
-    execution : TDSEExecution
-        Device family, persistent memory budget and attempted-call limit.
-    n_nodes : int
-        Positive total number of radial rows.
-    defer_plans : bool, optional
-        For haCC, build the propagation plans only in :meth:`build_plans`.
-    archive : TDSEArchiveWriter or None, optional
-        Open archive session receiving every evaluation.
+    - ``defer_plans``: for haCC, build the propagation plans only in
+      :meth:`build_plans`.
     """
 
     def __init__(
@@ -1415,11 +1180,8 @@ class _ProviderBinding:
     def native_outputs(self) -> str | None:
         """Return the provider's output selection for this binding's plans.
 
-        Returns
-        -------
-        {'full', 'total_current'} or None
-            The descriptor's selection, or ``"full"`` for a full archive; None for a
-            custom haCC basis before its first plan decides it.
+        - Returns: the descriptor's selection, or ``"full"`` for a full archive; None
+          for a custom haCC basis before its first plan decides it.
         """
         if self._hacc is not None:
             return self._hacc.outputs
@@ -1441,13 +1203,7 @@ class _ProviderBinding:
         ]
 
     def _prepare_sae(self, basis: TDSEBasis) -> None:
-        """Allocate shared SAE resources and one plan per distinct batch size.
-
-        Parameters
-        ----------
-        basis : TDSEBasis
-            Resolved SI atomic basis admitted against the estimate.
-        """
+        """Allocate shared SAE resources and one plan per distinct batch size."""
         provider = self._provider
         model = provider.atomic_model(basis.potential)
         if model.version != basis.potential_version:
@@ -1522,13 +1278,7 @@ class _ProviderBinding:
         }
 
     def _prepare_hacc(self, basis: HaccBasis) -> None:
-        """Prepare the haCC model, admit its ledger and build the chunk plans.
-
-        Parameters
-        ----------
-        basis : HaccBasis
-            Validated preset or custom record.
-        """
+        """Prepare the haCC model, admit its ledger and build the chunk plans."""
         model = _HaccModel(
             self._provider,
             basis,
@@ -1591,11 +1341,8 @@ class _ProviderBinding:
     def plans_built(self) -> bool:
         """Return whether the propagation plans exist.
 
-        Returns
-        -------
-        bool
-            False only for a haCC binding prepared with ``defer_plans`` before
-            :meth:`build_plans`.
+        - Returns: False only for a haCC binding prepared with ``defer_plans`` before
+          :meth:`build_plans`.
         """
         return self._hacc is None or bool(self._plans)
 
@@ -1604,13 +1351,6 @@ class _ProviderBinding:
 
         Call once, after any consistency diagnostic, whose temporary plan is then
         already closed. A failure closes every resource, as at preparation.
-
-        Raises
-        ------
-        BackendError
-            If the binding is closed, has no deferred plans, or a plan fails.
-        DriverError
-            If the plans do not fit beside the model under the memory limit.
         """
         self._ensure_open()
         if self.plans_built:
@@ -1629,13 +1369,7 @@ class _ProviderBinding:
             raise BackendError(f"TDSE preparation failed: {error} [{kind}]") from error
 
     def _preset_domain_at_start(self, model: _HaccModel) -> None:
-        """Flag a preset run's duration or carrier beyond its qualification.
-
-        Parameters
-        ----------
-        model : _HaccModel
-            Prepared preset model.
-        """
+        """Flag a preset run's duration or carrier beyond its qualification."""
         preset = model.preset
         configuration = json.loads(self._descriptor.configuration_json)
         lattice = configuration["lattice"]
@@ -1660,17 +1394,7 @@ class _ProviderBinding:
             )
 
     def _flag_domain(self, reason: str, record: object, message: str) -> None:
-        """Record a domain reason and warn once per reason per run.
-
-        Parameters
-        ----------
-        reason : {'duration', 'carrier', 'intensity'}
-            Why the run is outside the preset's domain.
-        record : object
-            JSON-compatible facts.
-        message : str
-            Human-readable warning text.
-        """
+        """Record a domain reason and warn once per reason per run."""
         if reason in self._domain_reasons:
             return
         self._domain_reasons[reason] = record
@@ -1686,13 +1410,7 @@ class _ProviderBinding:
 
     @property
     def ledger(self) -> AtomicCallLedger:
-        """Return attempted-call accounting, including failed evaluations.
-
-        Returns
-        -------
-        AtomicCallLedger
-            Immutable snapshot of charged, reserved and remaining call counts.
-        """
+        """Return attempted-call accounting, including failed evaluations."""
         return self._budget.snapshot()
 
     def reserve(self, logical_calls: int) -> None:
@@ -1700,11 +1418,6 @@ class _ProviderBinding:
 
         A successful reservation opens the next optical trial, whose evaluations
         the archive labels with its identifier (SEP 20 section 5.8).
-
-        Parameters
-        ----------
-        logical_calls : int
-            Positive number of complete all-node evaluations required by the trial.
         """
         self._ensure_open()
         self._ensure_plans()
@@ -1714,21 +1427,7 @@ class _ProviderBinding:
         self._trial_evaluations = []
 
     def record_trial(self, *, accepted: bool) -> None:
-        """Record the stepper's decision on the latest trial in the archive.
-
-        Parameters
-        ----------
-        accepted : bool
-            Whether the trial's step was accepted.
-
-        Raises
-        ------
-        BackendError
-            If no trial was reserved.
-        TDSEArchiveError
-            If the archive cannot record it; the run then stops before its next
-            provider call.
-        """
+        """Record the stepper's decision on the latest trial in the archive."""
         if self._trial is None:
             raise BackendError("a TDSE trial outcome needs a reserved trial")
         if self._archive is not None:
@@ -1741,13 +1440,7 @@ class _ProviderBinding:
         self._budget.release_reservation()
 
     def restore_ledger(self, ledger: AtomicCallLedger) -> None:
-        """Restore prior attempts before performing work in a resumed binding.
-
-        Parameters
-        ----------
-        ledger : AtomicCallLedger
-            Previous checkpoint accounting, preserving charges with the new limit.
-        """
+        """Restore prior attempts before performing work in a resumed binding."""
         self._ensure_open()
         self._budget.restore(ledger)
 
@@ -1770,17 +1463,7 @@ class _ProviderBinding:
     ) -> Float[np.ndarray, "n_rows n_samples"]:
         """Return the exact float64 field passed to the provider for one chunk.
 
-        Parameters
-        ----------
-        fields : numpy.ndarray
-            Full-lattice nodal fields in V/m.
-        chunk : _Chunk
-            Rows of this call.
-
-        Returns
-        -------
-        numpy.ndarray
-            Contiguous rows, sliced to the window and multiplied by its gate.
+        - ``fields``: Full-lattice nodal fields in V/m.
         """
         rows = fields[chunk.start : chunk.stop]
         window = self._window
@@ -1793,18 +1476,7 @@ class _ProviderBinding:
     def _pad(
         self, values: Float[np.ndarray, "n_rows n_samples"]
     ) -> Float[np.ndarray, "n_rows n_to"]:
-        """Place a window's currents on the full lattice with zeros outside.
-
-        Parameters
-        ----------
-        values : numpy.ndarray
-            Provider rows on the retained samples.
-
-        Returns
-        -------
-        numpy.ndarray
-            Rows on the full lattice; unchanged without a window.
-        """
+        """Place a window's currents on the full lattice with zeros outside."""
         window = self._window
         if window is None:
             return values
@@ -1813,18 +1485,7 @@ class _ProviderBinding:
         return full
 
     def _pad_valid(self, valid: np.ndarray) -> np.ndarray:
-        """Place a window's validity on the full lattice; undriven samples are valid.
-
-        Parameters
-        ----------
-        valid : numpy.ndarray
-            Boolean provider validity on the retained samples.
-
-        Returns
-        -------
-        numpy.ndarray
-            Boolean validity on the full lattice.
-        """
+        """Place a window's validity on the full lattice; undriven samples are valid."""
         window = self._window
         if window is None:
             return valid
@@ -1853,21 +1514,14 @@ class _ProviderBinding:
         validation; a write failure stops the evaluation before the next provider
         call (SEP 20 section 5.8).
 
-        Parameters
-        ----------
-        fields : numpy.ndarray
-            Finite float64 fields in V/m, shape (n_nodes, n_to).
-        z : float
-            Finite optical position in m for provenance and failure reports.
-        purpose : {'startup', 'predictor', 'corrected', 'diagnostic'}
-            Reason for the source evaluation; only exact diagnostics may reuse data.
-        density : float or None, optional
-            Finite nonnegative number density at `z` in m^-3, an archive label.
-
-        Returns
-        -------
-        TDSEResult
-            Owning, read-only, unscaled microscopic SI currents and shadow dipoles.
+        - ``fields``: finite float64 fields in V/m, shape (n_nodes, n_to).
+        - ``z``: finite optical position in m for provenance and failure reports.
+        - ``purpose``: reason for the source evaluation; only exact diagnostics may
+          reuse data.
+        - ``density``: finite nonnegative number density at `z` in m^-3, an archive
+          label.
+        - Returns: owning, read-only, unscaled microscopic SI currents and shadow
+          dipoles.
         """
         self._ensure_open()
         self._ensure_plans()
@@ -2009,19 +1663,9 @@ class _ProviderBinding:
     ) -> int | None:
         """Write an evaluation's labels and complete input before any provider call.
 
-        Parameters
-        ----------
-        fields : numpy.ndarray
-            The full-lattice nodal fields, V/m.
-        drives : list of numpy.ndarray
-            The exact provider input of each chunk, V/m.
-        labels : mapping
-            Role, trial, position, density and input identity.
-
-        Returns
-        -------
-        int or None
-            The archive's evaluation identifier, or None without an archive.
+        - ``fields``: the full-lattice nodal fields, V/m.
+        - ``drives``: the exact provider input of each chunk, V/m.
+        - Returns: the archive's evaluation identifier, or None without an archive.
         """
         archive = self._archive
         if archive is None:
@@ -2063,10 +1707,7 @@ class _ProviderBinding:
     def _binding_record(self) -> dict[str, object]:
         """Return the build, execution, plan and chunk records an archive shares.
 
-        Returns
-        -------
-        dict
-            Provider plan/build and execution configuration.
+        - Returns: provider plan/build and execution configuration.
         """
         return {
             "build": self._build,
@@ -2084,19 +1725,8 @@ class _ProviderBinding:
         The binding's own validation runs next either way: a contract failure of
         the same result is then the primary error, and the archive failure a note.
 
-        Parameters
-        ----------
-        evaluation : int or None
-            The archive's evaluation, or None without an archive.
-        index : int
-            The chunk index.
-        raw : object
-            The provider's record, as returned.
-
-        Returns
-        -------
-        TDSEArchiveError or None
-            The write failure, if any.
+        - ``evaluation``: the archive's evaluation, or None without an archive.
+        - Returns: the write failure, if any.
         """
         archive = self._archive
         if archive is None or evaluation is None:
@@ -2125,18 +1755,9 @@ class _ProviderBinding:
     ) -> None:
         """Record an evaluation's exception, keeping the caller's error primary.
 
-        Parameters
-        ----------
-        evaluation : int or None
-            The archive's evaluation, or None without an archive.
-        index : int or None
-            The chunk that raised, or None.
-        error : BaseException
-            The exception.
-        classification : str
-            Its failure class.
-        note : BaseException or None, optional
-            The error the caller raises, which gains a note if recording fails.
+        - ``evaluation``: the archive's evaluation, or None without an archive.
+        - ``index``: the chunk that raised, or None.
+        - ``note``: the error the caller raises, which gains a note if recording fails.
         """
         archive = self._archive
         if archive is None or evaluation is None:
@@ -2164,21 +1785,9 @@ class _ProviderBinding:
         The peaks before and after the drive taper are both recorded, and the flag
         uses the larger, so the gate cannot conceal a field above the bound.
 
-        Parameters
-        ----------
-        fields : numpy.ndarray
-            Full-lattice nodal fields in V/m.
-        drives : list of numpy.ndarray
-            The gated provider inputs of each chunk.
-        z : float
-            Optical position in m.
-        purpose : str
-            Evaluation label.
-
-        Returns
-        -------
-        dict or None
-            The call's domain record for a preset, None otherwise.
+        - ``fields``: Full-lattice nodal fields in V/m.
+        - ``z``: optical position in m.
+        - Returns: the call's domain record for a preset, None otherwise.
         """
         model = self._hacc
         if model is None or model.preset is None:
@@ -2206,35 +1815,14 @@ class _ProviderBinding:
     def _bound(self, raw: _Native) -> _Native:
         """Return a result's neglected-current bound, wherever its record keeps it.
 
-        Parameters
-        ----------
-        raw : object
-            Provider result.
-
-        Returns
-        -------
-        object
-            The bound array, or None for a haCC model without the closure.
+        - Returns: the bound array, or None for a haCC model without the closure.
         """
         if self._hacc is None and isinstance(raw, self._provider.GridResponse):
             return raw.plasma.neglected_current_bound
         return raw.neglected_current_bound
 
     def _failed_native_record(self, raw: _Native, chunk: _Chunk) -> object:
-        """Retain diagnostic facts even when the native result is malformed.
-
-        Parameters
-        ----------
-        raw : object
-            Public provider result returned by the failed evaluation.
-        chunk : _Chunk
-            Contiguous row range to identify in the failure record.
-
-        Returns
-        -------
-        object
-            Failure-safe diagnostic containers, or the serialization failure reason.
-        """
+        """Retain diagnostic facts even when the native result is malformed."""
         try:
             return _failure_safe(
                 {
@@ -2250,17 +1838,7 @@ class _ProviderBinding:
             return {"unreadable_native_record": type(raw).__name__, "error": str(error)}
 
     def _validate_diagnostics(self, raw: _Native, rows: int, samples: int) -> None:
-        """Reject malformed diagnostics before reducing or labelling row arrays.
-
-        Parameters
-        ----------
-        raw : object
-            Public provider result with bounds and row monitors.
-        rows : int
-            Expected row count.
-        samples : int
-            Expected atomic sample count.
-        """
+        """Reject malformed diagnostics before reducing or labelling row arrays."""
         if self._hacc is not None and (
             not isinstance(raw.total_current, np.ndarray)
             or raw.total_current.shape != (rows, samples)
@@ -2297,20 +1875,11 @@ class _ProviderBinding:
     def _native_record(self, raw: _Native, chunk: _Chunk) -> object:
         """Summarise validated native diagnostics with their original row positions.
 
-        Parameters
-        ----------
-        raw : object
-            Public result whose diagnostic shapes and finiteness were validated.
-        chunk : _Chunk
-            Contiguous row range of this result.
-
-        Returns
-        -------
-        dict
-            Per-row monitors, outcomes, validity and maximum current bounds. A haCC
-            record adds the bound's maximum relative to the row's peak total current,
-            ``None`` with ``zero_reference`` for a zero-current row; the bound is a
-            diagnostic and never compared with a threshold.
+        - ``raw``: public result whose diagnostic shapes and finiteness were validated.
+        - Returns: Per-row monitors, outcomes, validity and maximum current bounds. A
+          haCC record adds the bound's maximum relative to the row's peak total current,
+          ``None`` with ``zero_reference`` for a zero-current row; the bound is a
+          diagnostic and never compared with a threshold.
         """
         bound = self._bound(raw)
         record: dict[str, object] = {
@@ -2344,17 +1913,8 @@ class _ProviderBinding:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Validate a haCC result and return its total and first-order currents.
 
-        Parameters
-        ----------
-        raw : object
-            ``hacc.TotalCurrentResponse`` or ``hacc.GridResponse``.
-        rows, samples : int
-            Expected extents.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``j_tot`` and ``j_1`` on the retained samples, C m/s per atom.
+        - ``raw``: ``hacc.TotalCurrentResponse`` or ``hacc.GridResponse``.
+        - Returns: ``j_tot`` and ``j_1`` on the retained samples, C m/s per atom.
         """
         model = self._hacc
         assert model is not None
@@ -2395,18 +1955,9 @@ class _ProviderBinding:
     ]:
         """Validate an SAE result and return its currents and shadow products.
 
-        Parameters
-        ----------
-        raw : object
-            SAE ``GridResponse`` or ``TotalCurrentResponse``.
-        chunk : _Chunk
-            Expected rows.
-
-        Returns
-        -------
-        tuple
-            Total and first-order currents, the optional third-order current and
-            dipole, and the order labels, on the retained samples.
+        - ``raw``: SAE ``GridResponse`` or ``TotalCurrentResponse``.
+        - Returns: total and first-order currents, the optional third-order current and
+          dipole, and the order labels, on the retained samples.
         """
         descriptor = self._descriptor
         expected_orders = (1,) if descriptor.shadow_order == 1 else (1, 3)
@@ -2463,23 +2014,7 @@ class _ProviderBinding:
         )
 
     def _normalize(self, raw: _Native, chunk: _Chunk, identity: str) -> TDSEResult:
-        """Validate native labels and copy one chunk into the host seam result.
-
-        Parameters
-        ----------
-        raw : object
-            Full or compact public provider result.
-        chunk : _Chunk
-            Expected row range with fixed sample count.
-        identity : str
-            Hash of the complete all-node input waveform.
-
-        Returns
-        -------
-        TDSEResult
-            Validated owning SI result without density or calibration factors,
-            on the full lattice.
-        """
+        """Validate native labels and copy one chunk into the host seam result."""
         descriptor = self._descriptor
         if self._hacc is not None:
             total, first = self._hacc_currents(raw, chunk.rows, self._samples)
@@ -2514,20 +2049,7 @@ class _ProviderBinding:
         )
 
     def _combine(self, results: list[TDSEResult], identity: str) -> TDSEResult:
-        """Concatenate normalized chunks in the original radial row order.
-
-        Parameters
-        ----------
-        results : list of TDSEResult
-            Nonempty ordered chunk results with identical scientific contracts.
-        identity : str
-            Hash of the complete all-node input waveform.
-
-        Returns
-        -------
-        TDSEResult
-            Owning all-node result with merged native diagnostics.
-        """
+        """Concatenate normalized chunks in the original radial row order."""
         third = None
         dipole = None
         if self._descriptor.shadow_order == 3:
@@ -2574,26 +2096,10 @@ class _ProviderBinding:
         propagation plans against the memory limit, charged as one ``diagnostic``
         call to this binding's ledger and closed again.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            Finite float64 field in V/m, shape ``(1, n_samples)``, at ``m *
-            spacing``.
-        spacing : float
-            Positive protocol spacing in s.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``j_tot`` and ``j_1`` in C m/s per atom on the protocol samples.
-
-        Raises
-        ------
-        BackendError
-            If the binding is not haCC, the field is invalid, or the call fails
-            (the attempt stays charged).
-        DriverError
-            If the temporary plan does not fit beside the propagation plans.
+        - ``field``: finite float64 field in V/m, shape ``(1, n_samples)``, at ``m *
+          spacing``.
+        - ``spacing``: positive protocol spacing in s.
+        - Returns: ``j_tot`` and ``j_1`` in C m/s per atom on the protocol samples.
         """
         self._ensure_open()
         model = self._hacc
@@ -2615,27 +2121,13 @@ class _ProviderBinding:
         return _diagnostic(context, field, float(spacing))
 
     def record_consistency(self, record: Mapping[str, object]) -> None:
-        """Attach the run's consistency provenance to the binding's metadata.
-
-        Parameters
-        ----------
-        record : mapping
-            JSON-compatible consistency record.
-        """
+        """Attach the run's consistency provenance to the binding's metadata."""
         self._consistency = dict(record)
 
     # -- metadata ------------------------------------------------------------------
 
     def metadata(self) -> Mapping[str, object]:
-        """Return independent JSON-compatible build, setup and call diagnostics.
-
-        Returns
-        -------
-        mapping of str to object
-            Scientific identity, actual plans, resource counts and failure records,
-            with the model, atomic window, haCC provenance, domain flags and
-            consistency record.
-        """
+        """Return independent JSON-compatible build, setup and call diagnostics."""
         record: dict[str, object] = {
             "configuration_identity": self._descriptor.identity,
             "configuration": json.loads(self._descriptor.configuration_json),
@@ -2672,10 +2164,7 @@ class _ProviderBinding:
     def memory_ledger(self) -> Mapping[str, int]:
         """Return native storage counted once and the admitted host-result reserve.
 
-        Returns
-        -------
-        mapping of str to int
-            Named atomic allocations in bytes, excluding separately owned optics.
+        - Returns: named atomic allocations in bytes, excluding separately owned optics.
         """
         return dict(self._memory)
 
@@ -2731,19 +2220,9 @@ def _diagnostic(
 ) -> tuple[Float[np.ndarray, " n_samples"], Float[np.ndarray, " n_samples"]]:
     """Run one charged one-row haCC diagnostic on a temporary plan.
 
-    Parameters
-    ----------
-    context : _DiagnosticContext
-        Model, ledger, failure log, provider and memory admission.
-    field : numpy.ndarray
-        Finite float64 field in V/m, shape ``(1, n_samples)``.
-    spacing : float
-        Protocol spacing in s.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Owning ``j_tot`` and ``j_1`` in C m/s.
+    - ``field``: finite float64 field in V/m, shape ``(1, n_samples)``.
+    - ``spacing``: protocol spacing in s.
+    - Returns: owning ``j_tot`` and ``j_1`` in C m/s.
     """
     model, budget, provider = context.model, context.budget, context.provider
     if (
@@ -2833,19 +2312,9 @@ def _diagnostic_archive_begin(
 ) -> int | None:
     """Write a consistency diagnostic's labels and input before its provider call.
 
-    Parameters
-    ----------
-    context : _DiagnosticContext
-        The call's context, with its archive.
-    field : numpy.ndarray
-        The exact protocol field passed, V/m.
-    spacing : float
-        Protocol spacing in s.
-
-    Returns
-    -------
-    int or None
-        The archive's evaluation identifier, or None without an archive.
+    - ``field``: the exact protocol field passed, V/m.
+    - ``spacing``: protocol spacing in s.
+    - Returns: the archive's evaluation identifier, or None without an archive.
     """
     archive = context.archive
     if archive is None:
@@ -2892,19 +2361,8 @@ def _diagnostic_archive_result(
 ) -> TDSEArchiveError | None:
     """Store a consistency diagnostic's returned record before its validation.
 
-    Parameters
-    ----------
-    context : _DiagnosticContext
-        The call's context.
-    evaluation : int or None
-        The archive's evaluation, or None.
-    raw : object
-        The provider's record, as returned.
-
-    Returns
-    -------
-    TDSEArchiveError or None
-        The write failure, if any.
+    - ``evaluation``: the archive's evaluation, or None.
+    - Returns: the write failure, if any.
     """
     archive = context.archive
     if archive is None or evaluation is None:
@@ -2927,18 +2385,8 @@ def _diagnostic_archive_failure(
 ) -> None:
     """Record a failed consistency diagnostic, keeping the provider error primary.
 
-    Parameters
-    ----------
-    context : _DiagnosticContext
-        The call's context.
-    evaluation : int or None
-        The archive's evaluation, or None.
-    error : BaseException
-        The exception.
-    classification : str
-        Its failure class.
-    primary : BaseException
-        The error raised, which gains a note if recording fails.
+    - ``evaluation``: the archive's evaluation, or None.
+    - ``primary``: the error raised, which gains a note if recording fails.
     """
     archive = context.archive
     if archive is None or evaluation is None:
@@ -2955,14 +2403,7 @@ def _diagnostic_archive_failure(
 class _DiagnosticView:
     """Validate a one-row diagnostic result with the binding's haCC rules.
 
-    Parameters
-    ----------
-    model : _HaccModel
-        Prepared model.
-    provider : _Provider
-        Loaded provider.
-    spacing : float
-        Protocol spacing in s.
+    - ``spacing``: protocol spacing in s.
     """
 
     def __init__(self, model: _HaccModel, provider: _Provider, spacing: float) -> None:
@@ -2971,15 +2412,7 @@ class _DiagnosticView:
         self._spacing = spacing
 
     def validate(self, raw: _Native, samples: int) -> None:
-        """Check the bound, monitors, outcomes and validity of one row.
-
-        Parameters
-        ----------
-        raw : object
-            Provider result.
-        samples : int
-            Protocol samples.
-        """
+        """Check the bound, monitors, outcomes and validity of one row."""
         bound = raw.neglected_current_bound
         if bound is None:
             if self._model.closure:
@@ -2998,17 +2431,7 @@ class _DiagnosticView:
     def currents(self, raw: _Native, samples: int) -> tuple[np.ndarray, np.ndarray]:
         """Return the validated total and first-order currents.
 
-        Parameters
-        ----------
-        raw : object
-            Provider result.
-        samples : int
-            Protocol samples.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``(1, samples)`` currents in C m/s.
+        - Returns: ``(1, samples)`` currents in C m/s.
         """
         model = self._model
         model.check_info(raw.info, rows=1, samples=samples, spacing=self._spacing)

@@ -101,20 +101,7 @@ def prepare(spec: RunSpec) -> Path:
 
 
 def _job_command(python: str, folder: Path) -> list[str]:
-    """Return the command that runs a folder's job.
-
-    Parameters
-    ----------
-    python : str
-        The machine's Python, with solprop installed.
-    folder : pathlib.Path
-        The run's folder.
-
-    Returns
-    -------
-    list of str
-        The command.
-    """
+    """Return the command that runs a folder's job."""
     return [python, "-m", "solprop.service.job", str(folder)]
 
 
@@ -363,22 +350,7 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     """Run a scheduler command and return what it printed.
 
-    Parameters
-    ----------
-    command : Sequence of str
-        The command.
-    timeout : float, optional
-        The most seconds to wait.
-
-    Returns
-    -------
-    subprocess.CompletedProcess
-        Its result.
-
-    Raises
-    ------
-    solprop.service.messages.ServiceError
-        If the command is not there or takes too long.
+    - ``timeout``: the most seconds to wait.
     """
     try:
         return subprocess.run(

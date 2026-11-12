@@ -22,18 +22,7 @@ from solprop.output.scan import _json
 
 @contextmanager
 def locked(path: Path) -> Iterator[None]:
-    """Hold a kernel-owned lock whose ownership ends when the process dies.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-
-    Yields
-    ------
-    None
-        Control while the exclusive advisory lock is held.
-    """
+    """Hold a kernel-owned lock whose ownership ends when the process dies."""
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         lock(descriptor)
@@ -44,13 +33,7 @@ def locked(path: Path) -> Iterator[None]:
 
 
 def sync_directory(path: Path) -> None:
-    """Make filename publication durable on a filesystem supporting directory fsync.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-    """
+    """Make filename publication durable on a filesystem supporting directory fsync."""
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
@@ -59,15 +42,7 @@ def sync_directory(path: Path) -> None:
 
 
 def atomic_json(path: Path, value: object) -> None:
-    """Replace a JSON record only after its complete content has been fsynced.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-    value : object
-        JSON-serialisable record to publish atomically.
-    """
+    """Replace a JSON record only after its complete content has been fsynced."""
     descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(name)
     try:
@@ -82,18 +57,7 @@ def atomic_json(path: Path, value: object) -> None:
 
 
 def read_json(path: Path) -> dict:
-    """Read a JSON object while refusing malformed state containers.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-
-    Returns
-    -------
-    dict
-        Validated JSON object.
-    """
+    """Read a JSON object while refusing malformed state containers."""
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise DriverError(f"queue record must be a JSON object: {path}")
@@ -103,15 +67,7 @@ def read_json(path: Path) -> dict:
 def process_stamp(pid: int) -> str | None:
     """Read process creation identity where the operating system exposes it.
 
-    Parameters
-    ----------
-    pid : int
-        Positive operating-system process identifier.
-
-    Returns
-    -------
-    str or None
-        Process creation identity, or None if unavailable.
+    - Returns: process creation identity, or None if unavailable.
     """
     proc = Path(f"/proc/{pid}/stat")
     if proc.exists():
@@ -128,10 +84,7 @@ def process_stamp(pid: int) -> str | None:
 def owner() -> dict:
     """Identify this controller independently of each point's ownership token.
 
-    Returns
-    -------
-    dict
-        Host, PID, process creation identity and controller UUID.
+    - Returns: host, PID, process creation identity and controller UUID.
     """
     return {
         "controller": uuid.uuid4().hex,
@@ -144,17 +97,8 @@ def owner() -> dict:
 def live_owner(row: Mapping, age: float) -> bool:
     """Protect live local processes and remotely refreshed leases from takeover.
 
-    Parameters
-    ----------
-    row : Mapping
-        Point state containing owner identity and last refresh time.
-    age : float
-        Positive lease duration in seconds.
-
-    Returns
-    -------
-    bool
-        Whether takeover is forbidden by local liveness or a fresh lease.
+    - ``row``: point state containing owner identity and last refresh time.
+    - ``age``: positive lease duration in seconds.
     """
     holder = row.get("owner", {})
     if holder.get("host") == socket.gethostname():
@@ -174,32 +118,13 @@ def live_owner(row: Mapping, age: float) -> bool:
 
 
 def state(path: Path) -> dict:
-    """Read active state or the completion marker published before its removal.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-
-    Returns
-    -------
-    dict
-        Active state or the durable completion record.
-    """
+    """Read active state or the completion marker published before its removal."""
     active = path / "queue.json"
     return read_json(active if active.exists() else path / ".done")
 
 
 def finish(path: Path, record: dict) -> None:
-    """Publish completion before removing active queue state.
-
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-    record : dict
-        Complete mutable queue state under its advisory lock.
-    """
+    """Publish completion before removing active queue state."""
     atomic_json(path / "queue.json", record)
     if all(row["status"] == "done" for row in record["rows"]):
         atomic_json(path / ".done", record)

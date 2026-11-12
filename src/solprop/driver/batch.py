@@ -42,23 +42,7 @@ class BatchMember:
 
 
 def _signature(member: BatchMember) -> str:
-    """Hash the execution layout while keeping member parameter tables independent.
-
-    Parameters
-    ----------
-    member : BatchMember
-        Independently constructed and translated point.
-
-    Returns
-    -------
-    str
-        Digest of the shared grid, algorithm, schedule and response structure.
-
-    Raises
-    ------
-    DriverError
-        If the point has no fixed schedule or uses an unsupported execution contract.
-    """
+    """Hash the execution layout while keeping member parameter tables independent."""
     simulation = member.simulation
     backend = simulation.settings.backend
     if backend not in {"numpy_ref", "native"}:
@@ -113,16 +97,8 @@ def _signature(member: BatchMember) -> str:
 def _modal_identity(problem: PropagationProblem) -> Mapping[str, object] | None:
     """Describe which general modal guide a problem carries, or ``None`` for none.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A translated member.
-
-    Returns
-    -------
-    collections.abc.Mapping or None
-        The table, metric and response identities, all scalars and strings, or
-        ``None`` where the problem is not a general modal run at all.
+    - Returns: the table, metric and response identities, all scalars and strings, or
+      ``None`` where the problem is not a general modal run at all.
     """
     tables = problem.transform.modal_tables
     if tables is None:
@@ -191,18 +167,7 @@ def refuse_mixed_guides(problems: Sequence[PropagationProblem]) -> None:
 
 
 def _structure(value: object) -> object:
-    """Describe table layouts without including their member-dependent values.
-
-    Parameters
-    ----------
-    value : object
-        Compiled response record or one of its data fields.
-
-    Returns
-    -------
-    object
-        Portable structure retaining types, field names and array layouts.
-    """
+    """Describe table layouts without including their member-dependent values."""
     if isinstance(value, np.ndarray):
         return (value.dtype.str, value.shape)
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
@@ -283,21 +248,6 @@ def _checked(current: Sequence[BatchMember]) -> tuple[BatchMember, ...]:
     propagating one guide's channels against another's reference. The check is a
     JSON comparison of identities the members' cached translations already
     carry, so it costs nothing per group.
-
-    Parameters
-    ----------
-    current : collections.abc.Sequence
-        The members of one formed group, in group order.
-
-    Returns
-    -------
-    tuple
-        The same members.
-
-    Raises
-    ------
-    DriverError
-        Naming the field at which two members part company.
     """
     refuse_mixed_guides([member.simulation.translate() for member in current])
     return tuple(current)
@@ -320,14 +270,8 @@ def shared_table_bytes(problems: Iterable[PropagationProblem]) -> int:
     visited: set[int] = set()
     storage: dict[int, int] = {}
 
-    def visit(value: object) -> None:
-        """Track backing allocations without recounting shared records or views.
-
-        Parameters
-        ----------
-        value : object
-            Translated record, collection or array whose storage is being counted.
-        """
+    def _visit(value: object) -> None:
+        """Track backing allocations without recounting shared records or views."""
         if id(value) in visited:
             return
         visited.add(id(value))
@@ -338,14 +282,14 @@ def shared_table_bytes(problems: Iterable[PropagationProblem]) -> int:
             storage[id(root)] = root.nbytes
         elif dataclasses.is_dataclass(value) and not isinstance(value, type):
             for field in dataclasses.fields(value):
-                visit(getattr(value, field.name))
+                _visit(getattr(value, field.name))
         elif isinstance(value, Mapping):
             for item in value.values():
-                visit(item)
+                _visit(item)
         elif isinstance(value, (tuple, list)):
             for item in value:
-                visit(item)
+                _visit(item)
 
     for problem in problems:
-        visit(problem)
+        _visit(problem)
     return sum(storage.values())

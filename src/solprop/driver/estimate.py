@@ -110,19 +110,7 @@ def _timed_step(
     entrance that commits nothing, or for the low-storage march its own step, which
     advances the discarded registers in place.
 
-    Parameters
-    ----------
-    backend : solprop.backends.protocol.Backend
-        The constructed backend, holding no state yet; closed by the caller.
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        Its run's request, whose method decides the evaluations.
-
-    Returns
-    -------
-    tuple
-        A callable taking one step, and the right-hand-side evaluations in it.
+    - Returns: a callable taking one step, and the right-hand-side evaluations in it.
     """
     integrator = request.integration.method
     evaluations = (
@@ -134,18 +122,7 @@ def _timed_step(
 
 
 def _calls_per_step(integrator: object) -> int:
-    """Return an integrator's right-hand-side evaluations per accepted step.
-
-    Parameters
-    ----------
-    integrator : object
-        The settings' integrator.
-
-    Returns
-    -------
-    int
-        One for the Adams method, four for the low-storage march, six for DOPRI5.
-    """
+    """Return an integrator's right-hand-side evaluations per accepted step."""
     if isinstance(integrator, Multistep):
         return 1
     if isinstance(integrator, LowStorageRungeKutta):
@@ -350,23 +327,10 @@ def field_bytes(problem: PropagationProblem) -> int:
 def _catalogued_entries(shape: str, sizes: Mapping[str, int]) -> int:
     """Return how many entries a statistic of a catalogued shape holds.
 
-    Parameters
-    ----------
-    shape : str
-        The catalogue's shape, such as ``'(n_windows, n_modes)'``, ``'(2,)'`` or
-        ``'()'``; an alternative after ``';'`` is ignored.
-    sizes : collections.abc.Mapping
-        The length of every axis name a catalogued shape uses.
-
-    Returns
-    -------
-    int
-        The product of the axis lengths, one for a scalar.
-
-    Raises
-    ------
-    DriverError
-        If the shape names an axis `sizes` does not give.
+    - ``shape``: the catalogue's shape, such as ``'(n_windows, n_modes)'``, ``'(2,)'``
+      or ``'()'``; an alternative after ``';'`` is ignored.
+    - ``sizes``: the length of every axis name a catalogued shape uses.
+    - Returns: the product of the axis lengths, one for a scalar.
     """
     axes = shape.partition(";")[0].strip().strip("()")
     count = 1

@@ -91,15 +91,7 @@ _CURVE_WINDOW = (0.15, 2.0)
 def _recipe(payload: Payload) -> Recipe:
     """Read the recipe a payload carries.
 
-    Parameters
-    ----------
-    payload : Mapping
-        ``text`` and optionally ``base``.
-
-    Returns
-    -------
-    solprop.recipe.Recipe
-        The recipe.
+    - ``payload``: ``text`` and optionally ``base``.
     """
     base_dir = payload.get("base")
     return Recipe.loads(
@@ -169,17 +161,9 @@ def capillary_numbers(recipe: Recipe, energy: float) -> SolitonParams:
 def _as_numbers(params: SolitonParams) -> dict[str, float]:
     """Return solprop's numbers as plain floats.
 
-    Parameters
-    ----------
-    params : solprop.tools.SolitonParams
-        The numbers.
-
-    Returns
-    -------
-    dict
-        ``soliton_order``, ``beta2`` (s^2/m), ``gamma`` (1/(W m)), ``n2`` (m^2/W),
-        ``peak_intensity`` (W/m^2), ``peak_power`` (W), ``pressure`` (bar), ``zdw``
-        (m), ``fission_length`` (m) and ``critical_power`` (W).
+    - Returns: ``soliton_order``, ``beta2`` (s^2/m), ``gamma`` (1/(W m)), ``n2``
+      (m^2/W), ``peak_intensity`` (W/m^2), ``peak_power`` (W), ``pressure`` (bar),
+      ``zdw`` (m), ``fission_length`` (m) and ``critical_power`` (W).
     """
     return {
         "soliton_order": float(params.soliton_order),
@@ -210,30 +194,15 @@ def _shortest_wave(
 ) -> float | None:
     """Return the shortest wavelength phase-matched to the launch soliton.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The launch mode.
-    wavelength : float
-        The pump's wavelength, m.
-    beta2 : float
-        The dispersion at the pump, s^2/m.
-    peak_power : float
-        The peak power, W.
-    gamma : float
-        The nonlinear coefficient, 1/(W m).
-    fwhm : float
-        The duration, s.
-    shape : str
-        The pulse's shape.
-    limits : tuple of float or None, optional
-        The range to search, m; ``None`` takes the tool's.
-
-    Returns
-    -------
-    float or None
-        The wavelength, m; ``None`` when none is, as a pump in normal dispersion
-        launches no soliton.
+    - ``wavelength``: the pump's wavelength, m.
+    - ``beta2``: the dispersion at the pump, s^2/m.
+    - ``peak_power``: the peak power, W.
+    - ``gamma``: the nonlinear coefficient, 1/(W m).
+    - ``fwhm``: the duration, s.
+    - ``shape``: the pulse's shape.
+    - ``limits``: the range to search, m; ``None`` takes the tool's.
+    - Returns: the wavelength, m; ``None`` when none is, as a pump in normal dispersion
+      launches no soliton.
     """
     if beta2 >= 0:
         return None
@@ -266,17 +235,8 @@ def _wave_window(recipe: Recipe, pump: float) -> tuple[float, float] | None:
     The tool's own range reaches where this fibre's fits go non-finite (#538), so the
     search keeps to the run's window; a capillary keeps the tool's.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    pump : float
-        The pump's wavelength, m.
-
-    Returns
-    -------
-    tuple of float or None
-        The range, m; ``None`` for the tool's own.
+    - ``pump``: the pump's wavelength, m.
+    - Returns: the range, m; ``None`` for the tool's own.
     """
     if recipe.keywords().get("lattice") is None:
         return None
@@ -286,19 +246,9 @@ def _wave_window(recipe: Recipe, pump: float) -> tuple[float, float] | None:
 def _zero_near(wavelength: np.ndarray, beta2: np.ndarray, pump: float) -> float | None:
     """Return the zero of a dispersion curve nearest a pump, read from the curve.
 
-    Parameters
-    ----------
-    wavelength : numpy.ndarray
-        The curve's wavelengths, m, ascending.
-    beta2 : numpy.ndarray
-        Its group-velocity dispersion there.
-    pump : float
-        The pump's wavelength, m.
-
-    Returns
-    -------
-    float or None
-        The wavelength, m; ``None`` where the curve does not cross zero.
+    - ``wavelength``: the curve's wavelengths, m, ascending.
+    - ``pump``: the pump's wavelength, m.
+    - Returns: the wavelength, m; ``None`` where the curve does not cross zero.
     """
     crossings = np.flatnonzero(np.sign(beta2[:-1]) * np.sign(beta2[1:]) < 0)
     zeros = [
@@ -319,19 +269,8 @@ def _lattice_zero(recipe: Recipe, mode: object, pump: float) -> float:
     wall has one at 1919 nm as well as 485 nm for an 800 nm pump, with the window
     ending at 1600 nm. The sheet's number is the one on its curve.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    mode : solprop.modes.protocol.Mode
-        The fibre's mode.
-    pump : float
-        The pump's wavelength, m.
-
-    Returns
-    -------
-    float
-        The wavelength, m; NaN where the window holds no zero.
+    - ``pump``: the pump's wavelength, m.
+    - Returns: the wavelength, m; NaN where the window holds no zero.
     """
     low, high = _curve_range(recipe, pump)
     wavelength = np.geomspace(low, high, CURVE_POINTS)
@@ -343,17 +282,8 @@ def _lattice_zero(recipe: Recipe, mode: object, pump: float) -> float:
 def _curve_range(recipe: Recipe, pump: float) -> tuple[float, float]:
     """Return the wavelengths a dispersion curve covers: the run's own window.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    pump : float
-        The pump's wavelength, m.
-
-    Returns
-    -------
-    tuple of float
-        The two ends, m.
+    - ``pump``: the pump's wavelength, m.
+    - Returns: the two ends, m.
     """
     keywords = recipe.keywords()
     limits = keywords.get("wavelength_limits")
@@ -371,19 +301,8 @@ def _reach_of(values: np.ndarray, wavelength: np.ndarray, pump: float) -> float:
     The curve runs off near a resonance, and a fibre's resonance dwarfs the pump's
     neighbourhood, so the axis follows what the eye reads there.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The curve.
-    wavelength : numpy.ndarray
-        Its wavelengths, m, ascending.
-    pump : float
-        The pump's wavelength, m.
-
-    Returns
-    -------
-    float
-        The reach, in the curve's unit.
+    - ``wavelength``: its wavelengths, m, ascending.
+    - ``pump``: the pump's wavelength, m.
     """
     reach = float(np.nanmax(np.abs(values[wavelength > 0.25 * wavelength[-1]])))
     omega, centre = 1.0 / wavelength, 1.0 / pump
@@ -395,16 +314,8 @@ def _reach_of(values: np.ndarray, wavelength: np.ndarray, pump: float) -> float:
 def _shapes_of(mode: object) -> list[dict[str, object]]:
     """Return a guide's cross-section as plain shapes, to scale.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The guide's mode.
-
-    Returns
-    -------
-    list of dict
-        In drawing order, each ``kind`` and its numbers in metres, with ``fill`` and
-        ``edge``, solprop's colours of its region.
+    - Returns: in drawing order, each ``kind`` and its numbers in metres, with ``fill``
+      and ``edge``, solprop's colours of its region.
     """
     plain: list[dict[str, object]] = []
     for shape in outline(mode):
@@ -835,13 +746,7 @@ def gases(payload: Payload) -> list[str]:  # noqa: ARG001 - none
 
 
 def _run_budget() -> ThreadBudget:
-    """Return the thread budget a run gets, not the kernel's own, which is smaller.
-
-    Returns
-    -------
-    solprop.backends.ThreadBudget
-        The budget under the ``SOLPROP_THREADS`` the window started with.
-    """
+    """Return the thread budget a run gets, not the kernel's own, which is smaller."""
     held = os.environ.get("SOLPROP_THREADS")
     started = os.environ.get(RUN_THREADS)
     if started is None:
@@ -865,16 +770,8 @@ def _graded(recipe: Recipe) -> dict[str, float]:
     Read from the recipe's text alone: building the fibre solves its modes, which is
     seconds, not the moment an edit takes.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe, its provider a ``GradedIndexProvider`` inside ``provider``.
-
-    Returns
-    -------
-    dict
-        ``radius`` (m), ``contrast``, ``exponent``, and where they are plain indices,
-        ``axis`` and ``exterior``.
+    - Returns: ``radius`` (m), ``contrast``, ``exponent``, and where they are plain
+      indices, ``axis`` and ``exterior``.
     """
     inner = "provider.provider"
     profile: dict[str, float] = {

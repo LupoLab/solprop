@@ -1042,3 +1042,32 @@ def test_spatial_metadata_names_its_flux_model(envelope_grid, stepper):
         )
     with pytest.raises(OutputError, match="requires a spatial geometry record"):
         make_metadata(envelope_grid, stepper, simulation_kind="radial")
+
+
+def test_inlined_replaces_every_array_reference_by_its_values():
+    inlined = schema._inlined(schema.serialise({"axis": np.zeros(5000)}))
+    assert isinstance(inlined, dict)
+    assert sorted(inlined["axis"]) == ["__ndarray__", "dtype", "shape"]
+
+
+def test_array_name_carries_the_dtype_and_the_shape():
+    digest = schema.ArrayDigest.of(np.zeros((50, 100)))
+    assert schema._array_name(digest).split("-")[1:] == ["float64", "50x100"]
+
+
+def test_dotted_writes_keys_with_dots_and_indices_in_brackets():
+    assert schema._dotted(("modes", 2, "label")) == "modes[2].label"
+
+
+def test_flow_text_names_a_diagonal_flow_and_summarises_a_coupled_one():
+    assert schema._flow_text(None) == "diagonal"
+    flow = {
+        "model": "mean impedance coherent wall",
+        "section_methods": ["constant_schur"],
+        "transverse_ratio": 9.012e-3,
+        "inverse_condition_bound": 1.0,
+    }
+    assert schema._flow_text(flow) == (
+        "mean impedance coherent wall, constant_schur, worst ratio 9.012e-03, "
+        "conditioning 1.000e+00"
+    )

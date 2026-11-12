@@ -43,33 +43,12 @@ def _json(value: object) -> str:
     The text stands alone, so that a Queue's manifest can rebuild the scan from it: an
     array keeps its values here, whatever its size. A run record's arrays go beside its
     text instead, through :attr:`PointResult.metadata_arrays`.
-
-    Parameters
-    ----------
-    value : object
-        Value to validate or serialise.
-
-    Returns
-    -------
-    str
-        Canonical JSON text.
     """
     return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
 
 
 def _hash(text: str) -> str:
-    """Identify a serialised common record by its SHA-256 digest.
-
-    Parameters
-    ----------
-    text : str
-        Canonical serialised content.
-
-    Returns
-    -------
-    str
-        Hexadecimal SHA-256 digest.
-    """
+    """Identify a serialised common record by its SHA-256 digest."""
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -80,14 +59,7 @@ _RECORD_ARRAYS = "record_arrays"
 def _write_array(group: h5py.Group, name: str, values: np.ndarray) -> None:
     """Store numerical or textual axes without pickling objects.
 
-    Parameters
-    ----------
-    group : h5py.Group
-        Destination or source HDF5 group.
-    name : str
-        Dataset path or column name.
-    values : np.ndarray
-        One-dimensional axis or result array in its declared physical units.
+    - ``values``: One-dimensional axis or result array in its declared physical units.
     """
     if values.dtype.kind in "US":
         group.create_dataset(
@@ -155,13 +127,7 @@ class PointResult:
 
 
 def _validate_metadata(result: PointResult) -> None:
-    """Validate provenance even when propagation or reduction failed.
-
-    Parameters
-    ----------
-    result : PointResult
-        Point payload with a constructed simulation's provenance.
-    """
+    """Validate provenance even when propagation or reduction failed."""
     if len(result.configuration_hash) != 64:
         raise OutputError("completed result requires a configuration hash")
     document = json.loads(result.metadata_json)
@@ -295,15 +261,7 @@ class ScanWriter:
             write_recipe(self.file, record)
 
     def _initialise(self, scan: Scan, description: str) -> None:
-        """Create scheduling columns before any point is dispatched.
-
-        Parameters
-        ----------
-        scan : Scan
-            Cartesian scan or selection retaining global indices.
-        description : str
-            Serialised scan identity and retention contract.
-        """
+        """Create scheduling columns before any point is dispatched."""
         file = self.file
         file.attrs.update(
             scan_schema_version=1,
@@ -461,17 +419,9 @@ class ScanWriter:
     def _conflict(self, result: PointResult) -> str:
         """Explain a refused reuse by what changed in the run record.
 
-        Parameters
-        ----------
-        result : PointResult
-            The conflict a worker reported, with the point's new run metadata.
-
-        Returns
-        -------
-        str
-            The worker's explanation, followed by what changed when both records can
-            be read: a scan with a changed record, a tolerance among it, writes to a
-            new file.
+        - Returns: the worker's explanation, followed by what changed when both records
+          can be read: a scan with a changed record, a tolerance among it, writes to a
+          new file.
         """
         key = f"staged/{result.index}"
         if not result.metadata_json or key not in self.file:
@@ -487,13 +437,7 @@ class ScanWriter:
         return f"{result.error}; {stored.summarise_differences(new)}"
 
     def _stage(self, result: PointResult) -> None:
-        """Write recoverable point arrays and references to common metadata.
-
-        Parameters
-        ----------
-        result : PointResult
-            Complete point payload with status and provenance.
-        """
+        """Write recoverable point arrays and references to common metadata."""
         file = self.file
         key = f"staged/{result.index}"
         if key in file:
@@ -566,18 +510,7 @@ class ScanWriter:
     def _common_record(self, document: object) -> object:
         # Array leaves are content-addressed before recursion: a dense synthesis
         # matrix belongs in one record, not thousands of scalar records.
-        """Deduplicate metadata leaves by their content digest.
-
-        Parameters
-        ----------
-        document : object
-            Serialised metadata or content-addressed reference tree.
-
-        Returns
-        -------
-        object
-            Reference tree with leaves stored once.
-        """
+        """Deduplicate metadata leaves by their content digest."""
         if (
             isinstance(document, dict)
             and "__ndarray__" not in document
@@ -687,12 +620,7 @@ class ScanWriter:
     def _rectangular(self, done: np.ndarray, layout_name: str | None) -> None:
         """Expose uniform arrays over the complete global point axis.
 
-        Parameters
-        ----------
-        done : np.ndarray
-            Completed global indices in increasing order.
-        layout_name : str | None
-            Uniform layout digest, or None for multiple layouts.
+        - ``layout_name``: uniform layout digest, or None for multiple layouts.
         """
         file = self.file
         for name in ("stats", "step_stats", "reduced", "fields", "z"):
@@ -739,13 +667,7 @@ class ScanWriter:
         file.flush()
 
     def _common_fields(self, done: np.ndarray) -> None:
-        """Record metadata paths that are constant or vary between points.
-
-        Parameters
-        ----------
-        done : np.ndarray
-            Completed global indices in increasing order.
-        """
+        """Record metadata paths that are constant or vary between points."""
         common = _group(self.file, "common")
         if not len(done):
             return
@@ -769,17 +691,7 @@ class ScanWriter:
 def _reference_paths(document: object, prefix: str = "") -> dict[str, object]:
     """Flatten reference paths for comparison without loading dense arrays.
 
-    Parameters
-    ----------
-    document : object
-        Serialised metadata or content-addressed reference tree.
-    prefix : str
-        Dotted metadata path accumulated by recursion.
-
-    Returns
-    -------
-    dict
-        Dotted paths and their common-record references.
+    - Returns: dotted paths and their common-record references.
     """
     if not isinstance(document, dict) or set(document) == {"ref"}:
         return {prefix: document}
@@ -790,18 +702,7 @@ def _reference_paths(document: object, prefix: str = "") -> dict[str, object]:
 
 
 def _array_paths(group: h5py.Group) -> list[str]:
-    """List datasets beneath a point group.
-
-    Parameters
-    ----------
-    group : h5py.Group
-        Destination or source HDF5 group.
-
-    Returns
-    -------
-    list of str
-        Dataset paths relative to the group.
-    """
+    """List datasets beneath a point group."""
     paths: list[str] = []
     group.visititems(
         lambda key, value: (
@@ -812,20 +713,7 @@ def _array_paths(group: h5py.Group) -> list[str]:
 
 
 def _expand(file: h5py.File, value: object) -> object:
-    """Resolve common metadata references in a committed point.
-
-    Parameters
-    ----------
-    file : h5py.File
-        Open controller-owned HDF5 file.
-    value : object
-        Value to validate or serialise.
-
-    Returns
-    -------
-    object
-        Metadata with common-record references resolved.
-    """
+    """Resolve common metadata references in a committed point."""
     if isinstance(value, dict):
         if set(value) == {"ref"}:
             return json.loads(str(_dataset(file, f"common/{value['ref']}").asstr()[()]))
@@ -834,24 +722,7 @@ def _expand(file: h5py.File, value: object) -> object:
 
 
 def _refuse_point_schema(file: h5py.File, index: int, document: object) -> None:
-    """Refuse one point's stored run record if it declares another output schema.
-
-    Parameters
-    ----------
-    file : h5py.File
-        Open scan file holding the point's common metadata records.
-    index : int
-        Global point index, named in the refusal.
-    document : object
-        The point's parsed ``metadata_refs``.
-
-    Raises
-    ------
-    OutputError
-        If the record declares an output schema other than
-        :data:`~solprop.output.schema.SCHEMA_VERSION`, in the words a run file is
-        refused with, after the point's index.
-    """
+    """Refuse one point's stored run record if it declares another output schema."""
     declared = document.get("schema_version") if isinstance(document, dict) else None
     try:
         _refuse_schema(_expand(file, declared))
@@ -865,16 +736,6 @@ def _refuse_other_schemas(file: h5py.File) -> None:
     The scan's own ``scan_schema_version`` versions its container; the output schema
     is declared by each point's run record, done or failed, and a record of any schema
     but this release's is refused by name, as a run file is (ADR-058).
-
-    Parameters
-    ----------
-    file : h5py.File
-        Open scan file.
-
-    Raises
-    ------
-    OutputError
-        If any staged point's record declares another output schema.
     """
     accepted: set[str] = set()
     for name, group in _group(file, "staged").items():

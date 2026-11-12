@@ -295,18 +295,8 @@ def _with_initial_populations(
 ) -> Mixture:
     """Retain unspecified populations when overriding initial ionised fractions.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        Existing populations.
-    preionisation : float, ZProfile, Mapping or None
-        Global or labelled initial fractions in [0, 1], each a number or a path along
-        z in m.
-
-    Returns
-    -------
-    Mixture
-        Updated populations with every unspecified fraction retained.
+    - ``preionisation``: global or labelled initial fractions in [0, 1], each a number
+      or a path along z in m.
     """
     if preionisation is None:
         return mixture
@@ -374,15 +364,8 @@ class _PartialPressureSum:
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Sum the EOS-inverted partial pressures at the requested positions.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, shape (n_z,).
-
-        Returns
-        -------
-        numpy.ndarray
-            Total pressure diagnostic in bar, shape (n_z,).
+        - ``z``: positions in m, shape (n_z,).
+        - Returns: total pressure diagnostic in bar, shape (n_z,).
         """
         temperature = self.mixture.temperature
         kelvin = (

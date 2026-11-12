@@ -61,20 +61,7 @@ _CONSUMER = ExportRecipe(power=True, optics=False)
 
 
 def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
-    """Construct a member's selected backend with its cleanup registered.
-
-    Parameters
-    ----------
-    simulation : Simulation
-        Independently translated member.
-    cleanup : contextlib.ExitStack
-        Owner of the backend's lifetime until a group takes it over.
-
-    Returns
-    -------
-    solprop.backends.protocol.Backend
-        The backend, holding the member's parameter tables and no state yet.
-    """
+    """Construct a member's selected backend with its cleanup registered."""
     owner = select(
         simulation.settings.backend,
         simulation.translate(),
@@ -89,20 +76,7 @@ def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
 
 
 def _prepare(job: _Job, work: _Work) -> _Prepared | PointResult:
-    """Validate a point's seed and hash once, before batch admission.
-
-    Parameters
-    ----------
-    job : _Job
-        Global point and existing completion digest.
-    work : _Work
-        Builder and retention policy.
-
-    Returns
-    -------
-    _Prepared or PointResult
-        Pending simulation, skipped point, hash conflict or builder failure.
-    """
+    """Validate a point's seed and hash once, before batch admission."""
     try:
         simulation = work.simulation(job)
         metadata = simulation.metadata()
@@ -130,25 +104,6 @@ def _admit(group: Sequence[_Prepared], work: _Work, executor: Batch) -> int:
     unique byte count is recorded, not added again. The first workspace uses the
     larger of measured RSS and baseline plus its ledger; only subsequent workspaces
     are additive. Two output copies cover capture consolidation and writer transfer.
-
-    Parameters
-    ----------
-    group : sequence of _Prepared
-        Bounded compatible simulations, already translated.
-    work : _Work
-        Retention policy used to estimate point outputs.
-    executor : Batch
-        Resource bounds and destination for the admission calculation.
-
-    Returns
-    -------
-    int
-        Positive number of members admitted simultaneously.
-
-    Raises
-    ------
-    DriverError
-        If the allocation cannot accommodate even one member.
     """
     limit = _memory_limit()
     if executor.memory_limit is not None:
@@ -233,21 +188,8 @@ def _plane(
 ) -> SavedPlane:
     """Build the plane a member's capture stores from its observation.
 
-    Parameters
-    ----------
-    session : solprop.backends.session.GroupSession
-        The group, its batch pending.
-    member : int
-        The member's position.
-    event : solprop.backends.events.ObservationReady
-        The member's observation.
-    keep : bool
-        Whether the scan reads this plane's field. Otherwise no field crosses.
-
-    Returns
-    -------
-    solprop.output.schema.SavedPlane
-        The plane, its field in true-power amplitudes and the internal convention.
+    - Returns: the plane, its field in true-power amplitudes and the internal
+      convention.
     """
     rows = event.step_stats
     return SavedPlane(
@@ -272,24 +214,6 @@ def _service(
 
     A boundary stop ends its member alone, as a lone run of it would fail (SEP 21);
     a group-wide failure is raised, and fails every member.
-
-    Parameters
-    ----------
-    session : solprop.backends.session.GroupSession
-        The group, its batch pending.
-    batch : solprop.backends.events.GroupBatch
-        One common window's events.
-    captures : sequence of _Capture
-        Independent member outputs in dispatch order.
-    errors : list of str
-        Per-member failures; a failed member receives no further planes.
-    keep : bool
-        Whether the scan reads this plane's field.
-
-    Raises
-    ------
-    BaseException
-        The group-wide failure, when the window ended the group.
     """
     if batch.error is not None:
         raise batch.error
@@ -321,18 +245,7 @@ def _service(
 
 
 def _observations(batch: GroupBatch) -> Iterator[ObservationReady]:
-    """Yield the save-plane observations of a window, in member order.
-
-    Parameters
-    ----------
-    batch : solprop.backends.events.GroupBatch
-        The window's events.
-
-    Yields
-    ------
-    solprop.backends.events.ObservationReady
-        Each member's plane, the launch excluded.
-    """
+    """Yield the save-plane observations of a window, in member order."""
     for events in batch.members:
         for event in events:
             if isinstance(event, ObservationReady) and event.plane_index >= 0:
@@ -340,20 +253,7 @@ def _observations(batch: GroupBatch) -> Iterator[ObservationReady]:
 
 
 def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
-    """Run one admitted group and preserve independently reduced point results.
-
-    Parameters
-    ----------
-    group : sequence of _Prepared
-        Compatible, admitted simulations with global indices.
-    work : _Work
-        Capture and reduction policy.
-
-    Yields
-    ------
-    PointResult
-        Complete per-member output or an explicit runtime failure.
-    """
+    """Run one admitted group and preserve independently reduced point results."""
     started = time.perf_counter()
     captures: list[_Capture] = []
     results: list[PointResult] = []
@@ -361,20 +261,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
     records: Sequence[Mapping[str, object] | None] = [None] * len(group)
 
     def failed(index: int, error: str) -> PointResult:
-        """Retain available provenance when one member fails.
-
-        Parameters
-        ----------
-        index : int
-            Member position within this admitted group.
-        error : str
-            Traceback from propagation, capture or reduction.
-
-        Returns
-        -------
-        PointResult
-            Failure with the available backend record and no numerical arrays.
-        """
+        """Retain available provenance when one member fails."""
         member = group[index]
         capture = captures[index] if index < len(captures) else None
         metadata = (
@@ -498,40 +385,14 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
 
 
 def _stopping(work: _Work) -> bool:
-    """Return whether the scan's stop flag is set.
-
-    Parameters
-    ----------
-    work : _Work
-        The scan's work, which holds the caller's flag.
-
-    Returns
-    -------
-    bool
-        True once the flag is set.
-    """
+    """Return whether the scan's stop flag is set."""
     return work.stop is not None and work.stop.is_set()
 
 
 def execute(
     jobs: Iterable[_Job], work: _Work, executor: Batch
 ) -> Iterator[PointResult]:
-    """Build bounded groups and execute their independently selected backend.
-
-    Parameters
-    ----------
-    jobs : iterable of _Job
-        Pending and previously completed points in dispatch order.
-    work : _Work
-        Simulation builder and requested output contract.
-    executor : Batch
-        Size and memory limits, plus recorded admission calculations.
-
-    Yields
-    ------
-    PointResult
-        Globally indexed result suitable for the controller's ordinary writer.
-    """
+    """Build bounded groups and execute their independently selected backend."""
     backend: str | None = None
     for chunk in batched(jobs, executor.size, strict=False):
         pending: dict[int, _Prepared] = {}
