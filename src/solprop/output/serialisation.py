@@ -17,7 +17,6 @@ The manual page is ``docs/guide/results/provenance.md``.
 
 import dataclasses
 import hashlib
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from pathlib import Path
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from solprop._identity import canonical_json
 from solprop.exceptions import OutputError
 from solprop.modes.material import JsonValue
 
@@ -213,7 +213,7 @@ def _serialise_sequence(value: object) -> list[JsonValue]:
     # a set or a sequence.
     members = [serialise(item) for item in value]  # type: ignore[union-attr] - checked by the caller
     if isinstance(value, set | frozenset):
-        return sorted(members, key=_canonical_json)
+        return sorted(members, key=canonical_json)
     return members
 
 
@@ -476,11 +476,6 @@ def _recorded_inline(values: np.ndarray) -> bool:
     - Returns: True for at most :data:`INLINE_ARRAY_LIMIT` elements.
     """
     return values.size <= INLINE_ARRAY_LIMIT
-
-
-def _canonical_json(value: JsonValue) -> str:
-    """Return the one textual form of a structure that a digest may be taken over."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def _decode_array(record: Mapping[str, object]) -> np.ndarray:

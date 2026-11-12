@@ -26,7 +26,6 @@ The manual page is ``docs/guide/results/provenance.md``.
 
 import dataclasses
 import functools
-import hashlib
 import json
 import logging
 import re
@@ -38,6 +37,7 @@ from typing import Any, cast
 import numpy as np
 
 from solprop._display import Displayed, engineering, line
+from solprop._identity import canonical_digest, canonical_json, text_digest
 from solprop.exceptions import MaterialError, OutputError
 from solprop.grid import EnvelopeGrid
 from solprop.modes.material import JsonValue
@@ -57,7 +57,6 @@ from solprop.output.records import (
 from solprop.output.serialisation import (
     _RECORD_ARRAY,
     _ArrayReference,
-    _canonical_json,
     _rebuild,
     _resolved,
     _stored_entry,
@@ -159,7 +158,7 @@ def _differences(
         for index, (one, other) in enumerate(zip(left, right, strict=True)):
             _differences(one, other, f"{path}[{index}]", found)
         return
-    if _canonical_json(left) != _canonical_json(right):
+    if canonical_json(left) != canonical_json(right):
         found.append(path)
 
 
@@ -287,11 +286,7 @@ def _tables_text(tables: object) -> str:
     if not isinstance(tables, Mapping):
         return "none"
     model = tables.get("model_id")
-    digest = (
-        hashlib.sha256(str(model).encode("utf-8")).hexdigest()[:12]
-        if model is not None
-        else "unnamed"
-    )
+    digest = text_digest(str(model))[:12] if model is not None else "unnamed"
     # The digest first: the row is truncated to the block's width, and it is the
     # entry two files are compared by.
     return (
@@ -792,8 +787,7 @@ class RunMetadata(Displayed):
     @functools.cached_property
     def _configuration_digest(self) -> str:
         """The resume key, computed once per record (:meth:`configuration_hash`)."""
-        text = _canonical_json(self._hashed_record)
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return canonical_digest(self._hashed_record)
 
     def with_backend(self, backend: BackendRecord) -> "RunMetadata":
         """Return this record with a run's execution facts, its resume key kept.
@@ -999,7 +993,7 @@ class RunMetadata(Displayed):
         >>> sorted(json.loads(_example_metadata().to_json()))[:3]
         ['backend', 'configuration', 'created']
         """
-        return _canonical_json(self._document)
+        return canonical_json(self._document)
 
     @functools.cached_property
     def _document(self) -> dict[str, JsonValue]:

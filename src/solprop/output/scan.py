@@ -8,7 +8,6 @@ Only the controller writes this file. Staged point groups are the recovery sourc
 layout arrays and exact CSR statistics are rebuilt from committed groups at close.
 """
 
-import hashlib
 import json
 import logging
 from collections.abc import Mapping
@@ -20,6 +19,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from solprop._identity import canonical_json, text_digest
 from solprop.driver._scan_model import Scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._scan_lock import read_scan, write_scan
@@ -40,12 +40,12 @@ def _json(value: object) -> str:
     array keeps its values here, whatever its size. A run record's arrays go beside its
     text instead, through :attr:`PointResult.metadata_arrays`.
     """
-    return json.dumps(_inlined(serialise(value)), sort_keys=True, separators=(",", ":"))
+    return canonical_json(_inlined(serialise(value)))
 
 
 def _hash(text: str) -> str:
     """Identify a serialised common record by its SHA-256 digest."""
-    return hashlib.sha256(text.encode()).hexdigest()
+    return text_digest(text)
 
 
 _RECORD_ARRAYS = "record_arrays"
@@ -741,7 +741,7 @@ def _refuse_other_schemas(file: h5py.File) -> None:
         )
         # Records are content-addressed, so every point of one release shares the
         # same reference and the common record is read once.
-        key = json.dumps(declared, sort_keys=True)
+        key = canonical_json(declared)
         if key not in accepted:
             _refuse_point_schema(file, int(name), document)
             accepted.add(key)

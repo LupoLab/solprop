@@ -19,6 +19,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float
 from scipy import special
 
+from solprop._identity import text_digest
 from solprop.constants import CHARGE_MASS_RATIO
 from solprop.exceptions import ConvergenceError, SolpropWarning, TranslationError
 from solprop.grid import EnvelopeGrid
@@ -621,7 +622,7 @@ def build_cycle_integrals(
             _FORMAT_VERSION,
         )
     )
-    identity = hashlib.sha256(key.encode()).hexdigest()
+    identity = text_digest(key)
     if identity in _CYCLES:
         cached = _CYCLES[identity]
         # A material update borrows its existing immutable table. Equivalent

@@ -22,6 +22,7 @@ import numpy as np
 from jaxtyping import Float
 
 from solprop._display import Displayed, line, tail
+from solprop._identity import canonical_json, text_digest
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output._scan_lock import read_scan
@@ -542,7 +543,7 @@ def _provenance(
             f"{getattr(function, '__module__', '')}."
             f"{getattr(function, '__qualname__', '')}"
         ),
-        "source_hash": hashlib.sha256(source.encode()).hexdigest() if source else None,
+        "source_hash": text_digest(source) if source else None,
         "source_available": bool(source),
         "units": units,
         "dtype": str(reduction.dtype),
@@ -771,7 +772,7 @@ class ScanOutput(Displayed):
                 )
                 low, high = parameters["bounds"]
                 bounds = (float(low), float(high))
-                fingerprint = json.dumps([grid, bounds], sort_keys=True)
+                fingerprint = canonical_json([grid, bounds])
                 records[fingerprint] = (_rebuild(GridRecord, grid), bounds)
         if not records:
             where = "" if index is None else f" at point {index}"

@@ -23,7 +23,6 @@ convention, so its complex value is conjugated before comparison; the real and
 imaginary parts are compared together, never the real part alone.
 """
 
-import hashlib
 import json
 import logging
 import math
@@ -42,6 +41,7 @@ from jaxtyping import Complex, Float
 
 import solprop
 import solprop.driver.tdse as tdse_runtime
+from solprop._identity import canonical_digest
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -356,8 +356,7 @@ def cache_directory() -> Path:
 
 def _key(inputs: Mapping[str, object]) -> str:
     """Digest the cache key's canonical inputs."""
-    encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(encoded.encode()).hexdigest()
+    return canonical_digest(inputs, finite=True)
 
 
 def _reduction_from(record: object) -> LinearReduction | None:
