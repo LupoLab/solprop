@@ -474,6 +474,4 @@ def noise_spectrum(
             f"state shape {shape}"
         )
         raise TranslationError(msg) from error
-    spectrum = np.ascontiguousarray(values, dtype=np.complex128)
-    spectrum.setflags(write=False)
-    return spectrum
+    return _frozen_copy(values, np.complex128)

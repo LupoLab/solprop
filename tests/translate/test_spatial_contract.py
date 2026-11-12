@@ -249,6 +249,8 @@ def test_separable_coefficients_own_their_arrays(coefficients, name):
     clone = dataclasses.replace(coefficients, **{name: values})
     assert not np.shares_memory(getattr(clone, name), values)
     assert not getattr(clone, name).flags.writeable
+    # What the coefficients already hold is taken again without a copy.
+    assert getattr(dataclasses.replace(clone), name) is getattr(clone, name)
     with pytest.raises(TranslationError, match="nonempty"):
         dataclasses.replace(coefficients, **{name: values[:0]})
 

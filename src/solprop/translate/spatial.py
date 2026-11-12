@@ -32,7 +32,7 @@ from solprop.spatial import (
     attenuation_extremes,
 )
 from solprop.stats import ApertureSet, StatsSpec
-from solprop.translate.chebyshev import PiecewiseChebyshev
+from solprop.translate.chebyshev import PiecewiseChebyshev, _frozen_copy, _hold
 from solprop.translate.masks import Grids
 
 __all__ = [
@@ -462,11 +462,10 @@ class SeparableOperator:
             If it is not a finite share of the spectral rate on every bin.
         """
         rate = (
-            np.zeros(self.spectral_rate.size)
+            _hold(np.zeros(self.spectral_rate.size))
             if self.user_rate is None
             else _frozen_array(self.user_rate, np.float64)
         )
-        rate.setflags(write=False)
         if (
             rate.shape != self.spectral_rate.shape
             or np.any(rate < 0)
@@ -488,11 +487,10 @@ class SeparableOperator:
             If it is not one finite nonnegative rate per column.
         """
         rate = (
-            np.zeros(self.kperp_sq.size)
+            _hold(np.zeros(self.kperp_sq.size))
             if self.kperp_rate is None
             else _frozen_array(self.kperp_rate, np.float64)
         )
-        rate.setflags(write=False)
         if rate.shape != self.kperp_sq.shape or np.any(rate < 0):
             msg = (
                 "separable kperp_rate must be one nonnegative rate per transverse "
@@ -642,8 +640,8 @@ def rate_bounds(coefficients: SeparableOperator) -> RateBounds:
     )
 
 
-def _frozen_array(values: np.ndarray, dtype: type) -> np.ndarray:
-    """Own a finite, contiguous array without freezing a caller's writable buffer.
+def _frozen_array(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a finite array as :func:`~solprop.translate.chebyshev._frozen_copy` does.
 
     Parameters
     ----------
@@ -655,13 +653,18 @@ def _frozen_array(values: np.ndarray, dtype: type) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        Finite, contiguous, read-only copy with the input shape.
+        Finite, contiguous and read-only, with the input shape: a copy, unless
+        solprop already holds `values`.
+
+    Raises
+    ------
+    TranslationError
+        If a value is not finite.
     """
-    result = np.array(values, dtype=dtype, order="C", copy=True)
+    result = _frozen_copy(values, dtype)
     if not np.all(np.isfinite(result)):
         msg = "spatial contract arrays must be finite"
         raise TranslationError(msg)
-    result.setflags(write=False)
     return result
 
 

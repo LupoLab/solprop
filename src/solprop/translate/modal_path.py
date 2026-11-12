@@ -66,6 +66,7 @@ from solprop.modes.guide import ChannelBasis
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample, flux_product
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,
+    _frozen_copy,
     lobatto_coefficients,
     lobatto_points,
     refinement_points,
@@ -428,7 +429,7 @@ class ModalPathTable(Displayed):
         solprop.exceptions.ModeError
             Naming what is inconsistent.
         """
-        edges = np.array(self.z_edges, dtype=np.float64, copy=True).reshape(-1)
+        edges = _frozen_copy(np.reshape(self.z_edges, -1), np.float64)
         if (
             edges.size < 2
             or not np.all(np.isfinite(edges))
@@ -437,7 +438,6 @@ class ModalPathTable(Displayed):
             raise ModeError(
                 "a path's section edges are at least two finite increasing positions"
             )
-        edges.setflags(write=False)
         object.__setattr__(self, "z_edges", edges)
         if (
             isinstance(self.degree, bool)

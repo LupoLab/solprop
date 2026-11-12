@@ -170,7 +170,7 @@ class Transform:
             values = _frozen_copy(getattr(self, name), np.float64)
             object.__setattr__(self, name, values)
         if self.node_weights is not None:
-            weights = np.array(self.node_weights, dtype=float, copy=True)
+            weights = _frozen_copy(self.node_weights, np.float64)
             if (
                 weights.shape != (self.n_nodes,)
                 or np.any(weights < 0)
@@ -179,7 +179,6 @@ class Transform:
                 raise TranslationError(
                     "node_weights must be finite, non-negative and match n_nodes"
                 )
-            weights.setflags(write=False)
             object.__setattr__(self, "node_weights", weights)
         rows, n_modes = self.synthesis.shape
         for name in ("projection", "projection_coarse"):

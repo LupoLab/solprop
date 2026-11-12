@@ -28,7 +28,6 @@ from typing import Final
 import numpy as np
 from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
-from numpy.typing import ArrayLike
 
 from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import TranslationError
@@ -2101,7 +2100,7 @@ def _is_held(values: object) -> bool:
 
 
 def _frozen_copy(
-    values: ArrayLike, dtype: np.dtype | type[np.generic] | None = None
+    values: object, dtype: np.dtype | type[np.generic] | None = None
 ) -> np.ndarray:
     """Return the values read-only and C-contiguous, as an array solprop holds.
 

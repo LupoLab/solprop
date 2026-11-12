@@ -45,7 +45,7 @@ from solprop.nonlinear.tdse import (
     TDSEModel,
     TDSESampling,
 )
-from solprop.translate.chebyshev import _hold
+from solprop.translate.chebyshev import _frozen_copy, _hold
 
 __all__ = [
     "DESCRIPTOR_SCHEMA",
@@ -1138,11 +1138,9 @@ class TDSEResult:
                 raise BackendError(f"TDSE {name} must be float64 with shape {shape}")
             if not np.all(np.isfinite(values)):
                 raise BackendError(f"TDSE {name} contains nonfinite samples")
-            owned = np.array(values, dtype=np.float64, copy=True, order="C")
-            owned.setflags(write=False)
+            owned = _frozen_copy(values, np.float64)
             object.__setattr__(self, name, owned)
-        valid = np.array(self.valid, dtype=bool, copy=True, order="C")
-        valid.setflags(write=False)
+        valid = _frozen_copy(self.valid, np.bool_)
         object.__setattr__(self, "valid", valid)
         _metadata_json(self.monitors_json, "monitors_json", dict)
         _metadata_json(self.outcomes_json, "outcomes_json", list)

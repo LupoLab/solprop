@@ -1361,14 +1361,13 @@ class RegionalResponseTables(Displayed):
         if not (self.model_id and self.policy_id):
             msg = "regional_responses: model_id and policy_id must be non-empty"
             raise TranslationError(msg)
-        regions = np.array(self.response_region, dtype=np.int32, order="C", copy=True)
+        regions = _frozen_copy(self.response_region, np.int32)
         if regions.ndim != 1 or not regions.size or np.any(regions < 0):
             msg = (
                 "regional_responses.response_region must be a non-empty vector of "
                 f"non-negative region indices, got {regions}"
             )
             raise TranslationError(msg)
-        regions.setflags(write=False)
         object.__setattr__(self, "response_region", regions)
         self._validate_tensors()
         self._validate_tables()
@@ -1389,9 +1388,7 @@ class RegionalResponseTables(Displayed):
         )
 
         responses = self.n_responses
-        instant = np.array(
-            self.instantaneous_tensor, dtype=np.float64, order="C", copy=True
-        )
+        instant = _frozen_copy(self.instantaneous_tensor, np.float64)
         admitted = tuple(range(1, MAX_N_COMPONENTS + 1))
         if (
             instant.ndim != 5
@@ -1408,10 +1405,9 @@ class RegionalResponseTables(Displayed):
         if not np.all(np.isfinite(instant)):
             msg = "regional_responses.instantaneous_tensor must be finite"
             raise TranslationError(msg)
-        instant.setflags(write=False)
         object.__setattr__(self, "instantaneous_tensor", instant)
         components = int(instant.shape[1])
-        delayed = np.array(self.delayed_tensor, dtype=np.float64, order="C", copy=True)
+        delayed = _frozen_copy(self.delayed_tensor, np.float64)
         if (
             delayed.ndim != 6
             or delayed.shape[0] != responses
@@ -1423,7 +1419,6 @@ class RegionalResponseTables(Displayed):
                 f"{components}, got {delayed.shape}"
             )
             raise TranslationError(msg)
-        delayed.setflags(write=False)
         object.__setattr__(self, "delayed_tensor", delayed)
 
     def _validate_tables(self) -> None:
@@ -1436,7 +1431,7 @@ class RegionalResponseTables(Displayed):
         """
         responses = self.n_responses
         terms = int(self.delayed_tensor.shape[1])
-        chi3 = np.array(self.chi3, dtype=np.float64, order="C", copy=True)
+        chi3 = _frozen_copy(self.chi3, np.float64)
         if chi3.ndim != 3 or not chi3.shape[0] or chi3.shape[2] != responses:
             msg = (
                 "regional_responses.chi3 must have shape (n_intervals, n_deg, "
@@ -1454,18 +1449,16 @@ class RegionalResponseTables(Displayed):
         if not np.all(np.isfinite(chi3)):
             msg = "regional_responses.chi3 must be finite"
             raise TranslationError(msg)
-        chi3.setflags(write=False)
         object.__setattr__(self, "chi3", chi3)
-        weight = np.array(self.temporal_weight, dtype=np.float64, order="C", copy=True)
+        weight = _frozen_copy(self.temporal_weight, np.float64)
         if weight.ndim != 1 or not weight.size or np.any(weight < 0):
             msg = (
                 "regional_responses.temporal_weight must be a non-empty vector of "
                 "non-negative seconds"
             )
             raise TranslationError(msg)
-        weight.setflags(write=False)
         object.__setattr__(self, "temporal_weight", weight)
-        kernel = np.array(self.delayed_kernel, dtype=np.float64, order="C", copy=True)
+        kernel = _frozen_copy(self.delayed_kernel, np.float64)
         expected = (chi3.shape[0], chi3.shape[1], responses, terms, 2 * weight.size)
         if kernel.shape != expected:
             msg = (
@@ -1473,18 +1466,14 @@ class RegionalResponseTables(Displayed):
                 f"{kernel.shape}"
             )
             raise TranslationError(msg)
-        kernel.setflags(write=False)
         object.__setattr__(self, "delayed_kernel", kernel)
-        support = np.array(
-            self.kernel_valid_samples, dtype=np.int32, order="C", copy=True
-        )
+        support = _frozen_copy(self.kernel_valid_samples, np.int32)
         if support.shape != (responses, terms) or np.any(support < 0):
             msg = (
                 "regional_responses.kernel_valid_samples must have shape "
                 f"{(responses, terms)} with non-negative counts, got {support.shape}"
             )
             raise TranslationError(msg)
-        support.setflags(write=False)
         object.__setattr__(self, "kernel_valid_samples", support)
 
 
