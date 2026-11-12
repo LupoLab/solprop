@@ -441,11 +441,8 @@ class Recipe:
     def _canonical_document(self) -> Document:
         """Return the tables with each quantity spelled in its display unit.
 
-        Returns
-        -------
-        dict
-            The document a canonical save writes, so that two spellings of one value,
-            ``"1 cm"`` and ``0.01``, compare equal.
+        - Returns: the document a canonical save writes, so that two spellings of one
+          value, ``"1 cm"`` and ``0.01``, compare equal.
         """
         document = self.to_dict()
         table = self._table()
@@ -510,23 +507,11 @@ class Recipe:
     # ------------------------------------------------------------------ checking
 
     def _table(self) -> Mapping[str, Parameter]:
-        """Return the route's parameter metadata.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            :class:`~solprop.recipe.metadata.Parameter` by keyword.
-        """
+        """Return the route's parameter metadata."""
         return parameters(self.route)
 
     def _check_keys(self) -> None:
-        """Refuse a build or execution key the route does not have.
-
-        Raises
-        ------
-        RecipeError
-            Naming the key and the nearest valid one.
-        """
+        """Refuse a build or execution key the route does not have."""
         table = self._table()
         for key in self._document["build"]:
             if key in SETTINGS_KEYWORDS and self.route in OBJECT_ROUTES:
@@ -544,22 +529,7 @@ class Recipe:
                 )
 
     def _decode(self, name: str, value: object, context: BuildContext) -> object:
-        """Return one build keyword's value as the constructor takes it.
-
-        Parameters
-        ----------
-        name : str
-            The keyword.
-        value : object
-            Its value as written.
-        context : BuildContext
-            The data files' directory and the route's grid.
-
-        Returns
-        -------
-        object
-            The decoded value.
-        """
+        """Return one build keyword's value as the constructor takes it."""
         table = self._table()
         if name not in table:
             raise unknown_key(
@@ -669,24 +639,13 @@ class Recipe:
         An object route takes its grid as a keyword of its own. A guided route builds
         its grid when it is called, and what needs that grid is decoded in a second
         pass, except a guide, which the route cannot be called without.
-
-        Returns
-        -------
-        bool
-            True for an object route, or a ``provider`` built on the grid.
         """
         return self.route in OBJECT_ROUTES or _needs_grid(
             self._document["build"].get("provider")
         )
 
     def _missing(self) -> list[str]:
-        """Return the route's required keywords this recipe neither sets nor pins.
-
-        Returns
-        -------
-        list of str
-            Their names, in the route's order.
-        """
+        """Return the route's required keywords this recipe neither sets nor pins."""
         pinned = self._document.get("pins", {})
         return [
             name
@@ -703,11 +662,6 @@ class Recipe:
         cannot hold against a parameter. Called on the recipe as written: the copies
         that solve its pins have dropped ``[pins]``, so a pinned keyword looks missing
         on them.
-
-        Raises
-        ------
-        RecipeError
-            Naming every missing keyword, its ``parameter`` the first of them.
         """
         missing = self._missing()
         if len(missing) == 1:
@@ -905,18 +859,7 @@ class Recipe:
         return preview_input(self)
 
     def _copy(self, drop: tuple[str, ...]) -> "Recipe":
-        """Return a copy without some top-level tables, its data files kept.
-
-        Parameters
-        ----------
-        drop : tuple of str
-            The tables to leave out.
-
-        Returns
-        -------
-        Recipe
-            The copy.
-        """
+        """Return a copy without some top-level tables, its data files kept."""
         document = {
             name: table for name, table in self.to_dict().items() if name not in drop
         }
@@ -926,18 +869,7 @@ class Recipe:
         return recipe
 
     def _solve(self, pin: "Pin") -> "DesignRoots":
-        """Solve one pin on this (unpinned) recipe's keywords.
-
-        Parameters
-        ----------
-        pin : solprop.recipe.pins.Pin
-            The pin.
-
-        Returns
-        -------
-        solprop.tools.DesignRoots
-            Its roots.
-        """
+        """Solve one pin on this (unpinned) recipe's keywords."""
         from solprop.recipe.pins import (  # noqa: PLC0415 - cycle
             design_target,
             solve_pin,
@@ -1000,10 +932,7 @@ class Recipe:
     def _execution(self) -> dict[str, object]:
         """Return the ``[execution]`` table's values as the settings take them.
 
-        Returns
-        -------
-        dict
-            The values, ``"none"`` read as ``None`` where a keyword takes it.
+        - Returns: the values, ``"none"`` read as ``None`` where a keyword takes it.
         """
         table = parameters("execution")
         out: dict[str, object] = {}
@@ -1117,25 +1046,7 @@ class Recipe:
         return RecipeScan(scan, builder, keywords)
 
     def _axis(self, path: str, values: object) -> list[object]:
-        """Return a scan axis's values, read in the unit of the path's keyword.
-
-        Parameters
-        ----------
-        path : str
-            The parameter path.
-        values : object
-            A list, or ``{start, stop, num, spacing}``.
-
-        Returns
-        -------
-        list
-            The values.
-
-        Raises
-        ------
-        RecipeError
-            If the path's keyword is not the route's, or the values do not read.
-        """
+        """Return a scan axis's values, read in the unit of the path's keyword."""
         steps = parse_path(path)
         keyword = format_path(steps[:1])
         table = self._table()
@@ -1169,16 +1080,8 @@ class Recipe:
     def _unit_at(self, path: str) -> str | None:
         """Return the unit of the keyword a path ends on.
 
-        Parameters
-        ----------
-        path : str
-            The parameter path.
-
-        Returns
-        -------
-        str or None
-            The unit of a top-level keyword's number form, or of a registered type's
-            keyword; ``None`` for a value without one.
+        - Returns: the unit of a top-level keyword's number form, or of a registered
+          type's keyword; ``None`` for a value without one.
         """
         steps = parse_path(path)
         if len(steps) == 1:
@@ -1210,18 +1113,7 @@ class Recipe:
         return dump_text(self._canonical_document())
 
     def _context(self, grid: "TimeGrid | None" = None) -> BuildContext:
-        """Return the context the recipe's values are decoded in.
-
-        Parameters
-        ----------
-        grid : solprop.grid.TimeGrid or None, optional
-            The route's grid, for a value built on it.
-
-        Returns
-        -------
-        BuildContext
-            The data files' directory, the embedded files and the grid.
-        """
+        """Return the context the recipe's values are decoded in."""
         return BuildContext(
             base=self._base,
             allow_outside=self._allow_outside,
@@ -1279,18 +1171,7 @@ class Recipe:
 
 
 def _deferred(context: BuildContext) -> BuildContext:
-    """Return a context for checking values built on the grid before it exists.
-
-    Parameters
-    ----------
-    context : BuildContext
-        The recipe's context.
-
-    Returns
-    -------
-    BuildContext
-        The same, with a stand-in grid, so a factory on the grid can be checked.
-    """
+    """Return a context for checking values built on the grid before it exists."""
     from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only for the stand-in
 
     grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
@@ -1300,15 +1181,7 @@ def _deferred(context: BuildContext) -> BuildContext:
 def _needs_grid(value: object) -> bool:
     """Return whether a value holds a factory built on the route's grid.
 
-    Parameters
-    ----------
-    value : object
-        A value as written.
-
-    Returns
-    -------
-    bool
-        True if a table in it names a factory whose context is the grid.
+    - Returns: True if a table in it names a factory whose context is the grid.
     """
     if isinstance(value, Mapping):
         factory = REGISTRY.get(str(value.get("type")))
@@ -1323,18 +1196,8 @@ def _needs_grid(value: object) -> bool:
 def _issue(error: SolpropError, keyword: str | None = None) -> RecipeIssue:
     """Return the issue a refusal makes.
 
-    Parameters
-    ----------
-    error : solprop.exceptions.SolpropError
-        The refusal.
-    keyword : str or None, optional
-        The build keyword whose value was refused, named when the refusal names no
-        recipe path of its own.
-
-    Returns
-    -------
-    RecipeIssue
-        Its message, parameter and rule, as an error.
+    - ``keyword``: the build keyword whose value was refused, named when the refusal
+      names no recipe path of its own.
     """
     if isinstance(error, RecipeError):
         return RecipeIssue(error.message, error.parameter, "error", error.rule)
@@ -1343,25 +1206,7 @@ def _issue(error: SolpropError, keyword: str | None = None) -> RecipeIssue:
 
 
 def _plain(value: object, path: str) -> object:
-    """Return a value as a recipe holds it, refusing an object or a callable.
-
-    Parameters
-    ----------
-    value : object
-        A Python value.
-    path : str
-        Its path, for the refusal.
-
-    Returns
-    -------
-    object
-        The value, with tuples as lists and complex numbers as ``{re, im}``.
-
-    Raises
-    ------
-    RecipeError
-        If the value is an object or a callable.
-    """
+    """Return a value as a recipe holds it, refusing an object or a callable."""
     if value is None:
         return NONE
     if isinstance(value, bool | int | float | str):
@@ -1383,19 +1228,8 @@ def _plain(value: object, path: str) -> object:
 def _canonical(entry: Parameter, value: object) -> object:
     """Spell a value in its keyword's display unit, for a canonical recipe.
 
-    Parameters
-    ----------
-    entry : Parameter
-        The keyword's metadata.
-    value : object
-        The value as written.
-
-    Returns
-    -------
-    object
-        A quantity string in the display unit for a number of a keyword that has
-        one, element by element for a list; a two-row list and anything else as it
-        stands.
+    - Returns: a quantity string in the display unit for a number of a keyword that has
+      one, element by element for a list; a two-row list and anything else as it stands.
     """
     unit = next((form.unit for form in entry.forms if form.unit is not None), None)
     if entry.display is None or unit is None:
@@ -1415,20 +1249,7 @@ def _canonical(entry: Parameter, value: object) -> object:
 
 
 def _renamed(value: object, names: Mapping[str, str]) -> object:
-    """Return a value with its data-file references renamed.
-
-    Parameters
-    ----------
-    value : object
-        A value as the recipe writes it.
-    names : collections.abc.Mapping
-        The new name of each file, by the name the recipe refers to it by.
-
-    Returns
-    -------
-    object
-        A copy, each ``file`` that `names` holds replaced.
-    """
+    """Return a value with its data-file references renamed."""
     if isinstance(value, Mapping):
         out = {key: _renamed(item, names) for key, item in value.items()}
         if "sha256" in out and isinstance(out.get("file"), str):
@@ -1445,15 +1266,7 @@ def _with_pulse_placeholders(document: Document) -> dict[str, object]:
     A pulse in ``pulses`` whose energy is pinned cannot be built without one, and the
     pin is solved only after the values are checked.
 
-    Parameters
-    ----------
-    document : dict
-        The recipe's tables.
-
-    Returns
-    -------
-    dict
-        The ``[build]`` table, unchanged where no pulse pin is unset.
+    - Returns: the ``[build]`` table, unchanged where no pulse pin is unset.
     """
     from solprop.recipe.pins import PULSE_PINS  # noqa: PLC0415 - cycle
 
@@ -1470,43 +1283,14 @@ def _with_pulse_placeholders(document: Document) -> dict[str, object]:
 
 
 def _placeholder(path: str) -> float:
-    """Return the value a pulse pin stands at while the guide is solved.
-
-    Parameters
-    ----------
-    path : str
-        The pulse pin's path.
-
-    Returns
-    -------
-    float
-        Its placeholder, in SI.
-    """
+    """Return the value a pulse pin stands at while the guide is solved."""
     from solprop.recipe.pins import placeholder  # noqa: PLC0415 - cycle
 
     return placeholder(path)
 
 
 def _pick(pin: "Pin", roots: "DesignRoots") -> float:
-    """Return a pin's chosen root, an unmet target refused on its path.
-
-    Parameters
-    ----------
-    pin : solprop.recipe.pins.Pin
-        The pin.
-    roots : solprop.tools.DesignRoots
-        Its roots.
-
-    Returns
-    -------
-    float
-        The root its ``root`` key chooses.
-
-    Raises
-    ------
-    RecipeError
-        Naming the attainable range when there is no root, or an index past them.
-    """
+    """Return a pin's chosen root, an unmet target refused on its path."""
     try:
         return roots.pick(pin.root)
     except SolpropError as error:
@@ -1575,19 +1359,8 @@ def resume_file(
 def _number_in(value: object, unit: str | None, path: str) -> object:
     """Return one scan value as a number in its unit, or as it stands.
 
-    Parameters
-    ----------
-    value : object
-        The value as written.
-    unit : str or None
-        The keyword's unit.
-    path : str
-        Its path.
-
-    Returns
-    -------
-    object
-        A float in `unit` for a number or quantity string; anything else unchanged.
+    - Returns: a float in `unit` for a number or quantity string; anything else
+      unchanged.
     """
     if (
         unit is None

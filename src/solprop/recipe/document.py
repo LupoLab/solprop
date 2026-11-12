@@ -151,20 +151,7 @@ def unknown_key(
 
 
 def _location(table: str, keys: Sequence[str | int]) -> str:
-    """Write where a value is, as ``[table] key.sub[0]``, for an error message.
-
-    Parameters
-    ----------
-    table : str
-        The top-level table.
-    keys : sequence of str or int
-        The keys and indices from the table to the value.
-
-    Returns
-    -------
-    str
-        The location.
-    """
+    """Write where a value is, as ``[table] key.sub[0]``, for an error message."""
     parts: list[str] = []
     for key in keys:
         if isinstance(key, int):
@@ -179,20 +166,7 @@ def _location(table: str, keys: Sequence[str | int]) -> str:
 def _check_values(node: object, table: str, keys: tuple[str | int, ...]) -> None:
     """Refuse a value that is not a recipe value: a date, a wide integer, an object.
 
-    Parameters
-    ----------
-    node : object
-        The value, checked with everything inside it.
-    table : str
-        The top-level table it is in, for the error.
-    keys : tuple of str or int
-        The keys and indices from the table to it, for the error.
-
-    Raises
-    ------
-    RecipeError
-        If ``node`` or a value inside it is not a string, boolean, 64-bit integer,
-        float, table or array, or a table has a key that is not a string.
+    - ``keys``: the keys and indices from the table to it, for the error.
     """
     match node:
         case dict():
@@ -264,19 +238,7 @@ _UPGRADES: dict[int, Callable[[Document], Document]] = {}
 
 
 def _check_format(document: Mapping[str, object]) -> None:
-    """Check ``[recipe] format`` first, so a newer recipe is refused as newer.
-
-    Parameters
-    ----------
-    document : Mapping
-        The document.
-
-    Raises
-    ------
-    RecipeError
-        If ``[recipe]`` or its format is missing, the format is not an integer, or
-        it is newer than :data:`FORMAT` or below 1.
-    """
+    """Check ``[recipe] format`` first, so a newer recipe is refused as newer."""
     table = document.get("recipe")
     if table is None:
         raise RecipeError("a recipe needs a [recipe] table with format and route")
@@ -299,15 +261,7 @@ def _check_format(document: Mapping[str, object]) -> None:
 def _check_recipe_table(table: Mapping[str, object]) -> None:
     """Check ``[recipe]``'s keys and their types; the format is already checked.
 
-    Parameters
-    ----------
-    table : Mapping
-        The ``[recipe]`` table.
-
-    Raises
-    ------
-    RecipeError
-        If a key is unknown, ``route`` is missing, or a value is not a string.
+    - ``table``: the ``[recipe]`` table.
     """
     for key in table:
         if key not in RECIPE_KEYS:
@@ -507,24 +461,8 @@ def encode_none(value: object | None) -> object:
 def _real(value: object, part: str, path: str | None) -> float:
     """Read one part of a complex number.
 
-    Parameters
-    ----------
-    value : object
-        The part, an ``int`` or ``float``.
-    part : str
-        ``"real"`` or ``"imaginary"``, for the error.
-    path : str or None
-        The parameter path, for the error.
-
-    Returns
-    -------
-    float
-        The part.
-
-    Raises
-    ------
-    RecipeError
-        If ``value`` is a boolean or not a number.
+    - ``value``: the part, an ``int`` or ``float``.
+    - ``part``: ``"real"`` or ``"imaginary"``, for the error.
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise RecipeError(f"the {part} part {value!r} is not a number", path=path)

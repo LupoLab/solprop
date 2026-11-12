@@ -34,13 +34,7 @@ _INDENT: Final = "    "
 
 
 class _Writer:
-    """Render recipe values as Python expressions, and collect what they import.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe being written.
-    """
+    """Render recipe values as Python expressions, and collect what they import."""
 
     def __init__(self, recipe: "Recipe") -> None:
         """Start with no imports."""
@@ -50,42 +44,13 @@ class _Writer:
         self.grid: str | None = None
 
     def need(self, module: str, name: str) -> None:
-        """Record an import.
-
-        Parameters
-        ----------
-        module : str
-            The module.
-        name : str
-            The name it provides.
-        """
+        """Record an import."""
         self.imports.setdefault(module, set()).add(name)
 
     def expression(  # noqa: PLR0911 - one return per kind of value
         self, value: object, unit: UnitSpec, path: str
     ) -> str:
-        """Return a value as a Python expression.
-
-        Parameters
-        ----------
-        value : object
-            The value as the recipe writes it.
-        unit : str, callable or None
-            Its unit.
-        path : str
-            Its parameter path.
-
-        Returns
-        -------
-        str
-            The expression, numbers in SI.
-
-        Raises
-        ------
-        RecipeError
-            For a value built on the route's grid, which the script cannot name
-            before the route has built it.
-        """
+        """Return a value as a Python expression."""
         if isinstance(value, Mapping):
             if "type" in value:
                 return self.factory(value, path)
@@ -113,22 +78,7 @@ class _Writer:
     def factory(self, table: Mapping[str, object], path: str) -> str:
         """Return a registered type's call.
 
-        Parameters
-        ----------
-        table : collections.abc.Mapping
-            The table with its ``type``.
-        path : str
-            Its parameter path.
-
-        Returns
-        -------
-        str
-            The call, with the name imported.
-
-        Raises
-        ------
-        RecipeError
-            For a factory built on the route's grid.
+        - ``table``: the table with its ``type``.
         """
         factory = REGISTRY[str(table["type"])]
         if factory.context and self.grid is None:
@@ -160,18 +110,8 @@ class _Writer:
 def _comment(value: object, unit: UnitSpec) -> str:
     """Return the comment that states a quantity as the recipe wrote it.
 
-    Parameters
-    ----------
-    value : object
-        The value as written.
-    unit : str, callable or None
-        Its unit; a value without one gets no comment.
-
-    Returns
-    -------
-    str
-        ``"  # 125 um"`` for a quantity string, or a list holding one; empty
-        otherwise.
+    - Returns: ``" # 125 um"`` for a quantity string, or a list holding one; empty
+      otherwise.
     """
     if unit is None:
         return ""
@@ -277,14 +217,7 @@ class _Pinned:
     keywords: list[str]
 
     def __bool__(self) -> bool:
-        """Return whether there are pins.
-
-        Returns
-        -------
-        bool
-            Whether any line is written: a solver call, or the comment of a pin
-            written at its value.
-        """
+        """Return whether there are pins."""
         return bool(self.lines)
 
 
@@ -299,18 +232,6 @@ def _pins(
     the keywords with the guide's value. A pin on one of ``pulses`` is written at the
     value it solves to now, with the pin in a comment: the pulse object cannot be
     built without its energy.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    writer : _Writer
-        The writer, which collects the imports.
-
-    Returns
-    -------
-    _Pinned
-        The lines.
     """
     from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
 
@@ -362,17 +283,8 @@ def _array_pins(
 ) -> dict[str, object]:
     """Return ``[build]`` with each pin on one of ``pulses`` set to its solved value.
 
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    build : dict
-        Its ``[build]`` table.
-
-    Returns
-    -------
-    dict
-        The table, unchanged when no such pin exists.
+    - ``build``: its ``[build]`` table.
+    - Returns: the table, unchanged when no such pin exists.
     """
     from solprop.recipe.paths import parse_path, set_path  # noqa: PLC0415 - cycle
 
@@ -386,18 +298,7 @@ def _array_pins(
 
 
 def _imports(writer: _Writer) -> list[str]:
-    """Return the script's import lines: plain imports first, then from-imports.
-
-    Parameters
-    ----------
-    writer : _Writer
-        The writer that collected the names.
-
-    Returns
-    -------
-    list of str
-        The lines, each group sorted by module.
-    """
+    """Return the script's import lines: plain imports first, then from-imports."""
     plain = [
         f"import {module}"
         for module in sorted(writer.imports)

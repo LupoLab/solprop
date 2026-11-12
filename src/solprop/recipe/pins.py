@@ -162,27 +162,7 @@ def read_pins(recipe: "Recipe") -> tuple[Pin, ...]:
 
 
 def _read_pin(recipe: "Recipe", path: str, entry: object) -> Pin:
-    """Return one ``[pins]`` entry, checked.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    path : str
-        The entry's key, a parameter path.
-    entry : object
-        Its value, a table.
-
-    Returns
-    -------
-    Pin
-        The pin.
-
-    Raises
-    ------
-    RecipeError
-        On `path`, naming the rule broken.
-    """
+    """Return one ``[pins]`` entry, checked."""
     steps = parse_path(path)
     path = format_path(steps)
     if isinstance(steps[-1], Index):
@@ -255,20 +235,7 @@ def _read_pin(recipe: "Recipe", path: str, entry: object) -> Pin:
 
 
 def _is_set(recipe: "Recipe", path: str) -> bool:
-    """Return whether a path is also set in ``[build]``.
-
-    Parameters
-    ----------
-    recipe : Recipe
-        The recipe.
-    path : str
-        The path.
-
-    Returns
-    -------
-    bool
-        Whether ``recipe.get(path)`` finds a value.
-    """
+    """Return whether a path is also set in ``[build]``."""
     try:
         recipe.get(path)
     except RecipeError, KeyError, IndexError, TypeError:
@@ -279,15 +246,7 @@ def _is_set(recipe: "Recipe", path: str) -> bool:
 def _is_pulse_path(steps: tuple[object, ...]) -> bool:
     """Return whether a path names a pulse's energy or peak power.
 
-    Parameters
-    ----------
-    steps : tuple
-        The parsed path.
-
-    Returns
-    -------
-    bool
-        For ``energy``, ``peak_power`` or ``pulses[i].energy`` and the like.
+    - Returns: for ``energy``, ``peak_power`` or ``pulses[i].energy`` and the like.
     """
     # A path starts with a keyword (parse_path), so names[0] is that keyword.
     names = [step.name for step in steps if isinstance(step, Attribute)]
@@ -302,27 +261,7 @@ def _is_pulse_path(steps: tuple[object, ...]) -> bool:
 
 
 def _read_key(value: object, key: str, path: str) -> object:
-    """Return a target key's value, a quantity in SI.
-
-    Parameters
-    ----------
-    value : object
-        The value as written.
-    key : str
-        The key.
-    path : str
-        The pin's path, for errors.
-
-    Returns
-    -------
-    object
-        A float in SI, or a string for a choice.
-
-    Raises
-    ------
-    RecipeError
-        If the value does not read in the key's unit.
-    """
+    """Return a target key's value, a quantity in SI."""
     unit = _UNITS[key]
     if unit is None:
         if key == "order":
@@ -337,24 +276,8 @@ def _read_key(value: object, key: str, path: str) -> object:
 def _number(value: object, unit: str | None, path: str) -> float:
     """Return a number written plain or as a quantity.
 
-    Parameters
-    ----------
-    value : object
-        A number, or a quantity string such as ``"800 nm"``.
-    unit : str or None
-        The unit it is read in; ``None`` for a plain number.
-    path : str
-        The pin's path, for errors.
-
-    Returns
-    -------
-    float
-        The number in `unit`.
-
-    Raises
-    ------
-    RecipeError
-        If it does not read, or is not finite.
+    - ``value``: a number, or a quantity string such as ``"800 nm"``.
+    - ``unit``: the unit it is read in; ``None`` for a plain number.
     """
     if isinstance(value, bool):
         msg = f"expected a number, got {value!r}"
@@ -376,24 +299,8 @@ def _number(value: object, unit: str | None, path: str) -> float:
 def _read_search(value: object, unit: str | None, path: str) -> tuple[float, float]:
     """Return a search range, read in the pinned keyword's unit.
 
-    Parameters
-    ----------
-    value : object
-        ``[low, high]``.
-    unit : str or None
-        The pinned keyword's unit.
-    path : str
-        The pin's path.
-
-    Returns
-    -------
-    tuple of float
-        ``(low, high)``, ordered.
-
-    Raises
-    ------
-    RecipeError
-        If it is not two ordered numbers.
+    - ``value``: ``[low, high]``.
+    - Returns: ``(low, high)``, ordered.
     """
     if not isinstance(value, list) or len(value) != 2:
         msg = "a pin's search is [low, high]"
@@ -406,25 +313,7 @@ def _read_search(value: object, unit: str | None, path: str) -> tuple[float, flo
 
 
 def _read_root(value: object, path: str) -> "RootChoice":
-    """Return a root choice.
-
-    Parameters
-    ----------
-    value : object
-        ``"lowest"``, ``"highest"`` or an integer index.
-    path : str
-        The pin's path.
-
-    Returns
-    -------
-    {'lowest', 'highest'} or int
-        The choice.
-
-    Raises
-    ------
-    RecipeError
-        If it is none of these.
-    """
+    """Return a root choice."""
     if value in ("lowest", "highest"):
         return cast("Literal['lowest', 'highest']", value)
     if isinstance(value, int) and not isinstance(value, bool):
@@ -665,16 +554,8 @@ _C: Final = 299_792_458.0
 def _route_pulse(keywords: Mapping[str, object]) -> object:
     """Return the pulse a route's own pulse keywords describe.
 
-    Parameters
-    ----------
-    keywords : collections.abc.Mapping
-        The route's keywords: ``wavelength``, ``fwhm`` or ``width``, ``shape`` and
-        ``energy`` or ``peak_power``.
-
-    Returns
-    -------
-    GaussianPulse or SechPulse
-        The pulse.
+    - ``keywords``: the route's keywords: ``wavelength``, ``fwhm`` or ``width``,
+      ``shape`` and ``energy`` or ``peak_power``.
     """
     from solprop.pulses import GaussianPulse, SechPulse  # noqa: PLC0415
 
@@ -702,25 +583,8 @@ def _route_pulse(keywords: Mapping[str, object]) -> object:
 def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation":
     """Build a route for its mode, a refusal named on the pinned path.
 
-    Parameters
-    ----------
-    route : str
-        The route.
-    keywords : collections.abc.Mapping
-        Its keywords; a pulse without an energy or peak power (one a later pin
-        solves) is built at a placeholder.
-    path : str
-        The pinned path.
-
-    Returns
-    -------
-    solprop.driver.simulation.Simulation
-        The simulation, not translated.
-
-    Raises
-    ------
-    RecipeError
-        If the route refuses the keywords.
+    - ``keywords``: its keywords; a pulse without an energy or peak power (one a later
+      pin solves) is built at a placeholder.
     """
     from solprop.recipe.metadata import surface  # noqa: PLC0415 - cycle
 
@@ -737,37 +601,15 @@ def _build(route: str, keywords: Mapping[str, object], path: str) -> "Simulation
 
 
 def _launch_mode(simulation: "Simulation") -> "Mode":
-    """Return the mode a pin solves on: the launch mode, the first of the set.
-
-    Parameters
-    ----------
-    simulation : solprop.driver.simulation.Simulation
-        The built route.
-
-    Returns
-    -------
-    solprop.modes.base.Mode
-        Its first mode.
-    """
+    """Return the mode a pin solves on: the launch mode, the first of the set."""
     return simulation.modes[0]
 
 
 def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
     """Return the launch mode at a trial value of the pinned parameter.
 
-    Parameters
-    ----------
-    mode : solprop.modes.base.Mode
-        The mode as built.
-    parameter : str
-        ``"pressure"`` (bar) or a mode parameter such as ``"core_radius"`` (m).
-    value : float
-        The trial value.
-
-    Returns
-    -------
-    solprop.modes.base.Mode
-        The mode there.
+    - ``parameter``: ``"pressure"`` (bar) or a mode parameter such as ``"core_radius"``
+      (m).
     """
     from solprop.tools import _capillary_at  # noqa: PLC0415 - the tools' own re-fill
 
@@ -779,17 +621,8 @@ def _at(mode: "Mode", parameter: str, value: float) -> "Mode":
 def _gamma(mode: "Mode", wavelength: float) -> float:
     """Return the fill's nonlinear coefficient on a mode at the launch position.
 
-    Parameters
-    ----------
-    mode : solprop.modes.base.Mode
-        The mode, filled.
-    wavelength : float
-        The pump wavelength, m.
-
-    Returns
-    -------
-    float
-        ``gamma`` in rad/(W m).
+    - ``wavelength``: the pump wavelength, m.
+    - Returns: ``gamma`` in rad/(W m).
     """
     from solprop.tools import _fill_n2, nonlinear_coefficient  # noqa: PLC0415
 
@@ -809,26 +642,8 @@ def _route_gamma(
     A GNLSE mode has no fill, so the recipe's ``gamma`` or ``n2`` says what its
     coefficient is, as the route reads them.
 
-    Parameters
-    ----------
-    mode : solprop.modes.base.Mode
-        The launch mode.
-    wavelength : float
-        The pump wavelength, m.
-    keywords : collections.abc.Mapping
-        The route's keywords.
-    path : str
-        The pinned path, for a refusal.
-
-    Returns
-    -------
-    float
-        ``gamma`` in rad/(W m).
-
-    Raises
-    ------
-    RecipeError
-        If the route names ``n2`` and does not give a number.
+    - ``wavelength``: the pump wavelength, m.
+    - Returns: ``gamma`` in rad/(W m).
     """
     from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
 
@@ -845,18 +660,7 @@ def _route_gamma(
 
 
 def _needs_gamma(target: "DesignTarget") -> bool:
-    """Return whether a target needs the fill's Kerr coefficient.
-
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-
-    Returns
-    -------
-    bool
-        For an RDW with a peak power, and a soliton order.
-    """
+    """Return whether a target needs the fill's Kerr coefficient."""
     from solprop.tools import RDW, SolitonOrder  # noqa: PLC0415
 
     return isinstance(target, SolitonOrder) or (
