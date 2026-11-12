@@ -89,7 +89,6 @@ Starting propagation from z = 0 m to 10 mm
   machine:        arm64, Apple M5 Max, 18 CPUs (18 usable), 128 GiB, Darwin 27.0.0
   backend:        numpy_ref
   threads:        1 (NumPy reference); budget 18 (affinity)
-  precision:      double
   grid:           field, 4096 points, window 683.1 fs, band 150 nm to 4 um
   representation: mode-averaged, one mode, scalar
   medium:         Ar, 293.15 K, core radius 125 um

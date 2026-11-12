@@ -52,8 +52,8 @@ element set to *Auto* is searched by solprop for the shortest pulse; **Take the 
 found** fixes them. The plane and band compressed are the ones chosen on *At this plane*.
 
 **Run health** says how the run went: its step size along z with the rejected steps,
-the light removed at the time window's edges, the run's record (its backend, precision
-and threads, its wall time and peak memory) and its log. Check it before trusting a result: a run whose light
+the light removed at the time window's edges, the run's record (its backend and
+threads, its wall time and peak memory) and its log. Check it before trusting a result: a run whose light
 reaches the window's edges, or whose steps collapse, needs a wider window or a smaller
 tolerance ([numerics](../numerics/index.md)).
 

@@ -731,11 +731,10 @@ noise the floor alone fills the collar far above the threshold, so the option on
 on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
 saved 6 to 9 % per step across `native` and the since-retired `numba_cpu` (Apple M5 Max). It is off by default
 because a run cannot know in advance whether its light stays clear, and an omission
-judged too early is an error nothing reports (ADR-057). It applies to binary64 modal and
-radial stages with the in-stage scheme; the split scheme, the low-storage march, the
-general modal route, coupled flows, a real-space collar, single precision, and the
-Cartesian, line and planar routes, whose stages keep the term regardless, always keep
-the collar. The record's `collar_left_out_checks` counts the checks that found it out.
+judged too early is an error nothing reports (ADR-057). It applies to modal and radial
+stages with the in-stage scheme; the split scheme, the low-storage march, the general
+modal route, coupled flows, a real-space collar, and the Cartesian, line and planar
+routes, whose stages keep the term regardless, always keep the collar. The record's `collar_left_out_checks` counts the checks that found it out.
 
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
 the whole window, guards and collar included. Light below that floor cannot be told from

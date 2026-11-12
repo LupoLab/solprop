@@ -22,10 +22,9 @@ repeat the first:
 
 | request | native usable | processor below the floor, or its features unreadable | native fails to load | no native package |
 |---|---|---|---|---|
-| double precision, `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
+| `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
 | `native` by name | `native` | as above | as above | as above |
 | TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
-| single precision, `auto` | refuses, naming `numpy_ref`; native isn't consulted | the same | the same | the same |
 | `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
 
 `"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
@@ -47,9 +46,8 @@ what runs it: a CPU build of the native backend, in a second environment, or
 
 `Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
 the default of some interfaces
-([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
-the binary64 backends for their supported configurations; single precision admits
-`Multistep()` in its exponential formulation on `numpy_ref`. Beside a coupled flow, Adams requires its
+([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available on
+both backends for their supported configurations. Beside a coupled flow, Adams requires its
 exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
@@ -89,7 +87,6 @@ supported on the supported platforms:
 |---|---|---|
 | the [TDSE response](../media/tdse.md) | `auto` or by name | |
 | `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
-| [single precision](single-precision.md) | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
 
 The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
 `tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by

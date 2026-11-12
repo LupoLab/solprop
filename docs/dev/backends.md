@@ -17,9 +17,9 @@ processor is at or above a build's baseline, and otherwise raises `BackendError`
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
 Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
-enforce it. Two requests resolve before the registry and never consult native: a TDSE
-response's `auto` is `numpy_ref`, and single precision's is refused: name `numpy_ref`. Explicit names are preserved, so `backend="numpy_ref"` runs where native is
-absent and `backend="native"` on a processor below the baseline raises the package's refusal.
+enforce it. A TDSE response's `auto` resolves before the registry, to `numpy_ref`, and
+never consults native. Explicit names are preserved, so `backend="numpy_ref"` runs where
+native is absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
 successful construction. Import, build, device and unsupported-problem errors stay visible and
@@ -154,7 +154,7 @@ assembled outside that grouping is refused by name, at `driver.batch`'s
 `refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
 (`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
 are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by name by the reference's binary64
+axis. A member carrying a coupled flow is refused by name by the reference's
 lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
 no flow action; the native group admits one, each member's own session carrying its flow.
 
@@ -372,7 +372,7 @@ every step of the anatomy in [architecture.md §8](architecture.md) is a named f
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
 the supported executor of the short list of features `native` does not run yet: the TDSE
-response, CF4 coupled-flow sections and single precision away from Apple silicon
+response and CF4 coupled-flow sections
 ([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
@@ -516,37 +516,6 @@ vibrational line matches `-Im H(Ω)` to 0.4 % on a 140 ps window and 1.6 % on 70
 that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency shift matches
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
-
-**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054). A
-problem whose `precision` is single is executed by `NumpySingleBackend`
-(`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
-reference's passes and step loop in binary32, through hooks of the reference that leave
-its binary64 arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`,
-`_error_norm`, `_envelope_sources`). It narrows the source tables once at construction,
-each with its block exponent (applied at upload where that is exact, refused otherwise
-unless the pass carries it, as the Raman kernel's does); holds the state at the launch's
-power-of-two scale `s`; forms every propagator, prefactor and z-table value in binary64
-and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the field-grid
-plasma in binary32 with each term's homogeneity factor in one host coefficient, the
-stable population forms and blocked running integrals
-(`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
-squares against `atol / s`; applies the split-step collar as the correction
-`a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once (a
-binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
-state and stages stayed complex64, and after every step that the finished state is
-complex64 and finite. Its fixed-schedule batches are the plain `HostGroup`, each
-member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
-member axis is binary64, so it refuses a single-precision member by name, and every
-lockstep batch refuses members of mixed precisions (`_validate_members`). The
-ionisation rate's table
-lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
-binary64 from the binary32 field, which is what the oracle defines. Its constructor applies the settings' own admission (`translate.precision.admit_precision`):
-a problem that reaches `registry.select` without passing `SimulationSettings` is still
-refused an adaptive `rtol` below the floor. The Adams integrator is admitted (#342):
-binary32 Adams agrees with binary64 Adams to the method's own truncation on the survival
-cases, and a single-precision history resumes in binary32 (`HostHistory.load_rows`,
-`NumpySingleBackend._adams_restore`). `native` refuses a single-precision
-problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
@@ -1872,8 +1841,8 @@ is refused by `check_build`.
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
 was restructured. `backend="mlx"` raises `BackendError` (`registry.REMOVED_BACKENDS`),
-and output that records it still opens. Single precision runs on `numpy_ref`, its
-oracle. SEP 33 and the benchmark ledger keep what it measured.
+and output that records it still opens. Single precision went with it (ADR-077): every
+backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
 
@@ -2005,14 +1974,13 @@ that execution space.
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule groups | fibre and general guides; a coupled flow member by member (binary64 lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
+| fixed-schedule groups | fibre and general guides; a coupled flow member by member (the lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
 | the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -2083,10 +2051,6 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs on `numpy_ref`, its oracle, alone; it
-  refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
-  the dispersive electronic response, the far-field statistics, noise models, the Adams
-  integrator and an adaptive `rtol` below `1e-6`.
 - The dispersive electronic response runs on `numpy_ref` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

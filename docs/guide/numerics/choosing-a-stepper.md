@@ -37,11 +37,7 @@ on; pass `integrator=`, `rtol=` or `atol=` to choose another.
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
-Under `precision="single"` every interface takes the table's integrator and no noise,
-and its `rtol` is the larger of the table's and `1e-6`, at most
-`1e-4`: `1e-6` on `prop_gnlse` and `prop_capillary`, the table's on the others
-([single precision](../performance/single-precision.md)). The
-spatial interfaces' tolerances apply where their `SimulationSettings` give no
+The spatial interfaces' tolerances apply where their `SimulationSettings` give no
 controller; a free-space run that names no integrator takes `RungeKutta()`. A default
 noise that resolves to none says why in the run record and the start-of-run summary,
 and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
@@ -51,9 +47,8 @@ The table lives in one place, `solprop.driver.defaults.ROUTE_DEFAULTS`, with the
 collar's scheme beside it (`"split_step"` on the radial, free-space and planar routes
 unless planes are interpolated, `"nonlinear"` elsewhere). The run record's `defaults`
 entry and the start-of-run summary say which of the integrator, `rtol` and the scheme
-took the route's default, and a copy of the settings made with `dataclasses.replace` in
-the other precision takes that precision's default for each of them, the backend
-`"auto"` included.
+took the route's default, and a copy of the settings made with `dataclasses.replace`
+keeps taking the route's default for each of them.
 
 **Naming an integrator keeps the interface's tolerance.** The tolerance in the table
 belongs to the interface, not to the method: `prop_capillary(integrator=RungeKutta())`
