@@ -25,7 +25,6 @@ import warnings
 from typing import TypedDict
 
 import numpy as np
-import solprop_native
 
 from benchmarks.builders import capillary, variant
 from solprop.backends.registry import select
@@ -77,6 +76,8 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     fftw_threads = 1
     native_threads = int(os.environ.get("SOLPROP_NATIVE_THREADS", "1"))
     if backend_name == "native":
+        import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
         build = solprop_native.build_info()
         blas_backend = build.blas_backend
         fftw_threads = build.fftw_threads
