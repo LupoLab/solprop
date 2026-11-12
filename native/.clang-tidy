@@ -28,6 +28,8 @@
 #   setup functions and hot kernels are split first (a later change), then gated.
 # - readability-avoid-nested-conditional-operator: nested conditionals initialise
 #   const locals, in kernels too; an immediately invoked lambda reads worse.
+# - readability-convert-member-functions-to-static: it sees the CPU build only, where
+#   members such as hybrid_shape_eligible() read no state; their device branches do.
 # - readability-use-std-min-max: `if (a > m) m = a` keeps m on a NaN where std::max
 #   takes the NaN, and std::max is not device code.
 # - readability-make-member-function-const: Kokkos views are handles, so a member
@@ -62,6 +64,7 @@ Checks: >
   -readability-avoid-nested-conditional-operator,
   -readability-make-member-function-const,
   -readability-use-std-min-max,
+  -readability-convert-member-functions-to-static,
   cppcoreguidelines-special-member-functions,
   clang-analyzer-*,
   -clang-analyzer-osx.*,
