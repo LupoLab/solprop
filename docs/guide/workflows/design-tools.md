@@ -292,12 +292,15 @@ rests on an extrapolated cladding index.
 ## The pressure that tunes it
 
 {py:func}`~solprop.tools.design.pressure_rdw` inverts the calculation: the pressure at which
-the dispersive wave is phase matched at a target wavelength, by Brent's method between
-$10^{-6}$ bar and `pressure_max`. With `peak_power` the nonlinear coefficient follows the
-pressure inside the search. {py:func}`~solprop.tools.design.pressure_zdw` does the same for the
-zero-dispersion wavelength. The capillary is built once and re-evaluated at each density
-through its parameterised form, rather than rebuilt with its equation of state at every
-step, so a search costs milliseconds.
+the dispersive wave is phase matched at a target wavelength, searched between
+$10^{-6}$ bar and `pressure_max` as {py:func}`~solprop.tools.design.solve_parameter`
+searches (below), and refused when there is more than one. With `peak_power` the
+nonlinear coefficient follows the pressure inside the search.
+{py:func}`~solprop.tools.design.pressure_zdw` does the same for the zero-dispersion
+wavelength, and takes the lowest root. The capillary is built once and re-evaluated at
+each density through its parameterised form, rather than rebuilt with its equation of
+state at every step, so a trial pressure costs about a millisecond and a search a few
+tenths of a second.
 
 ```{code-block} python
 >>> from solprop.tools import lambda_rdw, pressure_rdw

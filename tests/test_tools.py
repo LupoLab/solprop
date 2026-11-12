@@ -672,7 +672,7 @@ def test_the_pressure_with_the_kerr_term_is_higher():
 
 
 def test_a_pressure_bracket_without_a_root_is_refused():
-    with pytest.raises(ToolsError, match="no pressure between"):
+    with pytest.raises(ToolsError, match=r"no value between 1e-06 and 0\.5 gives"):
         tools.pressure_rdw(125e-6, "He", 186e-9, PUMP, pressure_max=0.5, cladding=GLASS)
     with pytest.raises(ToolsError, match="pressure_max must exceed"):
         tools.pressure_zdw(125e-6, "He", 400e-9, pressure_max=1e-7, cladding=GLASS)
@@ -994,9 +994,10 @@ def test_an_antiresonant_fibre_s_resonances_are_skipped_not_raised():
         assert abs(beside[1]) < 1e-3 * max(abs(beside[0]), abs(beside[2]))
 
 
-def test_a_residual_that_is_not_a_number_is_a_tools_error():
-    with pytest.raises(ToolsError, match="not finite at the ends"):
-        tools_design._pressure_root(lambda pressure: math.nan, 10.0, "anything")
+def test_a_residual_that_is_not_a_number_is_a_tools_error(monkeypatch):
+    monkeypatch.setattr(tools_design.base, "beta2", lambda *args: np.array([math.nan]))
+    with pytest.raises(ToolsError, match="the target's residual is not finite at"):
+        tools.pressure_zdw(125e-6, "He", 400e-9, pressure_max=10.0, cladding=GLASS)
 
 
 def test_the_tools_build_the_capillary_the_run_interface_builds():

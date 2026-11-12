@@ -78,7 +78,7 @@ _PRESSURE_FLOOR = 1e-6
 
 _SEARCH_SAMPLES = 129
 """Linear samples of a parameter search, and logarithmic ones beside them where the
-range is positive: :func:`pressure_rdw`'s grid, which :func:`solve_parameter` shares."""
+range is positive: the grid of :func:`solve_parameter` and the pressure solvers."""
 
 
 _ATTAINABLE_SAMPLES = 17
@@ -104,35 +104,12 @@ A parameter has no integral like ``beta1`` to test the change against (see
 :data:`~solprop.tools.waveguide._POLE_FACTOR`), so the residual's own size decides."""
 
 
-def _pressure_root(
-    residual: Callable[[float], float], pressure_max: float, what: str
-) -> float:
-    """Return the pressure at which a function of pressure vanishes.
-
-    - ``residual``: a function of the pressure in bar.
-    - ``pressure_max``: upper end of the bracket in bar.
-    - Returns: the root in bar.
-    """
+def _pressure_bracket(pressure_max: float) -> tuple[float, float]:
+    """Return the pressure bracket in bar from the floor to `pressure_max`."""
     top = positive(pressure_max, "pressure_max", ToolsError)
     if top <= _PRESSURE_FLOOR:
         raise ToolsError(f"pressure_max must exceed {_PRESSURE_FLOOR} bar, got {top}")
-    with _probing():
-        low, high = residual(_PRESSURE_FLOOR), residual(top)
-    if not (math.isfinite(low) and math.isfinite(high)):
-        raise ToolsError(
-            f"the residual for {what} is not finite at the ends of the pressure "
-            f"bracket ({low!r}, {high!r}): the index model does not reach that far"
-        )
-    if low * high > 0.0:
-        raise ToolsError(
-            f"no pressure between {_PRESSURE_FLOOR} and {top:.4g} bar gives {what}: "
-            f"the residual is {low:.4g} at the low end and {high:.4g} at the high end"
-        )
-    with _probing():
-        root = float(brentq(residual, _PRESSURE_FLOOR, top))
-    # Outside the probing context, so the answer's own warnings are raised.
-    residual(root)
-    return root
+    return _PRESSURE_FLOOR, top
 
 
 def _design_capillary(
@@ -315,39 +292,6 @@ def _sampled_roots(
     )
 
 
-def _rdw_pressure_root(
-    residual: Callable[[float], float | None], limits: tuple[float, float]
-) -> float:
-    """Find a unique pressure root without crossing a sampled inadmissible region.
-
-    - ``residual``: mismatch in 1/m, or None only where no focusing discrete soliton
-      exists.
-    - ``limits``: positive ordered pressure bracket in bar.
-    - Returns: unique pressure root in bar.
-    """
-    low, high = limits
-    if not (math.isfinite(low) and math.isfinite(high) and 0 < low < high):
-        raise ToolsError("pressure_limits must be finite, positive and ordered")
-    roots = _sampled_roots(
-        residual, limits, what="the RDW pressure residual", narrow="pressure_limits"
-    ).roots
-    if not roots:
-        raise ToolsError(
-            f"no pressure between {low:g} and {high:g} bar gives an admissible "
-            "RDW root; narrow pressure_limits if needed"
-        )
-    root, *others = roots
-    if others:
-        found = ", ".join(f"{value:.4g}" for value in roots)
-        raise ToolsError(
-            f"ambiguous RDW pressure: {len(roots)} roots, at {found} bar; "
-            "choose one with pressure_limits"
-        )
-    # Re-evaluate the accepted answer outside the probing warning filter.
-    residual(root)
-    return root
-
-
 def pressure_rdw(
     radius: float,
     gas: Gas | str,
@@ -439,11 +383,11 @@ def pressure_rdw(
         shape=shape,
         nonlinear_phase=nonlinear_phase,
     )
-    top = positive(pressure_max, "pressure_max", ToolsError)
-    if top <= _PRESSURE_FLOOR:
-        raise ToolsError(f"pressure_max must exceed {_PRESSURE_FLOOR} bar, got {top}")
-    limits = (_PRESSURE_FLOOR, top) if pressure_limits is None else pressure_limits
-    if limits[0] < _PRESSURE_FLOOR or limits[1] > top:
+    floor, top = _pressure_bracket(pressure_max)
+    low, high = (floor, top) if pressure_limits is None else pressure_limits
+    if not (math.isfinite(low) and math.isfinite(high) and 0 < low < high):
+        raise ToolsError("pressure_limits must be finite, positive and ordered")
+    if low < floor or high > top:
         raise ToolsError("pressure_limits must lie within (1e-6, pressure_max) bar")
     materials = MaterialSelection() if materials is None else materials
     _check_carrier(materials, wavelength)
@@ -458,21 +402,23 @@ def pressure_rdw(
         materials=materials,
     )
 
-    def _residual(pressure: float) -> float | None:
-        """Return the mismatch at the target for one pressure.
-
-        - ``pressure``: pressure in bar.
-        - Returns: mismatch in 1/m, or None when the constituent does not exist.
-        """
+    def _build(pressure: float) -> Mode | tuple[Mode, float]:
+        """Return the capillary at a pressure in bar, with its gamma for a Kerr term."""
         mode = _capillary_at(base_mode, pressure)
-        gamma = None
-        if peak_power is not None:
-            assert mode.mixture is not None
-            index = _fill_n2(mode.mixture, wavelength)[0]
-            gamma = nonlinear_coefficient(mode, index, wavelength)
-        return _rdw_residual(design, mode, gamma, 0.0)
+        if peak_power is None:
+            return mode
+        assert mode.mixture is not None
+        index = _fill_n2(mode.mixture, wavelength)[0]
+        return mode, nonlinear_coefficient(mode, index, wavelength)
 
-    return _rdw_pressure_root(_residual, limits)
+    roots = _solve(_build, (low, high), design, narrow="pressure_limits")
+    if len(roots) > 1:
+        found = ", ".join(f"{value:.4g}" for value in roots)
+        raise ToolsError(
+            f"ambiguous RDW pressure: {len(roots)} roots, at {found} bar; "
+            "choose one with pressure_limits"
+        )
+    return roots.pick()
 
 
 def pressure_zdw(
@@ -488,6 +434,9 @@ def pressure_zdw(
     materials: MaterialSelection | None = None,
 ) -> float:
     """Return the pressure that puts the zero-dispersion point at a wavelength.
+
+    The capillary form of :func:`solve_parameter` over pressure, with a
+    :class:`ZDW` target: the lowest root, should there be several.
 
     Parameters
     ----------
@@ -521,7 +470,8 @@ def pressure_zdw(
     Raises
     ------
     ToolsError
-        If no pressure in the bracket does.
+        If no pressure in the bracket does, naming the zero-dispersion wavelengths
+        that the bracket gives.
 
     Examples
     --------
@@ -529,6 +479,8 @@ def pressure_zdw(
     >>> f"{pressure_zdw(125e-6, 'Ar', 500e-9, cladding=1.45):.3f}"
     '0.066'
     """
+    bracket = _pressure_bracket(pressure_max)
+    target = ZDW(zdw_wavelength)
     materials = MaterialSelection() if materials is None else materials
     base_mode = _design_capillary(
         radius,
@@ -540,24 +492,13 @@ def pressure_zdw(
         lattice=None,
         materials=materials,
     )
-    omega = np.array([_omega(zdw_wavelength)])
-
-    def _residual(pressure: float) -> float:
-        """Return the dispersion at the wavelength for one pressure.
-
-        - ``pressure``: pressure in bar.
-        - Returns: ``beta_2`` in s^2/m, scaled to order one.
-        """
-        mode = _capillary_at(base_mode, pressure)
-        # Scaled so that brentq's absolute tolerance on the residual is meaningless
-        # and its tolerance on the pressure decides, as intended.
-        return float(base.beta2(mode, omega)[0]) * 1e30
-
-    return _pressure_root(
-        _residual,
-        pressure_max,
-        f"a zero-dispersion wavelength of {zdw_wavelength * 1e9:.4g} nm",
+    roots = _solve(
+        lambda pressure: _capillary_at(base_mode, pressure),
+        bracket,
+        target,
+        narrow="pressure_max",
     )
+    return roots.pick()
 
 
 @dataclass(frozen=True)
@@ -1113,15 +1054,14 @@ def solve_parameter(
     """Return every value of a guide or fill parameter that meets a design target.
 
     The general form of :func:`pressure_zdw`, :func:`pressure_rdw` and
-    :func:`radius_zdw`, for any mode and any parameter: a radius, a pressure, a core
-    size or a wall thickness. The target's residual is sampled over `search` on 129
-    linear values and, where ``low > 0``, 129 logarithmic ones (as
-    :func:`pressure_rdw` samples pressure); each sign change between two samples is
-    refined with Brent's method to a relative tolerance of 2e-12; and a refined
-    change is kept as a root only where the residual has fallen to a thousandth of
-    its value at the bracket's ends, which discards a change through a pole (a wall
-    resonance, where it diverges instead). Roots closer together than one sample
-    are not separated: narrow `search` to resolve them.
+    :func:`radius_zdw`, which call it, for any mode and any parameter: a radius, a
+    pressure, a core size or a wall thickness. The target's residual is sampled over
+    `search` on 129 linear values and, where ``low > 0``, 129 logarithmic ones; each
+    sign change between two samples is refined with Brent's method to a relative
+    tolerance of 2e-12; and a refined change is kept as a root only where the residual
+    has fallen to a thousandth of its value at the bracket's ends, which discards a
+    change through a pole (a wall resonance, where it diverges instead). Roots closer
+    together than one sample are not separated: narrow `search` to resolve them.
 
     Parameters
     ----------
@@ -1173,6 +1113,22 @@ def solve_parameter(
         raise ToolsError(f"search must be finite and ordered, got {search!r}")
     if not math.isfinite(z):
         raise ToolsError(f"z must be finite, got {z!r}")
+    return _solve(build, (low, high), target, z=z, narrow="search")
+
+
+def _solve(
+    build: DesignBuild,
+    search: tuple[float, float],
+    target: DesignTarget,
+    *,
+    z: float = 0.0,
+    narrow: str,
+) -> DesignRoots:
+    """Return every root of a target over a finite ordered range: `solve_parameter`.
+
+    - ``narrow``: the keyword a message tells the caller to narrow.
+    """
+    low, high = search
     builds = 0
 
     def _residual(value: float) -> float | None:
@@ -1186,7 +1142,7 @@ def solve_parameter(
         return _target_residual(target, mode, gamma, z)
 
     sampled = _sampled_roots(
-        _residual, (low, high), what="the target's residual", narrow="search"
+        _residual, (low, high), what="the target's residual", narrow=narrow
     )
     # Outside the probing context, so a root beyond an index model's range warns.
     for root in sampled.roots:
