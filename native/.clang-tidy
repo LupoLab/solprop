@@ -81,3 +81,6 @@ CheckOptions:
   # De Morgan's rewrite of `!(a <= x && x <= b)` changes what a NaN gives: the guards
   # are written to refuse NaN.
   readability-simplify-boolean-expr.SimplifyDeMorgan: false
+  # Kokkos views (and the aliases named ...View) are reference-counted handles,
+  # passed by value by convention.
+  performance-unnecessary-value-param.AllowedTypes: 'View'
