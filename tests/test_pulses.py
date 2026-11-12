@@ -717,24 +717,6 @@ def test_a_time_record_that_is_not_centred_still_lands_where_it_sat(field_grid):
     assert_allclose(arrival, 100e-15, rtol=0.0, atol=1e-3 * 100e-15)
 
 
-@pytest.mark.parametrize("arrival", [100e-15, 500e-15, 700e-15])
-def test_a_time_record_lands_anywhere_in_the_record(arrival, chirped_grid):
-    t = np.linspace(0.0, 800e-15, 8192)
-    omega_p = 2.0 * np.pi * C / WAVELENGTH
-    width = 20e-15
-    record = np.exp(-(((t - arrival) / width) ** 2)) * np.cos(omega_p * t)
-    built = TimeDataPulse(t=t, field=record, energy=ENERGY).build(chirped_grid)[0, 0]
-    # The record's transform, analytically: a Gaussian about the carrier, whose phase
-    # is the arrival time alone.
-    omega = np.linspace(0.8 * omega_p, 1.2 * omega_p, 4001)
-    offset = omega - omega_p
-    reference = DataPulse.from_spectral_density(
-        omega, np.exp(-0.5 * (offset * width) ** 2), offset * arrival, energy=ENERGY
-    ).build(chirped_grid)[0, 0]
-    # Measured as 6.6e-11 at every arrival.
-    assert relative_l2(built, reference) < 5e-10
-
-
 def test_a_chirped_time_record_lands_past_the_middle(chirped_grid):
     t = np.linspace(0.0, 2000e-15, 16384)
     omega_p = 2.0 * np.pi * C / WAVELENGTH
@@ -806,6 +788,12 @@ def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
 @pytest.mark.parametrize(
     ("arrival", "disturbance", "tolerance"),
     [
+        # A clean record lands anywhere in the record: 6.6e-11 measured at every
+        # arrival. Its reference is the record's transform, analytically: a Gaussian
+        # about the carrier, whose phase is the arrival time alone.
+        (100e-15, 0.0, 5e-10),
+        (500e-15, 0.0, 5e-10),
+        (700e-15, 0.0, 5e-10),
         # A baseline is taken out: 6.6e-11 measured, the same as with none.
         (500e-15, 0.01 * np.ones(8192), 5e-10),
         (100e-15, 0.1 * np.ones(8192), 5e-10),
@@ -815,7 +803,15 @@ def test_a_time_record_matches_the_analytic_transform_of_what_it_holds(
         # White noise of 1 % of the peak, which the spectrum then holds: 1.9 % measured.
         (500e-15, 0.01 * np.random.default_rng(1).standard_normal(8192), 3e-2),
     ],
-    ids=["baseline_late", "baseline_early", "periodic_background", "noise"],
+    ids=[
+        "clean_early",
+        "clean_middle",
+        "clean_late",
+        "baseline_late",
+        "baseline_early",
+        "periodic_background",
+        "noise",
+    ],
 )
 def test_a_measured_time_record_stays_where_it_sat(
     arrival, disturbance, tolerance, chirped_grid

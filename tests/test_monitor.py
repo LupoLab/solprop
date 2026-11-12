@@ -873,32 +873,28 @@ def test_the_split_s_removal_is_what_the_backend_took() -> None:
     assert summary["removed_fraction"] == summary["raw_removed_fraction"]
 
 
-def test_under_the_split_the_guards_are_judged_on_what_it_found() -> None:
-    # The state the split left shows empty guards; what it found holds a tenth of
-    # the energy in the high guard, which stops the run under the default check.
+@pytest.mark.parametrize(
+    "left_share",
+    [
+        # The state the split left shows empty guards; what it found holds a tenth of
+        # the energy in the high guard, which stops the run under the default check.
+        1.0,
+        # One energy for one verdict: the split took nearly everything, below the
+        # no-light floor of the state it left, but what it found filled the guard.
+        1e-15,
+    ],
+    ids=["guards", "emptied"],
+)
+def test_under_the_split_the_guards_are_judged_on_what_it_found(left_share) -> None:
     monitor, _, reading = _split_monitor()
     monitor.check = BoundaryCheck()
     left = BoundaryEnergies(
-        reading.total,
+        left_share * reading.total,
         np.zeros(4),
         found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
     )
     with pytest.raises(BoundaryError, match="guards"):
         monitor.step(left, 0.1)
-
-
-def test_a_state_the_split_emptied_is_still_judged_on_what_it_found() -> None:
-    # One energy for one verdict: the split took nearly everything, below the
-    # no-light floor of the state it left, but what it found filled the guard.
-    monitor, _, reading = _split_monitor()
-    monitor.check = BoundaryCheck()
-    emptied = BoundaryEnergies(
-        1e-15 * reading.total,
-        np.zeros(4),
-        found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
-    )
-    with pytest.raises(BoundaryError, match="guards"):
-        monitor.step(emptied, 0.1)
 
 
 def test_the_collar_share_is_of_what_the_split_found() -> None:

@@ -65,6 +65,15 @@ def resumed(build, path) -> list[warnings.WarningMessage]:
     ]
 
 
+def warned_once_and_reset(build, path, text, reason) -> None:
+    """Resume, warned once with `text`; the history is recorded reset for `reason`."""
+    caught = resumed(build, path)
+    assert len(caught) == 1
+    assert text in str(caught[0].message)
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == ("reset", reason)
+
+
 def interrupted(build, path) -> float:
     """Run into `path`, stop after two planes and return where it stopped."""
     run_until(build(), path, after=2)
@@ -140,13 +149,8 @@ def test_a_history_over_the_automatic_limit_warns_once_on_resume(
     assert retention["reason"] == "automatic_size_limit"
     assert retention["z"] == z
     assert retention["limit"] == 1
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "resume_history=True keeps it" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "automatic_size_limit",
+    warned_once_and_reset(
+        build, path, "resume_history=True keeps it", "automatic_size_limit"
     )
 
 
@@ -156,14 +160,7 @@ def test_a_kept_history_that_cannot_be_read_back_warns_once(build_simulation, tm
     interrupted(build, path)
     with h5py.File(path, "r+") as file:
         del file["march_snapshot"]
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "cannot be read back" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "unavailable_history",
-    )
+    warned_once_and_reset(build, path, "cannot be read back", "unavailable_history")
 
 
 def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
@@ -175,13 +172,8 @@ def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
     monkeypatch.setattr(
         HostDriver, "restore_march", lambda self, snapshot: "refused by the test"
     )
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "refused by the test" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "incompatible_representation",
+    warned_once_and_reset(
+        build, path, "refused by the test", "incompatible_representation"
     )
 
 
@@ -334,14 +326,7 @@ def test_a_history_write_cut_short_warns_once_on_resume(
     retention = restart(path)["retention"]
     assert (retention["state"], retention["reason"]) == ("omitted", "write_failed")
     assert resume(path).march is None
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "write failed" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
-        "unavailable_history",
-    )
+    warned_once_and_reset(build, path, "write failed", "unavailable_history")
 
 
 def test_a_monitor_continuation_is_given_once_and_before_it_watches():
@@ -410,11 +395,9 @@ def test_a_history_the_writing_engine_could_not_export_warns_once_on_resume(
         "omitted",
         "incompatible_representation",
     )
-    caught = resumed(build, path)
-    assert len(caught) == 1
-    assert "the run's engine does not export it" in str(caught[0].message)
-    restoration = restart(path)["restoration"]
-    assert (restoration["state"], restoration["reason"]) == (
-        "reset",
+    warned_once_and_reset(
+        build,
+        path,
+        "the run's engine does not export it",
         "incompatible_representation",
     )
