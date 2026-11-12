@@ -177,17 +177,15 @@ completed step (irrelevant without dense output, but tested).
 
 **Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
 its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
-`HostGeneralPath`, `HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
+`HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
 native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
 decision corpora hold the reference's marches and the compiled ones to the same
 decisions on the same readings; where this page names a member of the reference's
-march, the compiled march's decision is the same. The comparison variants
-(`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
-overrides a decision are the reference's alone: the native backend refuses them by name
-(SEP 47 section 6.3).
+march, the compiled march's decision is the same. A controller that overrides a decision
+is the reference's alone: the native backend refuses it by name (SEP 47 section 6.3).
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
@@ -336,9 +334,6 @@ picture, transporting the history, on request
 - a corrector one order higher than its predictor;
 - variable order up to five by default.
 
-`ComparisonMultistep` keeps the variants SEP 13 compared and did not select (PECE,
-explicit Adams–Bashforth, matched pairs) for the benchmarks.
-
 The march (`backends/multistep.py`) is shared: a backend supplies the step driver's two
 hooks `_adams_source`, one source evaluation at a lab-frame field returned in the step's
 anchor frame, and `_adams_propagator`, and takes the march as its `_march_to` when the
@@ -425,8 +420,7 @@ whose passes are the kernels above; a backend may return its own from the hook
 `_adams_engine`, as `native` does to keep the history resident in its
 native state, always -- beside a coupled flow too, whose block functions, coupled predictor,
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
-frozen-residual flow's generator applied once per sample. The general
-path (PECE and the comparison variants) keeps host arrays.
+frozen-residual flow's generator applied once per sample.
 
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
 `HostDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
@@ -467,9 +461,8 @@ reading through the monitor at its own step. The Python march is the reference -
 `HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
 native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
 formulation beside a coupled flow, a representation its stage tables do not read and
-the untransported compensation witness are refused by name. The comparison methods
-(`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
-overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
+the untransported compensation witness are refused by name. A controller that
+overrides a decision is refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). A native
 group replays each member in its own native session (`solprop_native.group`).
@@ -488,10 +481,9 @@ flow's `G(z_j) u_j` per sample as `applied` where the host engine keeps the samp
 weights (`weights_<row>`). Each engine refuses rows it does not keep, so those two
 histories do not cross; every other history does. The engines' trial and dense-step
 bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
-trial. Both methods are part of the `AdamsEngine` protocol. A march that cannot carry
-its history (the reference's general path), or one whose saved rows the engine
-refuses (another engine's rows, another build's shapes), resumes afresh, and the driver
-warns.
+trial. Both methods are part of the `AdamsEngine` protocol. A march whose saved rows
+the engine refuses (another engine's rows, another build's shapes) resumes afresh, and
+the driver warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
 only at an accepted position with nothing ahead of it.
 

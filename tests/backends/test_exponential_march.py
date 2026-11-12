@@ -39,7 +39,6 @@ from solprop.exceptions import (
     ConvergenceError,
     ResponseBudgetError,
     SolpropWarning,
-    StepperError,
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid
@@ -47,7 +46,6 @@ from solprop.noise import modified_noise
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     PEC_REAL_INTERVAL,
-    ComparisonMultistep,
     Multistep,
     march_policy,
 )
@@ -121,23 +119,12 @@ def test_the_record_names_the_formulation():
         "equal_approach=True, max_growth=2.0, min_factor=0.2, safety=0.8, "
         "formulation='exponential', carrier_frame='off')"
     )
-    assert repr(ComparisonMultistep(corrector="pece", order=4)) == (
-        "ComparisonMultistep(order=4, variable_order=False, max_calls=None, "
-        "interval_cap=False, equal_approach=True, max_growth=2.0, min_factor=0.2, "
-        "safety=0.8, formulation='interaction', carrier_frame='off', corrector='pece', "
-        "corrector_order=None, interpolant='adams')"
-    )
     assert repr(INTERACTION).endswith(
         "safety=0.8, formulation='interaction', carrier_frame='off')"
     )
     assert EXPONENTIAL.name == "exponential-adams-pec5/6-variable"
     assert Multistep() == EXPONENTIAL
     assert INTERACTION != EXPONENTIAL
-
-
-def test_comparison_variants_keep_the_interaction_formulation():
-    with pytest.raises(StepperError, match="interaction formulation only"):
-        ComparisonMultistep(corrector="pece", order=4, formulation="exponential")
 
 
 @pytest.mark.parametrize("responses", ["none", "zero kerr"])

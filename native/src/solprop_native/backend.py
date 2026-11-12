@@ -85,7 +85,6 @@ from solprop.stats import (
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
-    ComparisonMultistep,
     MarchPolicy,
     Multistep,
     integrated_weights,
@@ -1800,9 +1799,8 @@ class _ResidentAdams:
         self.native.adams_restore()
         self.adopted(z)
 
-    def start(self, z: float, *, stored: bool) -> None:
+    def start(self, z: float) -> None:
         """Evaluate the history's first sample at the accepted state into row zero."""
-        del stored
         self.hoist(z)
         arrays, material = self.arrays(z, z)
         with _envelope_errors():
@@ -2016,8 +2014,7 @@ class _ResidentAdams:
                 np.ascontiguousarray(self._dense_carrier),
             )
             return self.native
-        # The step's own derivative polynomial: the cubic Hermite interpolant is a
-        # comparison method's (`ComparisonMultistep`), which native refuses.
+        # The step's own derivative polynomial.
         theta = (position - z) / dz
         weights = dz * integrated_weights(
             nodes, theta, check=False, helpers=self.helpers
@@ -2382,18 +2379,8 @@ class _NativeAdamsMarch:
         # Whether the run interpolates its planes (ADR-036, ADR-039).
         self._interpolate = bool(stepper.interpolate_planes)
         exponential_form = method.formulation == "exponential"
-        # The selected method's family, one-order-higher PEC, takes the fused path;
-        # the comparison variants' general path is the reference's alone (SEP 47
-        # section 6.3), refused at admission.
-        self._fused = (
-            not exponential_form
-            and method.corrector == "pec"
-            and all(
-                method.corrector_nodes(order) == order + 1
-                for order in range(1, method.order + 1)
-            )
-        )
-        assert self._fused or exponential_form
+        # The interaction formulation takes the fused path.
+        self._fused = not exponential_form
         resident = engine is None
         self._engine: Any = (
             backend._adams_engine(method, "transported") if engine is None else engine
@@ -2939,20 +2926,12 @@ section 6.3), which native refuses by name.
 
 
 def _refuse_reference_only(stepper: StepperSettings) -> None:
-    """Refuse the reference-only methods and controllers by name (SEP 47 6.3).
+    """Refuse the reference-only controllers by name (SEP 47 6.3).
 
-    The benchmark-only comparison family and a controller that decides in Python run
-    on ``numpy_ref`` alone; native refuses them, on CPU and device builds alike, before
-    anything is allocated.
+    A controller that decides in Python runs on ``numpy_ref`` alone; native refuses it,
+    on CPU and device builds alike, before anything is allocated.
     """
     integrator = stepper.integrator
-    if isinstance(integrator, ComparisonMultistep):
-        raise BackendError(
-            f"solprop-native does not step the comparison variant {integrator.name}: "
-            "ComparisonMultistep (PEC, PECE, explicit Adams-Bashforth and the matched "
-            "pairs) is benchmark-only and reference-only (solprop SEP 47); use "
-            "backend='numpy_ref' for it, or Multistep()"
-        )
     # A request built by hand may hold a method its annotation does not name.
     unnamed = not isinstance(integrator, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
     if integrator is not None and unnamed:
@@ -2978,8 +2957,7 @@ def _refuse_reference_only(stepper: StepperSettings) -> None:
 def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     integrator = stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
-    # translation admits it on: no coupled flow and no TDSE response. The comparison
-    # variants were refused before (`_refuse_reference_only`).
+    # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,

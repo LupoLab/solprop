@@ -55,7 +55,7 @@ from solprop.exceptions import BackendError, StopRequested
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Translation, assemble
 
@@ -460,29 +460,17 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
     ("options", "name"),
     [
         (
-            {"integrator": ComparisonMultistep(corrector="pece", order=4)},
-            "the comparison variant adams-pece4: ",
-        ),
-        (
-            {
-                "integrator": ComparisonMultistep(
-                    corrector="pec", order=4, corrector_order=5
-                )
-            },
-            "the comparison variant adams-pec4/5: ",
-        ),
-        (
             {"controller": _OwnAccept(rtol=1e-4, atol=1e-16)},
             "the controller _OwnAccept, which overrides PIController's accepts: ",
         ),
     ],
-    ids=["comparison", "selected-pec-comparison", "controller"],
+    ids=["controller"],
 )
 def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
     """SEP 47 section 6.3: native refuses a reference-only run where it is built.
 
-    A comparison method and a controller that overrides a decision run on
-    ``numpy_ref`` alone: the backend refuses them by name before the native state,
+    A controller that overrides a decision runs on ``numpy_ref`` alone: the
+    backend refuses it by name before the native state,
     its first allocation, is built, so no native session ever runs them.
     """
     problem, run_request = _case(**options)

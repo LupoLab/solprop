@@ -737,8 +737,7 @@ class SimulationSettings(Displayed):
         starting it afresh at order one. ``None``, the default, keeps it while it is at
         most :data:`solprop.driver.run.MARCH_SNAPSHOT_AUTO_BYTES`; it is outside the
         resume key. Every backend's fused and exponential Adams engines, the native
-        backend's resident one included, export and install their history; a march
-        that cannot (the general path of a comparison method) restarts it and warns.
+        backend's resident one included, export and install their history.
     fields : {'all', 'planes', 'none'}
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane

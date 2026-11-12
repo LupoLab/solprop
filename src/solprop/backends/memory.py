@@ -354,8 +354,7 @@ def adams_memory(
 ) -> dict[str, int]:
     """Return the Adams march's history rows ``numpy_ref`` holds for a problem.
 
-    Empty without an Adams integrator, and on the general path, whose history is a list
-    of arrays.
+    Empty without an Adams integrator.
 
     Parameters
     ----------
@@ -398,15 +397,6 @@ def adams_memory(
     if not isinstance(method, Multistep):
         return {}
     exponential = method.formulation == "exponential"
-    fused = exponential or (
-        method.corrector == "pec"
-        and all(
-            method.corrector_nodes(order) == order + 1
-            for order in range(1, method.order + 1)
-        )
-    )
-    if not fused:
-        return {}
     state = 16 * math.prod(problem.shape)
     slots = method.order + 2
     flow = problem.linear.coupled_flow

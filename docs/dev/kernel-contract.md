@@ -334,8 +334,7 @@ interface. The default returns `None`, and the march uses `HostHistory`, the hos
 engine, over the other Adams hooks; `native` always returns one resident in its native
 state, and refuses the untransported compensation witness by name (SEP 47 phase 5
 deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
-`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides). The general path
-(PECE and the comparison variants) keeps host arrays.
+`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides).
 
 `HostDriver._adams_source(lab, anchor, position, *, purpose)` takes a
 `TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
@@ -1269,8 +1268,7 @@ none), so the run layer names no backend. It qualifies on the conformance suite 
 *Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
 formulation, adaptive or replayed; every other configuration and backend runs the
-reference. The comparison methods (`ComparisonMultistep`) are the reference's alone:
-native refuses them by name ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
+reference.*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).

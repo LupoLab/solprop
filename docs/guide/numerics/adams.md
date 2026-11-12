@@ -143,9 +143,7 @@ alone does not describe, and the cap cost it calls.
 
 ### What was compared
 
-SEP 13 also ran these variants. They remain executable, as
-`solprop.stepper.multistep.ComparisonMultistep`, for the benchmarks only, on
-`backend="numpy_ref"`; the native backend refuses them by name:
+SEP 13 also ran these variants. They were removed once the selection was settled:
 
 - **PECE**, which spends a second call at the corrected field;
 - **plain Adams–Bashforth**, with an a-posteriori recheck;
@@ -555,12 +553,10 @@ operator adds `q + 2` compensation volumes. These buffers are omitted when
 complex field volumes. The [memory investigation](../../dev/benchmarks.md#resident-adams-storage)
 gives measured peaks and an allocation breakdown for a large Cartesian beam.
 
-For the comparison benchmarks, `ComparisonMultistep(interpolant="hermite")` uses the
-generic cubic Hermite interpolant of the step's end states and derivatives instead. It
-is a reference, not a production option: its error is one order
-below what the step's estimate controls, so it can miss the requested accuracy even in
-the strong field. The witness is $u' = x^3$ on $[0, h]$, where the step is exact and
-the Hermite midpoint value is 0 against $h^4/64$.
+SEP 13 also compared the generic cubic Hermite interpolant of the step's end states and
+derivatives. Its error is one order below what the step's estimate controls, so it can
+miss the requested accuracy even in the strong field. The witness is $u' = x^3$ on
+$[0, h]$, where the step is exact and the Hermite midpoint value is 0 against $h^4/64$.
 
 Interpolation is refused with the per-step collar (`absorber_scheme="split_step"`),
 whose collared field is not the interpolant's, a coupled flow and the `modified` noise
@@ -578,8 +574,8 @@ What dense observation saves depends on the plane spacing:
   spacing, so it saves only a few calls.
 - **With 501 planes,** landing caps every step at the spacing. Dense observation then
   takes 272 calls against 506 at `rtol=1e-3`. Its window error, 8.9e-4, is what that
-  tolerance buys, the same as a landed run with 50 planes. The native and Hermite
-  interpolants agree to every printed digit.
+  tolerance buys, the same as a landed run with 50 planes. The Adams and Hermite
+  interpolants agreed to every printed digit.
 
 **A resume continues the history.** At every save plane and terminal checkpoint the
 output keeps the march's state beside the field: the accepted state exactly as the
@@ -598,8 +594,7 @@ snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or on
 the resuming backend cannot continue (a frozen-residual coupled flow's history does not
 cross between `numpy_ref` and `native`) -- the history restarts at order one and the
 startup call is charged again, and the resumed run agrees with the uninterrupted one to
-its tolerance. A method whose history cannot be kept at all (the comparison methods'
-general path) warns when its resume restarts it.
+its tolerance.
 
 **Repeated rejections.** After three consecutive rejections the history is restarted
 from the accepted state, which removes a parasitic mode a smaller step cannot.

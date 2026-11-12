@@ -9,8 +9,7 @@ interaction-picture Adams methods for propagation whose nonlinear evaluation dom
 the cost. This module holds the backend-agnostic half: the frozen
 :class:`Multistep` specification a run carries in place of a Runge-Kutta tableau, and
 the scalar algebra every backend shares -- the integrated Lagrange weights of a
-variable-step Adams formula on the **actual** history positions, the leading defect
-constants and the Milne factor of a predictor-corrector pair (SEP 13 section 4).
+variable-step Adams formula on the **actual** history positions (SEP 13 section 4).
 
 Positions enter in normalised form, ``theta = (z - z_n) / h`` with ``z_n`` the anchor
 and ``h`` the step being taken, so a history point behind the anchor has a negative
@@ -34,7 +33,6 @@ from typing import Literal
 
 import numpy as np
 from jaxtyping import Float
-from numpy.polynomial import polynomial
 
 from solprop._helpers import PLAIN, Helpers
 from solprop.exceptions import StepperError
@@ -49,17 +47,12 @@ __all__ = [
     "REJECTION_GROWTH",
     "RESTART_AFTER",
     "CarrierFrame",
-    "ComparisonMultistep",
-    "Corrector",
     "Formulation",
-    "Interpolant",
     "MarchPolicy",
     "Multistep",
-    "defect_integral",
     "integrated_weights",
     "lagrange_coefficients",
     "march_policy",
-    "milne_factor",
 ]
 
 MAX_ADAMS_ORDER = 6
@@ -110,15 +103,6 @@ below 1 and 2 rad, short of the ``pi`` at which the samples alias and the defect
 seeing the error. The proposal is shortened before a trial; a shortened step is not a
 landing."""
 
-Interpolant = Literal["adams", "hermite"]
-"""How a comparison method interpolates save planes when they are interpolated.
-
-``"adams"`` integrates the accepted step's own derivative polynomial, the selected
-method's interpolant; ``"hermite"`` is the generic cubic Hermite reference (SEP 13
-section 6.4). Whether planes are interpolated at all is the run's
-``interpolate_planes``.
-"""
-
 Formulation = Literal["interaction", "exponential"]
 """How an Adams method integrates its source history (SEP 16 section 4.2).
 
@@ -143,15 +127,6 @@ envelope grid without the third harmonic the shift is the present arithmetic exa
 error, but the weak bands it leaves less accurate (SEP 35 phase 4,
 ``docs/guide/numerics/adams.md``), which is why it is not the default. A per-band shift
 of the third harmonic was developed and removed by SEP 35's gate.
-"""
-
-Corrector = Literal["none", "pec", "pece"]
-"""The execution contract of a step (SEP 13 section 4.2).
-
-``"pec"`` corrects once and stores the derivative of the predicted state, the selected
-method's contract. ``"pece"`` pays a second call for the derivative of the corrected,
-accepted state, and ``"none"`` is explicit Adams-Bashforth; both remain only as
-comparators (:class:`ComparisonMultistep`).
 """
 
 
@@ -280,17 +255,6 @@ class Multistep:
             raise StepperError(msg)
 
     @property
-    def corrector(self) -> Corrector:
-        """Return the execution contract: one call per step, the predicted source kept.
-
-        Returns
-        -------
-        str
-            ``"pec"``.
-        """
-        return "pec"
-
-    @property
     def name(self) -> str:
         """Return the method's record name.
 
@@ -344,157 +308,6 @@ class Multistep:
             for a damping rate ``lambda`` integrated explicitly.
         """
         return PEC_REAL_INTERVAL[self.order - 1]
-
-    def corrector_nodes(self, order: int) -> int:
-        """Return the corrector's derivative count at a current predictor order.
-
-        Parameters
-        ----------
-        order : int
-            The predictor order in force, which is below :attr:`order` during startup.
-
-        Returns
-        -------
-        int
-            ``order + 1``: the corrector is one order higher than the predictor.
-        """
-        return order + 1
-
-
-@dataclass(frozen=True)
-class ComparisonMultistep(Multistep):
-    """An Adams variant SEP 13 compared and did not select, kept for benchmarks.
-
-    PECE, explicit Adams-Bashforth and the matched predictor-corrector pairs controlled
-    by Milne's estimate each lost to :class:`Multistep` on every case measured (SEP 13
-    Part II). They stay executable so that the comparison can be rerun, and are not part
-    of the documented interface.
-
-    Attributes
-    ----------
-    corrector : {'none', 'pec', 'pece'}
-        The execution contract (:data:`Corrector`).
-    corrector_order : int or None
-        Derivatives of the corrector, the predicted one included: ``order`` for a
-        matched pair or ``order + 1``, the selected family. ``None`` is ``order``.
-        Ignored for ``corrector='none'``.
-    interpolant : {'adams', 'hermite'}
-        How the planes are interpolated when the run interpolates them
-        (``interpolate_planes``, ADR-036, ADR-039): the accepted step's own derivative
-        polynomial, at the step's order and no call, or the generic cubic Hermite
-        interpolant of the step's end states and derivatives, a reference whose error
-        is one order below what the step controls (:data:`Interpolant`).
-    formulation : {'interaction'}
-        The variants are stepped in the interaction picture only.
-
-    Raises
-    ------
-    StepperError
-        If a field is outside its range, variable order is asked of a matched pair, or
-        the exponential formulation is asked of a comparison variant (SEP 16 delivers
-        it for the selected family only).
-
-    Examples
-    --------
-    >>> from solprop.stepper.multistep import ComparisonMultistep
-    >>> ComparisonMultistep(corrector="pece", order=4).name
-    'adams-pece4'
-    """
-
-    corrector: Corrector = "pece"  # pyright: ignore[reportIncompatibleMethodOverride]
-    corrector_order: int | None = None
-    variable_order: bool = False
-    interpolant: Interpolant = "adams"
-    formulation: Formulation = "interaction"
-
-    def __post_init__(self) -> None:
-        """Check the ranges, the corrector's among them.
-
-        Raises
-        ------
-        StepperError
-            Naming the offending field.
-        """
-        super().__post_init__()
-        if self.formulation != "interaction":
-            msg = (
-                "the comparison variants use the interaction formulation only; the "
-                "exponential one is delivered for Multistep (SEP 16)"
-            )
-            raise StepperError(msg)
-        # The Literal annotation refuses an unknown corrector first wherever the
-        # annotations are checked at run time, as in the test suite.
-        if self.corrector not in ("none", "pec", "pece"):  # pragma: no cover
-            msg = f"corrector must be 'none', 'pec' or 'pece', got {self.corrector!r}"
-            raise StepperError(msg)
-        if self.corrector_order is not None and self.corrector_order not in (
-            self.order,
-            self.order + 1,
-        ):
-            msg = (
-                f"corrector_order must be order ({self.order}) or order + 1, got "
-                f"{self.corrector_order!r}"
-            )
-            raise StepperError(msg)
-        if self.variable_order and (
-            self.corrector == "none" or self.corrector_order != self.order + 1
-        ):
-            msg = (
-                "variable_order needs the one-order-higher corrector "
-                "(corrector 'pec' or 'pece' with corrector_order = order + 1)"
-            )
-            raise StepperError(msg)
-
-    @property
-    def history_key(self) -> str:
-        """Return what defines the history a march of this variant keeps.
-
-        Every field of a comparison variant may shape its history, so the whole
-        representation: any change restarts it.
-
-        Returns
-        -------
-        str
-            The variant's representation.
-        """
-        return repr(self)
-
-    @property
-    def name(self) -> str:
-        """Return the variant's record name.
-
-        Returns
-        -------
-        str
-            ``adams-<corrector><order>``, with ``/<corrector order>`` for the
-            higher-order corrector, ``ab`` standing for ``none``.
-        """
-        stem = "ab" if self.corrector == "none" else self.corrector
-        extended = (
-            self.corrector != "none"
-            and self.corrector_order is not None
-            and self.corrector_order != self.order
-        )
-        suffix = f"/{self.corrector_order}" if extended else ""
-        variable = "-variable" if self.variable_order else ""
-        return f"adams-{stem}{self.order}{suffix}{variable}"
-
-    def corrector_nodes(self, order: int) -> int:
-        """Return the corrector's derivative count at a current predictor order.
-
-        Parameters
-        ----------
-        order : int
-            The predictor order in force.
-
-        Returns
-        -------
-        int
-            ``order`` for a matched pair, ``order + 1`` for the higher-order corrector.
-        """
-        if self.corrector_order is None or self.corrector_order == self.order:
-            return order
-        return order + 1
 
 
 @dataclass(frozen=True)
@@ -854,97 +667,6 @@ def lagrange_coefficients(
         _check_nodes(theta)
     rows, _ = helpers.basis(np.ascontiguousarray(theta), 1.0, False)
     return rows
-
-
-def defect_integral(
-    nodes: Sequence[float] | Float[np.ndarray, " n_nodes"], upper: float = 1.0
-) -> float:
-    """Return the integral from 0 to `upper` of the node polynomial.
-
-    ``integral_0^upper prod_j (theta - theta_j) dtheta``. Divided by ``q!`` for ``q``
-    nodes it is the leading defect constant ``C`` of the formula interpolating on those
-    nodes, ``exact - formula = C h^{q+1} g^{(q)}`` (SEP 13 section 4.3): the
-    interpolation remainder, integrated.
-
-    Parameters
-    ----------
-    nodes : sequence of float
-        Normalised positions, as for :func:`integrated_weights`.
-    upper : float, optional
-        Upper limit of the integral.
-
-    Returns
-    -------
-    float
-        The integral, dimensionless.
-
-    Examples
-    --------
-    The constant-step AB4 and AM4 constants, 251/720 and -19/720, times 4!:
-
-    >>> from solprop.stepper.multistep import defect_integral
-    >>> round(defect_integral([0, -1, -2, -3]) * 30, 9)
-    251.0
-    >>> round(defect_integral([1, 0, -1, -2]) * 30, 9)
-    -19.0
-    """
-    theta = np.asarray(nodes, dtype=np.float64).reshape(-1)
-    antiderivative = polynomial.polyint(polynomial.polyfromroots(theta))
-    return float(
-        polynomial.polyval(upper, antiderivative)
-        - polynomial.polyval(0.0, antiderivative)
-    )
-
-
-def milne_factor(
-    predictor_nodes: Sequence[float] | Float[np.ndarray, " n_nodes"],
-    corrector_nodes: Sequence[float] | Float[np.ndarray, " n_nodes"],
-) -> float:
-    """Return the factor turning a predictor-corrector difference into the defect.
-
-    With the predictor's defect ``C_B h^{q+1} g^{(q)}`` and the corrector's
-    ``C_M h^{q+1} g^{(q)}`` on the same number of nodes, ``v_C - v_P`` is
-    ``(C_B - C_M) h^{q+1} g^{(q)}``, so the corrector's local defect is
-    ``C_M / (C_B - C_M)`` times the difference (Milne's device, SEP 13 section 4.3).
-    The common ``1/q!`` cancels.
-
-    Parameters
-    ----------
-    predictor_nodes, corrector_nodes : sequence of float
-        The two formulas' normalised nodes, equal in number; the corrector's include 1.
-
-    Returns
-    -------
-    float
-        ``C_M / (C_B - C_M)``.
-
-    Raises
-    ------
-    StepperError
-        If the node counts differ, or the two constants coincide so the difference
-        carries no information.
-
-    Examples
-    --------
-    >>> from solprop.stepper.multistep import milne_factor
-    >>> round(milne_factor([0, -1, -2, -3], [1, 0, -1, -2]) * 270, 9)
-    -19.0
-    """
-    if len(predictor_nodes) != len(corrector_nodes):
-        msg = (
-            f"a Milne estimate needs equal node counts, got {len(predictor_nodes)} and "
-            f"{len(corrector_nodes)}"
-        )
-        raise StepperError(msg)
-    predictor = defect_integral(predictor_nodes)
-    corrector = defect_integral(corrector_nodes)
-    spread = predictor - corrector
-    # On equal nodes the spread is a few tenths; an irregular stencil that brought the
-    # two constants together would divide round-off into the estimate.
-    if abs(spread) <= 1e-12 * max(abs(predictor), abs(corrector), 1.0):
-        msg = "the predictor and corrector defect constants coincide"
-        raise StepperError(msg)
-    return corrector / spread
 
 
 def _check_nodes(theta: Float[np.ndarray, " n_nodes"]) -> None:

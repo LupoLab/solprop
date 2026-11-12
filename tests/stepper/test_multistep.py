@@ -12,12 +12,9 @@ import pytest
 from bounds import gamma
 from solprop.exceptions import StepperError
 from solprop.stepper.multistep import (
-    ComparisonMultistep,
     Multistep,
-    defect_integral,
     integrated_weights,
     lagrange_coefficients,
-    milne_factor,
 )
 
 
@@ -86,19 +83,6 @@ def test_irregular_moment_witness_rejects_wrong_weights(defect):
         _assert_scaled_moments(weights, nodes, upper)
 
 
-def test_defect_constants_and_milne_factor():
-    # 251/720 and -19/720 times 4!, and the corrector's defect -19/270 of v_C - v_P.
-    assert defect_integral([0, -1, -2, -3]) / math.factorial(4) == pytest.approx(
-        251 / 720, rel=1e-13
-    )
-    assert defect_integral([1, 0, -1, -2]) / math.factorial(4) == pytest.approx(
-        -19 / 720, rel=1e-13
-    )
-    assert milne_factor([0, -1, -2, -3], [1, 0, -1, -2]) == pytest.approx(
-        -19 / 270, rel=1e-13
-    )
-
-
 def test_fifth_difference_is_the_ab4_defect():
     # The quartic and cubic predictors differ by 251/720 times the fourth backward
     # difference (SEP 13 section 4.3).
@@ -109,54 +93,9 @@ def test_fifth_difference_is_the_ab4_defect():
     )
 
 
-@pytest.mark.parametrize(
-    ("method", "name"),
-    [
-        (ComparisonMultistep(corrector="none", order=4), "adams-ab4"),
-        (ComparisonMultistep(corrector="pec", order=3), "adams-pec3"),
-        (
-            ComparisonMultistep(corrector="pec", order=1, corrector_order=2),
-            "adams-pec1/2",
-        ),
-        (
-            ComparisonMultistep(corrector="pece", order=5, corrector_order=5),
-            "adams-pece5",
-        ),
-        (
-            ComparisonMultistep(order=4, corrector_order=5, variable_order=True),
-            "adams-pece4/5-variable",
-        ),
-    ],
-)
-def test_multistep_name(method, name):
-    assert method.name == name
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"order": 0},
-        {"order": 7},
-        {"order": 3, "corrector_order": 5},
-        {"max_growth": 1.0},
-        {"min_factor": 1.0},
-        {"safety": 0.0},
-        {"order": 4, "variable_order": True},
-        {"corrector": "none", "variable_order": True},
-    ],
-)
-def test_multistep_refuses_out_of_range(fields):
-    with pytest.raises(StepperError):
-        ComparisonMultistep(**fields)
-
-
 def test_algebra_refuses_degenerate_input():
     with pytest.raises(StepperError, match="distinct"):
         integrated_weights([0.0, 0.0])
-    with pytest.raises(StepperError, match="equal node counts"):
-        milne_factor([0, -1], [1, 0, -1])
-    with pytest.raises(StepperError, match="coincide"):
-        milne_factor([1, 0], [1, 0])
     with pytest.raises(StepperError, match="non-empty and finite"):
         integrated_weights([])
     with pytest.raises(StepperError, match="non-empty and finite"):
@@ -186,24 +125,28 @@ def test_selected_method_defaults():
     method = Multistep()
     assert method.name == "exponential-adams-pec5/6-variable"
     assert method.formulation == "exponential"
-    assert method.corrector == "pec"
-    assert method.corrector_nodes(3) == 4
     interaction = Multistep(order=3, variable_order=False, formulation="interaction")
     assert interaction.name == "adams-pec3/4"
 
 
 def test_the_representation_names_the_formulation():
     # A run's record hashes the representation: it names the
-    # formulation whichever it is, and the comparison variants keep the interaction one.
+    # formulation whichever it is.
     # Since SEP 35 it names the carrier frame too, the default "off" included.
     assert repr(Multistep()).endswith("formulation='exponential', carrier_frame='off')")
     assert "formulation='interaction'" in repr(Multistep(formulation="interaction"))
-    assert ComparisonMultistep(order=4).formulation == "interaction"
 
 
 @pytest.mark.parametrize(
     "fields",
-    [{"order": 0}, {"order": 7}, {"max_calls": 0}, {"max_growth": 1.0}],
+    [
+        {"order": 0},
+        {"order": 7},
+        {"max_calls": 0},
+        {"max_growth": 1.0},
+        {"min_factor": 1.0},
+        {"safety": 0.0},
+    ],
 )
 def test_selected_method_refuses_out_of_range(fields):
     with pytest.raises(StepperError):
@@ -315,11 +258,3 @@ def test_the_basis_is_the_python_loops_to_rounding(seed):
     got_rows = lagrange_coefficients(nodes, check=False)
     assert_basis_close(got_weights, weights, weight_bound, count)
     assert_basis_close(got_rows, rows, row_bound, count)
-
-
-def test_any_change_to_a_comparison_variant_restarts_its_history():
-    variant = ComparisonMultistep(corrector="pec", order=3)
-    assert variant.history_key == repr(variant)
-    assert (
-        variant.history_key != ComparisonMultistep(corrector="pec", order=4).history_key
-    )

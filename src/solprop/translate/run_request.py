@@ -48,7 +48,7 @@ from solprop.output.schema import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import Tableau
 from solprop.translate.problem import PropagatorMode, StepperSettings
@@ -79,8 +79,7 @@ class MethodKind(enum.Enum):
     RUNGE_KUTTA : str
         An embedded Runge-Kutta tableau, adaptive or replayed.
     ADAMS : str
-        The low-call Adams family (``Multistep``), including its benchmark-only
-        comparison variants, which only the reference runs.
+        The low-call Adams family (``Multistep``).
     LOW_STORAGE : str
         The fixed-schedule low-storage RK4IP replay (SEP 24).
     """
@@ -101,7 +100,7 @@ class IntegrationSpec:
     tableau : solprop.stepper.tableau.Tableau
         The embedded Runge-Kutta tableau. An Adams run still names the tableau that
         starts it and that its error control is scaled against.
-    method : Multistep, ComparisonMultistep, LowStorageRungeKutta or None
+    method : Multistep, LowStorageRungeKutta or None
         The Adams or low-storage method object, immutable; ``None`` for Runge-Kutta.
     propagator_mode : {'auto', 'tabulate', 'recompute'}
         How the linear propagator is formed.
@@ -109,23 +108,8 @@ class IntegrationSpec:
 
     kind: MethodKind
     tableau: Tableau
-    method: Multistep | ComparisonMultistep | LowStorageRungeKutta | None
+    method: Multistep | LowStorageRungeKutta | None
     propagator_mode: PropagatorMode
-
-    @property
-    def reference_only(self) -> bool:
-        """Return whether only the NumPy reference runs this method.
-
-        Returns
-        -------
-        bool
-            True for the benchmark-only comparison family, ``ComparisonMultistep``
-            (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
-            pairs, which native refuses;
-            :class:`~solprop.stepper.multistep.Multistep` is the selected method every
-            backend runs.
-        """
-        return isinstance(self.method, ComparisonMultistep)
 
 
 @dataclass(frozen=True)
@@ -527,7 +511,7 @@ def describe_run(
     integrator = settings.integrator
     if isinstance(integrator, LowStorageRungeKutta):
         kind = MethodKind.LOW_STORAGE
-    elif isinstance(integrator, Multistep | ComparisonMultistep):
+    elif isinstance(integrator, Multistep):
         kind = MethodKind.ADAMS
     else:
         kind = MethodKind.RUNGE_KUTTA

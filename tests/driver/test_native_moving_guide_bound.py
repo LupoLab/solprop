@@ -155,7 +155,7 @@ def source_at(implementation, problem, run_request, grid, positions):
         sources = []
         for z in positions:
             load_native(backend, state, clear_fsal=False)
-            engine.start(float(z), stored=True)
+            engine.start(float(z))
             sources.append(np.array(engine.snapshot_rows()["store"][0]))
         return sources
     finally:
