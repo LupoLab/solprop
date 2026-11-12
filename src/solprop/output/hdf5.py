@@ -265,7 +265,12 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
 def _trajectory_state(
     stored: Complex[np.ndarray, "*shape"],
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Return a stored march state without the leading axis of one its file keeps."""
+    """Return a stored march state without the leading axis of one its file keeps.
+
+    Every file writes ``(1, n_modes, n_pol, n_omega)``; ``(n_modes, n_pol, n_omega)``
+    is taken as it is. A leading axis longer than one is a stacked group, which a
+    single trajectory's snapshot never is, and is refused rather than squeezed.
+    """
     if stored.ndim == 4 and stored.shape[0] == 1:
         return stored[0]
     if stored.ndim == 3:

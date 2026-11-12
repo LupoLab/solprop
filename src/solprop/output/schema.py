@@ -366,7 +366,11 @@ def _inlined(value: JsonValue) -> JsonValue:
 
 
 def _serialise_sequence(value: object) -> list[JsonValue]:
-    """Return a sequence or a set as a list, ordering set members deterministically."""
+    """Return a sequence or a set as a list, ordering set members deterministically.
+
+    A set's members are sorted by their canonical JSON text, so that the configuration
+    hash does not depend on set iteration order.
+    """
     # `object` is not declared iterable; the caller has already checked that this is
     # a set or a sequence.
     members = [serialise(item) for item in value]  # type: ignore[union-attr] - checked by the caller

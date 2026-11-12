@@ -22,7 +22,10 @@ _RETRY_SECONDS = 0.05
 
 
 def lock(descriptor: int, *, shared: bool = False, blocking: bool = True) -> None:
-    """Acquire the advisory lock on an open descriptor."""
+    """Acquire the advisory lock on an open descriptor.
+
+    - ``shared``: a reader lock suffices; Windows takes an exclusive one regardless.
+    """
     if sys.platform == "win32":
         _windows_lock(descriptor, blocking=blocking)
         return
