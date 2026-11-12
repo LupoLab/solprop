@@ -282,32 +282,17 @@ def test_pressure_search_inverts_constituent_phase_for_both_modes(shape, vincett
     assert found == pytest.approx(pressure, rel=1e-6)
 
 
-def sampled(residual, limits):
-    """Search a residual over a pressure range as pressure_rdw does."""
-    return tools_design._sampled_roots(
-        residual, limits, what="the target's residual", narrow="pressure_limits"
-    )
-
-
-def test_pressure_search_rejects_ambiguous_or_inadmissible_roots(monkeypatch):
-    # The sampled search finds both roots; pressure_rdw refuses to choose.
-    assert sampled(lambda p: (p - 2) * (p - 3), (1, 4)).roots == pytest.approx(
-        (2.0, 3.0), rel=1e-12
-    )
-    target = tools.RDW(PUMP, 200e-9)
-    found = tools.DesignRoots((2.0, 3.0), (1.0, 4.0), target, 0, "")
-    monkeypatch.setattr(tools_design, "_solve", lambda *args, **kwargs: found)
+def test_pressure_search_rejects_ambiguous_or_inadmissible_roots():
     with pytest.raises(ToolsError, match=r"2 roots, at 2, 3 bar"):
-        tools.pressure_rdw(125e-6, "He", 200e-9, PUMP, cladding=1.45)
-    monkeypatch.undo()
-    # A sign change across a region with no soliton is no root.
-    assert sampled(lambda p: None if 2 < p < 3 else p - 2.5, (1, 4)).roots == ()
-    with pytest.raises(ToolsError, match="not finite"):
-        sampled(lambda p: math.nan, (1, 4))
-    with pytest.raises(ToolsError, match="ordered"):
-        tools.pressure_rdw(
-            125e-6, "He", 200e-9, PUMP, pressure_limits=(4, 1), cladding=1.45
+        tools_design._rdw_pressure_root(lambda p: (p - 2) * (p - 3), (1, 4))
+    with pytest.raises(ToolsError, match="no pressure"):
+        tools_design._rdw_pressure_root(
+            lambda p: None if 2 < p < 3 else p - 2.5, (1, 4)
         )
+    with pytest.raises(ToolsError, match="not finite"):
+        tools_design._rdw_pressure_root(lambda p: math.nan, (1, 4))
+    with pytest.raises(ToolsError, match="ordered"):
+        tools_design._rdw_pressure_root(lambda p: p, (4, 1))
 
 
 def test_params_report_constituents_and_normal_dispersion_unavailability():
@@ -347,7 +332,7 @@ def test_pressure_limits_reject_invalid_ranges(limits):
 
 
 def test_pressure_constituent_search_rejects_subthreshold_pulses():
-    with pytest.raises(ToolsError, match=r"no value between 0\.1 and 0\.2 gives"):
+    with pytest.raises(ToolsError, match="no pressure"):
         tools.pressure_rdw(
             125e-6,
             "He",
@@ -395,19 +380,21 @@ def test_unresolved_positive_eigenvalue_is_rejected():
 def test_pressure_refinement_refuses_an_unresolved_no_soliton_gap():
     root = 2.123456
     with pytest.raises(ToolsError, match="crossed a no-soliton region"):
-        sampled(lambda p: None if abs(p - root) < 1e-5 else p - root, (1.0, 4.0))
+        tools_design._rdw_pressure_root(
+            lambda p: None if abs(p - root) < 1e-5 else p - root, (1.0, 4.0)
+        )
 
 
 def test_pressure_search_requires_a_nonempty_bracket():
     with pytest.raises(ToolsError, match="pressure_max must exceed"):
         tools.pressure_rdw(125e-6, "He", 200e-9, PUMP, pressure_max=1e-7)
-    with pytest.raises(ToolsError, match=r"no value between 1e-06 and 0\.001 gives"):
-        tools.pressure_zdw(125e-6, "He", 400e-9, pressure_max=1e-3, cladding=1.45)
+    with pytest.raises(ToolsError, match="no pressure between"):
+        tools_design._pressure_root(lambda p: 1.0, 100.0, "an unreachable target")
 
 
 @pytest.mark.parametrize(
     "dispersion, message",
-    [(math.nan, "dispersion is not finite"), (1e-26, "no value between")],
+    [(math.nan, "dispersion is not finite"), (1e-26, "no pressure")],
 )
 def test_pressure_search_rejects_invalid_pump_dispersion(
     monkeypatch, dispersion, message

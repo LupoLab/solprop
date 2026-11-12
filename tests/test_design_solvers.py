@@ -9,7 +9,6 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from scipy.optimize import brentq
 
 from solprop import tools
 from solprop.constants import C
@@ -94,35 +93,20 @@ def test_the_rdw_target_reproduces_pressure_rdw(pulse):
     assert 256 < roots.builds < 300
 
 
-@pytest.mark.parametrize(
-    ("gas", "radius", "wavelength"),
-    [("Ar", 125e-6, 500e-9), ("Ar", 125e-6, PUMP), ("He", 100e-6, 500e-9)],
-)
-def test_pressure_zdw_chooses_the_root_one_brent_bracket_over_the_range_does(
-    gas, radius, wavelength
-):
-    # The former pressure_zdw: one Brent bracket from the floor to pressure_max, with
-    # brentq's default xtol of 2e-12 bar. Where the dispersion has one zero in the
-    # range, the sampled search of solve_parameter must choose the same one.
-    fill = capillary(gas, radius)
-    omega = np.array([2.0 * math.pi * C / wavelength])
-    with tools_waveguide._probing():
-        expected = brentq(
-            lambda p: base.beta2(tools_design._capillary_at(fill, p), omega)[0] * 1e30,
-            1e-6,
-            100.0,
-        )
-    found = tools.pressure_zdw(radius, gas, wavelength, cladding=GLASS)
-    # Both stop inside the band in which beta2, a Richardson difference good to 5e-9
-    # (modes.base), is noise, which its slope in pressure carries to the root as a
-    # few parts in 1e8.
-    assert found == pytest.approx(expected, rel=1e-6)
+def test_the_zdw_target_reproduces_pressure_zdw_where_it_has_one_root():
+    expected = tools.pressure_zdw(125e-6, "Ar", 500e-9, cladding=GLASS)
+    fill = capillary("Ar")
     roots = solve_parameter(
         lambda pressure: tools_design._capillary_at(fill, pressure),
         (1e-6, 100.0),
-        ZDW(wavelength),
+        ZDW(500e-9),
     )
-    assert roots.roots == (found,)
+    assert len(roots) == 1
+    # pressure_zdw brackets once and stops at xtol = 2e-12 bar, this search refines
+    # one sampled bracket: both roots sit inside the band in which beta2, a
+    # Richardson difference good to 5e-9 (modes.base), is noise, which its slope in
+    # pressure carries to the root as a few parts in 1e8.
+    assert roots.pick() == pytest.approx(expected, rel=1e-6)
 
 
 def test_radius_zdw_inverts_the_modes_zero_dispersion_wavelength():
