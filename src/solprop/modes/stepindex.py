@@ -417,7 +417,7 @@ def _recovered(
     replaced and the alignment check that follows still sees every root's
     radial order.
 
-    - ``scan``: v, the squared index ratio, the azimuthal order n and the family (HE or
+    - ``scan``: V, the squared index ratio, the azimuthal order n and the family (HE or
       EH).
     - Raises :class:`ModeError` if the factor changes sign more than once in an empty
       cutoff interval: one guided root per interval rules that out, so which candidate

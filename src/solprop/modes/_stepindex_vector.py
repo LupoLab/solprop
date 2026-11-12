@@ -184,7 +184,7 @@ def _prepared_fields(
 ) -> tuple[Complex[np.ndarray, "n_points 3"], Complex[np.ndarray, "n_points 3"]]:
     """Evaluate one solved mode at Cartesian positions without solving it again.
 
-    - ``points``: cartesian positions in m, shape (n_points, 2).
+    - ``points``: Cartesian positions in m, shape (n_points, 2).
     - ``exterior``: force one side for an exact interface trace; None follows each
       point.
     - Returns: unnormalised E and H, each shape (n_points, 3).

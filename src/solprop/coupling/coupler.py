@@ -612,7 +612,7 @@ def _whitened_extremes(
 ) -> tuple[float, float]:
     """Return the extreme generalised eigenvalues of ``form`` against ``metric``.
 
-    - ``metric``: hermitian positive-definite metric.
+    - ``metric``: Hermitian positive-definite metric.
     - Returns: the smallest and largest eigenvalue of ``metric^{-1/2} form
       metric^{-1/2}``.
     """
@@ -907,7 +907,7 @@ def _channels(
     """Return each channel's Jones vector and mode index, channel order m-major.
 
     - ``n_pol``: 1, each mode with its own polarisation; 2, each mode in x and in y.
-    - Returns: jones vectors, shape ``(n_channels, 2)``, and the mode of each channel.
+    - Returns: Jones vectors, shape ``(n_channels, 2)``, and the mode of each channel.
     """
     if n_pol == 1:
         return np.asarray(profiles.jones), np.arange(profiles.n_modes)

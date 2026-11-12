@@ -1462,7 +1462,7 @@ class RamanResponse:
         - ``values``: local Cartesian field in V/m, shape ``(2, n_to)``.
         - ``density``: Non-negative number density in m^-3.
         - ``dt``: positive temporal spacing in s.
-        - Returns: cartesian polarisation in C/m^2, shape ``(2, n_to)``.
+        - Returns: Cartesian polarisation in C/m^2, shape ``(2, n_to)``.
         """
         quadratic = _quadratic_tensor(values, kind=kind, thg=self.thg)
         trace = quadratic[0, 0] + quadratic[1, 1]
