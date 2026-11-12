@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
 | **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Review status** | Reviewed |
+| **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-12 |
 | **Resolution** | — |
@@ -733,7 +733,7 @@ Q4–Q8 concerned the reference's reduction and went with it (§10.1).
 
 The author's resolutions of points the decisions left open. On 2026-11-12 the maintainer
 accepted P1, P2, P3 and P5, decided P4 (the native hook is wanted), and asked for the
-cancellation of P3 to work in every case; P6–P10 await confirmation.
+cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
 - **P1. Threads** (refines Q2's wording). The worker gets the run's whole thread budget
   or its device; native's pool keeps its size and waits while the hook blocks; it is not
@@ -850,6 +850,9 @@ cancellation of P3 to work in every case; P6–P10 await confirmation.
   optical-share measurement dropped. P10 proposed: the hook and the worker's generic
   layer are not TDSE- or Pyroraptor-specific; a public external-source API is left to a
   later SEP.
+- 2026-11-12: Reviewed by John Travers (human): P6–P10 accepted, so every open question
+  and point is decided or deferred. Review status `Reviewed` (GPT-6 (AI), John Travers
+  (human)); the status stays `Draft` until accepted.
 
 ### AI review — 2026-11-12
 
