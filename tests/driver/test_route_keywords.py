@@ -19,8 +19,6 @@ import sys
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
-from numpydoc.docscrape import FunctionDoc
-from numpydoc.validate import validate
 
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.driver import (
@@ -156,12 +154,15 @@ def test_each_interface_is_its_constructor_and_the_run_controls(
 
 @pytest.mark.parametrize(("interface", "constructor", "controls"), INTERFACES)
 def test_each_interface_s_composed_docstring_is_valid(interface, constructor, controls):
+    # The lowest-dependencies lane installs no docs tooling; the default lanes run this.
+    docscrape = pytest.importorskip("numpydoc.docscrape")
+    validate = pytest.importorskip("numpydoc.validate").validate
     name = f"{interface.__module__}.{interface.__name__}"
     errors = [code for code, _ in validate(name)["errors"] if code not in UNCHECKED]
     assert errors == []
     documented = [
         name
-        for entry in FunctionDoc(interface)["Parameters"]
+        for entry in docscrape.FunctionDoc(interface)["Parameters"]
         for name in entry.name.split(", ")
     ]
     assert documented == [*inspect.signature(constructor).parameters, *controls]
