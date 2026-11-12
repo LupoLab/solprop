@@ -369,13 +369,7 @@ class Material(Displayed):
             )
 
     def _medium_text(self) -> str:
-        """Return the medium as text, for printing.
-
-        Returns
-        -------
-        str
-            A glass by name and source, a gas with its pressure, a mixture by its repr.
-        """
+        """Return the medium as text, for printing."""
         medium = self.medium
         if isinstance(medium, GlassIndex):
             return f"{medium.name} ({medium.source})"
@@ -406,15 +400,8 @@ class Material(Displayed):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Return the index and its analytic frequency derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, > 0.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``n`` and ``dn/domega`` in s/rad, complex.
+        - ``omega``: angular frequencies in rad/s, > 0.
+        - Returns: ``n`` and ``dn/domega`` in s/rad, complex.
         """
         medium = self.medium
         if isinstance(medium, GlassIndex):
@@ -631,26 +618,8 @@ def _parse_columns(
 ) -> Float[np.ndarray, "rows columns"]:
     """Return chosen numeric columns of a mirror data file's text.
 
-    Parameters
-    ----------
-    text : str
-        The file's content.
-    name : str
-        The file's name, for the refusal.
-    record : _MirrorRecord
-        How the file is laid out.
-    columns : tuple of int
-        The columns wanted. A vendor table may leave cells of *other* columns empty.
-
-    Returns
-    -------
-    numpy.ndarray
-        The chosen columns, rows by ``len(columns)``.
-
-    Raises
-    ------
-    MaterialError
-        If a wanted cell is missing or is not a number.
+    - ``columns``: the columns wanted. A vendor table may leave cells of *other* columns
+      empty.
     """
     lines = [
         row for row in text.splitlines() if row.strip() and not row.startswith("#")
@@ -668,22 +637,7 @@ def _parse_columns(
 def _read_columns(
     name: str, record: _MirrorRecord, columns: tuple[int, ...]
 ) -> Float[np.ndarray, "rows columns"]:
-    """Return chosen numeric columns of one shipped mirror file.
-
-    Parameters
-    ----------
-    name : str
-        Resource name under ``solprop/physdata/data/mirrors``.
-    record : _MirrorRecord
-        How the file is laid out.
-    columns : tuple of int
-        The columns wanted.
-
-    Returns
-    -------
-    numpy.ndarray
-        The chosen columns, rows by ``len(columns)``.
-    """
+    """Return chosen numeric columns of one shipped mirror file."""
     source = resources.files("solprop.physdata") / "data" / "mirrors" / name
     return _parse_columns(source.read_text(encoding="utf-8"), name, record, columns)
 
@@ -693,17 +647,8 @@ def _mean_columns(
 ) -> tuple[Float[np.ndarray, " rows"], Float[np.ndarray, " rows"]]:
     """Return a wavelength column and the mean of the value columns beside it.
 
-    Parameters
-    ----------
-    table : numpy.ndarray
-        The wavelength in nm, then one or more value columns.
-    geometric : bool
-        Geometric mean (reflectivities) rather than arithmetic (dispersions).
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Wavelength in m and the mean value, in the file's units.
+    - ``table``: the wavelength in nm, then one or more value columns.
+    - Returns: wavelength in m and the mean value, in the file's units.
     """
     values = table[:, 1:]
     if geometric:
@@ -809,10 +754,7 @@ class ChirpedMirror(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = self.band[1], self.band[2]
         centre = np.array([4.0 * math.pi * C / (low + high)])
@@ -936,33 +878,14 @@ class ChirpedMirror(Displayed):
     ) -> "ChirpedMirror":
         """Integrate the dispersion to a phase and assemble the mirror.
 
-        Parameters
-        ----------
-        reflectivity_wavelength : numpy.ndarray
-            Wavelengths of the reflectivity samples, m.
-        reflectivity : numpy.ndarray or None
-            Power reflectivity in [0, 1], or ``None``.
-        dispersion_wavelength : numpy.ndarray
-            Wavelengths of the dispersion samples, m.
-        dispersion : numpy.ndarray
-            GDD in s^2, or group delay in s.
-        group_delay : bool
-            Which of the two `dispersion` holds.
-        reference : float
-            Wavelength about which the constant and linear phase are removed, m.
-        fit_order : int
-            Order of the fitted polynomial.
-        fit_window : tuple of float or None
-            Angular-frequency window of the fit, rad/s.
-        band : tuple of float
-            The taper's four wavelengths, m.
-        name : str
-            A label.
-
-        Returns
-        -------
-        ChirpedMirror
-            One reflection.
+        - ``reflectivity_wavelength``: wavelengths of the reflectivity samples, m.
+        - ``reflectivity``: power reflectivity in [0, 1], or ``None``.
+        - ``dispersion_wavelength``: wavelengths of the dispersion samples, m.
+        - ``dispersion``: GDD in s^2, or group delay in s.
+        - ``reference``: wavelength about which the constant and linear phase are
+          removed, m.
+        - ``fit_window``: Angular-frequency window of the fit, rad/s.
+        - ``band``: the taper's four wavelengths, m.
         """
         omega, values = _ascending(dispersion_wavelength, dispersion)
         if omega.size <= max(fit_order, 3):
@@ -1168,22 +1091,8 @@ def _ascending(
 ) -> tuple[Float[np.ndarray, " n_wavelength"], Float[np.ndarray, " n_values"]]:
     """Return samples given against wavelength as ascending in angular frequency.
 
-    Parameters
-    ----------
-    wavelength : numpy.ndarray
-        Wavelengths in m, strictly monotonic and positive.
-    values : numpy.ndarray
-        The samples.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Angular frequency in rad/s, ascending, and the samples in that order.
-
-    Raises
-    ------
-    MaterialError
-        If the wavelengths are not positive and strictly monotonic.
+    - ``wavelength``: wavelengths in m, strictly monotonic and positive.
+    - Returns: angular frequency in rad/s, ascending, and the samples in that order.
     """
     steps = np.diff(wavelength)
     if np.any(wavelength <= 0.0) or not (np.all(steps > 0.0) or np.all(steps < 0.0)):
@@ -1230,10 +1139,7 @@ class Chain(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"Chain: {len(self.elements)} elements in series", [
             (str(index), repr(element)) for index, element in enumerate(self.elements)
@@ -1267,15 +1173,7 @@ class Chain(Displayed):
 def _pair_frequencies(omega: ArrayLike | float) -> Float[np.ndarray, " n_omega"]:
     """Normalise a real, finite, one-dimensional frequency array without mutation.
 
-    Parameters
-    ----------
-    omega : array_like
-        Angular frequencies in rad/s, shape (n_omega,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite real one-dimensional array with unchanged values.
+    - ``omega``: angular frequencies in rad/s, shape (n_omega,).
     """
     if np.iscomplexobj(omega):
         raise MaterialError("angular frequencies must be real")
@@ -1291,12 +1189,8 @@ def _pair_frequencies(omega: ArrayLike | float) -> Float[np.ndarray, " n_omega"]
 def _pair_reference(wavelength: float, band: tuple[float, float] | None) -> None:
     """Check the reference and the fixed wavelength band.
 
-    Parameters
-    ----------
-    wavelength : float
-        Vacuum reference wavelength in m.
-    band : tuple of float or None
-        Fixed inclusive ascending wavelength band in m.
+    - ``wavelength``: vacuum reference wavelength in m.
+    - ``band``: fixed inclusive ascending wavelength band in m.
     """
     if not math.isfinite(wavelength) or wavelength <= 0.0:
         raise MaterialError("reference wavelength must be finite and positive")
@@ -1319,20 +1213,8 @@ def _finite_pair_phase(
 ) -> Float[np.ndarray, " n_omega"]:
     """Reject unrepresentable phases before forming a complex response.
 
-    Parameters
-    ----------
-    phase : numpy.ndarray
-        Computed residual phase in rad, shape (n_omega,).
-
-    Returns
-    -------
-    numpy.ndarray
-        The finite phase with the same shape.
-
-    Raises
-    ------
-    MaterialError
-        If floating-point range was exceeded by the settings or frequencies.
+    - ``phase``: computed residual phase in rad, shape (n_omega,).
+    - Returns: the finite phase with the same shape.
     """
     if not np.all(np.isfinite(phase)):
         raise MaterialError(
@@ -1346,17 +1228,8 @@ def _pair_selected(
 ) -> Bool[np.ndarray, " n_omega"]:
     """Select positive frequencies in the fixed inclusive wavelength band.
 
-    Parameters
-    ----------
-    omega : array_like
-        Angular frequencies in rad/s, shape (n_omega,).
-    band : tuple of float or None
-        Fixed inclusive ascending wavelength band in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean selection mask, shape (n_omega,).
+    - ``omega``: angular frequencies in rad/s, shape (n_omega,).
+    - ``band``: fixed inclusive ascending wavelength band in m.
     """
     selected = omega > 0.0
     if band is not None:
@@ -1370,17 +1243,9 @@ def _pair_phase_domain(
 ) -> Float[np.ndarray, " n_omega"]:
     """Require frequencies for which a transmitted phase or ray is requested.
 
-    Parameters
-    ----------
-    omega : array_like
-        Angular frequencies in rad/s, shape (n_omega,).
-    band : tuple of float or None
-        Fixed inclusive ascending wavelength band in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite positive in-band angular frequencies, shape (n_omega,).
+    - ``omega``: angular frequencies in rad/s, shape (n_omega,).
+    - ``band``: fixed inclusive ascending wavelength band in m.
+    - Returns: finite positive in-band angular frequencies, shape (n_omega,).
     """
     values = _pair_frequencies(omega)
     if not np.all(_pair_selected(values, band)):
@@ -1391,12 +1256,7 @@ def _pair_phase_domain(
 def _grating_parameters(line_density: float, order: int) -> None:
     """Validate density in lines per metre and a signed integer diffraction order.
 
-    Parameters
-    ----------
-    line_density : float
-        Positive grating density in lines/m.
-    order : int
-        Nonzero signed diffraction order.
+    - ``line_density``: positive grating density in lines/m.
     """
     if not math.isfinite(line_density) or line_density <= 0.0:
         raise MaterialError("line_density must be finite and positive, in lines/m")
@@ -1500,15 +1360,7 @@ class GratingPair(Displayed):
     ) -> Float[np.ndarray, " n_omega"]:
         """Select the forward, non-grazing diffraction branch.
 
-        Parameters
-        ----------
-        omega : array_like
-            Angular frequencies in rad/s, shape (n_omega,).
-
-        Returns
-        -------
-        numpy.ndarray
-            Positive diffraction cosine, shape (n_omega,).
+        - ``omega``: angular frequencies in rad/s, shape (n_omega,).
         """
         with np.errstate(over="ignore", divide="ignore"):
             sine = math.sin(self.incidence_angle) + (
@@ -1594,18 +1446,7 @@ class GratingPair(Displayed):
 
 
 def _prism_glass(medium: GlassIndex | str) -> GlassIndex:
-    """Resolve only the existing glass registry, never a gas or mixture.
-
-    Parameters
-    ----------
-    medium : GlassIndex or str
-        Glass model or registry name.
-
-    Returns
-    -------
-    GlassIndex
-        Resolved glass model.
-    """
+    """Resolve only the existing glass registry, never a gas or mixture."""
     return glass(medium) if isinstance(medium, str) else medium
 
 
@@ -1614,17 +1455,7 @@ def _prism_index(
 ) -> Float[np.ndarray, " n_omega"]:
     """Require a finite refractive index above the ambient index of one.
 
-    Parameters
-    ----------
-    medium : GlassIndex or str
-        Glass model or registry name.
-    omega : array_like
-        Angular frequencies in rad/s, shape (n_omega,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite real index above one, shape (n_omega,).
+    - ``omega``: angular frequencies in rad/s, shape (n_omega,).
     """
     if omega.size == 0:
         return np.empty(0, dtype=float)
@@ -1776,22 +1607,7 @@ def _prism_refract(
     normal: Float[np.ndarray, " 2"],
     ratio: Float[np.ndarray, " n_omega"],
 ) -> Float[np.ndarray, "n_omega 2"]:
-    """Apply vector Snell on the intended forward face, refusing TIR and grazing.
-
-    Parameters
-    ----------
-    direction : numpy.ndarray
-        Unit ray directions, shape (n_omega, 2).
-    normal : numpy.ndarray
-        Unit normal directed into the next medium, shape (2,).
-    ratio : numpy.ndarray
-        Incident over transmitted index, shape (n_omega,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Transmitted unit directions, shape (n_omega, 2).
-    """
+    """Apply vector Snell on the intended forward face, refusing TIR and grazing."""
     cosine = direction @ normal
     tangent = ratio[:, None] * (direction - cosine[:, None] * normal)
     discriminant = 1.0 - np.sum(tangent**2, axis=1)
@@ -1814,21 +1630,10 @@ def _prism_intersect(
 ]:
     """Intersect a forward ray with the positive half of the intended prism face.
 
-    Parameters
-    ----------
-    point : numpy.ndarray
-        Current ray positions in m, shape (n_omega, 2).
-    direction : numpy.ndarray
-        Unit ray directions, shape (n_omega, 2).
-    apex : numpy.ndarray
-        Target prism apex coordinates in m, shape (2,).
-    face : numpy.ndarray
-        Unit vector along the target face away from its apex.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Intersection coordinates, forward path lengths and signed face distances, in m.
+    - ``point``: current ray positions in m, shape (n_omega, 2).
+    - ``apex``: target prism apex coordinates in m, shape (2,).
+    - Returns: intersection coordinates, forward path lengths and signed face distances,
+      in m.
     """
     offset = apex - point
     determinant = direction[:, 0] * face[1] - direction[:, 1] * face[0]
@@ -1925,15 +1730,7 @@ class PrismPair(Displayed):
     ) -> Float[np.ndarray, " n_omega"]:
         """Return the signed external exit angle of the first prism.
 
-        Parameters
-        ----------
-        index : numpy.ndarray
-            Real refractive index at each frequency, shape (n_omega,).
-
-        Returns
-        -------
-        numpy.ndarray
-            First-prism exit angles in rad, shape (n_omega,).
+        - Returns: First-prism exit angles in rad, shape (n_omega,).
         """
         geometry = self.geometry
         sine = math.sin(geometry.incidence_angle)
@@ -1950,10 +1747,7 @@ class PrismPair(Displayed):
     def _apex(self) -> Float[np.ndarray, " 2"]:
         """Return the second apex in the fixed laboratory coordinates.
 
-        Returns
-        -------
-        numpy.ndarray
-            Second apex coordinates in m, shape (2,).
+        - Returns: second apex coordinates in m, shape (2,).
         """
         angle = self.geometry.apex_angle / 2.0 - self._exit_reference
         return self.geometry.separation * np.array(

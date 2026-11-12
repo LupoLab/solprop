@@ -71,25 +71,7 @@ step; a nearby physical plane that was not stored is refused, not substituted.
 
 
 def _source_part(source: object, name: str) -> object:
-    """Return an attribute of a ``source=`` simulation, or refuse an object without it.
-
-    Parameters
-    ----------
-    source : object
-        The :class:`solprop.driver.Simulation` handed in.
-    name : str
-        The attribute.
-
-    Returns
-    -------
-    object
-        Its value.
-
-    Raises
-    ------
-    ProcessingError
-        If `source` has no such attribute.
-    """
+    """Return an attribute of a ``source=`` simulation, refusing one without it."""
     if not hasattr(source, name):
         msg = f"source= is a Simulation; {type(source).__name__} has no {name}"
         raise ProcessingError(msg)
@@ -99,24 +81,8 @@ def _source_part(source: object, name: str) -> object:
 def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
     """Return the index and stored position of the plane a selection names.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output.
-    plane : int
-        Plane index, negative from the end.
-    z : float or None
-        Position that must match a stored plane, m.
-
-    Returns
-    -------
-    tuple
-        The index counted from the start, and its stored position in m.
-
-    Raises
-    ------
-    ProcessingError
-        If the index is out of range, or no stored plane is at `z`.
+    - ``z``: position that must match a stored plane, m.
+    - Returns: the index counted from the start, and its stored position in m.
     """
     positions = np.asarray(output["z"], dtype=float)
     if positions.size == 0:
@@ -167,24 +133,7 @@ class FluenceMap:
 def _recorded_flux(output: Output, space: object, z: float) -> SpatialFlux:
     """Return the plane measure a spatial record holds, at one position.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        A spatial run, opened.
-    space : object
-        Its transverse grid.
-    z : float
-        Position of the plane in m.
-
-    Returns
-    -------
-    solprop.spatial.SpatialFlux
-        The measure, with no medium: the record holds the coefficients it built.
-
-    Raises
-    ------
-    ProcessingError
-        If the record carries no plane measure.
+    - ``z``: position of the plane in m.
     """
     metadata = cast("RunMetadata", output.metadata)
     spatial = metadata.spatial
@@ -216,21 +165,8 @@ def _plane_fluence(
     The plane is paired with the measure its own record rebuilds at its position, and
     measured by the functions that measure a live one.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        A spatial run, opened.
-    index : int
-        Index of the stored plane, from the start.
-    z : float
-        Its position in m.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid or PlanarGrid
-        The run's transverse grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Fluence in J/m^2, shape ``(n_nodes,)``, flattened as the run's nodes are.
+    - ``z``: its position in m.
+    - Returns: fluence in J/m^2, shape ``(n_nodes,)``, flattened as the run's nodes are.
     """
     field = _plane_field(output, index, None, convention="fft")
     flux = _recorded_flux(output, space, z)
@@ -318,15 +254,8 @@ def fluence_map(
 def _lineage(metadata: RunMetadata) -> tuple[str, ...]:
     """Return the configuration hashes a run descends from, oldest first.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-
-    Returns
-    -------
-    tuple of str
-        Its parent's lineage and its parent, or empty for a run launched directly.
+    - Returns: its parent's lineage and its parent, or empty for a run launched
+      directly.
     """
     reference = cast("Mapping[str, object]", metadata.reference)
     parent = reference.get("parent")
@@ -343,20 +272,11 @@ def _lineage(metadata: RunMetadata) -> tuple[str, ...]:
 def _recorded_basis(metadata: RunMetadata, z: float) -> tuple[str, str]:
     """Return a run's route and the basis identity it recorded at a plane.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-    z : float
-        The stored plane's position, m.
-
-    Returns
-    -------
-    tuple of str
-        The route and the identity. A spatial or general basis is the same at every
-        plane; an ordinary mode set's plane that was not planned (a natural-step
-        save) has no recorded basis, and gets an identity that names it as
-        unrecorded, which no port matches.
+    - ``z``: the stored plane's position, m.
+    - Returns: the route and the identity. A spatial or general basis is the same at
+      every plane; an ordinary mode set's plane that was not planned (a natural-step
+      save) has no recorded basis, and gets an identity that names it as unrecorded,
+      which no port matches.
     """
     record = cast("Mapping[str, object]", metadata.reference)["basis"]
     bases = cast("Mapping[str, object]", record)
@@ -382,29 +302,9 @@ def _spatial_metric(
 ) -> tuple[PlaneMetric, SpatialMedium | None, AdiabaticAdmission | None]:
     """Return a spatial plane's admittance metric, medium and path certificate.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-    grid : solprop.grid.TimeGrid
-        Its temporal grid.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Its transverse grid.
-    z : float
-        The plane's position, m.
-    source : Simulation or None
-        The simulation that ran it, for its medium.
-
-    Returns
-    -------
-    tuple
-        The metric (with a resolved measure when the medium is at hand), the
-        medium or None, and the path certificate the record rebuilds, or None.
-
-    Raises
-    ------
-    ProcessingError
-        If the record has no plane measure, or `source` is another run.
+    - ``z``: the plane's position, m.
+    - Returns: the metric (with a resolved measure when the medium is at hand), the
+      medium or None, and the path certificate the record rebuilds, or None.
     """
     spatial = cast("Mapping[str, object]", metadata.spatial)
     if "flux_plan" not in spatial:
@@ -437,18 +337,6 @@ def _check_source(metadata: RunMetadata, record: RunMetadata) -> None:
     """Refuse a ``source=`` simulation that did not write this output.
 
     As a resume does (ADR-066): the two records' configuration hashes must be equal.
-
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The output's record.
-    record : solprop.output.schema.RunMetadata
-        The source simulation's.
-
-    Raises
-    ------
-    ProcessingError
-        If the hashes differ; the message names what changed.
     """
     if metadata.configuration_hash() != record.configuration_hash():
         msg = (
@@ -463,27 +351,9 @@ def _modal_profiles(
 ) -> ScalarModeBasis | None:
     """Return an ordinary modal plane's scalar profiles from its source simulation.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The output's record.
-    grid : solprop.grid.TimeGrid
-        Its temporal grid.
-    position : float
-        The plane's position, m.
-    source : Simulation
-        The simulation that wrote the output.
-
-    Returns
-    -------
-    solprop.coupling.ScalarModeBasis or None
-        The profiles; None for a mode family with angular structure, which has
-        none.
-
-    Raises
-    ------
-    ProcessingError
-        If `source` is not the run that wrote the output.
+    - ``position``: the plane's position, m.
+    - Returns: the profiles; None for a mode family with angular structure, which has
+      none.
     """
     record = cast(
         "RunMetadata",
@@ -506,29 +376,9 @@ def _general_parts(
 ) -> tuple[PlaneMetric, NodalField | None]:
     """Return a general modal plane's metric and, with its source, its E/H.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The opened output.
-    metadata : solprop.output.schema.RunMetadata
-        Its record.
-    index : int
-        The plane's index.
-    z : float
-        The plane's position, m.
-    source : Simulation or None
-        The simulation that ran it.
-
-    Returns
-    -------
-    tuple
-        The metric -- the identity, the source's dense Gram at the plane, or
-        unknown without a source -- and the nodal field or None.
-
-    Raises
-    ------
-    ProcessingError
-        If `source` carries no general guide or its reference is not the file's.
+    - ``z``: the plane's position, m.
+    - Returns: the metric -- the identity, the source's dense Gram at the plane, or
+      unknown without a source -- and the nodal field or None.
     """
     modal = cast("Mapping[str, object]", metadata.modal)
     declared = cast("Mapping[str, object]", modal.get("metric") or {}).get("kind")

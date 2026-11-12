@@ -266,31 +266,23 @@ def collar_strength(
     # since |Im sqrt(a + ib)| <= b / (2 sqrt(a)), so half its estimate falls short.
     estimate = float(np.max(attenuation * kappa_p / (0.5 * k_z * width)))
 
-    def short(alpha0: float) -> float:
+    def _short(alpha0: float) -> float:
         """Return how far the band's weakest attenuation exceeds the requirement.
 
-        Parameters
-        ----------
-        alpha0 : float
-            A trial peak rate, 1/m.
-
-        Returns
-        -------
-        float
-            Field nepers; negative while the collar is too weak.
+        - ``alpha0``: a trial peak rate, 1/m.
         """
         reached = float(np.min(collar_attenuation(kappa_p, k, alpha0, width)))
         return reached - attenuation
 
     low, high = 0.5 * estimate, 2.0 * estimate
     for _ in range(60):
-        if short(high) > 0.0:
+        if _short(high) > 0.0:
             break
         high *= 2.0
     else:
         msg = "the collar's strength could not be bracketed"
         raise GridError(msg)
-    return float(brentq(short, low, high, xtol=1e-12 * high, rtol=1e-12))
+    return float(brentq(_short, low, high, xtol=1e-12 * high, rtol=1e-12))
 
 
 def reflection_threshold(

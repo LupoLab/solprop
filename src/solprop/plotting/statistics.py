@@ -143,17 +143,7 @@ def plot_stats(output: Output, **kwargs: Any) -> list[Figure]:
 def _trace(output: Output, name: str) -> tuple[np.ndarray, np.ndarray]:
     """Return the abscissa and the values of one statistic, channel first.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    name : str
-        Name of the statistic.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Distance in cm, shape ``(n,)``, and the values reshaped to ``(n, -1)``.
+    - Returns: distance in cm, shape ``(n,)``, and the values reshaped to ``(n, -1)``.
     """
     if name in output.step_stat_names:
         z = np.asarray(output["step_stats/z"])
@@ -172,16 +162,8 @@ def _panel(
 ) -> None:
     """Draw one statistic against distance, from the channel where there is one.
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The axis to draw on.
-    output : solprop.output.schema.Output
-        An opened output handler.
-    name : str
-        Name of the statistic.
-    kwargs : dict
-        Passed to :meth:`matplotlib.axes.Axes.plot`.
+    - ``ax``: the axis to draw on.
+    - ``kwargs``: passed to :meth:`matplotlib.axes.Axes.plot`.
     """
     z, values = _trace(output, name)
     factor, label = _DISPLAY[name]
@@ -209,19 +191,9 @@ def _panel(
 def _labels(output: Output, count: int) -> list[str]:
     """Return the legend entries of a statistic's columns.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    count : int
-        How many columns the statistic has once flattened.
-
-    Returns
-    -------
-    list of str
-        The mode names when the columns are the modes, and an index otherwise: a
-        windowed statistic, or one that keeps its polarisation axis, has more columns
-        than the run has modes.
+    - Returns: the mode names when the columns are the modes, and an index otherwise: a
+      windowed statistic, or one that keeps its polarisation axis, has more columns than
+      the run has modes.
     """
     n_modes = field_modes(output)
     if count == n_modes:
@@ -232,15 +204,7 @@ def _labels(output: Output, count: int) -> list[str]:
 def _should_log(values: Float[np.ndarray, "n_z n_columns"]) -> bool:
     """Return whether a panel's ordinate should be logarithmic.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The values to be drawn, in display units.
-
-    Returns
-    -------
-    bool
-        Whether they span more than a decade and are everywhere positive.
+    - Returns: whether they span more than a decade and are everywhere positive.
     """
     if not np.all(values > 0.0):
         return False

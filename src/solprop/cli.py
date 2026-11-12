@@ -32,13 +32,7 @@ __all__ = ["main"]
 
 
 def _parser() -> argparse.ArgumentParser:
-    """Return the command line's parser.
-
-    Returns
-    -------
-    argparse.ArgumentParser
-        The parser, one subcommand per action.
-    """
+    """Return the command line's parser."""
     parser = argparse.ArgumentParser(
         prog="solprop",
         description="Run, check and export solprop recipes.",
@@ -101,11 +95,8 @@ def _parser() -> argparse.ArgumentParser:
 def _stop_signals() -> tuple[signal.Signals, ...]:
     """Return the signals that stop a run from the command line.
 
-    Returns
-    -------
-    tuple of signal.Signals
-        SIGINT and SIGTERM, and on Windows SIGBREAK, which ``CTRL_BREAK_EVENT``
-        sends.
+    - Returns: SIGINT and SIGTERM, and on Windows SIGBREAK, which ``CTRL_BREAK_EVENT``
+      sends.
     """
     names = ("SIGINT", "SIGTERM", "SIGBREAK")
     return tuple(getattr(signal, name) for name in names if hasattr(signal, name))
@@ -118,29 +109,13 @@ def _stopping() -> Iterator[tuple[threading.Event, list[int]]]:
     The first signal sets the flag (SEP 41, S17), so the run writes its state and
     returns; a second, while it stops, interrupts at once.
 
-    Yields
-    ------
-    tuple
-        The flag, and the list the signals received are appended to.
+    - Yields: the flag, and the list the signals received are appended to.
     """
     flag = threading.Event()
     received: list[int] = []
 
     def stop(number: int, frame: FrameType | None) -> None:
-        """Set the run's flag on the first signal; interrupt on the second.
-
-        Parameters
-        ----------
-        number : int
-            The signal.
-        frame : types.FrameType or None
-            The interrupted frame, unused.
-
-        Raises
-        ------
-        KeyboardInterrupt
-            On a second signal, while the run is still stopping.
-        """
+        """Set the run's flag on the first signal; interrupt on the second."""
         del frame
         if flag.is_set():
             raise KeyboardInterrupt
@@ -158,18 +133,9 @@ def _stopping() -> Iterator[tuple[threading.Event, list[int]]]:
 def _stopped(received: list[int], output: Path) -> int:
     """Report how a run ended and return the exit status.
 
-    Parameters
-    ----------
-    received : list of int
-        The signals that stopped it; empty when it completed.
-    output : pathlib.Path
-        The file it wrote.
-
-    Returns
-    -------
-    int
-        Zero, or ``128`` plus the first signal's number. A signal that came too late to
-        stop anything, since the file says the run completed, is zero too.
+    - ``received``: the signals that stopped it; empty when it completed.
+    - Returns: zero, or ``128`` plus the first signal's number. A signal that came too
+      late to stop anything, since the file says the run completed, gives zero too.
     """
     if not received:
         return 0
@@ -199,22 +165,8 @@ def _stopped(received: list[int], output: Path) -> int:
 def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int:
     """Build and run a recipe, stopping it cleanly on a signal.
 
-    Parameters
-    ----------
-    recipe_path : pathlib.Path
-        The recipe file.
-    output : pathlib.Path
-        The HDF5 file.
-    progress : str
-        The progress choice.
-    resume : bool
-        Whether to continue the file.
-
-    Returns
-    -------
-    int
-        Zero when the run completes, and ``128`` plus the signal's number when a
-        signal stopped it.
+    - Returns: zero when the run completes, and ``128`` plus the signal's number when a
+      signal stopped it.
     """
     from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
@@ -227,19 +179,7 @@ def _run(recipe_path: Path, output: Path, progress: str, *, resume: bool) -> int
 def _resume(output: Path, mode: bool | str, progress: str) -> int:
     """Continue a run from its output file alone (SEP 41, S2).
 
-    Parameters
-    ----------
-    output : pathlib.Path
-        The HDF5 file.
-    mode : bool or str
-        ``True`` or ``"interpolated"``.
-    progress : str
-        The progress choice.
-
-    Returns
-    -------
-    int
-        As :func:`_run`'s.
+    - ``mode``: ``True`` or ``"interpolated"``.
     """
     from solprop.recipe import resume_file  # noqa: PLC0415 - imports the physics
 
@@ -256,15 +196,7 @@ def _resume(output: Path, mode: bool | str, progress: str) -> int:
 def _check(recipe_path: Path) -> int:
     """Print what stops a recipe building, or makes it warn.
 
-    Parameters
-    ----------
-    recipe_path : pathlib.Path
-        The recipe file.
-
-    Returns
-    -------
-    int
-        Zero when the recipe builds without an error, one otherwise.
+    - Returns: zero when the recipe builds without an error, one otherwise.
     """
     from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
@@ -317,18 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _command(args: argparse.Namespace) -> int:
-    """Carry out one parsed command other than ``scan``.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        The parsed command line.
-
-    Returns
-    -------
-    int
-        The command's exit status.
-    """
+    """Carry out one parsed command other than ``scan``."""
     if args.command == "run":
         return _run(args.recipe, args.output, args.progress, resume=args.resume)
     if args.command == "check":

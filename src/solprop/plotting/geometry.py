@@ -287,17 +287,9 @@ _ORIGIN: Final = (0.0, 0.0)
 def _at(value: float | ZProfile, z: float) -> float:
     """Return a constant or a z path at one position.
 
-    Parameters
-    ----------
-    value : float or ZProfile
-        A length, in m, constant or along z.
-    z : float
-        Position along the guide, in m.
-
-    Returns
-    -------
-    float
-        The length at ``z``, in m.
+    - ``value``: a length, in m, constant or along z.
+    - ``z``: position along the guide, in m.
+    - Returns: the length at ``z``, in m.
     """
     return float(as_profile(value)(np.array([z], dtype=float))[0])
 
@@ -305,15 +297,7 @@ def _at(value: float | ZProfile, z: float) -> float:
 def _capillary(radius: float) -> tuple[Shape, ...]:
     """Return a gas-filled bore in a wall of the conventional thickness.
 
-    Parameters
-    ----------
-    radius : float
-        Bore radius, in m.
-
-    Returns
-    -------
-    tuple of Shape
-        The wall, then the bore.
+    - ``radius``: bore radius, in m.
     """
     return (
         Ring(_ORIGIN, radius, radius * (1 + WALL_FRACTION), "wall"),
@@ -328,17 +312,7 @@ def _antiresonant(radius: float, lattice: TubeLattice) -> tuple[Shape, ...]:
     thickness the lattice does not model. The first tube sits at an angle of
     ``pi / N``, so that a gap lies on the x axis.
 
-    Parameters
-    ----------
-    radius : float
-        Core radius, the inscribed radius of the tubes, in m.
-    lattice : solprop.modes.antiresonant.TubeLattice
-        The tubes.
-
-    Returns
-    -------
-    tuple of Shape
-        The jacket, the gas inside it, then each tube.
+    - ``radius``: core radius, the inscribed radius of the tubes, in m.
     """
     tube, count = lattice.tube_radius, lattice.n_tubes
     jacket = radius + 2 * tube
@@ -356,17 +330,9 @@ def _antiresonant(radius: float, lattice: TubeLattice) -> tuple[Shape, ...]:
 def _fibre(radius: float, extent: float | None) -> tuple[Shape, ...]:
     """Return a solid core in its cladding, drawn to a finite radius.
 
-    Parameters
-    ----------
-    radius : float
-        Core radius, in m.
-    extent : float or None
-        Drawn cladding radius, in m; :data:`DRAWN_CLADDING` core radii by default.
-
-    Returns
-    -------
-    tuple of Shape
-        The cladding, then the core.
+    - ``radius``: core radius, in m.
+    - ``extent``: drawn cladding radius, in m; :data:`DRAWN_CLADDING` core radii by
+      default.
     """
     outer = DRAWN_CLADDING * radius if extent is None else extent
     if outer <= radius:
@@ -380,15 +346,7 @@ def _fibre(radius: float, extent: float | None) -> tuple[Shape, ...]:
 def _rectangle(half_x: float, half_y: float) -> tuple[Shape, ...]:
     """Return a rectangular bore in a wall of the conventional thickness.
 
-    Parameters
-    ----------
-    half_x, half_y : float
-        The bore's half-widths, in m.
-
-    Returns
-    -------
-    tuple of Shape
-        The wall, then the bore.
+    - ``half_x``, ``half_y``: the bore's half-widths, in m.
     """
     wall = WALL_FRACTION * max(half_x, half_y)
     return (
@@ -400,17 +358,8 @@ def _rectangle(half_x: float, half_y: float) -> tuple[Shape, ...]:
 def _plates(half_gap: float, height: float) -> tuple[Shape, ...]:
     """Return two plates at ``x = +-a`` and the gap between them, over ``|y| < h``.
 
-    Parameters
-    ----------
-    half_gap : float
-        The plates' half separation ``a``, in m.
-    height : float
-        The drawn half-height ``h`` in y, in m.
-
-    Returns
-    -------
-    tuple of Shape
-        The two plates, left then right.
+    - ``half_gap``: the plates' half separation ``a``, in m.
+    - ``height``: the drawn half-height ``h`` in y, in m.
     """
     plate = WALL_FRACTION * half_gap
     return (
@@ -422,18 +371,9 @@ def _plates(half_gap: float, height: float) -> tuple[Shape, ...]:
 def _slab(half_gap: float, extent: float | None) -> tuple[Shape, ...]:
     """Return a planar guide: two plates and the gas between them.
 
-    Parameters
-    ----------
-    half_gap : float
-        The plates' half separation, in m.
-    extent : float or None
-        Drawn half-height in y, in m; the plates' outer half-width by default, so
-        that the drawing is square.
-
-    Returns
-    -------
-    tuple of Shape
-        The plates, then the gap.
+    - ``half_gap``: the plates' half separation, in m.
+    - ``extent``: drawn half-height in y, in m; the plates' outer half-width by default,
+      so that the drawing is square.
     """
     height = half_gap * (1 + WALL_FRACTION) if extent is None else extent
     return (
@@ -443,18 +383,10 @@ def _slab(half_gap: float, extent: float | None) -> tuple[Shape, ...]:
 
 
 def _planar_grid(grid: PlanarGrid) -> tuple[Shape, ...]:
-    """Return a planar guide resolved in y: plates, the periodic y cell and its collar.
+    """Return a planar guide resolved in y.
 
-    Parameters
-    ----------
-    grid : solprop.modes.slab.PlanarGrid
-        The grid.
-
-    Returns
-    -------
-    tuple of Shape
-        The plates, the collar over the whole periodic cell, then the medium inside
-        the collar.
+    The plates, the collar over the whole periodic y cell, then the medium inside the
+    collar.
     """
     half_gap = grid.half_gap
     inner = grid.radius_y
@@ -469,15 +401,7 @@ def _planar_grid(grid: PlanarGrid) -> tuple[Shape, ...]:
 def _radial_grid(grid: RadialGrid) -> tuple[Shape, ...]:
     """Return radial free space: the medium to ``R``, the collar beyond it.
 
-    Parameters
-    ----------
-    grid : solprop.grid.RadialGrid
-        The grid.
-
-    Returns
-    -------
-    tuple of Shape
-        The medium, then the collar when there is one.
+    - Returns: the medium, then the collar when there is one.
     """
     shapes: list[Shape] = [Disc(_ORIGIN, grid.radius, "medium")]
     if grid.collar_fraction > 0:
@@ -490,18 +414,9 @@ def _free_grid(grid: FreeGrid, extent: float | None) -> tuple[Shape, ...]:
 
     A line grid is uniform in y, so its y extent is drawn to ``extent``.
 
-    Parameters
-    ----------
-    grid : solprop.grid.FreeGrid
-        The grid; a :class:`~solprop.grid.LineGrid` is drawn as a band.
-    extent : float or None
-        A line grid's drawn half-height in y, in m; its periodic half-width in x by
-        default.
-
-    Returns
-    -------
-    tuple of Shape
-        The collar when there is one, then the medium inside it.
+    - ``extent``: a line grid's drawn half-height in y, in m; its periodic half-width in
+      x by default.
+    - Returns: the collar when there is one, then the medium inside it.
     """
     factor = 1 + grid.collar_fraction
     outer_x = grid.radius_x * factor
@@ -517,34 +432,15 @@ def _free_grid(grid: FreeGrid, extent: float | None) -> tuple[Shape, ...]:
 
 
 def _unbounded(guide: object) -> bool:
-    """Return whether a geometry leaves a direction unbounded, so takes an extent.
-
-    Parameters
-    ----------
-    guide : object
-        The guide or grid, after unwrapping a collection or a modal guide.
-
-    Returns
-    -------
-    bool
-        True for a solid fibre, a planar guide and a line grid.
-    """
+    """Return whether a geometry leaves a direction unbounded, so takes an extent."""
     return isinstance(guide, StepIndexMode | GradedIndexProvider | SlabMode | LineGrid)
 
 
 def _unwrap(guide: object) -> object:
     """Return the object whose geometry a collection or a modal guide carries.
 
-    Parameters
-    ----------
-    guide : object
-        What was passed to :func:`outline`.
-
-    Returns
-    -------
-    object
-        A collection's first mode, which shares its guide with the rest; a modal
-        guide's provider, or a step-index provider's first mode; else ``guide``.
+    - Returns: a collection's first mode, which shares its guide with the rest; a modal
+      guide's provider, or a step-index provider's first mode; else ``guide``.
     """
     if isinstance(guide, ModeCollection):
         return _unwrap(guide.modes[0])
@@ -636,19 +532,9 @@ def _shapes(  # noqa: PLR0911 - one return per kind of geometry
 ) -> tuple[Shape, ...] | None:
     """Return the shapes of an unwrapped guide or grid, or None for an unknown kind.
 
-    Parameters
-    ----------
-    target : object
-        The guide or grid, after :func:`_unwrap`.
-    z : float
-        Position along the guide, in m.
-    extent : float or None
-        How far to draw an unbounded direction, in m, already validated.
-
-    Returns
-    -------
-    tuple of Shape or None
-        The regions, back to front; None when this module does not draw the kind.
+    - ``z``: position along the guide, in m.
+    - ``extent``: how far to draw an unbounded direction, in m, already validated.
+    - Returns: the regions, back to front; None when this module does not draw the kind.
     """
     match target:
         case VincettiMode():
@@ -677,17 +563,7 @@ def _shapes(  # noqa: PLR0911 - one return per kind of geometry
 def _patch(shape: Shape, palette: Palette) -> Patch:
     """Return the Matplotlib patch of one shape, in micrometres.
 
-    Parameters
-    ----------
-    shape : Shape
-        The shape, in m.
-    palette : Palette
-        Its colours.
-
-    Returns
-    -------
-    matplotlib.patches.Patch
-        A circle, an annulus or a rectangle, filled and edged by its region.
+    - ``shape``: the shape, in m.
     """
     style = {
         "facecolor": palette.fill(shape.region),
@@ -773,18 +649,7 @@ def draw(
 
 @functools.cache
 def _example(route: str, representation: str) -> object:
-    """Build the representative guide or grid a thumbnail draws.
-
-    Parameters
-    ----------
-    route, representation : str
-        A key of :data:`THUMBNAILS`.
-
-    Returns
-    -------
-    object
-        The guide or grid, built once per session.
-    """
+    """Build the representative guide or grid a thumbnail draws."""
     builders: dict[tuple[str, str], Callable[[], object]] = {
         ("gnlse", "mode_averaged"): lambda: StepIndexMode(
             1.25e-6, core=1.45, cladding=1.0, profile_wavelength=835e-9

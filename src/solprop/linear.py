@@ -464,23 +464,10 @@ def _check_absorber(
 ) -> Float[np.ndarray, " n_omega"]:
     """Validate a spectral absorber rate against the grid it belongs to.
 
-    Parameters
-    ----------
-    absorber_rate : numpy.ndarray
-        The rate the caller supplied.
-    grid : solprop.grid.TimeGrid
-        The grid it must match.
+    A negative rate anywhere is refused: an absorber removes energy, and a negative
+    rate is gain wearing a boundary's clothes.
 
-    Returns
-    -------
-    numpy.ndarray
-        The rate as float64, shape ``(n_omega,)``.
-
-    Raises
-    ------
-    GridError
-        If it is the wrong length, not finite, or negative anywhere. An absorber
-        removes energy; a negative rate is gain wearing a boundary's clothes.
+    - ``grid``: the grid it must match.
     """
     values = np.asarray(absorber_rate, dtype=float)
     if values.shape != (grid.n_omega,):

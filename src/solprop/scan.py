@@ -74,13 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    """Declare CLI modes without interpreting values as Python expressions.
-
-    Returns
-    -------
-    argparse.ArgumentParser
-        Parser for safe execution and Slurm resource controls.
-    """
+    """Declare CLI modes without interpreting values as Python expressions."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         epilog=_COLLECT_HELP,
@@ -109,20 +103,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _policy(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Executor:
-    """Resolve one execution default while retaining explicit script precedence.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed command-line execution and resource controls.
-    parser : argparse.ArgumentParser
-        Argument parser used to report incompatible controls.
-
-    Returns
-    -------
-    Executor
-        CLI default, overridden by explicit script executors.
-    """
+    """Resolve one execution default while retaining explicit script precedence."""
     slurm = args.submit or args.emit_slurm is not None
     worker_controls = (
         args.workers is not None

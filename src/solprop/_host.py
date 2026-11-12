@@ -40,15 +40,7 @@ _TIMEOUT = 5.0
 def _command(arguments: list[str]) -> str | None:
     """Return a short query's standard output, or ``None`` if it cannot run.
 
-    Parameters
-    ----------
-    arguments : list of str
-        The command and its arguments, never passed through a shell.
-
-    Returns
-    -------
-    str or None
-        The output, or ``None`` when the command is absent, fails or times out.
+    - Returns: the output, or ``None`` when the command is absent, fails or times out.
     """
     try:
         result = subprocess.run(
@@ -70,21 +62,7 @@ def lscpu_model(output: str) -> str | None:
     Arm Linux kernels give ``/proc/cpuinfo`` no model name; ``lscpu`` decodes the
     implementer and part numbers into a vendor and a core name.
 
-    Parameters
-    ----------
-    output : str
-        What ``lscpu`` printed.
-
-    Returns
-    -------
-    str or None
-        The vendor and model, or ``None`` when ``lscpu`` names none.
-
-    Examples
-    --------
-    >>> from solprop._host import lscpu_model
-    >>> lscpu_model(chr(10).join(["Vendor ID: ARM", "Model name: Neoverse-V2"]))
-    'ARM Neoverse-V2'
+    - Returns: the vendor and model, or ``None`` when ``lscpu`` names none.
     """
     fields = {
         key.strip(): value.strip()
@@ -104,10 +82,7 @@ def lscpu_model(output: str) -> str | None:
 def _windows_model() -> str | None:
     """Read the processor name Windows keeps in its registry.
 
-    Returns
-    -------
-    str or None
-        The name, or ``None`` off Windows or when the key cannot be read.
+    - Returns: the name, or ``None`` off Windows or when the key cannot be read.
     """
     try:
         import winreg  # noqa: PLC0415  # pyright: ignore[reportMissingModuleSource]
@@ -125,11 +100,8 @@ def _windows_model() -> str | None:
 def cpu_model() -> str | None:
     """Return the CPU's marketing name, as the operating system reports it.
 
-    Returns
-    -------
-    str or None
-        For example ``"AMD EPYC 9R45"`` or ``"Apple M4 Max"``; ``None`` when no query
-        answers.
+    - Returns: for example ``"AMD EPYC 9R45"`` or ``"Apple M4 Max"``; ``None`` when no
+      query answers.
     """
     system = platform.system()
     if system == "Linux":
@@ -150,10 +122,7 @@ def cpu_model() -> str | None:
 def _memory_bytes() -> int | None:
     """Return the machine's physical memory, or ``None`` where it cannot be read.
 
-    Returns
-    -------
-    int or None
-        Bytes.
+    - Returns: bytes.
     """
     try:
         pages, size = os.sysconf("SC_PHYS_PAGES"), os.sysconf("SC_PAGE_SIZE")
@@ -166,21 +135,11 @@ def _memory_bytes() -> int | None:
 def machine() -> dict[str, object]:
     """Describe the machine this process runs on, asked once per process.
 
-    Returns
-    -------
-    dict
-        ``system``, ``release`` and ``machine`` (the architecture) from
-        :mod:`platform`; ``cpu_model``; ``logical_cpus`` (the machine's) and
-        ``usable_cpus`` (the ones the scheduler granted this process); ``memory_bytes``
-        (physical); ``slurm_job_id`` under Slurm. A value that cannot be read is
-        ``None``. Plain JSON values; never a host name.
-
-    Examples
-    --------
-    >>> from solprop._host import machine
-    >>> record = machine()
-    >>> record["usable_cpus"] >= 1 and isinstance(record["machine"], str)
-    True
+    - Returns: ``system``, ``release`` and ``machine`` (the architecture) from
+      :mod:`platform`; ``cpu_model``; ``logical_cpus`` (the machine's) and
+      ``usable_cpus`` (the ones the scheduler granted this process); ``memory_bytes``
+      (physical); ``slurm_job_id`` under Slurm. A value that cannot be read is ``None``.
+      Plain JSON values; never a host name.
     """
     record: dict[str, object] = {
         "system": platform.system(),
@@ -236,40 +195,19 @@ class RunClock:
 
     @classmethod
     def start(cls) -> "RunClock":
-        """Return the clock of a run starting now.
-
-        Returns
-        -------
-        RunClock
-            Both clocks, read now.
-        """
+        """Return the clock of a run starting now."""
         return cls(time.perf_counter(), time.process_time())
 
 
 def usage(clock: RunClock) -> dict[str, float | int | None]:
     """Return what a run has spent since `clock` started: wall, CPU and peak memory.
 
-    Parameters
-    ----------
-    clock : RunClock
-        The run's start.
-
-    Returns
-    -------
-    dict
-        ``wall_time_s`` and ``cpu_time_s`` (every thread's user and system time) since
-        the start, and ``peak_rss_bytes``, the **process's** largest resident memory so
-        far: in a session running several runs it includes the earlier ones, and on a
-        device it does not count device memory; ``None`` where :mod:`resource` is
-        absent (Windows). A run with a plane observer adds ``observer_time_s`` and
-        ``observer_transfers``, the device fetches made for it.
-
-    Examples
-    --------
-    >>> from solprop._host import RunClock, usage
-    >>> record = usage(RunClock.start())
-    >>> record["wall_time_s"] >= 0.0 and record["cpu_time_s"] >= 0.0
-    True
+    - Returns: ``wall_time_s`` and ``cpu_time_s`` (every thread's user and system time)
+      since the start, and ``peak_rss_bytes``, the **process's** largest resident memory
+      so far: in a session running several runs it includes the earlier ones, and on a
+      device it does not count device memory; ``None`` where :mod:`resource` is absent
+      (Windows). A run with a plane observer adds ``observer_time_s`` and
+      ``observer_transfers``, the device fetches made for it.
     """
     spent: dict[str, float | int | None] = {
         "wall_time_s": time.perf_counter() - clock.wall,

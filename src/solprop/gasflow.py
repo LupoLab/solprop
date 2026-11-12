@@ -237,23 +237,9 @@ class _FlowGas:
     def of(cls, gas: Composition | Mixture, temperature: float) -> "_FlowGas":
         """Evaluate the properties of a gas or a shared mixture fill.
 
-        Parameters
-        ----------
-        gas : Gas, str, Species, Mapping or Mixture
-            One built-in gas, gases to mole fractions, or a mixture with a shared fill.
-        temperature : float
-            Temperature in K.
+        A mixture with independent populations is refused: it is not one flow.
 
-        Returns
-        -------
-        _FlowGas
-            The properties.
-
-        Raises
-        ------
-        MaterialError
-            If the gas has no transport data at this temperature, or a mixture has
-            independent populations, which are not one flow.
+        - ``temperature``: temperature in K.
         """
         composition = _as_composition(gas)
         return cls(
@@ -266,23 +252,7 @@ class _FlowGas:
 
 
 def _as_composition(gas: Composition | Mixture) -> Composition:
-    """Return the composition a flow calculation takes, from a gas or a mixture.
-
-    Parameters
-    ----------
-    gas : Gas, str, Species, Mapping or Mixture
-        The gas.
-
-    Returns
-    -------
-    Gas, str, Species or Mapping
-        A single gas, or species to mole fractions.
-
-    Raises
-    ------
-    MaterialError
-        If a mixture has independent populations.
-    """
+    """Return the composition a flow calculation takes, from a gas or a mixture."""
     if not isinstance(gas, Mixture):
         return gas
     if gas.shared is None or gas.fractions is None:
@@ -334,25 +304,8 @@ class _TemperatureFlow:
     ) -> "_TemperatureFlow":
         """Fit the viscosity law over the temperatures a path takes on a fill.
 
-        Parameters
-        ----------
-        gas : Gas, str, Species, Mapping or Mixture
-            One built-in gas, gases to mole fractions, or a mixture with a shared fill.
-        temperature : ZProfile
-            The temperature path in K.
-        positions : numpy.ndarray
-            The fill's stage boundaries in m.
-
-        Returns
-        -------
-        _TemperatureFlow
-            The properties.
-
-        Raises
-        ------
-        MaterialError
-            If the gas has no transport data over the temperature range, or its
-            viscosity does not converge to a series by the highest degree tried.
+        - ``temperature``: the temperature path in K.
+        - ``positions``: the fill's stage boundaries in m.
         """
         composition = _as_composition(gas)
         start, end = float(positions[0]), float(positions[-1])
@@ -379,13 +332,7 @@ class _TemperatureFlow:
 
     @property
     def weight(self) -> SeriesOfPath:
-        """Return the flow weight ``eta(T) T`` along the fibre, in Pa s K.
-
-        Returns
-        -------
-        solprop.profiles.SeriesOfPath
-            The weight as a series of the temperature path.
-        """
+        """Return the flow weight ``eta(T) T`` along the fibre, in Pa s K."""
         law = self.viscosity_law
         return SeriesOfPath(
             self.temperature, law * Chebyshev.identity(domain=law.domain)
@@ -394,15 +341,7 @@ class _TemperatureFlow:
     def at(self, z: float) -> _FlowGas:
         """Return the properties at one position, evaluated directly.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        _FlowGas
-            The properties at the temperature there.
+        - ``z``: position in m.
         """
         local = float(self.temperature(np.array([z]))[0])
         return _FlowGas.of(self.composition, local)
@@ -410,15 +349,8 @@ class _TemperatureFlow:
     def viscosity(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the viscosity at each position, from the series.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``eta(T(z))`` in Pa s.
+        - ``z``: positions in m.
+        - Returns: ``eta(T(z))`` in Pa s.
         """
         return np.asarray(self.viscosity_law(self.temperature(z)), dtype=float)
 
@@ -427,15 +359,9 @@ class _TemperatureFlow:
     ) -> Float[np.ndarray, " n_z"]:
         """Return the mean free path at one bar and the local temperature.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``lambda`` in m, :func:`solprop.physdata.transport.mean_free_path` at 1 bar.
+        - ``z``: positions in m.
+        - Returns: ``lambda`` in m, :func:`solprop.physdata.transport.mean_free_path` at
+          1 bar.
         """
         local = np.asarray(self.temperature(z), dtype=float)
         speed = np.sqrt(math.pi * _GAS_CONSTANT * local / (2.0 * self.molar_mass))
@@ -455,39 +381,15 @@ def _viscosity_law(
     measured error, not a coefficient tail, since CoolProp's helium viscosity is not
     smooth enough for its tail to fall.
 
-    Parameters
-    ----------
-    composition : Gas, str, Species or Mapping
-        The gas.
-    low, high : float
-        The temperature range in K, ``low < high``.
-    degrees : tuple of int, optional
-        The degrees tried in turn.
-
-    Returns
-    -------
-    numpy.polynomial.Chebyshev
-        ``eta(T)`` in Pa s on ``[low, high]``.
-
-    Raises
-    ------
-    MaterialError
-        If the gas has no transport data there, or no degree tried meets the
-        tolerance.
+    - ``low``, ``high``: the temperature range in K, ``low < high``.
+    - Returns: ``eta(T)`` in Pa s on ``[low, high]``.
     """
 
     def values(temperatures: Float[np.ndarray, " n_t"]) -> Float[np.ndarray, " n_t"]:
         """Return the viscosity at each temperature.
 
-        Parameters
-        ----------
-        temperatures : numpy.ndarray
-            Temperatures in K.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``eta`` in Pa s.
+        - ``temperatures``: temperatures in K.
+        - Returns: ``eta`` in Pa s.
         """
         return np.array([viscosity(composition, float(t)) for t in temperatures])
 
@@ -505,25 +407,7 @@ def _viscosity_law(
 
 
 def _positive(value: float, what: str) -> float:
-    """Return a finite positive number, or refuse it by name.
-
-    Parameters
-    ----------
-    value : float
-        The number.
-    what : str
-        Its name and unit, for the error.
-
-    Returns
-    -------
-    float
-        The number as a float.
-
-    Raises
-    ------
-    TranslationError
-        If it is not finite and positive.
-    """
+    """Return a finite positive number, or refuse it by name."""
     number = float(value)
     if not (math.isfinite(number) and number > 0.0):
         raise TranslationError(f"{what} must be finite and positive, got {value}")
@@ -535,20 +419,6 @@ def _checked_choice(value: object, name: str, choices: tuple[str, ...]) -> None:
 
     The annotations already say which strings are allowed; this is the check a caller
     without a type checker meets.
-
-    Parameters
-    ----------
-    value : object
-        What was passed.
-    name : str
-        The keyword, for the error.
-    choices : tuple of str
-        The allowed values.
-
-    Raises
-    ------
-    TranslationError
-        If `value` is not one of `choices`.
     """
     if value not in choices:
         raise TranslationError(f"{name} must be one of {choices}, got {value!r}")
@@ -557,17 +427,9 @@ def _checked_choice(value: object, name: str, choices: tuple[str, ...]) -> None:
 def _choked_from(high_pa: float, factor: float) -> float:
     """Solve ``k (p_h^2 - p_e^2) = p_e`` for the exit pressure without cancellation.
 
-    Parameters
-    ----------
-    high_pa : float
-        The stage's other end pressure in Pa, >= 0.
-    factor : float
-        ``k = 1 / (16 eta c a_e^2 R)`` in Pa^-1, > 0.
-
-    Returns
-    -------
-    float
-        The choked exit pressure in Pa.
+    - ``high_pa``: the stage's other end pressure in Pa, >= 0.
+    - ``factor``: ``k = 1 / (16 eta c a_e^2 R)`` in Pa^-1, > 0.
+    - Returns: the choked exit pressure in Pa.
     """
     # The positive root 2 k p^2 / (1 + sqrt(1 + 4 k^2 p^2)) rather than
     # (-1 + sqrt(1 + 4 k^2 p^2)) / (2 k): the latter cancels to nothing when k p << 1,
@@ -581,21 +443,9 @@ def _choke(
 ) -> float:
     """Return the choked exit pressure in Pa of a stage.
 
-    Parameters
-    ----------
-    flow : _FlowGas
-        The gas properties.
-    high_pa : float
-        The other end of the stage in Pa.
-    exit_radius : float
-        The core radius at the exit in m.
-    resistance : float
-        The stage's ``int a^-4 dz`` in m^-3.
-
-    Returns
-    -------
-    float
-        The choked exit pressure in Pa.
+    - ``high_pa``: the other end of the stage in Pa.
+    - ``exit_radius``: the core radius at the exit in m.
+    - ``resistance``: the stage's ``int a^-4 dz`` in m^-3.
     """
     factor = 1.0 / (
         16.0 * flow.viscosity * flow.sound_speed * exit_radius**2 * resistance
@@ -606,17 +456,9 @@ def _choke(
 def _resistance(radius: float | ZProfile, length: float) -> tuple[ZProfile, float]:
     """Return a radius path and its hydraulic resistance over ``[0, length]``.
 
-    Parameters
-    ----------
-    radius : float or ZProfile
-        Core radius in m.
-    length : float
-        Length in m, > 0.
-
-    Returns
-    -------
-    tuple
-        The radius as a path, and ``int_0^length a^-4 dz`` in m^-3.
+    - ``radius``: core radius in m.
+    - ``length``: length in m, > 0.
+    - Returns: the radius as a path, and ``int_0^length a^-4 dz`` in m^-3.
     """
     path = as_profile(radius)
     edges = np.array([0.0, _positive(length, "length in m")])
@@ -624,25 +466,7 @@ def _resistance(radius: float | ZProfile, length: float) -> tuple[ZProfile, floa
 
 
 def _checked_pressure(value: float, what: str) -> float:
-    """Return a finite non-negative pressure in bar, or refuse it by name.
-
-    Parameters
-    ----------
-    value : float
-        The pressure in bar.
-    what : str
-        Its name, for the error.
-
-    Returns
-    -------
-    float
-        The pressure as a float.
-
-    Raises
-    ------
-    TranslationError
-        If it is negative or not finite.
-    """
+    """Return a finite non-negative pressure in bar, or refuse it by name."""
     number = float(value)
     if not (math.isfinite(number) and number >= 0.0):
         raise TranslationError(f"{what} must be finite and not negative, got {value}")
@@ -708,19 +532,9 @@ def _poiseuille(
 ) -> float:
     """Return the laminar throughput between two pressures in Pa.
 
-    Parameters
-    ----------
-    flow : _FlowGas
-        The gas properties.
-    first_pa, second_pa : float
-        The two end pressures in Pa, in either order.
-    resistance : float
-        ``int a^-4 dz`` in m^-3.
-
-    Returns
-    -------
-    float
-        ``pi |p_1^2 - p_2^2| / (16 eta R)`` in Pa m^3 s^-1.
+    - ``first_pa``, ``second_pa``: the two end pressures in Pa, in either order.
+    - ``resistance``: ``int a^-4 dz`` in m^-3.
+    - Returns: ``pi |p_1^2 - p_2^2| / (16 eta R)`` in Pa m^3 s^-1.
     """
     # (p1 - p2)(p1 + p2): the difference of the squares without their cancellation.
     difference = abs(first_pa - second_pa) * (first_pa + second_pa)
@@ -836,17 +650,7 @@ def mass_flow(
 def _mass_per_pv(flow: _FlowGas, pressure_bar: float) -> float:
     """Return ``rho / p`` in kg per Pa m^3 at a pressure, real-gas where it matters.
 
-    Parameters
-    ----------
-    flow : _FlowGas
-        The gas properties.
-    pressure_bar : float
-        Pressure in bar, >= 0.
-
-    Returns
-    -------
-    float
-        Mass density over pressure, ``M / (Z R T)``.
+    - ``pressure_bar``: pressure in bar, >= 0.
     """
     if pressure_bar == 0.0:
         return flow.molar_mass / (_GAS_CONSTANT * flow.temperature)
@@ -915,26 +719,9 @@ def _reynolds(
 ) -> Float[np.ndarray, " n_z"]:
     """Return ``2 mdot / (pi a eta)`` at each position.
 
-    Parameters
-    ----------
-    flow : _FlowGas
-        The gas properties.
-    rate : float
-        Mass flow in kg s^-1.
-    radius : ZProfile
-        Core radius in m.
-    z : numpy.ndarray
-        Positions in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The Reynolds number at each position.
-
-    Raises
-    ------
-    TranslationError
-        If the radius is not positive at a position.
+    - ``rate``: mass flow in kg s^-1.
+    - ``radius``: core radius in m.
+    - ``z``: positions in m.
     """
     values = np.asarray(radius(z), dtype=float)
     if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
@@ -1049,19 +836,10 @@ def _pump_excess(
 ) -> float:
     """Return a pump's throughput less the gas's at a chamber pressure.
 
-    Parameters
-    ----------
-    pressure_bar : float
-        Chamber pressure in bar.
-    pump_speed : callable
-        Pumping speed in m^3 s^-1 as a function of the pressure in bar.
-    rate : float
-        The gas throughput in Pa m^3 s^-1.
-
-    Returns
-    -------
-    float
-        ``p S(p) - Q`` in Pa m^3 s^-1.
+    - ``pressure_bar``: chamber pressure in bar.
+    - ``pump_speed``: pumping speed in m^3 s^-1 as a function of the pressure in bar.
+    - ``rate``: the gas throughput in Pa m^3 s^-1.
+    - Returns: ``p S(p) - Q`` in Pa m^3 s^-1.
     """
     speed = _positive(pump_speed(pressure_bar), "pump speed in m^3/s")
     return pressure_bar * BAR * speed - rate
@@ -1323,10 +1101,7 @@ class FlowReport(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             ("viscosity", f"{self.viscosity * 1e6:.4g} uPa s"),
@@ -1359,17 +1134,7 @@ def _stage_samples(
 ) -> Float[np.ndarray, " n_samples"]:
     """Return the positions at which a stage's flow regime is sampled.
 
-    Parameters
-    ----------
-    fill : PressureGradient
-        The fill.
-    stage : int
-        The stage index.
-
-    Returns
-    -------
-    numpy.ndarray
-        The stage's breakpoints and evenly spaced interior positions, in m.
+    - Returns: the stage's breakpoints and evenly spaced interior positions, in m.
     """
     start, end = float(fill.positions[stage]), float(fill.positions[stage + 1])
     kinks = np.asarray(fill.breakpoints, dtype=float)
@@ -1393,26 +1158,11 @@ def _stage_flow(  # noqa: PLR0917 - called positionally
 ) -> StageFlow:
     """Return the flow through one stage.
 
-    Parameters
-    ----------
-    flow : _FlowGas
-        The gas properties; for a temperature path, those at the fill's start.
-    fill : PressureGradient
-        The fill.
-    radius : ZProfile
-        Core radius in m.
-    stage : int
-        The stage index.
-    resistance : float
-        The stage's ``int a^-4 dz`` in m^-3; for a temperature path its
-        ``int eta T a^-4 dz`` in Pa s K m^-3.
-    along : _TemperatureFlow or None, optional
-        The properties along a temperature path; ``None`` for a constant temperature.
-
-    Returns
-    -------
-    StageFlow
-        The stage's flow.
+    - ``radius``: core radius in m.
+    - ``resistance``: the stage's ``int a^-4 dz`` in m^-3; for a temperature path its
+      ``int eta T a^-4 dz`` in Pa s K m^-3.
+    - ``along``: the properties along a temperature path; ``None`` for a constant
+      temperature.
     """
     first, second = (float(p) for p in fill.pressures[stage : stage + 2])
     samples = _stage_samples(fill, stage)
@@ -1431,15 +1181,8 @@ def _stage_flow(  # noqa: PLR0917 - called positionally
         def free_path_of(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
             """Return the mean free path at one bar, the same everywhere.
 
-            Parameters
-            ----------
-            z : numpy.ndarray
-                Positions in m.
-
-            Returns
-            -------
-            numpy.ndarray
-                ``lambda(1 bar)`` in m at each position.
+            - ``z``: positions in m.
+            - Returns: ``lambda(1 bar)`` in m at each position.
             """
             return np.full(np.shape(z), at_one_bar)
 
@@ -1499,51 +1242,25 @@ def _transitional(
     density ``int p dz`` is integrated by adaptive quadrature across the fill's
     breakpoints, where ``p`` kinks.
 
-    Parameters
-    ----------
-    fill : PressureGradient
-        The fill.
-    radius : ZProfile
-        Core radius in m.
-    samples : numpy.ndarray
-        The stage's sampled positions in m, its breakpoints included.
-    free_path_of : callable
-        The mean free path at one bar in m at given positions: the same everywhere
-        at a constant temperature, the local one along a temperature path.
-
-    Returns
-    -------
-    tuple of float
-        The transitional length in m and its share of the column density.
+    - ``radius``: core radius in m.
+    - ``samples``: the stage's sampled positions in m, its breakpoints included.
+    - ``free_path_of``: the mean free path at one bar in m at given positions: the same
+      everywhere at a constant temperature, the local one along a temperature path.
     """
 
     def threshold(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the transitional threshold of ``p a`` at each position.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``lambda(1 bar) / (2 Kn_t)`` in bar m.
+        - ``z``: positions in m.
+        - Returns: ``lambda(1 bar) / (2 Kn_t)`` in bar m.
         """
         return free_path_of(z) / (2.0 * KNUDSEN_TRANSITION_LIMIT)
 
     def excess(z: float) -> float:
         """Return ``p a`` less its transitional threshold at one position.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        float
-            ``p(z) a(z) - lambda(1 bar) / 0.2`` in bar m.
+        - ``z``: position in m.
+        - Returns: ``p(z) a(z) - lambda(1 bar) / 0.2`` in bar m.
         """
         position = np.array([z])
         return float(fill(position)[0] * radius(position)[0] - threshold(position)[0])
@@ -1563,15 +1280,8 @@ def _transitional(
     def column(low: float, high: float) -> float:
         """Return the column density between two positions.
 
-        Parameters
-        ----------
-        low, high : float
-            The interval in m.
-
-        Returns
-        -------
-        float
-            ``int p dz`` in bar m.
+        - ``low``, ``high``: the interval in m.
+        - Returns: ``int p dz`` in bar m.
         """
         inside = kinks[(kinks > low) & (kinks < high)]
         value, _ = quad(
@@ -1603,26 +1313,16 @@ def _outer_chokes(
 ) -> tuple[float | None, float | None]:
     """Return the choked pressure in bar of each outer end that is a stage's low end.
 
-    Parameters
-    ----------
-    flows : tuple of _FlowGas
-        The gas properties at the first and the last end: the same object at a
-        constant temperature, each end's own along a temperature path.
-    pressures_bar : numpy.ndarray
-        Stage pressures in bar.
-    exit_radii : tuple of float
-        The core radius in m at the first and the last position.
-    resistances : tuple of float
-        The ``int a^-4 dz`` in m^-3 of the first and the last stage; along a
-        temperature path ``int (eta T) / (eta_e T_e) a^-4 dz`` with the end's own
-        ``eta_e T_e``, which turns the choke into ``T_e / (16 c_e a_e^2 int eta T
-        a^-4 dz)``.
-
-    Returns
-    -------
-    tuple
-        The first and last end's choked pressure in bar, or ``None`` where that end
-        is not lower than the other end of its stage.
+    - ``flows``: the gas properties at the first and the last end: the same object at a
+      constant temperature, each end's own along a temperature path.
+    - ``pressures_bar``: stage pressures in bar.
+    - ``exit_radii``: the core radius in m at the first and the last position.
+    - ``resistances``: the ``int a^-4 dz`` in m^-3 of the first and the last stage;
+      along a temperature path ``int (eta T) / (eta_e T_e) a^-4 dz`` with the end's own
+      ``eta_e T_e``, which turns the choke into ``T_e / (16 c_e a_e^2 int eta T a^-4
+      dz)``.
+    - Returns: the first and last end's choked pressure in bar, or ``None`` where that
+      end is not lower than the other end of its stage.
     """
     chokes: list[float | None] = []
     for end, other, flow, exit_radius, resistance in (
@@ -1650,30 +1350,13 @@ def _end_flows(
 ]:
     """Return what the chokes and the report of a fill need, for either temperature.
 
-    Parameters
-    ----------
-    gas : Gas, str, Species, Mapping or Mixture
-        The gas.
-    temperature : float or ZProfile
-        Temperature in K, validated: a number, or a varying path.
-    radius : ZProfile
-        Core radius in m.
-    positions : numpy.ndarray
-        Stage boundaries in m.
-
-    Returns
-    -------
-    tuple
-        The gas at the first and last end, the equivalent resistances of the first
-        and last stage (:func:`_outer_chokes`), every stage's resistance (``int
-        a^-4 dz`` in m^-3, or ``int eta T a^-4 dz`` in Pa s K m^-3 along a
-        temperature path), and the properties along the path (``None`` at a
-        constant temperature).
-
-    Raises
-    ------
-    MaterialError
-        If the gas has no transport data at the temperatures.
+    - ``temperature``: temperature in K, validated: a number, or a varying path.
+    - ``radius``: core radius in m.
+    - ``positions``: stage boundaries in m.
+    - Returns: the gas at the first and last end, the equivalent resistances of the
+      first and last stage (:func:`_outer_chokes`), every stage's resistance (``int a^-4
+      dz`` in m^-3, or ``int eta T a^-4 dz`` in Pa s K m^-3 along a temperature path),
+      and the properties along the path (``None`` at a constant temperature).
     """
     if not isinstance(temperature, ZProfile):
         flow = _FlowGas.of(gas, temperature)
@@ -1701,17 +1384,10 @@ def _end_flows(
 def _at_choke(pressure: float, choked: float | None) -> bool:
     """Return whether an end pressure is at or below its choked value.
 
-    Parameters
-    ----------
-    pressure : float
-        The end's pressure in bar.
-    choked : float or None
-        Its choked pressure in bar, or ``None`` where the end is not a low end.
-
-    Returns
-    -------
-    bool
-        ``True`` when the exit throughput is the sonic limit.
+    - ``pressure``: the end's pressure in bar.
+    - ``choked``: its choked pressure in bar, or ``None`` where the end is not a low
+      end.
+    - Returns: ``True`` when the exit throughput is the sonic limit.
     """
     return choked is not None and pressure <= choked * (1.0 + _CHOKE_MATCH)
 
@@ -1974,24 +1650,13 @@ def _apply_chokes(
 ) -> Float[np.ndarray, " n_positions"]:
     """Raise each outer low end to its choked pressure, logging what changed.
 
-    Parameters
-    ----------
-    flows : tuple of _FlowGas
-        The gas properties at the first and the last end.
-    resistances : tuple of float
-        The equivalent resistances of the first and last stage
-        (:func:`_outer_chokes`).
-    edges : numpy.ndarray
-        Stage boundaries in m.
-    declared : numpy.ndarray
-        Declared pressures in bar.
-    radius : ZProfile
-        Core radius in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The pressures in bar with every choked end applied.
+    - ``flows``: the gas properties at the first and the last end.
+    - ``resistances``: the equivalent resistances of the first and last stage
+      (:func:`_outer_chokes`).
+    - ``edges``: stage boundaries in m.
+    - ``declared``: declared pressures in bar.
+    - ``radius``: core radius in m.
+    - Returns: the pressures in bar with every choked end applied.
     """
     ends = np.asarray(radius(edges[[0, -1]]), dtype=float)
     applied = declared.copy()
@@ -2027,21 +1692,7 @@ def _apply_chokes(
 
 
 def _check_regime(report: FlowReport) -> None:
-    """Warn or log where a fill leaves the laminar continuum regime.
-
-    Parameters
-    ----------
-    report : FlowReport
-        The fill's flow.
-
-    Warns
-    -----
-    GasFlowWarning
-        For a peak Reynolds number above :data:`REYNOLDS_LAMINAR_LIMIT`, or a stage
-        whose mean-pressure Knudsen number exceeds :data:`KNUDSEN_SLIP_LIMIT` or whose
-        transitional share of the column density exceeds
-        :data:`TRANSITIONAL_COLUMN_LIMIT`.
-    """
+    """Warn or log where a fill leaves the laminar continuum regime."""
     if report.peak_reynolds > REYNOLDS_LAMINAR_LIMIT:
         warnings.warn(
             f"the steady-flow fill has a peak Reynolds number of "

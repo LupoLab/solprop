@@ -416,20 +416,8 @@ class ZProfile(Protocol):
 def _as_positions(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
     """Validate a position argument and return it as a float array.
 
-    Parameters
-    ----------
-    z : numpy.ndarray
-        Positions along the waveguide in m, shape ``(n_z,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values as a finite float array.
-
-    Raises
-    ------
-    TranslationError
-        If any position is not finite.
+    - ``z``: positions along the waveguide in m, shape ``(n_z,)``.
+    - Returns: the same values as a finite float array.
     """
     values = np.asarray(z, dtype=float)
     if not np.all(np.isfinite(values)):
@@ -442,23 +430,8 @@ def _checked_edges(
 ) -> Float[np.ndarray, " n_breakpoints"]:
     """Validate a sequence of stage positions and return it as an array.
 
-    Parameters
-    ----------
-    positions : array_like
-        Stage boundaries in m; at least two, finite and strictly increasing.
-    what : str
-        The name used in error messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        The positions as a float array.
-
-    Raises
-    ------
-    TranslationError
-        If there are fewer than two, if any is not finite, or if they are not strictly
-        increasing.
+    - ``positions``: stage boundaries in m; at least two, finite and strictly
+      increasing.
     """
     edges = np.asarray(positions, dtype=float)
     if edges.ndim != 1 or edges.size < 2:
@@ -479,23 +452,8 @@ def _checked_pressures(
 ) -> Float[np.ndarray, " n_pressures"]:
     """Validate the stage pressures of a fill and return them as an array.
 
-    Parameters
-    ----------
-    edges : numpy.ndarray
-        Stage boundaries in m, already validated.
-    pressures : array_like
-        Absolute pressure in bar at each boundary.
-
-    Returns
-    -------
-    numpy.ndarray
-        The pressures as a float array.
-
-    Raises
-    ------
-    TranslationError
-        If the lengths disagree, a pressure is negative or not finite, every pressure
-        is zero, or the highest is so small that its square underflows.
+    - ``edges``: stage boundaries in m, already validated.
+    - ``pressures``: absolute pressure in bar at each boundary.
     """
     values = np.asarray(pressures, dtype=float)
     if values.shape != edges.shape:
@@ -526,23 +484,8 @@ def _interval_knots(
 ) -> Float[np.ndarray, " n_knots"]:
     """Return the ends of an interval and the given positions strictly inside it.
 
-    Parameters
-    ----------
-    start, end : float
-        The closed interval in m.
-    inner : numpy.ndarray
-        Candidate knots in m, any order.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``start``, the candidates inside ``(start, end)`` sorted and unique, and
-        ``end``.
-
-    Raises
-    ------
-    TranslationError
-        If the interval is not finite or not increasing.
+    - ``start``, ``end``: the closed interval in m.
+    - ``inner``: candidate knots in m, any order.
     """
     start, end = float(start), float(end)
     if not (math.isfinite(start) and math.isfinite(end) and end > start):
@@ -561,17 +504,7 @@ def _monotone_pieces(
 ) -> PathVariation:
     """Return the exact record of a path monotone between its knots.
 
-    Parameters
-    ----------
-    knots : numpy.ndarray
-        Piece edges in m.
-    first, last : numpy.ndarray
-        One-sided limits at each piece's ends.
-
-    Returns
-    -------
-    PathVariation
-        Monotone pieces whose variation is ``abs(last - first)``.
+    - ``knots``: piece edges in m.
     """
     return PathVariation(
         knots,
@@ -589,17 +522,7 @@ def _continuous_monotone(
 ) -> PathVariation:
     """Return the record of a continuous path monotone between the given knots.
 
-    Parameters
-    ----------
-    path : ZProfile
-        The path, continuous on the interval.
-    knots : numpy.ndarray
-        Piece edges in m between which the path is monotone.
-
-    Returns
-    -------
-    PathVariation
-        The exact record, from the path's values at the knots.
+    - ``knots``: piece edges in m between which the path is monotone.
     """
     values = np.asarray(path(knots), dtype=float)
     return _monotone_pieces(knots, values[:-1], values[1:])
@@ -608,18 +531,10 @@ def _continuous_monotone(
 def _padded(record: PathVariation, start: float, end: float) -> PathVariation:
     """Extend a record by constant pieces out to a wider interval.
 
-    Parameters
-    ----------
-    record : PathVariation
-        The record over a subinterval of ``[start, end]``.
-    start, end : float
-        The wider interval in m.
-
-    Returns
-    -------
-    PathVariation
-        The record, with a constant piece before and after it where the interval
-        extends beyond it: the path is held at its end values there.
+    - ``record``: the record over a subinterval of ``[start, end]``.
+    - ``start``, ``end``: the wider interval in m.
+    - Returns: the record, with a constant piece before and after it where the interval
+      extends beyond it: the path is held at its end values there.
     """
     pieces = [record]
     if start < record.knots[0]:
@@ -655,22 +570,8 @@ def _mapped_variation(
     monotone the variation is at most the function's largest slope on the range
     times the inner variation.
 
-    Parameters
-    ----------
-    record : PathVariation
-        The inner path's record.
-    function : collections.abc.Callable
-        The outer function, vectorised.
-    critical : collections.abc.Callable
-        ``critical(low, high)`` returns every point in ``(low, high)`` where the
-        function may turn; extra points only cost evaluations.
-    slope : collections.abc.Callable
-        ``slope(low, high)`` returns an upper bound of ``abs(function')`` on the range.
-
-    Returns
-    -------
-    PathVariation
-        The composite's record, on the same knots.
+    - ``critical``: ``critical(low, high)`` returns every point in ``(low, high)`` where
+      the function may turn; extra points only cost evaluations.
     """
     pieces = record.first.size
     first = np.asarray(function(record.first), dtype=float)
@@ -881,10 +782,7 @@ class PiecewiseLinear(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         pairs = zip(self.positions, self.values, strict=True)
         rows: list[tuple[str, object]] = [
@@ -1223,21 +1121,11 @@ def _linear_bore(
 ) -> Float[np.ndarray, " n_z"]:
     """Integrate ``a^-4`` exactly from `start` to `z` on a piece where ``a`` is linear.
 
-    Parameters
-    ----------
-    start : numpy.ndarray
-        Left edge of each piece in m.
-    radius_start : numpy.ndarray
-        Radius at `start` in m, > 0.
-    z : numpy.ndarray
-        Upper limit of each integral in m, on the same piece.
-    radius_z : numpy.ndarray
-        Radius at `z` in m, > 0.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``int_start^z a^-4 dz`` in m^-3.
+    - ``start``: left edge of each piece in m.
+    - ``radius_start``: radius at `start` in m, > 0.
+    - ``z``: upper limit of each integral in m, on the same piece.
+    - ``radius_z``: radius at `z` in m, > 0.
+    - Returns: ``int_start^z a^-4 dz`` in m^-3.
     """
     # (a0^-3 - a^-3) / (3 a') rewritten with a' = (a - a0) / dz: the difference
     # cancels against the slope, leaving a form with no subtraction that is also right
@@ -1301,25 +1189,10 @@ class _BoreIntegral:
     ) -> "_BoreIntegral":
         """Cut the fill into pieces and integrate the bore weight over each.
 
-        Parameters
-        ----------
-        radius : ZProfile or None
-            Core radius in m, positive over the fill; ``None`` for a uniform bore.
-        stage_edges : numpy.ndarray
-            Stage boundaries in m, validated and strictly increasing.
-        factor : ZProfile or None, optional
-            Flow weight multiplying ``a^-4``, positive over the fill.
-
-        Returns
-        -------
-        _BoreIntegral
-            The cumulative resistance.
-
-        Raises
-        ------
-        TranslationError
-            If the radius or the weight is not finite and positive over the fill, or
-            their product does not converge on a piece by the highest degree tried.
+        - ``radius``: core radius in m, positive over the fill; ``None`` for a uniform
+          bore.
+        - ``stage_edges``: stage boundaries in m, validated and strictly increasing.
+        - ``factor``: flow weight multiplying ``a^-4``, positive over the fill.
         """
         start, end = float(stage_edges[0]), float(stage_edges[-1])
         kinks = [stage_edges]
@@ -1376,15 +1249,8 @@ class _BoreIntegral:
     def weight(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the integrand ``w a^-4`` at each position.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, inside the fill.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``w(z) a(z)^-4``; ``a(z)^-4`` in m^-4 without a flow weight.
+        - ``z``: positions in m, inside the fill.
+        - Returns: ``w(z) a(z)^-4``; ``a(z)^-4`` in m^-4 without a flow weight.
         """
         if self.factor is None:
             assert self.radius is not None
@@ -1396,17 +1262,7 @@ class _BoreIntegral:
     ) -> Float[np.ndarray, " n_z"]:
         """Return ``int w a^-4 dz`` from the start of each position's stage.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, each inside its stage.
-        stage : numpy.ndarray
-            The stage index of each position.
-
-        Returns
-        -------
-        numpy.ndarray
-            The resistance from the stage start to each position.
+        - ``z``: positions in m, each inside its stage.
         """
         piece = np.clip(
             np.searchsorted(self.edges, z, side="right") - 1, 0, self.offsets.size - 1
@@ -1432,17 +1288,8 @@ class _BoreIntegral:
     ) -> Float[np.ndarray, " n_z"]:
         """Return each position's share of its stage's resistance.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, each clamped into its stage.
-        stage : numpy.ndarray
-            The stage index of each position.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``R(z_i, z) / R(z_i, z_{i+1})``, in [0, 1].
+        - ``z``: positions in m, each clamped into its stage.
+        - Returns: ``R(z_i, z) / R(z_i, z_{i+1})``, in [0, 1].
         """
         return np.clip(
             self.from_stage_start(z, stage) / self.stage_totals[stage], 0.0, 1.0
@@ -1452,17 +1299,8 @@ class _BoreIntegral:
 def _checked_radius(radius: ZProfile, z: Float[np.ndarray, " n_z"]) -> None:
     """Refuse a radius that is not finite and positive at the given positions.
 
-    Parameters
-    ----------
-    radius : ZProfile
-        Core radius in m.
-    z : numpy.ndarray
-        Positions in m.
-
-    Raises
-    ------
-    TranslationError
-        If any sampled radius is not finite or not positive.
+    - ``radius``: core radius in m.
+    - ``z``: positions in m.
     """
     values = np.asarray(radius(z), dtype=float)
     if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
@@ -1477,32 +1315,17 @@ def _flow_weight(
 ) -> Callable[[Float[np.ndarray, " n_z"]], Float[np.ndarray, " n_z"]]:
     """Return the integrand ``w a^-4`` of the hydraulic resistance, checking both.
 
-    Parameters
-    ----------
-    radius : ZProfile or None
-        Core radius in m; ``None`` for a uniform bore, whose ``a^-4`` cancels.
-    factor : ZProfile or None
-        Flow weight ``w``; ``None`` for none.
-
-    Returns
-    -------
-    callable
-        ``z -> w(z) a(z)^-4``, raising :class:`~solprop.exceptions.TranslationError`
-        where the radius or the weight is not finite and positive.
+    - ``radius``: core radius in m; ``None`` for a uniform bore, whose ``a^-4`` cancels.
+    - ``factor``: flow weight ``w``; ``None`` for none.
+    - Returns: ``z -> w(z) a(z)^-4``, raising
+      :class:`~solprop.exceptions.TranslationError` where the radius or the weight is
+      not finite and positive.
     """
 
     def weight(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the integrand at the given positions, refusing a bad path.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``w(z) a(z)^-4``.
+        - ``z``: positions in m.
         """
         result = np.ones_like(np.asarray(z, dtype=float))
         if radius is not None:
@@ -1531,27 +1354,9 @@ def _bore_series(
 ) -> Chebyshev:
     """Return the exact antiderivative of a converged interpolant of a bore weight.
 
-    Parameters
-    ----------
-    weight : callable
-        The integrand ``w a^-4``, smooth and positive on the piece; it refuses a
-        radius or weight that is not.
-    left, right : float
-        The piece in m.
-    degrees : tuple of int
-        The Chebyshev degrees tried in turn.
-    subject : str
-        The radius's repr, or a description of the radius and weight, for the error.
-
-    Returns
-    -------
-    numpy.polynomial.Chebyshev
-        ``int_left^z w a^-4 dz`` as a Chebyshev series in ``z``, zero at `left`.
-
-    Raises
-    ------
-    TranslationError
-        If the interpolant has not converged by the highest degree tried.
+    - ``weight``: the integrand ``w a^-4``, smooth and positive on the piece; it refuses
+      a radius or weight that is not.
+    - ``left``, ``right``: the piece in m.
     """
     for degree in degrees:
         interpolant = Chebyshev.interpolate(weight, degree, domain=[left, right])
@@ -1738,10 +1543,7 @@ class PressureGradient(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         pairs = zip(self.positions, self.pressures, strict=True)
         rows: list[tuple[str, object]] = [
@@ -2024,15 +1826,8 @@ class PressureGradient(Displayed):
     def _stage_index(self, z: Float[np.ndarray, " n_z"]) -> Int[np.ndarray, " n_z"]:
         """Return the index of the stage each position falls in.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Stage indices, clamped to the declared range.
+        - ``z``: positions in m, shape ``(n_z,)``.
+        - Returns: stage indices, clamped to the declared range.
         """
         return np.asarray(
             np.clip(
@@ -2110,18 +1905,7 @@ class PressureGradient(Displayed):
 
 
 def _chebyshev_nodes(degree: int) -> Float[np.ndarray, " n_nodes"]:
-    """Return the Chebyshev points of the first kind on ``[-1, 1]``.
-
-    Parameters
-    ----------
-    degree : int
-        The interpolation degree; ``degree + 1`` points, none at an end.
-
-    Returns
-    -------
-    numpy.ndarray
-        The points, decreasing.
-    """
+    """Return the Chebyshev points of the first kind on ``[-1, 1]``."""
     return np.cos(np.pi * (np.arange(degree + 1) + 0.5) / (degree + 1))
 
 
@@ -2159,26 +1943,10 @@ class _Compressibility:
     ) -> "_Compressibility":
         """Tabulate ``Z`` at Chebyshev nodes, raising each axis's degree to convergence.
 
-        Parameters
-        ----------
-        density_at : callable
-            ``(pressure in bar, temperature in K) -> number density in m^-3``.
-        pressures : tuple of float
-            The pressure interval in bar, ``low < high``.
-        temperatures : tuple of float
-            The temperature interval in K, ``low < high``.
-        what : str
-            The gas, for the error.
-
-        Returns
-        -------
-        _Compressibility
-            The converged series.
-
-        Raises
-        ------
-        MaterialError
-            If an axis has not converged by the highest degree tried.
+        - ``density_at``: ``(pressure in bar, temperature in K) -> number density in
+          m^-3``.
+        - ``pressures``: the pressure interval in bar, ``low < high``.
+        - ``temperatures``: the temperature interval in K, ``low < high``.
         """
         degrees = [_Z_DEGREES[0], _Z_DEGREES[0]]
         while True:
@@ -2214,19 +1982,9 @@ class _Compressibility:
     ) -> Float[np.ndarray, "n_p n_temperature"]:
         """Return the tensor Chebyshev coefficients of ``Z`` at the given degrees.
 
-        Parameters
-        ----------
-        density_at : callable
-            ``(pressure in bar, temperature in K) -> number density in m^-3``.
-        pressures, temperatures : tuple of float
-            The intervals in bar and K.
-        degrees : sequence of int
-            The degree in pressure and in temperature.
-
-        Returns
-        -------
-        numpy.ndarray
-            Coefficients, shape ``(degrees[0] + 1, degrees[1] + 1)``.
+        - ``density_at``: ``(pressure in bar, temperature in K) -> number density in
+          m^-3``.
+        - ``pressures``, ``temperatures``: the intervals in bar and K.
         """
         unit_p = _chebyshev_nodes(degrees[0])
         unit_t = _chebyshev_nodes(degrees[1])
@@ -2258,17 +2016,9 @@ class _Compressibility:
     ) -> tuple[Float[np.ndarray, " n_z"], Float[np.ndarray, " n_z"]]:
         """Map states onto the series' unit square.
 
-        Parameters
-        ----------
-        pressure : numpy.ndarray
-            Pressures in bar.
-        temperature : numpy.ndarray
-            Temperatures in K.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The two coordinates on ``[-1, 1]``.
+        - ``pressure``: pressures in bar.
+        - ``temperature``: temperatures in K.
+        - Returns: the two coordinates on ``[-1, 1]``.
         """
         (p0, p1), (t0, t1) = self.pressures, self.temperatures
         return (2.0 * pressure - (p0 + p1)) / (p1 - p0), (
@@ -2282,17 +2032,9 @@ class _Compressibility:
     ) -> Bool[np.ndarray, " n_z"]:
         """Return which states lie inside the tabulated rectangle.
 
-        Parameters
-        ----------
-        pressure : numpy.ndarray
-            Pressures in bar.
-        temperature : numpy.ndarray
-            Temperatures in K.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``True`` where the series interpolates.
+        - ``pressure``: pressures in bar.
+        - ``temperature``: temperatures in K.
+        - Returns: ``True`` where the series interpolates.
         """
         (p0, p1), (t0, t1) = self.pressures, self.temperatures
         return (
@@ -2311,17 +2053,9 @@ class _Compressibility:
     ]:
         """Return ``Z`` and its partial derivatives at each state.
 
-        Parameters
-        ----------
-        pressure : numpy.ndarray
-            Pressures in bar, inside the table.
-        temperature : numpy.ndarray
-            Temperatures in K, inside the table.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``Z``, ``dZ/dp`` in 1/bar and ``dZ/dT`` in 1/K.
+        - ``pressure``: pressures in bar, inside the table.
+        - ``temperature``: temperatures in K, inside the table.
+        - Returns: ``Z``, ``dZ/dp`` in 1/bar and ``dZ/dT`` in 1/K.
         """
         chebyshev = np.polynomial.chebyshev
         x, y = self._unit(pressure, temperature)
@@ -2464,12 +2198,7 @@ class DensityPath(Displayed):
     def _tabulate(self, species: Gas | Species, temperature: ZProfile) -> None:
         """Tabulate the compressibility over the states a temperature path spans.
 
-        Parameters
-        ----------
-        species : Gas or Species
-            The resolved species.
-        temperature : ZProfile
-            The varying temperature path in K.
+        - ``temperature``: the varying temperature path in K.
         """
         probes = _probe_positions(self)
         pressures = np.maximum(self.pressure(probes), 0.0)
@@ -2494,17 +2223,9 @@ class DensityPath(Displayed):
     def _density_at(self, pressure: float, temperature: float) -> float:
         """Return the equation of state's density at one state.
 
-        Parameters
-        ----------
-        pressure : float
-            Pressure in bar, non-negative.
-        temperature : float
-            Temperature in K, > 0.
-
-        Returns
-        -------
-        float
-            Number density in m^-3.
+        - ``pressure``: pressure in bar, non-negative.
+        - ``temperature``: temperature in K, > 0.
+        - Returns: number density in m^-3.
         """
         species = self.gas
         if isinstance(species, Species):
@@ -2606,15 +2327,8 @@ class DensityPath(Displayed):
     ) -> Float[np.ndarray, " n_p"]:
         """Return the tabulated density at each pressure, at the one temperature.
 
-        Parameters
-        ----------
-        pressure : numpy.ndarray
-            Pressures in bar; a negative one is held at zero.
-
-        Returns
-        -------
-        numpy.ndarray
-            Number density in m^-3, the arithmetic of :meth:`__call__`.
+        - ``pressure``: pressures in bar; a negative one is held at zero.
+        - Returns: number density in m^-3, the arithmetic of :meth:`__call__`.
         """
         assert self._spline is not None
         pressures = np.maximum(np.asarray(pressure, dtype=float), 0.0)
@@ -2693,17 +2407,10 @@ class DensityPath(Displayed):
     def _turning_pressures(self, low: float, high: float) -> Float[np.ndarray, " n"]:
         """Return the pressures in ``(low, high)`` where the tabulated density may turn.
 
-        Parameters
-        ----------
-        low, high : float
-            Pressure range in bar.
-
-        Returns
-        -------
-        numpy.ndarray
-            The real roots of the spline's derivative there, and the table's ends
-            and zero pressure where they fall inside, at which the arithmetic
-            changes branch.
+        - ``low``, ``high``: pressure range in bar.
+        - Returns: the real roots of the spline's derivative there, and the table's ends
+          and zero pressure where they fall inside, at which the arithmetic changes
+          branch.
         """
         spline = self._spline
         assert spline is not None
@@ -2717,17 +2424,10 @@ class DensityPath(Displayed):
     def _slope_bound(self, low: float, high: float) -> float:
         """Return the largest ``abs(d(rho)/dp)`` of the spline on a pressure range.
 
-        Parameters
-        ----------
-        low, high : float
-            Pressure range in bar.
-
-        Returns
-        -------
-        float
-            The maximum over the range of the spline's piecewise quadratic
-            derivative, from its values at the range's ends, the spline knots and
-            the vertices inside, in m^-3 per bar.
+        - ``low``, ``high``: pressure range in bar.
+        - Returns: the maximum over the range of the spline's piecewise quadratic
+          derivative, from its values at the range's ends, the spline knots and the
+          vertices inside, in m^-3 per bar.
         """
         spline = self._spline
         assert spline is not None
@@ -2741,13 +2441,7 @@ class DensityPath(Displayed):
         return float(np.max(np.abs(slope(inside))))
 
     def _warn_outside(self, outside: Bool[np.ndarray, " n_z"]) -> None:
-        """Log that some states lay outside the table built at construction.
-
-        Parameters
-        ----------
-        outside : numpy.ndarray
-            Which positions were evaluated directly.
-        """
+        """Log that some states lay outside the table built at construction."""
         if self._table is None:
             assert self._spline is not None
             extent = f"{self._spline.x[0]:.6g} to {self._spline.x[-1]:.6g} bar"
@@ -2770,17 +2464,9 @@ class DensityPath(Displayed):
     ) -> tuple[Float[np.ndarray, " n_z"], Float[np.ndarray, " n_z"]]:
         """Return the density and its z derivative under a temperature path.
 
-        Parameters
-        ----------
-        positions : numpy.ndarray
-            Positions in m, inside the span.
-        pressures : numpy.ndarray
-            The pressure in bar at each, non-negative.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``rho`` in m^-3 and ``rho_p p' + rho_T T'`` in m^-4.
+        - ``positions``: positions in m, inside the span.
+        - ``pressures``: the pressure in bar at each, non-negative.
+        - Returns: ``rho`` in m^-3 and ``rho_p p' + rho_T T'`` in m^-4.
         """
         table = self._table
         temperature = self.temperature
@@ -2814,15 +2500,8 @@ class DensityPath(Displayed):
     ) -> Bool[np.ndarray, " n_z"]:
         """Return which pressures lie within the range the spline was sampled on.
 
-        Parameters
-        ----------
-        pressures : numpy.ndarray
-            Pressures in bar, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``True`` where the spline interpolates rather than extrapolates.
+        - ``pressures``: pressures in bar, shape ``(n_z,)``.
+        - Returns: ``True`` where the spline interpolates rather than extrapolates.
         """
         assert self._spline is not None
         x = self._spline.x
@@ -2833,15 +2512,7 @@ class DensityPath(Displayed):
     ) -> Float[np.ndarray, " n_z"]:
         """Return the pressures clamped to the spline's sampled range.
 
-        Parameters
-        ----------
-        pressures : numpy.ndarray
-            Pressures in bar, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The same values, held at the range's ends outside it.
+        - ``pressures``: pressures in bar, shape ``(n_z,)``.
         """
         assert self._spline is not None
         x = self._spline.x
@@ -2850,15 +2521,8 @@ class DensityPath(Displayed):
     def _density(self, pressure: float) -> float:
         """Return the equation of state's density at one pressure.
 
-        Parameters
-        ----------
-        pressure : float
-            Pressure in bar, non-negative.
-
-        Returns
-        -------
-        float
-            Number density in m^-3.
+        - ``pressure``: pressure in bar, non-negative.
+        - Returns: number density in m^-3.
         """
         species = self.gas
         assert not isinstance(self.temperature, ZProfile)
@@ -2944,10 +2608,7 @@ class SeriesOfPath(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = (float(v) for v in self.series.domain)
         return "SeriesOfPath: a Chebyshev series of a path", [
@@ -3051,37 +2712,15 @@ class SeriesOfPath(Displayed):
             raise TranslationError("a series' variation needs the window [-1, 1]")
         bound = float(np.sum(np.abs(slope.coef)))
 
-        def critical(low: float, high: float) -> Float[np.ndarray, " n"]:
-            """Return the derivative's real roots strictly inside an interval.
-
-            Parameters
-            ----------
-            low, high : float
-                The interval's ends in the series' variable.
-
-            Returns
-            -------
-            numpy.ndarray
-                The roots inside it.
-            """
+        def _critical(low: float, high: float) -> Float[np.ndarray, " n"]:
+            """Return the derivative's real roots strictly inside an interval."""
             return real[(real > low) & (real < high)]
 
-        def series(values: Float[np.ndarray, " n"]) -> Float[np.ndarray, " n"]:
-            """Evaluate the series as real values.
-
-            Parameters
-            ----------
-            values : numpy.ndarray
-                Points in the series' variable.
-
-            Returns
-            -------
-            numpy.ndarray
-                The series there.
-            """
+        def _series(values: Float[np.ndarray, " n"]) -> Float[np.ndarray, " n"]:
+            """Evaluate the series as real values."""
             return np.asarray(self.series(values), dtype=float)
 
-        return _mapped_variation(record, series, critical, lambda _low, _high: bound)
+        return _mapped_variation(record, _series, _critical, lambda _low, _high: bound)
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return ``f(g(z))`` at each position.
@@ -3119,17 +2758,9 @@ class SeriesOfPath(Displayed):
 def _probe_positions(path: ZProfile) -> Float[np.ndarray, " n_probes"]:
     """Return a path's breakpoints and evenly spaced positions over its span.
 
-    Parameters
-    ----------
-    path : ZProfile
-        Any path.
-
-    Returns
-    -------
-    numpy.ndarray
-        Sorted unique positions in m: the breakpoints, and
-        :data:`_TEMPERATURE_PROBES` positions over a finite span (its start alone
-        for an unbounded one).
+    - Returns: sorted unique positions in m: the breakpoints, and
+      :data:`_TEMPERATURE_PROBES` positions over a finite span (its start alone for an
+      unbounded one).
     """
     start, end = path.z_span
     interior = (
@@ -3148,25 +2779,8 @@ def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
     A path that is constant is returned as the number it holds, so that every
     consumer takes its constant-temperature code, bit for bit.
 
-    Parameters
-    ----------
-    value : object
-        A temperature in K, finite and > 0: a real number, or a ``ZProfile`` finite
-        and positive at its breakpoints and at evenly spaced probes over its span.
-    owner : str, optional
-        What carries the temperature, for the message.
-
-    Returns
-    -------
-    float or ZProfile
-        A Python number as given, a NumPy scalar as a float, a constant path as its
-        value, a varying path itself.
-
-    Raises
-    ------
-    MaterialError
-        If `value` is a boolean, neither a real number nor a ``ZProfile``, or not
-        finite and positive where it is sampled.
+    - ``value``: a temperature in K, finite and > 0: a real number, or a ``ZProfile``
+      finite and positive at its breakpoints and at evenly spaced probes over its span.
     """
     where = f" of {owner}" if owner else ""
     if isinstance(value, ZProfile):
@@ -3205,17 +2819,7 @@ def _checked_temperature(value: object, owner: str = "") -> float | ZProfile:
 def _same_temperature(given: float | ZProfile, own: float | ZProfile) -> bool:
     """Return whether a declared temperature is a mixture's own.
 
-    Parameters
-    ----------
-    given : float or ZProfile
-        A validated temperature in K (a constant path already its number).
-    own : float or ZProfile
-        The mixture's.
-
-    Returns
-    -------
-    bool
-        ``True`` for the same path object, or two equal numbers.
+    - ``given``: a validated temperature in K (a constant path already its number).
     """
     if isinstance(given, ZProfile) or isinstance(own, ZProfile):
         return given is own
@@ -3225,15 +2829,7 @@ def _same_temperature(given: float | ZProfile, own: float | ZProfile) -> bool:
 def _temperature_text(temperature: float | ZProfile) -> str:
     """Return a temperature for printing: ``'293.15 K'`` or the path's own ``repr``.
 
-    Parameters
-    ----------
-    temperature : float or ZProfile
-        A temperature in K, or a path of it along z.
-
-    Returns
-    -------
-    str
-        The text.
+    - ``temperature``: a temperature in K, or a path of it along z.
     """
     if isinstance(temperature, ZProfile):
         return f"{temperature!r} K"
@@ -3245,17 +2841,9 @@ def _temperature_range(
 ) -> tuple[float, float]:
     """Return the lowest and highest temperature a path takes at given positions.
 
-    Parameters
-    ----------
-    temperature : ZProfile
-        The temperature path in K.
-    positions : numpy.ndarray
-        Positions in m, the path's breakpoints among them.
-
-    Returns
-    -------
-    tuple of float
-        ``(lowest, highest)`` in K.
+    - ``temperature``: the temperature path in K.
+    - ``positions``: positions in m, the path's breakpoints among them.
+    - Returns: ``(lowest, highest)`` in K.
     """
     values = np.asarray(temperature(positions), dtype=float)
     return float(np.min(values)), float(np.max(values))
@@ -3638,22 +3226,7 @@ class FromCallable:
     ) -> Float[np.ndarray, " n"]:
         """Validate one declared list of positions.
 
-        Parameters
-        ----------
-        positions : array_like
-            Positions in m.
-        what : str
-            The name used in the error message.
-
-        Returns
-        -------
-        numpy.ndarray
-            The positions as a float array.
-
-        Raises
-        ------
-        TranslationError
-            If they are not strictly increasing inside the span.
+        - ``positions``: positions in m.
         """
         start, end = self.span
         edges = np.asarray(positions, dtype=float)
@@ -3854,16 +3427,8 @@ of the float64 bytes instead, which separates them exactly.
 def _number_identity(value: float) -> str:
     """Return the exact hexadecimal literal of a double.
 
-    Parameters
-    ----------
-    value : float
-        Any float, including an infinity.
-
-    Returns
-    -------
-    str
-        ``float.hex`` of the value: exact, round-trippable and independent of
-        ``numpy.set_printoptions``.
+    ``float.hex`` is exact, round-trips, and is independent of
+    ``numpy.set_printoptions``.
     """
     return float(value).hex()
 
@@ -3871,16 +3436,8 @@ def _number_identity(value: float) -> str:
 def _array_identity(values: Float[np.ndarray, " n_values"]) -> dict[str, object]:
     """Return the exact identity of a float array, by value or by digest.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Finite or infinite float values, shape ``(n_values,)``.
-
-    Returns
-    -------
-    dict
-        ``{'n': size, 'values': [hex, ...]}`` for a short array, otherwise
-        ``{'n': size, 'sha256': digest}`` of the contiguous float64 bytes.
+    - Returns: ``{'n': size, 'values': [hex, ...]}`` for a short array, otherwise
+      ``{'n': size, 'sha256': digest}`` of the contiguous float64 bytes.
     """
     array = np.ascontiguousarray(values, dtype=np.float64)
     if array.size <= _IDENTITY_ARRAY_LIMIT:
