@@ -170,6 +170,8 @@ def _blockwise_fluence(
 
     - ``field``: one internal spatial spectrum.
     - ``dt``: coarse sample spacing, s.
+    - Returns: ``sum over polarisation and frequency of w(omega) |E|^2`` at each node,
+      the quantity :func:`solprop.fourier.energy_omega` sums.
     """
     transform = problem.transform
     n_omega = field.shape[-1]

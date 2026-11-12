@@ -500,6 +500,9 @@ def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
 def _refuse_mixed_precisions(members: tuple[HostDriver[object], ...]) -> None:
     """Refuse members whose problems do not share one precision.
 
+    Each member's trial keeps its own format, and the runner's common step and norms
+    would mix them.
+
     - ``members``: loaded workspaces, at least one.
     """
     first = members[0]._problem.precision

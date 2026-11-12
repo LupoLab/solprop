@@ -1855,6 +1855,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         - ``field_t``: physical node fields in V/m, with time last.
         - ``raman``: damped Raman convolution spectrum, when required by the response.
+        - Returns: the collared local polarisation in C/m² and the ungated current in
+          A/m².
         """
         responses, grids = self._problem.responses, self._problem.grids
         sources = passes.nonlinear_sources(
@@ -1881,6 +1883,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _held_streams(self, gated: np.ndarray, edge: np.ndarray) -> np.ndarray:
         """Transform and combine the current products in polarisation units.
 
+        - ``gated``, ``edge``: fine-time ``gJ`` and ``g'J`` rows, optionally projected
+          before this call.
         - Returns: cropped raw-DFT polarisation-equivalent source, zero on inactive
           bins.
         """
@@ -1892,6 +1896,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _held_current(self, current: np.ndarray) -> np.ndarray:
         """Form and transform the two collared products of a nodal current.
 
+        - ``current``: the ungated nodal current in A/m², fine time last.
         - Returns: cropped raw-DFT polarisation-equivalent source at the nodes.
         """
         return self._held_streams(
@@ -2224,9 +2229,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         what makes the quadrature alarm free: the two rules share every node the coarse
         one has.
 
-        - Returns ``coarse``: the same under the embedded coarse rule, or ``None`` when
-          the quadrature has no embedded pair and the estimate would be identically
-          zero.
+        - Returns: the modal polarisation on the fine time grid, and the same under the
+          embedded coarse rule, or ``None`` when the quadrature has no embedded pair
+          and the estimate would be identically zero.
         """
         responses, grids = self._problem.responses, self._problem.grids
         transform = self._problem.transform
@@ -2751,7 +2756,12 @@ translation layer measured.
 
 
 def _flow_squarings(largest: float, *, backend: str = "numpy_ref") -> int:
-    """Return how many squarings an exponent of this row-sum norm needs, or refuse."""
+    """Return how many squarings an exponent of this row-sum norm needs, or refuse.
+
+    The count brings the norm below :data:`_TAYLOR_SCALE`; past
+    :data:`_MAX_FLOW_SQUARINGS` the step is refused, as the compiled backends refuse it
+    whichever route forms their actions.
+    """
     squarings = 0
     if largest > _TAYLOR_SCALE:
         squarings = math.ceil(math.log2(largest / _TAYLOR_SCALE))
@@ -3016,6 +3026,9 @@ def _apply_flow(
 ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
     """Apply a per-frequency channel action to the canonical state.
 
+    The identity case is the caller's: a problem with no coupled flow, or the zero
+    stage fraction, never reaches here.
+
     - ``state``: the state, or any array of its layout.
     - Returns: the state with its channel axis mixed on the active bins and untouched
       off them, where the block is zero and the action is the identity.
@@ -3197,7 +3210,8 @@ def _harmonic_carrier(
     axis and a backend built it from ``omega0``, ``n_to`` and ``dt_fine`` -- one piece
     of physics inside a backend, against ``docs/dev/architecture.md`` section 3, which
     is why it now arrives as ``grids.carrier_2w0``. The sign is the FFT convention's
-    (``docs/guide/media/nonlinear.md``).
+    (``docs/guide/media/nonlinear.md``). ``validate`` refuses a harmonic term without
+    the carrier, so only a hand-built problem reaches the refusal here.
 
     - Returns: the carrier of shape ``(n_to,)``, or ``None`` when no harmonic term is
       present.

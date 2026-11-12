@@ -1453,7 +1453,11 @@ class _Compensation:
     def add_endpoint(
         self, rate: _State, state: _State, residual: _State | None = None
     ) -> None:
-        """Add the new sample's compensation at the predicted state; no transport."""
+        """Add the new sample's compensation at the predicted state; no transport.
+
+        - ``rate``: ``D(z_n + h)`` from the step's side of the end.
+        - ``residual``: a frozen-residual flow's ``R_s(z_n + h)`` applied to `state`.
+        """
         self.endpoint_rate = rate
         self.endpoint = (rate - self.exponent / self.dz) * state
         if residual is not None:
@@ -2412,6 +2416,7 @@ class HostHistory:
     ) -> list[_State]:
         """Return ``(D(z_j) - B_n) u_j`` of history samples, untransported.
 
+        - ``exponent``: ``x = h B_n``.
         - ``dz``: the step, m.
         """
         assert self._states is not None and self._rates is not None
@@ -2429,8 +2434,11 @@ class HostHistory:
     ) -> "_Compensation":
         """Return the trial's linear compensation of its history samples.
 
+        - ``exponent``: ``x = h B_n``, the step's chord exponent.
         - ``nodes``: the history's normalised positions, newest first.
         - ``dz``: the step, m.
+        - ``block``: a coupled step's frozen block: the samples' residuals against it
+          join their compensation, carried by its forward flow.
         """
         assert self._states is not None and self._rates is not None
         assert self._exponential is not None
@@ -2561,6 +2569,8 @@ def _trial_propagators(  # noqa: PLR0917 - called positionally
 ) -> tuple[Any, Any]:
     """Return a trial's moments and flow, shifted by `shift` when it is given.
 
+    - ``exponent``: the step's increment of Phi, the true linear exponent.
+    - ``width``: the number of moments, one more than the highest order scored.
     - ``block``: the section's frozen block, or None off a coupled section.
     - ``shift``: the carrier shift sigma per member, or None when no frame is active.
     - Returns: the moments at the shifted exponent and the true flow exp(x).

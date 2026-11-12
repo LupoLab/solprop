@@ -609,10 +609,11 @@ def _vector_raman_polarisation(
 ) -> Num[np.ndarray, "n_nodes_chunk 2 n_to"]:
     """Convolve trace, difference and coherence drives with compiled kernels.
 
-    - ``field_t``: cartesian field in V/m, shape ``(n_nodes_chunk, 2, n_to)``.
+    - ``field_t``: Cartesian field in V/m, shape ``(n_nodes_chunk, 2, n_to)``.
+    - ``thg``: keep the real-field harmonic drive; ignored for envelopes.
     - ``density``: outside amplitude density in m^-3, or one for a density-weighted
       mixture.
-    - Returns: cartesian polarisation in C/m^2 with the field's shape.
+    - Returns: Cartesian polarisation in C/m^2 with the field's shape.
     """
     n_to = field_t.shape[-1]
     if spectrum.ndim != 2 or spectrum.shape not in ((1, n_to + 1), (2, n_to + 1)):
@@ -1109,6 +1110,7 @@ def _plasma_channels_current(  # noqa: PLR0917 - called through a reference
     - ``dt``: Fine-grid sample spacing in s.
     - ``integral``: the running-integral rule shared by every channel; ``None`` is the
       trapezoid.
+    - Returns: the total plasma current density in A/m², with the field's shape.
     """
     if len(densities) != len(channels):
         raise BackendError("plasma channels require one density each")

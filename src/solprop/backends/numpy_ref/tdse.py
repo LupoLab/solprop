@@ -220,8 +220,12 @@ def _roundoff_floor(
 ) -> float:
     """Bound operand cancellation through absolute projection and Fourier sums.
 
-    - ``factor``: p or J spectral factor including crop scale, shape ``(n_modes, 1,
+    - ``magnitudes``: the sum of absolute microscopic operands after density and
+      calibration, in C/m² or A/m².
+    - ``factor``: P or J spectral factor including crop scale, shape ``(n_modes, 1,
       n_omega)``.
+    - Returns: the nonnegative absolute rounding floor, in spectral derivative norm
+      units.
     """
     scaled, accumulation = _roundoff_terms(
         magnitudes, projection, factor, problem, bundle
@@ -412,6 +416,8 @@ def _edge_rounding(  # noqa: PLR0917 - called positionally
       |j_1|)``, each of shape ``(n_nodes, 1, n_to)``.
     - ``spectra``: ``X``, the projected raw spectrum of the gated current, and ``E / (i
       omega)``, of the edge array, each ``(n_modes, 1, n_omega)``.
+    - Returns: the bound of the edge transform and the derivative evaluation, and the
+      bound of the division, subtraction and factor.
     """
     grids = problem.grids
     edge_magnitude, derivative_magnitude = magnitudes
@@ -618,6 +624,8 @@ def _edge_diagnostic(  # noqa: PLR0917 - called positionally
       omega)`` of the edge array, before the current factor.
     - ``bounds``: Per-bin rounding bounds, after the factor and collar, of ``c X``, of
       the edge term and of the division and subtraction.
+    - Returns: the JSON-compatible record of SEP 26 section 5; a diagnostic, never a
+      gate.
     """
     descriptor, grids = tdse_descriptor(problem.route), problem.grids
     assert descriptor is not None

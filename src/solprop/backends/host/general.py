@@ -65,6 +65,8 @@ class _Trial:
     ) -> "_Trial":
         """Form the predictor of a step from the history, newest derivative first.
 
+        - ``history``: the accepted derivatives, oldest first, in the anchor's frame.
+        - ``order``: the order asked for; fewer derivatives during startup lower it.
         - ``z``, ``dz``: the anchor and the step, m.
         """
         recent = history[::-1]
@@ -88,11 +90,19 @@ class _Trial:
         )
 
     def lab(self, increment: _State) -> _State:
-        """Return the lab-frame field at the end of the step for an increment."""
+        """Return the lab-frame field at the end of the step for an increment.
+
+        ``U(z + dz, z) (a_n + increment)``, the increment being ``v - a_n`` in the
+        anchor's frame.
+        """
         return self.propagator * (self.state + increment)
 
     def norm(self, defect: _State) -> float:
-        """Return the weak norm of a defect, carried to the end of the step."""
+        """Return the weak norm of a defect, carried to the end of the step.
+
+        The defect is a local estimate in the anchor's frame; a norm of one is the
+        tolerance.
+        """
         return self.scale(self.propagator * defect)
 
 

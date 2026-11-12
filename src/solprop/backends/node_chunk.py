@@ -338,6 +338,9 @@ def _envelope_chunk(
 ) -> int:
     """Admit envelope plasma's current streams and histories into the chunk.
 
+    Modal projected arrays are accounted separately by the backends' ledgers, because
+    they do not scale with the chunk.
+
     - ``budget``: node workspace budget in bytes.
     """
     components = transform.n_pol * n_pol

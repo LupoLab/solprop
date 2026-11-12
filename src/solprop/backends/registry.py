@@ -173,7 +173,10 @@ it is built.
 
 
 def _load(path: str) -> object:
-    """Import the object a registry path names."""
+    """Import the object a registry path names.
+
+    ``path`` is ``"module:attribute"``, the attribute dotted for one inside a class.
+    """
     module, _, attribute = path.partition(":")
     found: object = importlib.import_module(module)
     for part in attribute.split("."):
@@ -434,7 +437,10 @@ def _native_baseline_shortfall() -> ImportError | None:
 
 
 def _baseline_probe(source: Path) -> ModuleType:
-    """Load the native package's processor check from its file, as its own module."""
+    """Load the native package's processor check from its file, as its own module.
+
+    Under a private name, so that it never stands in for the package's own module.
+    """
     spec = importlib.util.spec_from_file_location("_solprop_native_cpu_probe", source)
     if spec is None or spec.loader is None:  # pragma: no cover - a .py file loads
         raise ImportError(f"cannot load the native processor check {source}")

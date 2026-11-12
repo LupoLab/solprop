@@ -624,6 +624,8 @@ class HostAdamsMarch:
         """Try one step of length `dz` and commit it if accepted.
 
         - ``dz``: the step, m.
+        - ``fixed``: whether the step is a prescribed schedule's, accepted whatever its
+          norm.
         - ``landing``: where an accepted step ends, m, and whether that is a hard kink,
           which restarts the history; ``None`` ends it at ``z + dz`` and restarts
           nothing.

@@ -478,7 +478,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         )
 
     def _reserve_source_calls(self, count: int) -> None:
-        """Reserve a complete trial's external source calls when a service is bound."""
+        """Reserve a complete trial's external source calls when a service is bound.
+
+        The base always raises: the driver that runs an Adams march (the reference
+        backend) keeps its own reservations, and a group's members reserve theirs.
+        """
         raise NotImplementedError
 
     def _release_source_calls(self) -> None:
@@ -656,7 +660,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
 
     def _reset_step_stats(self, *, release: bool) -> None:
-        """Discard periodic rows at a load or at the start of a plane."""
+        """Discard periodic rows at a load or at the start of a plane.
+
+        - ``release``: true for a new load, which releases the old storage; false for
+          a new plane, which retains capacity. The accepted-step period is the
+          march's and is unaffected.
+        """
         if release:
             self._rows.clear()
         else:
@@ -670,11 +679,17 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         the host, using the same evaluator as :meth:`stats`.
 
         - ``z``: position of the committed state, m.
+        - ``step``: the attempt's index in the history since the previous observation,
+          rejected attempts included; supplied by the march, not inferred from rows.
         """
         self._rows.append(z, step, self.stats(spec))
 
     def _drain_step_stats(self) -> StepStats:
-        """Return owning host rows at observation and retain reusable capacity."""
+        """Return owning host rows at observation and retain reusable capacity.
+
+        A device override copies the packed values once here. Repeated drains return
+        no rows until more are recorded.
+        """
         return self._rows.drain()
 
     @property
@@ -1929,7 +1944,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             )
 
     def _read_transverse(self, monitor: BoundaryMonitor, *, plane: bool) -> None:
-        """Read the transverse edge where its spacing or a saved plane asks (SEP 40)."""
+        """Read the transverse edge where its spacing or a saved plane asks (SEP 40).
+
+        - ``plane``: whether a saved plane has just been reached, which is always read.
+        """
         edge = monitor.transverse
         if edge is None:
             return
@@ -2114,7 +2132,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _check_boundaries(
         self, monitor: BoundaryMonitor, *, plane: bool = False
     ) -> None:
-        """Account the committed step at the current position with the monitor."""
+        """Account the committed step at the current position with the monitor.
+
+        - ``plane``: true for a saved plane's check of a step the monitor already
+          skipped.
+        """
         self._check_at(
             monitor,
             self._boundary_energies(self._require_state()),
@@ -2316,6 +2338,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         - ``z``: position at the end of the step, m.
         - ``dz``: length of the step, m.
+        - ``norm``: the scaled error norm as executed: a landing step clipped short
+          records its own, not the proposal's equivalent. A diverged attempt's
+          (overflowed or NaN) is recorded as infinity, which the controller never
+          accepts.
         """
         if not math.isfinite(norm):
             norm = math.inf
@@ -2546,7 +2572,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _schedule_index_at(self, z: float) -> int:
         """Return how many steps of a replayed schedule a position has consumed.
 
-        - ``z``: the position the state is loaded at, m.
+        - ``z``: the position the state is loaded at, m. On a replay it must be an edge;
+          every save plane is one (``validate`` checks it), so the refusal fires only
+          for a position the run never stopped at, from which a replay could not
+          continue in step.
         """
         schedule = self._stepper.schedule
         if schedule is None:
