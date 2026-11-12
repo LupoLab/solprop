@@ -89,9 +89,8 @@ from solprop.translate.chebyshev import (
 )
 from solprop.translate.coupled import (
     CoupledFlowTables,
+    coupled_flow_factors,
     flow_edge_slack,
-    frozen_generator,
-    schur_blocks,
     schur_eigenbasis,
 )
 from solprop.translate.general import (
@@ -3006,9 +3005,10 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
 class _HostFlow:
     """A coupled flow's Schur factors per section on its active bins, host-side.
 
-    Formed as solprop's reference backend forms its own (``_coupled_flow_maps``): the
-    frozen block of each section read out of the leaf, decomposed per active bin, the
-    declared conditioning row, and a frozen-residual flow's terms; with each
+    solprop's shared factors (``solprop.translate.coupled.coupled_flow_factors``), which
+    the reference executes too: the frozen block of each section read out of the leaf,
+    decomposed per active bin, the declared conditioning row, and a frozen-residual
+    flow's terms; with each
     section's eigenbasis of its triangular factor (solprop's
     ``schur_eigenbasis``), whose route marks the bins formed from it, and the largest
     row-sum norm of the factor, which the squaring refusal reads. The eigenbasis
@@ -3058,47 +3058,28 @@ def _decomposed_flow(problem: PropagationProblem) -> _HostFlow | None:
     flow: CoupledFlowTables | None = problem.linear.coupled_flow
     if flow is None:
         return None
-    generator = flow.generator
-    assert generator is not None
-    sections = len(flow.section_methods)
-    active = np.asarray(np.any(generator != 0.0, axis=(0, 1, 2, 3)), dtype=np.bool_)
-    frozen = np.stack(
-        [
-            np.moveaxis(frozen_generator(flow, index)[:, :, active], -1, 0)
-            for index in range(sections)
-        ]
-    )
-    factors = [schur_blocks(np.moveaxis(block, 0, -1)) for block in frozen]
-    bases = [schur_eigenbasis(*pair) for pair in factors]
-    residual: ComplexArray | None = None
-    if flow.section_methods != ("constant_schur",):
-        terms = generator[:, :, :, :, active]
-        if flow.connection is not None:
-            terms = terms - flow.connection[:, :, :, :, active]
-        residual = np.ascontiguousarray(
-            np.moveaxis(terms, (2, 3), (-2, -1)).reshape(
-                sections * flow.n_deg, -1, flow.n_modes, flow.n_modes
-            ),
-            dtype=np.complex128,
-        )
+    factors = coupled_flow_factors(flow)
+    active = factors.active
+    bases = [
+        schur_eigenbasis(vectors, triangular)
+        for vectors, triangular in zip(factors.vectors, factors.triangular, strict=True)
+    ]
     return _HostFlow(
         active=active,
         scored=np.ascontiguousarray(problem.grids.inband_mask[active], dtype=np.bool_),
-        vectors=np.stack([pair[0] for pair in factors]),
-        triangular=np.stack([pair[1] for pair in factors]),
-        frozen=np.ascontiguousarray(frozen, dtype=np.complex128),
-        condition_bound=np.ascontiguousarray(
-            flow.inverse_condition_bound[:, active], dtype=np.float64
-        ),
-        residual_terms=residual,
+        vectors=factors.vectors,
+        triangular=factors.triangular,
+        frozen=factors.frozen,
+        condition_bound=factors.condition_bound,
+        residual_terms=factors.residual_terms,
         left=np.ascontiguousarray(np.stack([basis[0] for basis in bases])),
         right=np.ascontiguousarray(np.stack([basis[1] for basis in bases])),
         eigenvalues=np.ascontiguousarray(np.stack([basis[2] for basis in bases])),
         route=np.stack([basis[3] for basis in bases]),
         row_sum=np.asarray(
             [
-                float(np.max(np.sum(abs(pair[1]), axis=-1), initial=0.0))
-                for pair in factors
+                float(np.max(np.sum(abs(triangular), axis=-1), initial=0.0))
+                for triangular in factors.triangular
             ],
             dtype=np.float64,
         ),

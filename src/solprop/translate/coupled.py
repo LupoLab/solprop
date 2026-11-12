@@ -53,12 +53,14 @@ from solprop.translate.chebyshev import (
 __all__ = [
     "MAX_SECTION_DEGREE",
     "SECTION_TOL",
+    "CoupledFlowFactors",
     "CoupledFlowTables",
     "MetricKind",
     "ModalMetricTables",
     "SectionMethod",
     "advisory_step",
     "constant_schur_flow",
+    "coupled_flow_factors",
     "dense_metric",
     "eigenbasis_limit",
     "flow_edge_slack",
@@ -1694,6 +1696,105 @@ def frozen_generator(
     block = flow.generator[index]
     weights = chebyshev_basis.chebvander(0.0, block.shape[0] - 1)[0]
     return np.tensordot(weights, block, axes=1)
+
+
+@dataclass(frozen=True, eq=False)
+class CoupledFlowFactors:
+    """A coupled flow's frozen blocks and Schur factors on its active bins.
+
+    What both backends execute a flow from, derived once from the leaf
+    (:func:`coupled_flow_factors`); a decomposition is not a contract row, so it is
+    formed from the stored generator rather than carried across the seam.
+
+    Attributes
+    ----------
+    active : numpy.ndarray
+        Bool, ``(n_omega,)``: the bins the generator is non-zero at; the rest of the
+        band has an identity action.
+    vectors, triangular : numpy.ndarray
+        Complex128, ``(n_intervals, n_active, n_modes, n_modes)``: each section's Schur
+        factors ``Z`` and ``T`` per active bin (:func:`schur_blocks`).
+    frozen : numpy.ndarray
+        Complex128, same shape: each section's frozen block (:func:`frozen_generator`),
+        in 1/m.
+    condition_bound : numpy.ndarray
+        Float64, ``(n_intervals, n_active)``: the declared conditioning row.
+    residual_terms : numpy.ndarray or None
+        Complex128, ``(n_intervals * n_deg, n_active, n_modes, n_modes)``: a
+        frozen-residual flow's generator less its connection, flattened over
+        ``(n_intervals, n_deg)``; ``None`` for a constant-Schur flow.
+    """
+
+    active: Bool[np.ndarray, " n_omega"]
+    vectors: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    triangular: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    frozen: Complex[np.ndarray, "n_intervals n_active n_modes n_modes"]
+    condition_bound: Float[np.ndarray, "n_intervals n_active"]
+    residual_terms: Complex[np.ndarray, "n_terms n_active n_modes n_modes"] | None
+
+
+def coupled_flow_factors(flow: CoupledFlowTables) -> CoupledFlowFactors:
+    """Freeze and decompose each section of a dense coupled flow on its active bins.
+
+    Parameters
+    ----------
+    flow : CoupledFlowTables
+        A leaf of the dense representation, as the problem's validation admits it.
+
+    Returns
+    -------
+    CoupledFlowFactors
+        The frozen blocks, their Schur factors, the conditioning row and the residual.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.coupled import constant_schur_flow, coupled_flow_factors
+    >>> block = np.zeros((2, 2, 3), dtype=complex)
+    >>> block[0, 1] = block[1, 0] = 1j
+    >>> flow = constant_schur_flow(
+    ...     np.linspace(1e15, 2e15, 3), np.array([0.0, 1e-3]), block,
+    ...     dz_max=1e-4, condition_limit=10.0, gauge_id="lab",
+    ...     certificate_id="schur",
+    ... )
+    >>> coupled_flow_factors(flow).frozen.shape
+    (1, 3, 2, 2)
+    """
+    generator = flow.generator
+    assert generator is not None
+    sections = len(flow.section_methods)
+    active = np.asarray(np.any(generator != 0.0, axis=(0, 1, 2, 3)), dtype=np.bool_)
+    frozen = np.ascontiguousarray(
+        np.stack(
+            [
+                np.moveaxis(frozen_generator(flow, index)[:, :, active], -1, 0)
+                for index in range(sections)
+            ]
+        ),
+        dtype=np.complex128,
+    )
+    factors = [schur_blocks(np.moveaxis(block, 0, -1)) for block in frozen]
+    residual = None
+    if flow.section_methods != ("constant_schur",):
+        terms = generator[:, :, :, :, active]
+        if flow.connection is not None:
+            terms = terms - flow.connection[:, :, :, :, active]
+        residual = np.ascontiguousarray(
+            np.moveaxis(terms, (2, 3), (-2, -1)).reshape(
+                sections * flow.n_deg, -1, flow.n_modes, flow.n_modes
+            ),
+            dtype=np.complex128,
+        )
+    return CoupledFlowFactors(
+        active=active,
+        vectors=np.stack([pair[0] for pair in factors]),
+        triangular=np.stack([pair[1] for pair in factors]),
+        frozen=frozen,
+        condition_bound=np.ascontiguousarray(
+            flow.inverse_condition_bound[:, active], dtype=np.float64
+        ),
+        residual_terms=residual,
+    )
 
 
 def flow_weights(

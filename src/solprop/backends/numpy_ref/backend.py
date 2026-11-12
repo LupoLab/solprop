@@ -94,9 +94,8 @@ from solprop.stats import (
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import (
-    frozen_generator,
+    coupled_flow_factors,
     metric_at,
-    schur_blocks,
 )
 from solprop.translate.general import (
     node_delayed_maps,
@@ -2951,32 +2950,16 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     if flow is None:
         return None
     assert flow.generator is not None
+    factors = coupled_flow_factors(flow)
+    active, residual = factors.active, factors.residual_terms
     sections = len(flow.section_methods)
-    active = np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))
-    frozen = np.stack(
-        [
-            np.moveaxis(frozen_generator(flow, index)[:, :, active], -1, 0)
-            for index in range(sections)
-        ]
-    )
-    factors = [schur_blocks(np.moveaxis(block, 0, -1)) for block in frozen]
-    residual = None
-    if flow.section_methods != ("constant_schur",):
-        terms = flow.generator[:, :, :, :, active]
-        if flow.connection is not None:
-            terms = terms - flow.connection[:, :, :, :, active]
-        residual = np.ascontiguousarray(
-            np.moveaxis(terms, (2, 3), (-2, -1)).reshape(
-                sections * flow.n_deg, -1, flow.n_modes, flow.n_modes
-            )
-        )
     held = _CoupledFlow(
         active=active,
         residual_bins=active & problem.grids.inband_mask,
-        vectors=np.stack([pair[0] for pair in factors]),
-        triangular=np.stack([pair[1] for pair in factors]),
-        frozen=frozen,
-        condition_bound=np.ascontiguousarray(flow.inverse_condition_bound[:, active]),
+        vectors=factors.vectors,
+        triangular=factors.triangular,
+        frozen=factors.frozen,
+        condition_bound=factors.condition_bound,
         residual_terms=residual,
         n_modes=flow.n_modes,
     )
