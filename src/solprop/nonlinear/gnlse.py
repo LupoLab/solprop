@@ -1175,7 +1175,7 @@ class SpecifiedMode:
 
     @property
     def area_path(self) -> ZProfile:  # numpydoc ignore=RT01
-        """Declared effective-area path in m^2, m^2.
+        """Declared effective-area path, m^2.
 
         The path, a :class:`~solprop.profiles.Constant` when the area is a
         number. It is the path the transform's kink walk and
