@@ -121,7 +121,7 @@ def process_stamp(pid: int) -> str | None:
         # identity to compare.
         try:
             stat = proc.read_text(encoding="utf-8")
-        except OSError:
+        except (FileNotFoundError, ProcessLookupError):
             return None
         return stat.rsplit(")", 1)[1].split()[19]
     result = subprocess.run(
