@@ -15,7 +15,7 @@ from solprop.adiabatic import AdiabaticAccuracy
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy

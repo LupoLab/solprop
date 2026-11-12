@@ -20,7 +20,8 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
-from solprop.output.schema import StepLimits, StepperRecord, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import StepLimits, StepperRecord
 from solprop.stepper import DOPRI5, Multistep, PIController
 from solprop.stepper.controller import START_GROWTH
 from solprop.translate.chebyshev import build_from_paths

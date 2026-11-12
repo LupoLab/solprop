@@ -14,8 +14,8 @@ cannot disagree. The guide's table of the defaults is
 ``docs/guide/numerics/choosing-a-stepper.md``.
 
 A default is resolved once, when the settings are built, and the choice is recorded
-(:class:`solprop.output.schema.NoiseResolution` for the noise,
-:class:`solprop.output.schema.DefaultsResolution` for the rest), so a run that took a
+(:class:`solprop.output.records.NoiseResolution` for the noise,
+:class:`solprop.output.records.DefaultsResolution` for the rest), so a run that took a
 default says so in its summary and its record.
 
 Layer D of ``docs/dev/architecture.md`` section 3, beside the constructors that read it.
@@ -28,7 +28,7 @@ from types import MappingProxyType
 from typing import Literal, cast
 
 from solprop.exceptions import DriverError, SolpropWarning
-from solprop.output.schema import NoiseResolution
+from solprop.output.records import NoiseResolution
 from solprop.stepper.controller import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta

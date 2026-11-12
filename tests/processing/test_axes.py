@@ -13,7 +13,8 @@ from solprop._validation import choice
 from solprop.exceptions import GridError, ModeError, OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.output import MemoryOutput
-from solprop.output.schema import Convention, FieldRetention, GridRecord
+from solprop.output.records import Convention, GridRecord
+from solprop.output.store import FieldRetention
 from solprop.processing import axes
 from solprop.processing._examples import example_grid, example_output, gvd_phase
 

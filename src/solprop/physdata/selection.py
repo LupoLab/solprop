@@ -26,12 +26,12 @@ This module imports nothing from optmat, so building a selection costs nothing; 
 raise.
 """
 
-import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Final, Protocol, cast, runtime_checkable
 
+from solprop._identity import canonical_json
 from solprop.exceptions import MaterialError
 
 __all__ = [
@@ -533,14 +533,6 @@ class DiluteScalingCheck:
         }
 
 
-def _canonical(value: object) -> str:
-    """Return plain values as canonical JSON, for ordering and deduplication.
-
-    - ``value``: plain values: mappings, sequences, strings, numbers, None.
-    """
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-
-
 def _plain(value: object) -> object:
     """Return a value with tuples as lists and mappings as dicts, recursively."""
     if isinstance(value, Mapping):
@@ -553,7 +545,7 @@ def _plain(value: object) -> object:
 def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
     """Return entries as plain dicts, each once, sorted by their canonical JSON."""
     distinct = {
-        _canonical(_plain(entry)): cast("dict[str, object]", _plain(entry))
+        canonical_json(_plain(entry)): cast("dict[str, object]", _plain(entry))
         for entry in values
     }
     return tuple(distinct[key] for key in sorted(distinct))
@@ -655,7 +647,7 @@ class MaterialManifest:
 
     Built once per run from its mixtures, modes and solids
     (:func:`solprop.driver.material_output.material_manifest`) and stored in its
-    :class:`~solprop.output.schema.RunMetadata`. A run with no optmat-backed object
+    :class:`~solprop.output.metadata.RunMetadata`. A run with no optmat-backed object
     and no selection has the empty manifest, ``MaterialManifest()``.
 
     Two parts are distinguished. The **identities and policies** -- the optmat

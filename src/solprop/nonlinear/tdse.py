@@ -12,14 +12,13 @@ window (:class:`TDSEAtomicWindow`) and the weak-field consistency policy
 (:class:`TDSEConsistency`).
 """
 
-import hashlib
-import json
 import math
 import re
 from collections.abc import Sequence
 from dataclasses import KW_ONLY, asdict, dataclass, field
 from typing import Literal
 
+from solprop._identity import canonical_digest
 from solprop._validation import positive
 from solprop.constants import AU_TIME
 from solprop.exceptions import MaterialError
@@ -208,10 +207,7 @@ class TDSEBasis:
 
         Hexadecimal digest of canonical JSON, including the source record.
         """
-        encoded = json.dumps(
-            asdict(self), sort_keys=True, separators=(",", ":"), allow_nan=False
-        )
-        return hashlib.sha256(encoded.encode()).hexdigest()
+        return canonical_digest(asdict(self), finite=True)
 
 
 def _radial_axis(edges: Sequence[float], orders: Sequence[int]) -> None:
@@ -411,13 +407,7 @@ class HaccBasis:
 
         Hexadecimal digest of canonical JSON with ``kind="hacc_helium"``.
         """
-        encoded = json.dumps(
-            {"kind": "hacc_helium", **asdict(self)},
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        return hashlib.sha256(encoded.encode()).hexdigest()
+        return canonical_digest({"kind": "hacc_helium", **asdict(self)}, finite=True)
 
     @property
     def label(self) -> str:  # numpydoc ignore=RT01

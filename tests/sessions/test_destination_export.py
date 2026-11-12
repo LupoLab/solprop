@@ -41,7 +41,8 @@ from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import Output, SavedPlane, StoredField, stored_spectrum
+from solprop.output.records import SavedPlane, StoredField
+from solprop.output.store import Output, stored_spectrum
 from solprop.stats import StatsSpec
 from solprop.translate.linop import power_weight_at
 

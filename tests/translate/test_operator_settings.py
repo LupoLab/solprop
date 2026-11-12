@@ -27,7 +27,7 @@ from solprop.exceptions import (
 from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.spatial import (

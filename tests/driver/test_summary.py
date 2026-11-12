@@ -47,7 +47,8 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import RUN_SUMMARY_ANNOTATION, GitProvenance
+from solprop.output.metadata import RUN_SUMMARY_ANNOTATION
+from solprop.output.provenance import GitProvenance
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse

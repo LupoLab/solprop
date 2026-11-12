@@ -40,7 +40,8 @@ from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import open_file, resume
-from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import MarchSnapshot, SavedPlane
 from solprop.stepper import Multistep, RungeKutta
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which

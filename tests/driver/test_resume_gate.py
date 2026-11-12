@@ -26,7 +26,7 @@ from solprop.driver.simulation import _check_resume_choice
 from solprop.exceptions import OutputError
 from solprop.log import NullReporter
 from solprop.output import check_cache, open_file, resumability
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.recipe import Recipe, resume_file
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")

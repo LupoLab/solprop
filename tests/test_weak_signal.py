@@ -43,7 +43,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, LineGrid
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.physdata.glasses import fused_silica
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium

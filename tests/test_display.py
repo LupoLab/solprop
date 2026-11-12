@@ -54,7 +54,7 @@ from solprop.modes.protocol import ChannelLabel
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase
 from solprop.output.hdf5 import open_file, resume
-from solprop.output.schema import StepHistory
+from solprop.output.records import StepHistory
 from solprop.physdata import Mixture, calcium_fluoride, species
 from solprop.physdata.mixtures import Component
 from solprop.processing import compression
@@ -644,7 +644,7 @@ def without_optmat_release(value: object, *, materials: bool = False) -> object:
     return value
 
 
-RUN_RECORD_SKELETON = "5593ac1b5b5119b54c39de2d2f60da0a5b6f04610f61fce8eedd0a9d9c6a6fc4"
+RUN_RECORD_SKELETON = "f21c76f5c17db893aa436cc88749c124d41e7052ceb28cdd8c01a20e4e442121"
 """The structure of the example run's record, as the projection below takes it."""
 
 

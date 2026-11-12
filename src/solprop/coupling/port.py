@@ -18,8 +18,6 @@ coefficients and the reference origin the launched run inherits, and
 whatever the array shapes. :func:`solprop.coupling.coupler.couple` computes one.
 """
 
-import hashlib
-import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -30,6 +28,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop._identity import canonical_digest
 from solprop.coupling.models import ScalarModeBasis
 from solprop.coupling.plane import (
     PlaneBasis,
@@ -226,8 +225,7 @@ class InputPort:
             "z": self.geometry.z,
             "side": self.geometry.side,
         }
-        text = json.dumps(record, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return canonical_digest(record)
 
     def accepts(self, other: "InputPort") -> str | None:
         """Return why a launch bound to `other` cannot enter this port, or None.

@@ -248,7 +248,7 @@ class GeneralModalRoute(Displayed):
         :func:`solprop.translate.problem.assemble` takes the leaves apart and the
         guide never reaches a
         :class:`~solprop.translate.problem.PropagationProblem` -- and the run record
-        persists it inside :attr:`solprop.output.schema.RunMetadata.modal`.
+        persists it inside :attr:`solprop.output.metadata.RunMetadata.modal`.
         ``None`` for a record built by hand, which :func:`modal_identity` then
         refuses by name rather than writing a file that cannot say what produced it.
     coupled_generator : numpy.ndarray or None
@@ -1598,7 +1598,7 @@ def modal_identity(
     (:data:`solprop.stats.GENERAL_MODAL_ACCESSORS`, which
     :mod:`solprop.output.capability` gates with).
 
-    It goes into :attr:`solprop.output.schema.RunMetadata.modal`, which is inside
+    It goes into :attr:`solprop.output.metadata.RunMetadata.modal`, which is inside
     the resume key, so a run continued against a changed guide, table,
     material or channel order is refused by the field that changed.
 

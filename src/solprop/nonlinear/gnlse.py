@@ -571,8 +571,8 @@ class TaylorDispersion:
 
     The instance is callable and stands where a closure would. That is what makes a mode
     built from it **reproducible in a run's metadata**:
-    :func:`solprop.output.schema.serialise` records a closure as its ``repr``, which
-    carries the function's memory address, so a configuration holding one hashes
+    :func:`solprop.output.serialisation.serialise` records a closure as its ``repr``,
+    which carries the function's memory address, so a configuration holding one hashes
     differently in every process and the run could never be resumed from its own file.
     A frozen dataclass records its fields instead.
 

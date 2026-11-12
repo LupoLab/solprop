@@ -16,7 +16,7 @@ from bounds import gamma
 from sessions.runs import launch_statistics
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence
 from solprop.stats import StatsSpec, collect, default_spec

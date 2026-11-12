@@ -46,7 +46,8 @@ from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.responses import KerrResponse
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import DefaultsResolution, NoiseResolution, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import DefaultsResolution, NoiseResolution
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium

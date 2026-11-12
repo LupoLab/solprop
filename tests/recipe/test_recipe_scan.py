@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from solprop.driver.scan import Scan, run_scan
-from solprop.output.schema import RecipeRecord
+from solprop.output.records import RecipeRecord
 from solprop.recipe import Recipe, RecipeError
 from solprop.recipe.document import parse_text
 

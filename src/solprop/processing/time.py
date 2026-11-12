@@ -43,7 +43,7 @@ from solprop import stats
 from solprop._validation import choice
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     ModeSelection,
@@ -220,7 +220,7 @@ def energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; with neither ``plane`` nor
@@ -298,7 +298,7 @@ def peak_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -377,7 +377,7 @@ def fwhm_t(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -432,7 +432,7 @@ def fwhm_f(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -482,7 +482,7 @@ def time_bandwidth(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -538,7 +538,7 @@ def arrival_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -598,7 +598,7 @@ def field_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -655,7 +655,7 @@ def intensity_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -710,7 +710,7 @@ def coherence_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.

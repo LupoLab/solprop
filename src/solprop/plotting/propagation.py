@@ -5,7 +5,7 @@
 """The standard figures of a propagation: the maps, the slices and the energy.
 
 Drawn with matplotlib from whatever :mod:`solprop.processing` returns. Every function
-takes an :class:`~solprop.output.schema.Output`, returns figures and never calls
+takes an :class:`~solprop.output.store.Output`, returns figures and never calls
 :func:`~matplotlib.pyplot.show`; the slice plots accept an ``ax`` to draw into, so a
 figure of several panels is assembled by the caller rather than by a keyword here.
 
@@ -31,7 +31,7 @@ from matplotlib.figure import Figure
 from solprop._validation import choice
 from solprop.exceptions import ProcessingError
 from solprop.optics import TransferFunction
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.plotting.style import (
     ENERGY_TO_UJ,
     T_TO_FS,
@@ -121,7 +121,7 @@ def prop_2d(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'f', 'wavelength', 'omega'}
         Spectral abscissa of the left panel; frequency, in Hz, by default, where the
@@ -245,7 +245,7 @@ def time_1d(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     z : float, sequence of float or None
         Positions to draw, m; the end of the run by default.
@@ -362,7 +362,7 @@ def spec_1d(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     z : float, sequence of float or None
         Positions to draw, m; the end of the run by default.
@@ -470,7 +470,7 @@ def plot_energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.

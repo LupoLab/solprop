@@ -7,7 +7,7 @@
 The standard figures, drawn from whatever :mod:`solprop.processing` reads out of a saved
 run: the false-colour propagation maps, the time- and spectral-domain slices, the energy
 along the fibre, the statistics panels and the spectrogram. Every function takes an
-:class:`~solprop.output.schema.Output`, returns figures and never calls
+:class:`~solprop.output.store.Output`, returns figures and never calls
 :func:`~matplotlib.pyplot.show`, so a script decides for itself whether to save or to
 display. The manual page is ``docs/guide/results/plotting.md``. The cross-section of a
 guide or a free-space grid, drawn from the guide rather than from a run, is in

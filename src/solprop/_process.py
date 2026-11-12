@@ -12,6 +12,11 @@ thread pool sized from that answer runs on one core (measured: an 18-core alloca
 gave a pool sized this way one thread). The affinity is therefore read once, when
 ``solprop`` is imported, before any of its runtimes start, and the later answer is
 believed only when it is not that collapse.
+
+It also says when a process started (:func:`process_stamp`), which tells a process
+from a later one given its number: the scan queue's owners and the front end's runs
+both need it, and this module, which imports nothing from the rest of the package,
+sits below both.
 """
 
 import contextlib
@@ -19,6 +24,7 @@ import functools
 import itertools
 import os
 import platform
+import shlex
 import sys
 import threading
 import warnings
@@ -48,6 +54,16 @@ it is safe where a load-time width is not (:data:`LOAD_TIME_BLAS_VARIABLES`). At
 fast as at the default, and 11 % slower at ``2**4``. Only a process started fresh
 can take it: OpenBLAS reads it once, when it loads."""
 
+THREAD_VARIABLES = (
+    "SOLPROP_THREADS",
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+)
+"""The variables that size a process's thread pools: solprop's budget, then the OpenMP
+and BLAS widths a scan's worker processes are started with."""
+
 _BLAS_LOCK = threading.RLock()
 _BLAS_USERS: set[object] = set()
 _BLAS_LIMITS = contextlib.ExitStack()
@@ -62,6 +78,36 @@ def child_environment(base: Mapping[str, str]) -> dict[str, str]:
     - ``base``: the environment the process would otherwise take.
     """
     return {**BLAS_IDLE_DEFAULTS, **base}
+
+
+def batch_script(
+    directives: Mapping[str, str | None],
+    body: Sequence[str],
+    *,
+    site: Sequence[str] = (),
+) -> str:
+    """Return a Slurm batch script whose Python is a process solprop starts.
+
+    The ``#SBATCH`` directives come first, each value quoted for the shell and one
+    without a value left out, then the `site`'s own lines (further directives, module
+    loads), then :data:`BLAS_IDLE_DEFAULTS` where the job's environment sets none of
+    them (solprop issue #383), then `body`.
+    """
+    lines = [
+        "#!/usr/bin/env bash",
+        *(
+            f"#SBATCH --{key}={shlex.quote(value)}"
+            for key, value in directives.items()
+            if value
+        ),
+        *site,
+        *(
+            f"export {name}=${{{name}:-{value}}}"
+            for name, value in BLAS_IDLE_DEFAULTS.items()
+        ),
+        *body,
+    ]
+    return "\n".join(lines) + "\n"
 
 
 _ENVIRONMENT_LOCK = threading.Lock()
@@ -659,3 +705,77 @@ def oversubscribing() -> bool:
         msg = f"SOLPROP_OVERSUBSCRIBE must be 0 or 1, and is {value!r}"
         raise ValueError(msg)
     return value == "1"
+
+
+def process_stamp(pid: int) -> str | None:
+    """Return when a process started, as its operating system states it.
+
+    A process number is reused once its process has gone; the start time tells a
+    run's own process from a later one with its number.
+
+    - Returns: its start, in the system's own terms; ``None`` where the system does not
+      say or the process does not exist.
+    """
+    if sys.platform == "linux":
+        return _proc_stamp(pid)
+    if sys.platform == "win32":  # pragma: no cover - Windows only
+        return _windows_stamp(pid)
+    return _ps_stamp(pid)  # pragma: no cover - macOS and other POSIX: not the lanes
+
+
+def _proc_stamp(pid: int) -> str | None:
+    """Return a process's start as Linux's ``/proc`` gives it, in clock ticks.
+
+    - Returns: field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not
+      exist, including when it exits while the file is read.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError, ProcessLookupError:
+        return None
+    # The command name, field 2, is in parentheses and may itself hold them, so the
+    # fields are counted from the last closing one.
+    return stat.rsplit(")", 1)[1].split()[19]
+
+
+def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
+    """Return a process's start as ``ps`` gives it, off Linux.
+
+    - Returns: its start; ``None`` when it does not exist.
+    """
+    import subprocess  # noqa: PLC0415 - only off Linux
+
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() or None
+
+
+def _windows_stamp(pid: int) -> str | None:  # pragma: no cover - Windows only
+    """Return a Windows process's creation time, or ``None`` when it has gone.
+
+    - Returns: its creation time in 100 ns units, as text.
+    """
+    import ctypes  # noqa: PLC0415 - Windows only
+    from ctypes import wintypes  # noqa: PLC0415 - Windows only
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        code = wintypes.DWORD()
+        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return None
+        if code.value != 259:  # STILL_ACTIVE
+            return None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        created = times[0]
+        return str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        kernel.CloseHandle(handle)

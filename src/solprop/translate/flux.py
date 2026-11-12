@@ -370,7 +370,7 @@ def _stored(value: object, dtype: type) -> np.ndarray:
 
     A record written to JSON or HDF5 and read back nests each array as the
     ``{"__ndarray__": ..., "__imaginary__": ...}`` form of
-    :func:`solprop.output.schema.serialise`, which a nested spatial record keeps.
+    :func:`solprop.output.serialisation.serialise`, which a nested spatial record keeps.
     """
     if isinstance(value, Mapping) and "__ndarray__" in value:
         real = np.asarray(value["__ndarray__"], dtype=float)

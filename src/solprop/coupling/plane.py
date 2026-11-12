@@ -41,8 +41,6 @@ simulation is described by :class:`solprop.coupling.port.InputPort`.
 """
 
 import dataclasses
-import hashlib
-import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -52,6 +50,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop._identity import canonical_digest
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
@@ -127,15 +126,6 @@ def _frozen(
     return array
 
 
-def _canonical(record: object) -> str:
-    """Return the canonical JSON text an identity is a digest of.
-
-    A material's open interval bound is infinite, and JSON's ``Infinity`` spells it
-    deterministically.
-    """
-    return json.dumps(record, sort_keys=True, separators=(",", ":"))
-
-
 def basis_identity(route: PlaneKind, record: Mapping[str, object]) -> str:
     """Return the identity of a plane's basis: a digest of its route and record.
 
@@ -164,8 +154,7 @@ def basis_identity(route: PlaneKind, record: Mapping[str, object]) -> str:
     >>> basis_identity("radial", record) == basis_identity("radial", dict(record))
     True
     """
-    text = _canonical({"route": route, "record": dict(record)})
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return canonical_digest({"route": route, "record": dict(record)})
 
 
 _QUANTUM_DIGITS = 12
@@ -301,7 +290,7 @@ def lattice_identity(grid: TimeGrid) -> str:
         "dt_fine": float(grid.dt_fine),
         "reference_wavelength": float(grid.reference_wavelength),
     }
-    return hashlib.sha256(_canonical(record).encode("utf-8")).hexdigest()
+    return canonical_digest(record)
 
 
 @dataclass(frozen=True)

@@ -28,13 +28,9 @@ from solprop.log import NullReporter
 from solprop.noise import modified_noise
 from solprop.output import MemoryOutput
 from solprop.output.hdf5 import resume
-from solprop.output.schema import (
-    INTERPOLATED_RESUMES_ANNOTATION,
-    PlaneStore,
-    StepLimits,
-    StepperRecord,
-    _example_metadata,
-)
+from solprop.output.metadata import INTERPOLATED_RESUMES_ANNOTATION, _example_metadata
+from solprop.output.records import StepLimits, StepperRecord
+from solprop.output.store import PlaneStore
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper import DOPRI5, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep

@@ -5,7 +5,7 @@
 """The native session's method history, call ledger and failures outside a march.
 
 SEP 47 sections 5.4 and 5.5: the native session owns the Adams march's state, so it
-exports the method history (:class:`~solprop.output.schema.MarchSnapshot`) at every
+exports the method history (:class:`~solprop.output.records.MarchSnapshot`) at every
 accepted endpoint a ticket names, installs a resumed run's history and call ledgers
 from its start, and states the ledger in its execution record. Each is held to the
 NumPy reference session on the same problem within the budgets of SEP 25
@@ -57,7 +57,7 @@ from solprop.exceptions import (
     ResponseBudgetError,
     RunTerminated,
 )
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -162,9 +162,9 @@ def _assert_same_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
 
     Parameters
     ----------
-    got : solprop.output.schema.MarchSnapshot
+    got : solprop.output.records.MarchSnapshot
         The snapshot under test.
-    expected : solprop.output.schema.MarchSnapshot
+    expected : solprop.output.records.MarchSnapshot
         The one it must reproduce.
     """
     for name in (
@@ -198,9 +198,9 @@ def _assert_close_snapshot(got: MarchSnapshot, expected: MarchSnapshot) -> None:
 
     Parameters
     ----------
-    got : solprop.output.schema.MarchSnapshot
+    got : solprop.output.records.MarchSnapshot
         The native snapshot.
-    expected : solprop.output.schema.MarchSnapshot
+    expected : solprop.output.records.MarchSnapshot
         The reference's.
     """
     for name in ("method", "order", "rejections", "last_rejected", "collar_was_quiet"):
@@ -298,7 +298,7 @@ def _resumed(
         The problem.
     run_request : solprop.translate.run_request.RunRequest
         Its run's request, whose planes the snapshot's position is among.
-    snapshot : solprop.output.schema.MarchSnapshot
+    snapshot : solprop.output.records.MarchSnapshot
         The history, at a save plane.
     ledger : dict
         The call ledger's record there.

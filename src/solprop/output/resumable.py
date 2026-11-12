@@ -27,7 +27,9 @@ import numpy as np
 from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import ResumeState, _file_path, resume
-from solprop.output.schema import SCHEMA_VERSION, Output, _decode
+from solprop.output.metadata import SCHEMA_VERSION
+from solprop.output.serialisation import _decode
+from solprop.output.store import Output
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
@@ -139,7 +141,7 @@ def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumabili
 
     Parameters
     ----------
-    path : str or pathlib.Path or solprop.output.schema.Output
+    path : str or pathlib.Path or solprop.output.store.Output
         The HDF5 output; an output handler is refused by name.
     gate : bool, optional
         Also rebuild the run from its recorded recipe and compare the records' hashes,

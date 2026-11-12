@@ -40,7 +40,7 @@ __all__ = [
 type JsonValue = (
     bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 )
-"""Anything :func:`solprop.output.schema.serialise` may return, and therefore
+"""Anything :func:`solprop.output.serialisation.serialise` may return, and therefore
 anything JSON can carry. Re-exported by that module, which owns the file format."""
 
 MEASURED_DIGITS = 6

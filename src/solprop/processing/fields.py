@@ -5,7 +5,7 @@
 """Read fields, spectra and spectral densities out of a saved run.
 
 The field, spectrum and density accessors, in solprop's conventions. Each one takes an
-:class:`~solprop.output.schema.Output` -- a memory handler or an HDF5 handler, through
+:class:`~solprop.output.store.Output` -- a memory handler or an HDF5 handler, through
 the same protocol -- selects a saved plane and a set of modes, and returns an abscissa
 and an array whose trivial mode and polarisation axes have been squeezed away.
 
@@ -52,7 +52,8 @@ from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
-from solprop.output.schema import Convention, Output
+from solprop.output.records import Convention
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     SPECTRAL_AXES,
@@ -119,7 +120,7 @@ def nearest_plane(output: Output, z: float) -> int:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding at least one plane.
     z : float
         Position along the propagation, m.
@@ -163,7 +164,7 @@ def get_spectrum(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end. With ``z``, at most one of the
@@ -231,7 +232,7 @@ def get_spectral_density(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'wavelength', 'f', 'omega'}
         The abscissa, in m, Hz or rad/s.
@@ -416,7 +417,7 @@ def get_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     kind : {'analytic', 'real', 'envelope'}
         Which representation to return.
@@ -510,7 +511,7 @@ def get_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -623,7 +624,7 @@ def get_phase(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -860,7 +861,7 @@ def get_spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'f', 'omega', 'wavelength'}
         The spectral abscissa, in Hz, rad/s or m.

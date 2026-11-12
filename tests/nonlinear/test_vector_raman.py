@@ -42,7 +42,7 @@ from solprop.nonlinear.raman import (
     response_for,
     undamped_dephasing,
 )
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import MolecularRaman
 from vector_raman_declaration import Declaration
 from vector_raman_tensor_oracle import (

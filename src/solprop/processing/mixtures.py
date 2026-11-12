@@ -14,7 +14,7 @@ from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing.axes import grid_of, spatial_grid_of
 from solprop.processing.fields import _spectral_density
 from solprop.processing.planes import _plane_fluence
@@ -149,7 +149,7 @@ def get_power_weight(output: Output) -> Float[np.ndarray, "n_z n_modes n_pol n_o
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Opened modal output whose record carries the power-weight factors.
 
     Returns

@@ -30,7 +30,7 @@ from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.translate.transverse import _nodes_window
 from solprop.transverse_monitor import BACKSTOP_READS, TransverseEdge, _row_energy
 from test_transverse_resolution import LENGTH, suite

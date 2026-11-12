@@ -777,6 +777,11 @@ MODULES = {
             "output/",
             (
                 "schema",
+                "serialisation",
+                "provenance",
+                "records",
+                "metadata",
+                "store",
                 "capability",
                 "memory",
                 "callback",
@@ -1268,7 +1273,7 @@ NUMPY_REF = (
 
 
 class Dataset(NamedTuple):
-    """One dataset or group of a saved run (`output/hdf5.py`, `output/schema.py`)."""
+    """One dataset or group of a saved run (`output/hdf5.py`, `output/records.py`)."""
 
     name: str
     """Its key in the file."""
@@ -1305,12 +1310,12 @@ OUTPUT_GROUPS = (
     Dataset(
         "step_history/",
         "one dataset per column, plus counts",
-        ("z, h, norm, accepted, wall_time  (schema.HISTORY_FIELDS)",),
+        ("z, h, norm, accepted, wall_time  (records.HISTORY_FIELDS)",),
     ),
     Dataset(
         "step_stats/",
         "the periodic subset between planes, plus counts",
-        ("z, step  (schema.STEP_STATS_INDEX), then one dataset per statistic",),
+        ("z, step  (records.STEP_STATS_INDEX), then one dataset per statistic",),
     ),
     Dataset(
         "meta/json",
@@ -2714,7 +2719,7 @@ def output_side() -> drawsvg.Drawing:
     right_x = MARGIN + FILE_WIDTH + FILE_GAP
     right_width = WIDTH - MARGIN - right_x
     subtitle = (
-        "architecture.md §10 and output/schema.py. One save protocol and one metadata "
+        "architecture.md §10 and output/store.py. One save protocol and one metadata "
         "schema behind MemoryOutput and HDF5Output; the datasets below are the ones "
         "HDF5Output creates, in the order it creates them."
     )

@@ -93,7 +93,7 @@ _LARGEST: Final = 1 << 34
 """The largest header or body accepted, bytes: a guard against a corrupt length."""
 
 
-def _plain(value: object, arrays: list[np.ndarray]) -> object:
+def _framed(value: object, arrays: list[np.ndarray]) -> object:
     """Return a value's JSON form, collecting its arrays."""
     if value is None or isinstance(value, bool | int | str):
         return value
@@ -107,17 +107,17 @@ def _plain(value: object, arrays: list[np.ndarray]) -> object:
         arrays.append(value if value.flags.c_contiguous else value.copy(order="C"))
         return {_ARRAY: len(arrays) - 1}
     if isinstance(value, np.generic):
-        return _plain(value.item(), arrays)
+        return _framed(value.item(), arrays)
     if isinstance(value, Mapping):
         plain: dict[str, object] = {}
         for key, item in value.items():  # pyright: ignore[reportUnknownVariableType]
             if not isinstance(key, str):
                 msg = f"a frame's keys are strings, not {type(key).__name__}"  # pyright: ignore[reportUnknownArgumentType]
                 raise ServiceError(msg)
-            plain[key] = _plain(item, arrays)
+            plain[key] = _framed(item, arrays)
         return plain
     if isinstance(value, list | tuple):
-        return [_plain(item, arrays) for item in value]  # pyright: ignore[reportUnknownVariableType]
+        return [_framed(item, arrays) for item in value]  # pyright: ignore[reportUnknownVariableType]
     msg = f"a frame carries plain data and arrays, not {type(value).__name__}"
     raise ServiceError(msg)
 
@@ -151,7 +151,7 @@ def encode(value: object) -> bytes:
     (0.5, [0.0, 1.0, 2.0], True)
     """
     arrays: list[np.ndarray] = []
-    plain = _plain(value, arrays)
+    plain = _framed(value, arrays)
     blocks: list[dict[str, object]] = []
     offset = 0
     for array in arrays:

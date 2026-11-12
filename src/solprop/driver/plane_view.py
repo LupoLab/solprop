@@ -26,7 +26,8 @@ from solprop.exceptions import DriverError, SolpropWarning
 from solprop.log import PlaneObserver, ProgressReporter
 from solprop.output.capability import BasisCapability, capability_of
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import RunMetadata, SavedPlane, StoredField
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import SavedPlane, StoredField
 from solprop.processing import fields
 
 if TYPE_CHECKING:
@@ -46,17 +47,17 @@ class PlaneView:
 
     Parameters
     ----------
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The plane as committed, its field ``None`` where the output keeps none.
     index : int
         Its index among the saved planes.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
     fetch : callable or None
         Returns the plane's field where it was not kept; ``None`` where it was.
     spend : solprop._host.ObserverSpend
         The run's observer ledger, which counts the fetches.
-    stored : solprop.output.schema.StoredField or None, optional
+    stored : solprop.output.records.StoredField or None, optional
         The kept field as the output stored it, where it was exported straight into
         the output (SEP 47 section 5.4) and the plane carries none: the view reads
         that, with no fetch.
@@ -264,7 +265,7 @@ class PlaneWatch:
     ----------
     reporter : solprop.log.ProgressReporter
         The run's reporter; only a :class:`~solprop.log.PlaneObserver` is shown planes.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
     fetch : callable
         Returns the field at the current plane, for a plane the output keeps none of.
@@ -292,11 +293,11 @@ class PlaneWatch:
 
         Parameters
         ----------
-        plane : solprop.output.schema.SavedPlane
+        plane : solprop.output.records.SavedPlane
             The plane as committed.
         index : int
             Its index among the saved planes.
-        stored : solprop.output.schema.StoredField or None, optional
+        stored : solprop.output.records.StoredField or None, optional
             Its kept field as the output stored it, where it was exported straight
             into the output and the plane carries none.
 

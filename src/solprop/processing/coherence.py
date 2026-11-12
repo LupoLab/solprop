@@ -21,7 +21,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop.exceptions import OutputError, ProcessingError
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing.axes import Band, ModeSelection
 from solprop.processing.fields import get_spectrum
 
@@ -104,7 +104,7 @@ def g12_of(
 
     Parameters
     ----------
-    outputs : sequence of solprop.output.schema.Output
+    outputs : sequence of solprop.output.store.Output
         The ensemble, at least two opened handlers.
     plane : int or None
         Index of the plane wanted, negative from the end; with neither ``plane`` nor

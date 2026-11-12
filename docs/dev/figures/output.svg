@@ -71,7 +71,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 </style>
 <rect x="0" y="0" width="1200" height="734.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">A saved run, and what reads it back</text>
-<text x="32" y="64.0" font-size="12" class="dim">architecture.md §10 and output/schema.py. One save protocol and one metadata schema behind MemoryOutput and HDF5Output; the datasets below are the ones HDF5Output creates,</text>
+<text x="32" y="64.0" font-size="12" class="dim">architecture.md §10 and output/store.py. One save protocol and one metadata schema behind MemoryOutput and HDF5Output; the datasets below are the ones HDF5Output creates,</text>
 <text x="32" y="79.5" font-size="12" class="dim">in the order it creates them.</text>
 <text x="32" y="109.0" font-size="12" class="bold dim">one file</text>
 <text x="700.0" y="109.0" font-size="12" class="bold dim">what it is for</text>
@@ -98,11 +98,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="42.0" y="452.5" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
 <text x="52.0" y="474.5" font-size="15" class="bold ink-d">step_history/</text>
 <text x="202.0" y="474.5" font-size="12" class="dim">one dataset per column, plus counts</text>
-<text x="52.0" y="490.0" font-size="12" class="dim">z, h, norm, accepted, wall_time  (schema.HISTORY_FIELDS)</text>
+<text x="52.0" y="490.0" font-size="12" class="dim">z, h, norm, accepted, wall_time  (records.HISTORY_FIELDS)</text>
 <rect x="42.0" y="515.0" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
 <text x="52.0" y="537.0" font-size="15" class="bold ink-d">step_stats/</text>
 <text x="202.0" y="537.0" font-size="12" class="dim">the periodic subset between planes, plus counts</text>
-<text x="52.0" y="552.5" font-size="12" class="dim">z, step  (schema.STEP_STATS_INDEX), then one dataset per statistic</text>
+<text x="52.0" y="552.5" font-size="12" class="dim">z, step  (records.STEP_STATS_INDEX), then one dataset per statistic</text>
 <rect x="42.0" y="577.5" width="596.0" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="52.0" y="599.5" font-size="15" class="bold ink-d">meta/json</text>
 <text x="202.0" y="599.5" font-size="12" class="dim">RunMetadata as one JSON dataset</text>
