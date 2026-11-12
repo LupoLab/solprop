@@ -1365,13 +1365,15 @@ void require_general_problem(const Problem& problem) {
                              [](double value) { return std::isfinite(value); }))
       throw std::invalid_argument("channel parameters and coefficients must be finite");
     std::size_t expected_offset = 0;
+    // Each interval holds four coefficients.
+    const std::size_t total_intervals = problem.channel_coefficients.size() / 4;
     for (std::size_t channel = 0; channel < problem.n_channels; ++channel) {
       const double* row = problem.channel_parameters.data() + 9 * channel;
       if (!(row[1] > 0.0 && row[2] > 0.0 && row[3] > row[2] && row[4] >= 0.0 &&
             row[5] >= 1.0 && row[5] == std::floor(row[5]) &&
             row[6] == static_cast<double>(expected_offset) && row[7] > 0.0 &&
             row[8] > 0.0) ||
-          row[5] > static_cast<double>(problem.channel_coefficients.size() / 4))
+          row[5] > static_cast<double>(total_intervals))
         throw std::invalid_argument(
             "channel constants and coefficient ranges must be positive and consistent");
       expected_offset = checked_sum(
@@ -15207,8 +15209,9 @@ void GeneralWorkspace::plane_fluence_moments(double (&moments)[plane_moment_slot
           const double sample = Kokkos::max(partials(node, 0), 0.0) / maximum;
           partials(node, 0) = sample;
           update.total += sample;
+          const std::size_t row = node / n_x;
           update.x += sample * static_cast<double>(node % n_x);
-          update.y += sample * static_cast<double>(node / n_x);
+          update.y += sample * static_cast<double>(row);
         },
         Kokkos::Sum<FluenceMoments>(sums));
   moments[0] = worst.val;
@@ -15265,7 +15268,8 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_nodes),
       KOKKOS_LAMBDA(const std::size_t node, double& update) {
         const double x = (static_cast<double>(node % n_x) * dx - center_x) / extent;
-        const double y = (static_cast<double>(node / n_x) * dy - center_y) / extent;
+        const std::size_t row = node / n_x;
+        const double y = (static_cast<double>(row) * dy - center_y) / extent;
         update += samples(node, 0) * (x * x + y * y);
       },
       Kokkos::Sum<double>(second));
