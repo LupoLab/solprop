@@ -115,18 +115,7 @@ def hello() -> dict[str, object]:
 
 
 def _folder(body: Mapping[str, Any]) -> Path:
-    """Return the run folder a request names, with ``~`` expanded.
-
-    Parameters
-    ----------
-    body : Mapping
-        The request's body.
-
-    Returns
-    -------
-    pathlib.Path
-        The folder.
-    """
+    """Return the run folder a request names, with ``~`` expanded."""
     return Path(str(body["folder"])).expanduser()
 
 
@@ -285,18 +274,8 @@ class Agent:
     ) -> None:
         """Read a run's record and send what is new, until it ends or is unfollowed.
 
-        Parameters
-        ----------
-        folder : pathlib.Path
-            The run's folder.
-        key : str
-            The folder as the window named it, which its frames carry.
-        offset : int
-            Where to start, bytes.
-        period : float
-            How often to read the record, s.
-        done : threading.Event
-            Set to stop following.
+        - ``offset``: where to start, bytes.
+        - ``period``: how often to read the record, s.
 
         Notes
         -----
@@ -570,13 +549,7 @@ class Agent:
         return client.submit(request)
 
     def _kernel_client(self) -> Any:
-        """Return this machine's kernel, started on first use.
-
-        Returns
-        -------
-        solprop.service.client.KernelClient
-            The kernel.
-        """
+        """Return this machine's kernel, started on first use."""
         if self._kernel is None:
             from solprop.service.client import KernelClient  # noqa: PLC0415 - light
 
@@ -584,13 +557,7 @@ class Agent:
         return self._kernel
 
     def _kernel_reply(self, reply: Reply) -> None:
-        """Send a kernel reply to the window.
-
-        Parameters
-        ----------
-        reply : Reply
-            The reply.
-        """
+        """Send a kernel reply to the window."""
         self.send({"kind": "kernel_reply", "reply": _reply_value(reply)})
 
     def _kernel_lost(self) -> None:
@@ -610,16 +577,8 @@ class Agent:
 def _lost(folder: Path) -> str | None:
     """Return why a run that recorded no ending has gone, or ``None`` while it lives.
 
-    Parameters
-    ----------
-    folder : pathlib.Path
-        The run's folder.
-
-    Returns
-    -------
-    str or None
-        The reason, as the run's summary gives it; ``None`` for a run queued,
-        starting, running or ended with its own record.
+    - Returns: the reason, as the run's summary gives it; ``None`` for a run queued,
+      starting, running or ended with its own record.
     """
     from solprop.service.launch import slurm_states  # noqa: PLC0415 - light
     from solprop.service.runs import slurm_jobs, summarise  # noqa: PLC0415 - light
@@ -639,17 +598,7 @@ def _remove_tree(folder: Path, tries: int = 20) -> None:
     process leaves, and Windows refuses to delete a file that is open; so the folder
     is tried again for a few seconds.
 
-    Parameters
-    ----------
-    folder : pathlib.Path
-        The folder.
-    tries : int, optional
-        How many times to try, a quarter of a second apart.
-
-    Raises
-    ------
-    OSError
-        If it still cannot be deleted.
+    - ``tries``: how many times to try, a quarter of a second apart.
     """
     left = tries
     while True:
@@ -667,18 +616,7 @@ def _remove_tree(folder: Path, tries: int = 20) -> None:
 
 
 def _reply_value(reply: Reply) -> dict[str, object]:
-    """Return a kernel reply as a frame carries it.
-
-    Parameters
-    ----------
-    reply : Reply
-        The reply.
-
-    Returns
-    -------
-    dict
-        Its fields.
-    """
+    """Return a kernel reply as a frame carries it."""
     return {
         "kind": reply.kind,
         "request_id": reply.request_id,
