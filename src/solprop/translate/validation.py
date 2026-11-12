@@ -261,7 +261,7 @@ def validate_coupled_flow(
 
     Examples
     --------
-    >>> from solprop.translate.problem import validate_coupled_flow
+    >>> from solprop.translate.validation import validate_coupled_flow
     >>> validate_coupled_flow.__name__
     'validate_coupled_flow'
     """

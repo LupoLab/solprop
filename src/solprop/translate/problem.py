@@ -744,8 +744,9 @@ class PropagationProblem:
     planes and statistics are the run's policy, which a
     :class:`~solprop.translate.run_request.RunRequest` carries beside it (SEP 47
     section 5.2; kernel contract sections 7 and 8). Construct both with
-    :func:`assemble` rather than by hand; a backend checks the pair with
-    :func:`validate_run` before it allocates, which :func:`assemble` already does.
+    :func:`~solprop.translate.assembly.assemble` rather than by hand; a backend checks
+    the pair with :func:`validate_run` before it allocates, which
+    :func:`~solprop.translate.assembly.assemble` already does.
 
     Attributes
     ----------

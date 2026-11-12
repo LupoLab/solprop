@@ -1097,7 +1097,8 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         Floor on the controller's proposal, m. ``None`` uses
         :func:`solprop.stepper.controller.default_dz_min` of the run length.
     stretch : float or None, optional
-        Landing stretch factor. ``None`` uses :data:`DEFAULT_STRETCH`.
+        Landing stretch factor. ``None`` uses
+        :data:`~solprop.translate.problem.DEFAULT_STRETCH`.
     interval_cap : bool or None, optional
         Whether a step is capped at its operator-table interval's width. ``None`` caps
         it only for a coupled flow or a reject-free controller (SEP 14 section 4.1).
@@ -1200,15 +1201,16 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     -------
     Translation
         The problem and the request of a fresh run of it, with the step limits the
-        route resolved and clamped, validated together (:func:`validate_run`) and
-        ready for a backend.
+        route resolved and clamped, validated together
+        (:func:`~solprop.translate.problem.validate_run`) and ready for a backend.
 
     Raises
     ------
     TranslationError
         If a response cannot be compiled, an argument is out of range, a frame that
         removes ``beta_0`` is given beside a third-harmonic term on an envelope grid,
-        or the assembled problem and its request fail :func:`validate_run`.
+        or the assembled problem and its request fail
+        :func:`~solprop.translate.problem.validate_run`.
 
     Examples
     --------
@@ -1216,7 +1218,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
     ...                      shock=False)
