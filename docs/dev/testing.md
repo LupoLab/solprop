@@ -64,7 +64,10 @@ Two further markers select **lanes** rather than tiers, and a test may carry one
 instead of a tier marker:
 
 - `gpu` needs a device and is skipped without one. It selects the native device tests,
-  run by hand on a machine with a device; no CI lane reaches them.
+  run by hand with `uv run poe test-gpu` on a machine with a CUDA or HIP build and a
+  device; no CI lane reaches them. **Run the GPU lane on a CUDA/HIP machine at each
+  release and on pull requests that change device code, and record the result in the
+  pull request or the release record.**
 - `benchmark` is run by **no lane at all**. It is where a study goes whose numbers are
   recorded in its docstring and on which nothing in the default configuration depends —
   the full-size CtC case, the gigabyte Φ table, the polarisation taper's recurrence
@@ -79,7 +82,7 @@ instead of a tier marker:
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
 | coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
-| gpu | `uv run pytest -m gpu` | needs a card |
+| gpu | `uv run poe test-gpu` | the `gpu`-marked tests of solprop and of solprop-native, against an installed CUDA or HIP build that sees a device; it fails on a CPU build rather than skipping every test |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
@@ -165,8 +168,8 @@ SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe test-slow
 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false uv run poe cov
 SOLPROP_TEST_BACKEND=native SOLPROP_NATIVE_THREADS=1 uv run poe test-slow
 
-# On an accelerator build:
-SOLPROP_TEST_BACKEND=native uv run pytest -m gpu
+# On an accelerator build (the task sets SOLPROP_TEST_BACKEND=native):
+uv run poe test-gpu
 ```
 
 The two thread settings matter: eighteen xdist workers each initialising an
@@ -366,10 +369,12 @@ are done when:
   (§3);
 - a change to a numerical result updates the convergence records it moves, with
   `SOLPROP_WRITE_RECORDS=1` on a clean tree, and says why they moved;
-- a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules)).
+- a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules));
+- a change to device code records the GPU lane's result (`poe test-gpu`, §2) in the
+  pull request.
 
 A change is qualified on `numpy_ref` and the native CPU
-build; device builds are exercised separately with `pytest -m gpu`. No test, lane or
+build; device builds are exercised separately with `poe test-gpu` (§2). No test, lane or
 timing runs a full-length propagation: qualify on about ten steps or a fibre short enough
 to finish in seconds (`AGENTS.md`, qualification scope).
 

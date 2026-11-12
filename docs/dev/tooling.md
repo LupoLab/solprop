@@ -45,7 +45,8 @@ Runs, in order: `ruff check --fix .` → `ruff format .` → `ruff check .` → 
 sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
-`poe test-slow`, `poe cov` (the default lane with coverage), `poe bench`
+`poe test-slow`, `poe cov` (the default lane with coverage), `poe test-gpu` (the GPU
+lane, on a CUDA or HIP build with a device), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
 committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
@@ -346,7 +347,7 @@ pre-flight checklist sets publishing up).
 
 `native` runs in the coverage lane's driver tests; the parity tests check it against
 `numpy_ref` in every job. GPU tests run by hand on a node with a device
-(`pytest -m gpu`). The self-hosted
-`.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
+(`poe test-gpu`), at each release and on pull requests that change device code. The
+self-hosted `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
 native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
 `poe check`; a change to one is a change to the other, in the same commit.

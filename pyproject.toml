@@ -395,6 +395,22 @@ cmd = "pytest -m slow tests/driver/test_prop_capillary.py::test_the_statistics_c
 env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Measure periodic statistics on ten steps, after the parallel slow tests finish."
 
+# The GPU lane, on any machine with a CUDA or HIP build of solprop-native installed and a
+# device it sees (testing.md section 2). `-m gpu` replaces addopts' marker expression on
+# purpose, as `test-slow` does with `-m slow`: `gpu` is a lane marker, which a test
+# carries instead of a tier (tests/test_tiers.py), so `-m gpu` is exactly the lane and
+# selects no slow or benchmark test. The first step fails on a CPU build, where every
+# device test would otherwise skip and the lane pass vacuously; the last runs the native
+# package's own gpu-marked tests from its directory, under its own pytest configuration.
+[tool.poe.tasks.test-gpu]
+sequence = [
+    { cmd = "python -c \"import solprop_native as n; i = n.build_info(); print('solprop-native', i.package_version, i.device_backend, i.device_arch, i.device_count, 'device(s)'); raise SystemExit(0 if i.device_backend in ('cuda', 'hip') and i.device_count > 0 else 'poe test-gpu needs a CUDA or HIP build of solprop-native that sees a device')\"" },
+    { cmd = "pytest -m gpu -rs tests" },
+    { cmd = "pytest -m gpu -rs", cwd = "native" },
+]
+env = { PYTHONUTF8 = "1", SOLPROP_TEST_BACKEND = "native" }
+help = "GPU lane: the gpu-marked tests of solprop and solprop-native against an installed CUDA or HIP build, on a device."
+
 # The CPU coverage lane measures coverage-cpu.ini's source, which is the whole package.
 # It runs under xdist with one thread per worker, as `poe test` does, and pytest-cov
 # combines the workers' data.
