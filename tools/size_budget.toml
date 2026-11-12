@@ -7,10 +7,10 @@
 # a change through (docs/dev/tooling.md, "Size").
 
 [private_docstrings]
-# Private or nested definitions whose docstring has numpydoc sections (Parameters,
-# Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
+# Private definitions (numpydoc's rule) whose docstring has numpydoc sections
+# (Parameters, Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
 # "Docstrings and comments").
-max_sectioned = 2895
+max_sectioned = 2848
 
 [modules]
 # No module grows past this many lines.

@@ -10,9 +10,10 @@ book-keeping: private docstrings with numpydoc sections, docstrings longer than 
 body, ``noqa`` comments by rule, private names imported across packages, ``__all__``
 lines and an estimate of cloned code. ``--json`` prints the same as JSON; ``--check``
 compares ``src/solprop`` with the caps in ``tools/size_budget.toml`` and exits 1 when
-one is exceeded. A name is private by numpydoc's rule (a single-underscore component in
-``module.qualname``, the module named by its file stem) or when it is nested in a
-function. Only the standard library is used.
+one is exceeded. A name is private by exactly the rule that numpydoc's validation
+excludes: a single-underscore component in ``module.qualname``, the module named by its
+file stem, so that this report and ``poe docstrings`` agree. Only the standard library
+is used.
 """
 
 import argparse
@@ -94,21 +95,19 @@ def _docstring_node(node: ast.AST) -> ast.Constant | None:
 
 
 def _walk_definitions(tree: ast.Module, stem: str) -> list[tuple[ast.AST, str, bool]]:
-    # (node, dotted name as numpydoc forms it, private or nested), the module first.
+    # (node, dotted name as numpydoc forms it, private), the module first.
     found: list[tuple[ast.AST, str, bool]] = [(tree, stem, bool(_PRIVATE.search(stem)))]
 
-    def visit(node: ast.AST, prefix: str, in_function: bool) -> None:
+    def visit(node: ast.AST, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 name = f"{prefix}.{child.name}"
-                private = in_function or bool(_PRIVATE.search(name))
-                found.append((child, name, private))
-                is_function = not isinstance(child, ast.ClassDef)
-                visit(child, name, in_function or is_function)
+                found.append((child, name, bool(_PRIVATE.search(name))))
+                visit(child, name)
             else:
-                visit(child, prefix, in_function)
+                visit(child, prefix)
 
-    visit(tree, stem, in_function=False)
+    visit(tree, stem)
     return found
 
 

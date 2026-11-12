@@ -185,8 +185,9 @@ private docstrings with numpydoc sections and docstrings longer than their body;
 files and functions; `noqa` comments by rule; private names imported across packages;
 `__all__` lines; cloned code (windows of 50 tokens seen twice, with names renamed and as
 written) with the file pairs that share most; and ruff's complexity counts. A name is
-private by numpydoc's rule (a single-underscore component of `module.qualname`) or when it
-is nested in a function.
+private by exactly the rule numpydoc's validation excludes (a single-underscore component
+of `module.qualname`), so the report and `poe docstrings` agree; a nested function is private
+when its name starts with an underscore, as `AGENTS.md` asks.
 
 `poe size-check`, in `poe check` and CI's static job, holds `src/solprop` to the ratchets in
 `tools/size_budget.toml`: the number of private docstrings with numpydoc sections, a

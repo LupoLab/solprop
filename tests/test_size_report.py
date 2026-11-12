@@ -27,7 +27,7 @@ def public(x):
     """
 
     # a comment
-    def inner(y):
+    def _inner(y):
         """Return y.
 
         Returns
@@ -37,7 +37,11 @@ def public(x):
         """
         return y
 
-    return inner(x)
+    def shown(y):
+        """Return y: nested, but public by numpydoc's rule."""
+        return y
+
+    return shown(_inner(x))
 
 
 def _private(x):
@@ -73,9 +77,9 @@ def test_lines_split_into_code_docstrings_comments_and_blanks(tmp_path):
     assert package.total == len(lines)
     assert package.blank == sum(1 for line in lines if not line.strip()) - 3
     assert package.comment == 1  # the noqa shares its line with code
-    # The module and `public` docstrings are public (1 + 7 lines); `inner` is nested,
-    # `_private` and `_Hidden` are private, and so is `_Hidden.method` (7 + 7 + 1 + 1).
-    assert package.public_doc == 8
+    # Public by numpydoc's rule: the module, `public` and `public.shown` (1 + 7 + 1).
+    # Private: `public._inner`, `_private`, `_Hidden`, `_Hidden.method` (7 + 7 + 1 + 1).
+    assert package.public_doc == 9
     assert package.private_doc == 16
     total = package.code + package.public_doc + package.private_doc
     assert total + package.comment + package.blank == package.total
@@ -83,8 +87,8 @@ def test_lines_split_into_code_docstrings_comments_and_blanks(tmp_path):
 
 def test_sectioned_private_docstrings_and_long_docstrings_are_counted(tmp_path):
     package, _ = _measured(tmp_path)
-    assert package.sectioned_private == 2  # inner and _private; public is not counted
-    # inner, _private and method have docstrings longer than their bodies; public not.
+    assert package.sectioned_private == 2  # _inner and _private; public is not counted
+    # _inner, _private and method have docstrings longer than their bodies.
     assert package.doc_over_body == 3
 
 
@@ -93,7 +97,7 @@ def test_noqa_codes_and_all_lines_are_counted(tmp_path):
     assert report.noqa == {"F401": 1, "E501": 1}
     assert package.all_lines == 3
     names = [name for name, _ in report.largest_functions]
-    assert "mod.py:mod.public.inner" in names
+    assert "mod.py:mod.public._inner" in names
     assert "mod.py:mod._Hidden" not in names  # functions only
 
 

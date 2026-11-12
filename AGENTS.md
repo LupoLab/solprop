@@ -152,15 +152,17 @@ validity range is cited to its primary source; say what you verified and what yo
 
 ### Docstrings and comments
 
-- **Public API** — a dotted name with no single-underscore component, not in a private
-  module and not nested — has a full **NumPy-style** docstring validated by numpydoc ⚙:
+- **Public API** — a dotted name (`module.qualname`) with no single-underscore
+  component — has a full **NumPy-style** docstring validated by numpydoc ⚙:
   an imperative summary line, then `Parameters`, `Returns`, `Raises`, `Examples`,
   `References` as applicable, with **units, valid ranges and array shapes**. `Examples` run
   as doctests ⚙. A frozen dataclass documents its fields under `Attributes`. A public
   property has a one-line docstring naming the quantity and unit, with
   `# numpydoc ignore=RT01` on the `def` line.
-- **Private and nested code** has no `Parameters`, `Returns`, `Yields`, `Raises` or
-  `Examples` sections (`poe size-check` caps those left ⚙): one summary line, then only what
+- **Private code** — any name with a single-underscore component, which numpydoc skips ⚙;
+  a nested function's name starts with an underscore, so it is private too — has no
+  `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections (`poe size-check`
+  caps those left ⚙): one summary line, then only what
   the signature and annotations don't say — a non-SI unit, a valid range, a condition, a
   convention, or why it exists. A function whose name and signature say everything needs
   no docstring; a non-obvious inner function gets a one-line comment.
