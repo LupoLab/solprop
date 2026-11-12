@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <vector>
