@@ -469,13 +469,13 @@ def test_a_rate_table_handed_to_the_response_is_taken_as_it_stands(field_grid, m
     assert plasma is not None
     assert np.array_equal(plasma.rate.log_rate, table.log_rate)
     assert plasma.rate.key == table.key
-    # The builder hands out its memoised object, whose arrays are writeable; everything
-    # crossing the seam is frozen, so what the contract carries is a frozen copy, and
-    # the builder's own table is left as it was.
-    assert not plasma.rate.log_rate.flags.writeable
-    assert not plasma.rate.coefficients.flags.writeable
-    assert table.log_rate.flags.writeable
-    assert table.coefficients.flags.writeable
+    # The builder freezes its table once, before its memo hands it out, so the
+    # contract carries the memoised arrays themselves rather than a copy of them.
+    assert not table.log_rate.flags.writeable
+    assert not table.coefficients.flags.writeable
+    assert plasma.rate.log_rate is table.log_rate
+    assert plasma.rate.coefficients is table.coefficients
+    assert build_rate_table(adk_oracle(Gas.Ar), FIELD_RANGE) is table
 
 
 def test_a_pre_ionisation_path_is_tabulated_along_z(field_grid, gradient):

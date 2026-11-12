@@ -3626,11 +3626,12 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
 
 
 def _frozen_table(table: RateTable) -> RateTable:
-    """Return the same table with read-only arrays.
+    """Return the table with read-only arrays solprop holds.
 
-    The builder memoises its tables and hands out the originals, so a table that
-    crosses the seam is a frozen copy: the contract promises read-only arrays and
-    ``validate`` checks it.
+    The contract promises read-only arrays and ``validate`` checks it.
+    :func:`~solprop.translate.ionisation.build_rate_table` freezes its tables once,
+    before its memo hands them out, so a built table crosses as it stands; a table
+    made any other way crosses as a frozen copy.
 
     Parameters
     ----------

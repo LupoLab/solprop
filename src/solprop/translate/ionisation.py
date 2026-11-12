@@ -48,6 +48,7 @@ from solprop.nonlinear.ionisation import (
     rate_convention,
     rate_species,
 )
+from solprop.translate.chebyshev import _hold
 
 __all__ = [
     "DEFAULT_INTERVALS",
@@ -588,7 +589,8 @@ def build_rate_table(
     Returns
     -------
     RateTable
-        The converged table.
+        The converged table, its arrays read-only: frozen once when it is built, and
+        the memoised table itself when one was built before.
 
     Raises
     ------
@@ -638,6 +640,11 @@ def build_rate_table(
         )
         if error <= rtol:
             table = _finalise(table, error)
+            # Frozen once, here, before the memo can hand it out: every response
+            # sharing the rate shares these arrays, and the seam takes them as they
+            # stand rather than copying them for each problem.
+            _hold(table.log_rate)
+            _hold(table.coefficients)
             _log_summary(table, rate, time.perf_counter() - started)
             if use_cache:
                 _TABLES[key] = table
