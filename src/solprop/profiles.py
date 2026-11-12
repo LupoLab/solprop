@@ -55,6 +55,7 @@ from numpy.polynomial import Chebyshev
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._ownership import frozen_copy
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.physdata.equation_of_state import density
@@ -225,12 +226,13 @@ class PathVariation:
             If the shapes disagree, a value is not finite, the knots do not increase,
             or a bound fails to enclose the piece's limits.
         """
-        knots = _checked_edges(self.knots, "PathVariation")
+        # Copies, held: the checked edges may be the caller's own array.
+        knots = frozen_copy(_checked_edges(self.knots, "PathVariation"))
         arrays = {
-            name: np.array(getattr(self, name), dtype=float)
+            name: frozen_copy(getattr(self, name), np.float64)
             for name in ("first", "last", "variation", "low", "high")
         }
-        monotone = np.array(self.monotone, dtype=bool)
+        monotone = frozen_copy(self.monotone, np.bool_)
         pieces = knots.size - 1
         if monotone.shape != (pieces,) or any(
             a.shape != (pieces,) for a in arrays.values()
@@ -250,7 +252,6 @@ class PathVariation:
                 "PathVariation bounds must enclose each piece's one-sided limits"
             )
         for name, values in (("knots", knots), *arrays.items(), ("monotone", monotone)):
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
 
     @property
@@ -337,17 +338,19 @@ class ZProfile(Protocol):
     """
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the positions in m where the path jumps or kinks, increasing."""
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """The positions in m where the path jumps or kinks, increasing."""
         ...
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities in m, a subset of the breakpoints."""
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities in m, a subset of the breakpoints."""
         ...
 
     @property
-    def z_span(self) -> tuple[float, float]:
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
         """The interval in m over which the path is defined, as ``(start, end)``."""
         ...
 
@@ -367,12 +370,12 @@ class ZProfile(Protocol):
         ...
 
     @property
-    def derivative_is_analytic(self) -> bool:
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
         """Whether :meth:`derivative` is exact rather than a finite difference."""
         ...
 
     @property
-    def is_constant(self) -> bool:
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the path takes the same value everywhere on its span."""
         ...
 

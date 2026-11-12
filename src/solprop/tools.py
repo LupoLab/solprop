@@ -235,10 +235,7 @@ def _omega(wavelength: float) -> float:
 
 
 def _check_shape(shape: str) -> None:
-    """Refuse a pulse shape the design numbers are not defined for.
-
-    - ``shape``: the shape keyword.
-    """
+    """Refuse a pulse shape the design numbers are not defined for."""
     if shape not in ("sech", "gauss"):
         raise ToolsError(f"shape must be 'sech' or 'gauss', got {shape!r}")
 
@@ -1646,10 +1643,7 @@ def capillary_params(
 
 
 def _area_per_order(shape: PulseShape) -> float:
-    """Return the pulse area over pi per unit conventional soliton order.
-
-    - ``shape``: the pulse shape.
-    """
+    """Return the pulse area over pi per unit conventional soliton order."""
     return 1.0 if shape == "sech" else math.sqrt(2.0 / math.pi)
 
 
@@ -1695,7 +1689,6 @@ def _target_order(
     - ``order``: a conventional soliton order, > 0.
     - ``count``: a number of solitons, >= 1.
     - ``eigenvalue``: the largest Zakharov-Shabat eigenvalue, > 0.
-    - ``shape``: the pulse shape.
     """
     given = [
         name

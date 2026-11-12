@@ -933,7 +933,6 @@ def _assemble(
     """Build, check and map one optmat response onto solprop's terms.
 
     - ``labels``: the labels whose summed density drives the response.
-    - ``leaf``: the label the compiled leaf carries.
     - Warns once per run each if the temperature or a declared density is outside the
       response's validated range, and once per run for an admitted provisional response.
     """

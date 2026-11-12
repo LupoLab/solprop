@@ -93,6 +93,8 @@ def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(
     assert geometry.n_columns == space.n_columns == problem.transform.n_modes
     assert problem.transform.n_nodes == space.n_nodes
     assert problem.transform.synthesis.shape == (space.x.size, 2)
+    # The grid holds its projections, so the transform takes them without a copy.
+    assert problem.transform.projection is space.projection
     assert_array_equal(problem.transform.synthesis, space.synthesis * GRID.pad_scale)
     (k_y,) = geometry.spectral_axes
     assert_array_equal(k_y, space.k_y)

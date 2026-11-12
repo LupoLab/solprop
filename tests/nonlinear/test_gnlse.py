@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation
 from solprop.exceptions import ModeError
@@ -594,3 +595,22 @@ def test_from_mode_preserves_linear_values_and_analytic_derivative():
     np.testing.assert_array_equal(gradient.beta(band, 0.4), beta(filled, band, 0.4))
     assert float(gradient.beta(band, 1.0)[0]) != float(gradient.beta(band, 0.0)[0])
     assert gradient.aeff(1.0) == gradient.aeff(0.0) == filled.aeff()
+
+
+def test_a_dispersion_leaves_the_caller_s_arrays_writeable():
+    # Contiguous float64 arrays, which converting without a copy froze in place.
+    nodes = np.linspace(1.0e15, 3.0e15, 8)
+    values = 5.0e-9 * nodes
+    tabulated = TabulatedDispersion(nodes, values)
+    betas = np.array(BETAS)
+    taylor = TaylorDispersion(betas, OMEGA_REF)
+    for mine, held in (
+        (nodes, tabulated.omega),
+        (values, tabulated.beta),
+        (betas, np.asarray(taylor.betas)),
+    ):
+        assert mine.flags.writeable
+        assert not held.flags.writeable
+        assert not np.shares_memory(mine, held)
+        # Copied once and held, so translation takes it without a second copy.
+        assert frozen_copy(held) is held

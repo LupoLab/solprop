@@ -148,7 +148,7 @@ class RamanModel(Protocol):
     """
 
     @property
-    def dephasing(self) -> Dephasing:
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
         """How this term's coherence decays with the local number density."""
         ...
 

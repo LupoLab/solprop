@@ -237,14 +237,8 @@ class NativePreparedGroup:
         self._requests = tuple(requests)
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The first member's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it (the first member's)."""
         return self._members[0].name
 
     def start(
@@ -280,10 +274,7 @@ class NativePreparedGroup:
 
 
 def _member_refusal(request: RunRequest) -> str | None:
-    """Return why one member's request falls outside a group's windows, or ``None``.
-
-    - Returns: the reason, or ``None``.
-    """
+    """Return why one member's request falls outside a group's windows, or ``None``."""
     # A coupled flow is admitted: the lockstep batch this replaced refused one because
     # its fused accepted update applied no flow action, and a native group fuses
     # nothing -- each member's session carries its own flow (SEP 47 section 6.7).
@@ -354,10 +345,7 @@ class _Window:
         self.event: Event | None = None
 
     def joined(self) -> tuple[BackendHistory, StepStats]:
-        """Return the window's attempts and rows so far, as one record.
-
-        - Returns: the joined history and rows.
-        """
+        """Return the window's attempts and rows so far, as one record."""
         return join_attempts(self.chunks)
 
 
@@ -437,36 +425,18 @@ class NativeGroupSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def n_members(self) -> int:
-        """Return the number of members.
-
-        Returns
-        -------
-        int
-            The members.
-        """
+    def n_members(self) -> int:  # numpydoc ignore=RT01
+        """Number of members."""
         return len(self._sessions)
 
     @property
-    def finished(self) -> bool:
-        """Return whether the group's terminal batch was issued.
-
-        Returns
-        -------
-        bool
-            True once every member has ended.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group's terminal batch was issued: every member has ended."""
         return self._ledger.finished
 
     @property
-    def closed(self) -> bool:
-        """Return whether the group was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def advance(self) -> GroupBatch:

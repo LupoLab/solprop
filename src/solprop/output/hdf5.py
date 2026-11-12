@@ -604,8 +604,6 @@ def _current_checkpoint(
     the last plane, or one the ``running`` outcome does not name. That state is stale,
     not inconsistent, and is ignored. A closing (non-running) record that disagrees
     with its checkpoint is refused, as before.
-
-    - Returns: the checkpoint to resume from, or ``None``.
     """
     if checkpoint is None:
         return None

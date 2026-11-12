@@ -29,6 +29,7 @@ from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
 
 from solprop._helpers import PLAIN, Helpers
+from solprop._ownership import hold
 from solprop.exceptions import TranslationError
 
 __all__ = [
@@ -1530,7 +1531,9 @@ def _assemble(
         np.asarray(
             [piece.coefficients.shape[0] - 1 for piece in pieces], dtype=np.intp
         ),
-        np.asarray(hard_kinks, dtype=np.float64),
+        # A copy: the kinks are a slice of the edges, and a table's arrays own their
+        # memory so that they can be held.
+        np.array(hard_kinks, dtype=np.float64),
         exceeded,
     )
     _log_summary(representation)
@@ -1724,3 +1727,19 @@ def trim_axis(
     (1, 1)
     """
     return np.moveaxis(_trim(np.moveaxis(coefficients, axis, 0)), 0, axis)
+
+
+def _held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
+    """Hold the arrays of a table solprop has just built, in place, and return it.
+
+    Only for a table no one else refers to, such as what :func:`build` or
+    :meth:`PiecewiseChebyshev.integral` just returned.
+    """
+    for values in (
+        table.coefficients,
+        table.breakpoints,
+        table.degrees,
+        table.hard_kinks,
+    ):
+        hold(values)
+    return table

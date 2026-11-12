@@ -106,58 +106,58 @@ class ModelIdentityLike(Protocol):
     """Read the fields of an optmat ``ModelIdentity`` that a record keeps."""
 
     @property
-    def name(self) -> str:
-        """Return the model's name."""
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The model's name."""
         ...
 
     @property
-    def kind(self) -> str:
-        """Return the quantity the model gives."""
+    def kind(self) -> str:  # numpydoc ignore=RT01
+        """Quantity the model gives."""
         ...
 
     @property
-    def material(self) -> str:
-        """Return the material it describes."""
+    def material(self) -> str:  # numpydoc ignore=RT01
+        """Material it describes."""
         ...
 
     @property
-    def digest(self) -> str:
-        """Return the SHA-256 of its canonical record."""
+    def digest(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of its canonical record."""
         ...
 
     @property
-    def optmat_version(self) -> str:
-        """Return the optmat version that built it."""
+    def optmat_version(self) -> str:  # numpydoc ignore=RT01
+        """Version of optmat that built it."""
         ...
 
     @property
-    def status(self) -> str:
-        """Return its status."""
+    def status(self) -> str:  # numpydoc ignore=RT01
+        """The status, one of :data:`STATUSES`."""
         ...
 
     @property
-    def status_reason(self) -> str:
-        """Return why its status is what it is."""
+    def status_reason(self) -> str:  # numpydoc ignore=RT01
+        """Why its status is what it is."""
         ...
 
     @property
-    def modified(self) -> tuple[tuple[str, str], ...]:
-        """Return the overrides applied."""
+    def modified(self) -> tuple[tuple[str, str], ...]:  # numpydoc ignore=RT01
+        """The overrides applied, ``(name, value)`` sorted by name."""
         ...
 
     @property
-    def base(self) -> str:
-        """Return the digest of the curated model an override started from."""
+    def base(self) -> str:  # numpydoc ignore=RT01
+        """Digest of the curated model an override started from."""
         ...
 
     @property
-    def sources(self) -> tuple[str, ...]:
-        """Return the source records the model rests on."""
+    def sources(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """Source records the model rests on."""
         ...
 
     @property
-    def reference_temperature(self) -> float | None:
-        """Return the temperature in K a gas polarizability refers to, if declared."""
+    def reference_temperature(self) -> float | None:  # numpydoc ignore=RT01
+        """Temperature in K a gas polarizability refers to, if declared."""
         ...
 
 
@@ -166,8 +166,8 @@ class OptmatModel(Protocol):
     """Anything that carries an optmat identity: a model, a response or a bundle."""
 
     @property
-    def identity(self) -> ModelIdentityLike:
-        """Return the model's optmat ``ModelIdentity``."""
+    def identity(self) -> ModelIdentityLike:  # numpydoc ignore=RT01
+        """The model's optmat ``ModelIdentity``."""
         ...
 
 

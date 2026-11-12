@@ -7,7 +7,6 @@
 import json
 import os
 import socket
-import subprocess
 import tempfile
 import time
 import uuid
@@ -15,6 +14,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from solprop._process import process_stamp
 from solprop.exceptions import DriverError
 from solprop.output._file_lock import lock, unlock
 from solprop.output.scan import _json
@@ -62,23 +62,6 @@ def read_json(path: Path) -> dict:
     if not isinstance(value, dict):
         raise DriverError(f"queue record must be a JSON object: {path}")
     return value
-
-
-def process_stamp(pid: int) -> str | None:
-    """Read process creation identity where the operating system exposes it.
-
-    - Returns: process creation identity, or None if unavailable.
-    """
-    proc = Path(f"/proc/{pid}/stat")
-    if proc.exists():
-        return proc.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19]
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "lstart="],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout.strip() or None
 
 
 def owner() -> dict:

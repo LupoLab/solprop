@@ -24,7 +24,7 @@ physics or numerics rather than style, ask rather than guess.
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
-| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). Double precision only. No other backend (ADR-077) |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
@@ -67,7 +67,9 @@ change both in the same commit. Coverage is 100 % of statements and branches; a
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
 `pytest -m gpu` on a device. **No test, lane or timing runs a full-length propagation**
 (a 0.2 m capillary, a metre of fibre): use about ten steps or a fibre that finishes in
-seconds. Only the galleries run real problems at full length.
+seconds. Only the galleries run real problems at full length. The release tracking set
+(`python -m benchmarks track`) times complete runs by design; it runs by hand on a quiet
+machine when the history is recorded, never as part of a change's qualification.
 
 Never declare work finished while a required check fails, and never suppress a check to
 make the gate green: say what failed and why. New functionality is done when it is
@@ -152,18 +154,22 @@ validity range is cited to its primary source; say what you verified and what yo
 
 ### Docstrings and comments
 
-- **Public API** — a dotted name with no single-underscore component, not in a private
-  module and not nested — has a full **NumPy-style** docstring validated by numpydoc ⚙:
+- **Public API** — a dotted name (`module.qualname`) with no single-underscore
+  component — has a full **NumPy-style** docstring validated by numpydoc ⚙:
   an imperative summary line, then `Parameters`, `Returns`, `Raises`, `Examples`,
   `References` as applicable, with **units, valid ranges and array shapes**. `Examples` run
   as doctests ⚙. A frozen dataclass documents its fields under `Attributes`. A public
   property has a one-line docstring naming the quantity and unit, with
   `# numpydoc ignore=RT01` on the `def` line.
-- **Private and nested code** has no `Parameters`, `Returns`, `Yields`, `Raises` or
-  `Examples` sections (`poe size-check` caps those left ⚙): one summary line, then only what
-  the signature and annotations don't say — a non-SI unit, a valid range, a condition, a
+- **Private code** — any name with a single-underscore component, which numpydoc skips ⚙
+  — has no `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections
+  (`poe size-check` caps those left ⚙): one summary line, then only what
+  the signature and annotations don't say — a unit, a valid range, a condition, a
   convention, or why it exists. A function whose name and signature say everything needs
-  no docstring; a non-obvious inner function gets a one-line comment.
+  no docstring; a non-obvious inner function gets a one-line comment. A nested function
+  is private. numpydoc still checks one without a leading underscore, so a nested
+  function that takes parameters or returns a value is named with a leading underscore
+  unless it is returned to callers.
 - Comments explain **why**, never **what**: the physics (or the page with the derivation),
   the numerics (why this quadrature, cutoff or tolerance; where precision is lost), sign,
   unit and normalisation choices, references (DOI, equation), and anything a reader would

@@ -56,6 +56,7 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.integrate import quad_vec
 
 from solprop._helpers import Helpers
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import split_rate_buckets
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
@@ -76,6 +77,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
+    _held_table,
     build,
     build_from_paths,
     clenshaw,
@@ -333,23 +335,20 @@ class LinearOperator:
             ("phi_degrees", np.intp),
             ("hard_kinks", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
+            # At least one-dimensional, as numpy.ascontiguousarray made them.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
             object.__setattr__(self, name, values)
         for name in ("phi_coefficients", "phi_constant"):
             optional = getattr(self, name)
             if optional is None:
                 continue
-            frozen = np.ascontiguousarray(optional, dtype=np.complex128)
-            frozen.setflags(write=False)
-            object.__setattr__(self, name, frozen)
+            values = frozen_copy(np.atleast_1d(optional), np.complex128)
+            object.__setattr__(self, name, values)
         if self.power_weight_constant is not None:
             object.__setattr__(
                 self,
                 "power_weight_constant",
-                _readonly(
-                    np.ascontiguousarray(self.power_weight_constant, dtype=np.float64)
-                ),
+                frozen_copy(np.atleast_1d(self.power_weight_constant), np.float64),
             )
         self._check_representation()
         n_intervals = self.phi_degrees.size
@@ -658,24 +657,7 @@ def tabulate(
             if z0 < float(value) < z1
         }
     )
-    table = build(func, z0, z1, tol=tol, mandatory_breakpoints=edges)
-    return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
-        table.budget_exceeded,
-    )
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    - Returns: the same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
+    return _held_table(build(func, z0, z1, tol=tol, mandatory_breakpoints=edges))
 
 
 def profile_table(
@@ -737,7 +719,7 @@ def profile_table(
             row[:] = _zero_edges(row, bool(vacuum[index]), bool(vacuum[index + 1]), tol)
     if np.array_equal(coefficients, table.coefficients):
         return table
-    return replace(table, coefficients=_readonly(coefficients))
+    return replace(table, coefficients=hold(coefficients))
 
 
 def _zero_edges(
@@ -845,7 +827,9 @@ def constant_phi(
     'constant'
     """
     span = _checked_span(z_max, margin)
-    values = np.asarray(_value_shape(operator, n_pol), dtype=np.complex128)
+    # The caller's operator, or a view of it: copied once; the tables below are built
+    # here and held in place.
+    values = frozen_copy(_value_shape(operator, n_pol), np.complex128)
     if not np.all(np.isfinite(values)):
         msg = (
             f"the operator must be finite; {int(np.sum(~np.isfinite(values)))} of "
@@ -873,10 +857,10 @@ def constant_phi(
         )
     return LinearOperator(
         phi_representation="constant",
-        phi_breakpoints=edges,
-        phi_coefficients=coefficients,
-        phi_degrees=np.ones(edges.size - 1, dtype=np.intp),
-        hard_kinks=interior,
+        phi_breakpoints=hold(edges),
+        phi_coefficients=hold(coefficients),
+        phi_degrees=hold(np.ones(edges.size - 1, dtype=np.intp)),
+        hard_kinks=hold(interior),
         phi_constant=values,
         beta0=beta0,
         beta1=beta1,
@@ -1143,7 +1127,7 @@ def _dispersion_phi(
     constant = all(one.z_constant for one in modes)
     if constant and reuse is None:
         table = constant_phi(
-            operator_at(0.0),
+            hold(operator_at(0.0)),
             z_max,
             margin=margin,
             beta0=beta0,
@@ -1188,7 +1172,7 @@ def _dispersion_phi(
                 )
         if constant:
             return constant_phi(
-                operator_at(0.0),
+                hold(operator_at(0.0)),
                 z_max,
                 margin=margin,
                 beta0=beta0,
@@ -1283,12 +1267,12 @@ def with_power_weight(
     n_pol = linear.value_shape[2]
     sample = _weight_sampler(modes, grid, n_pol, index)
     if index is not None or all(mode.z_constant for mode in modes):
-        constant = sample(0.0)
+        constant = hold(sample(0.0))
         table = PiecewiseChebyshev(
-            _readonly(constant[None, None]),
-            _readonly(np.array(linear.z_span)),
-            _readonly(np.array([0], dtype=np.intp)),
-            _readonly(np.array([])),
+            constant[None, None],
+            hold(np.array(linear.z_span)),
+            hold(np.array([0], dtype=np.intp)),
+            hold(np.array([])),
         )
         return replace(
             linear,
@@ -1337,14 +1321,9 @@ def with_power_weight(
         tol=DEFAULT_TOL,
         mandatory_breakpoints=linear.hard_kinks,
     )
-    table = replace(
-        table,
-        coefficients=_readonly(table.coefficients),
-        breakpoints=_readonly(table.breakpoints),
-        degrees=_readonly(table.degrees),
-        hard_kinks=_readonly(table.hard_kinks),
+    return replace(
+        linear, power_weight_representation="table", power_weight=_held_table(table)
     )
-    return replace(linear, power_weight_representation="table", power_weight=table)
 
 
 # Nothing in the package calls isinstance on this, but the test session's beartype hook
@@ -1357,7 +1336,7 @@ class _PowerWeightedProblem(Protocol):
 
     @property
     def linear(self) -> LinearOperator:
-        """Return the translated linear group."""
+        """The translated linear group."""
         ...
 
 
@@ -1637,7 +1616,7 @@ def endpoint_phi(
     coefficients = endpoint.coefficients.copy()
     coefficients[:, 0] -= entrance
     endpoint = replace(endpoint, coefficients=coefficients)
-    combined = _add_phi_tables(linear.polynomial, endpoint)
+    combined = _held_table(_add_phi_tables(linear.polynomial, endpoint))
     return replace(
         linear,
         phi_coefficients=combined.coefficients,
@@ -1867,7 +1846,7 @@ def _z_table_operator(
             n_max=n_max,
             max_intervals=max_intervals,
         )
-    phi = resolved.integral()
+    phi = _held_table(resolved.integral())
     if resolved.budget_exceeded:
         logger.warning(
             "Phi: the interval budget of %d is exhausted even at %.1e over [0, %.6g] "
@@ -1910,7 +1889,6 @@ def _operator_sampler(  # noqa: PLR0917 - called positionally
 ) -> _OperatorAt:
     """Return a callable giving ``D`` in the canonical layout at one position.
 
-    - ``absorber_rate``: the spectral absorber rate, or ``None``.
     - Returns: ``z -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
 
@@ -1954,7 +1932,6 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     - ``frame``: its ``beta_0`` and ``beta_1`` follow the frozen reference mode, so the
       frame subtraction is a function of the same parameters and needs no dimension
       of its own.
-    - ``absorber_rate``: the spectral absorber rate, or ``None``.
     - Returns: ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
     parameterised = [one for one in modes if isinstance(one, ParameterisedMode)]
@@ -1991,8 +1968,10 @@ def _canonical(
     - ``n_pol``: polarisation components; ``D`` is the same for both components of one
       mode and is repeated over them so a birefringent mode needs no new layout.
     """
-    stacked = np.stack(columns)[:, np.newaxis, :]
-    return np.repeat(stacked, n_pol, axis=1)[np.newaxis]
+    # The repeat makes the array that owns the result's memory, so that a caller can
+    # hold it (solprop._ownership.hold), as it could not hold a view of it.
+    stacked = np.stack(columns)[np.newaxis, :, np.newaxis, :]
+    return np.repeat(stacked, n_pol, axis=2)
 
 
 def _shared_frame(reference: Mode, frame: Frame, z: float) -> Frame:

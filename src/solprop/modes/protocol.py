@@ -312,12 +312,12 @@ class Mode(Protocol):
     """
 
     @property
-    def z_constant(self) -> bool:
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the mode is independent of ``z`` (no taper, no gradient)."""
         ...
 
     @property
-    def scale_invariant(self) -> bool:
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the profile scales exactly with the core radius along ``z``.
 
         A Marcatili mode has ``e(r; a) = f(r / a)`` and ``N ∝ a²``, so the synthesis
@@ -327,8 +327,8 @@ class Mode(Protocol):
         ...
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Name the physical channel this mode is, with its quantum numbers.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Physical channel this mode is, with its quantum numbers.
 
         The label is a property of the mode itself, not of its place in a set:
         :attr:`solprop.modes.collection.ModeCollection.channel_labels` is the ordered
@@ -338,7 +338,7 @@ class Mode(Protocol):
         ...
 
     @property
-    def azimuthal_order(self) -> int:
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
         """Highest azimuthal order ``h`` of the profile, which sets the theta rule size.
 
         The periodic trapezoid rule is exact for trigonometric polynomials of degree
