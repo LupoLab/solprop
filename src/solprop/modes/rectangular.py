@@ -349,22 +349,59 @@ class _WallPairFill(GasFillMixin):
     def neff(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
     ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the effective index, positive imaginary part for attenuation."""
+        """Return the effective index with positive imaginary part for attenuation.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex effective index, dimensionless, shape ``(n_omega,)``.
+        """
         return 1 + self._values(omega, z)[0]
 
     def neff_minus_one(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
     ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the refractivity directly from the small square-root argument."""
+        """Return the refractivity directly from the small square-root argument.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex ``n_eff - 1``, dimensionless, shape ``(n_omega,)``, without
+            subtracting unity from the index.
+        """
         return self._values(omega, z)[0]
 
     def dneff_domega(
         self, omega: Float[np.ndarray, " n_omega"], z: float = 0.0
     ) -> Complex[np.ndarray, " n_omega"]:
-        """Return the analytic derivative, with the core and wall material slopes.
+        """Return the analytic derivative including core and wall material slopes.
 
-        In s/rad; only a slope-free loss callable takes the shared numerical loss
-        derivative.
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Positive frequencies in rad/s, shape ``(n_omega,)``.
+        z : float, optional
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Complex index derivative in s/rad, shape ``(n_omega,)``; only a
+            slope-free loss callable uses the shared numerical loss derivative.
         """
         return self._values(omega, z)[1]
 
@@ -445,6 +482,12 @@ class RectMode(_WallPairFill):
     model: Literal["full", "reduced"] = field(init=False, default="full", repr=False)
     _gain_warned: bool = field(init=False, default=False, repr=False)
     _MODEL: ClassVar[str] = "rectangular"
+
+    # The index methods are the shared wall-pair base's; named here, so that the API
+    # reference documents them on this class, as it documents no private base.
+    neff = _WallPairFill.neff
+    neff_minus_one = _WallPairFill.neff_minus_one
+    dneff_domega = _WallPairFill.dneff_domega
 
     def __post_init__(self) -> None:
         """Validate the mode and resolve geometry and material paths.

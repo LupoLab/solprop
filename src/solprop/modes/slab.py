@@ -201,6 +201,12 @@ class SlabMode(_WallPairFill):
     _gain_warned: bool = field(init=False, default=False, repr=False)
     _MODEL: ClassVar[str] = "the slab"
 
+    # The index methods are the shared wall-pair base's; named here, so that the API
+    # reference documents them on this class, as it documents no private base.
+    neff = _WallPairFill.neff
+    neff_minus_one = _WallPairFill.neff_minus_one
+    dneff_domega = _WallPairFill.dneff_domega
+
     def __post_init__(self) -> None:
         """Validate the mode and resolve the gap and material paths.
 

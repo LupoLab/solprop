@@ -9,9 +9,10 @@
 [private_docstrings]
 # Private definitions (numpydoc's rule) whose docstring has numpydoc sections
 # (Parameters, Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
-# "Docstrings and comments"). Those left are public API defined in a private module and
-# re-exported, which keeps its sections.
-max_sectioned = 12
+# "Docstrings and comments"). Those left are public API defined in a private module or
+# class and re-exported, which keeps its sections: the three index methods of the
+# private wall-pair base that RectMode and SlabMode publish are among them.
+max_sectioned = 15
 
 [modules]
 # No module grows past this many lines.
