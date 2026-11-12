@@ -2357,8 +2357,9 @@ public:
     require_open();
     if (!initialized_)
       throw std::logic_error("no initial field has been loaded");
-    if constexpr (!Kokkos::SpaceAccessibility<Kokkos::HostSpace,
-                                              MemorySpace>::accessible)
+    if constexpr (!static_cast<bool>(
+                      Kokkos::SpaceAccessibility<Kokkos::HostSpace,
+                                                 MemorySpace>::accessible))
       return nullptr;
     execution_space_.fence("solprop_native host_field");
     return current_.data();
