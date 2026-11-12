@@ -127,19 +127,7 @@ class RegridReport:
 
 
 def _q(grid: TimeGrid) -> Float[np.ndarray, " n_omega"]:
-    """Return the analytic-signal factor of each stored bin.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Two on interior bins of a field grid, one at its end bins, one on an
-        envelope grid; shape ``(n_omega,)``.
-    """
+    """Return the analytic-signal factor of each stored bin."""
     factor = np.ones(grid.n_omega)
     if grid.kind == "field":
         factor[1:-1] = 2.0
@@ -154,18 +142,6 @@ def _analytic(
     ``a_j = sum_k q_k s_k exp(-i omega_k t_j) / N`` in the optics convention. With
     ``omega_k = omega_c + kappa_k d_omega`` (``omega_c`` the carrier of an envelope
     grid, zero on a field grid) and ``t_j = t_0 + j dt`` it is one FFT.
-
-    Parameters
-    ----------
-    samples : numpy.ndarray
-        Stored spectra, shape ``(n_columns, n_omega)``.
-    grid : solprop.grid.TimeGrid
-        Their grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        The analytic signal, shape ``(n_columns, n_t)``.
     """
     centre = grid.omega0 if grid.kind == "envelope" else 0.0
     kappa = np.rint((grid.omega - centre) / grid.d_omega).astype(np.int64)
@@ -179,16 +155,8 @@ def _analytic(
 def _column_weights(plane: FieldPlane) -> Float[np.ndarray, " n_modes"]:
     """Return the transverse weight each column's record norm carries.
 
-    Parameters
-    ----------
-    plane : FieldPlane
-        The source.
-
-    Returns
-    -------
-    numpy.ndarray
-        One per column: the metric's Parseval weights times its scale for a spatial
-        plane, ones otherwise.
+    - Returns: one per column: the metric's Parseval weights times its scale for a
+      spatial plane, ones otherwise.
     """
     metric = plane.metric
     if metric.weights is not None:
@@ -197,23 +165,7 @@ def _column_weights(plane: FieldPlane) -> Float[np.ndarray, " n_modes"]:
 
 
 def _target_metric(plane: FieldPlane, grid: TimeGrid, same: bool) -> PlaneMetric:
-    """Return the result's metric on the target lattice.
-
-    Parameters
-    ----------
-    plane : FieldPlane
-        The source.
-    grid : solprop.grid.TimeGrid
-        The target grid.
-    same : bool
-        Whether the lattices are identical.
-
-    Returns
-    -------
-    PlaneMetric
-        The identity kept, an admittance resolved again from the plane's medium, the
-        source's metric on an identical lattice, or ``unknown``.
-    """
+    """Return the result's metric on the target lattice."""
     metric = plane.metric
     if metric.kind in ("identity", "unknown") or same:
         return metric
@@ -234,17 +186,8 @@ def _target_metric(plane: FieldPlane, grid: TimeGrid, same: bool) -> PlaneMetric
 def _within_band(grid: TimeGrid, omega: np.ndarray) -> np.ndarray:
     """Return which absolute frequencies lie inside a grid's active band.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The receiving grid.
-    omega : numpy.ndarray
-        Absolute angular frequencies, rad/s.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask of the same shape.
+    - ``omega``: absolute angular frequencies, rad/s.
+    - Returns: boolean mask of the same shape.
     """
     active = grid.omega[grid.active_mask]
     return (omega >= float(np.min(active))) & (omega <= float(np.max(active)))
@@ -439,34 +382,9 @@ def _record_window(
 ) -> tuple[np.ndarray, float, float]:
     """Return which source samples the target window keeps, and check the record.
 
-    Parameters
-    ----------
-    plane : FieldPlane
-        The source.
-    analytic : numpy.ndarray
-        Its analytic signal, shape ``(n_columns, n_t)``.
-    weights : numpy.ndarray
-        Each column's transverse weight.
-    grid : solprop.grid.TimeGrid
-        The target grid.
-    shift : float
-        Record-time shift, s.
-    truncate : bool
-        Whether the record may be cut and declared zero outside its window.
-    tolerance : float
-        Share below which a window counts as unoccupied.
-
-    Returns
-    -------
-    tuple
-        The kept-sample mask, the share outside the target window and the share in
-        the source's temporal collar.
-
-    Raises
-    ------
-    CouplingError
-        If light falls outside the target window, or a nonlocalised or
-        unknown-exterior record would be extended, without `truncate`.
+    - ``shift``: Record-time shift, s.
+    - Returns: the kept-sample mask, the share outside the target window and the share
+      in the source's temporal collar.
     """
     source = plane.grid
     power = np.sum(weights[:, None] * np.abs(analytic) ** 2, axis=0)
@@ -521,24 +439,8 @@ def _direct_sum(
     record, not light, so a target bin outside that span is zero: the source
     represents nothing there.
 
-    Parameters
-    ----------
-    analytic : numpy.ndarray
-        Source analytic signal at the kept samples, shape ``(n_columns, n_inside)``.
-    times : numpy.ndarray
-        Their shifted times, s.
-    grid : solprop.grid.TimeGrid
-        The target grid.
-    source : solprop.grid.TimeGrid
-        The source grid.
-    phase_shift : float
-        Phase applied, rad.
-
-    Returns
-    -------
-    numpy.ndarray
-        Target stored spectra, zero outside the target's active band and outside
-        the source lattice's span, shape ``(n_columns, n_omega)``.
+    - ``times``: their shifted times, s.
+    - ``phase_shift``: phase applied, rad.
     """
     result = np.zeros((analytic.shape[0], grid.n_omega), dtype=np.complex128)
     half = 0.5 * source.d_omega

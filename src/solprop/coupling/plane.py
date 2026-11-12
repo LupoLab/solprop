@@ -114,26 +114,7 @@ def _frozen(
 ) -> np.ndarray:
     """Return an owned, read-only, finite copy of an array.
 
-    Parameters
-    ----------
-    values : object
-        Anything :func:`numpy.array` accepts.
-    dtype : type
-        The dtype of the copy.
-    name : str
-        The attribute name, for the refusal.
-    shape : tuple of int or None, optional
-        The required shape, when one is fixed.
-
-    Returns
-    -------
-    numpy.ndarray
-        The copy, with ``flags.writeable`` False.
-
-    Raises
-    ------
-    CouplingError
-        If the array is not finite or has the wrong shape.
+    - ``shape``: the required shape, when one is fixed.
     """
     array = np.array(values, dtype=dtype, copy=True)
     if shape is not None and array.shape != shape:
@@ -147,19 +128,7 @@ def _frozen(
 
 
 def _canonical(record: object) -> str:
-    """Return the canonical JSON text an identity is a digest of.
-
-    Parameters
-    ----------
-    record : object
-        JSON-ready data.
-
-    Returns
-    -------
-    str
-        Sorted, compact JSON. A material's open interval bound is infinite, and
-        JSON's ``Infinity`` spells it deterministically.
-    """
+    """Return the canonical JSON text an identity is a digest of."""
     return json.dumps(record, sort_keys=True, separators=(",", ":"))
 
 
@@ -204,18 +173,7 @@ digits sit well above that and far below any physical difference of guide."""
 
 
 def _quantised(values: np.ndarray) -> list[float]:
-    """Return values rounded to :data:`_QUANTUM_DIGITS` significant digits.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Finite real values.
-
-    Returns
-    -------
-    list of float
-        The rounded values.
-    """
+    """Return values rounded to :data:`_QUANTUM_DIGITS` significant digits."""
     return [float(f"{float(one):.{_QUANTUM_DIGITS}g}") for one in np.ravel(values)]
 
 
@@ -581,23 +539,8 @@ class PlaneReference:
 def _chebyshev_at(table: Mapping[str, object], z: float) -> float:
     """Evaluate a persisted piecewise Chebyshev series at one position.
 
-    Parameters
-    ----------
-    table : collections.abc.Mapping
-        ``breakpoints`` (increasing interval edges, m) and ``coefficients`` (one
-        list per interval, lowest degree first).
-    z : float
-        The position, inside the span to rounding.
-
-    Returns
-    -------
-    float
-        The value.
-
-    Raises
-    ------
-    CouplingError
-        If ``z`` lies outside the span.
+    - ``table``: ``breakpoints`` (increasing interval edges, m) and ``coefficients``
+      (one list per interval, lowest degree first).
     """
     edges = np.asarray(table["breakpoints"], dtype=float)
     slack = 1e-9 * max(1.0, abs(float(edges[-1])))
@@ -1651,19 +1594,8 @@ def _transverse(
 ) -> Complex[np.ndarray, "n_columns n_pol n_omega"]:
     """Apply a grid's transverse transform along the column axis.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Internal-convention spectra, shape ``(n_columns, n_pol, n_omega)``.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid whose QDHT or two-dimensional FFT is applied.
-    inverse : bool
-        True for columns to nodes, False for nodes to columns.
-
-    Returns
-    -------
-    numpy.ndarray
-        The transformed spectra, same shape.
+    - ``values``: Internal-convention spectra, shape ``(n_columns, n_pol, n_omega)``.
+    - ``space``: the grid whose QDHT or two-dimensional FFT is applied.
     """
     if isinstance(space, RadialGrid):
         moved = np.moveaxis(values, 0, -1)
@@ -1679,18 +1611,7 @@ def _transverse(
 
 
 def _kappa_squared(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_columns"]:
-    """Return each transverse column's squared wavenumber, m^-2.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_columns,)``.
-    """
+    """Return each transverse column's squared wavenumber, m^-2."""
     if isinstance(space, RadialGrid):
         return np.asarray(space.k_r, dtype=np.float64) ** 2
     return np.asarray(space.kperp_sq, dtype=np.float64)
@@ -1699,15 +1620,7 @@ def _kappa_squared(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_column
 def _node_positions(space: RadialGrid | FreeGrid) -> Float[np.ndarray, "n_nodes 2"]:
     """Return a grid's nodes as ``(x, y)`` pairs; radial nodes lie on the x axis.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Positions in m, shape ``(n_nodes, 2)``, in the grid's node order.
+    - Returns: positions in m, shape ``(n_nodes, 2)``, in the grid's node order.
     """
     if isinstance(space, RadialGrid):
         return np.column_stack((space.r, np.zeros_like(space.r)))
@@ -1717,36 +1630,14 @@ def _node_positions(space: RadialGrid | FreeGrid) -> Float[np.ndarray, "n_nodes 
 
 
 def _extent(space: RadialGrid | FreeGrid) -> float:
-    """Return the radius of the largest centred disc inside a grid's window, m.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    float
-        The radial window, or the smaller Cartesian half-width.
-    """
+    """Return the radius of the largest centred disc inside a grid's window, m."""
     if isinstance(space, RadialGrid):
         return float(space.hankel.radius)
     return float(min(np.max(np.abs(space.x)), np.max(np.abs(space.y))))
 
 
 def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
-    """Return the grid with its window doubled at the same node spacing.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The doubled grid.
-    """
+    """Return the grid with its window doubled at the same node spacing."""
     if isinstance(space, RadialGrid):
         return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
@@ -1759,18 +1650,7 @@ def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
 
 
 def _refined(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
-    """Return the grid with its node spacing halved in the same window.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The refined grid.
-    """
+    """Return the grid with its node spacing halved in the same window."""
     if isinstance(space, RadialGrid):
         return RadialGrid(space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
@@ -1790,27 +1670,9 @@ def _analytic_columns(
 ) -> Complex[np.ndarray, "n_columns n_pol n_omega"]:
     """Sample an analytic field at a grid's nodes and return its plane columns.
 
-    Parameters
-    ----------
-    field : callable
-        The analytic field (:meth:`FieldPlane.from_analytic`).
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse grid.
-    support : float or None
-        Declared support radius, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Optics-convention raw column spectra referenced to the window centre,
-        shape ``(n_columns, n_pol, n_omega)``.
-
-    Raises
-    ------
-    CouplingError
-        If the field returns the wrong shape or nonfinite values.
+    - ``support``: declared support radius, m.
+    - Returns: Optics-convention raw column spectra referenced to the window centre,
+      shape ``(n_columns, n_pol, n_omega)``.
     """
     xy = _node_positions(space)
     radius = np.hypot(xy[:, 0], xy[:, 1])
