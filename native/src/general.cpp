@@ -11143,11 +11143,11 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
         // Cache contiguous pointwise addresses to avoid repeated View stride loads.
         // Plasma retains its measured recurrence-loop layout; applying
         // the same change there regresses HE plasma by 8-9% (kokkos-reopt report).
-        const auto real_input = input_real.data();
-        const auto complex_input = input_complex.data();
-        const auto real_target = target_real.data();
-        const auto complex_target = target_complex.data();
-        const auto window_data = window.data();
+        auto* const real_input = input_real.data();
+        auto* const complex_input = input_complex.data();
+        auto* const real_target = target_real.data();
+        auto* const complex_target = target_complex.data();
+        auto* const window_data = window.data();
         const double pointwise_factor =
             Plasma ? 0.0 : kerr_coefficient * kerr_density(stage);
         for (std::size_t time = 0; time < n_to; ++time) {
