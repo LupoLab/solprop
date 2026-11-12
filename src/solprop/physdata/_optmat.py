@@ -81,15 +81,7 @@ _FLAGGED: Final = frozenset({"provisional", "untested"})
 def bar_to_pa(pressure_bar: float) -> float:
     """Convert a pressure from bar, solprop's interface unit, to optmat's pascals.
 
-    Parameters
-    ----------
-    pressure_bar : float
-        Pressure in bar.
-
-    Returns
-    -------
-    float
-        Pressure in Pa, exactly ``1e5`` times the input.
+    - Returns: pressure in Pa, exactly ``1e5`` times the input.
     """
     return float(pressure_bar) * BAR
 
@@ -97,15 +89,7 @@ def bar_to_pa(pressure_bar: float) -> float:
 def pa_to_bar(pressure_pa: float) -> float:
     """Convert a pressure from optmat's pascals to bar.
 
-    Parameters
-    ----------
-    pressure_pa : float
-        Pressure in Pa.
-
-    Returns
-    -------
-    float
-        Pressure in bar.
+    - ``pressure_pa``: pressure in Pa.
     """
     return float(pressure_pa) / BAR
 
@@ -115,15 +99,9 @@ def omega_to_wavelength(
 ) -> Float[np.ndarray, "*shape"]:
     """Return the vacuum wavelengths of non-negative angular frequencies.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies in rad/s, >= 0, already validated.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``2 pi c / omega`` in m; ``inf`` (optmat's static limit) where ``omega = 0``.
+    - ``omega``: angular frequencies in rad/s, >= 0, already validated.
+    - Returns: ``2 pi c / omega`` in m; ``inf`` (optmat's static limit) where ``omega =
+      0``.
     """
     values = np.asarray(omega, dtype=float)
     with np.errstate(divide="ignore"):
@@ -135,66 +113,26 @@ def wavelength_to_omega(
 ) -> Float[np.ndarray, "*shape"]:
     """Return the angular frequencies of positive vacuum wavelengths.
 
-    Parameters
-    ----------
-    wavelength : numpy.ndarray
-        Vacuum wavelengths in m, > 0; ``inf`` is the static limit.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``2 pi c / lambda`` in rad/s; 0 at ``inf``.
+    - ``wavelength``: vacuum wavelengths in m, > 0; ``inf`` is the static limit.
+    - Returns: ``2 pi c / lambda`` in rad/s; 0 at ``inf``.
     """
     return np.asarray(2 * math.pi * C / np.asarray(wavelength, dtype=float))
 
 
 def untyped(model: object) -> Untyped:
-    """Return an optmat object for attribute access, which its protocol cannot type.
-
-    Parameters
-    ----------
-    model : object
-        An optmat model, response or equation of state.
-
-    Returns
-    -------
-    Any
-        The same object.
-    """
+    """Return an optmat object for attribute access, which its protocol cannot type."""
     return model
 
 
 def optmat_version() -> str:
-    """Return the installed optmat version.
-
-    Returns
-    -------
-    str
-        ``optmat.__version__``.
-    """
+    """Return the installed optmat version."""
     import optmat  # noqa: PLC0415 - optmat is imported lazily, see the module docstring
 
     return str(optmat.__version__)
 
 
 def record(model: object) -> MaterialRecord:
-    """Return the record of a resolved optmat model.
-
-    Parameters
-    ----------
-    model : OptmatModel
-        Any optmat object with an ``identity``.
-
-    Returns
-    -------
-    MaterialRecord
-        Its identity in plain values.
-
-    Raises
-    ------
-    MaterialError
-        If the object has no optmat identity.
-    """
+    """Return the record of a resolved optmat model."""
     if not isinstance(model, OptmatModel):
         msg = (
             f"a {type(model).__name__} is not an optmat model: a model object carries "
@@ -207,10 +145,7 @@ def record(model: object) -> MaterialRecord:
 def open_log() -> MaterialLog | None:
     """Return the log of the innermost open evaluation context, if any.
 
-    Returns
-    -------
-    MaterialLog or None
-        The log, or ``None`` outside every context.
+    - Returns: the log, or ``None`` outside every context.
     """
     logs = _LOGS.get()
     return logs[-1] if logs else None
@@ -227,15 +162,7 @@ def material_context(log: MaterialLog | None = None) -> Iterator[MaterialLog]:
     warning either has already raised is not raised again, and both record what
     happens inside.
 
-    Parameters
-    ----------
-    log : MaterialLog or None, optional
-        The log to resume; ``None`` shares the open context's, or starts one.
-
-    Yields
-    ------
-    MaterialLog
-        The context's log.
+    - ``log``: the log to resume; ``None`` shares the open context's, or starts one.
     """
     logs = _LOGS.get()
     if log is None and logs:
@@ -257,16 +184,8 @@ def warn_once(
 ) -> None:
     """Raise a warning unless an open evaluation context has raised it already.
 
-    Parameters
-    ----------
-    key : tuple of str
-        What makes two warnings the same one: a kind and a material's digest, say.
-    message : str
-        The warning's text.
-    category : type
-        The warning's class.
-    stacklevel : int, optional
-        Passed to :func:`warnings.warn`.
+    - ``key``: what makes two warnings the same one: a kind and a material's digest,
+      say.
     """
     logs = _LOGS.get()
     if any(key in log.seen for log in logs):
@@ -281,14 +200,7 @@ def _record_range(
 ) -> None:
     """Record, in every open context, where a band left a model's intervals.
 
-    Parameters
-    ----------
-    model : OptmatModel
-        The model evaluated, with ``intervals`` and possibly ``gap_reasons``.
-    material : str
-        The material it serves.
-    wavelength : numpy.ndarray or None
-        The evaluated vacuum wavelengths in m, where known.
+    - ``wavelength``: the evaluated vacuum wavelengths in m, where known.
     """
     logs = _LOGS.get()
     if not logs:
@@ -312,23 +224,6 @@ def check_status(model: object, material: str) -> MaterialRecord:
     A ``provisional`` or ``untested`` model warns once per evaluation context; a
     ``validated``, ``comparison`` or ``user`` one does not, since the first is a
     curated default and the other two were chosen by the caller.
-
-    Parameters
-    ----------
-    model : OptmatModel
-        The resolved model.
-    material : str
-        The material it serves, for the message.
-
-    Returns
-    -------
-    MaterialRecord
-        The model's record.
-
-    Warns
-    -----
-    MaterialStatusWarning
-        If the model is ``provisional`` or ``untested``.
     """
     entry = record(model)
     if entry.status in _FLAGGED:
@@ -344,15 +239,7 @@ def check_status(model: object, material: str) -> MaterialRecord:
 def _nm(value: float) -> str:
     """Return a wavelength in nm as text.
 
-    Parameters
-    ----------
-    value : float
-        Wavelength in m; ``inf`` is the static limit.
-
-    Returns
-    -------
-    str
-        Four significant figures and the unit, or ``inf``.
+    - ``value``: wavelength in m; ``inf`` is the static limit.
     """
     return "inf" if math.isinf(value) else f"{value * 1e9:.4g} nm"
 
@@ -364,20 +251,12 @@ def outside_parts(
 ) -> tuple[str, ...]:
     """Describe the parts of a band that lie outside a model's qualified intervals.
 
-    Parameters
-    ----------
-    wavelength : numpy.ndarray
-        The evaluated vacuum wavelengths in m.
-    intervals : sequence of tuple of float
-        The model's disjoint, ascending qualified intervals in m.
-    gap_reasons : sequence of str, optional
-        The reason of each gap between two consecutive intervals, where known.
-
-    Returns
-    -------
-    tuple of str
-        One phrase per part outside: below the first interval, in each gap the band
-        reaches (with its reason), and beyond the last; empty if the band is inside.
+    - ``wavelength``: the evaluated vacuum wavelengths in m.
+    - ``intervals``: the model's disjoint, ascending qualified intervals in m.
+    - ``gap_reasons``: the reason of each gap between two consecutive intervals, where
+      known.
+    - Returns: one phrase per part outside: below the first interval, in each gap the
+      band reaches (with its reason), and beyond the last; empty if the band is inside.
     """
     values = np.ravel(np.asarray(wavelength, dtype=float))
     values = values[~np.isnan(values)]
@@ -408,19 +287,7 @@ def _range_message(
 ) -> str:
     """Return the text of a range warning for a band outside a model's intervals.
 
-    Parameters
-    ----------
-    model : OptmatModel
-        The model, with ``intervals`` and, for a fit with several, ``gap_reasons``.
-    material : str
-        The material, for the message.
-    wavelength : numpy.ndarray or None
-        The evaluated vacuum wavelengths in m, where known.
-
-    Returns
-    -------
-    str
-        The model, its intervals, and the parts of the band outside them.
+    - ``wavelength``: the evaluated vacuum wavelengths in m, where known.
     """
     entry = record(model)
     intervals: tuple[tuple[float, float], ...] = tuple(
@@ -449,29 +316,7 @@ def _range_message(
 def _captured(
     model: object, quantity: str, *, material: str, state: str = ""
 ) -> Iterator[list[warnings.WarningMessage]]:
-    """Capture optmat's warnings and translate its refusals.
-
-    Parameters
-    ----------
-    model : OptmatModel
-        The model the body evaluates.
-    quantity : str
-        What it evaluates, for messages.
-    material : str
-        The material, for messages.
-    state : str, optional
-        The state asked for, for error messages.
-
-    Yields
-    ------
-    list of warnings.WarningMessage
-        The warnings the body raises, filled as it runs.
-
-    Raises
-    ------
-    MaterialError
-        If optmat refuses the evaluation.
-    """
+    """Capture optmat's warnings and translate its refusals."""
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
 
     entry = record(model)
@@ -499,34 +344,12 @@ def translated(
 ) -> Iterator[None]:
     """Evaluate optmat under solprop's warning and error policy.
 
-    Parameters
-    ----------
-    model : OptmatModel
-        The model the body evaluates.
-    quantity : str
-        What it evaluates, for messages: ``"polarizability"``, ``"number density"``.
-    material : str
-        The material, for messages.
-    wavelength : numpy.ndarray or None, optional
-        The vacuum wavelengths in m the body evaluates, for range messages.
-    state : str, optional
-        The state asked for, for error messages: ``"30 bar and 293.15 K"``.
-
-    Yields
-    ------
-    None
-        Control, with optmat's warnings captured.
-
-    Raises
-    ------
-    MaterialError
-        If optmat refuses the evaluation.
-
-    Warns
-    -----
-    MaterialRangeWarning
-        Once per material and evaluation context, if the band leaves the model's
-        qualified intervals or an absorbing model's real part is asked for.
+    - ``wavelength``: the vacuum wavelengths in m the body evaluates, for range
+      messages.
+    - ``state``: the state asked for, for error messages: ``"30 bar and 293.15 K"``.
+    - Warns :class:`MaterialRangeWarning` once per material and evaluation context if
+      the band leaves the model's qualified intervals or an absorbing model's real part
+      is asked for.
     """
     with _captured(model, quantity, material=material, state=state) as caught:
         yield
@@ -556,24 +379,8 @@ class EvaluationCache:
     beyond :attr:`size`. The cache is not copied with its adapter: a pickled or
     deep-copied adapter starts with an empty one.
 
-    Parameters
-    ----------
-    size : int, optional
-        The most entries kept, :data:`EVALUATION_CACHE_SIZE` by default; at least
-        one.
-
-    Raises
-    ------
-    ValueError
-        If `size` is less than one.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.physdata._optmat import EvaluationCache
-    >>> cache = EvaluationCache(size=2)
-    >>> len(cache), cache.size
-    (0, 2)
+    - ``size``: the most entries kept, :data:`EVALUATION_CACHE_SIZE` by default; at
+      least one.
     """
 
     __slots__ = ("_entries", "_lock", "size")
@@ -581,15 +388,7 @@ class EvaluationCache:
     def __init__(self, size: int = EVALUATION_CACHE_SIZE) -> None:
         """Start empty.
 
-        Parameters
-        ----------
-        size : int, optional
-            The most entries kept; at least one.
-
-        Raises
-        ------
-        ValueError
-            If `size` is less than one.
+        - ``size``: the most entries kept; at least one.
         """
         if size < 1:
             msg = f"an evaluation cache keeps at least one entry, not {size}"
@@ -602,32 +401,17 @@ class EvaluationCache:
         self._lock = threading.Lock()
 
     def __len__(self) -> int:
-        """Return the number of entries held.
-
-        Returns
-        -------
-        int
-            At most :attr:`size`.
-        """
+        """Return the number of entries held."""
         return len(self._entries)
 
     def __repr__(self) -> str:
-        """Return the size and occupancy.
-
-        Returns
-        -------
-        str
-            For example ``EvaluationCache(2 of 8)``.
-        """
+        """Return the size and occupancy."""
         return f"EvaluationCache({len(self)} of {self.size})"
 
     def __reduce__(self) -> tuple[type["EvaluationCache"], tuple[int]]:
         """Pickle and copy as an empty cache of the same size.
 
-        Returns
-        -------
-        tuple
-            The class and its size.
+        - Returns: the class and its size.
         """
         return (type(self), (self.size,))
 
@@ -648,36 +432,11 @@ class EvaluationCache:
     ) -> tuple[np.ndarray, ...]:
         """Return an evaluation at `omega`, computing it only if it is not held.
 
-        Parameters
-        ----------
-        quantity : str
-            What `compute` evaluates, the key's first part and the messages' word.
-        omega : numpy.ndarray
-            The validated angular frequencies in rad/s, the key's second part.
-        model : OptmatModel
-            The model `compute` evaluates.
-        material : str
-            The material, for messages.
-        wavelength : numpy.ndarray
-            The vacuum wavelengths of `omega` in m, for range messages.
-        compute : callable
-            Evaluates optmat and returns its arrays; called under
-            :func:`translated`'s policy.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Fresh, writeable copies of the arrays `compute` returns.
-
-        Raises
-        ------
-        MaterialError
-            If optmat refuses the evaluation; nothing is stored.
-
-        Warns
-        -----
-        MaterialRangeWarning
-            As :func:`translated`, at every use whether stored or not.
+        - ``omega``: the validated angular frequencies in rad/s, the key's second part.
+        - ``wavelength``: the vacuum wavelengths of `omega` in m, for range messages.
+        - Returns: fresh, writeable copies of the arrays `compute` returns; nothing is
+          stored if optmat refuses the evaluation. Range warnings are raised as
+          :func:`translated` raises them, at every use whether stored or not.
         """
         values = np.asarray(omega)
         key = (quantity, values.shape, values.dtype.str, values.tobytes())
@@ -712,16 +471,7 @@ def _reemit(
 ) -> None:
     """Raise captured optmat warnings as solprop's, once each per context.
 
-    Parameters
-    ----------
-    caught : sequence of warnings.WarningMessage
-        What the evaluation raised.
-    model : OptmatModel
-        The model evaluated.
-    material : str
-        The material, for messages.
-    wavelength : numpy.ndarray or None
-        The evaluated vacuum wavelengths in m, where known.
+    - ``wavelength``: the evaluated vacuum wavelengths in m, where known.
     """
     from optmat.exceptions import (  # noqa: PLC0415 - optmat is imported lazily
         ModelAbsorptionWarning,
@@ -751,23 +501,7 @@ def _reemit(
 
 
 def composition_fractions(name: str) -> Mapping[str, float]:
-    """Return a named optmat composition's species and mole fractions.
-
-    Parameters
-    ----------
-    name : str
-        A composition optmat names, such as ``"dry air (N2, O2, Ar)"``.
-
-    Returns
-    -------
-    collections.abc.Mapping
-        Gas to mole fraction, in optmat's order, summing to one.
-
-    Raises
-    ------
-    MaterialError
-        If optmat has no composition of that name.
-    """
+    """Return a named optmat composition's species and mole fractions."""
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - lazily, see above
     from optmat.gas.composition import composition  # noqa: PLC0415 - as above
 
@@ -790,21 +524,11 @@ def record_dropped(
 ) -> None:
     """Record, in every open context, the loss a transparent index dropped.
 
-    Parameters
-    ----------
-    model : OptmatModel
-        The solid model whose imaginary index was dropped.
-    bound : float
-        The transparent approximation's absorption bound in 1/m.
-    extinction : float
-        The largest ``k`` dropped, dimensionless.
-    absorption : float
-        The largest ``4 pi k / lambda`` dropped, 1/m.
-    wavelength : float
-        The vacuum wavelength in m of that absorption, or NaN.
-    digest : str, optional
-        The model's record digest, when the caller holds it; otherwise it is formed
-        from the model's identity.
+    - ``bound``: the transparent approximation's absorption bound in 1/m.
+    - ``absorption``: the largest ``4 pi k / lambda`` dropped, 1/m.
+    - ``wavelength``: the vacuum wavelength in m of that absorption, or NaN.
+    - ``digest``: the model's record digest, when the caller holds it; otherwise it is
+      formed from the model's identity.
     """
     logs = _LOGS.get()
     if not logs:
@@ -820,15 +544,6 @@ def record_outside(model: object, material: str, parts: Sequence[str]) -> None:
     For a range the model warns about at every evaluation, which an adapter records
     rather than emits (an ionisation rate tabulated above its maximum field), or one
     that is not of wavelength (a Raman response's densities and temperature).
-
-    Parameters
-    ----------
-    model : OptmatModel
-        The model evaluated.
-    material : str
-        The material it serves.
-    parts : sequence of str
-        The phrases naming what lay outside.
     """
     logs = _LOGS.get()
     if not logs:

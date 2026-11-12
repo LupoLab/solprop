@@ -18,35 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 def lock_path(path: Path | str) -> Path:
-    """Locate the persistent advisory lock beside a collected scan.
-
-    Parameters
-    ----------
-    path : Path | str
-        Queue directory or record filename used by this operation.
-
-    Returns
-    -------
-    pathlib.Path
-        Persistent sidecar filename beside the collected scan.
-    """
+    """Locate the persistent advisory lock beside a collected scan."""
     path = Path(path)
     return path.with_name(path.name + ".lock")
 
 
 def _sidecar(path: Path | str) -> int:
-    """Open the persistent sidecar, creating it so a reader can find the lock.
-
-    Parameters
-    ----------
-    path : Path | str
-        Queue directory or record filename used by this operation.
-
-    Returns
-    -------
-    int
-        Open file descriptor for the sidecar; the caller closes it.
-    """
+    """Open the persistent sidecar, creating it so a reader can find the lock."""
     return os.open(lock_path(path), os.O_CREAT | os.O_RDWR, 0o600)
 
 
@@ -57,16 +35,6 @@ def write_scan(path: Path | str) -> Iterator[None]:
     Ownership is the kernel's, so a killed controller releases the file rather
     than stranding it. HDF5 is not opened here: the caller owns the file for as
     long as it holds this lock.
-
-    Parameters
-    ----------
-    path : Path | str
-        Queue directory or record filename used by this operation.
-
-    Yields
-    ------
-    None
-        Control while the exclusive advisory lock is held.
     """
     descriptor = _sidecar(path)
     try:
@@ -85,15 +53,7 @@ def read_scan(path: Path | str) -> Iterator[h5py.File]:
     creates it too, and a reader that skipped the lock because no sidecar existed
     yet would open a live non-SWMR file under an active writer.
 
-    Parameters
-    ----------
-    path : Path | str
-        Queue directory or record filename used by this operation.
-
-    Yields
-    ------
-    h5py.File
-        Open read-only scan while a shared advisory lock is held.
+    - Yields: open read-only scan while a shared advisory lock is held.
     """
     if not Path(path).is_file():
         # Refused before the sidecar exists, so a mistyped path leaves nothing behind.

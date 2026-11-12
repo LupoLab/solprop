@@ -133,22 +133,24 @@ class IonisationRate(Protocol):
     """
 
     @property
-    def threshold(self) -> float:
+    def threshold(self) -> float:  # numpydoc ignore=RT01
         """Field amplitude, V/m, below which the rate is exactly zero."""
         ...
 
     @property
-    def maximum(self) -> float:
+    def maximum(self) -> float:  # numpydoc ignore=RT01
         """Ceiling on the rate, s^-1; the value is clipped there."""
         ...
 
     @property
-    def citation(self) -> str:
+    def citation(self) -> str:  # numpydoc ignore=RT01
         """One-line reference for the model and the options in force."""
         ...
 
     @property
-    def parameters(self) -> tuple[tuple[str, float | int | bool | str], ...]:
+    def parameters(
+        self,
+    ) -> tuple[tuple[str, float | int | bool | str], ...]:  # numpydoc ignore=RT01
         """Every setting that changes the rate, name-sorted and hashable.
 
         The translation layer builds its table cache key from this, so two rates that
@@ -535,13 +537,10 @@ class RunningIntegral:
         return cls("trapezoid", np.ones(1), boundary="none", exposure="none")
 
     @property
-    def half_width(self) -> int:
-        """Return ``K``, the number of samples the filter reads on each side.
+    def half_width(self) -> int:  # numpydoc ignore=RT01
+        """``K``, the number of samples the filter reads on each side.
 
-        Returns
-        -------
-        int
-            ``len(taps) - 1``; zero for the trapezoid.
+        ``len(taps) - 1``; zero for the trapezoid.
         """
         return self.taps.size - 1
 
@@ -748,20 +747,7 @@ def ionisation_fraction(
 
 
 def _validate_positive(name: str, value: float) -> None:
-    """Raise unless ``value`` is a positive, finite number.
-
-    Parameters
-    ----------
-    name : str
-        The name to quote in the message.
-    value : float
-        The number to check.
-
-    Raises
-    ------
-    MaterialError
-        Naming the offending argument.
-    """
+    """Raise unless ``value`` is a positive, finite number."""
     if not math.isfinite(value) or value <= 0.0:
         msg = f"{name} must be positive and finite, got {value!r}"
         raise MaterialError(msg)
@@ -770,20 +756,7 @@ def _validate_positive(name: str, value: float) -> None:
 def _finite_field(field_amplitude: ArrayLike | float) -> Float[np.ndarray, " *shape"]:
     """Return ``|field_amplitude|`` as a float array, rejecting anything not finite.
 
-    Parameters
-    ----------
-    field_amplitude : array_like or float
-        Field amplitude in V/m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The absolute value as float64, with the shape of the argument.
-
-    Raises
-    ------
-    MaterialError
-        If any element is a NaN or an infinity.
+    - ``field_amplitude``: field amplitude in V/m.
     """
     # np.abs on a zero-dimensional array returns a numpy scalar rather than an array,
     # so the result is wrapped again: every public rate returns an ndarray, including

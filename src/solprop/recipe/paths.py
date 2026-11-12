@@ -87,19 +87,7 @@ _KEY = re.compile(r'\[("(?:[^"\\]|\\.)*")\]', re.DOTALL)
 def _refuse(text: str, column: int, reason: str) -> RecipeError:
     """Return the error for a path text that cannot be read.
 
-    Parameters
-    ----------
-    text : str
-        The path text.
-    column : int
-        The zero-based position where reading stopped.
-    reason : str
-        What was expected there.
-
-    Returns
-    -------
-    RecipeError
-        The error, to raise; it gives the column counted from 1.
+    - ``column``: the zero-based position where reading stopped.
     """
     return RecipeError(
         f"cannot read the parameter path {text!r} at column {column + 1}: {reason}"
@@ -201,40 +189,13 @@ def format_path(steps: Sequence[Step]) -> str:
 
 
 def _steps(path: str | Sequence[Step]) -> tuple[tuple[Step, ...], str]:
-    """Return the steps of a path given as text or steps, and its canonical text.
-
-    Parameters
-    ----------
-    path : str or sequence of Attribute, Index or Key
-        The path.
-
-    Returns
-    -------
-    tuple
-        The steps, and the canonical text.
-
-    Raises
-    ------
-    RecipeError
-        If the path cannot be read or written.
-    """
+    """Return the steps of a path given as text or steps, and its canonical text."""
     steps = parse_path(path) if isinstance(path, str) else tuple(path)
     return steps, format_path(steps)
 
 
 def _step_text(step: Step) -> str:
-    """Write one step as it appears after the keyword.
-
-    Parameters
-    ----------
-    step : Attribute, Index or Key
-        The step.
-
-    Returns
-    -------
-    str
-        ``.name``, ``[i]`` or ``["key"]``.
-    """
+    """Write one step as it appears after the keyword."""
     if isinstance(step, Attribute):
         return f".{step.name}"
     if isinstance(step, Index):
@@ -245,27 +206,8 @@ def _step_text(step: Step) -> str:
 def _child(node: object, step: Step, path: str, reached: Sequence[Step]) -> object:
     """Return the entry of a node that one step addresses.
 
-    Parameters
-    ----------
-    node : object
-        The table or array the step is taken in.
-    step : Attribute, Index or Key
-        The step.
-    path : str
-        The whole path's canonical text, for the error.
-    reached : sequence of Attribute, Index or Key
-        The steps that led to ``node``; empty at the top, where the step is a
-        keyword.
-
-    Returns
-    -------
-    object
-        The entry.
-
-    Raises
-    ------
-    RecipeError
-        If ``node`` has no such entry, naming what was reached and the step.
+    - ``reached``: the steps that led to ``node``; empty at the top, where the step is a
+      keyword.
     """
     if not reached:
         assert isinstance(step, Attribute)  # parse_path and format_path ensure it
@@ -340,28 +282,8 @@ def _replace(
 ) -> object:
     """Return a copy of a node with a value set at the end of some steps.
 
-    Parameters
-    ----------
-    node : object
-        The table or array the steps start in.
-    steps : tuple of Attribute, Index or Key
-        The steps from ``node``, at least one.
-    value : object
-        The value to set.
-    path : str
-        The whole path's canonical text, for the error.
-    reached : tuple of Attribute, Index or Key
-        The steps that led to ``node``.
-
-    Returns
-    -------
-    object
-        The copy; the tables and arrays on the path are new and the rest shared.
-
-    Raises
-    ------
-    RecipeError
-        If a step before the last finds no entry, or an index is past the end.
+    - ``steps``: the steps from ``node``, at least one.
+    - ``reached``: the steps that led to ``node``.
     """
     step, rest = steps[0], steps[1:]
     if rest:

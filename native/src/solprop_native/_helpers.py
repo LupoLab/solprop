@@ -30,20 +30,9 @@ def _basis(
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Return the Lagrange basis on `points`: its coefficients, or its integrals.
 
-    Parameters
-    ----------
-    points
-        The distinct nodes, float64, C-contiguous, at most 32 of them.
-    upper
-        The integral's upper limit.
-    integrate
-        Whether to return the integrals rather than the coefficients.
-
-    Returns
-    -------
-    tuple
-        The coefficients, shape ``(n, n)`` (zero when integrating), and the integrals,
-        shape ``(n,)`` (unset when not).
+    - ``points``: the distinct nodes, float64, C-contiguous, at most 32 of them.
+    - Returns: the coefficients, shape ``(n, n)`` (zero when integrating), and the
+      integrals, shape ``(n,)`` (unset when not).
     """
     count = points.shape[0]
     rows = np.empty((count, count))
@@ -65,23 +54,11 @@ def _tables(
 ]:
     """Return an exponential Adams trial's coefficient tables, formed in one call.
 
-    Parameters
-    ----------
-    nodes
-        The history's normalised positions, newest first, float64, C-contiguous.
-    order
-        The step's order.
-    orders
-        The orders scored, the step's own first.
-    compensated
-        Whether the trial carries the transported compensation.
-
-    Returns
-    -------
-    tuple
-        solprop's ``trial_tables``: the predictor, corrector and factored defect
-        rows, then the compensation's spans, weights and defect rows, empty when not
-        compensated.
+    - ``nodes``: the history's normalised positions, newest first, float64,
+      C-contiguous.
+    - Returns: solprop's ``trial_tables``: the predictor, corrector and factored defect
+      rows, then the compensation's spans, weights and defect rows, empty when not
+      compensated.
     """
     width = 1 + max(orders)
     count = len(orders)

@@ -171,17 +171,8 @@ class QDHT:
     def _apply(self, values: ArrayLike, scale: float) -> Inexact[np.ndarray, "... n_r"]:
         """Apply the dimensionless transform between its two diagonal scalings.
 
-        Parameters
-        ----------
-        values : array_like
-            Finite real or complex samples with n_r on the final axis.
-        scale : float
-            Forward or inverse common scaling, in m^2 or m^-2.
-
-        Returns
-        -------
-        numpy.ndarray
-            Transformed samples, retaining the leading dimensions.
+        - ``values``: finite real or complex samples with n_r on the final axis.
+        - ``scale``: forward or inverse common scaling, in m^2 or m^-2.
         """
         array = np.asarray(values)
         if array.ndim == 0 or array.shape[-1] != self.n_r:

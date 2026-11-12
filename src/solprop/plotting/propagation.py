@@ -532,17 +532,7 @@ def plot_energy(
 def _axis(ax: Axes | None, figsize: tuple[float, float]) -> Axes:
     """Return the axis to draw on, making a figure when none was given.
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes or None
-        The caller's axis, or ``None``.
-    figsize : tuple of float
-        Size of the new figure, inches.
-
-    Returns
-    -------
-    matplotlib.axes.Axes
-        The axis to draw on.
+    - ``ax``: the caller's axis, or ``None``.
     """
     if ax is not None:
         return ax
@@ -556,17 +546,9 @@ def _with_mode_axis(
 ) -> Float[np.ndarray, "*with_modes"]:
     """Restore the mode axis an accessor squeezed away.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        What an accessor returned, with or without a mode axis.
-    leading : bool
-        Whether a plane axis comes before the mode axis.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values with a mode axis, of length one when there was none.
+    - ``values``: what an accessor returned, with or without a mode axis.
+    - ``leading``: whether a plane axis comes before the mode axis.
+    - Returns: the same values with a mode axis, of length one when there was none.
     """
     wanted = 3 if leading else 2
     if values.ndim == wanted:
@@ -575,22 +557,7 @@ def _with_mode_axis(
 
 
 def _drawn_labels(output: Output, count: int, modes: ModeSelection) -> list[str]:
-    """Return the label of each drawn trace.
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    count : int
-        How many traces are drawn.
-    modes : int, sequence of int, 'sum' or None
-        The selection they came from.
-
-    Returns
-    -------
-    list of str
-        One label per trace: the mode's name, or ``'sum'`` for a modal sum.
-    """
+    """Return the label of each drawn trace."""
     if modes == "sum":
         return ["sum"]
     every = mode_labels(output, max(field_modes(output), count))
@@ -603,17 +570,7 @@ def _drawn_labels(output: Output, count: int, modes: ModeSelection) -> list[str]
 def _plane_indices(output: Output, z: float | Sequence[float] | None) -> list[int]:
     """Return the plane indices a slice plot draws.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    z : float, sequence of float or None
-        Positions, m; ``None`` means the last saved plane.
-
-    Returns
-    -------
-    list of int
-        Indices into the saved planes, one per position.
+    - ``z``: positions, m; ``None`` means the last saved plane.
     """
     if z is None:
         return [output.n_saved - 1]
@@ -624,38 +581,16 @@ def _plane_indices(output: Output, z: float | Sequence[float] | None) -> list[in
 def _legend_entry(z: float, name: str, n_labels: int) -> str:
     """Return the legend entry of one trace.
 
-    Parameters
-    ----------
-    z : float
-        Position of the plane, m.
-    name : str
-        Label of the mode.
-    n_labels : int
-        How many modes are drawn; the mode is named only when there is more than one.
-
-    Returns
-    -------
-    str
-        The entry.
+    - ``z``: position of the plane, m.
+    - ``n_labels``: how many modes are drawn; the mode is named only when there is more
+      than one.
     """
     entry = f"{z * Z_TO_CM:.2f} cm"
     return entry if n_labels == 1 else f"{entry} ({name})"
 
 
 def _dashes(index: int) -> tuple[float, ...]:
-    """Return the dash pattern of a mode, so that modes differ within one colour.
-
-    Parameters
-    ----------
-    index : int
-        Index of the mode among those drawn.
-
-    Returns
-    -------
-    tuple of float
-        A dash pattern, solid for the first mode. The patterns repeat past the last
-        one.
-    """
+    """Return the dash pattern of a mode, so that modes differ within one colour."""
     patterns: tuple[tuple[float, ...], ...] = (
         (),
         (4.0, 2.0),
@@ -669,18 +604,8 @@ def _dashes(index: int) -> tuple[float, ...]:
 def _density_label(axis: SpectralAxis, width: str = "") -> str:
     """Return the ordinate label of a spectral energy density.
 
-    Parameters
-    ----------
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa it is quoted against.
-    width : str
-        :func:`solprop.plotting.style.per_width` of the run: ``"/m"`` makes the
-        density one per metre of y as well.
-
-    Returns
-    -------
-    str
-        The label, with its unit.
+    - ``width``: :func:`solprop.plotting.style.per_width` of the run: ``"/m"`` makes the
+      density one per metre of y as well.
     """
     units = {"wavelength": "J/m", "f": "J/Hz", "omega": "J/(rad/s)"}
     per_y = " per m of y" if width else ""
@@ -699,22 +624,7 @@ def _spectral_map(
 ) -> None:
     """Draw one spectral density map in decibels.
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The axis to draw on.
-    x : numpy.ndarray
-        Spectral abscissa in display units, shape ``(n_x,)``.
-    z : numpy.ndarray
-        Distance in centimetres, shape ``(n_z,)``.
-    density : numpy.ndarray
-        Spectral energy density, shape ``(n_z, n_x)``.
-    reference : float
-        The density that is 0 dB.
-    db_min : float
-        Bottom of the colour scale, dB.
-    cmap : str, matplotlib.colors.Colormap or None
-        Colour map.
+    - ``ax``: the axis to draw on.
     """
     floor = reference * 10.0 ** ((db_min - _DB_FLOOR_MARGIN) / 10.0)
     decibels = 10.0 * np.log10(np.maximum(density, floor) / reference)
@@ -735,20 +645,10 @@ def _temporal_map(
 ) -> None:
     """Draw one instantaneous-power map.
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The axis to draw on.
-    t : numpy.ndarray
-        Time in femtoseconds, shape ``(n_t,)``.
-    z : numpy.ndarray
-        Distance in centimetres, shape ``(n_z,)``.
-    power : numpy.ndarray
-        Instantaneous power, W, shape ``(n_z, n_t)``.
-    cmap : str, matplotlib.colors.Colormap or None
-        Colour map.
-    width : str
-        ``"/m"`` for a power per metre of y (:func:`solprop.plotting.style.per_width`).
+    - ``ax``: the axis to draw on.
+    - ``power``: instantaneous power, W, shape ``(n_z, n_t)``.
+    - ``width``: ``"/m"`` for a power per metre of y
+      (:func:`solprop.plotting.style.per_width`).
     """
     scale, unit = power_unit(power)
     mesh = ax.pcolormesh(

@@ -151,19 +151,11 @@ class Counters:
     ) -> None:
         """Count one native march call from its returned rows.
 
-        Parameters
-        ----------
-        kind : str
-            The march, ``adams_march`` or ``rk_march``.
-        reason : str
-            The call's ``march::Reason``, by name.
-        rows : numpy.ndarray
-            The call's attempt rows, the accepted flag in column 3.
-        due : dict
-            Accepted steps from the call's start to each piece of the driver's work,
-            by name, as the call's ``host_step`` bound was formed.
-        read_at : float or None
-            The transverse edge's next read, if the call was bounded by one.
+        - ``kind``: the march, ``adams_march`` or ``rk_march``.
+        - ``rows``: the call's attempt rows, the accepted flag in column 3.
+        - ``due``: accepted steps from the call's start to each piece of the driver's
+          work, by name, as the call's ``host_step`` bound was formed.
+        - ``read_at``: the transverse edge's next read, if the call was bounded by one.
         """
         accepted = int(np.count_nonzero(rows[:, 3])) if rows.size else 0
         self.march_calls[kind] += 1
@@ -191,25 +183,8 @@ class Counters:
     ) -> None:
         """Count one batch a native session returned from ``advance``.
 
-        Parameters
-        ----------
-        event : str
-            Its event's kind: ``observation``, ``snapshot``, ``warning``,
-            ``terminal``, or ``progress:`` and its cause.
-        attempts : int
-            The attempts its chunk carries.
-        accepted : int
-            The accepted steps among them.
-        rows : int, optional
-            The periodic rows its chunk carries.
-        evaluations : int, optional
-            The statistics evaluations it carries: its rows and its plane statistics.
-        plane : bool, optional
-            Whether it is an observation after the launch.
-        march : str, optional
-            The session's march, for its native march calls.
-        calls : int, optional
-            The native march calls the ``advance`` made.
+        - ``event``: its event's kind: ``observation``, ``snapshot``, ``warning``,
+          ``terminal``, or ``progress:`` and its cause.
         """
         self.returns[f"session_{event}"] += 1
         self.march_attempts += attempts

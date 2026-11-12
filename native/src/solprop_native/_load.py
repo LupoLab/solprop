@@ -102,10 +102,7 @@ class Loaded:
     def native_noise(self) -> ComplexArray:
         """Return the realisation the native state adds at every stage, flat.
 
-        Returns
-        -------
-        numpy.ndarray
-            The ``modified`` model's realisation, or an empty array.
+        - Returns: the ``modified`` model's realisation, or an empty array.
         """
         if self.noise is None:
             return _EMPTY
@@ -123,32 +120,11 @@ def load(
 ) -> Loaded:
     """Return a start's state, noise and position as the native state takes them.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    stepper : solprop.translate.problem.StepperSettings
-        Its stepping policy, for a replay's cursor.
-    field : numpy.ndarray
-        The state, shape ``(n_modes, n_pol, n_omega)``, of any strides.
-    noise : solprop.noise.NoiseRealisation or None
-        The realisation to carry, or ``None`` for the problem's own.
-    z : float
-        Where the state belongs, m.
-    resume : bool
-        Whether `field` came back from a saved plane of this run, and so never takes
-        the ``input`` draw.
-
-    Returns
-    -------
-    Loaded
-        The load.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If the field does not match the problem's shape, `z` lies outside the operator
-        table, or a schedule is replayed and `z` is not one of its edges.
+    - ``field``: the state, shape ``(n_modes, n_pol, n_omega)``, of any strides.
+    - ``noise``: the realisation to carry, or ``None`` for the problem's own.
+    - ``z``: where the state belongs, m.
+    - ``resume``: `field` came back from a saved plane of this run, and so never takes
+      the ``input`` draw.
     """
     values = np.ascontiguousarray(field, dtype=np.complex128)
     if values.shape != problem.shape:
@@ -187,22 +163,8 @@ def load(
 def schedule_index(stepper: StepperSettings, z: float) -> int:
     """Return how many steps of a replayed schedule a position has consumed.
 
-    Parameters
-    ----------
-    stepper : solprop.translate.problem.StepperSettings
-        The stepping policy.
-    z : float
-        The position, m.
-
-    Returns
-    -------
-    int
-        The index of the schedule's edge at `z`, and 0 without a schedule.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If a schedule is replayed and `z` is not one of its edges.
+    - ``z``: the position, m.
+    - Returns: the index of the schedule's edge at `z`, and 0 without a schedule.
     """
     schedule = stepper.schedule
     if schedule is None:
@@ -263,13 +225,6 @@ class StageCache:
     stage, and :meth:`bundles` reads every scalar table once over all of them; the
     bundles equal :meth:`scalars`'s bit for bit and are kept, by anchor and position,
     until the next hoist.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    helpers : solprop._helpers.Helpers
-        The backend's compiled Clenshaw and basis helpers.
     """
 
     def __init__(self, problem: PropagationProblem, helpers: Helpers) -> None:
@@ -282,10 +237,7 @@ class StageCache:
     def hoist(self, z0: float) -> None:
         """Evaluate the anchor every stage of a step at `z0` subtracts; drop the kept.
 
-        Parameters
-        ----------
-        z0 : float
-            The step's anchor, m.
+        - ``z0``: the step's anchor, m.
         """
         self._anchor = anchor(self._problem, z0, helpers=self._helpers)
         self._kept.clear()
@@ -295,17 +247,8 @@ class StageCache:
     ) -> tuple[StageScalars, ...]:
         """Return the scalars of several stages of one step, taken together.
 
-        Parameters
-        ----------
-        z0 : float
-            The step's anchor, m.
-        positions : sequence of float
-            The stages' positions, m.
-
-        Returns
-        -------
-        tuple of solprop.translate.stage.StageScalars
-            One bundle per position, in order.
+        - ``z0``: the step's anchor, m.
+        - ``positions``: the stages' positions, m.
         """
         kept = self._kept
         missing = [z1 for z1 in dict.fromkeys(positions) if (z0, z1) not in kept]
@@ -320,17 +263,8 @@ class StageCache:
     def scalars(self, z0: float, z1: float) -> StageScalars:
         """Return one stage's scalars, a kept bundle where one was taken.
 
-        Parameters
-        ----------
-        z0 : float
-            The step's anchor, m.
-        z1 : float
-            The stage's position, m.
-
-        Returns
-        -------
-        solprop.translate.stage.StageScalars
-            The weights and the scalar path values.
+        - ``z0``: the step's anchor, m.
+        - ``z1``: the stage's position, m.
         """
         kept = self._kept.get((z0, z1))
         if kept is not None:
@@ -347,17 +281,7 @@ def collar_rests(problem: PropagationProblem, stepper: StepperSettings) -> bool:
     route, a real-space collar sharing the term, single precision, and the Cartesian,
     line and planar routes keep the collar in every stage (SEP 21 D15).
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    stepper : solprop.translate.problem.StepperSettings
-        Its stepping policy.
-
-    Returns
-    -------
-    bool
-        True when the term may be left out while the collar is quiet.
+    - Returns: True when the term may be left out while the collar is quiet.
     """
     responses = problem.responses
     geometry = problem.transform.geometry
@@ -386,19 +310,7 @@ def propagator_mode(
     or any on a device build, per element: there an extra field read costs more than
     the exponential (SEP 24 section 4.3).
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    stepper : solprop.translate.problem.StepperSettings
-        Its stepping policy.
-    device : bool
-        Whether the build executes on a device.
-
-    Returns
-    -------
-    str
-        ``"tabulate"`` or ``"recompute"``.
+    - Returns: ``"tabulate"`` or ``"recompute"``.
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return "recompute"

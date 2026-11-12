@@ -85,23 +85,10 @@ def _transverse_term(
 ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
     """Return one wall pair's squared transverse wavenumber divided by k squared.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Frequencies in rad/s; complex continuation is allowed.
-    width : float
-        Positive half-width in m.
-    order : int
-        Positive transverse mode index.
-    correction : numpy.ndarray
-        Dimensionless TE-like or TM-like reflection coefficient.
-    slope : numpy.ndarray
-        Frequency derivative of the correction, in s/rad.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Dimensionless decrement and its derivative in s/rad.
+    - ``omega``: frequencies in rad/s; complex continuation is allowed.
+    - ``width``: positive half-width in m.
+    - ``slope``: frequency derivative of the correction, in s/rad.
+    - Returns: dimensionless decrement and its derivative in s/rad.
     """
     scale = C / (omega * width)
     leading = (order * math.pi * scale / 2) ** 2
@@ -138,19 +125,8 @@ class _WallPairFill(GasFillMixin):
         (:meth:`~solprop.modes.fill.GasFillMixin._frozen_fill` copies the reference),
         so a guide that varies along z warns once, not once per sampled position.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Core and wall samples on the evaluated band, real frequencies.
-        pairs : sequence of tuple
-            One ``(half_width, order, reflection)`` per wall pair, half-width in m and
-            reflection ``"te"`` (E parallel to that pair's walls) or ``"tm"``.
-
-        Warns
-        -----
-        solprop.exceptions.GrazingIncidenceWarning
-            The first time either ratio exceeds :data:`_VALIDITY_RATIO` on this mode,
-            naming the ratio, its value and the wavelength.
+        - ``pairs``: one ``(half_width, order, reflection)`` per wall pair, half-width
+          in m and reflection ``"te"`` (E parallel to that pair's walls) or ``"tm"``.
         """
         if self._validity_warned[0]:
             return
@@ -185,22 +161,8 @@ class _WallPairFill(GasFillMixin):
     def _terms(self, omega: Float[np.ndarray, " n_omega"], z: float) -> _RectTerms:
         """Sample the core and wall permittivities and frequency slopes.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive real frequencies in rad/s.
-        z : float
-            Position in m at which to evaluate the fill.
-
-        Returns
-        -------
-        _RectTerms
-            Frequency-dependent quantities for the local filled guide.
-
-        Raises
-        ------
-        ModeError
-            If omega is empty, non-positive or non-finite.
+        - ``omega``: positive real frequencies in rad/s.
+        - ``z``: position in m at which to evaluate the fill.
         """
         if not omega.size or not np.all(np.isfinite(omega)) or np.any(omega <= 0):
             raise ModeError(
@@ -243,21 +205,10 @@ class _WallPairFill(GasFillMixin):
     ]:
         """Return the TE-like and TM-like wall coefficients and their slopes.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Core and wall samples, with holomorphic frequency continuation allowed.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``q_TE = 1/s``, its derivative, ``q_TM = eps_cl/(eps_co s)`` and its
-            derivative, with ``s`` the filled-core contrast; derivatives in s/rad.
-
-        Raises
-        ------
-        ModeError
-            If the wall contrast vanishes.
+        - ``terms``: core and wall samples; a holomorphically continued (complex)
+          frequency is allowed.
+        - Returns: ``q_TE = 1/s``, its derivative, ``q_TM = eps_cl/(eps_co s)`` and its
+          derivative, with ``s`` the filled-core contrast; derivatives in s/rad.
         """
         contrast, dcontrast = self._wall_contrast(terms)
         if np.any(contrast == 0):
@@ -281,15 +232,7 @@ class _WallPairFill(GasFillMixin):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Return the filled-core wall contrast and its derivative.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Local material samples.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Relative permittivity contrast and its frequency slope in s/rad.
+        - Returns: relative permittivity contrast and its frequency slope in s/rad.
         """
         core, dcore = self._core_permittivity(terms)
         return terms.wall - core, terms.dwall - dcore
@@ -303,15 +246,7 @@ class _WallPairFill(GasFillMixin):
         reflection coefficient's permittivity ratio, so both read it here and a
         witness subclass can restore the evacuated-core convention in one place.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Local material samples.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Relative core permittivity and its frequency slope in s/rad.
+        - Returns: relative core permittivity and its frequency slope in s/rad.
         """
         return 1.0 + terms.chi, terms.dchi
 
@@ -429,20 +364,8 @@ class RectMode(_WallPairFill):
     def _widths(self, z: float) -> tuple[float, float]:
         """Return the positive half-widths at one longitudinal position.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        tuple of float
-            Half-widths a and b in m.
-
-        Raises
-        ------
-        ModeError
-            If either half-width is non-positive or non-finite.
+        - ``z``: position in m.
+        - Returns: Half-widths a and b in m.
         """
         position = np.asarray([z])
         a, b = float(self.width_x(position)[0]), float(self.width_y(position)[0])
@@ -451,13 +374,10 @@ class RectMode(_WallPairFill):
         return a, b
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the geometry and material paths carrying longitudinal variation.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Geometry and material paths carrying longitudinal variation.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Half-width paths plus the shared fill's density or pressure paths.
+        Half-width paths plus the shared fill's density or pressure paths.
         """
         return MappingProxyType(
             {
@@ -503,77 +423,56 @@ class RectMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether every geometry and material path is constant.
-
-        Returns
-        -------
-        bool
-            True if all declared paths are constant.
-        """
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every geometry and material path is constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return the transform's geometry-constant trait for the rectangle.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """The transform's geometry-constant trait for the rectangle.
 
-        Returns
-        -------
-        bool
-            True when both half-width paths are constant; the historical trait
-            name also serves Cartesian modes.
+        True when both half-width paths are constant; the historical trait
+        name also serves Cartesian modes.
         """
         return self.width_x.is_constant and self.width_y.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether one scalar rescaling represents the geometry.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one scalar rescaling represents the geometry.
 
-        Returns
-        -------
-        bool
-            True for constant half-widths or the same path object on both axes.
+        True for constant half-widths or the same path object on both axes.
         """
         return self.radius_is_constant or self.width_x is self.width_y
 
     @property
-    def polarisation_degenerate(self) -> bool:
-        """Return whether the two polarisations share one effective index.
+    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the two polarisations share one effective index.
 
-        Returns
-        -------
-        bool
-            False: the x- and y-polarised modes of one (n, m) take the TE-like
-            and TM-like coefficients on opposite wall pairs, so they are
-            distinct modes and need a row each.
+        False: the x- and y-polarised modes of one (n, m) take the TE-like
+        and TM-like coefficients on opposite wall pairs, so they are
+        distinct modes and need a row each.
         """
         return False
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the larger Cartesian order as a geometry-resolution hint.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Larger Cartesian order as a geometry-resolution hint.
 
-        Returns
-        -------
-        int
-            Maximum of n and m. Cartesian Gauss rules integrate trigonometric products,
-            not polynomials; their required node count is measured, not derived (see
-            :func:`solprop.modes.quadrature.cartesian_nodes`).
+        Maximum of n and m. Cartesian Gauss rules integrate trigonometric products,
+        not polynomials; their required node count is measured, not derived (see
+        :func:`solprop.modes.quadrature.cartesian_nodes`).
         """
         return max(self.n, self.m)
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the rectangular family, its two indices and its polarisation.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Rectangular family, its two indices and its polarisation.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``rect``, with ``n`` and ``m`` in the azimuthal and radial fields
-            -- a rectangular guide has neither, but they are the two indices the
-            record carries -- and the polarisation in the display label. The other
-            polarisation is a distinct mode with its own operator row, not a parity
-            partner of this one, so ``parity`` stays ``None``.
+        Family ``rect``, with ``n`` and ``m`` in the azimuthal and radial fields
+        -- a rectangular guide has neither, but they are the two indices the
+        record carries -- and the polarisation in the display label. The other
+        polarisation is a distinct mode with its own operator row, not a parity
+        partner of this one, so ``parity`` stays ``None``.
 
         Examples
         --------
@@ -607,14 +506,11 @@ class RectMode(_WallPairFill):
         return self.polarisation
 
     @property
-    def orthogonal_polarisation(self) -> "RectMode":
-        """Return the distinct mode with the other electric-field orientation.
+    def orthogonal_polarisation(self) -> "RectMode":  # numpydoc ignore=RT01
+        """Distinct mode with the other electric-field orientation.
 
-        Returns
-        -------
-        RectMode
-            Same indices, geometry and fill, with the other wall-pair assignment.
-            It requires its own operator row; it is not a duplicated scalar index.
+        Same indices, geometry and fill, with the other wall-pair assignment.
+        It requires its own operator row; it is not a duplicated scalar index.
         """
         return replace(self, polarisation="y" if self.polarisation == "x" else "x")
 
@@ -623,22 +519,8 @@ class RectMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Evaluate the complex reflection model before the shared loss policy.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Core and wall samples, with holomorphic frequency continuation allowed.
-        a, b : float
-            Positive half-widths in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its frequency derivative in s/rad.
-
-        Raises
-        ------
-        ModeError
-            If the wall contrast vanishes or the model produces a non-finite result.
+        - ``a``, ``b``: positive half-widths in m.
+        - Returns: refractivity and its frequency derivative in s/rad.
         """
         te, dte, tm, dtm = self._wall_coefficients(terms)
         x, dx = (tm, dtm) if self.polarisation == "x" else (te, dte)
@@ -659,17 +541,10 @@ class RectMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Apply the shared loss policy and floor to the local model.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its derivative in s/rad after loss and floor policies.
+        - ``omega``: positive frequencies in rad/s.
+        - ``z``: position in m.
+        - Returns: refractivity and its derivative in s/rad after loss and floor
+          policies.
         """
         a, b = self._widths(z)
         terms = self._terms(omega, z)
@@ -799,10 +674,7 @@ class RectMode(_WallPairFill):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         entrance = np.array([0.0])
         cladding = self.cladding_index

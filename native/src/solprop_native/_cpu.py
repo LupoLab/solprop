@@ -192,13 +192,6 @@ _WINDOWS_ALWAYS = frozenset({"lahf_lm"})
 class CpuBaselineError(ImportError):
     """The processor is below the CPU baseline this build was compiled for.
 
-    Parameters
-    ----------
-    baseline
-        The build's recorded CPU baseline, for example ``"x86-64-v3"``.
-    missing
-        The required features the processor lacks.
-
     Attributes
     ----------
     baseline : str
@@ -221,12 +214,8 @@ class CpuBaselineError(ImportError):
 class CpuFeaturesUnknownError(ImportError):
     """This processor's features could not be established, so the build isn't loaded.
 
-    Parameters
-    ----------
-    baseline
-        The build's recorded CPU baseline, for example ``"x86-64-v3"``.
-    variants
-        The builds that :data:`VARIANT_SETTING` may name; empty for a single build.
+    - ``variants``: the builds that :data:`VARIANT_SETTING` may name; empty for a single
+      build.
 
     Attributes
     ----------
@@ -253,18 +242,8 @@ class CpuFeaturesUnknownError(ImportError):
 def missing_features(baseline: str, flags: Iterable[str]) -> list[str]:
     """Return the features ``baseline`` requires that ``flags`` lacks, sorted.
 
-    Parameters
-    ----------
-    baseline
-        The recorded CPU baseline, for example ``"x86-64-v3"``.
-    flags
-        The processor's feature names as ``/proc/cpuinfo`` spells them.
-
-    Returns
-    -------
-    list[str]
-        Missing features; empty when all are present or the baseline is not one this
-        module checks.
+    - Returns: missing features; empty when all are present or the baseline is not one
+      this module checks.
     """
     required = REQUIRED_FEATURES.get(baseline)
     if required is None:
@@ -275,17 +254,8 @@ def missing_features(baseline: str, flags: Iterable[str]) -> list[str]:
 def cpuinfo_flags(cpuinfo: str, key: str = "flags") -> frozenset[str] | None:
     """Return the first processor's feature names from ``/proc/cpuinfo`` text.
 
-    Parameters
-    ----------
-    cpuinfo
-        The file's contents.
-    key
-        The line naming them: ``"flags"`` on x86, ``"Features"`` on Arm.
-
-    Returns
-    -------
-    frozenset[str] | None
-        The names, or ``None`` when the text has no such line.
+    - ``key``: the line naming them: ``"flags"`` on x86, ``"Features"`` on Arm.
+    - Returns: the names, or ``None`` when the text has no such line.
     """
     for line in cpuinfo.splitlines():
         name, separator, value = line.partition(":")
@@ -297,17 +267,8 @@ def cpuinfo_flags(cpuinfo: str, key: str = "flags") -> frozenset[str] | None:
 def windows_features(is_present: Callable[[int], object]) -> frozenset[str]:
     """Return the x86-64 features Windows reports, with those they stand for.
 
-    Parameters
-    ----------
-    is_present
-        ``kernel32.IsProcessorFeaturePresent``, or a stand-in: takes a ``PF_*``
-        constant and returns a true value when the feature is present.
-
-    Returns
-    -------
-    frozenset[str]
-        The features in Linux's spelling, including those Windows does not report but
-        a reported one stands for (module docstring).
+    - ``is_present``: ``kernel32.IsProcessorFeaturePresent``, or a stand-in: takes a
+      ``PF_*`` constant and returns a true value when the feature is present.
     """
     present = {name for name, constant in _PF_FEATURES.items() if is_present(constant)}
     for marker, implied in _WINDOWS_IMPLIED.items():
@@ -317,18 +278,7 @@ def windows_features(is_present: Callable[[int], object]) -> frozenset[str]:
 
 
 def windows_arm_features(is_present: Callable[[int], object]) -> frozenset[str]:
-    """Return what Windows on Arm reports of the features this module knows.
-
-    Parameters
-    ----------
-    is_present
-        ``IsProcessorFeaturePresent``, or a stand-in for tests.
-
-    Returns
-    -------
-    frozenset[str]
-        The features in Linux's spelling.
-    """
+    """Return what Windows on Arm reports of the features this module knows."""
     return frozenset(
         name for name, constant in _PF_ARM_FEATURES.items() if is_present(constant)
     )
@@ -337,11 +287,8 @@ def windows_arm_features(is_present: Callable[[int], object]) -> frozenset[str]:
 def numpy_features() -> frozenset[str] | None:
     """Return NumPy's view of the x86-64 features, or ``None`` if it gives none.
 
-    Returns
-    -------
-    frozenset[str] | None
-        The features in Linux's spelling; ``None`` when NumPy no longer has the private
-        name, or lacks one of the features asked for.
+    - Returns: the features in Linux's spelling; ``None`` when NumPy no longer has the
+      private name, or lacks one of the features asked for.
     """
     try:
         from numpy._core._multiarray_umath import (
@@ -355,13 +302,7 @@ def numpy_features() -> frozenset[str] | None:
 
 
 def kernel32_feature_query() -> Callable[[int], object]:
-    """Return ``kernel32.IsProcessorFeaturePresent``; Windows only.
-
-    Returns
-    -------
-    collections.abc.Callable
-        The function, typed to take a ``DWORD`` and return a ``BOOL``.
-    """
+    """Return ``kernel32.IsProcessorFeaturePresent``; Windows only."""
     import ctypes  # only a Windows check asks kernel32
 
     kernel32 = ctypes.WinDLL("kernel32")  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
@@ -408,26 +349,10 @@ def baseline_shortfall(
 ) -> CpuBaselineError | CpuFeaturesUnknownError | None:
     """Return the refusal a processor below this build's baseline earns, or ``None``.
 
-    Parameters
-    ----------
-    package_dir
-        The installed package directory, holding the baseline record.
-    platform
-        ``sys.platform`` (the default), or a stand-in for tests.
-    cpuinfo
-        The processor description read on Linux.
-    feature_query
-        Returns Windows's ``IsProcessorFeaturePresent``; a stand-in for tests.
-    numpy_query
-        Returns NumPy's view of the features; a stand-in for tests.
-
-    Returns
-    -------
-    CpuBaselineError | CpuFeaturesUnknownError | None
-        The error naming the missing features, or the error saying they couldn't be
-        established; ``None`` when the processor meets the baseline, this module doesn't
-        check the baseline, or :data:`VARIANT_SETTING` has named a build of an unknown
-        processor.
+    - Returns: the error naming the missing features, or the error saying they couldn't
+      be established; ``None`` when the processor meets the baseline, this module
+      doesn't check the baseline, or :data:`VARIANT_SETTING` has named a build of an
+      unknown processor.
     """
     try:
         baseline = (package_dir / BASELINE_RECORD).read_text(encoding="utf-8").strip()
@@ -452,22 +377,7 @@ def baseline_shortfall(
 
 
 def check_cpu_baseline(package_dir: Path, cpuinfo: Path = CPUINFO) -> None:
-    """Refuse to continue on a processor below this build's CPU baseline.
-
-    Parameters
-    ----------
-    package_dir
-        The installed package directory, holding the baseline record.
-    cpuinfo
-        The processor description read on Linux, ``/proc/cpuinfo``.
-
-    Raises
-    ------
-    CpuBaselineError
-        If the processor lacks a feature of the recorded baseline.
-    CpuFeaturesUnknownError
-        If nothing could establish the processor's features.
-    """
+    """Refuse to continue on a processor below this build's CPU baseline."""
     error = baseline_shortfall(package_dir, cpuinfo=cpuinfo)
     if error is not None:
         raise error
@@ -476,15 +386,7 @@ def check_cpu_baseline(package_dir: Path, cpuinfo: Path = CPUINFO) -> None:
 def read_variants(package_dir: Path) -> tuple[tuple[str, str], ...]:
     """Return a wheel's builds, best first, as ``(baseline, module stem)`` pairs.
 
-    Parameters
-    ----------
-    package_dir
-        The installed package directory.
-
-    Returns
-    -------
-    tuple[tuple[str, str], ...]
-        The builds; empty when the package holds only its one extension.
+    - Returns: the builds; empty when the package holds only its one extension.
     """
     try:
         text = (package_dir / VARIANTS_RECORD).read_text(encoding="utf-8")
@@ -505,33 +407,9 @@ def select_variant(
 ) -> str:
     """Return the module stem of the build to load on this processor.
 
-    Parameters
-    ----------
-    package_dir
-        The installed package directory.
-    requested
-        A baseline to run instead, which must be listed and no better than the one
-        chosen; the default reads ``SOLPROP_NATIVE_CPU_VARIANT``.
-    platform
-        ``sys.platform`` (the default), or a stand-in for tests.
-    cpuinfo
-        The processor description read on Linux.
-    feature_query
-        Returns Windows's ``IsProcessorFeaturePresent``; a stand-in for tests.
-    numpy_query
-        Returns NumPy's view of the features; a stand-in for tests.
-
-    Returns
-    -------
-    str
-        The stem; ``"_core"`` for a package with one extension.
-
-    Raises
-    ------
-    ValueError
-        If ``requested`` names no listed build, or one better than this processor runs.
-    CpuFeaturesUnknownError
-        If nothing could establish the processor's features and no build is named.
+    - ``requested``: a baseline to run instead, which must be listed and no better than
+      the one chosen; the default reads ``SOLPROP_NATIVE_CPU_VARIANT``.
+    - Returns: the stem; ``"_core"`` for a package with one extension.
     """
     variants = read_variants(package_dir)
     request = os.environ.get(VARIANT_SETTING, "") if requested is None else requested

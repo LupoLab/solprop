@@ -218,13 +218,10 @@ class SnapshotController:
         self._last_result: SnapshotResult | None = None
 
     @property
-    def last_result(self) -> SnapshotResult | None:
-        """Return the latest attempt, or None before any request is serviced.
+    def last_result(self) -> SnapshotResult | None:  # numpydoc ignore=RT01
+        """Latest attempt, or None before any request is serviced.
 
-        Returns
-        -------
-        SnapshotResult or None
-            The result, including total pause time and bytes copied.
+        The result, including total pause time and bytes copied.
         """
         return self._last_result
 
@@ -251,13 +248,7 @@ class SnapshotController:
         self._active = False
 
     def _due(self) -> bool:
-        """Coalesce interval and explicit requests, honouring failure backoff.
-
-        Returns
-        -------
-        bool
-            Whether an attempt is due at this boundary.
-        """
+        """Coalesce interval and explicit requests, honouring failure backoff."""
         now = time.monotonic()
         explicit = self._requested != self._attempted
         if explicit or (
@@ -279,24 +270,11 @@ class SnapshotController:
     ) -> None:
         """Publish one requested endpoint, reopening both writers before returning.
 
-        Parameters
-        ----------
-        output : HDF5Output
-            Live optical writer at a committed accepted endpoint.
-        archive : TDSEArchiveWriter or None
-            Optional matching live archive.
-        next_save_index : int
-            Index of the next scheduled save beyond this endpoint.
-        require_history : bool
-            Whether Adams history must be present.
-        persist : callable
-            Persist the retained march and running execution record without observing.
-        provenance : RunMetadata or None, optional
-            Current execution's version and Git record. Defaults to the writer's
-            metadata; the driver supplies its current record when resuming.
-        z : float or None, optional
-            The accepted endpoint, m, when `persist` records it as a running
-            checkpoint; the writer's last recorded position by default.
+        - ``require_history``: whether Adams history must be present.
+        - ``provenance``: current execution's version and Git record. Defaults to the
+          writer's metadata; the driver supplies its current record when resuming.
+        - ``z``: the accepted endpoint, m, when `persist` records it as a running
+          checkpoint; the writer's last recorded position by default.
         """
         if not self._due():
             return
@@ -413,20 +391,7 @@ def _suspended_writers(
     optical: HDF5Output,
     archive: TDSEArchiveWriter | None,
 ) -> Iterator[None]:
-    """Reopen every suspended writer, preserving the primary failure on cleanup.
-
-    Parameters
-    ----------
-    optical : HDF5Output
-        Optical writer to suspend.
-    archive : TDSEArchiveWriter or None
-        Optional archive writer to suspend after the optical writer.
-
-    Yields
-    ------
-    None
-        With both HDF5 handles closed and writer ownership retained.
-    """
+    """Reopen every suspended writer, preserving the primary failure on cleanup."""
     suspended: list[HDF5Output | TDSEArchiveWriter] = []
     primary: BaseException | None = None
     try:
@@ -462,19 +427,8 @@ def _copy_generation(
 ) -> _Publication:
     """Copy closed files and publish once; recover from copy/publication failures.
 
-    Parameters
-    ----------
-    store : pathlib.Path
-        Owned snapshot store.
-    generation : str
-        Unique generation name.
-    optical, archive : pathlib.Path or None
-        Closed working files; only the archive may be absent.
-
-    Returns
-    -------
-    _Publication
-        Publication path, copied bytes, elapsed seconds and any failure.
+    - ``optical``, ``archive``: closed working files; only the archive may be absent.
+    - Returns: publication path, copied bytes, elapsed seconds and any failure.
     """
     staging = store / ("." + generation)
     started = time.monotonic()
@@ -516,18 +470,7 @@ def _copy_generation(
 
 
 def _digest(path: Path) -> str:
-    """Hash a closed file without loading it into memory.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        File to read.
-
-    Returns
-    -------
-    str
-        Hexadecimal SHA-256 digest.
-    """
+    """Hash a closed file without loading it into memory."""
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
@@ -537,19 +480,7 @@ def _copy_file(
 ) -> _FileRecord:
     """Copy and independently verify a closed source with bounded host buffers.
 
-    Parameters
-    ----------
-    source, destination : pathlib.Path
-        Closed source and new destination file.
-    role : str
-        Optical or archive role in the pair.
-    relative : pathlib.Path
-        Destination relative to its generation directory.
-
-    Returns
-    -------
-    _FileRecord
-        Verified filename, size in bytes and SHA-256.
+    - Returns: verified filename, size in bytes and SHA-256.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
@@ -570,10 +501,7 @@ def _copy_file(
 def _sync_directory(path: Path) -> None:
     """Persist directory entries where the platform provides directory fsync.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        Directory whose entries must be durable.
+    - ``path``: directory whose entries must be durable.
     """
     if os.name == "nt":
         return
@@ -585,15 +513,7 @@ def _sync_directory(path: Path) -> None:
 
 
 def _publish_manifest(directory: Path, manifest: Mapping[str, object]) -> None:
-    """Publish the manifest only after every copied file is durable and read-only.
-
-    Parameters
-    ----------
-    directory : pathlib.Path
-        Private staging generation.
-    manifest : mapping
-        Verified identities, counters and checksums to publish last.
-    """
+    """Publish the manifest only after every copied file is durable and read-only."""
     for path in directory.rglob("*"):
         if path.is_file():
             path.chmod(0o444)
@@ -610,13 +530,7 @@ def _publish_manifest(directory: Path, manifest: Mapping[str, object]) -> None:
 
 
 def _discard_staging(path: Path) -> None:
-    """Remove only this attempt's staging data, retaining failures against capacity.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Staging directory owned by the failed attempt.
-    """
+    """Remove only this attempt's staging data, retaining failures against capacity."""
     try:
         # Windows cannot unlink read-only files; publication may have reached chmod.
         for item in path.rglob("*"):
@@ -628,36 +542,14 @@ def _discard_staging(path: Path) -> None:
 
 
 def _object(value: object) -> dict[str, object]:
-    """Require a JSON object, keeping untrusted manifest values explicit.
-
-    Parameters
-    ----------
-    value : object
-        Decoded JSON or structured provenance value.
-
-    Returns
-    -------
-    dict
-        Mapping with string keys.
-    """
+    """Require a JSON object, keeping untrusted manifest values explicit."""
     if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise OutputError("snapshot manifest requires an object")
     return dict(cast("Mapping[str, object]", value))
 
 
 def _file_records(manifest: Mapping[str, object]) -> list[_FileRecord]:
-    """Validate the small manifest file table before touching any named path.
-
-    Parameters
-    ----------
-    manifest : mapping
-        Decoded manifest containing a file table.
-
-    Returns
-    -------
-    list of _FileRecord
-        Optical file followed by the optional archive.
-    """
+    """Validate the small manifest file table before touching any named path."""
     values = manifest.get("files")
     if not isinstance(values, list) or len(values) not in (1, 2):
         raise OutputError("snapshot must contain an optical file and optional archive")
@@ -693,17 +585,7 @@ def _file_records(manifest: Mapping[str, object]) -> list[_FileRecord]:
 def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object]:
     """Cross-check the copied optical endpoint and all referenced archive identities.
 
-    Parameters
-    ----------
-    directory : pathlib.Path
-        Generation containing closed files.
-    records : list of _FileRecord
-        Validated file table.
-
-    Returns
-    -------
-    dict
-        Checkpoint identity and provenance checked against the actual files.
+    - Returns: checkpoint identity and provenance checked against the actual files.
     """
     optical = directory / records[0].path
     state = resume(optical)
@@ -770,21 +652,7 @@ def _archive_checkpoint(
 ) -> dict[str, object]:
     """Verify that the archive belongs to this accepted optical checkpoint.
 
-    Parameters
-    ----------
-    directory : pathlib.Path
-        Generation containing the pair.
-    records : list of _FileRecord
-        Optical and archive file table.
-    state : ResumeState
-        Accepted optical endpoint.
-    reference : object
-        Archive reference from the optical execution record.
-
-    Returns
-    -------
-    dict
-        Matching archive identity, session, counters and context.
+    - Returns: matching archive identity, session, counters and context.
     """
     optical = directory / records[0].path
     if len(records) != 2:

@@ -106,23 +106,17 @@ def data_files(text: str) -> list[str]:
     """
     found: list[str] = []
 
-    def walk(value: object) -> None:
-        """Add the references inside a value, depth first.
-
-        Parameters
-        ----------
-        value : object
-            A value as the recipe writes it.
-        """
+    def _walk(value: object) -> None:
+        """Add the references inside a value, depth first."""
         if isinstance(value, Mapping):
             file = value.get("file")
             if "sha256" in value and isinstance(file, str) and file not in found:
                 found.append(file)
             for item in value.values():
-                walk(item)
+                _walk(item)
         elif isinstance(value, list):
             for item in value:
-                walk(item)
+                _walk(item)
 
-    walk(dict(parse_text(text)))
+    _walk(dict(parse_text(text)))
     return found

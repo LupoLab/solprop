@@ -139,15 +139,7 @@ _MARCH_KEY = "march_snapshot"
 def _read_outcome(file: h5py.File) -> RunOutcome | None:
     """Read the execution status a file records, if it records one.
 
-    Parameters
-    ----------
-    file : h5py.File
-        Open saved output.
-
-    Returns
-    -------
-    RunOutcome or None
-        Validated execution status; ``None`` when the file records none.
+    - Returns: validated execution status; ``None`` when the file records none.
     """
     if _OUTCOME_KEY not in file:
         return None
@@ -163,15 +155,6 @@ def _overwrite(group: h5py.Group, name: str, data: np.ndarray) -> None:
 
     In place, a snapshot rewritten at every plane does not grow the file: HDF5 does not
     reclaim the space of a deleted dataset.
-
-    Parameters
-    ----------
-    group : h5py.Group
-        Its group.
-    name : str
-        Its name.
-    data : numpy.ndarray
-        What it holds.
     """
     if name in group:
         existing = group[name]
@@ -194,15 +177,6 @@ def _overwrite_text(file: h5py.File, name: str, text: str) -> None:
     saved step by step. Written in place, HDF5 frees the string it replaces, and the
     file holds one (measured with h5py 3.15 and 3.16, HDF5 1.14.6 and 2.0.0). A
     dataset of another shape or type is replaced.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    name : str
-        The dataset's path.
-    text : str
-        What it holds.
     """
     if name in file:
         existing = file[name]
@@ -219,15 +193,7 @@ def _overwrite_text(file: h5py.File, name: str, text: str) -> None:
 
 
 def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
-    """Store a march snapshot, its position last, so that a torn write reads as none.
-
-    Parameters
-    ----------
-    group : h5py.Group
-        The snapshot's group, possibly holding an earlier snapshot.
-    snapshot : solprop.output.schema.MarchSnapshot
-        The snapshot.
-    """
+    """Store a march snapshot, its position last, so that a torn write reads as none."""
     group.attrs["z"] = math.nan
     # The dataset keeps the leading axis of one it has always had, so that every
     # reader of the format reads it (SEP 47 section 6.7).
@@ -258,18 +224,9 @@ def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
 def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     """Read the march snapshot a file holds at `z`, or ``None``.
 
-    Parameters
-    ----------
-    file : h5py.File
-        Open saved output.
-    z : float
-        The position the run resumes from, m: a snapshot taken elsewhere, or one
-        whose write was cut short, is not returned.
-
-    Returns
-    -------
-    solprop.output.schema.MarchSnapshot or None
-        The snapshot taken at `z`, if the file holds one.
+    - ``z``: the position the run resumes from, m: a snapshot taken elsewhere, or one
+      whose write was cut short, is not returned.
+    - Returns: the snapshot taken at `z`, if the file holds one.
     """
     if _MARCH_KEY not in file:
         return None
@@ -310,22 +267,9 @@ def _trajectory_state(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return a stored march state without the leading axis of one its file keeps.
 
-    Parameters
-    ----------
-    stored : numpy.ndarray
-        The ``state`` dataset: ``(1, n_modes, n_pol, n_omega)`` as every file has
-        written it, or ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The trajectory's state, ``(n_modes, n_pol, n_omega)``.
-
-    Raises
-    ------
-    OutputError
-        If the state has neither layout: a leading axis longer than one is a stacked
-        group, which a single trajectory's snapshot never is, and is never squeezed.
+    Every file writes ``(1, n_modes, n_pol, n_omega)``; ``(n_modes, n_pol, n_omega)``
+    is taken as it is. A leading axis longer than one is a stacked group, which a
+    single trajectory's snapshot never is, and is refused rather than squeezed.
     """
     if stored.ndim == 4 and stored.shape[0] == 1:
         return stored[0]
@@ -343,14 +287,8 @@ def _write_checkpoint(
 ) -> None:
     """Store a terminal field using the same Fourier boundary as regular saves.
 
-    Parameters
-    ----------
-    group : h5py.Group
-        Empty destination for the terminal record.
-    checkpoint : TerminalCheckpoint
-        Accepted field and available history, in internal FFT convention.
-    metadata : RunMetadata
-        Grid and output amplitude conventions.
+    - ``checkpoint``: accepted field and available history, in internal FFT convention.
+    - ``metadata``: grid and output amplitude conventions.
     """
     plane = checkpoint.plane
     # A checkpoint always carries its field (TerminalCheckpoint refuses one without).
@@ -384,17 +322,8 @@ def _read_checkpoint(
 ) -> TerminalCheckpoint | None:
     """Read a separate terminal field in internal FFT convention.
 
-    Parameters
-    ----------
-    file : h5py.File
-        Open saved output.
-    metadata : RunMetadata
-        Grid and output amplitude conventions.
-
-    Returns
-    -------
-    TerminalCheckpoint or None
-        Validated accepted field, absent when no terminal state is stored.
+    - ``metadata``: grid and output amplitude conventions.
+    - Returns: validated accepted field, absent when no terminal state is stored.
     """
     if _CHECKPOINT_KEY not in file:
         return None
@@ -449,18 +378,7 @@ def _read_checkpoint(
 def _check_compression(compression: str | None, compression_opts: int | None) -> None:
     """Check a compression request against what h5py can do without a plugin.
 
-    Parameters
-    ----------
-    compression : {None, 'gzip', 'lzf'}
-        The filter.
-    compression_opts : int or None
-        Level for ``'gzip'``, 0 to 9; ``None`` for the others.
-
-    Raises
-    ------
-    OutputError
-        If the filter is unknown, or the level is given for a filter that has none, or
-        is outside the range gzip accepts.
+    - ``compression_opts``: level for ``'gzip'``, 0 to 9; ``None`` for the others.
     """
     if compression not in COMPRESSIONS:
         msg = f"compression must be one of {COMPRESSIONS}, got {compression!r}"
@@ -479,58 +397,23 @@ def _dataset(parent: h5py.Group, name: str) -> h5py.Dataset:
     h5py types every lookup as a group, a dataset or a named type; solprop's files hold
     only the first two and every name below is one this module created, so the cast is
     total.
-
-    Parameters
-    ----------
-    parent : h5py.Group
-        The group to look in.
-    name : str
-        Name of the dataset.
-
-    Returns
-    -------
-    h5py.Dataset
-        The dataset.
     """
     return cast("h5py.Dataset", parent[name])
 
 
 def _group(parent: h5py.Group, name: str) -> h5py.Group:
-    """Return one subgroup of a group, narrowed for the type checker.
-
-    Parameters
-    ----------
-    parent : h5py.Group
-        The group to look in.
-    name : str
-        Name of the subgroup.
-
-    Returns
-    -------
-    h5py.Group
-        The subgroup.
-    """
+    """Return one subgroup of a group, narrowed for the type checker."""
     return cast("h5py.Group", parent[name])
 
 
 def _kind_of(key: str, *, every_field: bool = True) -> str:
     """Return which count a dataset's leading axis follows.
 
-    Parameters
-    ----------
-    key : str
-        The dataset's accessor key: ``'z'``, ``'field'``, ``'noise_phase'``, or a
-        name prefixed by ``'stats/'``, ``'step_history/'`` or ``'step_stats/'``.
-    every_field : bool, optional
-        Whether the run keeps its field on every plane; if not, the field and the
-        noise phase have one entry per plane that keeps its field.
-
-    Returns
-    -------
-    str
-        ``'plane'`` for one entry per saved plane (the per-plane ``counts`` columns
-        among them), ``'field'`` for one per kept field, ``'history'`` for a
-        step-history column and ``'rows'`` for a between-planes statistics column.
+    - ``every_field``: whether the run keeps its field on every plane; if not, the field
+      and the noise phase have one entry per plane that keeps its field.
+    - Returns: ``'plane'`` for one entry per saved plane (the per-plane ``counts``
+      columns among them), ``'field'`` for one per kept field, ``'history'`` for a
+      step-history column and ``'rows'`` for a between-planes statistics column.
     """
     group, _, name = key.rpartition("/")
     if group == "" and name in ("field", "noise_phase") and not every_field:
@@ -548,15 +431,8 @@ def _stored_counts(file: h5py.File) -> tuple[int, int, int]:
     ``step_stats/counts`` over them; any rows past those were allocated ahead or cut
     off by a hard stop, and are not part of the run.
 
-    Parameters
-    ----------
-    file : h5py.File
-        An open file holding at least one plane's datasets.
-
-    Returns
-    -------
-    tuple of int
-        The planes, the step-history attempts and the between-planes rows.
+    - ``file``: an open file holding at least one plane's datasets.
+    - Returns: the planes, the step-history attempts and the between-planes rows.
     """
     history = _group(file, "step_history")
     rows = _group(file, "step_stats")
@@ -567,18 +443,7 @@ def _stored_counts(file: h5py.File) -> tuple[int, int, int]:
 
 
 def _stored_retention(file: h5py.File) -> FieldRetention:
-    """Return which planes of a file keep their field.
-
-    Parameters
-    ----------
-    file : h5py.File
-        An open file.
-
-    Returns
-    -------
-    solprop.output.schema.FieldRetention
-        The rule its ``fields`` attribute and ``field_planes`` dataset record.
-    """
+    """Return which planes of a file keep their field."""
     fields = file.attrs["fields"]
     planes = (
         tuple(int(index) for index in np.asarray(_dataset(file, "field_planes")[()]))
@@ -591,29 +456,14 @@ def _stored_retention(file: h5py.File) -> FieldRetention:
 def _stored_shape(file: h5py.File) -> tuple[int, ...]:
     """Return the shape of one plane's field in a file, stored or not.
 
-    Parameters
-    ----------
-    file : h5py.File
-        An open file holding at least one plane.
-
-    Returns
-    -------
-    tuple of int
-        ``(n_modes, n_pol, n_omega)``, from the ``field_shape`` attribute.
+    - ``file``: an open file holding at least one plane.
+    - Returns: ``(n_modes, n_pol, n_omega)``, from the ``field_shape`` attribute.
     """
     return tuple(int(size) for size in np.asarray(file.attrs["field_shape"]))
 
 
 def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
-    """Write, or replace, the run record of an open file and the arrays beside it.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    metadata : RunMetadata
-        The record.
-    """
+    """Write, or replace, the run record of an open file and the arrays beside it."""
     for key in (_METADATA_KEY, _RECORD_ARRAYS_KEY):
         if key in file:
             del file[key]
@@ -625,23 +475,7 @@ def _write_record(file: h5py.File, metadata: RunMetadata) -> None:
 
 
 def _read_record(file: h5py.File) -> RunMetadata:
-    """Return the run record of an open file, with the arrays beside it.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-
-    Returns
-    -------
-    RunMetadata
-        The record.
-
-    Raises
-    ------
-    OutputError
-        If the file carries no metadata, or the record cannot be read.
-    """
+    """Return the run record of an open file, with the arrays beside it."""
     held = file.get(_RECORD_ARRAYS_KEY)
     return RunMetadata.from_json(
         _read_json(file), held if isinstance(held, h5py.Group) else None
@@ -655,15 +489,7 @@ _RECIPE_KEY = "recipe"
 def _text(stored: object) -> str:
     """Return a stored string dataset's value as text.
 
-    Parameters
-    ----------
-    stored : object
-        What h5py read: bytes or str.
-
-    Returns
-    -------
-    str
-        The text.
+    - ``stored``: what h5py read: bytes or str.
     """
     return stored.decode("utf-8") if isinstance(stored, bytes) else str(stored)
 
@@ -738,15 +564,7 @@ def write_recipe(file: h5py.File, record: RecipeRecord) -> None:
 def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
     """Return the post-run annotations an open file carries.
 
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-
-    Returns
-    -------
-    dict
-        Each annotation's JSON values, by name; empty when the file has none.
+    - Returns: each annotation's JSON values, by name; empty when the file has none.
     """
     if _ANNOTATIONS_KEY not in file:
         return {}
@@ -760,23 +578,7 @@ def _read_annotations(file: h5py.File) -> dict[str, JsonValue]:
 
 
 def _read_json(file: h5py.File) -> str:
-    """Return the metadata document of an open file.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-
-    Returns
-    -------
-    str
-        The document.
-
-    Raises
-    ------
-    OutputError
-        If the file carries no metadata, so it is not a solprop output file.
-    """
+    """Return the metadata document of an open file."""
     if _METADATA_KEY not in file:
         msg = (
             f"{file.filename} carries no {_METADATA_KEY!r} dataset, so it is not a "
@@ -802,28 +604,6 @@ def _current_checkpoint(
     the last plane, or one the ``running`` outcome does not name. That state is stale,
     not inconsistent, and is ignored. A closing (non-running) record that disagrees
     with its checkpoint is refused, as before.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    checkpoint : solprop.output.schema.TerminalCheckpoint or None
-        The checkpoint it holds.
-    outcome : solprop.output.schema.RunOutcome or None
-        Its outcome.
-    refuse : bool
-        Whether to refuse an inconsistent state rather than keep it as read.
-
-    Returns
-    -------
-    solprop.output.schema.TerminalCheckpoint or None
-        The checkpoint to resume from, or ``None``.
-
-    Raises
-    ------
-    OutputError
-        If `refuse` and a checkpoint precedes the last plane or is unnamed by a
-        closing outcome.
     """
     if checkpoint is None:
         return None
@@ -891,17 +671,14 @@ class ResumeState(Displayed):
     march: MarchSnapshot | None = None
 
     @property
-    def interpolated(self) -> bool:
+    def interpolated(self) -> bool:  # numpydoc ignore=RT01
         """Whether the plane the file resumes from was interpolated inside a step.
 
         A landed plane is the end of an accepted step of the run; an interpolated one
         lies inside a step, and a resume from it needs ``resume="interpolated"``.
         The entrance is the initial field.
 
-        Returns
-        -------
-        bool
-            Whether the plane is not a state the march passed through.
+        Whether the plane is not a state the march passed through.
         """
         if self.checkpoint is not None:
             return not self.checkpoint.landed
@@ -928,10 +705,7 @@ class ResumeState(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"ResumeState: {self.n_saved} planes saved", [
             ("last plane", repr(self.plane)),
@@ -1049,23 +823,14 @@ class HDF5Output(PlaneStore):
             self._open_readonly()
 
     @property
-    def path(self) -> Path:
-        """Return where the file is written.
-
-        Returns
-        -------
-        pathlib.Path
-            The path given to the constructor.
-        """
+    def path(self) -> Path:  # numpydoc ignore=RT01
+        """Where the file is written."""
         return self._path
 
     def _state_text(self) -> str:
         """Return the state of the file, for printing, without raising.
 
-        Returns
-        -------
-        str
-            Open, closed or read-only, or a note that the file is gone.
+        - Returns: open, closed or read-only, or a note that the file is gone.
         """
         if self._file is None and not self._path.exists():
             return (
@@ -1094,10 +859,7 @@ class HDF5Output(PlaneStore):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows, the file's path first.
+        - Returns: the title and ``(key, value)`` rows, the file's path first.
         """
         title, rows = super()._describe()
         return title, [("file", tail(str(self._path))), *rows]
@@ -1155,12 +917,8 @@ class HDF5Output(PlaneStore):
         copy, and an uncompressed chunk no copy of HDF5's own either (a compressed one
         is filtered through HDF5's buffer).
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane.
-        exported : solprop.output.schema.StoredField or None
-            Its field in the stored form, or ``None`` to convert the plane's own.
+        - ``exported``: its field in the stored form, or ``None`` to convert the plane's
+          own.
         """
         self._refuse_readonly()
         super()._store(plane, exported)
@@ -1205,13 +963,7 @@ class HDF5Output(PlaneStore):
         self._file.flush()
 
     def _refuse_readonly(self) -> None:
-        """Refuse to write through a handler that only reads.
-
-        Raises
-        ------
-        OutputError
-            If the handler was built with ``readonly=True``.
-        """
+        """Refuse to write through a handler that only reads."""
         if self._readonly:
             msg = (
                 f"{self._path} is open for reading only; build a handler with "
@@ -1220,13 +972,7 @@ class HDF5Output(PlaneStore):
             raise OutputError(msg)
 
     def _open_readonly(self) -> None:
-        """Open the file for reading, adopting its state and its record.
-
-        Raises
-        ------
-        OutputError
-            If the file cannot be opened, or carries no metadata.
-        """
+        """Open the file for reading, adopting its state and its record."""
         try:
             file = h5py.File(self._path, "r")
         except OSError as error:
@@ -1243,18 +989,7 @@ class HDF5Output(PlaneStore):
         self._recipe = read_recipe(file)
 
     def _open_file(self) -> h5py.File:
-        """Open the file once: fresh, or read-write to continue what it holds.
-
-        Returns
-        -------
-        h5py.File
-            The open handle, which the handler keeps until it is closed.
-
-        Raises
-        ------
-        OutputError
-            If appending and the file does not exist or cannot be opened.
-        """
+        """Open the file once: fresh, or read-write to continue what it holds."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._writer_lock.acquire()
         try:
@@ -1265,13 +1000,7 @@ class HDF5Output(PlaneStore):
             raise
 
     def _open_owned_file(self) -> h5py.File:
-        """Open a file after acquiring its independent writer lease.
-
-        Returns
-        -------
-        h5py.File
-            Owned live handle.
-        """
+        """Open a file after acquiring its independent writer lease."""
         if self._append_mode:
             try:
                 file = h5py.File(self._path, "r+")
@@ -1366,13 +1095,7 @@ class HDF5Output(PlaneStore):
             raise OutputError(f"cannot reopen optical writer: {error}") from error
 
     def _adopt_state(self, file: h5py.File) -> None:
-        """Take the plane count, the history length and the layout from the file.
-
-        Parameters
-        ----------
-        file : h5py.File
-            The file being continued.
-        """
+        """Take the plane count, the history length and the layout from the file."""
         metadata = _read_record(file)
         self._outcome = _read_outcome(file)
         self._resume_outcome_pending = self._append_mode and self._outcome is not None
@@ -1409,15 +1132,7 @@ class HDF5Output(PlaneStore):
     def _write_outcome(
         self, outcome: RunOutcome | None, checkpoint: TerminalCheckpoint | None
     ) -> None:
-        """Flush execution status and a separate accepted checkpoint to disk.
-
-        Parameters
-        ----------
-        outcome : RunOutcome or None
-            Execution status and accounting, or no status to write.
-        checkpoint : TerminalCheckpoint or None
-            Accepted field to store, or removal of an existing terminal state.
-        """
+        """Flush execution status and a separate accepted checkpoint to disk."""
         self._refuse_readonly()
         file = self._require_file()
         if checkpoint is not None:
@@ -1439,18 +1154,7 @@ class HDF5Output(PlaneStore):
         file.flush()
 
     def _require_file(self) -> h5py.File:
-        """Return the open file, refusing once the handler is closed.
-
-        Returns
-        -------
-        h5py.File
-            The open handle.
-
-        Raises
-        ------
-        OutputError
-            If the handler was never opened, or has been closed.
-        """
+        """Return the open file, refusing once the handler is closed."""
         if self._file is None:
             action = "reopen it" if self._closed else "call open(metadata) first"
             msg = f"the output file {self._path} is not open; {action}"
@@ -1462,17 +1166,6 @@ class HDF5Output(PlaneStore):
 
         When appending, the record the file already carries is kept -- its creation
         time included -- and becomes the session's; the one offered must have its hash.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            The record to store.
-
-        Raises
-        ------
-        OutputError
-            If appending and the two records' hashes differ; the message names what
-            changed.
         """
         if self._file is None:
             self._file = self._open_file()
@@ -1548,23 +1241,9 @@ class HDF5Output(PlaneStore):
     ) -> h5py.Dataset:
         """Create one extendable dataset with the handler's compression, and keep it.
 
-        Parameters
-        ----------
-        parent : h5py.Group
-            Where to create it.
-        key : str
-            Its accessor key: the dataset's name, prefixed by its group's.
-        shape : tuple of int
-            Shape of one entry, without the leading plane or attempt axis.
-        dtype : object
-            NumPy dtype of the entries.
-        room : int
-            Entries to allocate along the leading axis, zero-filled until written.
-
-        Returns
-        -------
-        h5py.Dataset
-            The extendable dataset, also kept as the handle the writer fills.
+        - ``shape``: shape of one entry, without the leading plane or attempt axis.
+        - ``room``: entries to allocate along the leading axis, zero-filled until
+          written.
         """
         chunks = (1, *shape) if shape else (_COLUMN_CHUNK,)
         dataset = parent.create_dataset(
@@ -1582,10 +1261,7 @@ class HDF5Output(PlaneStore):
     def _adopt_handles(self, file: h5py.File) -> None:
         """Keep the datasets of a file being continued.
 
-        Parameters
-        ----------
-        file : h5py.File
-            The file, open for writing, holding at least one plane's datasets.
+        - ``file``: the file, open for writing, holding at least one plane's datasets.
         """
         for key in ("z", "field", "noise_phase"):
             if key in file:
@@ -1610,14 +1286,9 @@ class HDF5Output(PlaneStore):
     ) -> None:
         """Lay out every dataset from the shapes of the first plane.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The first plane, which fixes the statistics.
-        stored : numpy.ndarray or None
-            Its field in the optics convention, which fixes the field's shape and
-            whether a noise phase is stored; ``None`` on a field-free plane, whose
-            field datasets wait for the first plane that keeps one.
+        - ``stored``: its field in the optics convention, which fixes the field's shape
+          and whether a noise phase is stored; ``None`` on a field-free plane, whose
+          field datasets wait for the first plane that keeps one.
         """
         file = self._require_file()
         # The count goes first: a file whose datasets exist always says how many of
@@ -1661,12 +1332,7 @@ class HDF5Output(PlaneStore):
         Sized for the planes the run reserved when it keeps every field, and growing
         with them; for exactly the named planes when it keeps some.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The first plane that keeps its field.
-        stored : numpy.ndarray
-            Its field in the optics convention.
+        - ``stored``: its field in the optics convention.
         """
         file = self._require_file()
         retention = self.retention
@@ -1688,21 +1354,12 @@ class HDF5Output(PlaneStore):
     def _grow(self, kind: str, needed: int, room: int) -> int:
         """Make room for `needed` entries in every dataset of one kind, by doubling.
 
-        Parameters
-        ----------
-        kind : {'plane', 'history', 'rows'}
-            Which datasets: the plane-indexed ones, the step-history columns or the
-            between-planes statistics columns.
-        needed : int
-            Entries the datasets must hold.
-        room : int
-            Entries they hold now.
-
-        Returns
-        -------
-        int
-            The entries they hold after growing: `room` when it was enough, otherwise
-            the largest of `needed`, twice `room` and, for planes, the reserved count.
+        - ``kind``: which datasets: the plane-indexed ones, the step-history columns or
+          the between-planes statistics columns.
+        - ``needed``: entries the datasets must hold.
+        - Returns: the entries they hold after growing: `room` when it was enough,
+          otherwise the largest of `needed`, twice `room` and, for planes, the reserved
+          count.
         """
         if needed <= room:
             return room
@@ -1721,11 +1378,6 @@ class HDF5Output(PlaneStore):
         are laid out for all of them at once, but a clean close trims them to the rows
         written, so a run continued after a close grows them back here, to every named
         plane, before its next kept field.
-
-        Parameters
-        ----------
-        slot : int
-            The row the next kept field is written to.
         """
         if self.retention.fields == "all":
             return
@@ -1746,17 +1398,13 @@ class HDF5Output(PlaneStore):
         flushed before the file's ``n_saved`` count is raised, so that a stop part-way
         leaves the count at the last complete plane.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane: its field in the internal convention, or ``None`` where the
-            field was exported straight into the stored form
-            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
-            alone holds it. A subclass whose own ``_append`` reads the plane's field
-            does not take exports (``PlaneStore.takes_exports``).
-        stored : numpy.ndarray or None
-            That field converted to the optics convention; ``None`` on a field-free
-            plane, which stores none.
+        - ``plane``: the plane: its field in the internal convention, or ``None`` where
+          the field was exported straight into the stored form
+          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          holds it. A subclass whose own ``_append`` reads the plane's field does not
+          take exports (``PlaneStore.takes_exports``).
+        - ``stored``: that field converted to the optics convention; ``None`` on a
+          field-free plane, which stores none.
         """
         file = self._require_file()
         if not self._handles:
@@ -1793,22 +1441,7 @@ class HDF5Output(PlaneStore):
         self._step_stats_length = rows_end
 
     def _append_rows(self, file: h5py.File, rows: StepStats, index: int) -> int:
-        """Write one plane's between-planes statistics rows into the open file.
-
-        Parameters
-        ----------
-        file : h5py.File
-            The open file.
-        rows : solprop.output.schema.StepStats
-            The rows of the plane being appended, possibly none.
-        index : int
-            The plane's index.
-
-        Returns
-        -------
-        int
-            The rows the file holds with this plane's.
-        """
+        """Write one plane's between-planes statistics rows into the open file."""
         group = _group(file, "step_stats")
         handles = self._handles
         for name in rows.names:
@@ -1840,11 +1473,6 @@ class HDF5Output(PlaneStore):
         datasets' extents are the counts. The lengths are the file's own
         (:func:`_stored_counts`), so a plane whose write failed part-way, and was
         never counted, is cut off with the rest.
-
-        Parameters
-        ----------
-        file : h5py.File
-            The open file.
         """
         planes, attempts, entries = _stored_counts(file)
         lengths = {
@@ -1862,22 +1490,7 @@ class HDF5Output(PlaneStore):
     def _read(self, group: str, name: str) -> np.ndarray:
         """Return one stored array, read out of the open file.
 
-        Parameters
-        ----------
-        group : str
-            ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
-        name : str
-            Name within the group.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stored array.
-
-        Raises
-        ------
-        OutputError
-            If the file is not open, or holds nothing of that name.
+        - ``group``: ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
         """
         file = self._require_file()
         if group == "step_stats" and (
@@ -1912,26 +1525,12 @@ class HDF5Output(PlaneStore):
     def _read_field(self, slot: int) -> np.ndarray:
         """Return one stored field by its row, reading that row alone.
 
-        Parameters
-        ----------
-        slot : int
-            The row in the ``field`` dataset.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stored field, optics convention.
+        - Returns: the stored field, optics convention.
         """
         return np.asarray(_dataset(self._require_file(), "field")[slot])
 
     def _write_recipe(self, record: RecipeRecord) -> None:
-        """Write the recipe group into the open file (SEP 41, S2).
-
-        Parameters
-        ----------
-        record : RecipeRecord
-            The recipe.
-        """
+        """Write the recipe group into the open file (SEP 41, S2)."""
         self._refuse_readonly()
         write_recipe(self._require_file(), record)
 
@@ -1940,18 +1539,6 @@ class HDF5Output(PlaneStore):
 
         A closed handler reopens its file for the write and closes it again, so a
         run's driver can annotate the file after the run has closed it.
-
-        Parameters
-        ----------
-        name : str
-            The annotation's name.
-        text : str
-            Its JSON document.
-
-        Raises
-        ------
-        OutputError
-            If the handler only reads, or the file cannot be opened for writing.
         """
         self._refuse_readonly()
         if self._suspended_identity is not None:
@@ -2013,17 +1600,7 @@ class HDF5Output(PlaneStore):
 
 
 def _write_annotation(file: h5py.File, name: str, text: str) -> None:
-    """Write, or replace, one post-run annotation of an open file.
-
-    Parameters
-    ----------
-    file : h5py.File
-        The file, open for writing.
-    name : str
-        The annotation's name.
-    text : str
-        Its JSON document.
-    """
+    """Write, or replace, one post-run annotation of an open file."""
     group = file.require_group(_ANNOTATIONS_KEY)
     if name in group:
         del group[name]
@@ -2033,22 +1610,9 @@ def _write_annotation(file: h5py.File, name: str, text: str) -> None:
 def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
     """Return the record a file carries and the digest stored beside it.
 
-    Parameters
-    ----------
-    path : pathlib.Path or str
-        The file to read.
-
-    Returns
-    -------
-    tuple
-        The :class:`solprop.output.schema.RunMetadata` and the ``configuration_hash``
-        attribute the writer stored, which are checked against each other.
-
-    Raises
-    ------
-    OutputError
-        If the file cannot be opened, carries no metadata, or its stored digest does
-        not match the record beside it.
+    - Returns: the :class:`solprop.output.schema.RunMetadata` and the
+      ``configuration_hash`` attribute the writer stored, which are checked against each
+      other.
     """
     try:
         with h5py.File(path, "r") as file:
@@ -2069,22 +1633,7 @@ def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
 def _resume_refusal(
     path: Path | str, stored: RunMetadata, requested: RunMetadata
 ) -> str:
-    """Return the message refusing a resume, naming what changed.
-
-    Parameters
-    ----------
-    path : pathlib.Path or str
-        The file.
-    stored : RunMetadata
-        Its record.
-    requested : RunMetadata
-        The record of the run asked for.
-
-    Returns
-    -------
-    str
-        What differs, and what to do instead.
-    """
+    """Return the message refusing a resume, naming what changed."""
     return (
         f"{path} cannot be resumed; {stored.summarise_differences(requested)}.\n"
         "A resume needs the same configuration hash: to change the physics or the "
@@ -2097,23 +1646,6 @@ def _file_path(path: Path | str | Output, reader: str) -> Path:
 
     A handler is not a file: one that keeps nothing has nothing to continue, and one
     that has a file is reached through its path.
-
-    Parameters
-    ----------
-    path : pathlib.Path or str or solprop.output.schema.Output
-        What the caller gave.
-    reader : str
-        The function being called, for the message.
-
-    Returns
-    -------
-    pathlib.Path
-        The file.
-
-    Raises
-    ------
-    OutputError
-        If `path` is an output handler.
     """
     if isinstance(path, Output):
         msg = (
@@ -2172,18 +1704,7 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
 
 
 def _check_plasma_benchmark(metadata: RunMetadata) -> None:
-    """Keep the historical gated equation out of every continuation path.
-
-    Parameters
-    ----------
-    metadata : RunMetadata
-        Stored run identity, including any private benchmark source label.
-
-    Raises
-    ------
-    OutputError
-        If the output was produced by the non-resumable gated benchmark.
-    """
+    """Keep the historical gated equation out of every continuation path."""
     if metadata.configuration.get("_benchmark_plasma_source"):
         raise OutputError("gated plasma benchmark output cannot be resumed")
 
@@ -2201,20 +1722,6 @@ def _check_accessors(
     this build has dropped -- so the list is checked as a **subset** here instead.
     A file written before an accessor was added resumes; one written by a build
     that had an accessor this one does not is refused by the name it is missing.
-
-    Parameters
-    ----------
-    path : pathlib.Path or str
-        The file, for the message.
-    stored : solprop.output.schema.RunMetadata
-        The record the file carries.
-    metadata : solprop.output.schema.RunMetadata
-        The record of the run about to start.
-
-    Raises
-    ------
-    OutputError
-        Naming the accessors this build cannot supply.
     """
     if stored.modal is None or metadata.modal is None:
         return
@@ -2239,18 +1746,8 @@ def _check_accessors(
 def _last_history(file: h5py.File, index: int) -> tuple[StepHistory, StepHistory]:
     """Return the whole step history and the part belonging to one plane.
 
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    index : int
-        Index of the plane whose slice is wanted.
-
-    Returns
-    -------
-    tuple
-        The whole history and the slice, both as
-        :class:`solprop.output.schema.StepHistory`.
+    - Returns: the whole history and the slice, both as
+      :class:`solprop.output.schema.StepHistory`.
     """
     group = _group(file, "step_history")
     counts = np.asarray(_dataset(group, "counts")[: index + 1], dtype=np.int64)
@@ -2270,17 +1767,7 @@ def _last_history(file: h5py.File, index: int) -> tuple[StepHistory, StepHistory
 def _last_step_stats(file: h5py.File, index: int) -> StepStats:
     """Return the between-planes statistics rows belonging to one plane.
 
-    Parameters
-    ----------
-    file : h5py.File
-        The open file.
-    index : int
-        Index of the plane whose rows are wanted.
-
-    Returns
-    -------
-    solprop.output.schema.StepStats
-        The rows of that plane, empty for a run that recorded no periodic subset.
+    - Returns: the rows of that plane, empty for a run that recorded no periodic subset.
     """
     group = _group(file, "step_stats")
     names = [
@@ -2409,20 +1896,9 @@ def _regular_resume_plane(
 ) -> tuple[SavedPlane, StepHistory]:
     """Read the last regular plane and its complete stored attempt history.
 
-    Parameters
-    ----------
-    file : h5py.File
-        Open saved output with regular observations.
-    metadata : RunMetadata
-        Grid and output amplitude conventions.
-    index : int
-        Nonnegative regular-plane index to restore.
-
-    Returns
-    -------
-    tuple
-        Restored plane and the complete attempt history through that plane; the
-        plane's field and noise phase are ``None`` where the run kept no field.
+    - ``metadata``: grid and output amplitude conventions.
+    - Returns: restored plane and the complete attempt history through that plane; the
+      plane's field and noise phase are ``None`` where the run kept no field.
     """
     # A stored rule's indices are already counted from the entrance.
     retention = _stored_retention(file)

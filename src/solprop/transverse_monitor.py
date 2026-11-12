@@ -99,17 +99,7 @@ _UNWATCHED_MESSAGE = (
 def _ramp_band_message(share: float, *, stop: bool) -> str:
     """Return what a launch's share in the safety ramp's band reports.
 
-    Parameters
-    ----------
-    share : float
-        The share of the noise-free launch's energy in the band.
-    stop : bool
-        Whether it is the stop's message, else the warning's.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``stop``: whether it is the stop's message, else the warning's.
     """
     if stop:
         return (
@@ -126,20 +116,7 @@ def _ramp_band_message(share: float, *, stop: bool) -> str:
 
 
 def _clip_message(clipped: float, face: str) -> str:
-    """Return the warning of a launch the aperture clips on a face.
-
-    Parameters
-    ----------
-    clipped : float
-        The launch's share in the outer :data:`GUARD` of the requested size there.
-    face : str
-        The face's name.
-
-    Returns
-    -------
-    str
-        The message.
-    """
+    """Return the warning of a launch the aperture clips on a face."""
     return (
         f"the launch holds {clipped:.2e} of its energy in the outer "
         f"{GUARD:.0%} of the requested size on its {face} face: the "
@@ -150,32 +127,13 @@ def _clip_message(clipped: float, face: str) -> str:
 def _insensitive_reason(allowance: float) -> str:
     """Return the ``transverse_reason`` of an edge the input noise leaves insensitive.
 
-    Parameters
-    ----------
-    allowance : float
-        The noise's allowance, a share of the launch energy.
-
-    Returns
-    -------
-    str
-        The reason.
+    - ``allowance``: the noise's allowance, a share of the launch energy.
     """
     return f"the input noise's allowance {allowance:.2e} exceeds the warning"
 
 
 def _insensitive_message(allowance: float) -> str:
-    """Return the warning of an edge the input noise leaves insensitive.
-
-    Parameters
-    ----------
-    allowance : float
-        The noise's allowance, a share of the launch energy.
-
-    Returns
-    -------
-    str
-        The message.
-    """
+    """Return the warning of an edge the input noise leaves insensitive."""
     return (
         "the transverse edge cannot be judged below "
         f"{allowance:.2e} of the launch energy under this input "
@@ -186,17 +144,8 @@ def _insensitive_message(allowance: float) -> str:
 def _coarse_message(longest: float, spacing: float) -> str:
     """Return the warning of a fixed schedule whose steps outrun the read spacing.
 
-    Parameters
-    ----------
-    longest : float
-        The schedule's longest step, m.
-    spacing : float
-        The read spacing at the launch, m.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``longest``: the schedule's longest step, m.
+    - ``spacing``: the read spacing at the launch, m.
     """
     return (
         f"the fixed schedule's longest step, {longest:.3e} m, is "
@@ -209,19 +158,7 @@ def _coarse_message(longest: float, spacing: float) -> str:
 def _face_message(face: str, z: float, judged: float) -> str:
     """Return the warning of light first judged above the warning on a face.
 
-    Parameters
-    ----------
-    face : str
-        The face's name.
-    z : float
-        Where, m.
-    judged : float
-        Its judged share.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``z``: where, m.
     """
     return (
         f"light reached the transverse edge on its {face} face at "
@@ -243,27 +180,9 @@ def _stop_message(
 ) -> str:
     """Return a face's stop message, naming a size and a sample count to try.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The run's grid.
-    length : float
-        The guide's length, m.
-    stop : float
-        The stop, an energy share: ``(stop_factor * budget) ** 2``.
-    face : str
-        The face.
-    judged : float
-        Its judged share.
-    z : float
-        Where it stopped, m.
-    warned_at : float
-        Where the edge first warned, m; NaN where it did not.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``length``: the guide's length, m.
+    - ``z``: where it stopped, m.
+    - ``warned_at``: where the edge first warned, m; NaN where it did not.
     """
     first = warned_at if math.isfinite(warned_at) else z
     factor = length / max(first, 1e-300)
@@ -291,19 +210,8 @@ def _stop_message(
 def _return_message(returned: float, z: float, stop: float | None) -> str:
     """Return what a requested collar's return reports.
 
-    Parameters
-    ----------
-    returned : float
-        The returned share of the launch energy.
-    z : float
-        Where, m.
-    stop : float or None
-        The stop, for the stop's message; ``None`` for the warning's.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``z``: where, m.
+    - ``stop``: the stop, for the stop's message; ``None`` for the warning's.
     """
     if stop is not None:
         return (
@@ -321,17 +229,7 @@ def _return_message(returned: float, z: float, stop: float | None) -> str:
 def _ramp_removal_message(removed: float, stop: float | None) -> str:
     """Return what the safety ramp's removal reports.
 
-    Parameters
-    ----------
-    removed : float
-        Its removal above the noise's share and declared content.
-    stop : float or None
-        The stop, for the stop's message; ``None`` for the warning's.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``stop``: the stop, for the stop's message; ``None`` for the warning's.
     """
     if stop is not None:
         return (
@@ -348,30 +246,12 @@ def _ramp_removal_message(removed: float, stop: float | None) -> str:
 
 
 def _log_declared(share: float) -> None:
-    """Log a declared launch's share in the ramp's band, which is not judged.
-
-    Parameters
-    ----------
-    share : float
-        The share.
-    """
+    """Log a declared launch's share in the ramp's band, which is not judged."""
     logger.info("the launch holds %.2e of its energy in the ramp's band", share)
 
 
 def _log_finish(status: str, largest: float, removed: float, reads: int) -> None:
-    """Log the edge's verdict at the end of a run.
-
-    Parameters
-    ----------
-    status : str
-        The transverse status.
-    largest : float
-        The largest judged share.
-    removed : float
-        The ramp's removal.
-    reads : int
-        The reads.
-    """
+    """Log the edge's verdict at the end of a run."""
     logger.info(
         "transverse edge: %s; largest judged share %.2e; the ramp removed %.2e; "
         "%d reads",
@@ -469,16 +349,6 @@ def _row_energy(rows: np.ndarray) -> Float[np.ndarray, " n_rows"]:
 
     Double precision is summed as a real view by ``einsum``, without the temporaries
     of ``abs(E)**2``; a read makes these sums many times a run (section 7.7).
-
-    Parameters
-    ----------
-    rows : numpy.ndarray
-        Complex rows.
-
-    Returns
-    -------
-    numpy.ndarray
-        The per-row sums.
     """
     if rows.dtype != np.complex128:
         return np.sum(np.abs(rows) ** 2, axis=1)
@@ -491,21 +361,10 @@ def _axis_faces(
 ) -> tuple[_Face, _Face]:
     """Return an axis's low and high faces.
 
-    Parameters
-    ----------
-    name : str
-        The axis, ``"x"`` or ``"y"``.
-    axis : numpy.ndarray
-        Its centred samples, m.
-    size : float
-        Its requested half-size, m.
-    flat : numpy.ndarray
-        Each node's coordinate along it, m.
-
-    Returns
-    -------
-    tuple of _Face
-        The two faces.
+    - ``name``: the axis, ``"x"`` or ``"y"``.
+    - ``axis``: its centred samples, m.
+    - ``size``: its requested half-size, m.
+    - ``flat``: each node's coordinate along it, m.
     """
     outer = 0.5 * axis.size * float(axis[1] - axis[0])
     low = _Face(
@@ -522,18 +381,7 @@ def _axis_faces(
 
 
 def _faces(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Face, ...]:
-    """Return the faces of a grid's edge on its physical nodes or rows.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The grid.
-
-    Returns
-    -------
-    tuple of _Face
-        One radially, four on a Cartesian box, two on a line or a slab.
-    """
+    """Return the faces of a grid's edge on its physical nodes or rows."""
     if isinstance(space, RadialGrid):
         r = np.asarray(space.r)
         return (
@@ -555,18 +403,7 @@ def _faces(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Face, ...]:
 
 
 def _guard_width(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
-    """Return the narrowest face's guard width, m.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The grid.
-
-    Returns
-    -------
-    float
-        ``GUARD`` times the smallest outer half-size.
-    """
+    """Return the narrowest face's guard width, m."""
     if isinstance(space, RadialGrid):
         return GUARD * space.outer_radius
     if isinstance(space, PlanarGrid):
@@ -618,18 +455,7 @@ class _EdgeLine:
 
 
 def _requested_size(space: RadialGrid | FreeGrid | PlanarGrid) -> float:
-    """Return the requested half-size on the narrowest axis, m.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The run's grid.
-
-    Returns
-    -------
-    float
-        The size, m.
-    """
+    """Return the requested half-size on the narrowest axis, m."""
     if isinstance(space, RadialGrid):
         return space.radius
     if isinstance(space, PlanarGrid):
@@ -648,23 +474,10 @@ def _edge_line(
 ) -> _EdgeLine:
     """Return one line's description, from its outward coordinate.
 
-    Parameters
-    ----------
-    axis : str
-        The grid axis.
-    s : numpy.ndarray
-        The outward coordinate of each of its nodes, m.
-    measure : float
-        What a row's sum is multiplied by.
-    bounds : tuple of float
-        The return strip, ``(a, b)`` in `s`, m.
-    size : float
-        The requested half-size, m.
-
-    Returns
-    -------
-    solprop.transverse_monitor._EdgeLine
-        The description.
+    - ``axis``: the grid axis.
+    - ``s``: the outward coordinate of each of its nodes, m.
+    - ``bounds``: the return strip, ``(a, b)`` in `s`, m.
+    - ``size``: the requested half-size, m.
     """
     a, b = bounds
     selected = np.nonzero((s >= a) & (s <= b))[0]
@@ -703,17 +516,7 @@ def _edge_lines(
 ) -> tuple[_EdgeLine, ...]:
     """Return the lines a requested collar's strip and current run along.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The run's grid.
-    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
-        The run's transverse boundary.
-
-    Returns
-    -------
-    tuple of solprop.transverse_monitor._EdgeLine
-        One per direction along each axis; none without a collar.
+    - Returns: one per direction along each axis; none without a collar.
     """
     if design is None or not design.has_collar:
         return ()
@@ -751,23 +554,7 @@ _STRIP_BATCH_BYTES = 2**28
 def _line_rows(
     space: RadialGrid | FreeGrid | PlanarGrid, line: _EdgeLine, n_pol: int, n_omega: int
 ) -> int:
-    """Return how many rows of values a line carries.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The run's grid.
-    line : solprop.transverse_monitor._EdgeLine
-        The line.
-    n_pol, n_omega : int
-        The state's polarisations and bins.
-
-    Returns
-    -------
-    int
-        The rows: one per polarisation and bin, and per transverse position across the
-        line, or per slab channel on the planar kind.
-    """
+    """Return how many rows of values a line carries."""
     planes = n_pol * n_omega
     if isinstance(space, RadialGrid):
         return planes
@@ -777,20 +564,7 @@ def _line_rows(
 
 
 def _strip_batch(line: _EdgeLine, rows: int) -> int:
-    """Return how many of a line's rows one batch of its padded transform takes.
-
-    Parameters
-    ----------
-    line : solprop.transverse_monitor._EdgeLine
-        The line, with nodes in its strip.
-    rows : int
-        Its rows in all.
-
-    Returns
-    -------
-    int
-        The rows in a batch, under ``_STRIP_BATCH_BYTES``.
-    """
+    """Return how many of a line's rows one batch of its padded transform takes."""
     return min(rows, max(1, _STRIP_BATCH_BYTES // (16 * 2 * line.strip.size)))
 
 
@@ -806,19 +580,7 @@ def _transverse_edge_bytes(
     the synthesis; and with a requested collar each line's nodes and window, and one
     padded buffer per distinct batch. A run reading no edge holds none of it.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The run's grid.
-    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
-        Its transverse boundary.
-    n_pol, n_omega : int
-        The state's polarisations and bins.
-
-    Returns
-    -------
-    int
-        The bytes.
+    - Returns: the bytes.
     """
     columns = int(np.asarray(space.spectral_weights).size)
     if isinstance(space, RadialGrid):
@@ -840,18 +602,7 @@ def _transverse_edge_bytes(
 
 
 def _radial_inverse(space: RadialGrid) -> Float[np.ndarray, "n_r n_r"]:
-    """Return the radial grid's synthesis from its spectral columns to its nodes.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        The dense matrix.
-    """
+    """Return the radial grid's synthesis from its spectral columns to its nodes."""
     hankel = space.hankel
     return (
         hankel.inverse_scale * (hankel.j1[:, None] / hankel.j1[None, :]) * hankel.matrix
@@ -895,21 +646,8 @@ class _HostEdgeReduction:
     ) -> _EdgeReading:
         """Return what the edge asked of a state.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One batch member's spectral columns.
-        faces : bool, optional
-            Whether to read the nodes, the columns and any strip.
-        current : bool, optional
-            Whether to read a collar's inward current.
-        full : bool, optional
-            Whether every node is wanted, as a launch wants, not only the read's rows.
-
-        Returns
-        -------
-        solprop.transverse_monitor._EdgeReading
-            The reading.
+        - ``full``: whether every node is wanted, as a launch wants, not only the read's
+          rows.
         """
         rate = self.current(state) if current else None
         if not faces:
@@ -928,10 +666,7 @@ class _HostEdgeReduction:
     def synthesis(self) -> Float[np.ndarray, "n_r n_r"] | None:
         """Return a radial grid's synthesis from columns to nodes, or ``None``.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            The dense matrix; ``None`` on a grid whose transform is an FFT.
+        - Returns: the dense matrix; ``None`` on a grid whose transform is an FFT.
         """
         if not isinstance(self.space, RadialGrid):
             return None
@@ -947,19 +682,9 @@ class _HostEdgeReduction:
     ) -> Float[np.ndarray, " n_nodes"]:
         """Return each physical node's (or row's) energy, over pol and frequency.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One batch member's spectral columns.
-        full : bool, optional
-            Whether every node is wanted. Otherwise radially the rows a read doesn't use
-            are not synthesised and are zero: a read happens many times a run, and the
-            full synthesis is an ``n_r``-square product per frequency.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``|E|^2`` summed, unweighted, in the state's units squared.
+        - ``full``: whether every node is wanted. Otherwise, radially, the rows a read
+          doesn't use are not synthesised and are zero: a read happens many times a
+          run, and the full synthesis is an ``n_r``-square product per frequency.
         """
         space = self.space
         flat = state.reshape(state.shape[0], -1)
@@ -993,16 +718,6 @@ class _HostEdgeReduction:
 
         A small transform is faster on one thread than on a pool woken beside the
         backend's own threads.
-
-        Parameters
-        ----------
-        cube : numpy.ndarray
-            The array transformed.
-
-        Returns
-        -------
-        int
-            The thread budget's threads, or 1 below ``2**18`` elements.
         """
         return self._workers if cube.size >= _SMALL_TRANSFORM else 1
 
@@ -1010,18 +725,7 @@ class _HostEdgeReduction:
     def column_power(
         state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     ) -> Float[np.ndarray, " n_columns"]:
-        """Return each spectral column's unweighted energy.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One batch member's spectral columns.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``sum |E|^2`` over polarisation and frequency.
-        """
+        """Return each spectral column's unweighted energy."""
         return _row_energy(state.reshape(state.shape[0], -1))
 
     def _axis_values(
@@ -1029,16 +733,8 @@ class _HostEdgeReduction:
     ) -> dict[str, np.ndarray]:
         """Return the field along each axis's nodes, line by line.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One member's spectral columns.
-
-        Returns
-        -------
-        dict
-            By axis, the field on its nodes, ``(n_nodes, n_rows)`` with one row per
-            frequency, polarisation and transverse position (``sqrt(r) E`` radially).
+        - Returns: by axis, the field on its nodes, ``(n_nodes, n_rows)`` with one row
+          per frequency, polarisation and transverse position (``sqrt(r) E`` radially).
         """
         space = self.space
         flat = state.reshape(state.shape[0], -1)
@@ -1062,17 +758,6 @@ class _HostEdgeReduction:
         A Kaiser(8)-windowed transform along each face's normal, padded twice; the
         inward energy is that at ``|q| >= 16 / s`` travelling inward, where the
         window's leakage is about ``1e-6`` (section 5.3).
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One member's spectral columns.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``(inward, windowed)`` per line, unweighted by the launch; zero on a line
-            with too few nodes in the strip.
         """
         values = self._axis_values(state)
         found = []
@@ -1100,16 +785,6 @@ class _HostEdgeReduction:
         ``J = Im(E* dE/dn) / k`` on the requested size's boundary, summed over its
         frequencies and lines, per metre of propagation, counting inward flow only
         (section 5.3).
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            One member's spectral columns.
-
-        Returns
-        -------
-        float
-            The current, unweighted by the launch.
         """
         values = self._axis_values(state)
         total = 0.0
@@ -1221,13 +896,7 @@ class TransverseEdge:
         )
 
     def _edge_tables(self) -> _EdgeTables:
-        """Return the weights a state's node energies are summed with.
-
-        Returns
-        -------
-        solprop.transverse_monitor._EdgeTables
-            The tables, over the grid's nodes (or rows).
-        """
+        """Return the weights a state's node energies are summed with."""
         weights = self._weights
         faces, clip = np.zeros((2, 4, weights.size))
         for index, face in enumerate(self._faces):
@@ -1248,13 +917,7 @@ class TransverseEdge:
         return _EdgeTables(faces, clip, totals, self._rows_read())
 
     def _rows_read(self) -> np.ndarray:
-        """Return the nodes (or rows) a read uses: the faces' and a collar's.
-
-        Returns
-        -------
-        numpy.ndarray
-            A mask over the nodes.
-        """
+        """Return the nodes (or rows) a read uses: the faces' and a collar's."""
         rows = np.zeros(self._weights.size, dtype=bool)
         for face in self._faces:
             rows |= face.edge
@@ -1266,10 +929,7 @@ class TransverseEdge:
     def _node_rate(self) -> Float[np.ndarray, " n_nodes"] | None:
         """Return a requested collar's power rate on the nodes (or rows), 1/m.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            The rate; ``None`` without a collar. On a slab it depends on y alone.
+        - Returns: the rate; ``None`` without a collar. On a slab it depends on y alone.
         """
         if self.design is None or self.design.collar_rate is None:
             return None
@@ -1281,29 +941,15 @@ class TransverseEdge:
     def _column_power(
         self, columns: Float[np.ndarray, " n_columns"]
     ) -> Float[np.ndarray, " n_columns"]:
-        """Return each spectral column's energy, in the node reduction's units.
-
-        Parameters
-        ----------
-        columns : numpy.ndarray
-            Each column's unweighted energy, as a reading gives it.
-
-        Returns
-        -------
-        numpy.ndarray
-            Weighted ``|E|^2``, scaled so that its sum is the node reduction's total.
-        """
+        """Return each spectral column's energy, in the node reduction's units."""
         return self._columns * columns
 
     # ------------------------------------------------------------------ the record
     @property
-    def resumed(self) -> bool:
-        """Return whether this edge continues an earlier execution's record.
+    def resumed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether this edge continues an earlier execution's record.
 
-        Returns
-        -------
-        bool
-            True after :meth:`resume` found a record, so that the launch is not judged.
+        True after :meth:`resume` found a record, so that the launch is not judged.
         """
         return self._resumed
 
@@ -1437,22 +1083,7 @@ class TransverseEdge:
         *,
         declared: bool,
     ) -> None:
-        """Judge the noise-free launch's share in the safety ramp's band (5.3).
-
-        Parameters
-        ----------
-        columns : numpy.ndarray
-            Each column's weighted energy in the launch, without the input noise.
-        stop, warn : float
-            The stop and warning levels as energy shares.
-        declared : bool
-            Whether content above ``discard_above`` was declared.
-
-        Raises
-        ------
-        BoundaryError
-            Above the stop, unless declared.
-        """
+        """Judge the noise-free launch's share in the safety ramp's band (5.3)."""
         if self.design is None:
             return
         total = float(np.sum(columns))
@@ -1474,18 +1105,7 @@ class TransverseEdge:
             )
 
     def _collar_rate(self, reading: _EdgeReading) -> float:
-        """Return a requested collar's removal rate, as a share of the launch per m.
-
-        Parameters
-        ----------
-        reading : solprop.transverse_monitor._EdgeReading
-            The state's reading.
-
-        Returns
-        -------
-        float
-            ``sum alpha w |E|^2 / U_launch``; zero without a collar.
-        """
+        """Return a requested collar's removal rate, as a share of the launch per m."""
         if self.design is None or self.design.collar_rate is None:
             return 0.0
         assert reading.totals is not None
@@ -1494,17 +1114,9 @@ class TransverseEdge:
     def _reach(self, columns: Float[np.ndarray, " n_columns"]) -> float:
         """Return the reach ``v_q`` of the current spectrum.
 
-        Parameters
-        ----------
-        columns : numpy.ndarray
-            One member's column energies (:meth:`_column_power`).
-
-        Returns
-        -------
-        float
-            The transverse group velocity at ``kappa_q``, the wavenumber above which
-            the field holds no more than the warning's share of the launch; zero when
-            nothing is above it.
+        - Returns: the transverse group velocity at ``kappa_q``, the wavenumber above
+          which the field holds no more than the warning's share of the launch; zero
+          when nothing is above it.
         """
         if self._noise_columns is not None:
             columns = np.maximum(columns - self._noise_columns, 0.0)
@@ -1530,13 +1142,6 @@ class TransverseEdge:
         all, starts it again (solprop issue #396). Growth is measured against the
         reach at that start, not at the last read, so that a creeping spectrum cannot
         double it forever.
-
-        Parameters
-        ----------
-        columns : numpy.ndarray
-            One member's column energies (:meth:`_column_power`).
-        launch : bool
-            Whether this is the launch (or a resumed one), which starts the backstop.
         """
         reach = self._reach(columns)
         # A spectrum with no reach (nothing above the warning, so only under a budget
@@ -1693,15 +1298,7 @@ class TransverseEdge:
 
         The larger line's, as shares of the launch (section 5.3).
 
-        Parameters
-        ----------
-        strip : numpy.ndarray
-            ``(inward, windowed)`` per line, as a reading gives it.
-
-        Returns
-        -------
-        tuple of float
-            The inward share and the windowed share.
+        - Returns: the inward share and the windowed share.
         """
         best, windowed = 0.0, 0.0
         for inward, total in strip:
@@ -1734,27 +1331,19 @@ class TransverseEdge:
         self._current_last = (z, share)
 
     @property
-    def next_read(self) -> float:
-        """Return where the edge is next read, m; infinite when nothing is read.
+    def next_read(self) -> float:  # numpydoc ignore=RT01
+        """Where the edge is next read, m; infinite when nothing is read.
 
         A backend that marches without the host, as the native Adams march does,
         holds its steps to it as :meth:`ceiling` does and hands the state back there.
-
-        Returns
-        -------
-        float
-            The position, m.
         """
         return self._next
 
     @property
-    def every_step(self) -> bool:
-        """Return whether the edge accumulates at every committed step (a collar).
+    def every_step(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the edge accumulates at every committed step (a collar).
 
-        Returns
-        -------
-        bool
-            True with a requested collar.
+        True with a requested collar.
         """
         return self.design is not None and self.design.has_collar
 
@@ -1763,15 +1352,7 @@ class TransverseEdge:
         reading: _EdgeReading,
         noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
     ) -> None:
-        """Record a collar's launch baselines and floors (section 5.3).
-
-        Parameters
-        ----------
-        reading : solprop.transverse_monitor._EdgeReading
-            The launched state's reading.
-        noise : numpy.ndarray or None
-            Its input noise.
-        """
+        """Record a collar's launch baselines and floors (section 5.3)."""
         assert reading.strip is not None
         strip, _ = self._strip_shares(reading.strip)
         self._strip_baseline = strip
@@ -1785,17 +1366,7 @@ class TransverseEdge:
     def _judge_return(self, reading: _EdgeReading, z: float) -> None:
         """Judge what a collar returns: the strip and the current (section 5.3).
 
-        Parameters
-        ----------
-        reading : solprop.transverse_monitor._EdgeReading
-            The state's reading.
-        z : float
-            Its position, m.
-
-        Raises
-        ------
-        BoundaryError
-            When the returned share exceeds ``stop_factor`` budgets.
+        - ``z``: its position, m.
         """
         assert reading.strip is not None
         strip, windowed = self._strip_shares(reading.strip)
@@ -1824,11 +1395,6 @@ class TransverseEdge:
         The ramp's removal tracks the true error of an under-resolved run within a few
         times, and the ramp can hide that light from the edge; it is judged at the
         edge's levels (the maintainer's decision on Q8).
-
-        Raises
-        ------
-        BoundaryError
-            When the removal exceeds ``stop_factor`` budgets.
         """
         removed = self.ramp_removed
         stop = (self.stop_factor * self.budget) ** 2
@@ -1847,19 +1413,7 @@ class TransverseEdge:
     def _stop_message(self, face: str, judged: float, z: float) -> str:
         """Return the stop's message, naming a size and a sample count to try.
 
-        Parameters
-        ----------
-        face : str
-            The face.
-        judged : float
-            Its judged share.
-        z : float
-            Where it stopped, m.
-
-        Returns
-        -------
-        str
-            The message.
+        - ``z``: where it stopped, m.
         """
         return _stop_message(
             self.space,
@@ -1873,13 +1427,10 @@ class TransverseEdge:
 
     # ------------------------------------------------------------------ results
     @property
-    def ramp_removed(self) -> float:
-        """Return the safety ramp's removal above noise and declared content.
+    def ramp_removed(self) -> float:  # numpydoc ignore=RT01
+        """Safety ramp's removal above noise and declared content.
 
-        Returns
-        -------
-        float
-            A share of the launch energy, signed.
+        A share of the launch energy, signed.
         """
         return (
             self._ramp_raw
@@ -1888,14 +1439,11 @@ class TransverseEdge:
         )
 
     @property
-    def status(self) -> TransverseStatus:
-        """Return the run's transverse status (section 5.3).
+    def status(self) -> TransverseStatus:  # numpydoc ignore=RT01
+        """The run's transverse status (section 5.3).
 
-        Returns
-        -------
-        str
-            ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
-            ``unwatched``.
+        ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
+        ``unwatched``.
         """
         return self._status
 
@@ -1911,68 +1459,44 @@ class TransverseEdge:
             The ``transverse`` entry of the earlier monitor record.
         """
 
-        def number(name: str, default: float = 0.0) -> float:
-            """Return a recorded number, or `default`.
-
-            Parameters
-            ----------
-            name : str
-                The field.
-            default : float, optional
-                What an absent field stands for.
-
-            Returns
-            -------
-            float
-                The value.
-            """
+        def _number(name: str, default: float = 0.0) -> float:
+            """Return a recorded number, or `default`."""
             value = record.get(name)
             if isinstance(value, bool) or not isinstance(value, int | float):
                 return default
             return float(value)
 
-        def numbers(name: str) -> list[float] | None:
-            """Return a recorded per-face list, or ``None`` if it does not fit.
-
-            Parameters
-            ----------
-            name : str
-                The field.
-
-            Returns
-            -------
-            list of float or None
-                One value per face.
-            """
+        def _numbers(name: str) -> list[float] | None:
+            """Return a recorded per-face list, or ``None`` if it does not fit."""
             value = record.get(name)
             if not isinstance(value, list) or len(value) != len(self._faces):
                 return None
             return [float(cast("float", one)) for one in cast("list[object]", value)]
 
-        launch = number("launch_energy", math.nan)
-        baseline = numbers("edge_baseline")
+        launch = _number("launch_energy", math.nan)
+        baseline = _numbers("edge_baseline")
         if not launch > 0.0 or baseline is None:
             return
         self._resumed = True
         self._launch = launch
         self._baseline = baseline
-        self._peak = numbers("edge_max") or self._peak
-        self._peak_raw = numbers("edge_max_raw") or self._peak_raw
-        self._allowance = number("noise_allowance")
-        self._ramp_raw = number("raw_ramp_removed")
-        self._ramp_noise = number("noise_ramp_removed")
-        self._noise_share_in_ramp = number("noise_share_in_ramp")
-        self._declared_share = number("declared_share_in_ramp")
-        self._spatial_removed = number("spatial_removed")
-        self._current = number("current")
-        self._current_baseline = number("current_baseline")
-        self._strip_baseline = number("strip_baseline")
-        self._strip_floor = number("strip_floor")
-        self._strip_peak = number("strip_max")
-        self._returned_peak = number("returned_max")
-        self._reads = int(number("reads"))
-        self._largest_gap = number("largest_gap")
-        self._warned_at = number("warned_at", math.nan)
+        self._peak = _numbers("edge_max") or self._peak
+        self._peak_raw = _numbers("edge_max_raw") or self._peak_raw
+        self._allowance = _number("noise_allowance")
+        self._ramp_raw = _number("raw_ramp_removed")
+        self._ramp_noise = _number("noise_ramp_removed")
+        self._noise_share_in_ramp = _number("noise_share_in_ramp")
+        self._declared_share = _number("declared_share_in_ramp")
+        self._spatial_removed = _number("spatial_removed")
+        self._current = _number("current")
+        self._current_baseline = _number("current_baseline")
+        self._strip_baseline = _number("strip_baseline")
+        self._strip_floor = _number("strip_floor")
+        self._strip_peak = _number("strip_max")
+        self._returned_peak = _number("returned_max")
+        self._reads = int(_number("reads"))
+        self._largest_gap = _number("largest_gap")
+        self._warned_at = _number("warned_at", math.nan)
         self._warned = math.isfinite(self._warned_at)
         status = record.get("transverse_status")
         if isinstance(status, str) and status in (

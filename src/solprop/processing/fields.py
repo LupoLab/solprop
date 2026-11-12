@@ -325,38 +325,9 @@ def _spectral_density(
     a spatial file each column's value is ``|E|^2`` in its own units, not a density in
     J.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa, in m, Hz or rad/s.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which columns to return; ``'sum'`` adds their values.
-    band : {'active', 'all'}
-        Which part of the stored axis to use.
-    spec_range : tuple of float or None
-        Limits on the abscissa, in its own units.
-    resolution : float or None
-        Instrument resolution, in the units of the abscissa.
-    noise_floor : {'keep', 'subtract'}
-        Whether to remove the input noise's seed.
-
-    Returns
-    -------
-    x : numpy.ndarray
-        The abscissa, shape ``(n_x,)``, ascending.
-    density : numpy.ndarray
-        The value per unit of ``x``.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        As :func:`get_spectral_density`.
+    - ``axis``: the abscissa, in m, Hz or rad/s.
+    - ``z``: position of the plane wanted, m.
+    - ``band``: which part of the stored axis to use.
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     grid = grid_of(output)
@@ -403,19 +374,7 @@ def _check_spec_range(
     Without it the density came back empty, and a plot failed later inside NumPy with
     a message that named neither the range nor its units.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The abscissa, ascending, in the units of ``axis``.
-    spec_range : tuple of float
-        The requested limits, in either order.
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa's name.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If no sample of ``x`` lies within the limits.
+    - ``x``: the abscissa, ascending, in the units of ``axis``.
     """
     low, high = min(spec_range), max(spec_range)
     if np.any((x >= low) & (x <= high)):
@@ -626,31 +585,12 @@ def _power(
     file: for an internal caller that has already been gated under its own name, or
     that knows the basis is modal.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which columns to return; ``'sum'`` adds them.
-    oversampling : int
-        Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        A window applied before the transform.
-    transfer : TransferFunction or None
-        An optics-convention element applied to the spectrum.
-    transform_limit : bool
-        Whether to discard the spectral phase first.
-
-    Returns
-    -------
-    t : numpy.ndarray
-        Time axis, s.
-    power : numpy.ndarray
-        The squared modulus summed over polarisation, W on a modal file.
+    - ``z``: position of the plane wanted, m.
+    - ``oversampling``: factor by which to resample the time axis, at least 1.
+    - ``transfer``: an optics-convention element applied to the spectrum.
+    - Returns ``t``: time axis, s.
+    - Returns ``power``: the squared modulus summed over polarisation, W on a modal
+      file.
     """
     _, t, amplitude = _plane_amplitude(
         output,
@@ -728,22 +668,7 @@ def _seed_density(
     column measure of a spatial one. A modulus is convention-free, so the record's
     internal convention needs no conjugation.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        The density in J/(rad/s), shape ``(n_modes, n_pol, n_omega)``.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the run carries no noise record, or one of the ``'modified'`` model.
+    - Returns: the density in J/(rad/s), shape ``(n_modes, n_pol, n_omega)``.
     """
     metadata = output.metadata
     record = None if metadata is None else metadata.noise
@@ -769,16 +694,6 @@ def _fft_norm(grid: TimeGrid) -> float:
     The square root of the prefactor of :func:`solprop.fourier.spectral_density`, so
     that the modulus squared of the scaled spectrum is the energy density in
     J/(rad/s).
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the spectrum lives on.
-
-    Returns
-    -------
-    float
-        ``dt sqrt(2 / pi)`` on a field grid, ``dt / sqrt(2 pi)`` on an envelope grid.
     """
     if grid.kind == "field":
         return grid.dt * np.sqrt(2.0 / np.pi)
@@ -845,35 +760,16 @@ def _to_time(
     carrier is the caller's business, because doing it unconditionally would cost a
     complex multiply and the last bit of every power.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the spectrum lives on.
-    stored : numpy.ndarray
-        Stored spectrum, internal convention, shape ``(..., n_omega)``.
-    oversampling : int
-        Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
-        axis, of an explicit window applied before the transform, or a ready-made window
-        on the stored axis.
-    transfer : TransferFunction or None
-        An optics-convention element applied to the spectrum, after the band pass and
-        the transform limit.
-    transform_limit : bool
-        Whether to discard the spectral phase first.
-
-    Returns
-    -------
-    t : numpy.ndarray
-        Time axis, s, centred on zero.
-    amplitude : numpy.ndarray
-        The complex amplitude, internal convention, in the square root of watts.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If ``oversampling`` is below one.
+    - ``stored``: stored spectrum, internal convention, shape ``(..., n_omega)``.
+    - ``oversampling``: factor by which to resample the time axis, at least 1.
+    - ``bandpass``: wavelength limits, m, or a
+      :class:`~solprop.processing.spectra.Passband` on any axis, of an explicit window
+      applied before the transform, or a ready-made window on the stored axis.
+    - ``transfer``: an optics-convention element applied to the spectrum, after the band
+      pass and the transform limit.
+    - Returns ``t``: time axis, s, centred on zero.
+    - Returns ``amplitude``: the complex amplitude, internal convention, in the square
+      root of watts.
     """
     if oversampling < 1:
         msg = f"oversampling must be at least 1, got {oversampling}"
@@ -910,34 +806,16 @@ def _plane_amplitude(
     The one path from a saved run to the time domain, so that a power, a field and an
     autocorrelation all come from the same transform with the same normalisation.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Plane index, negative from the end, or ``None`` for every plane.
-    z : float or None
-        Plane position, m, or ``None``.
-    oversampling : int
-        Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
-        axis, of an explicit window applied before the transform, or a ready-made window
-        on the stored axis.
-    transfer : TransferFunction or None
-        An optics-convention element applied to the spectrum.
-    transform_limit : bool
-        Whether to discard the spectral phase first.
-
-    Returns
-    -------
-    grid : solprop.grid.TimeGrid
-        The rebuilt grid.
-    t : numpy.ndarray
-        Time axis, s, centred on zero.
-    amplitude : numpy.ndarray
-        Complex amplitude with every axis kept, shape ``(..., n_modes, n_pol, n_t)``, in
-        the internal convention and the square root of watts.
+    - ``plane``: plane index, negative from the end, or ``None`` for every plane.
+    - ``z``: plane position, m, or ``None``.
+    - ``oversampling``: factor by which to resample the time axis, at least 1.
+    - ``bandpass``: wavelength limits, m, or a
+      :class:`~solprop.processing.spectra.Passband` on any axis, of an explicit window
+      applied before the transform, or a ready-made window on the stored axis.
+    - ``transfer``: an optics-convention element applied to the spectrum.
+    - Returns ``t``: time axis, s, centred on zero.
+    - Returns ``amplitude``: complex amplitude with every axis kept, shape ``(...,
+      n_modes, n_pol, n_t)``, in the internal convention and the square root of watts.
     """
     grid = grid_of(output)
     stored = _plane_field(output, plane, z, convention="fft")
@@ -1189,21 +1067,9 @@ def _gate_transform(
 ) -> "ShortTimeFFT":
     """Return the short-time transform of a Gaussian gate of the given width.
 
-    Parameters
-    ----------
-    dt : float
-        Sample spacing of the field, s.
-    width : float
-        Full width at half maximum of the gate, s.
-    span : float
-        Time range the gate positions cover, s.
-    positions : int
-        How many positions to place across that range.
-
-    Returns
-    -------
-    scipy.signal.ShortTimeFFT
-        The transform, with its hop chosen to give about ``positions`` slices.
+    - ``dt``: sample spacing of the field, s.
+    - ``width``: full width at half maximum of the gate, s.
+    - ``span``: time range the gate positions cover, s.
     """
     # scipy.signal takes half a second to import: only a spectrogram needs it.
     from scipy.signal import ShortTimeFFT  # noqa: PLC0415

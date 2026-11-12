@@ -118,23 +118,7 @@ def answer(request: Request, handlers: Mapping[str, Handler]) -> Reply:
 
 
 def _waiting(connection: Connection) -> list[Request]:
-    """Take one request, waiting for it, and every other already waiting.
-
-    Parameters
-    ----------
-    connection : multiprocessing.connection.Connection
-        The kernel's end of the pipe.
-
-    Returns
-    -------
-    list of Request
-        The requests, in arrival order.
-
-    Raises
-    ------
-    EOFError
-        When the window has closed its end.
-    """
+    """Take one request, waiting for it, and every other already waiting."""
     requests = [connection.recv()]
     while connection.poll(0):
         requests.append(connection.recv())

@@ -58,31 +58,13 @@ _PRESET_IDENTITY = re.compile(
 
 
 def _positive(value: float, name: str) -> None:
-    """Require a finite positive real scalar, excluding booleans.
-
-    Parameters
-    ----------
-    value : float
-        Candidate scalar in the calling field's declared SI units.
-    name : str
-        Field name used in the diagnostic.
-    """
+    """Require a finite positive real scalar, excluding booleans."""
     if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
         raise MaterialError(f"{name} must be positive and finite")
 
 
 def _count(value: int, name: str, minimum: int = 1) -> None:
-    """Require a plain integer above the declared lower bound.
-
-    Parameters
-    ----------
-    value : int
-        Candidate dimensionless count.
-    name : str
-        Field name used in the diagnostic.
-    minimum : int, optional
-        Inclusive lower bound, default 1.
-    """
+    """Require a plain integer above the declared lower bound."""
     if type(value) is not int or value < minimum:
         raise MaterialError(f"{name} must be an integer >= {minimum}")
 
@@ -90,12 +72,7 @@ def _count(value: int, name: str, minimum: int = 1) -> None:
 def _text(value: str, name: str) -> None:
     """Require a nonempty identifier or source description.
 
-    Parameters
-    ----------
-    value : str
-        Candidate text, which must contain a non-whitespace character.
-    name : str
-        Field name used in the diagnostic.
+    - ``value``: candidate text, which must contain a non-whitespace character.
     """
     if not isinstance(value, str) or not value.strip():
         raise MaterialError(f"{name} must be a nonempty string")
@@ -104,12 +81,7 @@ def _text(value: str, name: str) -> None:
 def _strings(values: tuple[str, ...], name: str) -> None:
     """Keep sequence metadata immutable and free of empty entries.
 
-    Parameters
-    ----------
-    values : tuple of str
-        Candidate immutable nonempty strings; the tuple itself may be empty.
-    name : str
-        Field name used in the diagnostic.
+    - ``values``: candidate immutable nonempty strings; the tuple itself may be empty.
     """
     if type(values) is not tuple:
         raise MaterialError(f"{name} must be a tuple")
@@ -236,13 +208,10 @@ class TDSEBasis:
             )
 
     @property
-    def identity(self) -> str:
-        """Return the stable SHA-256 identity of all resolved basis fields.
+    def identity(self) -> str:  # numpydoc ignore=RT01
+        """Stable SHA-256 identity of all resolved basis fields.
 
-        Returns
-        -------
-        str
-            Hexadecimal digest of canonical JSON, including the source record.
+        Hexadecimal digest of canonical JSON, including the source record.
         """
         encoded = json.dumps(
             asdict(self), sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -253,12 +222,9 @@ class TDSEBasis:
 def _radial_axis(edges: Sequence[float], orders: Sequence[int]) -> None:
     """Validate an immutable finite-element axis starting at zero.
 
-    Parameters
-    ----------
-    edges : sequence of float
-        Candidate element boundaries in m, beginning with zero; must be a tuple.
-    orders : sequence of int
-        Candidate points per element, each between 2 and 64; must be a tuple.
+    - ``edges``: candidate element boundaries in m, beginning with zero; must be a
+      tuple.
+    - ``orders``: candidate points per element, each between 2 and 64; must be a tuple.
     """
     if type(edges) is not tuple or type(orders) is not tuple:
         raise MaterialError("radial_edges and radial_orders must be tuples")
@@ -441,17 +407,14 @@ class HaccBasis:
             )
 
     @property
-    def identity(self) -> str:
-        """Return the SHA-256 identity of every field, tagged as a haCC basis.
+    def identity(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 identity of every field, tagged as a haCC basis.
 
         The ``kind`` tag keeps a haCC identity distinct from any SAE
         :class:`TDSEBasis` identity; ``preset`` distinguishes a preset from a custom
         basis with the same numbers.
 
-        Returns
-        -------
-        str
-            Hexadecimal digest of canonical JSON with ``kind="hacc_helium"``.
+        Hexadecimal digest of canonical JSON with ``kind="hacc_helium"``.
         """
         encoded = json.dumps(
             {"kind": "hacc_helium", **asdict(self)},
@@ -462,14 +425,11 @@ class HaccBasis:
         return hashlib.sha256(encoded.encode()).hexdigest()
 
     @property
-    def label(self) -> str:
-        """Return the model's name, with ``(custom)`` for a non-preset basis.
+    def label(self) -> str:  # numpydoc ignore=RT01
+        """The model's name, with ``(custom)`` for a non-preset basis.
 
-        Returns
-        -------
-        str
-            ``haCC(1)`` or ``haCC(5)``, followed by `` fast`` for the fast preset
-            variant and by `` (custom)`` when ``preset`` is ``None``.
+        ``haCC(1)`` or ``haCC(5)``, followed by `` fast`` for the fast preset
+        variant and by `` (custom)`` when ``preset`` is ``None``.
         """
         name = "haCC(1)" if self.ions == 1 else "haCC(5)"
         if self.preset is None:
@@ -477,14 +437,11 @@ class HaccBasis:
         return name if self.variant == "standard" else f"{name} fast"
 
     @property
-    def variant(self) -> Literal["standard", "fast"] | None:
-        """Return the preset's numerics variant, read from its identity.
+    def variant(self) -> Literal["standard", "fast"] | None:  # numpydoc ignore=RT01
+        """The preset's numerics variant, read from its identity.
 
-        Returns
-        -------
-        {'standard', 'fast'} or None
-            ``'fast'`` for a ``hacc-helium-<1|5>-fast-...`` identity, ``'standard'``
-            for any other preset, ``None`` for a custom basis.
+        ``'fast'`` for a ``hacc-helium-<1|5>-fast-...`` identity, ``'standard'``
+        for any other preset, ``None`` for a custom basis.
         """
         if self.preset is None:
             return None
@@ -493,16 +450,13 @@ class HaccBasis:
         return "fast" if match.group(2) else "standard"
 
     @property
-    def qualified(self) -> bool:
-        """Return whether the record claims a provider preset's qualification.
+    def qualified(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the record claims a provider preset's qualification.
 
         The claim is verified against the installed provider when the binding
         prepares the model; a custom basis is never qualified.
 
-        Returns
-        -------
-        bool
-            True exactly when ``preset`` is set.
+        True exactly when ``preset`` is set.
         """
         return self.preset is not None
 
@@ -834,13 +788,7 @@ class TDSEGasResponse:
             raise MaterialError("consistency must be a TDSEConsistency record")
 
     def _validate_hacc(self, basis: HaccBasis) -> None:
-        """Apply the whole-atom rules of SEP 20 section 5.1 to a haCC response.
-
-        Parameters
-        ----------
-        basis : HaccBasis
-            The response's validated haCC basis.
-        """
+        """Apply the whole-atom rules of SEP 20 section 5.1 to a haCC response."""
         if self.kerr_model != "tdse_native":
             raise MaterialError(
                 f"haCC refuses kerr_model={self.kerr_model!r}: the provider has no "
@@ -879,12 +827,9 @@ class TDSEGasResponse:
             )
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the scalar real-field memory response traits.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Scalar real-field memory response traits.
 
-        Returns
-        -------
-        ResponseTraits
-            Field-grid, scalar, density-dependent temporal response.
+        Field-grid, scalar, density-dependent temporal response.
         """
         return ResponseTraits("memory", ("field",), "scalar", ("density",))

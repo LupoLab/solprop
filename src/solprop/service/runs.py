@@ -62,18 +62,7 @@ _ENDED_SLURM: Final = frozenset(
 
 
 def _read(path: Path) -> dict[str, Any] | None:
-    """Return a small JSON file, or ``None`` when missing or torn.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        The file.
-
-    Returns
-    -------
-    dict or None
-        Its object.
-    """
+    """Return a small JSON file, or ``None`` when missing or torn."""
     import json  # noqa: PLC0415 - light, only here
 
     try:
@@ -84,18 +73,7 @@ def _read(path: Path) -> dict[str, Any] | None:
 
 
 def _title(folder: Path) -> str:
-    """Return a run's title, from its recipe, or its folder's name.
-
-    Parameters
-    ----------
-    folder : pathlib.Path
-        The run's folder.
-
-    Returns
-    -------
-    str
-        The title.
-    """
+    """Return a run's title, from its recipe, or its folder's name."""
     try:
         text = (folder / RECIPE).read_text(encoding="utf-8")
     except OSError:
@@ -210,25 +188,10 @@ def _living_state(  # noqa: PLR0917 - called positionally
 ) -> tuple[str, str]:
     """Return the state of a run that has recorded no ending.
 
-    Parameters
-    ----------
-    folder : pathlib.Path
-        The run's folder.
-    job : solprop.service.record.Job or None
-        Its ``job.json``.
-    submitted : Mapping
-        Its ``submitted.json``.
-    status : Mapping
-        Its ``status.json``.
-    slurm : Mapping
-        The scheduler's states, by job.
-    now : float
-        The time, s since the epoch.
-
-    Returns
-    -------
-    tuple of str
-        The state and its detail.
+    - ``submitted``: its ``submitted.json``.
+    - ``status``: its ``status.json``.
+    - ``now``: the time, s since the epoch.
+    - Returns: the state and its detail.
     """
     del folder
     slurm_job = submitted.get("slurm_job") or (job.slurm_job if job else None)
@@ -259,22 +222,11 @@ def _slurm_state(
 ) -> tuple[str, str]:
     """Return the state of a Slurm run that has recorded no ending.
 
-    Parameters
-    ----------
-    known : SlurmState or None
-        The scheduler's state of its job; ``None`` where neither the queue nor the
-        accounts know it (yet, or any longer).
-    job : solprop.service.record.Job or None
-        Its ``job.json``, written once the job started.
-    status : Mapping
-        Its ``status.json``.
-    now : float
-        The time, s since the epoch.
-
-    Returns
-    -------
-    tuple of str
-        The state and its detail.
+    - ``known``: the scheduler's state of its job; ``None`` where neither the queue nor
+      the accounts know it (yet, or any longer).
+    - ``status``: its ``status.json``.
+    - ``now``: the time, s since the epoch.
+    - Returns: the state and its detail.
     """
     if known is None:
         return ("running", "") if _fresh(status, now) else ("lost", "")
@@ -288,17 +240,8 @@ def _slurm_state(
 def _fresh(status: Mapping[str, Any], now: float) -> bool:
     """Return whether a run has rewritten its summary lately.
 
-    Parameters
-    ----------
-    status : Mapping
-        Its ``status.json``.
-    now : float
-        The time, s since the epoch.
-
-    Returns
-    -------
-    bool
-        True within :data:`STALE` of its last rewrite.
+    - ``status``: its ``status.json``.
+    - ``now``: the time, s since the epoch.
     """
     updated = status.get("updated")
     return isinstance(updated, int | float) and now - float(updated) < STALE

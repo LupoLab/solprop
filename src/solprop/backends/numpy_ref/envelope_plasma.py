@@ -69,20 +69,9 @@ def _cycle_quantities(
 ) -> tuple[Float[np.ndarray, " n_to"], Complex[np.ndarray, "n_pol n_to"]]:
     """Evaluate rate and optional directional loss by independent SVD axes.
 
-    Parameters
-    ----------
-    field : numpy.ndarray
-        Physical V/m envelope, shape (n_pol, n_to).
-    cycle : CycleIntegralData
-        Validated instantaneous rate and quadrature rules.
-    loss : bool
-        Whether to form the directional loss moments beside the averaged rate.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Rate in s^-1 and loss moment per unit ionisation work, with shapes
-        (n_to,) and (n_pol, n_to).
+    - ``field``: physical V/m envelope, shape (n_pol, n_to).
+    - Returns: rate in s^-1 and loss moment per unit ionisation work, with shapes
+      (n_to,) and (n_pol, n_to).
     """
     rate = np.zeros(field.shape[1])
     current = np.zeros_like(field)
@@ -118,19 +107,10 @@ def _population(
 ) -> tuple[Float[np.ndarray, " n_to"], Float[np.ndarray, " n_to"]]:
     """Retain survival separately from a cancellation-free population scan.
 
-    Parameters
-    ----------
-    rate : numpy.ndarray
-        Cycle-averaged rates in s^-1, shape (n_to,).
-    initial : float
-        Initial ionised fraction in [0, 1].
-    dt : float
-        Fine time spacing in s.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Ionised fraction and surviving neutral fraction, each shape (n_to,).
+    - ``rate``: Cycle-averaged rates in s^-1, shape (n_to,).
+    - ``initial``: initial ionised fraction in [0, 1].
+    - ``dt``: fine time spacing in s.
+    - Returns: ionised fraction and surviving neutral fraction, each shape (n_to,).
     """
     with np.errstate(over="ignore"):
         increments = (0.5 * rate[:-1] + 0.5 * rate[1:]) * dt

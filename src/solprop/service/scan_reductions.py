@@ -86,15 +86,8 @@ def reduction_axis(recipe: Recipe, kind: str) -> np.ndarray:
 def _where(spec: Spec) -> dict[str, float | int]:
     """Return where a reduction reads: a distance, or nothing for the last plane.
 
-    Parameters
-    ----------
-    spec : Mapping
-        The reduction's spec, with ``z`` (m) or none.
-
-    Returns
-    -------
-    dict
-        The readers' ``z``, or the last ``plane``.
+    - ``spec``: the reduction's spec, with ``z`` (m) or none.
+    - Returns: the readers' ``z``, or the last ``plane``.
     """
     z = spec.get("z")
     return {"plane": -1} if z is None else {"z": float(z)}  # pyright: ignore[reportArgumentType]
@@ -103,15 +96,7 @@ def _where(spec: Spec) -> dict[str, float | int]:
 def _band(spec: Spec) -> tuple[float, float]:
     """Return a reduction's band.
 
-    Parameters
-    ----------
-    spec : Mapping
-        The reduction's spec, with ``band``, two wavelengths in m.
-
-    Returns
-    -------
-    tuple of float
-        The band, ascending.
+    - ``spec``: the reduction's spec, with ``band``, two wavelengths in m.
     """
     low, high = spec["band"]  # pyright: ignore[reportGeneralTypeIssues]
     return min(float(low), float(high)), max(float(low), float(high))
@@ -120,19 +105,7 @@ def _band(spec: Spec) -> tuple[float, float]:
 def _energy_in_band(output: Output, spec: Spec, where: Mapping[str, Any]) -> np.ndarray:
     """Return the energy within the band.
 
-    Parameters
-    ----------
-    output : solprop.output.Output
-        The point's run.
-    spec : Mapping
-        The reduction's spec, with its ``band``.
-    where : Mapping
-        The plane read (:func:`_where`).
-
-    Returns
-    -------
-    numpy.ndarray
-        The energy within the band.
+    - ``spec``: the reduction's spec, with its ``band``.
     """
     low, high = _band(spec)
     x, density = get_spectral_density(output, "wavelength", modes="sum", **where)
@@ -148,19 +121,7 @@ def _peak_power_in_band(
 ) -> np.ndarray:
     """Return the peak power of the pulse filtered to the band.
 
-    Parameters
-    ----------
-    output : solprop.output.Output
-        The point's run.
-    spec : Mapping
-        The reduction's spec, with its ``band``.
-    where : Mapping
-        The plane read.
-
-    Returns
-    -------
-    numpy.ndarray
-        The peak power of the pulse filtered to the band.
+    - ``spec``: the reduction's spec, with its ``band``.
     """
     _t, power = get_power(
         output,
@@ -175,19 +136,7 @@ def _peak_power_in_band(
 def _spectrum(output: Output, on: np.ndarray, where: Mapping[str, Any]) -> np.ndarray:
     """Return the spectral energy density on a fixed axis.
 
-    Parameters
-    ----------
-    output : solprop.output.Output
-        The point's run.
-    on : numpy.ndarray
-        The axis, m.
-    where : Mapping
-        The plane read.
-
-    Returns
-    -------
-    numpy.ndarray
-        The spectral energy density on the axis.
+    - ``on``: the axis, m.
     """
     x, density = get_spectral_density(output, "wavelength", modes="sum", **where)
     order = np.argsort(x)
@@ -197,19 +146,7 @@ def _spectrum(output: Output, on: np.ndarray, where: Mapping[str, Any]) -> np.nd
 def _pulse(output: Output, on: np.ndarray, where: Mapping[str, Any]) -> np.ndarray:
     """Return the power on a fixed time axis.
 
-    Parameters
-    ----------
-    output : solprop.output.Output
-        The point's run.
-    on : numpy.ndarray
-        The axis, s.
-    where : Mapping
-        The plane read.
-
-    Returns
-    -------
-    numpy.ndarray
-        The power on the axis.
+    - ``on``: the axis, s.
     """
     t, power = get_power(output, modes="sum", oversampling=TIME_OVERSAMPLING, **where)
     return np.interp(on, np.asarray(t), np.asarray(power), 0.0, 0.0)
@@ -231,18 +168,7 @@ class _Reader:
     axis: np.ndarray | None = None
 
     def __call__(self, output: Output) -> np.ndarray:
-        """Return the reduction's value for a point's run.
-
-        Parameters
-        ----------
-        output : solprop.output.Output
-            The point's run.
-
-        Returns
-        -------
-        numpy.ndarray
-            The value.
-        """
+        """Return the reduction's value for a point's run."""
         kind = str(self.spec["kind"])
         where = _where(self.spec)
         on: np.ndarray = np.zeros(0) if self.axis is None else self.axis
@@ -258,23 +184,10 @@ class _Reader:
 def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarray]:
     """Return what a reduction computes from a point's run.
 
-    Parameters
-    ----------
-    spec : Mapping
-        ``kind``, and ``band`` or ``z`` as it takes them.
-    axis : numpy.ndarray or None
-        A spectrum's or a pulse's fixed axis.
+    A picklable object rather than a closure, so that a ``Pool``'s workers can take it.
 
-    Returns
-    -------
-    callable
-        From the point's output to its value; picklable, so a ``Pool``'s workers can
-        take it.
-
-    Raises
-    ------
-    KeyError
-        For a kind that is not one of :data:`KINDS`.
+    - ``spec``: ``kind``, and ``band`` or ``z`` as it takes them.
+    - ``axis``: a spectrum's or a pulse's fixed axis.
     """
     if str(spec["kind"]) not in KINDS:
         raise KeyError(spec["kind"])

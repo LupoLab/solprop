@@ -189,15 +189,7 @@ def _seed_of(rng: np.random.Generator) -> int | None:
     from a bit generator need not carry one, and a seed given as a sequence of integers
     is not recorded.
 
-    Parameters
-    ----------
-    rng : numpy.random.Generator
-        Generator to interrogate.
-
-    Returns
-    -------
-    int or None
-        The entropy, or ``None`` when it is absent or not a single integer.
+    - Returns: the entropy, or ``None`` when it is absent or not a single integer.
     """
     # getattr rather than attribute access: the annotated type of ``seed_seq`` is the
     # ISeedSequence protocol, which does not declare ``entropy``.
@@ -216,16 +208,6 @@ def _amplitude(grid: TimeGrid) -> Float[np.ndarray, " n_omega"]:
     exactly with the two prefactors of
     :func:`solprop.fourier.spectral_density`, so that ``S(omega_k) d_omega = hbar
     omega_k``.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Grid to draw on.
-
-    Returns
-    -------
-    numpy.ndarray
-        Amplitude per bin, shape ``(n_omega,)``, zero outside the active band.
     """
     active = grid.active_mask
     amplitude = np.zeros(grid.n_omega)
@@ -249,29 +231,7 @@ def _draw(
     alone, so that widening or narrowing the band does not shift the random stream and a
     seed keeps meaning the same realisation on the same grid size.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Grid to draw on.
-    rng : numpy.random.Generator
-        Source of the random phase.
-    model : {'input', 'modified'}
-        Label to record on the realisation.
-    n_modes : int
-        Number of modes, at least 1. Each gets an independent realisation.
-    n_pol : int
-        Number of polarisation components, 1 or 2. Each gets an independent realisation,
-        because the two transverse components are separate field modes.
-
-    Returns
-    -------
-    NoiseRealisation
-        The realisation, with its seed and model recorded.
-
-    Raises
-    ------
-    NoiseError
-        If ``n_modes`` or ``n_pol`` is smaller than one.
+    - ``n_modes``: number of modes, at least 1. Each gets an independent realisation.
     """
     for name, count in (("n_modes", n_modes), ("n_pol", n_pol)):
         if count < 1:

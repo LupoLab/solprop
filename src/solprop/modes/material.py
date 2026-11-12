@@ -120,13 +120,13 @@ class PermittivityLaw(Protocol):
         ...
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the material validity interval in rad/s."""
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Material validity interval ``(lower, upper)``, rad/s."""
         ...
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the material state and source identity."""
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Material state and source identity."""
         ...
 
 
@@ -204,27 +204,18 @@ class IndexMaterial:
         return np.asarray(index**2, dtype=complex)
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the validity interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Validity interval ``(lower, upper)``, rad/s."""
         if isinstance(self.index, GlassIndex):
             low, high = self.index.wavelength_range
             return 2 * np.pi * C / high, 2 * np.pi * C / low
         return 0.0, float("inf")
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the material model and its validity interval.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Material model and its validity interval.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "index": self.index
@@ -237,15 +228,7 @@ class IndexMaterial:
 def _radius_text(value: float | ZProfile | None) -> str:
     """Return a printable radius without evaluating a declared path.
 
-    Parameters
-    ----------
-    value : float or ZProfile or None
-        Radius in m, a declared path, or None for the unbounded exterior.
-
-    Returns
-    -------
-    str
-        An engineering radius, the path's one-line description, or ``unbounded``.
+    - ``value``: radius in m, a declared path, or None for the unbounded exterior.
     """
     if value is None:
         return "unbounded"
@@ -386,10 +369,7 @@ class MaterialKerr(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "MaterialKerr: an instantaneous isotropic Kerr response", [
             ("declared as", "chi3" if self.chi3 is not None else "n2"),
@@ -465,16 +445,9 @@ class MaterialKerr(Displayed):
     def _conversion(self, omega: float) -> float:
         """Return the frequency the ``n2`` conversion reads the index at, rad/s.
 
-        Parameters
-        ----------
-        omega : float
-            The frequency asked for, used when no measurement wavelength is
-            declared.
-
-        Returns
-        -------
-        float
-            ``2 pi c / at`` when `at` is declared, and `omega` otherwise.
+        - ``omega``: the frequency asked for, used when no measurement wavelength is
+          declared.
+        - Returns: ``2 pi c / at`` when `at` is declared, and `omega` otherwise.
         """
         return float(omega) if self.at is None else 2.0 * np.pi * C / float(self.at)
 
@@ -509,22 +482,8 @@ class MaterialKerr(Displayed):
 def _linear_index(material: PermittivityLaw, omega: float) -> float:
     """Return a material's real linear refractive index at one frequency.
 
-    Parameters
-    ----------
-    material : PermittivityLaw
-        The law to evaluate.
-    omega : float
-        Positive angular frequency in rad/s inside the material's domain.
-
-    Returns
-    -------
-    float
-        ``n_0 = sqrt(Re eps_r)``, dimensionless and positive.
-
-    Raises
-    ------
-    ModeError
-        If the frequency or the resulting index is unusable.
+    - ``omega``: positive angular frequency in rad/s inside the material's domain.
+    - Returns: ``n_0 = sqrt(Re eps_r)``, dimensionless and positive.
     """
     if not np.isfinite(omega) or omega <= 0.0:
         raise ModeError(f"omega must be positive and finite, got {omega!r}")
@@ -609,10 +568,7 @@ class GasKerr(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "GasKerr: the electronic response of a region's gas fill", [
             ("fill", repr(self.fill)),
@@ -696,10 +652,7 @@ class MaterialRegion(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"MaterialRegion: {self.name}", [
             ("inner", _radius_text(self.inner_radius)),
@@ -712,40 +665,22 @@ class MaterialRegion(Displayed):
         ]
 
     @property
-    def raman(self) -> SilicaTensorResponse | None:
-        """Return the region's declared delayed response, or ``None``.
-
-        Returns
-        -------
-        solprop.nonlinear.raman.SilicaTensorResponse or None
-            The one declared delayed response, or ``None``.
-        """
+    def raman(self) -> SilicaTensorResponse | None:  # numpydoc ignore=RT01
+        """The region's declared delayed response, or ``None``."""
         declared = [
             one for one in self.responses if isinstance(one, SilicaTensorResponse)
         ]
         return declared[0] if declared else None
 
     @property
-    def kerr(self) -> MaterialKerr | None:
-        """Return the region's declared Kerr response, or ``None`` if it is linear.
-
-        Returns
-        -------
-        MaterialKerr or None
-            The one declared instantaneous response, or ``None``.
-        """
+    def kerr(self) -> MaterialKerr | None:  # numpydoc ignore=RT01
+        """The region's declared Kerr response, or ``None`` if it is linear."""
         declared = [one for one in self.responses if isinstance(one, MaterialKerr)]
         return declared[0] if declared else None
 
     @property
-    def gas(self) -> GasKerr | None:
-        """Return the region's gas fill response, or ``None``.
-
-        Returns
-        -------
-        GasKerr or None
-            The one declared gas fill, or ``None``.
-        """
+    def gas(self) -> GasKerr | None:  # numpydoc ignore=RT01
+        """The region's gas fill response, or ``None``."""
         declared = [one for one in self.responses if isinstance(one, GasKerr)]
         return declared[0] if declared else None
 

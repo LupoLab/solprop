@@ -42,16 +42,6 @@ def _gnlse(scale: float) -> Simulation:
     The dispersion coefficients follow J. M. Dudley, G. Genty and S. Coen, Rev. Mod.
     Phys. 78, 1135 (2006), doi:10.1103/RevModPhys.78.1135, section III, as the
     benchmark case does.
-
-    Parameters
-    ----------
-    scale : float
-        The window's size relative to the standard one.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The simulation.
     """
     from solprop.driver import Simulation  # noqa: PLC0415 - imports the physics
 
@@ -85,18 +75,7 @@ def _gnlse(scale: float) -> Simulation:
 
 
 def _capillary(scale: float) -> Simulation:
-    """Build four modes of a helium capillary with plasma, on `scale` x 200 fs.
-
-    Parameters
-    ----------
-    scale : float
-        The window's size relative to the standard one.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The simulation.
-    """
+    """Build four modes of a helium capillary with plasma, on `scale` x 200 fs."""
     from solprop.driver import Simulation  # noqa: PLC0415 - imports the physics
 
     return Simulation.from_capillary(
@@ -116,18 +95,7 @@ def _capillary(scale: float) -> Simulation:
 
 
 def _averaged(scale: float) -> Simulation:
-    """Build a mode-averaged hydrogen capillary with Raman, on `scale` x 800 fs.
-
-    Parameters
-    ----------
-    scale : float
-        The window's size relative to the standard one.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The simulation.
-    """
+    """Build a mode-averaged hydrogen capillary with Raman, on `scale` x 800 fs."""
     from solprop.driver import Simulation  # noqa: PLC0415 - imports the physics
 
     return Simulation.from_capillary(
@@ -152,17 +120,7 @@ def _averaged(scale: float) -> Simulation:
 def _spatial(kind: str, scale: float) -> Simulation:
     """Build an argon filament on a radial grid, or Kerr focusing on a line.
 
-    Parameters
-    ----------
-    kind : str
-        ``"radial"`` or ``"line"``.
-    scale : float
-        The transverse count relative to the standard one.
-
-    Returns
-    -------
-    solprop.driver.Simulation
-        The simulation.
+    - ``kind``: ``"radial"`` or ``"line"``.
     """
     import numpy as np  # noqa: PLC0415
 

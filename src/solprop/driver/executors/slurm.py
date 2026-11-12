@@ -29,15 +29,7 @@ __all__ = ["Slurm"]
 def _memory_bytes(value: str) -> int:
     """Interpret positive Slurm memory quantities, whose suffix-free unit is MiB.
 
-    Parameters
-    ----------
-    value : str
-        JSON-serialisable record to publish atomically.
-
-    Returns
-    -------
-    int
-        Memory allocation in bytes.
+    - Returns: memory allocation in bytes.
     """
     match = re.fullmatch(r"([1-9][0-9]*)([KMGT]?)", value.upper())
     if match is None:
@@ -124,13 +116,7 @@ class Slurm:
 
     @property
     def _has_gpu(self) -> bool:
-        """Report whether the allocation carries a GPU, independently of instances.
-
-        Returns
-        -------
-        bool
-            Whether the generic resources name a GPU.
-        """
+        """Report whether the allocation carries a GPU, independently of instances."""
         return self.gres is not None and "gpu" in self.gres
 
     def validate(self, work: Callable) -> None:

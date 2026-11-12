@@ -55,17 +55,7 @@ INITIAL_BLOCK = 16
 def _grown(block: np.ndarray, used: int) -> np.ndarray:
     """Return a copy of a block with twice the room, keeping the used entries.
 
-    Parameters
-    ----------
-    block : numpy.ndarray
-        The current block, whose leading axis is the plane index.
-    used : int
-        How many leading entries carry data.
-
-    Returns
-    -------
-    numpy.ndarray
-        A new block of twice the leading length, with the used entries copied in.
+    - ``block``: the current block, whose leading axis is the plane index.
     """
     grown = np.zeros((2 * block.shape[0], *block.shape[1:]), dtype=block.dtype)
     grown[:used] = block[:used]
@@ -75,15 +65,7 @@ def _grown(block: np.ndarray, used: int) -> np.ndarray:
 def _same_array(one: np.ndarray, other: np.ndarray) -> bool:
     """Return whether two arrays are views of exactly the same memory.
 
-    Parameters
-    ----------
-    one, other : numpy.ndarray
-        The arrays.
-
-    Returns
-    -------
-    bool
-        Whether they start at the same address with the same shape and strides.
+    - Returns: whether they start at the same address with the same shape and strides.
     """
     return (
         one.__array_interface__["data"][0] == other.__array_interface__["data"][0]
@@ -95,17 +77,7 @@ def _same_array(one: np.ndarray, other: np.ndarray) -> bool:
 def _history_slice(columns: Mapping[str, np.ndarray], piece: slice) -> StepHistory:
     """Return one plane's step history out of the concatenated columns.
 
-    Parameters
-    ----------
-    columns : collections.abc.Mapping
-        The concatenated history columns, keyed by field name.
-    piece : slice
-        The entries belonging to this plane.
-
-    Returns
-    -------
-    solprop.output.schema.StepHistory
-        The history of that plane.
+    - ``columns``: the concatenated history columns, keyed by field name.
     """
     return StepHistory(**{name: columns[name][piece] for name in HISTORY_FIELDS})
 
@@ -113,17 +85,7 @@ def _history_slice(columns: Mapping[str, np.ndarray], piece: slice) -> StepHisto
 def _joined(pieces: Sequence[np.ndarray], dtype: type) -> np.ndarray:
     """Return the pieces of one column as one array, keeping its dtype when empty.
 
-    Parameters
-    ----------
-    pieces : collections.abc.Sequence
-        One piece per plane, possibly none at all.
-    dtype : type
-        The column's dtype, which an empty concatenation would otherwise lose.
-
-    Returns
-    -------
-    numpy.ndarray
-        The concatenated column.
+    - ``dtype``: the column's dtype, which an empty concatenation would otherwise lose.
     """
     if not pieces:
         return np.zeros(0, dtype=dtype)
@@ -135,20 +97,11 @@ def _step_stats_slice(
 ) -> StepStats:
     """Return one plane's statistics rows out of the per-plane pieces.
 
-    Parameters
-    ----------
-    columns : collections.abc.Mapping
-        The row columns, keyed by column name, each holding one piece per plane.
-    index : int
-        Which plane.
-    names : collections.abc.Sequence
-        The statistics the run recorded between planes.
-
-    Returns
-    -------
-    solprop.output.schema.StepStats
-        The rows of that plane, with no rows when it recorded none. Every plane
-        contributes a piece to both index columns, so this is always indexable.
+    - ``columns``: the row columns, keyed by column name, each holding one piece per
+      plane.
+    - ``names``: the statistics the run recorded between planes.
+    - Returns: the rows of that plane, with no rows when it recorded none. Every plane
+      contributes a piece to both index columns, so this is always indexable.
     """
     return StepStats(
         z=columns["z"][index],
@@ -235,13 +188,7 @@ class MemoryOutput(PlaneStore):
         }
 
     def _write_metadata(self, metadata: RunMetadata) -> None:
-        """Record that a run has begun; the base class keeps the metadata itself.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            The record being written.
-        """
+        """Record that a run has begun; the base class keeps the metadata itself."""
         # Guarded: the hash costs seconds on a large grid, and only this line needs it.
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -254,13 +201,8 @@ class MemoryOutput(PlaneStore):
         The room is the planes the run reserved, or the handler's block when it
         reserved none.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The first plane, which fixes the statistic names.
-        shape : tuple of int or None
-            Its field's shape, which with its noise phase fixes the field block;
-            ``None`` on a field-free plane.
+        - ``shape``: its field's shape, which with its noise phase fixes the field
+          block; ``None`` on a field-free plane.
         """
         room = self._planned or self._block
         self._capacity = room
@@ -280,13 +222,7 @@ class MemoryOutput(PlaneStore):
         Every plane's room for a run that keeps every field, which then grows with
         the planes; exactly the named planes for one that keeps some.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The first plane that keeps its field, whose noise phase says whether one
-            is stored.
-        shape : tuple of int
-            Its field's shape, ``(n_modes, n_pol, n_omega)``.
+        - ``shape``: its field's shape, ``(n_modes, n_pol, n_omega)``.
         """
         retention = self.retention
         rows = (
@@ -313,12 +249,7 @@ class MemoryOutput(PlaneStore):
     def _make_room(self, plane: SavedPlane, shape: tuple[int, ...] | None) -> None:
         """Grow the blocks so that they have room for the next plane.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The next plane.
-        shape : tuple of int or None
-            Its field's shape, or ``None`` when it keeps none.
+        - ``shape``: its field's shape, or ``None`` when it keeps none.
         """
         if self._capacity == 0:
             self._allocate(plane, shape)
@@ -399,20 +330,7 @@ class MemoryOutput(PlaneStore):
         plane: SavedPlane,
         exported: Complex[np.ndarray, "n_modes n_pol n_omega"],
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Return the row holding an exported field, copying it in from elsewhere.
-
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane, without a field.
-        exported : numpy.ndarray
-            Its field in the stored form: this store's row, or another array.
-
-        Returns
-        -------
-        numpy.ndarray
-            The block's row that holds it.
-        """
+        """Return the row holding an exported field, copying it in from elsewhere."""
         self._make_room(plane, exported.shape)
         row = self._fields[self._n_fields]
         if not _same_array(row, exported):
@@ -424,17 +342,7 @@ class MemoryOutput(PlaneStore):
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Convert a plane's field straight into its room in the block.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane, which carries a field.
-        kind : {'field', 'envelope'}
-            The grid's spectral layout.
-
-        Returns
-        -------
-        numpy.ndarray
-            The block's row that now holds it.
+        - ``kind``: the grid's spectral layout.
         """
         assert plane.field is not None
         self._make_room(plane, plane.field.shape)
@@ -447,17 +355,14 @@ class MemoryOutput(PlaneStore):
     ) -> None:
         """Append one plane to the blocks, growing them when they are full.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane: its field in the internal convention, or ``None`` where the
-            field was exported straight into the stored form
-            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
-            alone holds it. A subclass whose own ``_append`` reads the plane's field
-            does not take exports (``PlaneStore.takes_exports``).
-        stored : numpy.ndarray or None
-            That field converted to the optics convention, in its row of the block
-            (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.
+        - ``plane``: the plane: its field in the internal convention, or ``None`` where
+          the field was exported straight into the stored form
+          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          holds it. A subclass whose own ``_append`` reads the plane's field does not
+          take exports (``PlaneStore.takes_exports``).
+        - ``stored``: that field converted to the optics convention, in its row of the
+          block (:meth:`_stored_field`); ``None`` on a field-free plane, which stores
+          none.
         """
         self._make_room(plane, None if stored is None else stored.shape)
         index = self._n_saved
@@ -480,11 +385,6 @@ class MemoryOutput(PlaneStore):
         above one a short plane need not -- and it still contributes an empty piece to
         every column, so that one cumulative sum of the counts locates every plane in
         every column.
-
-        Parameters
-        ----------
-        rows : solprop.output.schema.StepStats
-            The rows of the plane being appended.
         """
         index = self._n_saved
         self._step_counts[index] = rows.n_rows
@@ -507,22 +407,7 @@ class MemoryOutput(PlaneStore):
     def _read(self, group: str, name: str) -> np.ndarray:
         """Return one stored array, trimmed to the planes actually saved.
 
-        Parameters
-        ----------
-        group : str
-            ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
-        name : str
-            Name within the group.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stored array.
-
-        Raises
-        ------
-        OutputError
-            If the group holds nothing of that name, or no plane has been saved.
+        - ``group``: ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
         """
         saved = self._n_saved
         if group == "":
@@ -551,22 +436,7 @@ class MemoryOutput(PlaneStore):
     def _read_plane_array(self, name: str, saved: int) -> np.ndarray:
         """Return one of the arrays stored once per plane.
 
-        Parameters
-        ----------
-        name : str
-            ``'z'``, ``'field'`` or ``'noise_phase'``.
-        saved : int
-            How many planes have been stored.
-
-        Returns
-        -------
-        numpy.ndarray
-            The array, trimmed to the planes actually saved.
-
-        Raises
-        ------
-        OutputError
-            If nothing has been saved yet, or the run carried no noise model.
+        - ``name``: ``'z'``, ``'field'`` or ``'noise_phase'``.
         """
         if name == "z":
             return self._z[:saved]
@@ -589,23 +459,6 @@ class MemoryOutput(PlaneStore):
         A run that recorded no periodic subset reads back as an **empty channel**
         rather than an error, so that processing and plotting can ask for it
         unconditionally and fall back to the planes.
-
-        Parameters
-        ----------
-        name : str
-            ``'counts'``, ``'z'``, ``'step'`` or a statistic name.
-        saved : int
-            How many planes have been stored.
-
-        Returns
-        -------
-        numpy.ndarray
-            The column, concatenated over planes.
-
-        Raises
-        ------
-        OutputError
-            If the run recorded a channel and this is not one of its columns.
         """
         if name == "counts":
             return self._step_counts[:saved]
@@ -625,14 +478,11 @@ class MemoryOutput(PlaneStore):
         """Release nothing: the arrays stay readable after the handler is closed."""
 
     @property
-    def noise_phase(self) -> np.ndarray | None:
-        """Return the stored noise phases, or ``None`` when the run had no noise.
+    def noise_phase(self) -> np.ndarray | None:  # numpydoc ignore=RT01
+        """Stored noise phases, or ``None`` when the run had no noise.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            Shape ``(n_z, n_modes, n_pol, n_omega)``, rad, in the internal FFT
-            convention, which is where the noise field lives.
+        Shape ``(n_z, n_modes, n_pol, n_omega)``, rad, in the internal FFT
+        convention, which is where the noise field lives.
 
         Raises
         ------

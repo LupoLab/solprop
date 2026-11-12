@@ -59,12 +59,6 @@ class RungeKutta:
         return f"RungeKutta(tableau={self.tableau.name})"
 
     @property
-    def name(self) -> str:
-        """Return the tableau's name, the method's record name.
-
-        Returns
-        -------
-        str
-            The tableau's name.
-        """
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The tableau's name, the method's record name."""
         return self.tableau.name

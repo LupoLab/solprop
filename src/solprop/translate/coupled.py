@@ -135,22 +135,8 @@ def interval_count(edges: int) -> int:
 def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     """Return a frozen, finite, strictly increasing float64 vector.
 
-    Parameters
-    ----------
-    values : array_like
-        The candidate axis.
-    name : str
-        Field name, used in the refusal.
-
-    Returns
-    -------
-    numpy.ndarray
-        A read-only C-contiguous copy.
-
-    Raises
-    ------
-    TranslationError
-        If the values are not a finite, non-empty, increasing vector.
+    - ``values``: the candidate axis.
+    - Returns: a read-only C-contiguous copy.
     """
     array = frozen_copy(values, np.float64)
     if (
@@ -169,26 +155,9 @@ def _owned(
 ) -> np.ndarray:
     """Return a frozen copy of an array, checked against a declared shape.
 
-    Parameters
-    ----------
-    values : array_like
-        The candidate array.
-    name : str
-        Field name, used in the refusal.
-    shape : tuple of int
-        The shape the record's own extents require.
-    dtype : type
-        ``numpy.float64`` or ``numpy.complex128``.
-
-    Returns
-    -------
-    numpy.ndarray
-        A read-only C-contiguous copy.
-
-    Raises
-    ------
-    TranslationError
-        If the shape disagrees or a value is not finite.
+    - ``shape``: the shape the record's own extents require.
+    - ``dtype``: ``numpy.float64`` or ``numpy.complex128``.
+    - Returns: a read-only C-contiguous copy.
     """
     array = frozen_copy(values, dtype)
     if array.shape != shape:
@@ -203,18 +172,10 @@ def _owned(
 def _degree_axis(array: np.ndarray, name: str) -> None:
     """Refuse a coefficient block that declares no degree at all.
 
-    Parameters
-    ----------
-    array : numpy.ndarray
-        A coefficient array whose second axis is the Chebyshev degree along z.
-    name : str
-        Field name, used in the refusal.
+    A block of ``n_deg = 0`` evaluates to nothing at every position, so it is refused
+    here rather than read as a zero.
 
-    Raises
-    ------
-    TranslationError
-        If the degree axis is empty. A block of ``n_deg = 0`` evaluates to nothing
-        at every position, so it is refused here rather than read as a zero.
+    - ``array``: a coefficient array whose second axis is the Chebyshev degree along z.
     """
     if not array.shape[1]:
         msg = (
@@ -227,24 +188,10 @@ def _degree_axis(array: np.ndarray, name: str) -> None:
 def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     """Return a frozen complex array whose two channel axes agree, with its width.
 
-    Parameters
-    ----------
-    values : array_like
-        The candidate array, whose channel axes are the two before the frequency axis.
-    name : str
-        Field name, used in the refusal.
-    rank : int
-        Number of axes the array must have.
-
-    Returns
-    -------
-    tuple
-        The read-only array and its channel count.
-
-    Raises
-    ------
-    TranslationError
-        If the rank is wrong, the two channel axes disagree, or a value is not finite.
+    - ``values``: the candidate array, whose channel axes are the two before the
+      frequency axis.
+    - ``rank``: number of axes the array must have.
+    - Returns: the read-only array and its channel count.
     """
     array = frozen_copy(values, np.complex128)
     if array.ndim != rank or array.shape[-3] != array.shape[-2] or not array.shape[-2]:
@@ -351,14 +298,8 @@ class ModalMetricTables(Displayed):
     certificate_id: str
 
     @property
-    def n_omega(self) -> int:
-        """Return how many coarse frequencies the metric is tabulated on.
-
-        Returns
-        -------
-        int
-            The length of ``omega``.
-        """
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """How many coarse frequencies the metric is tabulated on."""
         return len(self.omega)
 
     def __repr__(self) -> str:
@@ -381,14 +322,11 @@ class ModalMetricTables(Displayed):
         )
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the metric describes.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the metric describes.
 
-        Returns
-        -------
-        int
-            The channel count of whichever coefficient array is stored; 0 for
-            ``"identity"``, which owns none and takes its size from the state.
+        The channel count of whichever coefficient array is stored; 0 for
+        ``"identity"``, which owns none and takes its size from the state.
         """
         if self.dense is not None:
             return int(self.dense.shape[2])
@@ -397,10 +335,7 @@ class ModalMetricTables(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ModalMetricTables: the physical flux metric of a modal basis", [
             ("kind", self.kind),
@@ -451,13 +386,7 @@ class ModalMetricTables(Displayed):
         self._validate_arrays()
 
     def _validate_arrays(self) -> None:
-        """Check the coefficient array against the kind and the bounds against it.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
-        """
+        """Check the coefficient array against the kind and the bounds against it."""
         if (self.dense is not None) != (self.kind == "dense"):
             msg = (
                 f"modal_metric.dense must be present exactly for kind='dense'; "
@@ -520,16 +449,6 @@ class ModalMetricTables(Displayed):
         real. The budget is ``64 n eps`` times the block's own norm, the same scale
         :meth:`solprop.modes.vector.ModalSample._validate_flux` uses on one sample's
         metric, because that is what a ``U.H W U`` product loses to rounding.
-
-        Parameters
-        ----------
-        intervals : int
-            Interval count from the stored ``z_edges``.
-
-        Raises
-        ------
-        TranslationError
-            If an extent disagrees or the block is not Hermitian.
         """
         block, modes = _square(self.dense, "modal_metric.dense", 5)
         if block.shape[0] != intervals or block.shape[4] != self.n_omega:
@@ -700,39 +619,27 @@ class CoupledFlowTables(Displayed):
     certificate_id: str
 
     @property
-    def representation(self) -> Literal["dense", "factored"]:
-        """Return which of the two complete representations is stored.
+    def representation(self) -> Literal["dense", "factored"]:  # numpydoc ignore=RT01
+        """Which of the two complete representations is stored.
 
-        Returns
-        -------
-        {'dense', 'factored'}
-            ``"dense"`` when the generator array is present, ``"factored"`` when the
-            fixed matrices and their weights are.
+        ``"dense"`` when the generator array is present, ``"factored"`` when the
+        fixed matrices and their weights are.
         """
         return "dense" if self.generator is not None else "factored"
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the flow couples.
-
-        Returns
-        -------
-        int
-            The channel count of the stored representation.
-        """
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the flow couples."""
         terms = self.generator if self.generator is not None else self.fixed_terms
         assert terms is not None
         return int(terms.shape[-2])
 
     @property
-    def n_deg(self) -> int:
-        """Return how many Chebyshev coefficients along z each section carries.
+    def n_deg(self) -> int:  # numpydoc ignore=RT01
+        """How many Chebyshev coefficients along z each section carries.
 
-        Returns
-        -------
-        int
-            The degree axis of the dense generator, or one for the factored
-            representation, whose weights carry the z dependence instead.
+        The degree axis of the dense generator, or one for the factored
+        representation, whose weights carry the z dependence instead.
         """
         return 1 if self.generator is None else int(self.generator.shape[1])
 
@@ -762,10 +669,7 @@ class CoupledFlowTables(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "CoupledFlowTables: a generator whose channels couple", [
             ("representation", self.representation),
@@ -811,13 +715,7 @@ class CoupledFlowTables(Displayed):
         self._validate_bounds()
 
     def _validate_representation(self) -> None:
-        """Check exactly one complete generator representation is stored.
-
-        Raises
-        ------
-        TranslationError
-            If the dense and factored representations are mixed or both absent.
-        """
+        """Check exactly one complete generator representation is stored."""
         factored = (self.fixed_terms is not None, self.term_weights is not None)
         if self.generator is not None and any(factored):
             msg = (
@@ -873,13 +771,7 @@ class CoupledFlowTables(Displayed):
         object.__setattr__(self, "term_weights", weights)
 
     def _validate_optional(self) -> None:
-        """Check the wall pair and the connection against the record's extents.
-
-        Raises
-        ------
-        TranslationError
-            If one half of the wall pair is missing or an extent disagrees.
-        """
+        """Check the wall pair and the connection against the record's extents."""
         intervals = interval_count(len(self.z_edges))
         n_omega = len(self.omega)
         modes = self.n_modes
@@ -929,13 +821,7 @@ class CoupledFlowTables(Displayed):
             object.__setattr__(self, "connection", link)
 
     def _validate_bounds(self) -> None:
-        """Check the three certificate rows and the per-section method names.
-
-        Raises
-        ------
-        TranslationError
-            If a bound is out of range or a section method is unknown.
-        """
+        """Check the three certificate rows and the per-section method names."""
         intervals = interval_count(len(self.z_edges))
         shape = (intervals, len(self.omega))
         for name in (
@@ -1417,20 +1303,10 @@ def _flow_certificate(
     interaction picture is re-anchored every step, so no inverse action is ever taken
     over more than one of them.
 
-    Parameters
-    ----------
-    vectors, triangular : numpy.ndarray
-        The Schur factors, shape ``(n_omega, n_modes, n_modes)``.
-    blocks : numpy.ndarray
-        The generator itself in the same layout, 1/m.
-    dz_max : float
-        Largest step the run may take, m, positive.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The dimensionless representation error and the conditioning bound, each of
-        shape ``(n_omega,)``.
+    - ``blocks``: the generator itself in the same layout, 1/m.
+    - ``dz_max``: largest step the run may take, m, positive.
+    - Returns: the dimensionless representation error and the conditioning bound, each
+      of shape ``(n_omega,)``.
     """
     adjoint = np.conj(np.swapaxes(vectors, -1, -2))
     residual = np.linalg.norm(vectors @ triangular @ adjoint - blocks, axis=(-2, -1))
@@ -1600,25 +1476,10 @@ def _checked_wall_pair(
     compared, because the dense generator's diagonal also carries the transverse
     term, which the pair does not describe.
 
-    Parameters
-    ----------
-    block : numpy.ndarray
-        The dense generator in 1/m, shape ``(n_modes, n_modes, n_omega)``.
-    wall_vectors : numpy.ndarray or None
-        The dimensionless rank-one vector, shape ``(n_modes,)``.
-    wall_weights : numpy.ndarray or None
-        Its weight in 1/m, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray or None
-        The pair in the leaf's own layout -- ``(1, n_modes, n_omega)`` and
-        ``(1, 1, n_omega)`` -- or ``None`` when none was supplied.
-
-    Raises
-    ------
-    TranslationError
-        If one half is missing, an extent disagrees, or the reconstruction does not.
+    - ``wall_vectors``: the dimensionless rank-one vector.
+    - ``wall_weights``: its weight in 1/m, shape ``(n_omega,)``.
+    - Returns: the pair in the leaf's own layout -- ``(1, n_modes, n_omega)`` and ``(1,
+      1, n_omega)`` -- or ``None`` when none was supplied.
     """
     supplied = (wall_vectors is not None, wall_weights is not None)
     if not any(supplied):
@@ -1777,16 +1638,7 @@ def section_expansion(
 def _coefficient_tail(coefficients: np.ndarray) -> float:
     """Return the relative size of the last two coefficients of one section.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        One section's coefficients, shape ``(n_deg, *value_shape)``.
-
-    Returns
-    -------
-    float
-        The last two coefficients' largest magnitude over the largest magnitude of the
-        whole block, or zero for a block that is identically zero.
+    - ``coefficients``: one section's coefficients, shape ``(n_deg, *value_shape)``.
     """
     scale = float(np.max(abs(coefficients), initial=0.0))
     if scale == 0.0:
@@ -2318,22 +2170,8 @@ def _residual_enclosure(
     of the section. That is an enclosure of the stored interpolant, extrema between the
     samples included, which a sampled maximum is not.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        One section's generator coefficients, shape
-        ``(n_deg, n_modes, n_modes, n_omega)``.
-    frozen : numpy.ndarray
-        The generator frozen at that section's midpoint, 1/m.
-    connection : numpy.ndarray or None
-        The whole connection block, or ``None``.
-    index : int
-        Which section, used to select the connection's own coefficients.
-
-    Returns
-    -------
-    numpy.ndarray
-        The bound in 1/m per frequency, shape ``(n_omega,)``.
+    - ``frozen``: the generator frozen at that section's midpoint, 1/m.
+    - Returns: the bound in 1/m per frequency, shape ``(n_omega,)``.
     """
     terms = coefficients.copy()
     terms[0] -= frozen
@@ -2416,18 +2254,10 @@ def _hermitian_enclosure(
     symmetric part, of the order of the channels' weight spread; it is subtracted with
     the rest, because the enclosure is of what is exponentiated.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        The generator's Chebyshev coefficients in 1/m.
-    connection : numpy.ndarray or None
-        The connection's, in the same layout, or ``None``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The lower and upper ends ``m_lo`` and ``m_hi`` in 1/m, each of shape
-        ``(n_intervals, n_omega)``.
+    - ``coefficients``: the generator's Chebyshev coefficients in 1/m.
+    - ``connection``: the connection's, in the same layout, or ``None``.
+    - Returns: the lower and upper ends ``m_lo`` and ``m_hi`` in 1/m, each of shape
+      ``(n_intervals, n_omega)``.
     """
     terms = coefficients if connection is None else coefficients - connection
     moved = np.moveaxis(terms, (2, 3), (-2, -1))
@@ -2453,19 +2283,11 @@ def _reach_spread(
     union, so that a certificate declared on a section holds for every step the
     controller may anchor there.
 
-    Parameters
-    ----------
-    edges : numpy.ndarray
-        The section edges in m.
-    lower, upper : numpy.ndarray
-        Each section's enclosure, 1/m, shape ``(n_intervals, n_omega)``.
-    dz_max : float
-        Largest step, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``m_hi - m_lo`` over each section's reach, 1/m, non-negative.
+    - ``edges``: the section edges in m.
+    - ``lower``, ``upper``: each section's enclosure, 1/m, shape ``(n_intervals,
+      n_omega)``.
+    - ``dz_max``: largest step, m.
+    - Returns: ``m_hi - m_lo`` over each section's reach, 1/m, non-negative.
     """
     intervals = lower.shape[0]
     spread = np.empty_like(lower)
@@ -2715,24 +2537,10 @@ def _cf4_rejection(
 ) -> str:
     """Return the clause naming why a CF4 section was rejected.
 
-    Parameters
-    ----------
-    index : int
-        The section.
-    omega : numpy.ndarray
-        The frequency axis in rad/s.
-    growth, conditioning : numpy.ndarray
-        The section's two bounds per frequency, dimensionless.
-    growth_limit, condition_limit : float
-        The limits they were held to.
-    dz_max : float
-        The step they were declared over, m.
-
-    Returns
-    -------
-    str
-        One clause naming both bounds at the frequency where they are largest -- the
-        same frequency for both, each being increasing in the same spread.
+    - ``omega``: the frequency axis in rad/s.
+    - ``dz_max``: the step they were declared over, m.
+    - Returns: one clause naming both bounds at the frequency where they are largest --
+      the same frequency for both, each being increasing in the same spread.
     """
     worst = int(np.argmax(growth))
     return (
@@ -2794,21 +2602,9 @@ def _flow_generator_at(
 ) -> Complex[np.ndarray, "n_omega_o n_modes_o_out n_modes_o_in"]:
     """Return ``L(z) = G(z) - C(z)`` of a step anchored in `section`, frequency first.
 
-    Parameters
-    ----------
-    flow : CoupledFlowTables
-        The leaf, whose edges and degree the weights are built on.
-    terms : numpy.ndarray
-        The flattened coefficients of ``G - C`` in 1/m.
-    z : float
-        Position in m.
-    section : int
-        The step's section, which :func:`flow_weights` resolves the position against.
-
-    Returns
-    -------
-    numpy.ndarray
-        The generator in 1/m, shape ``(n_omega, n_modes, n_modes)``.
+    - ``terms``: the flattened coefficients of ``G - C`` in 1/m.
+    - ``z``: position in m.
+    - Returns: the generator in 1/m, shape ``(n_omega, n_modes, n_modes)``.
     """
     combined = np.tensordot(flow_weights(flow, z, section), terms, axes=1)
     return np.ascontiguousarray(np.moveaxis(combined, -1, 0))
@@ -2826,23 +2622,9 @@ def _cf4_action(
     The translation layer's own evaluation, independent of the backend's scaled Taylor
     series: the estimator and the executor are two implementations of one formula.
 
-    Parameters
-    ----------
-    flow : CoupledFlowTables
-        The leaf.
-    terms : numpy.ndarray
-        The flattened coefficients of ``G - C`` in 1/m.
-    z : float
-        Where the step starts, m.
-    length : float
-        Its length, m, positive.
-    section : int
-        The step's section.
-
-    Returns
-    -------
-    numpy.ndarray
-        The action, shape ``(n_omega, n_modes, n_modes)``.
+    - ``terms``: the flattened coefficients of ``G - C`` in 1/m.
+    - ``z``: where the step starts, m.
+    - ``length``: its length, m, positive.
     """
     early = _flow_generator_at(flow, terms, z + CF4_NODES[0] * length, section)
     late = _flow_generator_at(flow, terms, z + CF4_NODES[1] * length, section)

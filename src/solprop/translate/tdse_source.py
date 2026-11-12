@@ -77,18 +77,7 @@ identity; a PEC predictor is not the accepted field named by a saved-plane row.
 
 
 def _helium(mode: MarcatiliMode) -> Species:
-    """Resolve the same helium material that supplies the mode's dispersion.
-
-    Parameters
-    ----------
-    mode : MarcatiliMode
-        Declared scalar capillary mode and its material.
-
-    Returns
-    -------
-    Species
-        Admitted optmat helium species with no initial ionisation.
-    """
+    """Resolve the same helium material that supplies the mode's dispersion."""
     if mode.mixture is not None:
         if len(mode.mixture.components) != 1:
             raise TranslationError(
@@ -294,20 +283,7 @@ def steady_current_certificate(
 def _steady_current_certificate(
     descriptor: TDSEDescriptor, omega: bytes, active: bytes
 ) -> float:
-    """Evaluate one configuration's certificate once.
-
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor
-        Hashable gated descriptor.
-    omega, active : bytes
-        Raw float64 frequencies and boolean mask, the cache key of the band.
-
-    Returns
-    -------
-    float
-        The certificate.
-    """
+    """Evaluate one configuration's certificate once."""
     frequencies = np.frombuffer(omega, dtype=np.float64)
     mask = np.frombuffer(active, dtype=np.bool_)
     lattice = json.loads(descriptor.configuration_json)["lattice"]

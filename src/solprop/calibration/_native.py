@@ -78,16 +78,6 @@ def packages() -> tuple[Path, ...]:
 
     An editable install keeps its sources and its built files (the extension,
     ``_build.json``) in separate directories; a wheel has one.
-
-    Returns
-    -------
-    tuple of pathlib.Path
-        The package's directories, in import order.
-
-    Raises
-    ------
-    BackendError
-        When solprop-native is not installed.
     """
     spec = importlib.util.find_spec("solprop_native")
     if spec is None or not spec.submodule_search_locations:
@@ -102,11 +92,6 @@ def variant() -> str:
 
     Asked of the directory that holds the package's sources, as its ``__init__``
     asks it of its own.
-
-    Returns
-    -------
-    str
-        The extension's stem, ``"_core"`` for a build with one.
     """
     for directory in packages():
         if (directory / "_cpu.py").is_file():
@@ -115,23 +100,7 @@ def variant() -> str:
 
 
 def __getattr__(name: str) -> ModuleType:
-    """Load one of the package's pure modules under the private package.
-
-    Parameters
-    ----------
-    name : str
-        One of the pure modules, without its underscore.
-
-    Returns
-    -------
-    types.ModuleType
-        The module.
-
-    Raises
-    ------
-    AttributeError
-        For any other name.
-    """
+    """Load one of the package's pure modules under the private package."""
     if name not in _MODULES:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     if _PACKAGE not in sys.modules:

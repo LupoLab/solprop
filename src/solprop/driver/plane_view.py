@@ -94,40 +94,23 @@ class PlaneView:
         self._open = True
 
     @property
-    def basis(self) -> BasisCapability:
-        """Return the run's basis.
+    def basis(self) -> BasisCapability:  # numpydoc ignore=RT01
+        """The run's basis.
 
-        Returns
-        -------
-        {'modal', 'general_modal', 'spatial'}
-            The basis capability its record declares.
+        The basis capability its record declares.
         """
         return capability_of(self._metadata)
 
     @property
-    def quantities(self) -> dict[str, Quantity]:
-        """Return what the plane's derived quantities are.
+    def quantities(self) -> dict[str, Quantity]:  # numpydoc ignore=RT01
+        """What the plane's derived quantities are.
 
-        Returns
-        -------
-        dict
-            Whether its power, energy, density and field are physical fluxes.
+        Whether its power, energy, density and field are physical fluxes.
         """
         return _quantities(self.basis)
 
     def _reader(self) -> MemoryOutput:
-        """Return the plane as a one-plane output, fetching its field once if needed.
-
-        Returns
-        -------
-        solprop.output.memory.MemoryOutput
-            The output the processing functions read.
-
-        Raises
-        ------
-        DriverError
-            If the view is used after its call returned.
-        """
+        """Return the plane as a one-plane output, fetching its field once if needed."""
         if not self._open:
             raise DriverError(_EXPIRED)
         if self._output is None:

@@ -104,17 +104,8 @@ class EnvelopePlasmaSources:
 def _checked_rate(rate: EvaluableRate, amplitude: float) -> float:
     """Reject a malformed rate before it enters an angular integral.
 
-    Parameters
-    ----------
-    rate : EvaluableRate
-        Instantaneous magnitude model.
-    amplitude : float
-        Non-negative field magnitude in V/m.
-
-    Returns
-    -------
-    float
-        Finite non-negative rate in s^-1.
+    - ``amplitude``: Non-negative field magnitude in V/m.
+    - Returns: finite non-negative rate in s^-1.
     """
     value = np.asarray(rate(amplitude))
     if value.shape != () or not np.isrealobj(value):
@@ -132,19 +123,8 @@ def _cycle_points(
 ) -> Float[np.ndarray, " n_points"]:
     """Seed Cartesian extrema and declared cutoff crossings for adaptive integration.
 
-    Parameters
-    ----------
-    envelope : numpy.ndarray
-        Dimensionless envelope scaled to a largest real component of one.
-    scale : float
-        Physical amplitude scale in V/m.
-    rate : EvaluableRate
-        Magnitude model, optionally declaring threshold or table bounds.
-
-    Returns
-    -------
-    numpy.ndarray
-        Sorted full-cycle phase breakpoints in rad.
+    - ``scale``: physical amplitude scale in V/m.
+    - Returns: sorted full-cycle phase breakpoints in rad.
     """
     real, imaginary = np.real(envelope), np.imag(envelope)
     phase = 0.5 * math.atan2(
@@ -165,17 +145,8 @@ def _cycle_points(
     def crossing(theta: float, boundary: float) -> float:
         """Locate a rate boundary directly in the Cartesian real field.
 
-        Parameters
-        ----------
-        theta : float
-            Optical phase in rad.
-        boundary : float
-            Rate threshold divided by the physical field scale, dimensionless.
-
-        Returns
-        -------
-        float
-            Signed difference between the scaled magnitude and the boundary.
+        - ``theta``: optical phase in rad.
+        - Returns: signed difference between the scaled magnitude and the boundary.
         """
         return float(np.linalg.norm((envelope * np.exp(-1j * theta)).real)) - boundary
 
@@ -204,18 +175,9 @@ def _cycle_sources(
 ) -> tuple[float, Complex[np.ndarray, " n_pol"]]:
     """Integrate the Cartesian real field and its first current harmonic.
 
-    Parameters
-    ----------
-    envelope : numpy.ndarray
-        One physical V/m envelope sample, shape ``(n_pol,)``.
-    rate : EvaluableRate
-        Instantaneous isotropic magnitude model.
-
-    Returns
-    -------
-    tuple
-        Averaged rate in s^-1 and current divided by potential, density and
-        survival, in m/(V s).
+    - ``envelope``: one physical V/m envelope sample, shape ``(n_pol,)``.
+    - Returns: averaged rate in s^-1 and current divided by potential, density and
+      survival, in m/(V s).
     """
     scale = float(
         max(np.max(np.abs(np.real(envelope))), np.max(np.abs(np.imag(envelope))))
@@ -247,18 +209,7 @@ def _cycle_sources(
     )
 
     def integrand(theta: float) -> Complex[np.ndarray, " n_integrand"]:
-        """Form scaled Cartesian rate and first harmonic at one cycle phase.
-
-        Parameters
-        ----------
-        theta : float
-            Optical phase in radians.
-
-        Returns
-        -------
-        numpy.ndarray
-            Rate followed by the complex current components, dimensionless.
-        """
+        """Form scaled Cartesian rate and first harmonic at one cycle phase."""
         carrier = np.exp(1j * theta)
         field = (normalised * carrier.conjugate()).real
         square = float(field @ field)
@@ -327,24 +278,11 @@ def _linear_cycle_rules(
     ``maximum_field``) is crossed once, at ``arccos(bound / a)``. The quarter is split
     there; below the lower bound the rate is exactly zero and that piece is skipped.
 
-    Parameters
-    ----------
-    rate : EvaluableRate
-        Instantaneous magnitude rate in s^-1 of a field in V/m, vectorised.
-    amplitudes : numpy.ndarray
-        Envelope amplitudes in V/m, finite and positive, shape ``(n_amplitude,)``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The averages in s^-1 by the :data:`_CYCLE_ORDER` rule and by the
-        :data:`_CYCLE_CHECK_ORDER` rule, from one evaluation of the rate.
-
-    Raises
-    ------
-    GridError
-        If the rate does not return a finite, non-negative real array of the
-        field's shape.
+    - ``rate``: instantaneous magnitude rate in s^-1 of a field in V/m, vectorised.
+    - ``amplitudes``: envelope amplitudes in V/m, finite and positive, shape
+      ``(n_amplitude,)``.
+    - Returns: the averages in s^-1 by the :data:`_CYCLE_ORDER` rule and by the
+      :data:`_CYCLE_CHECK_ORDER` rule, from one evaluation of the rate.
     """
     lower = getattr(rate, "field_min", getattr(rate, "threshold", None))
     bounds = sorted(
@@ -511,12 +449,8 @@ def linear_cycle_average(rate: EvaluableRate, amplitude: float) -> float:
 def _validate_field(field_t: Complex[np.ndarray, "n_pol n_to"], dt: float) -> None:
     """Check physical envelope shape, finite data and time spacing.
 
-    Parameters
-    ----------
-    field_t : numpy.ndarray
-        Physical V/m envelope, shape ``(n_pol, n_to)``.
-    dt : float
-        Fine time spacing in s.
+    - ``field_t``: physical V/m envelope, shape ``(n_pol, n_to)``.
+    - ``dt``: fine time spacing in s.
     """
     if (
         field_t.ndim != 2
@@ -538,19 +472,10 @@ def _population(
 ) -> tuple[Float[np.ndarray, " n_to"], Float[np.ndarray, " n_to"]]:
     """Keep survival directly, including after the fraction rounds to one.
 
-    Parameters
-    ----------
-    rate : numpy.ndarray
-        Cycle-averaged rates in s^-1, shape ``(n_to,)``.
-    dt : float
-        Positive time spacing in s.
-    preionisation : float
-        Initial fraction in ``[0, 1]``.
-
-    Returns
-    -------
-    tuple
-        Fresh ionised fraction and surviving neutral fraction arrays.
+    - ``rate``: Cycle-averaged rates in s^-1, shape ``(n_to,)``.
+    - ``dt``: positive time spacing in s.
+    - ``preionisation``: initial fraction in ``[0, 1]``.
+    - Returns: fresh ionised fraction and surviving neutral fraction arrays.
     """
     # Positive overflow represents saturated exposure, not a non-finite source.
     # Multiply the half-rates before adding to avoid premature overflow of W+W.
@@ -657,13 +582,8 @@ class EnvelopePlasmaResponse:
             )
 
     @property
-    def potential(self) -> float:
-        """Return the species' first ionisation potential.
-
-        Returns
-        -------
-        float
-            Binding energy in J.
+    def potential(self) -> float:  # numpydoc ignore=RT01
+        """Species' first ionisation potential (binding energy), J.
 
         Raises
         ------
@@ -677,14 +597,11 @@ class EnvelopePlasmaResponse:
         return float(ionisation_potential(self.gas))
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Declare temporal memory, envelope support and isotropic vector behaviour.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Traits: temporal memory, envelope support and isotropic vector behaviour.
 
-        Returns
-        -------
-        ResponseTraits
-            Density and pre-ionisation profiles, optionally labelled per component.
-            The compiled response also carries a distinct spectral assembly.
+        Density and pre-ionisation profiles, optionally labelled per component.
+        The compiled response also carries a distinct spectral assembly.
         """
         suffix = "" if self.species is None else f":{self.species}"
         return ResponseTraits(
@@ -697,16 +614,7 @@ class EnvelopePlasmaResponse:
     def _plane_preionisation(self) -> float:
         """Return the initial fraction at the one plane the reference methods see.
 
-        Returns
-        -------
-        float
-            The fraction in ``[0, 1]``.
-
-        Raises
-        ------
-        MaterialError
-            If the fraction is a path along z, which only the translation layer
-            resolves.
+        - Returns: the fraction in ``[0, 1]``.
         """
         if isinstance(self.preionisation, ZProfile):
             raise MaterialError(
@@ -721,18 +629,10 @@ class EnvelopePlasmaResponse:
     ) -> tuple[Float[np.ndarray, " n_to"], Complex[np.ndarray, "n_pol n_to"]]:
         """Recompute every cycle from this call's field, without population state.
 
-        Parameters
-        ----------
-        field_t : numpy.ndarray
-            Physical V/m envelope, shape ``(n_pol, n_to)``.
-        dt : float
-            Positive time spacing in s.
-
-        Returns
-        -------
-        tuple
-            Averaged rates and first current harmonic per potential, density and
-            surviving neutral fraction.
+        - ``field_t``: physical V/m envelope, shape ``(n_pol, n_to)``.
+        - ``dt``: positive time spacing in s.
+        - Returns: averaged rates and first current harmonic per potential, density and
+          surviving neutral fraction.
         """
         _validate_field(field_t, dt)
         rates = np.empty(field_t.shape[1], dtype=np.float64)

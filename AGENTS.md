@@ -161,13 +161,15 @@ validity range is cited to its primary source; say what you verified and what yo
   as doctests ⚙. A frozen dataclass documents its fields under `Attributes`. A public
   property has a one-line docstring naming the quantity and unit, with
   `# numpydoc ignore=RT01` on the `def` line.
-- **Private code** — any name with a single-underscore component, which numpydoc skips ⚙;
-  a nested function's name starts with an underscore, so it is private too — has no
-  `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections (`poe size-check`
-  caps those left ⚙): one summary line, then only what
+- **Private code** — any name with a single-underscore component, which numpydoc skips ⚙
+  — has no `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections
+  (`poe size-check` caps those left ⚙): one summary line, then only what
   the signature and annotations don't say — a unit, a valid range, a condition, a
   convention, or why it exists. A function whose name and signature say everything needs
-  no docstring; a non-obvious inner function gets a one-line comment.
+  no docstring; a non-obvious inner function gets a one-line comment. A nested function
+  is private. numpydoc still checks one without a leading underscore, so a nested
+  function that takes parameters or returns a value is named with a leading underscore
+  unless it is returned to callers.
 - Comments explain **why**, never **what**: the physics (or the page with the derivation),
   the numerics (why this quadrature, cutoff or tolerance; where precision is lost), sign,
   unit and normalisation choices, references (DOI, equation), and anything a reader would

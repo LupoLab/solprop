@@ -39,18 +39,7 @@ __all__ = ["CallbackOutput"]
 
 
 def _not_held(what: str) -> OutputError:
-    """Return the refusal of a read, naming what was asked for.
-
-    Parameters
-    ----------
-    what : str
-        What the caller asked to read.
-
-    Returns
-    -------
-    solprop.exceptions.OutputError
-        The error to raise.
-    """
+    """Return the refusal of a read, naming what was asked for."""
     return OutputError(
         f"a CallbackOutput does not hold {what}: it gives each plane to its callable "
         "and keeps nothing. Keep what you need in the callable, or run into a "
@@ -210,47 +199,26 @@ class CallbackOutput:
         self._closed = True
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes the callable has taken.
-
-        Returns
-        -------
-        int
-            The number of planes.
-        """
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes the callable has taken."""
         return self._n_saved
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
-
-        Returns
-        -------
-        RunMetadata or None
-            What produced the planes.
-        """
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened."""
         return self._metadata
 
     @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored at every plane: none.
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored at every plane: none.
 
-        Returns
-        -------
-        tuple of str
-            Empty, so that nothing asks to read one back.
+        Empty, so that nothing asks to read one back.
         """
         return ()
 
     @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored between planes: none.
-
-        Returns
-        -------
-        tuple of str
-            Empty.
-        """
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored between planes: none."""
         return ()
 
     def __getitem__(self, key: str) -> np.ndarray:

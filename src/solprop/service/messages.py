@@ -111,13 +111,10 @@ class Reply:
     superseded: bool = False
 
     @property
-    def ok(self) -> bool:
-        """Return whether the request succeeded.
+    def ok(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the request succeeded.
 
-        Returns
-        -------
-        bool
-            True when it was answered without an error.
+        True when it was answered without an error.
         """
         return self.error is None and not self.superseded
 
@@ -147,12 +144,9 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)  # plain data, by contract
 
     @property
-    def terminal(self) -> bool:
-        """Return whether the event ends the run's stream.
+    def terminal(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the event ends the run's stream.
 
-        Returns
-        -------
-        bool
-            True for :data:`TERMINAL` kinds.
+        True for :data:`TERMINAL` kinds.
         """
         return self.kind in TERMINAL

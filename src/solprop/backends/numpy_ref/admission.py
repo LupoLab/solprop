@@ -222,22 +222,7 @@ def _refuse_flow_representation(
     backend: str,
     flow_methods: Collection[SectionMethod],
 ) -> None:
-    """Refuse a coupled flow whose representation the backend does not execute.
-
-    Parameters
-    ----------
-    flow : solprop.translate.coupled.CoupledFlowTables
-        The leaf.
-    backend : str
-        The registry name each refusal names.
-    flow_methods : collection of str
-        The section methods the backend executes.
-
-    Raises
-    ------
-    BackendError
-        Naming the method, the representation, the section count or the connection.
-    """
+    """Refuse a coupled flow whose representation the backend does not execute."""
     methods = set(flow.section_methods)
     frozen = methods <= {"frozen_residual", "cf4"}
     if flow.section_methods != ("constant_schur",) and not frozen:
@@ -323,17 +308,7 @@ def _refuse_flow_problem(problem: PropagationProblem, *, backend: str) -> None:
     ``TM_0m`` or ``EH`` set synthesises E_x and E_y): the synthesis
     is read by the responses alone, never by the flow, so it is not refused.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, whose coupled flow is not ``None``.
-    backend : str
-        The registry name each refusal names.
-
-    Raises
-    ------
-    BackendError
-        Naming what the problem carries beside the flow.
+    - ``problem``: the problem, whose coupled flow is not ``None``.
     """
     _, n_pol, _ = problem.shape
     if n_pol != 1:
@@ -420,15 +395,7 @@ def _mode_independent(linear: LinearOperator) -> bool:
     constant array, the expansion's fixed terms, or the table's coefficients -- because
     a varying guide takes whichever of them its declared parameters allow.
 
-    Parameters
-    ----------
-    linear : solprop.translate.linop.LinearOperator
-        Section 3 of the contract.
-
-    Returns
-    -------
-    bool
-        True when every channel of every term carries the same values.
+    - Returns: True when every channel of every term carries the same values.
     """
     held: list[np.ndarray] = []
     if linear.phi_constant is not None:
@@ -467,20 +434,7 @@ def _refuse_general_metric(
     declares that row, and a backend does not rely on a caller having been careful
     (the same rule the rest of this admission path follows).
 
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The reference the metric must describe.
-    metric : solprop.translate.coupled.ModalMetricTables
-        The admitted identity or dense metric.
-    backend : str
-        The registry name the refusal names.
-
-    Raises
-    ------
-    BackendError
-        If a dense metric is on another basis than the reference, or is further from
-        orthonormal than ``numpy_ref`` will call the identity.
+    - ``tables``: the reference the metric must describe.
     """
     block = metric.dense
     if block is None:
@@ -538,21 +492,6 @@ def _refuse_modal_route(
     channels, the Raman terms and the spectral responses, so any of them would be
     carried in the record and silently not propagated. Every backend refuses it through
     this one list.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem to check.
-    backend : str
-        The registry name each refusal names.
-    moving_maps : bool, optional
-        Whether the backend executes a moving guide's maps
-        (:func:`refuse_general_route`).
-
-    Raises
-    ------
-    BackendError
-        Naming what is unsupported.
     """
     tables = problem.transform.modal_tables
     metric = problem.linear.modal_metric
@@ -656,22 +595,6 @@ def _refuse_moving_maps(
     on paper -- its Gauss-node exponentials read ``flow_weights`` and the source
     reads ``transform_weights`` at stage positions -- but is not built or measured
     on this route, so it is refused rather than run.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, whose maps carry more than one coefficient along z.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        Its modal tables.
-    backend : str
-        The registry name each refusal names.
-    moving_maps : bool
-        Whether the backend executes moving maps at all.
-
-    Raises
-    ------
-    BackendError
-        Naming what is not executed.
     """
     assert tables.synthesis is not None
     intervals, degrees = (int(one) for one in tables.synthesis.shape[:2])
@@ -707,20 +630,7 @@ def _refuse_moving_maps(
 
 
 def _refuse_legacy_responses(problem: PropagationProblem, *, backend: str) -> None:
-    """Refuse a legacy response a general modal guide would carry and not propagate.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A problem carrying ``transform.modal_tables``.
-    backend : str
-        The registry name the refusal names.
-
-    Raises
-    ------
-    BackendError
-        Naming every legacy response the problem carries.
-    """
+    """Refuse a legacy response a general modal guide would carry and not propagate."""
     responses = problem.responses
     legacy = [
         name

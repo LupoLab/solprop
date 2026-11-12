@@ -62,42 +62,17 @@ class _Printer(Protocol):
     """The part of IPython's pretty printer that :class:`Displayed` uses."""
 
     def text(self, value: str) -> None:
-        """Write text.
-
-        Parameters
-        ----------
-        value : str
-            The text.
-        """
+        """Write text."""
         ...
 
 
 def engineering(value: float | None, unit: str = "", digits: int = 4) -> str:
     """Return a number with an SI prefix, as a person would write it.
 
-    Parameters
-    ----------
-    value : float or None
-        The number, in the SI unit named by `unit`.
-    unit : str, optional
-        The unit's symbol, without a prefix: ``"m"``, ``"s"``, ``"J"``, ``"W"``.
-        With an empty unit no prefix is used and the number is written plainly.
-    digits : int, optional
-        Significant figures.
-
-    Returns
-    -------
-    str
-        For example ``"800 nm"``, ``"30 fs"``, ``"1.5 m"``; ``"none"`` for ``None``
-        and ``"nan"``, ``"inf"`` or ``"-inf"`` for a value that is not finite.
-
-    Examples
-    --------
-    >>> from solprop._display import engineering
-    >>> engineering(800e-9, "m"), engineering(1.5, "m"), engineering(275e-6, "J")
-    ('800 nm', '1.5 m', '275 uJ')
-    >>> engineering(float("nan"), "s"), engineering(None, "s"), engineering(0.0, "W")
-    ('nan', 'none', '0 W')
+    - ``unit``: the unit's symbol, without a prefix: ``"m"``, ``"s"``, ``"J"``, ``"W"``.
+      With an empty unit no prefix is used and the number is written plainly.
+    - Returns: for example ``"800 nm"``, ``"30 fs"``, ``"1.5 m"``; ``"none"`` for
+      ``None`` and ``"nan"``, ``"inf"`` or ``"-inf"`` for a value that is not finite.
     """
     if value is None:
         return "none"
@@ -121,26 +96,8 @@ def engineering(value: float | None, unit: str = "", digits: int = 4) -> str:
 def summarise(values: object, unit: str = "") -> str:
     """Return a one-phrase summary of an array, never its contents.
 
-    Parameters
-    ----------
-    values : array_like
-        The array.
-    unit : str, optional
-        SI unit of the values, for the range; empty to give the shape alone.
-
-    Returns
-    -------
-    str
-        For example ``"<201 values, 0 m to 1.5 m>"`` or ``"<2x1x8192 complex>"``.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._display import summarise
-    >>> summarise(np.linspace(0.0, 1.5, 201), "m")
-    '<201 values, 0 m to 1.5 m>'
-    >>> summarise(np.zeros((2, 1, 8), dtype=complex))
-    '<2x1x8 complex>'
+    - ``unit``: SI unit of the values, for the range; empty to give the shape alone.
+    - Returns: for example ``"<201 values, 0 m to 1.5 m>"`` or ``"<2x1x8192 complex>"``.
     """
     import numpy as np  # noqa: PLC0415 - kept out of the import of modules that only format scalars
 
@@ -162,24 +119,8 @@ _PHASE_NAMES = ("CEP", "delay", "GDD", "TOD", "FOD")
 def phase_text(coefficients: Iterable[float]) -> str:
     """Return Taylor spectral-phase coefficients as people quote them.
 
-    Parameters
-    ----------
-    coefficients : iterable of float
-        ``c_0, c_1, ...`` in ``s**n``; a tuple or an array.
-
-    Returns
-    -------
-    str
-        For example ``"CEP 0.3 rad, GDD 250 fs^2"``: zero coefficients are left out,
-        order ``n`` is in ``fs^n``, and ``"none"`` stands for no phase at all.
-
-    Examples
-    --------
-    >>> from solprop._display import phase_text
-    >>> phase_text((0.3, 0.0, 250e-30, -4000e-45))
-    'CEP 0.3 rad, GDD 250 fs^2, TOD -4000 fs^3'
-    >>> phase_text(())
-    'none'
+    - Returns: for example ``"CEP 0.3 rad, GDD 250 fs^2"``: zero coefficients are left
+      out, order ``n`` is in ``fs^n``, and ``"none"`` stands for no phase at all.
     """
     parts = []
     for order, value in enumerate(coefficients):
@@ -194,23 +135,7 @@ def phase_text(coefficients: Iterable[float]) -> str:
 def tail(text: str, width: int = 68) -> str:
     """Return the end of a long text, which for a path is the part that matters.
 
-    Parameters
-    ----------
-    text : str
-        The text, typically a file path.
-    width : int, optional
-        Longest result, in characters.
-
-    Returns
-    -------
-    str
-        The text itself, or an ellipsis and its last ``width - 3`` characters.
-
-    Examples
-    --------
-    >>> from solprop._display import tail
-    >>> tail("/a/very/long/path/to/run.h5", 12)
-    '...to/run.h5'
+    `width` counts the leading ellipsis that marks a cut.
     """
     return text if len(text) <= width else "..." + text[-(width - 3) :]
 
@@ -218,24 +143,8 @@ def tail(text: str, width: int = 68) -> str:
 def line(name: str, fields: Iterable[tuple[str, object]]) -> str:
     """Return a one-line ``Name(key=value, ...)`` description.
 
-    Parameters
-    ----------
-    name : str
-        The class name.
-    fields : iterable of tuple
-        ``(key, value)`` pairs; a value is written with ``str``, and a pair whose key
-        is empty is written as the value alone.
-
-    Returns
-    -------
-    str
-        The line.
-
-    Examples
-    --------
-    >>> from solprop._display import line
-    >>> line("Grid", [("n_t", 8192), ("", "field")])
-    'Grid(n_t=8192, field)'
+    - ``fields``: ``(key, value)`` pairs; a value is written with ``str``, and a pair
+      whose key is empty is written as the value alone.
     """
     parts = [f"{key}={value}" if key else str(value) for key, value in fields]
     return f"{name}({', '.join(parts)})"
@@ -244,29 +153,11 @@ def line(name: str, fields: Iterable[tuple[str, object]]) -> str:
 def block(title: str, rows: Sequence[tuple[str, object]]) -> str:
     """Return an aligned multi-line description.
 
-    Parameters
-    ----------
-    title : str
-        The first line: the class and its headline.
-    rows : sequence of tuple
-        ``(key, value)`` pairs, one line each. A value holding newlines is indented
-        under its key; a line longer than the package's 88 columns is wrapped at a
-        space, its continuation indented under its value, over at most four lines,
-        and what is left over, or a single word too long for a line, is cut with an
-        ellipsis, so that a block is always safe to paste into a page.
-
-    Returns
-    -------
-    str
-        The block, without a trailing newline.
-
-    Examples
-    --------
-    >>> from solprop._display import block
-    >>> print(block("Pulse", [("energy", "275 uJ"), ("duration", "7.5 fs")]))
-    Pulse
-      energy:   275 uJ
-      duration: 7.5 fs
+    - ``rows``: ``(key, value)`` pairs, one line each. A value holding newlines is
+      indented under its key; a line longer than the package's 88 columns is wrapped at
+      a space, its continuation indented under its value, over at most four lines, and
+      what is left over, or a single word too long for a line, is cut with an ellipsis,
+      so that a block is always safe to paste into a page.
     """
     width = max((len(key) for key, _ in rows), default=0) + 1
     under = " " * (width + 3)
@@ -284,22 +175,10 @@ def block(title: str, rows: Sequence[tuple[str, object]]) -> str:
 def _fitted(lead: str, value: str, indent: str) -> list[str]:
     """Return one line of a block within the package's width.
 
-    Parameters
-    ----------
-    lead : str
-        What precedes the value on its first line: the key's column, or the
-        indentation of a continuation.
-    value : str
-        The text, wrapped at its spaces when the line is too long.
-    indent : str
-        The indentation of each wrapped continuation, under the value.
-
-    Returns
-    -------
-    list of str
-        The line or its wrapped pieces, at most :data:`_WRAPPED` of them; the last
-        kept piece of a longer value, and a piece holding a single word too long for
-        the width, end with an ellipsis.
+    - ``value``: the text, wrapped at its spaces when the line is too long.
+    - Returns: the line or its wrapped pieces, at most :data:`_WRAPPED` of them; the
+      last kept piece of a longer value, and a piece holding a single word too long for
+      the width, end with an ellipsis.
     """
     if len(lead) + len(value) <= _WIDTH:
         return [lead + value]
@@ -331,31 +210,14 @@ class Displayed:
     def _describe(self) -> tuple[str, Sequence[tuple[str, object]]]:
         """Return the title and the rows of the block.
 
-        Returns
-        -------
-        tuple
-            The first line, and ``(key, value)`` pairs for the rest.
+        - Returns: the first line, and ``(key, value)`` pairs for the rest.
         """
         return repr(self), ()
 
     def __str__(self) -> str:
-        """Return the aligned block.
-
-        Returns
-        -------
-        str
-            The title and one line per row.
-        """
+        """Return the aligned block."""
         return block(*self._describe())
 
     def _repr_pretty_(self, printer: _Printer, cycle: bool) -> None:
-        """Write the block for IPython's pretty printer.
-
-        Parameters
-        ----------
-        printer : object
-            IPython's printer.
-        cycle : bool
-            Whether the object was met again while printing itself.
-        """
+        """Write the block for IPython's pretty printer."""
         printer.text(repr(self) if cycle else str(self))

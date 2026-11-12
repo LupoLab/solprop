@@ -51,16 +51,8 @@ Payload = Mapping[str, object]
 def _recipe(payload: Payload) -> Recipe:
     """Read the recipe a payload carries.
 
-    Parameters
-    ----------
-    payload : Mapping
-        ``text``, the recipe's TOML, and optionally ``base``, the directory its data
-        files resolve against.
-
-    Returns
-    -------
-    solprop.recipe.Recipe
-        The recipe.
+    - ``payload``: ``text``, the recipe's TOML, and optionally ``base``, the directory
+      its data files resolve against.
     """
     base = payload.get("base")
     return Recipe.loads(str(payload["text"]), base=Path(str(base)) if base else None)
@@ -69,16 +61,8 @@ def _recipe(payload: Payload) -> Recipe:
 def _plain(value: object) -> object:
     """Return a value as plain data, or its text where it is not.
 
-    Parameters
-    ----------
-    value : object
-        A default or a resolved value.
-
-    Returns
-    -------
-    object
-        Numbers, strings, booleans and ``None`` as they are; tuples and lists
-        element by element; anything else as its ``repr``.
+    - Returns: numbers, strings, booleans and ``None`` as they are; tuples and lists
+      element by element; anything else as its ``repr``.
     """
     if value is None or isinstance(value, bool | int | float | str):
         return value
@@ -90,17 +74,9 @@ def _plain(value: object) -> object:
 def _default_text(entry: Parameter) -> str | None:
     """Return a keyword's default as a front end writes it.
 
-    Parameters
-    ----------
-    entry : solprop.recipe.Parameter
-        The keyword's metadata.
-
-    Returns
-    -------
-    str or None
-        The default as a quantity string in the display unit where it is a number
-        with a unit, its text otherwise; ``None`` when the keyword is required or
-        its default is ``None``.
+    - Returns: the default as a quantity string in the display unit where it is a number
+      with a unit, its text otherwise; ``None`` when the keyword is required or its
+      default is ``None``.
     """
     default = entry.default
     if default is REQUIRED or default is None:
@@ -120,16 +96,8 @@ def _default_text(entry: Parameter) -> str | None:
 def _parameter(entry: Parameter) -> dict[str, object]:
     """Return one keyword's metadata as plain data.
 
-    Parameters
-    ----------
-    entry : solprop.recipe.Parameter
-        The keyword's metadata.
-
-    Returns
-    -------
-    dict
-        Its fields, the forms as a list of dicts, and the default as written
-        (``default``) and as plain data (``default_value``, in the keyword's unit).
+    - Returns: its fields, the forms as a list of dicts, and the default as written
+      (``default``) and as plain data (``default_value``, in the keyword's unit).
     """
     return {
         "name": entry.name,
@@ -244,19 +212,7 @@ def describe(payload: Payload) -> dict[str, object]:
 def _type_catalog(
     keywords: list[dict[str, object]],
 ) -> dict[str, list[dict[str, object]]]:
-    """Return the keywords of every registered type a set of keywords can name.
-
-    Parameters
-    ----------
-    keywords : list of dict
-        Keywords as :func:`_parameter` describes them.
-
-    Returns
-    -------
-    dict
-        By type, its keywords described alike, for every type a recipe can write
-        that the keywords or those types' own keywords name.
-    """
+    """Return the keywords of every registered type a set of keywords can name."""
     catalog: dict[str, list[dict[str, object]]] = {}
     waiting = [keywords]
     while waiting:
@@ -650,15 +606,7 @@ def overview(payload: Payload) -> dict[str, object]:
 def _pair(value: object) -> tuple[float, float] | None:
     """Return a two-element sequence as a pair of floats.
 
-    Parameters
-    ----------
-    value : object
-        A pair, or ``None``.
-
-    Returns
-    -------
-    tuple of float or None
-        The pair.
+    - ``value``: a pair, or ``None``.
     """
     if value is None:
         return None
@@ -667,20 +615,7 @@ def _pair(value: object) -> tuple[float, float] | None:
 
 
 def _stats_at(handler: Output, index: int) -> dict[str, object]:
-    """Return a file's statistics row at one plane.
-
-    Parameters
-    ----------
-    handler : solprop.output.Output
-        The open file.
-    index : int
-        The plane.
-
-    Returns
-    -------
-    dict
-        Each recorded statistic at that plane, by name.
-    """
+    """Return a file's statistics row at one plane."""
     return {name: handler[f"stats/{name}"][index] for name in handler.stat_names}
 
 

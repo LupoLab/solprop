@@ -77,36 +77,18 @@ class Reduction(Protocol):
     """
 
     @property
-    def name(self) -> str:
-        """Return the unique result name.
-
-        Returns
-        -------
-        object
-            Result of the declared operation.
-        """
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """Unique result name."""
         ...
 
     @property
-    def dtype(self) -> np.dtype:
-        """Return the exact result dtype.
-
-        Returns
-        -------
-        object
-            Result of the declared operation.
-        """
+    def dtype(self) -> np.dtype:  # numpydoc ignore=RT01
+        """Exact result dtype."""
         ...
 
     @property
-    def units(self) -> str:
-        """Return the physical units.
-
-        Returns
-        -------
-        object
-            Result of the declared operation.
-        """
+    def units(self) -> str:  # numpydoc ignore=RT01
+        """Physical units."""
         ...
 
     def shape(self, metadata: RunMetadata) -> tuple[int, ...]:
@@ -159,18 +141,7 @@ class _Builtin:
     dtype: np.dtype = field(default_factory=lambda: np.dtype(np.float64))
 
     def shape(self, metadata: RunMetadata) -> tuple[int, ...]:
-        """Return the result dimensions promised by this reduction.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            Complete single-run metadata.
-
-        Returns
-        -------
-        tuple of int
-            Declared result dimensions.
-        """
+        """Return the result dimensions promised by this reduction."""
         if self.operation == "spectrum":
             return (len(_band_wavelength(metadata.grid, self.bounds)),)
         if self.operation == "field":
@@ -190,50 +161,21 @@ class _Builtin:
 
     @property
     def reads_fields(self) -> bool:
-        """Return whether the reduction reads its plane's field, not statistics alone.
+        """Return whether the reduction reads its plane's field.
 
-        Returns
-        -------
-        bool
-            False for the reductions of a statistic (``on_axis_intensity``,
-            ``beam_radius``), whose plane a scan need not keep the field of.
+        False for the reductions of a statistic (``on_axis_intensity``,
+        ``beam_radius``), whose plane a scan need not keep the field of.
         """
         return self.operation not in _STATISTIC_OPERATIONS
 
     def __call__(self, output: Output) -> np.ndarray:
-        """Execute the declared worker calculation.
-
-        Parameters
-        ----------
-        output : Output
-            Output handler for reductions, or collected destination path for execution.
-
-        Returns
-        -------
-        object
-            Completed calculation or captured point failure.
-        """
+        """Execute the declared worker calculation."""
         return self.evaluate(output, self.plane)
 
     def evaluate(self, output: Output, plane: int) -> np.ndarray:
         """Evaluate the existing processing definition at one saved plane.
 
-        Parameters
-        ----------
-        output : Output
-            Output handler for reductions, or collected destination path for execution.
-        plane : int
-            Saved plane in the internal Fourier convention, or its index.
-
-        Returns
-        -------
-        numpy.ndarray
-            Reduction value in its declared units.
-
-        Raises
-        ------
-        ProcessingError
-            If a reduction defined on modal amplitudes is asked of a spatial run.
+        - ``plane``: saved plane in the internal Fourier convention, or its index.
         """
         if (
             self.operation in _MODAL_OPERATIONS
@@ -301,50 +243,17 @@ class _Custom:
     reads_fields: bool = True
 
     def shape(self, metadata: RunMetadata) -> tuple[int, ...]:
-        """Return the result dimensions promised by this reduction.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            Complete single-run metadata.
-
-        Returns
-        -------
-        tuple of int
-            Declared result dimensions.
-        """
+        """Return the result dimensions promised by this reduction."""
         del metadata
         return self.dimensions
 
     def __call__(self, output: Output) -> np.ndarray:
-        """Execute the declared worker calculation.
-
-        Parameters
-        ----------
-        output : Output
-            Output handler for reductions, or collected destination path for execution.
-
-        Returns
-        -------
-        object
-            Completed calculation or captured point failure.
-        """
+        """Execute the declared worker calculation."""
         return self.function(output)
 
 
 def _metadata(output: Output) -> RunMetadata:
-    """Require the complete record needed to interpret a field.
-
-    Parameters
-    ----------
-    output : Output
-        Output handler for reductions, or collected destination path for execution.
-
-    Returns
-    -------
-    RunMetadata
-        Complete output metadata.
-    """
+    """Require the complete record needed to interpret a field."""
     if output.metadata is None:
         raise ProcessingError("a reduction requires output metadata")
     return output.metadata
@@ -359,17 +268,8 @@ def _band_wavelength(
     with ``band='active'`` and ``spec_range=bounds``, computed by the same functions,
     so the abscissa matches the stored samples one for one.
 
-    Parameters
-    ----------
-    record : GridRecord
-        The point's grid record.
-    bounds : tuple of float
-        Closed wavelength band, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Wavelengths of the retained samples, ascending, m.
+    - ``bounds``: closed wavelength band, m.
+    - Returns: wavelengths of the retained samples, ascending, m.
     """
     grid = grid_from_record(record)
     # The active band excludes the zero and Nyquist bins of a field grid, where a
@@ -382,19 +282,8 @@ def _band_wavelength(
 def _bounds(lo: float, hi: float, *, positive: bool) -> tuple[float, float]:
     """Validate ordered finite integration limits.
 
-    Parameters
-    ----------
-    lo : float
-        Finite lower limit in the reducer units.
-    hi : float
-        Finite upper limit in the reducer units.
-    positive : bool
-        Whether the lower bound must also be positive.
-
-    Returns
-    -------
-    tuple of float
-        Validated lower and upper limits.
+    - ``positive``: whether the lower bound must also be positive.
+    - Returns: validated lower and upper limits.
     """
     if not np.isfinite(lo) or not np.isfinite(hi) or lo >= hi or (positive and lo <= 0):
         raise ProcessingError("reduction bounds must be finite and increasing")
@@ -626,17 +515,8 @@ def _provenance(
 ) -> dict[str, object]:
     """Record a reducer definition and its source availability.
 
-    Parameters
-    ----------
-    reduction : Reduction
-        Reduction declaration including shape, dtype and units.
-    metadata : RunMetadata or None, optional
-        Point metadata used to resolve modal, radial or Cartesian field units.
-
-    Returns
-    -------
-    dict
-        Reducer source, parameters, units and dtype.
+    - ``reduction``: reduction declaration including shape, dtype and units.
+    - Returns: reducer source, parameters, units and dtype.
     """
     function = reduction.function if isinstance(reduction, _Custom) else type(reduction)
     try:
@@ -682,16 +562,9 @@ def _provenance(
 def _custom_parameters(reduction: _Custom) -> dict[str, object]:
     """Return a custom reduction's recorded parameters.
 
-    Parameters
-    ----------
-    reduction : _Custom
-        The declaration.
-
-    Returns
-    -------
-    dict
-        Its shape, and ``reads_fields`` where it declares that it reads none: left
-        out at its default, so the provenance of every earlier reduction is unchanged.
+    - Returns: its shape, and ``reads_fields`` where it declares that it reads none:
+      left out at its default, so the provenance of every earlier reduction is
+      unchanged.
     """
     parameters: dict[str, object] = {"shape": reduction.dimensions}
     if not reduction.reads_fields:
@@ -702,15 +575,7 @@ def _custom_parameters(reduction: _Custom) -> dict[str, object]:
 def _callable_hash(reduction: Reduction) -> str | None:
     """Fingerprint serialised reducer parameters when standard pickle supports them.
 
-    Parameters
-    ----------
-    reduction : Reduction
-        Callable with its declared storage contract.
-
-    Returns
-    -------
-    str or None
-        SHA-256 of its pickle, or None for Local-only callables.
+    - Returns: SHA-256 of its pickle, or None for Local-only callables.
     """
     try:
         data = pickle.dumps(reduction)
@@ -763,10 +628,7 @@ class ScanOutput(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         # The file is not opened: reading a scan takes a shared lock, which blocks
         # while a controller is still writing it, and printing must never block.
@@ -778,50 +640,35 @@ class ScanOutput(Displayed):
         ]
 
     @property
-    def recipe(self) -> RecipeRecord | None:
-        """Return the recipe the scan was built from, or ``None`` for a scan script's.
+    def recipe(self) -> RecipeRecord | None:  # numpydoc ignore=RT01
+        """Recipe the scan was built from, or ``None`` for a scan script's.
 
-        Returns
-        -------
-        solprop.output.schema.RecipeRecord or None
-            The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
-            records (SEP 41, S2).
+        The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
+        records (SEP 41, S2).
         """
         with read_scan(self.path) as file:
             return read_recipe(file)
 
     @property
-    def shape(self) -> tuple[int, ...]:
-        """Return the Cartesian axis lengths.
-
-        Returns
-        -------
-        tuple of int
-            Complete scan shape.
-        """
+    def shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Cartesian axis lengths."""
         with read_scan(self.path) as file:
             return tuple(int(i) for i in _dataset(file, "scan/shape")[...])
 
     @property
-    def status(self) -> np.ndarray:
-        """Return point statuses in global-index order.
+    def status(self) -> np.ndarray:  # numpydoc ignore=RT01
+        """Point statuses in global-index order, shape ``(n_points,)``.
 
-        Returns
-        -------
-        numpy.ndarray
-            Strings todo, running, done or failed, shape (n_points,).
+        Each one ``"todo"``, ``"running"``, ``"done"`` or ``"failed"``.
         """
         with read_scan(self.path) as file:
             return np.asarray(_dataset(file, "points/status").asstr()[...])
 
     @property
-    def layouts(self) -> Mapping[str, tuple[int, ...]]:
-        """Return known layout identifiers and their completed global points.
+    def layouts(self) -> Mapping[str, tuple[int, ...]]:  # numpydoc ignore=RT01
+        """Known layout identifiers and their completed global points.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Layout digest to global indices; also works before consolidation.
+        Layout digest to global indices; also works before consolidation.
         """
         result: dict[str, list[int]] = {}
         with read_scan(self.path) as file:

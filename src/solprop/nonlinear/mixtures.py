@@ -62,19 +62,8 @@ def _default_rate(
     (:func:`solprop.nonlinear.optmat_rates.selected_rate`): no solprop formula, and a
     custom species is refused, since its rate must be given explicitly (SEP 3, D1).
 
-    Parameters
-    ----------
-    component : Component
-        Labelled species, density, initial ionisation and Raman overrides.
-    wavelength : float or None
-        Reference wavelength in m, the rate's carrier unless the selection names one.
-    selection : MaterialSelection
-        The run's material selection.
-
-    Returns
-    -------
-    IonisationRate
-        The default rate.
+    - ``wavelength``: reference wavelength in m, the rate's carrier unless the selection
+      names one.
     """
     return selected_rate(
         component.species, selection, wavelength, label=component.label
@@ -82,17 +71,7 @@ def _default_rate(
 
 
 def _check_labels(labels: Sequence[str], mixture: Mixture, option: str) -> None:
-    """Reject misspelled selections before building any response.
-
-    Parameters
-    ----------
-    labels : Sequence of str
-        Component labels explicitly selected by the caller.
-    mixture : Mixture
-        Material declaration supplying the valid labels.
-    option : str
-        Response option name used in a refusal diagnostic.
-    """
+    """Reject misspelled selections before building any response."""
     for label in labels:
         if label not in mixture.labels:
             raise MaterialError(f"unknown {option} component label {label!r}")
@@ -109,27 +88,11 @@ def _component_raman(
 ) -> RamanResponse | None:
     """Select available terms by default and honour explicit per-term requests.
 
-    Parameters
-    ----------
-    component : Component
-        Labelled species, density, initial ionisation and Raman overrides.
-    selected : bool or MolecularOptions
-        Whether and which molecular terms to include.
-    mixture : Mixture
-        The mixture the component belongs to, whose temperature (or, for a
-        temperature path, its reference, :func:`raman_temperature`) sets the
-        rotational populations.
-    thg : bool
-        Whether the field-grid drive retains third harmonics.
-    explicit : bool
-        Whether absence of the selected response is an error.
-    length : float or None, optional
-        The run's length in m, over which a temperature path is averaged.
-
-    Returns
-    -------
-    RamanResponse or None
-        Selected component terms, or None for an allowed omission.
+    - ``mixture``: its temperature (for a temperature path, the reference
+      :func:`raman_temperature` takes) sets the rotational populations.
+    - ``explicit``: whether absence of the selected response is an error.
+    - ``length``: the run's length in m, over which a temperature path is averaged.
+    - Returns: selected component terms, or None for an allowed omission.
     """
     if selected is False:
         return None
@@ -328,18 +291,8 @@ def raman_temperature(
 def _weight(mixture: Mixture, label: str | Sequence[str]) -> tuple[ZProfile, str]:
     """Return the density a reference temperature is weighted by, and its name.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    label : str or sequence of str
-        One component, or the components of a composition.
-
-    Returns
-    -------
-    tuple
-        The component's density, or the components' summed density, in m^-3, and
-        the label or the labels joined by ``+``.
+    - Returns: the component's density, or the components' summed density, in m^-3, and
+      the label or the labels joined by ``+``.
     """
     if isinstance(label, str):
         return mixture[label].density, label
@@ -356,43 +309,19 @@ def _mean_temperature(
 ) -> float:
     """Return the mean of a temperature path weighted by one density over a span.
 
-    Parameters
-    ----------
-    density : ZProfile
-        The species' number density in m^-3.
-    temperature : ZProfile
-        The temperature path in K.
-    start, end : float
-        The finite span in m.
-    kinks : numpy.ndarray
-        Positions in m inside the span where the density or the temperature kinks.
-
-    Returns
-    -------
-    float
-        ``int rho T dz / int rho dz`` in K.
-
-    Raises
-    ------
-    MaterialError
-        If the density vanishes over the span.
+    - ``density``: the species' number density in m^-3.
+    - ``temperature``: the temperature path in K.
+    - ``start``, ``end``: the finite span in m.
+    - ``kinks``: positions in m inside the span where the density or the temperature
+      kinks.
+    - Returns: ``int rho T dz / int rho dz`` in K.
     """
     edges = np.unique(np.concatenate([[start, end], kinks]))
 
     def weighted(z: float, power: int) -> float:
         """Return ``rho(z) T(z)^power`` at one position.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-        power : int
-            0 for the density, 1 for the density times the temperature.
-
-        Returns
-        -------
-        float
-            The integrand.
+        - ``z``: position in m.
         """
         position = np.array([z])
         value = float(density(position)[0])
@@ -423,20 +352,7 @@ def _mean_temperature(
 def _raman_choice(
     raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions], label: str
 ) -> bool | MolecularOptions:
-    """Return what a Raman selection asks of one label.
-
-    Parameters
-    ----------
-    raman : bool, sequence of str or Mapping
-        :func:`responses_for`'s selection.
-    label : str
-        The component's label.
-
-    Returns
-    -------
-    bool or MolecularOptions
-        Whether, and which terms.
-    """
+    """Return what a Raman selection asks of one label."""
     if isinstance(raman, Mapping):
         return raman.get(label, False)
     return raman if isinstance(raman, bool) else label in raman
@@ -447,19 +363,8 @@ def _composition_at(
 ) -> RamanResponse | None:
     """Place a composition's one response at the label its leaf carries.
 
-    Parameters
-    ----------
-    component : Component
-        The component being visited.
-    mixture : Mixture
-        The fill.
-    composition : RamanResponse or None
-        The composition's response, if any.
-
-    Returns
-    -------
-    RamanResponse or None
-        The response at its leaf's label, and nothing at the others.
+    - ``composition``: the composition's response, if any.
+    - Returns: the response at its leaf's label, and None at the others.
     """
     if composition is None:
         return None
