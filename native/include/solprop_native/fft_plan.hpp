@@ -14,7 +14,6 @@
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <fftw3.h>
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -516,7 +515,6 @@ public:
 #include "solprop_native/graph.hpp"
 
 #include <utility>
-#include <vector>
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 #include "solprop_native/launch.hpp"

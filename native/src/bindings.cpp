@@ -47,7 +47,6 @@
 #include <dlfcn.h>
 #endif
 
-#include <algorithm>
 #include <array>
 #include <complex>
 #include <csignal>
