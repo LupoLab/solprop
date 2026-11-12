@@ -121,6 +121,7 @@ native::Problem modal_problem(const bool real_form, const std::size_t chunk,
 
 std::vector<Complex> scaled_state(const native::Problem& problem) {
   std::vector<Complex> state;
+  state.reserve(kModes * problem.n_omega);
   for (std::size_t index = 0; index < kModes * problem.n_omega; ++index)
     state.emplace_back(fill(index + 17, 1.0), fill(index + 23, 1.0));
   return state;

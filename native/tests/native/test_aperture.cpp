@@ -331,6 +331,7 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
                                              .real();
   }
   std::vector<double> packed;
+  packed.reserve(beam.size());
   for (const double value : beam)
     packed.push_back(0.5 * density * value);
   for (const double value : absorbed)

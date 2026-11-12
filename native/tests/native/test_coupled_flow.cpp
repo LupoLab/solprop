@@ -137,6 +137,7 @@ native::TrialScalars scalars(const bool residual, const std::size_t section) {
 
 std::vector<Complex> initial() {
   std::vector<Complex> field;
+  field.reserve(kModes * kOmega);
   for (std::size_t index = 0; index < kModes * kOmega; ++index)
     field.emplace_back(fill(index + 41, 1.0), fill(index + 43, 1.0));
   return field;

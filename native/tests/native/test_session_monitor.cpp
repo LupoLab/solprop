@@ -149,6 +149,7 @@ session::Batch next(session::Session& run, const session::EventKind kind,
 // The rows' accepted-step values a batch carries.
 std::vector<double> rows_of(const session::Batch& batch) {
   std::vector<double> steps;
+  steps.reserve(batch.row_z.size());
   for (std::size_t row = 0; row < batch.row_z.size(); ++row)
     steps.push_back(batch.row_values[2 * row + 1]);
   return steps;
