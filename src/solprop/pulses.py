@@ -35,7 +35,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final, Literal, Protocol, runtime_checkable
+from typing import ClassVar, Final, Literal, Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -2121,7 +2121,91 @@ def _checked_spectral_phase(
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
-class DataPulse(Displayed):
+class _MeasuredPulse(Displayed):
+    """The scaling, further phase and delay a pulse from measured data is built with.
+
+    What :class:`DataPulse` and :class:`TimeDataPulse` share; each declares its own
+    data and reads it in ``build``.
+    """
+
+    energy: float
+    phase: Sequence[float] | np.ndarray = ()
+    t0: float = 0.0
+    wavelength: float | None = None
+    _TITLE: ClassVar[str]
+    """The printed block's title: what the data is."""
+    _CENTRE: ClassVar[str]
+    """Where the Taylor phase is expanded about when no wavelength is given."""
+
+    def _check_scaling(self) -> None:
+        """Refuse a scaling the build cannot honour, and freeze the further phase."""
+        positive(self.energy, "energy", PulseError, parameter="energy")
+        if self.wavelength is not None:
+            positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
+        object.__setattr__(self, "phase", _frozen_phase(self.phase))
+
+    def _data_centre(self) -> float:
+        """Return the data's spectral centre of mass, rad/s."""
+        raise NotImplementedError
+
+    def _data_text(self) -> str:
+        """Return the extent of the data, for printing."""
+        raise NotImplementedError
+
+    def _reference_frequency(self) -> float:
+        """Return the frequency the Taylor phase is expanded about, rad/s.
+
+        - Returns: the frequency of ``wavelength``, else the data's spectral centre of
+          mass.
+        """
+        if self.wavelength is not None:
+            return 2.0 * np.pi * C / self.wavelength
+        return self._data_centre()
+
+    def __repr__(self) -> str:
+        """Return a one-line description with the data summarised, never dumped."""
+        return line(
+            type(self).__name__,
+            [("", self._data_text()), ("energy", engineering(self.energy, "J"))],
+        )
+
+    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
+        """Return the title and rows of the printed block.
+
+        - Returns: the title and ``(key, value)`` rows.
+        """
+        reference = (
+            self._CENTRE
+            if self.wavelength is None
+            else engineering(self.wavelength, "m")
+        )
+        return f"{type(self).__name__}: {self._TITLE}", [
+            ("data", self._data_text()),
+            ("energy", engineering(self.energy, "J")),
+            ("further phase", f"{phase_text(self.phase)} about {reference}"),
+            ("further delay", engineering(self.t0, "s")),
+        ]
+
+    def _stored(
+        self, optics: Complex[np.ndarray, " n_omega"], grid: TimeGrid
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the stored spectrum of an optics-convention spectrum on the grid.
+
+        The grid's spectral collar, the conversion to the internal convention, the
+        further phase and delay, and the energy scaling.
+        """
+        optics = optics * grid.omega_window
+        spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)
+        phase = np.asarray(self.phase)
+        spectrum = spectrum * _phase_factor(
+            grid, phase, self.t0, self._reference_frequency()
+        )
+        return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
+
+
+# repr=False keeps the base's summarising __repr__.
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)
+class DataPulse(_MeasuredPulse):
     """A pulse from a measured complex spectrum, interpolated onto the grid.
 
     The stored form is the spectrum because that is what a measurement gives: a spectral
@@ -2191,11 +2275,9 @@ class DataPulse(Displayed):
 
     omega: Float[np.ndarray, " n_data"]
     spectrum: Complex[np.ndarray, " n_data_spectrum"]
-    energy: float
     spectral_phase: Float[np.ndarray, " n_data_phase"] | None = None
-    phase: Sequence[float] | np.ndarray = ()
-    t0: float = 0.0
-    wavelength: float | None = None
+    _TITLE: ClassVar[str] = "a measured complex spectrum"
+    _CENTRE: ClassVar[str] = "the data's centre"
 
     def __post_init__(self) -> None:
         """Validate the tabulated data and adopt read-only copies of the arrays.
@@ -2227,14 +2309,11 @@ class DataPulse(Displayed):
         if omega[0] <= 0.0 or np.any(np.diff(omega) <= 0.0):
             msg = "omega must be strictly increasing and positive, in rad/s"
             raise PulseError(msg)
-        positive(self.energy, "energy", PulseError, parameter="energy")
-        if self.wavelength is not None:
-            positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
+        self._check_scaling()
         omega.setflags(write=False)
         spectrum.setflags(write=False)
         object.__setattr__(self, "omega", omega)
         object.__setattr__(self, "spectrum", spectrum)
-        object.__setattr__(self, "phase", _frozen_phase(self.phase))
         if self.spectral_phase is not None:
             object.__setattr__(
                 self,
@@ -2251,50 +2330,15 @@ class DataPulse(Displayed):
         """
         return 2.0 * np.pi * C / self._reference_frequency()
 
-    def _reference_frequency(self) -> float:
-        """Return the frequency the Taylor phase is expanded about, rad/s.
-
-        - Returns: the frequency of ``wavelength``, else the weighted mean of ``omega``.
-        """
-        if self.wavelength is not None:
-            return 2.0 * np.pi * C / self.wavelength
+    def _data_centre(self) -> float:
+        """Return the weighted mean of ``omega``, rad/s."""
         weight = np.abs(self.spectrum) ** 2
         return float(np.sum(self.omega * weight) / np.sum(weight))
-
-    def __repr__(self) -> str:
-        """Return a one-line description with the data summarised, never dumped.
-
-        Returns
-        -------
-        str
-            For example ``DataPulse(<512 values, 600 nm to 1 um>, energy=1 uJ)``.
-        """
-        return line(
-            "DataPulse",
-            [("", self._data_text()), ("energy", engineering(self.energy, "J"))],
-        )
 
     def _data_text(self) -> str:
         """Return the extent of the measured spectrum, for printing."""
         wavelengths = 2.0 * np.pi * C / np.asarray(self.omega, dtype=float)
         return summarise(wavelengths, "m")
-
-    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
-        """Return the title and rows of the printed block.
-
-        - Returns: the title and ``(key, value)`` rows.
-        """
-        reference = (
-            "the data's centre"
-            if self.wavelength is None
-            else engineering(self.wavelength, "m")
-        )
-        return "DataPulse: a measured complex spectrum", [
-            ("data", self._data_text()),
-            ("energy", engineering(self.energy, "J")),
-            ("further phase", f"{phase_text(self.phase)} about {reference}"),
-            ("further delay", engineering(self.t0, "s")),
-        ]
 
     def build(self, grid: TimeGrid) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the initial spectrum of the tabulated pulse on the given grid.
@@ -2360,13 +2404,7 @@ class DataPulse(Displayed):
         optics[inside] = np.clip(magnitude(wanted), 0.0, None) * np.exp(
             1j * angle(wanted)
         )
-        optics = optics * grid.omega_window
-        spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)
-        phase = np.asarray(self.phase)
-        spectrum = spectrum * _phase_factor(
-            grid, phase, self.t0, self._reference_frequency()
-        )
-        return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
+        return self._stored(optics, grid)
 
     @classmethod
     def from_spectral_density(
@@ -2481,8 +2519,9 @@ def _record_spectrum(
     return on_axis[index] * np.exp(1j * omega * float(t[0]))
 
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class TimeDataPulse(Displayed):
+# repr=False keeps the base's summarising __repr__.
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)
+class TimeDataPulse(_MeasuredPulse):
     """A pulse from a measured field in time, transformed exactly onto the grid.
 
     The stored form is the record, and :meth:`build` takes out its mean ``E_mean`` and
@@ -2548,10 +2587,8 @@ class TimeDataPulse(Displayed):
 
     t: Float[np.ndarray, " n_data"]
     field: Inexact[np.ndarray, " n_data_field"]
-    energy: float
-    phase: Sequence[float] | np.ndarray = ()
-    t0: float = 0.0
-    wavelength: float | None = None
+    _TITLE: ClassVar[str] = "a measured field in time"
+    _CENTRE: ClassVar[str] = "the record's centre"
 
     def __post_init__(self) -> None:
         """Validate the record and adopt read-only copies of the arrays.
@@ -2587,17 +2624,14 @@ class TimeDataPulse(Displayed):
         if steps[0] <= 0.0 or not np.allclose(steps, steps[0], rtol=1e-9, atol=0.0):
             msg = "t must be uniformly spaced and increasing"
             raise PulseError(msg)
-        positive(self.energy, "energy", PulseError, parameter="energy")
-        if self.wavelength is not None:
-            positive(self.wavelength, "wavelength", PulseError, parameter="wavelength")
+        self._check_scaling()
         times.setflags(write=False)
         values.setflags(write=False)
         object.__setattr__(self, "t", times)
         object.__setattr__(self, "field", values)
-        object.__setattr__(self, "phase", _frozen_phase(self.phase))
-        self._spectral_centre()
+        self._data_centre()
 
-    def _spectral_centre(self) -> float:
+    def _data_centre(self) -> float:
         """Return the spectral centre of mass of the record, rad/s.
 
         - Returns: the mean of the positive frequencies of the record's DFT, by its
@@ -2623,49 +2657,9 @@ class TimeDataPulse(Displayed):
         """
         return 2.0 * np.pi * C / self._reference_frequency()
 
-    def _reference_frequency(self) -> float:
-        """Return the frequency the Taylor phase is expanded about, rad/s.
-
-        - Returns: the frequency of ``wavelength``, else the record's spectral centre of
-          mass.
-        """
-        if self.wavelength is not None:
-            return 2.0 * np.pi * C / self.wavelength
-        return self._spectral_centre()
-
-    def __repr__(self) -> str:
-        """Return a one-line description with the record summarised, never dumped.
-
-        Returns
-        -------
-        str
-            For example ``TimeDataPulse(<1024 values, 0 s to 1 ps>, energy=1 uJ)``.
-        """
-        return line(
-            "TimeDataPulse",
-            [("", self._data_text()), ("energy", engineering(self.energy, "J"))],
-        )
-
     def _data_text(self) -> str:
         """Return the extent of the measured record, for printing."""
         return summarise(np.asarray(self.t, dtype=float), "s")
-
-    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
-        """Return the title and rows of the printed block.
-
-        - Returns: the title and ``(key, value)`` rows.
-        """
-        reference = (
-            "the record's centre"
-            if self.wavelength is None
-            else engineering(self.wavelength, "m")
-        )
-        return "TimeDataPulse: a measured field in time", [
-            ("data", self._data_text()),
-            ("energy", engineering(self.energy, "J")),
-            ("further phase", f"{phase_text(self.phase)} about {reference}"),
-            ("further delay", engineering(self.t0, "s")),
-        ]
 
     def _warn_if_folded(
         self, values: Inexact[np.ndarray, " n_data"], grid: TimeGrid
@@ -2737,13 +2731,7 @@ class TimeDataPulse(Displayed):
         optics[inside] = _record_spectrum(
             self.t, values, grid.omega[inside], grid.d_omega
         )
-        optics = optics * grid.omega_window
-        spectrum = fourier.spectrum_to_internal(optics, kind=grid.kind)
-        phase = np.asarray(self.phase)
-        spectrum = spectrum * _phase_factor(
-            grid, phase, self.t0, self._reference_frequency()
-        )
-        return _canonical(_rescale(spectrum, grid, self.energy, "energy"))
+        return self._stored(optics, grid)
 
 
 # --- measured spectra from a file -----------------------------------------------------
