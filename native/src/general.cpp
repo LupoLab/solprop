@@ -5882,12 +5882,13 @@ void GeneralWorkspace::low_storage_separable_pass(const std::size_t pass,
   }
 }
 
+namespace {
 // Each column's masked squared norm of `state` into `partials(0, column)`, in a team
 // per column: a device's final fold traverses like the others and reduces here, over
 // one volume, instead of reducing inside the fold's crossing (SEP 28).
-static void column_norms(const char* label, const ExecutionSpace& execution,
-                         const ComplexView2& state, const ByteView& in_norm,
-                         const RealView2& partials) {
+void column_norms(const char* label, const ExecutionSpace& execution,
+                  const ComplexView2& state, const ByteView& in_norm,
+                  const RealView2& partials) {
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   const auto n = state.extent(1);
@@ -5907,6 +5908,7 @@ static void column_norms(const char* label, const ExecutionSpace& execution,
         Kokkos::single(Kokkos::PerTeam(team), [&] { partials(0, column) = total; });
       });
 }
+} // namespace
 
 void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const auto state = current_;
