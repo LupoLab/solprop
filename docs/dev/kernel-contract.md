@@ -1036,18 +1036,20 @@ native CPU build the binding reaches the resident Adams march as a host source: 
 session binding outside the kernel problem, whose three entry points the march calls
 from the thread that called `advance`, outside every parallel region, holding the
 interpreter lock for each. `begin(cost)` reserves an attempt's calls after the march's
-budget check; `evaluate(field, z, purpose, out)` receives the lab-frame spectrum the
-engine would hand its own source pass and writes `F`, the projected source before the
+budget check; `evaluate(field, z, purpose, out)` receives, read-only, the lab-frame
+spectrum the engine would hand its own source pass, unscaled and with any noise added,
+which the stage's entry kernel writes into the hook's field row, and writes `F`, the projected source before the
 spectral collar, which the shared assembly (`solprop.backends.tdse_source`) forms as
 the reference does; `end(outcome)` records an accepted or rejected attempt after its
 decision, and after its commit for an accepted one, then releases the reservation, and
 an attempt that leaves before a decision only releases it. The engine's own response
 pass does not run; its stage finish applies the spectral collar, the in-stage absorber
-and the propagator. The hook's two host rows are allocated when it is bound and listed
-as `host_source` in the memory ledger. An exception in an entry point is kept on the
+and the propagator. The hook's two rows, the field and `F`, are allocated when it is
+bound, handed to it in place, and listed as `host_source` in the memory ledger. An exception in an entry point is kept on the
 Python side and reported to the march as a host failure: before the commit the
 attempt is abandoned, after it the committed attempt is returned with the failure,
-and the session raises the kept exception unchanged. A device build refuses a TDSE
+and the session raises the kept exception unchanged; an abandoned attempt's failed
+release rides on the run's own error as a note. A device build refuses a TDSE
 problem at preparation.
 
 The backend independently projects macroscopic P and J with the existing modal

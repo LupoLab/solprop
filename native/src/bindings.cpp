@@ -87,6 +87,9 @@ using IndexInput = nb::ndarray<const std::uint64_t, nb::c_contig, nb::device::cp
 using ComplexOutput =
     nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig, nb::device::cpu>;
 using RealOutput = nb::ndarray<nb::numpy, double, nb::c_contig, nb::device::cpu>;
+// A read-only NumPy view of the engine's memory (solprop SEP 49's host source field).
+using HostField =
+    nb::ndarray<nb::numpy, const std::complex<double>, nb::c_contig, nb::device::cpu>;
 using ComplexStorage = std::vector<std::complex<double>>;
 using RealStorage = std::vector<double>;
 
@@ -109,12 +112,16 @@ public:
                 const native::HostPurpose purpose,
                 const std::span<std::complex<double>> source) override {
     call([&] {
-      // Views of the engine's two host rows, valid for the call alone.
+      // Views of the engine's two host rows, valid for the call alone: the field
+      // read-only, the source written in place. Each has an owner, a capsule that
+      // frees nothing, because nanobind copies an ownerless array it hands to
+      // Python, and a write into that copy would never reach the engine.
       const std::array<std::size_t, 1> in_shape{field.size()};
       const std::array<std::size_t, 1> out_shape{source.size()};
-      const ComplexOutput in(const_cast<std::complex<double>*>(field.data()), 1,
-                             in_shape.data(), nb::handle());
-      const ComplexOutput out(source.data(), 1, out_shape.data(), nb::handle());
+      const nb::capsule borrowed_in(field.data(), [](void* /*unused*/) noexcept {});
+      const nb::capsule borrowed_out(source.data(), [](void* /*unused*/) noexcept {});
+      const HostField in(field.data(), 1, in_shape.data(), borrowed_in);
+      const ComplexOutput out(source.data(), 1, out_shape.data(), borrowed_out);
       owner_.attr("evaluate")(
           in, z, purpose == native::HostPurpose::startup ? "startup" : "predictor",
           out);
@@ -2671,6 +2678,8 @@ void BoundState::close() noexcept {
     general_state_->close();
     general_state_.reset();
   }
+  // A host source's owner (SEP 49) stays until the state is destroyed: this close
+  // runs without the interpreter lock, and the engine that borrowed it is gone.
 }
 
 // solprop SEP 47 section 6.4: a statistics evaluation lowered once from the problem,

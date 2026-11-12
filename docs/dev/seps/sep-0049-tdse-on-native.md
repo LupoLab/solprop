@@ -1150,24 +1150,27 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     `Category::host`, naming its stage, `none` for `begin`. `ResidentEngine` forwards
     both to the bound source and names each evaluation's position and purpose (the
     startup at `z`, the predictor at `z + dz`). `GeneralState::bind_host_source`
-    allocates the two host rows and the source's view once, listed as `host_source`
-    in the memory ledger; the workspace's stage core then gathers the lab-frame bins
-    from the fine spectrum, forms the in-stage absorber as every route does, calls the
-    source from the calling thread outside every parallel region, and the stage finish
-    (`StageTerms::finish`) takes the source with the collar alone, skipping the
-    engine's own response pass. Host builds only: a device build throws, and its
+    allocates the hook's two rows once, the field and the source, listed as
+    `host_source` in the memory ledger; the stage's entry kernel
+    (`StageTerms::combine`) writes the lab-frame field into the field row, unscaled
+    and with any noise added, the workspace's stage core forms the in-stage absorber
+    as every route does and calls the source from the calling thread outside every
+    parallel region, and the stage finish (`StageTerms::finish`) takes the source with
+    the collar alone, skipping the engine's own response pass. Host builds only: a device build throws, and its
     adapter refuses the problem first.
   - The binding layer (`bindings.cpp`): `PythonHostSource` calls a Python object's
-    three methods under the interpreter lock the march released, catches
-    `nb::python_error` there and reports it to the march as `HostSourceError`; the
-    state holds the object (`State.bind_host_source`), the engine borrows it.
+    three methods under the interpreter lock the march released, handing `evaluate`
+    the two rows in place (the field read-only), catches `nb::python_error` there and
+    reports it to the march as `HostSourceError`; the state holds the object
+    (`State.bind_host_source`), the engine borrows it.
   - Python adapter: `solprop_native/_host_source.py` (new), `TDSEHostSource`: `begin`
     reserves, `evaluate` is `node_fields`, the binding's evaluation and the shared
     assembly and projection with the reference's own scalars (`scalars(problem, z,
     z)`, plain helpers) and prefactor (`prefactor_at` or the combined z table), `end`
     records the outcome and releases in a `finally`; every exception is kept, the
-    first as the error and later ones as notes. `NativeBackend` takes `tdse_binding`,
-    binds the hook for its life and unbinds it on close, refuses a TDSE problem without
+    first as the error and later ones as notes, and a new attempt starts with none.
+    `NativeBackend` takes `tdse_binding`, binds the hook for its life (closing the
+    state drops it, a leased one too), refuses a TDSE problem without
     its binding (and the reverse) and the statistics the TDSE response does not define,
     records `atomic_calls`, `tdse_execution`, `tdse_last_evaluation` and `tdse_source`
     (now `tdse_source.source_record`, shared with the reference), lists the binding's
@@ -1175,12 +1178,14 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     `_interrupts.interruptible()` beside its commit around `advance` when a source is
     bound, and reports a host failure as the kept exception, a reservation the budget
     refused rewrapped with the last accepted step's position and field as the reference
-    does.
+    does; a kept exception the march did not stop for, an abandoned attempt's failed
+    release, rides on the run's error as a note, as the reference's `_trial` attaches
+    it.
   - solprop: the registry hands a TDSE binding to either backend; the driver's
     `numpy_ref`-only rules for a TDSE run (`_admit_tdse_execution`,
     `_check_tdse_execution`) are gone, so `backend="auto"` runs it on native; the
     capability rule `tdse-numpy-ref` is removed.
-  - Tests: `tests/backends/test_tdse_native.py` (13); the registry, entry, defaults
+  - Tests: `tests/backends/test_tdse_native.py` (23); the registry, entry, defaults
     and checkpoint tests that held the old refusals rewritten.
   - Documentation: `docs/dev/kernel-contract.md` (§1's `TDSESource`, the source
     reservations, §6's host source hook), `docs/dev/backends.md`, `AGENTS.md` and
@@ -1198,16 +1203,23 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     error, the batch booked and the state eligible for its checkpoint, where the
     reference's session lets the signal through to the run loop; the run loop raises
     it either way.
-  - §7.3 item 1's stage comparison is not made one stage at a time. The reference's
-    `_adams_lab_source` on a freshly loaded backend is not its run's startup sample
-    (about 47 against the 1.3e7, mostly the in-stage absorber's term, the run's
-    startup row holds), and the two engines' startup rows read after one attempt are
-    1 % apart while whole runs agree to 1e-13, so what those rows hold is not the same
-    quantity and is left as Q12. `F` is compared bit for bit, and the finish through
-    the runs of items 2 to 4.
-  - Item 4 is a short adaptive run, not eight steps: the case's collar holds its steps
-    to about a two-hundredth of its length, so 0.2 um is some four hundred attempts;
-    its budget is the attempts times the one-step 16 eps.
+  - §7.3 item 1 reads each engine's history row zero after the first attempt, not
+    the stage output alone: native has no stage output outside a run. Without the
+    in-stage absorber the initial step is accepted on both, and the row, the startup
+    output carried to the step's end in the interaction formulation, is equal bit for
+    bit; with it, the collar rejects the initial step, the row is the startup output,
+    and it is within one transform's bound, peak-normalised.
+  - Item 4 is two runs: eight steps of 10 nm without the in-stage absorber, within the
+    eight-step 128 eps; and, with the absorber, whose collar holds the steps to about a
+    two-hundredth of the run, 0.2 um in some four hundred attempts within the
+    attempts times the one-step 16 eps. Each checks that the source moves its field a
+    millionfold beyond the budget.
+  - The memory row is the generic `host_source`, not §6.2's `tdse_host_source`: the
+    engine knows no TDSE (P10). It holds §6.2's two `n_omega` rows.
+  - The reference records an accepted replayed step after releasing its reservation;
+    native's `end` records, then releases, for every decided attempt. The hook is not
+    told that a step is replayed, and the two orders differ only when the record or
+    the release fails.
   - Item 5 is met through the driver: the TDSE run tests that ask for `auto`
     (`test_tdse_hacc_run.py`, `test_tdse_archive_run.py`, `test_tdse_entry.py`, the
     gated-derivative and natural-output runs) now run on native, unchanged; those
@@ -1217,16 +1229,25 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   `Multistep()` only, and a zero-length Runge-Kutta trial with a source bound does not
   give the reference's stage (above), so a later guard should refuse it there.
 - **Verification.** Native CPU build (Apple clang, editable, the `estimate` planning),
-  Apple M5 Max. `tests/backends/test_tdse_native.py`: `F` bit for bit on the gated and
-  cubic descriptors; the call sequence (every reserve, evaluation purpose, record and
-  release, in order), the atomic ledger and the `atomic_calls` and `tdse_source`
-  records equal to the reference's on a whole run in both formulations, the
-  evaluations' positions within 1e-9 relative; a budget refusal, a provider failure
-  and a SIGTERM before the commit, and an archive failure after it, each leaving the
-  stated state with nothing reserved and the reference's calls; a 0.2 um adaptive run
-  within its budget, with one attempt per call and the production bound (measured
-  1.3e-13 against 1.4e-12); a device build and a missing binding refused by name; the
-  memory rows. The TDSE, worker and interrupt modules of `tests/backends` and
+  Apple M5 Max. `tests/backends/test_tdse_native.py`, its manufactured remainder
+  1e-18 A m, strong enough that `F` moves every compared field seven orders or
+  more beyond its budget: through the C++ gather and the binding, in both formulations, on
+  the gated and cubic descriptors, with and without input noise, the field the hook
+  receives and `F` bit for bit, the history's first row as above; the call sequence
+  (every reserve, evaluation purpose, record and release, in order), the atomic ledger
+  and the `atomic_calls` and `tdse_source` records equal to the reference's on a whole
+  run in both formulations, the evaluations' positions within 1e-9 relative and the
+  final fields within the per-attempt budget; a budget refusal, a provider failure, a
+  SIGTERM before the commit (raised as an exception, and a real signal the commit
+  holds, raised by the evaluation's `raise_held` inside the session's
+  `interruptible`), and an archive failure after it, each leaving the stated state
+  with nothing reserved and the reference's calls, the archive failure's terminal
+  state carrying the committed step's proposal; an abandoned attempt's failed release
+  as the reference's note on the floor's error; the eight-step and collar-held runs
+  within their budgets, with one attempt per call and the production bound (measured
+  1e-4 eps against 128 eps, and 5.0 eps against 6,480); a device build and a missing
+  binding refused by name; the memory rows; closing a backend whose state a session
+  leases. The TDSE, worker and interrupt modules of `tests/backends` and
   `tests/driver`, the compiled-multistep, resume-ledger, capability, structure and
   SEP modules: 1,411 passed, 3 skipped; `native/tests/test_backend.py` and
   `test_session_failure.py`: 61 passed. Non-TDSE runs, before (the #770
@@ -1236,15 +1257,41 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   device-compile lanes.
 - **Limitations.** TDSE on a native device build is refused by name (§12, Q2). The
   hook is not exercised by a real provider (§7.4, phase 4).
-- **Open questions.** Q12: what the two engines' Adams startup rows hold for a TDSE
-  problem, 1 % apart while their runs agree to rounding, and why the reference's
-  `_adams_lab_source` outside a run is not its run's sample; until settled, item 1
-  compares `F` and the runs compare the finish (owner: phase 4).
+- **Open questions.** Q12, closed by the review below: the rows had been read at
+  different points (the reference's after an acceptance had carried it, native's
+  after a rejection), and at matched points the reviewer found them 1.3e-11 apart. The
+  mismatch hid the true one: native's `F` never reached its history.
 - **Cost** (phase 3, `git diff --numstat` from `42e3b22b`): C++ +332 −11, native Python
   +251 −12, `src/solprop` +49 −58, tests +464 −30. §6.8 estimated +0.3k C++, +0.4k
-  native Python and +0.5k tests for the hook.
+  native Python and +0.5k tests for the hook. The review's fixes: C++ +51 −35,
+  native Python +25 −4, tests +333 −79.
+- **Review** (independent, of `478b3808`; fixed in the following commit).
+  - Critical: the binding handed `evaluate` ownerless NumPy views, which nanobind
+    copies when it passes them to Python, so `out[:] = source` wrote into a copy and
+    native's TDSE stages were the window times zero plus the absorber. The views now
+    have an owner, a capsule that frees nothing; the field is read-only.
+  - Critical: the stage core gathered the field from the fine spectrum, which holds
+    it divided by `n_to` (and doubled on an analytic grid's interior), so the hook saw
+    the field divided by 384. The entry kernel now writes the unscaled stage input,
+    noise included, into the hook's field row; the stage core reads that row.
+  - High: the tests could not see either defect. Item 1 compared the Python adapter
+    with itself; the runs' remainder of 1e-27 A m moved the field by 581 eps against
+    a budget of 6,480 eps. The tests above replace them.
+  - Medium: `NativeBackend.close` unbound the hook first, which a leased state
+    refuses; it now only closes the state.
+  - Low: a kept exception the march did not stop for was neither taken nor reported,
+    and stayed for the next attempt; it is now a note on the run's error and cleared
+    at each attempt's start. A failed `end` after an accepted commit returned before
+    the step's proposal, count and replay cursor were kept; they now are.
+  - Each fix was checked by putting its defect back and running the module: the
+    ownerless views fail 14 tests (item 1 in every case, both run budgets, both call
+    sequences and the floor's note); the scaled field fails item 1 in all 8 cases
+    (the manufactured remainder does not depend on the field, so the runs cannot see
+    a scale); the unbind fails the close test; the missing note fails the note test;
+    the session without `interruptible` fails the held-signal test; and the lost
+    proposal fails the archive test. Non-TDSE runs stay bit for bit as before.
 - **Handoff.** Phase 4: the manual check of §7.4 through the worker on both backends,
-  the ADR, the remaining pages, Q12, and the size comparison.
+  the ADR, the remaining pages, and the size comparison.
 
 ## Part III — History
 

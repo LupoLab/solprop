@@ -1856,6 +1856,21 @@ class NativeSession:
     def _error(self, event: _core.SessionEvent, outcome: Outcome) -> BaseException:
         """Return the exception a stopped or failed session reports.
 
+        A host source's exception the march did not stop for, the abandoned attempt's
+        failed release, is attached to it as a note, never raised in its place (SEP 49
+        section 6.3), as the reference's `_trial` attaches it.
+        """
+        error = self._reported_error(event, outcome)
+        host = self._host_source()
+        if host is not None and (kept := host.take()) is not None and kept is not error:
+            error.add_note(f"releasing the source reservation failed: {kept}")
+        return error
+
+    def _reported_error(
+        self, event: _core.SessionEvent, outcome: Outcome
+    ) -> BaseException:
+        """Return the exception the march's event reports.
+
         A failure is formatted by the backend's own march adapter, as its native call
         would have raised it.
         """

@@ -1274,9 +1274,10 @@ struct StageTerms {
   ComplexView2 current, fine, whole, solution, error, stage_phase, stage_inverse, noise;
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
   ComplexView2 projected, absorber;
-  // A host source's spectral source (solprop SEP 49), `(n_columns, n_omega)`: the
-  // stage's source in place of the projected response when `hosted`.
-  ComplexView2 host_spectrum;
+  // A host source's rows (solprop SEP 49), `(1, n_omega)`: the lab-frame field the
+  // entry writes for it, and its source, read in place of the projected response, when
+  // `hosted`.
+  ComplexView2 host_spectrum, host_input;
   ComplexView3 stages, phi_terms, prefactor_terms;
   RealView tableau, phi_delta, phi_at, prefactor_weights, window;
   IndexView crop, gaps;
@@ -1478,6 +1479,9 @@ struct StageTerms {
     const double analytic_scale =
         analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
     fine(column, crop(index)) = analytic_scale * inverse_n_to * value;
+    // The host source evaluates the field itself, unscaled (SEP 49 section 6.2).
+    if (hosted)
+      host_input(column, index) = value;
     if (keep_lab)
       flow_lab(column, index) = value;
     // The general route synthesises on the coarse grid: the pad scale and the

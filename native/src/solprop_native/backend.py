@@ -1591,8 +1591,8 @@ class NativeBackend:
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
-            if self._host_source is not None:
-                self._native_state.bind_host_source(None)
+            # Closing the state drops a host source with the engine that borrowed it,
+            # also while a session still leases the state (SEP 49).
             self._native_state.close()
             _host_blas.release()
         self._closed = True

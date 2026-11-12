@@ -5657,6 +5657,7 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
   // A host source is the stage's whole source (solprop SEP 49 section 6.2).
   terms.hosted = static_cast<bool>(host_source_);
   terms.host_spectrum = host_spectrum_;
+  terms.host_input = host_input_;
   if (terms.hosted)
     terms.zero_response = false;
   return terms;
@@ -5981,8 +5982,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
 void GeneralWorkspace::bind_host_source(std::shared_ptr<HostSource> source) {
   if (!source) {
     host_source_.reset();
-    host_field_ = {};
-    host_out_ = {};
+    host_input_ = ComplexView2();
     host_spectrum_ = ComplexView2();
     return;
   }
@@ -5993,40 +5993,39 @@ void GeneralWorkspace::bind_host_source(std::shared_ptr<HostSource> source) {
       problem_.dims.family != FieldFamily::field_real)
     throw BackendRefusal("a host source takes one real-field column of a modal route");
   const auto n = problem_.dims.n_omega;
-  host_field_.assign(n, {});
-  host_out_.assign(n, {});
+  host_input_ = ComplexView2("solprop_native.host_source.field", 1, n);
   host_spectrum_ = ComplexView2("solprop_native.host_source.spectrum", 1, n);
   host_source_ = std::move(source);
 #endif
 }
 
-// solprop SEP 49: the stage core of a host source. The lab-frame field is gathered
-// from the fine spectrum's coarse bins before the inverse transform destroys them, the
-// in-stage absorber is formed from the modal time field as on every route, and the
-// host evaluates the source from the thread that called the march, outside every
-// parallel region, into the view the finish reads. Host builds only.
+// solprop SEP 49: the stage core of a host source. The stage's entry kernel left the
+// lab-frame field, unscaled and with any noise added, in the host source's field row
+// (`StageTerms::combine`); the in-stage absorber is formed from the modal time field
+// as on every route; and the host evaluates the source from the thread that called the
+// march, outside every parallel region, into the row the finish reads. Both rows are
+// host memory on the CPU builds that admit a host source. Host builds only.
 void GeneralWorkspace::host_core() {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   throw BackendRefusal("a host source runs on the native CPU build only");
 #else
-  execution_space_.fence("solprop_native.host_source.entry");
-  const auto n = problem_.dims.n_omega;
-  for (std::size_t index = 0; index < n; ++index) {
-    const Complex value = fine_spectrum_(0, crop_index_(index));
-    host_field_[index] = {value.real(), value.imag()};
-  }
   if (absorbing()) {
     graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
                    KokkosFFT::Normalization::none);
     form_absorber();
     graph::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
                    KokkosFFT::Normalization::none);
-    execution_space_.fence("solprop_native.host_source.absorber");
   }
-  host_source_->evaluate(host_field_, host_z_, host_purpose_, host_out_);
-  for (std::size_t index = 0; index < n; ++index)
-    host_spectrum_(0, index) =
-        Complex(host_out_[index].real(), host_out_[index].imag());
+  // The entry kernel's row and the absorber's work, on every instance, are done.
+  Kokkos::fence("solprop_native.host_source.entry");
+  const auto n = problem_.dims.n_omega;
+  // Kokkos::complex<double> and std::complex<double> share one layout, two doubles.
+  static_assert(sizeof(Complex) == sizeof(std::complex<double>));
+  const std::span<const std::complex<double>> field(
+      reinterpret_cast<const std::complex<double>*>(host_input_.data()), n);
+  const std::span<std::complex<double>> source(
+      reinterpret_cast<std::complex<double>*>(host_spectrum_.data()), n);
+  host_source_->evaluate(field, host_z_, host_purpose_, source);
 #endif
 }
 

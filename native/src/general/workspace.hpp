@@ -744,11 +744,10 @@ public:
   ComplexView transform_work_;
 #endif
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
-  // solprop SEP 49: a host source, the lab-frame field and source rows it reads and
-  // writes on the host, and the source's view the stage finish reads.
+  // solprop SEP 49: a host source and its two rows, `(1, n_omega)`: the lab-frame field
+  // the entry kernel writes and the source the host writes and the finish reads.
   std::shared_ptr<HostSource> host_source_;
-  std::vector<std::complex<double>> host_field_, host_out_;
-  ComplexView2 host_spectrum_;
+  ComplexView2 host_input_, host_spectrum_;
   double host_z_ = 0.0;
   HostPurpose host_purpose_ = HostPurpose::startup;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;

@@ -639,10 +639,16 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
                    factor(policy, choice.norm, choice.control, policy.max_growth));
       record(step.end, step.dz, norm, true, trial.order);
       // After the commit (SEP 49 section 6.3): a failure here returns the committed
-      // attempt with the error.
+      // attempt with the error, its proposal and count kept. It is the reason the
+      // march stops, before the floor and the watch, as the reference's record raises
+      // before its floor check.
       try {
         attempt.end(HostOutcome::accepted);
       } catch (const std::exception& error) {
+        state.proposal = next;
+        ++accepted;
+        if (bounds.replay)
+          ++state.cursor;
         fail(result, Stage::accept, error);
         return result;
       }

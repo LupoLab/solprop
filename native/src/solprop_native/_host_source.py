@@ -55,7 +55,12 @@ class TDSEHostSource:
         }
 
     def begin(self, cost: int) -> None:
-        """Reserve every atomic call of the attempt's `cost` evaluations."""
+        """Reserve every atomic call of the attempt's `cost` evaluations.
+
+        A new attempt starts with no kept exception: one the session did not take was
+        the previous attempt's, and was reported with it.
+        """
+        self.error = None
         self._kept(lambda: self._binding.reserve(int(cost)))
 
     def evaluate(
@@ -67,7 +72,8 @@ class TDSEHostSource:
     ) -> None:
         """Evaluate the source of the lab-frame `field` at `z`, m, into `out`.
 
-        Both arrays are the engine's host rows, valid for this call alone.
+        Both arrays are the engine's host rows, valid for this call alone; `field`
+        is read-only.
         """
 
         def _run() -> None:

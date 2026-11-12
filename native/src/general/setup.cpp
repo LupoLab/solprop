@@ -1691,9 +1691,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
   ledger.merge(base_memory_ledger());
   if (host_source_)
     // solprop SEP 49: the host's field and source rows and the source's view.
-    ledger.emplace("host_source", (host_field_.size() + host_out_.size()) *
-                                          sizeof(std::complex<double>) +
-                                      host_spectrum_.size() * sizeof(Complex));
+    ledger.emplace("host_source",
+                   (host_input_.size() + host_spectrum_.size()) * sizeof(Complex));
   return ledger;
 }
 

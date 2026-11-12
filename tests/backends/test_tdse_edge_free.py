@@ -681,8 +681,8 @@ def test_a_gate_with_no_sample_in_its_leading_taper_says_so():
 def test_a_cubic_closure_records_an_ungated_source_and_no_certificate():
     # The cubic replacements are never gated (the source filter's removal): the run
     # metadata says so and carries no certificate to qualify a gate.
-    from solprop.backends.numpy_ref.backend import _source_record  # noqa: PLC0415
+    from solprop.backends.tdse_source import source_record  # noqa: PLC0415
 
     case = make_case(kerr_model="optmat_cubic")
     assert not case.descriptor.gated
-    assert _source_record(case.problem) == {"gated": False}
+    assert source_record(case.problem) == {"gated": False}
