@@ -93,3 +93,10 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 49 — The TDSE response on native, and numpy_ref as a slim test reference](seps/sep-0049-tdse-native-slim-reference.md):
+  the TDSE response on the native CPU build through a host source hook, the one Python
+  call admitted inside a native trial (device builds refuse it); then `numpy_ref` reduced
+  to a library of the contract arithmetic and the decision specification, with no step
+  loop, sessions, groups, batch or registry row, and no longer selectable. Full-run parity
+  becomes native's run replayed on the reference along its own steps, plus decision
+  traces. TDSE physics, a compiled TDSE source and device TDSE runs remain out of scope.

@@ -34,6 +34,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [48](sep-0048-julia-backend.md) | A Julia backend: one engine for CPUs and GPUs, in both precisions | Accepted | Feature |
+| [49](sep-0049-tdse-native-slim-reference.md) | The TDSE response on native, and numpy_ref as a slim test reference | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -101,6 +102,7 @@ sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
 sep-0048-julia-backend
+sep-0049-tdse-native-slim-reference
 template
 archive/index
 ```
