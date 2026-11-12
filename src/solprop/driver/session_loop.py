@@ -100,25 +100,16 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import transverse_of
-from solprop.translate.run_request import RunRequest
+from solprop.translate.run_request import MARCH_SNAPSHOT_AUTO_BYTES, RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
-    "MARCH_SNAPSHOT_AUTO_BYTES",
     "MONITOR_RECONSTRUCTED",
     "ServiceContext",
     "serve",
 ]
 
 logger = logging.getLogger("solprop.driver.run")
-
-MARCH_SNAPSHOT_AUTO_BYTES = 256 * 2**20
-"""The largest Adams march snapshot a run keeps when ``resume_history`` is ``None``.
-
-The snapshot -- the state and the history's rows, a few to sixty copies of the state --
-is rewritten at every save plane; a state too large for that to be cheap keeps none
-unless asked to, and its resume starts the history afresh.
-"""
 
 _CONSUMER = ExportRecipe(power=True, optics=False)
 """The field a plane observer, a checkpoint record and an output that is not a plane

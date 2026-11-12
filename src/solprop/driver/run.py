@@ -372,7 +372,7 @@ def run_problem(
         Whether an output that can keep it (``save_march``) keeps the Adams march's
         state at every save plane and terminal checkpoint, so that a resume continues
         the history instead of starting it afresh. ``None`` keeps it while it is at
-        most :data:`~solprop.driver.session_loop.MARCH_SNAPSHOT_AUTO_BYTES`.
+        most :data:`~solprop.translate.run_request.MARCH_SNAPSHOT_AUTO_BYTES`.
     fields : {'all', 'planes', 'none'}, optional
         Which saved planes keep their field (SEP 22): every one (the default), those
         of `field_planes`, or none. A plane that keeps none stores its position, its

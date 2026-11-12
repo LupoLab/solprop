@@ -69,7 +69,12 @@ __all__ = [
 ]
 
 MARCH_SNAPSHOT_AUTO_BYTES = 256 * 2**20
-"""The automatic method-history retention limit, bytes (SEP 47 section 5.5)."""
+"""The largest Adams march snapshot a run keeps with ``resume_history=None``, bytes.
+
+The snapshot -- the state and the history's rows, a few to sixty copies of the state --
+is rewritten at every save plane; a state too large for that to be cheap keeps none
+unless asked to, and its resume starts the history afresh (SEP 47 section 5.5).
+"""
 
 
 class MethodKind(enum.Enum):
