@@ -42,9 +42,9 @@ STRICT_BLOCK = "SOLPROP_NATIVE_STRICT_BLOCK"
 
 PROTECTED = [
     # The ionised fraction (Numba's fraction_at, envelope_population).
-    ("src/general.cpp", "decayed_fraction"),
-    ("src/general.cpp", "decayed_fractions"),
-    ("src/general.cpp", "envelope_fraction"),
+    ("src/general/kernels.hpp", "decayed_fraction"),
+    ("src/general/kernels.hpp", "decayed_fractions"),
+    ("src/general/kernels.hpp", "envelope_fraction"),
     # The small-argument phi-functions (multistep._phi, _weights).
     ("include/solprop_native/adams_phi.hpp", "adams_phi_fixed"),
     ("include/solprop_native/adams_phi.hpp", "adams_lanes_classify"),
@@ -53,22 +53,22 @@ PROTECTED = [
     ("include/solprop_native/lagrange_basis.hpp", "basis_rows"),
     ("include/solprop_native/lagrange_basis.hpp", "trial_tables"),
     # The stable phase increments.
-    ("src/general.cpp", "phase_sum"),
-    ("src/general.cpp", "phase_block"),
-    ("src/general.cpp", "adams_phase_sum"),
-    ("src/general.cpp", "adams_phase_block"),
-    ("src/general.cpp", "adams_lanes_phase"),
+    ("src/general/kernels.hpp", "phase_sum"),
+    ("src/general/kernels.hpp", "phase_block"),
+    ("src/general/trial.cpp", "adams_phase_sum"),
+    ("src/general/trial.cpp", "adams_phase_block"),
+    ("src/general/trial.cpp", "adams_lanes_phase"),
     # The multistep defects and compensation (correct, exponential_correct, carry,
     # _coupled_correct, _carry_flows).
-    ("src/general.cpp", "compensation_residual"),
-    ("src/general.cpp", "adams_predicted_compensation"),
-    ("src/general.cpp", "adams_corrected_compensation"),
-    ("src/general.cpp", "adams_observed_compensation"),
-    ("src/general.cpp", "adams_lanes_predicted_compensation"),
-    ("src/general.cpp", "adams_lanes_corrected_compensation"),
-    ("src/general.cpp", "adams_lanes_defects"),
-    ("src/general.cpp", "adams_lanes_rate"),
-    ("src/general.cpp", "adams_defect_block"),
+    ("src/general/kernels.hpp", "compensation_residual"),
+    ("src/general/trial.cpp", "adams_predicted_compensation"),
+    ("src/general/trial.cpp", "adams_corrected_compensation"),
+    ("src/general/trial.cpp", "adams_observed_compensation"),
+    ("src/general/trial.cpp", "adams_lanes_predicted_compensation"),
+    ("src/general/trial.cpp", "adams_lanes_corrected_compensation"),
+    ("src/general/trial.cpp", "adams_lanes_defects"),
+    ("src/general/trial.cpp", "adams_lanes_rate"),
+    ("src/general/trial.cpp", "adams_defect_block"),
     # The far field's plane radius (mask_plane_radius).
     ("include/solprop_native/far_field.hpp", "far_field_radius"),
     ("include/solprop_native/far_field.hpp", "far_field_offset"),
@@ -175,14 +175,22 @@ def test_the_build_system_asks_for_none_of_the_refused_flags():
         assert flag not in text, flag
     assert "-fno-fast-math" in text
     assert "-ffp-contract=fast" in text
-    # The strict translation units round as Python's do, on every compiler.
+    # The strict translation units round as Python's do, on every compiler, and refuse
+    # the general workspace's contracting headers.
     strict = re.search(
-        r"set_source_files_properties\(((?:src/\w+\.cpp\s+)+)PROPERTIES\s+"
-        r'COMPILE_OPTIONS\s+"-ffp-contract=off"\)',
-        text,
+        r"set\(SOLPROP_NATIVE_STRICT_SOURCES\s+((?:src/\w+\.cpp\s*)+)\)", text
     )
     assert strict is not None
     assert tuple(strict.group(1).split()) == STRICT_SOURCES
+    for options in (
+        r'COMPILE_OPTIONS\s+"-ffp-contract=off"',
+        r"COMPILE_DEFINITIONS\s+SOLPROP_NATIVE_STRICT_TU",
+    ):
+        assert re.search(
+            r"set_source_files_properties\(\$\{SOLPROP_NATIVE_STRICT_SOURCES\}\s+"
+            r"PROPERTIES\s+" + options + r"\)",
+            text,
+        ), options
 
 
 def test_the_installed_build_records_none_of_the_refused_flags():

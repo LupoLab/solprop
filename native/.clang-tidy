@@ -24,8 +24,9 @@
 # - readability-trailing-comma: style only, and clang-format owns layout.
 # - readability-braces-around-statements: the LLVM convention leaves single
 #   statements unbraced, and adding braces around bodies with #if is unsafe.
-# - readability-function-size, readability-function-cognitive-complexity: the long
-#   setup functions and hot kernels are split first (a later change), then gated.
+# - readability-function-cognitive-complexity: numerical kernels branch on their
+#   problem's features by design. readability-function-size is on, at 300 lines;
+#   the hot kernels above it say why where they are defined.
 # - readability-avoid-nested-conditional-operator: nested conditionals initialise
 #   const locals, in kernels too; an immediately invoked lambda reads worse.
 # - readability-convert-member-functions-to-static: it sees the CPU build only, where
@@ -62,7 +63,6 @@ Checks: >
   -readability-uppercase-literal-suffix,
   -readability-trailing-comma,
   -readability-braces-around-statements,
-  -readability-function-size,
   -readability-function-cognitive-complexity,
   -readability-avoid-nested-conditional-operator,
   -readability-make-member-function-const,
@@ -79,6 +79,8 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include|src)/.*'
 FormatStyle: file
 CheckOptions:
+  # A function longer than this is split; its statements stay at the default 800.
+  readability-function-size.LineThreshold: 300
   # `.value()` is a checked access: it throws std::bad_optional_access.
   bugprone-unchecked-optional-access.IgnoreValueCalls: true
   # A cast to void is an explicit discard (unique_ptr::release once a capsule owns it).

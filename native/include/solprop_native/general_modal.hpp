@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "solprop_native/build.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/raman_fft.hpp"
@@ -67,11 +68,7 @@ constexpr std::size_t general_projection_lanes(const std::size_t modes,
  * (exactly, a power of two): half the inverse transform's work and half the field's
  * memory traffic. Host builds only; device builds keep the complex transform.
  */
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-inline constexpr bool general_real_signal_enabled = false;
-#else
-inline constexpr bool general_real_signal_enabled = true;
-#endif
+inline constexpr bool general_real_signal_enabled = build::host;
 
 /**
  * Refuse a general modal problem whose extents or data this source cannot execute.
@@ -173,8 +170,6 @@ public:
   void combine(std::size_t stage);
   /** Create the persistent FFT plans over the chunk buffers. */
   void plan();
-  /** The provider of the delayed pair transforms, or "none" without them. */
-  [[nodiscard]] std::string delayed_fft_provider() const;
   /** Evaluate the source of the state in `scaled()` into `source()`. */
   void evaluate();
   /** Persistent allocations, by role, in bytes. */
@@ -188,8 +183,6 @@ public:
   }
   /** The same rows, all zero, for a problem that does not take the route. */
   [[nodiscard]] static std::map<std::string, std::size_t> empty_ledger();
-  /** Release plans before Views; repeated calls have no effect. */
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   void combine_maps(std::size_t stage);
@@ -272,7 +265,6 @@ private:
   std::unique_ptr<DelayedForwardPlan> tail_drive_plan_;
   std::unique_ptr<DelayedInversePlan> tail_history_plan_;
   std::unique_ptr<GeneralDispersive> dispersive_;
-  bool closed_{};
 };
 
 } // namespace solprop_native

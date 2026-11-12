@@ -653,7 +653,7 @@ two-stage reductions, and moving the whole inner loop into compiled code: one na
 executes a Runge–Kutta trial (§3.5). On a CPU build's trapezoid column the whole nonlinear
 term at one node — the rate lookup, the plasma's two running sums, the loss-current guard,
 the Kerr cubic and the Raman drive — is **one traversal of `t`**, the plasma's sums carried
-in scalars across the loop (`response_plasma`, `native/src/general.cpp`); the band column
+in scalars across the loop (`response_plasma`, `native/src/general/trial.cpp`); the band column
 (§3.12) uses complete row passes instead. The solution and the embedded estimate are
 running accumulators (ADR-009), which is also why there is no dense output by default. An
 isolated step timing is not comparable with a whole-run average, which carries the
@@ -662,7 +662,7 @@ once-per-run FFTW planning and the output's planes.
 ### 3.1a What exists
 
 The adapter `native/src/solprop_native/backend.py`, its session
-`native/src/solprop_native/session.py` and the engine `native/src/general.cpp`. The public default is `"auto"`: the
+`native/src/solprop_native/session.py` and the engine under `native/src/general/`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 

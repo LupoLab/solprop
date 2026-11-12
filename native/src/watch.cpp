@@ -4,6 +4,8 @@
 
 #include "solprop_native/watch.hpp"
 
+#include "solprop_native/refuse.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -43,8 +45,8 @@ double py_min(const double a, const double b) { return b < a ? b : a; }
 /** NumPy's `maximum(x, 0.0)`: the larger, a NaN kept. */
 double clip_low(const double x) { return std::isnan(x) || x >= 0.0 ? x : 0.0; }
 
-[[noreturn]] void refuse(const std::string& field) {
-  throw std::invalid_argument("the boundary watch's policy has an invalid " + field);
+[[noreturn]] void refuse_policy(const char* field) {
+  refuse("the boundary watch's policy has an invalid ", field);
 }
 
 /** `_settle`: the cadence and the quiet flag from a check's shares. */
@@ -111,15 +113,15 @@ Verdict judge_shares(const Policy& policy, State& state, const double* shares,
 
 void validate(const Policy& policy) {
   if (policy.cadence < 1)
-    refuse("cadence");
+    refuse_policy("cadence");
   if (!(policy.interval > 0.0))
-    refuse("interval");
+    refuse_policy("interval");
   if (!(policy.warn > 0.0) || !(policy.stop >= policy.warn))
-    refuse("warning or stop threshold");
+    refuse_policy("warning or stop threshold");
   if (!(policy.activity >= 0.0) || !(policy.launch_floor >= 0.0))
-    refuse("activity threshold or launch floor");
+    refuse_policy("activity threshold or launch floor");
   if (policy.crossing && policy.bucket_limits.size() != buckets)
-    refuse("bucket limits");
+    refuse_policy("bucket limits");
 }
 
 bool due(const Policy& policy, const State& state, const double z) {
@@ -214,11 +216,11 @@ Monitor::Monitor(Config config) : config_(std::move(config)) {
   policy.launch_floor = 0.0;
   validate(policy);
   if (!(config_.floor_share >= 0.0) || !(config_.floor_margin >= 0.0))
-    refuse("floor share or margin");
+    refuse_policy("floor share or margin");
   if (!(config_.budget > 0.0))
-    refuse("budget");
+    refuse_policy("budget");
   if (config_.rate.empty())
-    refuse("collar rate: the coarse axis has no samples");
+    refuse_policy("collar rate: the coarse axis has no samples");
   // `_busy` starts true: every step is checked until the launch says otherwise.
   state_.busy = true;
 }
