@@ -35,6 +35,7 @@ from jaxtyping import Complex, Float
 
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
+from solprop._ownership import hold
 from solprop.backends import rk_core
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
@@ -180,13 +181,16 @@ class _StepStatsBuffer:
         Returns
         -------
         solprop.backends.protocol.StepStats
-            Copies, because the buffer is about to be written over.
+            Copies, because the buffer is about to be written over, held so that the
+            record takes them without another.
         """
         rows = self._n_rows
         drained = StepStats(
-            z=self._z[:rows].copy(),
-            step=self._step[:rows].copy(),
-            values={name: value[:rows].copy() for name, value in self._values.items()},
+            z=hold(self._z[:rows].copy()),
+            step=hold(self._step[:rows].copy()),
+            values={
+                name: hold(value[:rows].copy()) for name, value in self._values.items()
+            },
         )
         self.reset()
         return drained
@@ -1603,21 +1607,16 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             If the backend is closed or no initial state was loaded.
         """
         state = self._require_state()
-        history = BackendHistory(
-            z=np.array([entry[0] for entry in self._history], dtype=np.float64),
-            dz=np.array([entry[1] for entry in self._history], dtype=np.float64),
-            error_norm=np.array(
-                [entry[2] for entry in self._history], dtype=np.float64
-            ),
-            accepted=np.array([entry[3] for entry in self._history], dtype=np.bool_),
-            wall_time=np.array([entry[4] for entry in self._history], dtype=np.float64),
-        )
+        history = _history_record(self._history)
         whole = self._observed_field(state) if field else None
         if whole is not None and not self.observes_fresh_field:
-            # The observation is a view of the held state without its leading axis:
-            # the state itself is frozen, as an observed array always was, so that
-            # the next step replaces it rather than accepting in place.
-            whole.setflags(write=False)
+            # The state itself, frozen as an observed array always was so that the
+            # next step replaces it rather than accepting in place, and held, so the
+            # observation takes a view of it without a copy. A state that only views
+            # memory the march owns is frozen but not held, and the observation copies
+            # it. A fresh export stays writeable beneath the observation, which copies
+            # it once: the session converts that copy in place (SEP 47 section 5.4).
+            hold(whole)
         plane = Observation(
             z=self._z,
             field=None if whole is None else whole[0],
@@ -1696,13 +1695,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The attempts and rows at :attr:`position`, with no field.
         """
         entries, self._history = self._history, []
-        history = BackendHistory(
-            z=np.array([entry[0] for entry in entries], dtype=np.float64),
-            dz=np.array([entry[1] for entry in entries], dtype=np.float64),
-            error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
-            accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
-            wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
-        )
+        history = _history_record(entries)
         return Observation(
             z=self.position,
             field=None,
@@ -3179,3 +3172,29 @@ def _declared_discard(problem: PropagationProblem) -> bool:
     """
     design = transverse_of(problem.route)
     return design is not None and design.specification.discard_above is not None
+
+
+def _history_record(
+    entries: Sequence[tuple[float, float, float, bool, float]],
+) -> BackendHistory:
+    """Return the attempts since the last observation as a history record.
+
+    Parameters
+    ----------
+    entries : sequence of tuple
+        One ``(z, dz, error_norm, accepted, wall_time)`` per attempt.
+
+    Returns
+    -------
+    solprop.backends.protocol.BackendHistory
+        The attempts. Its arrays are made here and held, so the record takes them
+        without a copy.
+    """
+    columns = list(zip(*entries, strict=True)) if entries else [()] * 5
+    return BackendHistory(
+        z=hold(np.array(columns[0], dtype=np.float64)),
+        dz=hold(np.array(columns[1], dtype=np.float64)),
+        error_norm=hold(np.array(columns[2], dtype=np.float64)),
+        accepted=hold(np.array(columns[3], dtype=np.bool_)),
+        wall_time=hold(np.array(columns[4], dtype=np.float64)),
+    )

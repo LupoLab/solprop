@@ -150,6 +150,9 @@ def test_radial_transform_keeps_polarisations_independent(case):
     assert transform.synthesis.shape == (space.n_r, space.n_r)
     assert transform.projection.shape == (space.n_r, space.n_r)
     np.testing.assert_array_equal(transform.projection_coarse, transform.projection)
+    # Built for the transform alone, the matrices are taken without a copy: the two
+    # projections stay one array.
+    assert transform.projection_coarse is transform.projection
     assert transform.geometry is not None
     assert np.all(transform.geometry.absorber_rate == 0)
 

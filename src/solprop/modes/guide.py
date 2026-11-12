@@ -13,6 +13,7 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
@@ -1896,7 +1897,7 @@ class ModalSampling(Displayed):
         ModeError
             Naming what is out of range.
         """
-        knots = np.ascontiguousarray(self.omega, dtype=np.float64).reshape(-1)
+        knots = frozen_copy(np.reshape(self.omega, -1), np.float64)
         if (
             knots.size < 4
             or not np.all(np.isfinite(knots))
@@ -1907,7 +1908,6 @@ class ModalSampling(Displayed):
                 "a guide's sampling knots must be at least four increasing "
                 f"positive finite frequencies, got {knots}"
             )
-        knots.setflags(write=False)
         object.__setattr__(self, "omega", knots)
         if not np.isfinite(self.z):
             raise ModeError(f"a guide's snapshot position must be finite, got {self.z}")

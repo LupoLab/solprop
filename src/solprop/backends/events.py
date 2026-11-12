@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from solprop._ownership import hold
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 
 __all__ = [
@@ -452,8 +453,11 @@ def _column(
     numpy.ndarray
         The column over every history.
     """
-    return np.concatenate(
-        [np.empty(0, dtype=dtype), *(getattr(part, name) for part in histories)]
+    # A new array, held, so the joined record takes it without a copy.
+    return hold(
+        np.concatenate(
+            [np.empty(0, dtype=dtype), *(getattr(part, name) for part in histories)]
+        )
     )
 
 
@@ -502,7 +506,9 @@ def join_attempts(
     for history, chunk_rows in chunks:
         if chunk_rows is not None and chunk_rows.n_rows:
             rows.append(
-                StepStats(chunk_rows.z, chunk_rows.step + attempts, chunk_rows.values)
+                StepStats(
+                    chunk_rows.z, hold(chunk_rows.step + attempts), chunk_rows.values
+                )
             )
         if history is not None and history.n_steps:
             histories.append(
@@ -511,7 +517,7 @@ def join_attempts(
                     dz=history.dz,
                     error_norm=history.error_norm,
                     accepted=history.accepted,
-                    wall_time=history.wall_time + wall,
+                    wall_time=hold(history.wall_time + wall),
                 )
             )
             attempts += history.n_steps
@@ -528,11 +534,12 @@ def join_attempts(
         return joined, StepStats.empty()
     if len(rows) == 1:
         return joined, rows[0]
+    # New arrays, held, so the joined record takes them without a copy.
     return joined, StepStats(
-        np.concatenate([part.z for part in rows]),
-        np.concatenate([part.step for part in rows]),
+        hold(np.concatenate([part.z for part in rows])),
+        hold(np.concatenate([part.step for part in rows])),
         {
-            name: np.concatenate([part.values[name] for part in rows])
+            name: hold(np.concatenate([part.values[name] for part in rows]))
             for name in rows[0].values
         },
     )

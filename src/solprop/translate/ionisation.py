@@ -33,7 +33,7 @@ import hashlib
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 
 import numpy as np
@@ -41,6 +41,7 @@ from jaxtyping import Float
 from numpy.typing import ArrayLike
 from scipy import interpolate
 
+from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import TranslationError
 from solprop.nonlinear.ionisation import (
     IonisationRate,
@@ -588,7 +589,8 @@ def build_rate_table(
     Returns
     -------
     RateTable
-        The converged table.
+        The converged table, its arrays read-only: frozen once when it is built, and
+        the memoised table itself when one was built before.
 
     Raises
     ------
@@ -638,6 +640,11 @@ def build_rate_table(
         )
         if error <= rtol:
             table = _finalise(table, error)
+            # Frozen once, here, before the memo can hand it out: every response
+            # sharing the rate shares these arrays, and the seam takes them as they
+            # stand rather than copying them for each problem.
+            hold(table.log_rate)
+            hold(table.coefficients)
             _log_summary(table, rate, time.perf_counter() - started)
             if use_cache:
                 _TABLES[key] = table
@@ -679,6 +686,31 @@ def _finalise(table: RateTable, error: float) -> RateTable:
         species_identity=table.species_identity,
         ionisation_potential=table.ionisation_potential,
     )
+
+
+def _frozen_table(table: RateTable) -> RateTable:
+    """Return the table with read-only arrays solprop holds.
+
+    The contract promises read-only arrays and ``validate`` checks it.
+    :func:`build_rate_table` freezes its tables once,
+    before its memo hands them out, so a built table crosses as it stands; a table
+    made any other way crosses as a frozen copy.
+
+    Parameters
+    ----------
+    table : RateTable
+        The table to freeze.
+
+    Returns
+    -------
+    RateTable
+        The same values, not writeable.
+    """
+    log_rate = frozen_copy(table.log_rate)
+    coefficients = frozen_copy(table.coefficients)
+    if log_rate is table.log_rate and coefficients is table.coefficients:
+        return table
+    return replace(table, log_rate=log_rate, coefficients=coefficients)
 
 
 def _digest(key: tuple[object, ...]) -> str:
