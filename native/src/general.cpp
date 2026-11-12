@@ -1295,7 +1295,7 @@ void require_general_problem(const Problem& problem) {
       if (!std::isfinite(value))
         throw std::invalid_argument("time_window_derivative is not finite");
     for (std::size_t index = 0; index < problem.n_omega; ++index)
-      if (problem.active_mask[index] &&
+      if (problem.active_mask[index] != 0 &&
           (!(problem.omega[index] > 0.0) || !std::isfinite(problem.omega[index])))
         throw std::invalid_argument(
             "held plasma current requires positive active omega");
@@ -4512,7 +4512,7 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, held_derivative_, problem_.time_window_derivative);
     std::vector<double> inverse(problem_.n_omega, 0.0);
     for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      if (problem_.active_mask[index])
+      if (problem_.active_mask[index] != 0)
         inverse[index] = 1.0 / problem_.omega[index];
     copy_vector(execution_space_, held_inverse_, inverse);
   }
