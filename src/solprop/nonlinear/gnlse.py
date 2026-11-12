@@ -313,7 +313,7 @@ class InterpolatedDispersion:
         ModeError
             Naming what is wrong with the declaration.
         """
-        nodes = np.ascontiguousarray(self.positions, dtype=np.float64).reshape(-1)
+        nodes = np.array(self.positions, dtype=np.float64).reshape(-1)
         members = tuple(self.members)
         if nodes.size < 2:
             msg = (
@@ -653,7 +653,7 @@ class TaylorDispersion:
         ModeError
             Naming what is wrong with the series.
         """
-        coefficients = np.ascontiguousarray(self.betas, dtype=np.float64).reshape(-1)
+        coefficients = np.array(self.betas, dtype=np.float64).reshape(-1)
         if coefficients.size == 0:
             msg = "betas must hold at least the zeroth-order coefficient"
             raise ModeError(msg)
@@ -762,8 +762,8 @@ class TabulatedDispersion:
         ModeError
             Naming what is wrong with the table.
         """
-        nodes = np.ascontiguousarray(self.omega, dtype=np.float64)
-        values = np.ascontiguousarray(self.beta, dtype=np.float64)
+        nodes = np.array(self.omega, dtype=np.float64, order="C")
+        values = np.array(self.beta, dtype=np.float64, order="C")
         if nodes.shape != values.shape:
             msg = f"omega and beta have shapes {nodes.shape} and {values.shape}"
             raise ModeError(msg)

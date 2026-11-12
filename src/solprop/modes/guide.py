@@ -1896,7 +1896,7 @@ class ModalSampling(Displayed):
         ModeError
             Naming what is out of range.
         """
-        knots = np.ascontiguousarray(self.omega, dtype=np.float64).reshape(-1)
+        knots = np.array(self.omega, dtype=np.float64).reshape(-1)
         if (
             knots.size < 4
             or not np.all(np.isfinite(knots))

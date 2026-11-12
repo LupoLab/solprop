@@ -13,6 +13,7 @@ import inspect
 import json
 from typing import TypedDict
 
+import numpy as np
 import pytest
 
 from driver.test_tdse_entry import _capillary, _sae
@@ -791,3 +792,14 @@ def test_an_interior_launch_keeps_the_single_precision_reason():
     )
     moved = single.with_input(single._field0, initial_z=0.001)
     assert moved.noise_resolution.reason == SINGLE_PRECISION_NOISE
+
+
+def test_the_settings_leave_the_caller_s_planes_writeable():
+    planes = np.array([0.5, 1.0])
+    settings = SimulationSettings(save_planes=planes, dz_max=0.1, dz_init=1e-3)
+    assert planes.flags.writeable
+    held = np.asarray(settings.save_planes)
+    assert not held.flags.writeable
+    # Not a view either: a later write by the caller leaves the settings alone.
+    planes[0] = 0.25
+    assert settings.save_planes[0] == 0.5

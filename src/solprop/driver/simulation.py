@@ -299,7 +299,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
-from solprop.translate.chebyshev import _hold
+from solprop.translate.chebyshev import _frozen_copy, _hold
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     metric_at,
@@ -992,7 +992,7 @@ class SimulationSettings(Displayed):
         DriverError
             If the planes are empty, not increasing, or not positive.
         """
-        planes = np.ascontiguousarray(self.save_planes, dtype=np.float64).reshape(-1)
+        planes = _frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         if (
             planes.size == 0
             or not np.all(np.isfinite(planes))
@@ -1004,7 +1004,6 @@ class SimulationSettings(Displayed):
                 "at z = 0 is saved anyway and is not one of them"
             )
             raise DriverError(msg, parameter="save_planes")
-        planes.setflags(write=False)
         object.__setattr__(self, "save_planes", planes)
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:

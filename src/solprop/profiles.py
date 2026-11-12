@@ -225,7 +225,8 @@ class PathVariation:
             If the shapes disagree, a value is not finite, the knots do not increase,
             or a bound fails to enclose the piece's limits.
         """
-        knots = _checked_edges(self.knots, "PathVariation")
+        # A copy: the checked edges may be the caller's own array.
+        knots = np.array(_checked_edges(self.knots, "PathVariation"))
         arrays = {
             name: np.array(getattr(self, name), dtype=float)
             for name in ("first", "last", "variation", "low", "high")

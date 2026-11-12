@@ -292,3 +292,12 @@ def test_a_record_refuses_mismatched_or_nonfinite_pieces():
         record.__post_init__()
     with pytest.raises(TranslationError, match="finite"):
         PathVariation(knots, one, one, np.array([math.nan]), one, one, np.array([True]))
+
+
+def test_a_variation_leaves_the_caller_s_knots_writeable():
+    knots = np.array([0.0, 1.0])
+    one = np.ones(1)
+    record = PathVariation(knots, one, one, np.zeros(1), one, one, np.array([True]))
+    assert knots.flags.writeable
+    assert not record.knots.flags.writeable
+    assert not np.shares_memory(record.knots, knots)

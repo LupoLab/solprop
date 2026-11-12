@@ -41,6 +41,7 @@ from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
+from solprop.translate.chebyshev import _frozen_copy
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
@@ -129,8 +130,7 @@ class BackendHistory:
             ("accepted", np.bool_),
             ("wall_time", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
+            values = _frozen_copy(getattr(self, name), dtype)
             object.__setattr__(self, name, values)
             # The rank is fixed by the annotations, which the test session enforces;
             # what a caller can still get wrong is the number of entries.
@@ -255,11 +255,10 @@ class StepStats:
         BackendError
             Naming the offending column or statistic.
         """
-        positions = np.ascontiguousarray(self.z, dtype=np.float64)
-        indices = np.ascontiguousarray(self.step, dtype=np.int64)
-        for name, values in (("z", positions), ("step", indices)):
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
+        positions = _frozen_copy(self.z, np.float64)
+        indices = _frozen_copy(self.step, np.int64)
+        object.__setattr__(self, "z", positions)
+        object.__setattr__(self, "step", indices)
         if indices.shape != positions.shape:
             msg = (
                 f"step has {indices.size} entries and z has {positions.size}: "
@@ -277,18 +276,15 @@ class StepStats:
                 raise BackendError(msg)
         adopted = {}
         for name, values in self.values.items():
-            # `asarray` before `ascontiguousarray`, because the latter promotes a
-            # zero-dimensional array to one dimension and a scalar would then pass
-            # as a single row.
-            row = np.asarray(values)
+            # A copy, unless solprop already holds the rows; it keeps a scalar
+            # zero-dimensional, so a scalar cannot pass as a single row.
+            row = _frozen_copy(values)
             if row.ndim == 0 or row.shape[0] != positions.size:
                 msg = (
                     f"the {name!r} rows have leading axis {row.shape}, expected "
                     f"{positions.size} rows as z has"
                 )
                 raise BackendError(msg)
-            row = np.ascontiguousarray(row)
-            row.setflags(write=False)
             adopted[name] = row
         object.__setattr__(self, "values", adopted)
 
@@ -456,6 +452,10 @@ class Observation:
             object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
+        # Taken as given, not copied: only a backend makes an observation, and it hands
+        # over an export of its own or a view of its held state, which it froze so
+        # that the next step replaces the state rather than writing in place. A copy
+        # here would add a state-sized copy at every saved plane.
         state = np.ascontiguousarray(self.field, dtype=np.complex128)
         state.setflags(write=False)
         object.__setattr__(self, "field", state)

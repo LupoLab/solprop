@@ -44,6 +44,23 @@ def test_a_history_counts_its_steps_and_its_rejections():
     assert not record.z.flags.writeable
 
 
+def test_a_history_leaves_the_caller_s_arrays_writeable():
+    # Each is contiguous and of the field's dtype, the case that once froze the
+    # caller's own array in place.
+    mine = {
+        "z": np.array([0.1, 0.2]),
+        "dz": np.array([0.1, 0.1]),
+        "error_norm": np.array([0.4, 0.5]),
+        "accepted": np.array([True, True]),
+        "wall_time": np.array([0.01, 0.02]),
+    }
+    record = BackendHistory(**mine)
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(record, name).flags.writeable, name
+        assert not np.shares_memory(getattr(record, name), values), name
+
+
 def test_an_empty_history_is_a_valid_record():
     """Two save planes with no step between them is a legitimate observation."""
     empty = BackendHistory(
@@ -226,6 +243,24 @@ def test_a_channel_counts_its_rows_and_names_its_statistics():
     assert not channel.z.flags.writeable
     assert not channel.values["energy"].flags.writeable
     assert channel.step.dtype == np.int64
+
+
+def test_a_channel_leaves_the_caller_s_arrays_writeable_and_rewraps_without_a_copy():
+    z, step = np.array([0.05, 0.1]), np.array([0, 1], dtype=np.int64)
+    energy = np.ones((2, 1, 1, 1))
+    channel = StepStats(z=z, step=step, values={"energy": energy})
+    for mine, held in (
+        (z, channel.z),
+        (step, channel.step),
+        (energy, channel.values["energy"]),
+    ):
+        assert mine.flags.writeable
+        assert not held.flags.writeable
+        assert not np.shares_memory(held, mine)
+    # The driver re-wraps a backend's channel: what it already holds is not copied.
+    again = StepStats(z=channel.z, step=channel.step, values=dict(channel.values))
+    assert again.z is channel.z
+    assert again.values["energy"] is channel.values["energy"]
 
 
 def test_an_empty_channel_is_what_a_run_without_a_periodic_subset_carries():

@@ -180,13 +180,14 @@ class _StepStatsBuffer:
         Returns
         -------
         solprop.backends.protocol.StepStats
-            Copies, because the buffer is about to be written over.
+            Copies, because the buffer is about to be written over; the record
+            takes them itself.
         """
         rows = self._n_rows
         drained = StepStats(
-            z=self._z[:rows].copy(),
-            step=self._step[:rows].copy(),
-            values={name: value[:rows].copy() for name, value in self._values.items()},
+            z=self._z[:rows],
+            step=self._step[:rows],
+            values={name: value[:rows] for name, value in self._values.items()},
         )
         self.reset()
         return drained
