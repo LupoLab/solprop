@@ -361,50 +361,34 @@ def test_a_legacy_knob_beside_a_general_route_is_refused_by_name(
         problem_of(case, **override)
 
 
-def test_a_declared_response_beside_a_general_route_is_refused(case):
-    state = np.zeros((1, 1, case.grid.n_omega), dtype=complex)
-    state[0, 0, 30] = 1.0
-    with pytest.raises(TranslationError, match="declared response"):
-        assemble(
-            case.grid,
-            list(case.guide.mode_collection),
-            [KerrResponse(chi3=GENERAL_CHI3)],
-            state,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[GENERAL_Z_END],
-            dz_max=GENERAL_Z_END / 10,
-            dz_init=GENERAL_Z_END / 20,
-            general=case.route,
-        )
+@pytest.mark.parametrize(
+    ("envelope", "n_pol", "kerr", "message"),
+    [
+        (False, 1, True, "declared response"),
+        # A leaf is tabulated on the canonical coarse grid.
+        (True, 1, False, "field-grid route"),
+        (False, 2, False, "keeps n_pol = 1"),
+    ],
+)
+def test_assemble_refuses_what_a_general_route_does_not_carry(
+    case, envelope, n_pol, kerr, message
+):
+    """A declared response, an envelope grid or two polarisations beside the route.
 
-
-def test_an_envelope_grid_cannot_carry_a_general_modal_route(case):
-    """A leaf is tabulated on the canonical coarse grid."""
-    grid = EnvelopeGrid.from_limits(GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 60e-15)
-    state = np.zeros((1, 1, grid.n_omega), dtype=complex)
-    state[0, 0, 3] = 1.0
-    with pytest.raises(TranslationError, match="field-grid route"):
+    The state is one unit bin, at bin 3 of the envelope grid and bin 30 of the case's.
+    """
+    grid = (
+        EnvelopeGrid.from_limits(GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 60e-15)
+        if envelope
+        else case.grid
+    )
+    state = np.zeros((1, n_pol, grid.n_omega), dtype=complex)
+    state[0, :, 3 if envelope else 30] = 1.0
+    with pytest.raises(TranslationError, match=message):
         assemble(
             grid,
             list(case.guide.mode_collection),
-            [],
-            state,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[GENERAL_Z_END],
-            dz_max=GENERAL_Z_END / 10,
-            dz_init=GENERAL_Z_END / 20,
-            general=case.route,
-        )
-
-
-def test_a_state_with_two_polarisations_is_refused(case):
-    state = np.zeros((1, 2, case.grid.n_omega), dtype=complex)
-    state[0, :, 30] = 1.0
-    with pytest.raises(TranslationError, match="keeps n_pol = 1"):
-        assemble(
-            case.grid,
-            list(case.guide.mode_collection),
-            [],
+            [KerrResponse(chi3=GENERAL_CHI3)] if kerr else [],
             state,
             controller=PIController(rtol=1e-8, atol=1e-14),
             save_planes=[GENERAL_Z_END],
