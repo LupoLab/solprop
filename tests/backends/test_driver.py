@@ -28,7 +28,6 @@ from scripted_driver import HostScriptedDriver
 from solprop.backends.host.driver import INITIAL_STEP_STATS_CAPACITY, HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import BatchBackend, StepStats
 from solprop.exceptions import BackendError
 from solprop.log import BarReporter, LogReporter, NullReporter
@@ -147,7 +146,7 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
 
 @pytest.mark.parametrize("diverged", [np.inf, np.nan], ids=["infinite", "nan"])
 def test_a_diverged_trial_is_rejected_shrunk_and_recorded_as_infinity(driver, diverged):
-    """A non-finite norm, as a binary32 propagator past ``exp(88.72)`` scores, rejects.
+    """A non-finite norm, as an overflowing propagator scores, rejects.
 
     The controller retries at its smallest factor, and the history records the trial as
     infinity, so the observation at the next plane reads it back rather than refusing
@@ -954,12 +953,6 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
 
 
 HOST_SURFACE: dict[str, str] = {
-    "_adams_adopt": (
-        "(self, advanced: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], "
-        "dz: float) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
     "_adams_block": "(self, z: float, dz: float) -> object",
     "_adams_lab_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
@@ -971,10 +964,6 @@ HOST_SURFACE: dict[str, str] = {
     "_adams_propagator": (
         "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
         "'n_batch n_modes n_pol n_omega']"
-    ),
-    "_adams_restore": (
-        "(self, z: float, state: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']) -> None"
     ),
     "_adams_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
@@ -992,17 +981,7 @@ HOST_SURFACE: dict[str, str] = {
     "_dense_stages": "(self) -> list[numpy.ndarray]",
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
     "_march_to": "(self, target: float) -> None",
-    "_norm_controller": "(self) -> solprop.stepper.controller.PIController",
-    "_observed_field": (
-        "(self, state: _StateT) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
-    ),
     "_on_accepted_step": "(self) -> None",
-    "_prefactor": (
-        "(self, "
-        "bundle: solprop.translate.stage.StageScalars) -> jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega']"
-    ),
     "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
     "_release_source_calls": "(self) -> None",
     "_reserve_source_calls": "(self, count: int) -> None",
@@ -1023,14 +1002,13 @@ HOST_SURFACE: dict[str, str] = {
 """Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
 
 The reference's own driver is no compiled seam, but its backends are written against
-these signatures: a change here changes what ``numpy_ref``, its single-precision
-backend and its group override, in the same commit."""
+these signatures: a change here changes what ``numpy_ref`` and its group override,
+in the same commit."""
 
 HOST_ATTRIBUTES = (
     "helpers",
     "max_batch",
     "name",
-    "observes_fresh_field",
     "propagator_default",
     "reads_transverse_edge",
 )
@@ -1040,7 +1018,7 @@ HOST_ATTRIBUTES = (
 def test_the_host_hooks_the_reference_overrides_are_frozen():
     overridden = {
         name
-        for backend in (NumpyRefBackend, NumpySingleBackend, NumpyBatchBackend)
+        for backend in (NumpyRefBackend, NumpyBatchBackend)
         for owner in backend.__mro__
         if owner.__module__.startswith("solprop.backends.numpy_ref")
         for name in vars(owner)
@@ -1111,7 +1089,6 @@ PROPAGATION_PROBLEM_FIELDS = (
     "responses",
     "initial",
     "route",
-    "precision",
     "split_crossing",
 )
 """The fields of the one descriptor that crosses into a backend, in order: the

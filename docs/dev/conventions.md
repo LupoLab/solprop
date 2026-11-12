@@ -336,10 +336,8 @@ Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
 contiguous (C order): one trajectory. A group of trajectories is a sequence of member
 problems, not a leading axis ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7); a backend
 may hold its state privately with a leading axis of one (the native build's four-axis
-layout), and a march snapshot's file keeps that axis. Under `precision="single"` (SEP 33, ADR-054) a backend holds the
-state as complex64 at the run's exact power-of-two scale `s`, `a / s`; what crosses the
-seam to the host, and every saved field, is the physical state widened to complex128.
-Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a batched scan stores each member
+layout), and a march snapshot's file keeps that axis. Every backend computes in binary64
+(ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a batched scan stores each member
 separately. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
 

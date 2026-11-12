@@ -587,8 +587,7 @@ the measurements behind them.
   record the norm each step actually scored; recording the equivalent instead would make
   a run whose last steps were forced short close as a failure.
 - **A diverged trial is a rejection.** A trial whose norm is infinite or NaN -- a
-  propagator past `exp(88.72)` under single precision, past `exp(709.78)` in binary64, on
-  a step too long for a strong collar or loss -- is rejected whatever the mode
+  propagator past `exp(709.78)`, on a step too long for a strong collar or loss -- is rejected whatever the mode
   (`PIController.accepts`), and the proposal shrinks by `min_factor`; the history records
   its norm as infinity, which `BackendHistory` admits on a rejected entry only. A replayed
   schedule cannot shrink, and refuses such a step by name.

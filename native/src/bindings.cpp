@@ -3070,7 +3070,6 @@ nb::dict build_record() {
   result["coverage_instrumented"] =
       static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
-  result["precision"] = "complex128";
   result["fft_normalization"] = "none (explicit inverse scaling)";
 #if defined(KOKKOS_ENABLE_CUDA)
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";

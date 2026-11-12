@@ -28,10 +28,8 @@ integer accounting, identity metadata, hard masks and explicitly exact no-ops.
 
 ``u`` is the unit roundoff ``2**-53`` and ``EPS = 2 u`` NumPy's machine epsilon; the
 two are not interchangeable (SEP 25 section 4.1). Every formula takes its roundoff as a
-parameter, binary64's by default, so that SEP 33's binary32 bounds are the same formulas
-evaluated at :data:`UNIT_ROUNDOFF_32` (or :data:`EPS_32`) rather than binary64 bounds
-scaled: ``gamma_k``'s denominator matters at binary32, and each formula refuses a
-roundoff outside its domain (``k u < 1``). The established ladder of
+parameter, binary64's by default, and refuses a roundoff outside its domain
+(``k u < 1``). The established ladder of
 ``docs/dev/accuracy.md`` section 7 is written in ``EPS``: :func:`gamma`,
 :func:`fft_bound` and :func:`scan_bound` keep its constants, which were fixed before
 the first device result. The CPU rows retain their established bounds; the Kokkos
@@ -49,12 +47,6 @@ EPS = np.finfo(float).eps
 
 UNIT_ROUNDOFF = 2.0**-53
 """The unit roundoff ``u`` of binary64 round-to-nearest arithmetic."""
-
-UNIT_ROUNDOFF_32 = 2.0**-24
-"""The unit roundoff of binary32 round-to-nearest arithmetic (SEP 33)."""
-
-EPS_32 = 2.0**-23
-"""Binary32's machine epsilon, ``2 u``: the ladder's unit at binary32 (SEP 33)."""
 
 
 def gamma(operations: int, eps: float = EPS) -> float:

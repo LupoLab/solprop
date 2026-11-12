@@ -90,8 +90,8 @@ a seed keeps meaning one realisation on a given grid size.
      - the whole field, seed included
      - the field without the seed; processing does not restore it
    * - refused beside
-     - single precision and the planar grid
-     - those, plus interpolated planes, field planes for coupling and coupled flows
+     - the planar grid
+     - it, plus interpolated planes, field planes for coupling and coupled flows
 ```
 
 Both come from the same draw. {py:func}`~solprop.noise.input_noise` and
@@ -192,10 +192,10 @@ modified run, whose saved field holds no seed. See
 In a run, choose the model with the driver's `noise` keyword and fix the realisation with
 `seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial` and `prop_free`
 all take both. The keyword's default, `"default"`, resolves to `"input"` wherever the
-run can carry noise. Where it cannot, it resolves to none: under single precision, whose
-binary32 rounding swamps the seed, on the hybrid planar grid and on a `prop_waveguide`
-run of slab modes, neither of which declares a photon measure for its amplitudes per
-unit width (an explicit model is refused there), beside the TDSE response, whose runs are expensive, rarely repeated as
+run can carry noise. Where it cannot, it resolves to none: on the hybrid planar grid and
+on a `prop_waveguide` run of slab modes, neither of which declares a photon measure for
+its amplitudes per unit width (an explicit model is refused there), beside the TDSE
+response, whose runs are expensive, rarely repeated as
 ensembles and checked coherently (an explicit noise model there is warned on), and on
 the Cartesian and line grids of `prop_free`, whose runs are slow and rarely about noise
 sensitivity. The [table of defaults](../numerics/choosing-a-stepper.md#the-defaults)

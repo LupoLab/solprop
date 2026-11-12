@@ -252,19 +252,6 @@ class Parameter:
 # ------------------------------------------------------------------- the resolvers
 
 
-def _precision(values: Mapping[str, object]) -> str:
-    """Return the precision a recipe asks for.
-
-    - ``values``: the recipe's values; on an object route the precision is a keyword of
-      its ``settings`` table.
-    - Returns: ``"double"`` unless the recipe sets ``"single"``.
-    """
-    settings = values.get("settings")
-    if isinstance(settings, Mapping):
-        values = settings
-    return "single" if values.get("precision") == "single" else "double"
-
-
 _SLAB_TYPES: Final = ("SlabMode", "ModeCollection.slab")
 """The registered types that make a waveguide's mode set a slab set."""
 
@@ -343,13 +330,11 @@ def _rtol(route: str) -> Resolver:
     """Return the resolver of a route's ``rtol``."""
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default in the recipe's precision."""
+        """Return the route's default."""
         row = _row(route, values)
-        precision = _precision(values)
         return Resolution(
-            default_rtol(row, precision),
-            f"the {row} route's default in {precision} precision "
-            "(solprop.driver.defaults.ROUTE_DEFAULTS)",
+            default_rtol(row),
+            f"the {row} route's default (solprop.driver.defaults.ROUTE_DEFAULTS)",
         )
 
     return resolve
@@ -359,15 +344,9 @@ def _integrator(route: str) -> Resolver:
     """Return the resolver of a route's ``integrator``."""
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default method in the recipe's precision."""
+        """Return the route's default method."""
         row = _row(route, values)
-        precision = _precision(values)
-        rule = (
-            "single precision steps with RungeKutta()"
-            if precision == "single"
-            else f"the {row} route's default"
-        )
-        return Resolution(default_integrator(row, precision), rule)
+        return Resolution(default_integrator(row), f"the {row} route's default")
 
     return resolve
 
@@ -381,7 +360,7 @@ def _noise(route: str) -> Resolver:
         - Returns: the model (``None`` for none) and the reason.
         """
         row = _row(route, values)
-        model, resolution = resolve_noise(row, "default", None, _precision(values))
+        model, resolution = resolve_noise(row, "default", None)
         per = "transverse column" if route in OBJECT_ROUTES else "mode"
         return Resolution(
             model, resolution.reason or f"one photon per {per} on the input"
@@ -511,7 +490,6 @@ _SCHEMES: Final = Form("choice", choices=("nonlinear", "split_step"))
 _SAVE_PLANES: Final = Form("array", unit="m", minimum=0.0, exclusive=True)
 _PHASES: Final = Form("array", elements="phases")
 _SHAPES: Final = Form("choice", choices=("gauss", "sech"))
-_PRECISIONS: Final = Form("choice", choices=("double", "single"))
 _BACKENDS: Final = Form("string")
 _NOISE: Final = Form("choice", choices=("default", "input", "modified"))
 _SEED: Final = Form("integer", minimum=0)
@@ -523,7 +501,6 @@ _BOUNDARY_PAGE: Final = "guide/numerics/boundaries.md"
 _NOISE_PAGE: Final = "guide/media/noise.md"
 _OUTPUT_PAGE: Final = "guide/results/output.md"
 _BACKEND_PAGE: Final = "guide/performance/backends.md"
-_PRECISION_PAGE: Final = "guide/performance/single-precision.md"
 _MATERIALS_PAGE: Final = "guide/media/material-selection.md"
 _PLANES_PAGE: Final = "guide/numerics/solver.md"
 
@@ -788,14 +765,6 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "advanced",
             "The backend that executes the run; auto picks the fastest installed.",
             _BACKEND_PAGE,
-        ),
-        Parameter(
-            "precision",
-            (_PRECISIONS,),
-            "numerics",
-            "advanced",
-            "The arithmetic the run is held in.",
-            _PRECISION_PAGE,
         ),
         Parameter(
             "materials",
@@ -3029,12 +2998,6 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             _object("Multistep", "RungeKutta", "LowStorageRungeKutta"),
             "advanced",
             "The method that steps the run.",
-        ),
-        _keyword(
-            "precision",
-            _choice("double", "single"),
-            "advanced",
-            "The arithmetic the run is held in.",
         ),
         _keyword(
             "evanescent_rate",

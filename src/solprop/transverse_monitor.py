@@ -347,11 +347,9 @@ class _Face:
 def _row_energy(rows: np.ndarray) -> Float[np.ndarray, " n_rows"]:
     """Return each row's ``sum |E|^2`` of a two-dimensional complex array.
 
-    Double precision is summed as a real view by ``einsum``, without the temporaries
-    of ``abs(E)**2``; a read makes these sums many times a run (section 7.7).
+    Summed as a real view by ``einsum``, without the temporaries of ``abs(E)**2``; a
+    read makes these sums many times a run (section 7.7).
     """
-    if rows.dtype != np.complex128:
-        return np.sum(np.abs(rows) ** 2, axis=1)
     flat = np.ascontiguousarray(rows).view(np.float64)
     return np.einsum("ij,ij->i", flat, flat)
 

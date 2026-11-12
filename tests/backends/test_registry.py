@@ -2,15 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Selecting a backend by name, and the three errors that can come back.
+"""Selecting one of the two backends by name, and the errors that can come back.
 
-``docs/dev/backends.md`` section 1: an unknown name is a :class:`ValueError` listing
-what is usable, and a known name whose dependencies are missing is an
-:class:`ImportError` naming the extra to install. The two are different questions --
-"what did I mean?" and "what do I install?" -- and one error type for both would answer
-neither. A name that was real until its backend was deleted is the third question --
-"where did it go?" -- and answers it with a
-:class:`~solprop.exceptions.BackendError` saying it has been removed and what to use.
+``docs/dev/backends.md`` section 1: a name that is neither backend, a retired one's
+included, is a :class:`~solprop.exceptions.BackendError` naming the two, and ``native``
+without its package is an :class:`ImportError` saying what to install. The two are
+different questions -- "what did I mean?" and "what do I install?" -- and one error
+type for both would answer neither.
 """
 
 import ctypes
@@ -29,7 +27,7 @@ import pytest
 
 from solprop.backends import Backend, available, registry, resolve_name, select
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
+from solprop.backends.registry import BACKEND_NAMES, _construct
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.stepper import PIController, RungeKutta
@@ -42,7 +40,7 @@ LENGTH = 0.01  # m
 def test_the_reference_backend_is_always_available():
     """It needs nothing beyond the package's own dependencies, so it is always there."""
     assert "numpy_ref" in available()
-    assert set(available()) <= set(BACKENDS)
+    assert set(available()) <= set(BACKEND_NAMES)
 
 
 def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):
@@ -65,7 +63,8 @@ def test_automatic_selection_probes_without_importing_or_caching(monkeypatch):
     present = True
     assert resolve_name() == "native"
     assert resolve_name("numpy_ref") == "numpy_ref"
-    assert resolve_name("unregistered") == "unregistered"
+    with pytest.raises(BackendError, match="'unregistered' is not a backend"):
+        resolve_name("unregistered")
     present = False
     with pytest.raises(BackendError, match="not installed"):
         resolve_name()
@@ -186,58 +185,45 @@ def test_optional_constructor_receives_the_original_contract_without_fallback(
     }
 
 
-def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
-    """The first tier: a name this package has never heard of."""
-    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
-    with pytest.raises(ValueError, match="not a known backend; usable backends are"):
-        select("numpy-ref", problem, run_request)
+def test_there_are_exactly_two_backends():
+    """ADR-077: the reference and native; numba_cpu and mlx are gone."""
+    assert BACKEND_NAMES == ("numpy_ref", "native")
 
 
-def test_the_table_holds_the_backends_that_exist():
-    """The in-tree CUDA backend is gone, and mlx was retired in SEP 47."""
-    assert sorted(BACKENDS) == ["native", "numpy_ref"]
+# A name that is neither backend -- a misspelling, or a retired backend's -- is refused
+# wherever a request is validated, names the two, and never resolves to another.
 
-
-# The tombstones: a removed backend's name is refused wherever a request is validated,
-# and never resolves to another backend.
-
-REMOVED = {
-    "numba_cpu": "numba_cpu backend was removed in SEP 43",
-    "mlx": "mlx backend was retired in SEP 47",
-}
-"""Each removed backend, and what its refusal says happened to it."""
+REMOVED = ("mlx", "numba_cpu", "numpy-ref")
+"""Two retired backends' names and a misspelling."""
 
 
 def assert_names_the_replacements(refused, name):
-    """The refusal says the backend is gone and names both backends to use instead."""
+    """The refusal says the name is not a backend and names the two backends."""
     message = str(refused.value)
-    assert REMOVED[name] in message
+    assert f"{name!r} is not a backend" in message
     assert "backend='native'" in message
     assert "backend='numpy_ref'" in message
 
 
-@pytest.mark.parametrize("name", sorted(REMOVED))
-def test_the_removed_backend_is_only_a_tombstone(name):
-    assert name in REMOVED_BACKENDS
-    assert name not in BACKENDS
+@pytest.mark.parametrize("name", REMOVED)
+def test_a_name_that_is_neither_backend_is_never_available(name):
+    assert name not in BACKEND_NAMES
     assert name not in available()
-    assert name not in available("single")
-    assert not set(REMOVED_BACKENDS) & set(BACKENDS)
 
 
-@pytest.mark.parametrize("name", sorted(REMOVED))
+@pytest.mark.parametrize("name", REMOVED)
 def test_resolving_the_removed_backend_names_the_replacements(name):
     with pytest.raises(BackendError) as refused:
         resolve_name(name)
     assert_names_the_replacements(refused, name)
 
 
-@pytest.mark.parametrize("name", sorted(REMOVED))
+@pytest.mark.parametrize("name", REMOVED)
 def test_selecting_the_removed_backend_names_the_replacements(
     linear_problem, narrow_grid, monkeypatch, name
 ):
     def forbidden(*args, **kwargs):
-        raise AssertionError("no backend is constructed for a removed name")
+        raise AssertionError("no backend is constructed for an unknown name")
 
     monkeypatch.setattr(registry, "_construct", forbidden)
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
@@ -246,9 +232,8 @@ def test_selecting_the_removed_backend_names_the_replacements(
     assert_names_the_replacements(refused, name)
 
 
-@pytest.mark.parametrize("precision", ["double", "single"])
-@pytest.mark.parametrize("name", sorted(REMOVED))
-def test_settings_naming_the_removed_backend_name_the_replacements(name, precision):
+@pytest.mark.parametrize("name", REMOVED)
+def test_settings_naming_the_removed_backend_name_the_replacements(name):
     with pytest.raises(BackendError) as refused:
         SimulationSettings(
             controller=PIController(rtol=1e-5, atol=1e-14),
@@ -256,7 +241,6 @@ def test_settings_naming_the_removed_backend_name_the_replacements(name, precisi
             dz_max=1e-3,
             dz_init=1e-3,
             backend=name,
-            precision=precision,
             integrator=RungeKutta(),
         )
     assert_names_the_replacements(refused, name)
@@ -278,17 +262,6 @@ def test_a_known_name_without_its_extra_names_the_extra(
         match=r"install solprop, or build solprop-native from native/",
     ):
         select("native", problem, run_request)
-
-
-def test_construct_refuses_a_registry_entry_without_an_implementation(
-    linear_problem, narrow_grid
-):
-    """The private dispatcher stays exhaustive when the registry grows."""
-    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
-    with pytest.raises(AssertionError, match="unhandled backend registry entry"):
-        _construct(
-            "unregistered", problem, run_request, grid=None, modes=None, profiles=None
-        )
 
 
 def test_optional_backend_constructor_forwards_the_context(
@@ -562,7 +535,7 @@ def test_a_required_device_is_refused_before_anything_is_constructed(
 
 def test_a_required_device_leaves_a_missing_package_to_the_selection(monkeypatch):
     monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "cuda")
-    monkeypatch.setattr(registry, "_satisfied", lambda backend: False)
+    monkeypatch.setattr(registry, "_native_installed", lambda: False)
     assert registry._check_required_device("native") is None
 
 

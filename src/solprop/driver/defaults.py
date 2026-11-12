@@ -33,7 +33,6 @@ from solprop.stepper.controller import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.precision import SINGLE_RTOL_CAP, SINGLE_RTOL_FLOOR
 
 __all__ = [
     "CAPILLARY_RTOL",
@@ -45,7 +44,6 @@ __all__ = [
     "INTERIOR_LAUNCH_NOISE",
     "PLANAR_NOISE",
     "ROUTE_DEFAULTS",
-    "SINGLE_PRECISION_NOISE",
     "SLAB_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
@@ -62,7 +60,6 @@ __all__ = [
     "default_scheme",
     "resolve_noise",
     "route_defaults",
-    "rtol_in_precision",
 ]
 
 DEFAULT_RTOL = 1e-7
@@ -129,10 +126,6 @@ error by 2.5 times for a sixth more steps. Applies only where the caller's
 FREE_ATOL = 0.0
 """Absolute tolerance of the same default controller."""
 
-SINGLE_PRECISION_NOISE = (
-    "single precision carries no noise: binary32 rounding swamps a one-photon seed"
-)
-"""Why a default resolves to no noise under ``precision="single"`` (SEP 37)."""
 
 PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
 """Why a planar run carries no noise (SEP 37)."""
@@ -204,11 +197,9 @@ class RouteDefaults:
     Attributes
     ----------
     integrator : {'Multistep', 'RungeKutta'}
-        The method a binary64 run steps with when none is named. Single precision
-        always takes ``RungeKutta()`` (SEP 33).
+        The method a run steps with when none is named.
     rtol : float
-        The binary64 relative tolerance; :func:`default_rtol` gives it in single
-        precision.
+        The relative tolerance.
     atol : float
         The absolute tolerance, in the route's field unit.
     noise : {'input', 'quiet', 'unmeasured'}
@@ -316,22 +307,13 @@ def route_defaults(route: str) -> RouteDefaults:
         raise DriverError(msg) from None
 
 
-def default_rtol(route: str, precision: str) -> float:
-    """Return a route's default relative tolerance in the run's precision.
-
-    The one rule every route follows. Binary64 takes the route's own. Binary32 takes the
-    larger of it and :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, so it is
-    never tighter than its binary64 twin nor than binary32 rounding can serve, and at
-    most :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`, the loosest value the
-    single-precision survival record measured (the maintainers' ruling of 2026-10-28;
-    the record reached free space's 1e-4 on 2026-11-05).
+def default_rtol(route: str) -> float:
+    """Return a route's default relative tolerance.
 
     Parameters
     ----------
     route : str
         A :data:`RouteName`.
-    precision : {'double', 'single'}
-        The run's precision.
 
     Returns
     -------
@@ -341,51 +323,19 @@ def default_rtol(route: str, precision: str) -> float:
     Examples
     --------
     >>> from solprop.driver.defaults import default_rtol
-    >>> [default_rtol(route, "single") for route in ("gnlse", "capillary", "free")]
-    [1e-06, 1e-06, 0.0001]
-    >>> default_rtol("gnlse", "double")
-    1e-07
+    >>> [default_rtol(route) for route in ("gnlse", "capillary", "free")]
+    [1e-07, 1e-06, 0.0001]
     """
-    return rtol_in_precision(route_defaults(route).rtol, precision)
+    return route_defaults(route).rtol
 
 
-def rtol_in_precision(rtol: float, precision: str) -> float:
-    """Return a binary64 default tolerance as the run's precision takes it.
-
-    The rule :func:`default_rtol` applies to a route's row, for any binary64 value.
-
-    Parameters
-    ----------
-    rtol : float
-        The binary64 default.
-    precision : {'double', 'single'}
-        The run's precision.
-
-    Returns
-    -------
-    float
-        `rtol` in binary64; clamped to the single-precision floor and cap otherwise.
-
-    Examples
-    --------
-    >>> from solprop.driver.defaults import rtol_in_precision
-    >>> [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-5, 1e-3)]
-    [1e-06, 1e-05, 0.0001]
-    """
-    if precision != "single":
-        return rtol
-    return min(max(rtol, SINGLE_RTOL_FLOOR), SINGLE_RTOL_CAP)
-
-
-def default_controller(route: str, precision: str) -> PIController:
+def default_controller(route: str) -> PIController:
     """Return the step controller a route takes when given no tolerances.
 
     Parameters
     ----------
     route : str
         A :data:`RouteName`.
-    precision : {'double', 'single'}
-        The run's precision.
 
     Returns
     -------
@@ -395,16 +345,14 @@ def default_controller(route: str, precision: str) -> PIController:
     Examples
     --------
     >>> from solprop.driver.defaults import default_controller
-    >>> controller = default_controller("radial", "double")
+    >>> controller = default_controller("radial")
     >>> controller.rtol, controller.atol
     (1e-05, 0.0)
     """
-    return PIController(
-        rtol=default_rtol(route, precision), atol=route_defaults(route).atol
-    )
+    return PIController(rtol=default_rtol(route), atol=route_defaults(route).atol)
 
 
-def default_integrator(route: str | None, precision: str) -> Multistep | RungeKutta:
+def default_integrator(route: str | None) -> Multistep | RungeKutta:
     """Return the integrator a route steps with when none is named.
 
     Parameters
@@ -412,9 +360,6 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
     route : str or None
         A :data:`RouteName`, or ``None`` for settings built by hand, which step with
         ``Multistep()``.
-    precision : {'double', 'single'}
-        The run's precision. Both take the route's own integrator: binary32 Adams
-        agrees with binary64 Adams to the method's truncation (#342).
 
     Returns
     -------
@@ -424,14 +369,13 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
     Examples
     --------
     >>> from solprop.driver.defaults import default_integrator
-    >>> type(default_integrator("gnlse", "double")).__name__
+    >>> type(default_integrator("gnlse")).__name__
     'RungeKutta'
-    >>> type(default_integrator("capillary", "single")).__name__
+    >>> type(default_integrator("capillary")).__name__
     'Multistep'
-    >>> type(default_integrator(None, "double")).__name__
+    >>> type(default_integrator(None)).__name__
     'Multistep'
     """
-    del precision  # one rule in both precisions since #342
     name = "Multistep" if route is None else route_defaults(route).integrator
     return RungeKutta() if name == "RungeKutta" else Multistep()
 
@@ -467,13 +411,12 @@ def default_scheme(route: str | None, *, interpolate_planes: bool) -> AbsorberSc
 
 
 def resolve_noise(
-    route: str, noise: str | None, seed: int | None, precision: str
+    route: str, noise: str | None, seed: int | None
 ) -> tuple[NoiseModel | None, NoiseResolution]:
     """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
 
     ``"default"`` follows the route's :data:`NoisePolicy`: the input noise, or none for
-    the row's reason. Single precision carries none whatever the route, because binary32
-    rounding swamps a one-photon seed. A seed beside a default that resolves to none is
+    the row's reason. A seed beside a default that resolves to none is
     refused rather than silently dropped, and so is a seed beside ``noise=None``. An
     explicit model is refused where the route is ``"unmeasured"`` and warned on beside
     the TDSE response; any other value is passed through, and an unknown one is refused
@@ -487,8 +430,6 @@ def resolve_noise(
         The keyword as given.
     seed : int or None
         The keyword ``seed`` as given.
-    precision : {'double', 'single'}
-        The run's arithmetic.
 
     Returns
     -------
@@ -509,9 +450,9 @@ def resolve_noise(
     Examples
     --------
     >>> from solprop.driver.defaults import resolve_noise
-    >>> resolve_noise("capillary", "default", None, "double")
+    >>> resolve_noise("capillary", "default", None)
     ('input', NoiseResolution(requested='default', resolved='input', reason=None))
-    >>> resolve_noise("free", "default", None, "double")[1].reason[:20]
+    >>> resolve_noise("free", "default", None)[1].reason[:20]
     'a Cartesian or line '
     """
     row = route_defaults(route)
@@ -519,7 +460,7 @@ def resolve_noise(
         msg = f"noise={noise!r}: {row.noise_reason}; pass noise=None"
         raise DriverError(msg, parameter="noise")
     if noise == "default":
-        fallback = SINGLE_PRECISION_NOISE if precision == "single" else row.noise_reason
+        fallback = row.noise_reason
         if fallback is not None:
             if seed is not None:
                 msg = (

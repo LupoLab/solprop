@@ -512,7 +512,7 @@ class BoundaryMonitor:
     ) -> Float[np.ndarray, " n_t"]:
         """Return the time-domain energy density summed over everything but time.
 
-        The host reduction, in binary64 whatever the state's precision.
+        The host reduction, in binary64.
 
         Parameters
         ----------

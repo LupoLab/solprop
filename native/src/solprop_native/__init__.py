@@ -374,7 +374,6 @@ PROBLEM_FIELDS: tuple[str, ...] = (
     "responses",
     "initial",
     "route",
-    "precision",
     "split_crossing",
 )
 """``PropagationProblem`` fields this backend reads (solprop SEP 47 section 6.2).
@@ -673,8 +672,8 @@ class BuildInfo:
     native_arch_enabled, aggressive_vectorization_enabled, ipo_enabled,
     fast_math_enabled, optimization_policy
         Optimization switches and the human-readable compiled policy.
-    precision, layout
-        Numerical scalar and field layout.
+    layout
+        Field layout.
     python_version, numpy_version, platform_machine
         Host Python environment.
     """
@@ -751,7 +750,6 @@ class BuildInfo:
     ipo_enabled: bool
     fast_math_enabled: bool
     optimization_policy: str
-    precision: str
     layout: str
     python_version: str
     numpy_version: str
@@ -778,8 +776,8 @@ def build_info() -> BuildInfo:
     Returns
     -------
     BuildInfo
-        Compiler, dependencies, execution spaces, concurrency, layout, precision,
-        optimization policy, and source-version provenance.
+        Compiler, dependencies, execution spaces, concurrency, layout, optimization
+        policy, and source-version provenance.
     """
     native_record = _core.build_record()
     blas_threads = native_record["blas_threads"]
@@ -859,7 +857,6 @@ def build_info() -> BuildInfo:
         ipo_enabled=bool(record["ipo_enabled"]),
         fast_math_enabled=bool(record["fast_math_enabled"]),
         optimization_policy=str(record["optimization_policy"]),
-        precision=str(record["precision"]),
         layout=str(record["layout"]),
         python_version=platform.python_version(),
         numpy_version=np.__version__,

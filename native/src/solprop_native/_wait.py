@@ -15,8 +15,8 @@ AMD EPYC 7763 node, and in 0.87 on 16 cores of an AMD EPYC 9B45 under Windows
 
 ADR-056 had made idle threads sleep at once, after spinning cost an EPYC 7763 1.4 to
 3.3 times at 10,000 spins while the backend ran several thread teams in turn (Kokkos's,
-the threaded FFTs', the BLAS's, NumPy's and numba's). Those now share one runtime and
-NumPy's BLAS holds one thread, and the same test no longer loses.
+the threaded FFTs', the BLAS's and NumPy's). Those now share one runtime and NumPy's
+BLAS holds one thread, and the same test no longer loses.
 
 So, unless the user chose, the import sets before the core loads the runtime:
 

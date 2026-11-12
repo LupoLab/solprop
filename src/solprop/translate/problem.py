@@ -87,7 +87,7 @@ from solprop.noise import NoiseRealisation
 from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
-from solprop.spatial import FAR_FIELD_STATISTICS, SpatialDispersion, SpatialMedium
+from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.spatial_absorber import (
     CROSSING_ADAPTIVE,
     CROSSING_FIXED,
@@ -142,7 +142,6 @@ from solprop.translate.modal import (
 )
 from solprop.translate.planar import planar_operators, planar_transform
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.precision import DOUBLE, Precision
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,
@@ -192,7 +191,6 @@ __all__ = [
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
-    "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
@@ -867,9 +865,6 @@ class PropagationProblem:
         What differs between routes, in exactly one variant of a closed union, each
         with the fields its executor needs (SEP 47 section 6.2): the transform
         (section 4) and the route's own leaves (:mod:`solprop.translate.routes`).
-    precision : solprop.translate.precision.Precision, optional
-        The arithmetic the run is held in (version 36): binary64 by default, or
-        binary32 under SEP 33's contract. Tables are binary64 here either way.
     split_crossing : solprop.boundaries.SplitCrossing or None, optional
         The split temporal collar's crossing limit (version 43): each bin's walk-off
         bucket, the collar's width and the launch's limit, which the boundary
@@ -904,7 +899,6 @@ class PropagationProblem:
     responses: CompiledResponses
     initial: Initial
     route: Route
-    precision: Precision = DOUBLE
     split_crossing: SplitCrossing | None = None
 
     @property
@@ -1018,7 +1012,6 @@ class PropagationProblem:
         """
         if run is not None:
             self._check_integrator(run.stepper)
-        self._check_precision(run)
         self._check_route(run)
         if run is not None and not self.initial.z < run.stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
@@ -1133,145 +1126,6 @@ class PropagationProblem:
                 "runs on the Adams route alone; use Multistep()"
             )
             raise TranslationError(msg)
-
-    def _check_precision(self, run: _RunPolicy | None) -> None:
-        """Refuse, by name, what no backend runs in single precision (SEP 33 5.1).
-
-        The general modal route (a moving guide among it), the hybrid planar kind,
-        coupled flows (``"cf4"`` sections among them), TDSE responses, the dispersive
-        electronic response, the far-field statistics and noise models are outside
-        SEP 33's scope, so every backend refuses them under ``precision="single"``.
-
-        - ``run``: the run's stepper section and statistics; ``None`` leaves the
-          statistics and the step's exponent to :func:`validate_run`.
-        """
-        if not isinstance(
-            self.precision, Precision
-        ):  # pragma: no cover - refused by the annotation where it is checked
-            raise TranslationError("precision must be a Precision record")
-        if not self.precision.single:
-            return
-        geometry = self.transform.geometry
-        refused = [
-            (self.transform.modal_tables is not None, "the general modal route"),
-            (
-                geometry is not None and geometry.kind == "slab",
-                "the hybrid planar kind",
-            ),
-            (self.linear.coupled_flow is not None, "a coupled flow"),
-            (tdse_of(self.route) is not None, "a TDSE response"),
-            (
-                self.responses.dispersive_kerr is not None,
-                "the dispersive electronic response",
-            ),
-            (
-                run is not None
-                and bool(
-                    set(FAR_FIELD_STATISTICS).intersection(
-                        (*run.stats.names, *run.stats.periodic)
-                    )
-                ),
-                "the far-field statistics",
-            ),
-            (
-                self.flags.has_noise or self.initial.noise_model != "none",
-                "a noise model (a known limitation of single precision)",
-            ),
-        ]
-        for refuse, name in refused:
-            if refuse:
-                msg = (
-                    f"precision='single' refuses {name}: no backend runs it in "
-                    "binary32 (SEP 33 section 5.1); use precision='double'"
-                )
-                raise TranslationError(msg)
-        if run is not None:
-            self._check_single_exponent(run.stepper)
-
-    def _check_single_exponent(self, stepper: StepperSettings) -> None:
-        """Refuse a step whose propagator or its inverse overflows binary32.
-
-        The Runge-Kutta interaction picture multiplies each stage by ``exp(-dPhi)`` and
-        the state by ``exp(dPhi)``; held in binary32, either is infinite once
-        ``|Re dPhi|`` passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches
-        709.78. A strong spectral collar on a long step is the usual cause. The
-        low-storage march and the exponential Adams flow apply forward flows only, so a
-        damped bin's flow underflows harmlessly towards zero and only growth,
-        ``Re dPhi > 0``, can overflow: they are held to ``max Re dPhi``, Adams's times
-        the reach of its history (a sample is carried up to ``order + 1`` steps). As
-        :meth:`_check_exponent_budget` does for binary64, a replayed schedule's
-        longest step, or the floor ``dz_min``, is held to the limit -- an adaptive
-        controller rejects a non-finite trial above its floor and shrinks -- and every
-        kind is checked: the exponent is evaluated from the operator itself over that
-        step at the start and the end of the run, which for a varying operator samples
-        its range.
-        """
-        schedule = stepper.schedule
-        step, source = (
-            (float(np.max(schedule.steps)), "replayed step")
-            if schedule is not None
-            else (stepper.dz_min, "step floor dz_min")
-        )
-        start = float(self.initial.z)
-        end = float(stepper.save_planes[-1])
-        step = min(step, end - start)
-        integrator = stepper.integrator
-        forward = not stepper.interpolate_planes and (
-            isinstance(integrator, LowStorageRungeKutta)
-            or (
-                isinstance(integrator, Multistep)
-                and integrator.formulation == "exponential"
-            )
-        )
-        reach = integrator.order + 1 if isinstance(integrator, Multistep) else 1
-        operator = self.linear.separable
-        geometry = self.transform.geometry
-        bounds = (
-            rate_bounds(operator)
-            if operator is not None
-            else radial_rate_bounds(self.linear)
-            if geometry is not None and geometry.kind == "radial"
-            else None
-        )
-        exponent = 0.0
-        if bounds is not None:
-            # A free-space operator's rates, bounded as the binary64 budget bounds
-            # them, without forming the volume (seconds on a 384^2 x 750 grid).
-            growth = reach * step * bounds.gain
-            exponent = growth if forward else max(step * bounds.loss, growth)
-        for first in () if bounds is not None else {start, end - step}:
-            real = np.real(delta_phi(self.linear, first, first + step))
-            found = reach * float(np.max(real)) if forward else np.max(np.abs(real))
-            exponent = max(exponent, float(found))
-        if exponent <= EXPONENT_BUDGET * LOG_FLT_MAX:
-            return
-        name = "growth Re dPhi" if forward else "|Re dPhi|"
-        message = (
-            f"precision='single': the {source} {step:.3e} m gives a propagator "
-            f"exponent {name} of {exponent:.1f}"
-        )
-        remedy = (
-            "take steps shorter than "
-            f"{step * EXPONENT_BUDGET * LOG_FLT_MAX / exponent:.3e} m, weaken the "
-            "collar with a larger boundary_length, or use precision='double'"
-        )
-        if exponent > LOG_FLT_MAX:
-            msg = (
-                f"{message}, past binary32's range exp({LOG_FLT_MAX:.2f}): the "
-                + (
-                    "forward flow overflows"
-                    if forward
-                    else "interaction picture's inverse propagator overflows"
-                )
-                + f"; {remedy}"
-            )
-            raise TranslationError(msg)
-        warnings.warn(
-            f"{message}, within a tenth of binary32's range exp({LOG_FLT_MAX:.2f}): "
-            f"the run completes only while the field stays small; {remedy}",
-            ExponentBudgetWarning,
-            stacklevel=5,
-        )
 
     def _check_tdse(self, source: TDSESource, stepper: StepperSettings | None) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route.
@@ -2266,13 +2120,13 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
 
     Everything :meth:`PropagationProblem.validate` checks, in the same order, and
     with it what depends on the run's policy: the method's admission on the route,
-    the save planes following the launch, the statistics the route and the
-    precision admit, the request's own arrays, the propagator mode on a separable
-    route, the tables and a general guide's leaves covering the run, a replayed
-    schedule landing on every save plane and hard kink, the in-stage collar's
-    stability, the split collar's crossing and the exponent budget. A backend calls
-    this where it is built (SEP 47 section 5.2), so an unsupported combination is
-    refused by name before any workspace exists.
+    the save planes following the launch, the statistics the route admits, the
+    request's own arrays, the propagator mode on a separable route, the tables and a
+    general guide's leaves covering the run, a replayed schedule landing on every save
+    plane and hard kink, the in-stage collar's stability, the split collar's crossing
+    and the exponent budget. A backend calls this where it is built (SEP 47 section
+    5.2), so an unsupported combination is refused by name before any workspace
+    exists.
 
     Parameters
     ----------
@@ -2315,9 +2169,6 @@ LOG_DBL_MAX = math.log(np.finfo(np.float64).max)
 IEEE Std 754-2019, doi:10.1109/IEEESTD.2019.8766229. A propagator factor
 ``exp(h lambda)`` past it is infinite on every backend (SEP 22 section 4.5).
 """
-
-LOG_FLT_MAX = math.log(float(np.finfo(np.float32).max))
-"""``log(FLT_MAX)``, about 88.72: binary32's largest finite ``exp`` (SEP 33)."""
 
 EXPONENT_BUDGET = 0.9
 """Fraction of :data:`LOG_DBL_MAX` above which translation warns of a step it cannot
@@ -2648,27 +2499,23 @@ def _crossing_clamped(
     design: SpatialAbsorberDesign | None,
     dz_max: float,
     dz_init: float,
-    *,
-    single: bool = False,
 ) -> tuple[float, float]:
     """Return the step bounds held to a collar's crossing limit (SEP 40 section 4.7).
 
     No adaptive step carries the protected band across the collar unseen; a run
     without a collar keeps its bounds. Every transverse design also holds the step to
     the safety ramp's exponent budget (section 6): the propagator's inverse factor
-    ``exp(alpha_s h / 2)`` stays within half the precision's range, so a strong ramp on
-    a fine grid cannot overflow it.
+    ``exp(alpha_s h / 2)`` stays within half binary64's range, so a strong ramp on a
+    fine grid cannot overflow it.
 
     - ``dz_max``: the requested largest step, m.
     - ``dz_init``: the requested first step, m.
-    - ``single``: whether the state is binary32, whose range is smaller.
     - Returns: the largest step and the first step, m.
     """
     if design is None:
         return dz_max, dz_init
     # A resolved design's ramp is never zero: every axis has a nonzero largest |k|.
-    budget = LOG_FLT_MAX if single else LOG_DBL_MAX
-    dz_max = min(dz_max, budget / design.ramp_strength)
+    dz_max = min(dz_max, LOG_DBL_MAX / design.ramp_strength)
     if design.has_collar:
         dz_max = min(dz_max, design.crossing_step)
     return dz_max, min(dz_init, dz_max)
@@ -4825,7 +4672,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     evanescent_rate: float | None = None,
     spatial_absorber: SpatialAbsorber | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
-    precision: Precision = DOUBLE,
 ) -> Translation:
     """Turn the physics objects of a run into a validated kernel problem.
 
@@ -5004,10 +4850,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         The budgets a radial medium varying along z must meet for its forward
         amplitude transport (SEP 34 section 4.5); None, the default, is
         ``AdiabaticAccuracy()``. A path exceeding them is refused.
-    precision : solprop.translate.precision.Precision, optional
-        The arithmetic the run is held in (SEP 33): :data:`~.precision.DOUBLE`, the
-        default, or :data:`~.precision.SINGLE`. The tables are built in binary64
-        either way; what single precision refuses is refused here.
 
     Returns
     -------
@@ -5228,9 +5070,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         prefactor_index,
         None if reuse is None else reuse.initial,
     )
-    dz_max, dz_init = _crossing_clamped(
-        design, dz_max, dz_init, single=precision.single
-    )
+    dz_max, dz_init = _crossing_clamped(design, dz_max, dz_init)
     geometry = transform.geometry
     crossing = _split_crossing(
         compiled,
@@ -5282,7 +5122,6 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
             flux=flux,
             transverse=design,
         ),
-        precision=precision,
         split_crossing=crossing,
     )
     # The run module builds on this one, for the stepper section.

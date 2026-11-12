@@ -697,9 +697,8 @@ and the output size, and Run starts from it.
 - **Cost**: the size comes from solprop, and the time from similar past runs in the workspace, or
   it says it is unknown. Timing warm-up steps with `Simulation.estimate()` takes seconds, so it runs
   on request (21.1).
-- **Numerics** (Advanced on the sheet): backend (from `backends.registry.available()`), precision,
-  tolerance (`rtol`, with the route's default shown), integrator, save planes (`n_save` or a
-  spacing), statistics (`StatsSpec`, with the route's default set and the class's required
+- **Numerics** (Advanced on the sheet): backend (from `backends.registry.available()`), tolerance
+  (`rtol`, with the route's default shown), integrator, save planes (`n_save` or a spacing), statistics (`StatsSpec`, with the route's default set and the class's required
   statistics ticked), threads (`SOLPROP_THREADS`), boundary check and absorber, snapshots.
 - **Output**: run title and workspace folder (defaults filled in).
 - **Resume** replaces Run for an existing run of the same recipe that solprop reports resumable
@@ -1291,7 +1290,7 @@ All are decided: Q1 by D8, Q2 by SEP 41 as recommended, and Q3–Q12 as recommen
 | Q8 | Minimum screen size. | 1280 × 800, usable at 1024 × 700. |
 | Q9 | Should the GUI ever accept Python snippets (a custom pulse shape, a custom response)? | No; "Export as Python" is the way out. |
 | Q10 | Compare-runs in the first release? | Revised by D16: no. Comparison is rare, so it comes later, as overlays of lines. |
-| Q11 | Expose GPU backends (mlx on Apple silicon, device builds)? | Yes, in Advanced, with the precision rule enforced. The `mlx` backend was retired in SEP 47 and is no longer offered. |
+| Q11 | Expose GPU backends (mlx on Apple silicon, device builds)? | Yes, in Advanced, with the precision rule enforced. The `mlx` backend was retired in SEP 47 and is no longer offered, and single precision with it (ADR-077). |
 | Q12 | Accessibility targets (keyboard-only use, screen readers)? | Keyboard-complete from the start; screen readers best effort through Qt. |
 
 ## 15. Changes proposed to solprop

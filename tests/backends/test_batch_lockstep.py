@@ -291,10 +291,11 @@ def test_lockstep_refuses_mixed_backends(monkeypatch):
     pytest.importorskip("solprop_native")
     # Each copy's own refusals, which the test session's annotation hook would
     # otherwise preempt: a member of the other family is not its driver type.
-    for name in ("_validate_members", "_refuse_mixed_precisions"):
-        monkeypatch.setattr(
-            group_module, name, inspect.unwrap(getattr(group_module, name))
-        )
+    monkeypatch.setattr(
+        group_module,
+        "_validate_members",
+        inspect.unwrap(group_module._validate_members),
+    )
     with ExitStack() as cleanup:
         members = tuple(
             loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")

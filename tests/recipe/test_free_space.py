@@ -382,8 +382,6 @@ def test_the_object_routes_list_their_objects_and_leave_the_absorber_to_settings
     assert resolver is not None
     assert resolver({}).value == "input"
     assert "transverse column" in resolver({}).rule
-    single = {"settings": {"type": "SimulationSettings", "precision": "single"}}
-    assert resolver(single).value is None
 
 
 @pytest.mark.parametrize("key", SETTINGS_KEYWORDS)

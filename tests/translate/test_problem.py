@@ -1067,7 +1067,7 @@ def test_a_broadcast_free_space_input_runs_as_its_expansion():
         runs.append((simulation.translate(), simulation.run(progress="none")))
     (broadcast, held), (expanded, reference) = runs
     assert broadcast.initial.field0.strides[0] == 0
-    # A single-precision placeholder converts its column alone, once.
+    # A complex64 placeholder converts its column alone, once.
     single = Simulation.from_free(
         grid,
         space,

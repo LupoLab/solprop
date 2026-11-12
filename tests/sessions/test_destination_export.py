@@ -251,18 +251,12 @@ class _TwoSteps(MemoryOutput):
         super().save(plane)
 
 
-@pytest.mark.parametrize(
-    ("precision", "noise"),
-    [("double", False), ("double", True), ("single", False)],
-    ids=["double", "noise", "single"],
-)
-def test_a_run_stores_the_bits_of_the_two_step_path(precision, noise):
+@pytest.mark.parametrize("noise", [False, True], ids=["double", "noise"])
+def test_a_run_stores_the_bits_of_the_two_step_path(noise):
     """The reference's whole run, exported into the rows or converted by the store.
 
-    A Cartesian Kerr run, with and without a noise model (which single precision
-    refuses), in double and single precision (whose widened state carries its
-    power-of-two scale): the stored fields and noise phases are the bits the
-    two-step path stores.
+    A Cartesian Kerr run, with and without a noise model: the stored fields and noise
+    phases are the bits the two-step path stores.
     """
     from driver.test_field_free_planes import cartesian  # noqa: PLC0415
 
@@ -271,9 +265,6 @@ def test_a_run_stores_the_bits_of_the_two_step_path(precision, noise):
     assert not stores["two steps"].takes_exports
     for store in stores.values():
         simulation = cartesian("numpy_ref", noise=noise)
-        simulation.settings = dataclasses.replace(
-            simulation.settings, precision=precision
-        )
         simulation.run(output=store, progress="none")
     names = ["field", "z", *(["noise_phase"] if noise else [])]
     for name in names:

@@ -276,10 +276,10 @@ class StageCache:
 def collar_rests(problem: PropagationProblem, stepper: StepperSettings) -> bool:
     """Return whether a run's stages may leave a quiet temporal collar out (SEP 21).
 
-    A binary64 modal or radial stage with the in-stage (``"nonlinear"``) scheme and a
-    temporal collar alone. The low-storage march, coupled flows, the general modal
-    route, a real-space collar sharing the term, single precision, and the Cartesian,
-    line and planar routes keep the collar in every stage (SEP 21 D15).
+    A modal or radial stage with the in-stage (``"nonlinear"``) scheme and a temporal
+    collar alone. The low-storage march, coupled flows, the general modal route, a
+    real-space collar sharing the term, and the Cartesian, line and planar routes keep
+    the collar in every stage (SEP 21 D15).
 
     - Returns: True when the term may be left out while the collar is quiet.
     """
@@ -294,7 +294,6 @@ def collar_rests(problem: PropagationProblem, stepper: StepperSettings) -> bool:
         and responses.absorber_scheme == "nonlinear"
         and problem.linear.coupled_flow is None
         and problem.transform.modal_tables is None
-        and not problem.precision.single
         and resting_geometry
     )
 

@@ -7,7 +7,7 @@ from `native/`), the threading model, the memory ledger and admission, which bac
 what, and what each backend is for and where new features land (§10). Which
 backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
-ADR-013, ADR-020, ADR-023, ADR-061, ADR-064.
+ADR-013, ADR-020, ADR-023, ADR-064, ADR-068, ADR-077.
 
 ## 1. The seam
 
@@ -17,9 +17,9 @@ processor is at or above a build's baseline, and otherwise raises `BackendError`
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
 Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
-enforce it. Two requests resolve before the registry and never consult native: a TDSE
-response's `auto` is `numpy_ref`, and single precision's is refused: name `numpy_ref`. Explicit names are preserved, so `backend="numpy_ref"` runs where native is
-absent and `backend="native"` on a processor below the baseline raises the package's refusal.
+enforce it. A TDSE response's `auto` resolves before the registry, to `numpy_ref`, and
+never consults native. Explicit names are preserved, so `backend="numpy_ref"` runs where
+native is absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
 successful construction. Import, build, device and unsupported-problem errors stay visible and
@@ -94,30 +94,26 @@ buffers, layout and plans are private; the state is never a parameter of `propag
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
-what is usable, a known name whose dependencies are missing raises `ImportError` saying
-what to install, and a removed name keeps a tombstone (`REMOVED_BACKENDS`):
-`backend="numba_cpu"` raises `BackendError` naming `native` and `numpy_ref`, wherever a
-requested name is resolved. A recorded name is not a request, so old output and snapshots
-that record it still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend, a retired
+one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
+`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
+`ImportError` saying what to install. A recorded name is not a request, so old output and
+snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
-**Registration.** A backend is one row of `registry.BACKENDS`, a `BackendEntry` that
-names by import path (`"module:attribute"`) everything selection reads of it, so
-`select`, `select_batch` and the policy checks read the row and never branch on the
-name: the modules it `requires` and the `extras` or `install` text that supply them;
-its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
-the reference group's lockstep runner `batch(owners)` (`select_batch`; the native row
-names none, its group running one native session per member); and the native policies, each `None` on a row without it: `first_use`, called
-before each construction (SEP 46's first-use calibration), `device`, the build
-description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
-device by name), and `far_field`, the far-field statistics the installed build declares
-(`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
-is imported until selection needs it, and only after `requires` is found. A new
-backend (Tier 3, ADR-061) in another distribution registers with one row, and runs and groups through its
-own `prepare` and `prepare_group` (**Selection** below); there is no entry-point
-discovery, so the row is added to `BACKENDS` in this repository.
+**The two backends.** There are exactly two (ADR-077), `registry.BACKEND_NAMES`:
+`numpy_ref` and `native`, with no plugin rows and no other backend. `select` constructs
+the reference through `solprop.backends.numpy_ref.construct` and the native backend
+through `solprop_native.NativeBackend`, each called as
+`factory(problem, request, *, grid, modes, profiles, options)`, importing each only when
+it is selected. Before a native construction it runs SEP 46's first-use calibration;
+`SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
+reference is refused a required device by name); and `statistics_refusal` reads the
+far-field statistics `NativeBackend.far_field_statistics` declares. `select_batch` is the
+reference group's lockstep runner; the native group runs one native session per member
+through its own `prepare_group` (**Selection** below). `auto` is `registry.AUTO`,
+`native`, with no fallback.
 
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
@@ -154,7 +150,7 @@ assembled outside that grouping is refused by name, at `driver.batch`'s
 `refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
 (`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
 are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by name by the reference's binary64
+axis. A member carrying a coupled flow is refused by name by the reference's
 lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
 no flow action; the native group admits one, each member's own session carrying its flow.
 
@@ -371,8 +367,8 @@ threading beyond what `scipy.fft` does with `workers=1`. It exists to be read an
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
-the supported executor of the short list of features `native` does not run yet: the TDSE
-response and single precision away from Apple silicon
+the supported executor of the one feature `native` does not run yet: the TDSE
+response
 ([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
@@ -505,37 +501,6 @@ that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency sh
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
 
-**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054). A
-problem whose `precision` is single is executed by `NumpySingleBackend`
-(`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
-reference's passes and step loop in binary32, through hooks of the reference that leave
-its binary64 arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`,
-`_error_norm`, `_envelope_sources`). It narrows the source tables once at construction,
-each with its block exponent (applied at upload where that is exact, refused otherwise
-unless the pass carries it, as the Raman kernel's does); holds the state at the launch's
-power-of-two scale `s`; forms every propagator, prefactor and z-table value in binary64
-and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the field-grid
-plasma in binary32 with each term's homogeneity factor in one host coefficient, the
-stable population forms and blocked running integrals
-(`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
-squares against `atol / s`; applies the split-step collar as the correction
-`a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once (a
-binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
-state and stages stayed complex64, and after every step that the finished state is
-complex64 and finite. Its fixed-schedule batches are the plain `HostGroup`, each
-member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
-member axis is binary64, so it refuses a single-precision member by name, and every
-lockstep batch refuses members of mixed precisions (`_validate_members`). The
-ionisation rate's table
-lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
-binary64 from the binary32 field, which is what the oracle defines. Its constructor applies the settings' own admission (`translate.precision.admit_precision`):
-a problem that reaches `registry.select` without passing `SimulationSettings` is still
-refused an adaptive `rtol` below the floor. The Adams integrator is admitted (#342):
-binary32 Adams agrees with binary64 Adams to the method's own truncation on the survival
-cases, and a single-precision history resumes in binary32 (`HostHistory.load_rows`,
-`NumpySingleBackend._adams_restore`). `native` refuses a single-precision
-problem by name.
-
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
 modes, profiles)` builds one, for the problem and the request it is run with: the
@@ -589,7 +554,7 @@ either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
 `NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
 (an adaptive member, step planes, members that do not share the schedule) before any
 member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
-opens its own `HostGroupSession` over the group runner its registry row names. A backend
+opens its own `HostGroupSession` over the group runner `select_batch` builds. A backend
 that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
@@ -1859,9 +1824,9 @@ is refused by `check_build`.
 [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
-was restructured. `backend="mlx"` raises `BackendError` (`registry.REMOVED_BACKENDS`),
-and output that records it still opens. Single precision runs on `numpy_ref`, its
-oracle. SEP 33 and the benchmark ledger keep what it measured.
+was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
+backend does, and output that records it still opens. Single precision went with it (ADR-077): every
+backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
 
@@ -1990,14 +1955,13 @@ that execution space.
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule groups | fibre and general guides; a coupled flow member by member (binary64 lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
+| fixed-schedule groups | fibre and general guides; a coupled flow member by member (the lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
 | the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -2043,11 +2007,11 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 ## 10. What each backend is for
 
-These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
-`numba_cpu` and superseded the statement that the documentation build installs no native
-backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
-`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
-reference, and refuses the rest by name.
+There are exactly two backends, with fixed roles and no tiers, and no other backend will be
+implemented, in this repository or as a plugin (ADR-077; ADR-064 retired `numba_cpu`,
+ADR-068 made `native` the primary backend). A feature lands on `native` and `numpy_ref` in
+either order. Each backend keeps what it runs, correct and in parity with the other, and
+refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|
@@ -2056,7 +2020,7 @@ reference, and refuses the rest by name.
 
 A SEP is final when its feature runs on both `numpy_ref` and `native` with parity tests
 ([SEP 0](seps/sep-0000-process.md)), or an accepted exception adds it to the list. A backend's
-role changes by a new decision record, and a new backend starts as experimental. `backend="auto"`
+role changes by a new decision record. `backend="auto"`
 is `native`, and refuses where the native package is missing or the processor is below its
 wheel's baseline (§1). The CI `docs` lane installs the native wheel, so a lesson or tutorial may
 use anything `native` runs; Read the Docs executes no gallery script, because all gallery
@@ -2067,10 +2031,6 @@ Which backend and build to choose for a run is the user guide's
 
 ## 11. Current limits
 
-- Single precision runs on `numpy_ref`, its oracle, alone; it
-  refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
-  the dispersive electronic response, the far-field statistics, noise models, the Adams
-  integrator and an adaptive `rtol` below `1e-6`.
 - The dispersive electronic response runs on `numpy_ref` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

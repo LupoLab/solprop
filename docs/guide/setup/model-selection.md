@@ -44,7 +44,7 @@ pulse, noise and output keywords; these differ, by interface:
 | keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_radial`, `prop_free`, `prop_planar` |
 |---|---|---|---|---|
 | `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
-| `rtol`, `atol`, `backend`, `precision` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
+| `rtol`, `atol`, `backend` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
 | loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
 | `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
@@ -214,9 +214,9 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 
 `backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
 native package is missing or the processor is below its minimum, and a problem the native
-backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its two
-exceptions are the TDSE response, which it runs on `numpy_ref`, and single precision, which it
-refuses, for you to name `numpy_ref` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
+backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its one
+exception is the TDSE response, which it runs on `numpy_ref`
+([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
 locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every

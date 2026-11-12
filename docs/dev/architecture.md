@@ -29,13 +29,9 @@ Luna's scope and its most valuable design choices, and is designed around the fo
 - a clean, fast-loading Python package that plays well with NumPy, SciPy, matplotlib and h5py.
 
 **Priorities, in order:** accuracy and reliability; then as much CPU performance as can be
-had; then GPU performance (ADR-020). Double precision by default: realistic modelling always
-carries noise, so the stepper's job is efficiency at sufficient accuracy, not extended
-precision. Single precision is an explicit per-run choice, `precision="single"`, under
-SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
-the controller, host scalars and propagator exponents in binary64, every narrowed table
-with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
-single-precision path is its oracle; `native` computes in binary64 only.
+had; then GPU performance (ADR-020). Double precision throughout, on every backend
+(ADR-077): realistic modelling always carries noise, so the stepper's job is efficiency at
+sufficient accuracy, not extended precision.
 
 ## 2. The model
 
@@ -697,13 +693,12 @@ chooses its own group: `start_group` asks the first member to prepare it,
   refuses step planes and groups only points of one execution layout
   (`solprop.driver.batch.compatible_groups`).
 - **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
-  prepared by `HostPreparedGroup`) serves every `numpy_ref` group, in both precisions.
+  prepared by `HostPreparedGroup`) serves every `numpy_ref` group.
   It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
-  member-axis stage arithmetic in binary64, which `select_batch` builds from the
-  registry row), which adopts the loaded member backends, each with its own tables,
+  member-axis stage arithmetic, which `select_batch` builds), which adopts the loaded member backends, each with its own tables,
   state and noise, and advances them through each common step in turn. It keeps that
   runner rather than composing one `HostSession` per member, because the runner's
-  arithmetic, failure positions and precision rule are what a reference group means:
+  arithmetic and failure positions are what a reference group means:
   the module docstring gives the reasons.
 
 Admission uses memory ledgers and a free-device-memory query with headroom.

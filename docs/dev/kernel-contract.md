@@ -52,7 +52,6 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
-| `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
 | `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`HostDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `PropagationProblem` also carries two **properties**, which are not fields and so not rows
 above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
@@ -68,7 +67,7 @@ what the problem promises alone; `translate.problem.validate_run(problem, reques
 the same checks in the same order with the request-dependent ones among them — the tables
 and leaves covering the run, a schedule landing on every plane and kink, the collar's
 stability, the split collar's crossing, the exponent budget, the method's admission on the
-route and the statistics the route and precision admit — and every backend calls it before
+route and the statistics the route admits — and every backend calls it before
 it allocates.
 
 ### The route union
@@ -1189,8 +1188,7 @@ arrays again, the backend included: `run_problem` hands them to the output witho
 and a handler may keep them. The array-backed state of a host backend is observed as it is
 and frozen, so its next step replaces it rather than accepting in place. `field_owned` says
 whether the backend made `field` for this observation alone and keeps no reference to it (the
-native backend's host copy, the reference's widened single-precision state; a backend's
-`observes_fresh_field`): the run's conversion to true-power amplitudes then works on it in
+native backend's host copy; a backend's `observes_fresh_field`): the run's conversion to true-power amplitudes then works on it in
 place, where for any other field that conversion's new array is what detaches the plane from
 the backend's state (SEP 47 §5.4). It is `False` by default and without a field.
 
@@ -1225,13 +1223,13 @@ source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
 an exception. There is no version counter to bump (ADR-068).
 
-A new **backend** extends no descriptor: it consumes this contract as it stands. It
-registers with one `BackendEntry` row in `solprop.backends.registry.BACKENDS`
-([backends.md §1](backends.md)), visits every route variant and component to prepare
-or refuse it by name, and runs through its own `prepare` (one run) and
-`prepare_group` (a group of compatible members, or a `BackendError` saying it runs
-none), so the run layer names no backend. It qualifies on the conformance suite in
-`tests/sessions` and against the reference.
+There are exactly two **backends**, `native` and `numpy_ref`, and no other will be
+added (ADR-077; [backends.md §1](backends.md)). Each consumes this contract as it
+stands, visits every route variant and component to prepare or refuse it by name, and
+runs through its own `prepare` (one run) and `prepare_group` (a group of compatible
+members, or a `BackendError` saying it runs none), so the run layer names no backend.
+Both qualify on the conformance suite in `tests/sessions`, native against the
+reference.
 
 ## 11. The Adams march
 

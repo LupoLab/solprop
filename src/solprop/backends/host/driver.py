@@ -62,7 +62,7 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import ControlRecord, PIController
+from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import (
     FixedSchedule,
@@ -608,15 +608,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         self._z = z
         self._state = cast(_StateT, state)
-
-    @property
-    def _norm_controller(self) -> PIController:
-        """Return the controller whose tolerances scale this backend's error norms.
-
-        The problem's own; a backend whose state is held at a scale ``s`` divides its
-        absolute tolerance by ``s`` (SEP 33 section 4.3).
-        """
-        return self._stepper.controller
 
     def _observed_field(
         self, state: _StateT
@@ -2239,12 +2230,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _collar_can_rest(self) -> bool:
         """Return whether this run's stages may leave a quiet temporal collar out.
 
-        One rule for every backend: a binary64 modal or radial stage with the
-        in-stage (``"nonlinear"``) scheme and a temporal collar alone. The
-        low-storage march, coupled flows, the general modal route, a real-space
-        collar sharing the term, single precision, and the Cartesian, line and
-        planar routes, whose stages keep the term whatever the monitor says, keep
-        the collar in every stage (SEP 21 D15).
+        One rule for every backend: a modal or radial stage with the in-stage
+        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
+        coupled flows, the general modal route, a real-space collar sharing the term,
+        and the Cartesian, line and planar routes, whose stages keep the term whatever
+        the monitor says, keep the collar in every stage (SEP 21 D15).
 
         - Returns: True when the term may be left out while the collar is quiet.
         """
@@ -2260,7 +2250,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             and responses.absorber_scheme == "nonlinear"
             and problem.linear.coupled_flow is None
             and problem.transform.modal_tables is None
-            and not problem.precision.single
             and resting_geometry
         )
 

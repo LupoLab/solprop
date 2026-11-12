@@ -655,8 +655,8 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     # the transverse quadrature, the norm's region in the controller, the
     # interaction formulation's name in an Adams method's representation, the
     # held-current identity, whose record and hash
-    # separation have their own held-source contract test, the precision, which its
-    # own resume test separates (SEP 33), and the absorber's spatial flag (SEP 21).
+    # separation have their own held-source contract test, and the absorber's spatial
+    # flag (SEP 21).
     # Every built-in material is optmat's since SEP 3, so the manifest is never
     # empty here.
     #
@@ -677,7 +677,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     hashed["configuration"] = {
         key: value
         for key, value in hashed["configuration"].items()
-        if key not in ("plasma_source", "precision")
+        if key != "plasma_source"
     }
     stepper = dict(hashed["stepper"])
     stepper["controller"] = {
