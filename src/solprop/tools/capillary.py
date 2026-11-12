@@ -103,7 +103,8 @@ class SolitonParams(Displayed):
     fwhm : float
         Full width at half maximum of the power in s.
     width : float
-        Natural width ``tau0`` of the shape in s (:func:`pulse_width`).
+        Natural width ``tau0`` of the shape in s
+        (:func:`~solprop.tools.pulse.pulse_width`).
     omega : float
         Angular frequency of the pump in rad/s.
     wavelength : float
@@ -141,7 +142,7 @@ class SolitonParams(Displayed):
         of a capillary it is 1.77 times `intensity`. NaN for a mode without a
         transverse profile (a dispersion-specified one).
     critical_power : float
-        Self-focusing power in W (:func:`self_focusing_power`).
+        Self-focusing power in W (:func:`~solprop.tools.beam.self_focusing_power`).
     dispersion_length : float
         In m.
     nonlinear_length : float
@@ -603,18 +604,18 @@ def capillary_design(
 ) -> SolitonParams:
     r"""Return the pressure and energy that give a capillary a soliton design.
 
-    The inverse of :func:`capillary_params`: the pressure puts the zero-dispersion
-    point at `zdw_wavelength` (:func:`pressure_zdw`), and the energy then gives the
-    pulse one soliton target. At that pressure :math:`\beta_2` and :math:`\gamma` do
-    not depend on the energy and :math:`N^2 = \gamma P_0\tau_0^2/|\beta_2|`, so the
-    peak power is :math:`P_0 = N^2|\beta_2|/(\gamma\tau_0^2)`. Give exactly one
-    target:
+    The inverse of :func:`capillary_params`: the pressure puts the zero-dispersion point
+    at `zdw_wavelength` (:func:`~solprop.tools.design.pressure_zdw`), and the energy
+    then gives the pulse one soliton target. At that pressure :math:`\beta_2` and
+    :math:`\gamma` do not depend on the energy and
+    :math:`N^2 = \gamma P_0\tau_0^2/|\beta_2|`, so the peak power is
+    :math:`P_0 = N^2|\beta_2|/(\gamma\tau_0^2)`. Give exactly one target:
 
     - `soliton_order`, the conventional :math:`N`;
     - `soliton_count`, a number :math:`M` of solitons in the scattering content
-      (:func:`soliton_content`): the pulse area is set to :math:`M\pi`, the middle
-      of the band of areas with :math:`M` solitons, which is :math:`N = M` for
-      sech and :math:`N = M\sqrt{\pi/2}` for a Gaussian;
+      (:func:`~solprop.tools.soliton.soliton_content`): the pulse area is set to
+      :math:`M\pi`, the middle of the band of areas with :math:`M` solitons, which is
+      :math:`N = M` for sech and :math:`N = M\sqrt{\pi/2}` for a Gaussian;
     - `largest_eigenvalue`, the :math:`\eta` of the largest constituent, which
       fixes its width :math:`\tau_0/(2\eta)`: :math:`N = \eta + 1/2` for sech, and
       a root of the Gaussian scattering problem otherwise.
@@ -624,7 +625,7 @@ def capillary_design(
     radius : float
         Core radius in m, > 0.
     gas : Gas or str
-        A single built-in gas, as :func:`pressure_zdw` takes it.
+        A single built-in gas, as :func:`~solprop.tools.design.pressure_zdw` takes it.
     zdw_wavelength : float
         Wavelength at which the dispersion should vanish, m.
     fwhm : float
@@ -652,7 +653,8 @@ def capillary_design(
         Cladding index; ``None`` is fused silica.
     materials : MaterialSelection or None, optional
         Design under this selection, as :func:`capillary_params` and
-        :func:`pressure_zdw` do. ``None`` is ``MaterialSelection()``.
+        :func:`~solprop.tools.design.pressure_zdw` do. ``None`` is
+        ``MaterialSelection()``.
     pressure_max : float, optional
         Upper end of the pressure bracket in **bar**.
 

@@ -202,7 +202,7 @@ def phase_mismatch(
         wavenumber; both ``None`` (the default) gives the linear condition.
     gamma : float or None, optional
         Nonlinear coefficient of the soliton's mode in rad/(W m)
-        (:func:`nonlinear_coefficient`).
+        (:func:`~solprop.tools.soliton.nonlinear_coefficient`).
     fwhm : float or None, optional
         Input power FWHM in s, positive; required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
@@ -224,13 +224,12 @@ def phase_mismatch(
         If pulse arguments are incomplete or contradictory, or the largest
         constituent does not exist in anomalous dispersion.
 
-    Notes
-    -----
-    The default nonlinear term is gamma times the largest constituent's power / 2
-    (:func:`soliton_content`). The supplied-power option treats the quoted power as
-    a fundamental soliton, advancing as exp(i gamma P0 z / 2) (Akhmediev and
-    Karlsson, Phys. Rev. A 51, 2602 (1995)). Both are local estimates; loss,
-    higher-order dispersion, Raman, chirp and plasma evolution are not included.
+    Notes ----- The default nonlinear term is gamma times the largest constituent's
+    power / 2 (:func:`~solprop.tools.soliton.soliton_content`). The supplied-power
+    option treats the quoted power as a fundamental soliton, advancing as exp(i gamma P0
+    z / 2) (Akhmediev and Karlsson, Phys. Rev. A 51, 2602 (1995)). Both are local
+    estimates; loss, higher-order dispersion, Raman, chirp and plasma evolution are not
+    included.
 
     Examples
     --------

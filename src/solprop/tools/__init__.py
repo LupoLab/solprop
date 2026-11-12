@@ -16,9 +16,10 @@ index :math:`n_2`,
    N = \sqrt{L_D/L_{NL}},\quad
    L_{\rm fiss} = L_D/N,
 
-with the natural width :math:`\tau_0` and the peak power :math:`P_0` of the chosen
-pulse shape (:func:`pulse_width`, :func:`pulse_peak_power`). One shape runs through the
-whole chain, so the Gaussian numbers are never computed with a ``sech`` width.
+with the natural width :math:`\tau_0` and the peak power :math:`P_0` of the chosen pulse
+shape (:func:`~solprop.tools.pulse.pulse_width`,
+:func:`~solprop.tools.pulse.pulse_peak_power`). One shape runs through the whole chain,
+so the Gaussian numbers are never computed with a ``sech`` width.
 
 A dispersive wave is phase matched to a soliton at the frequencies where
 
@@ -26,11 +27,11 @@ A dispersive wave is phase matched to a soliton at the frequencies where
    \Delta\beta(\omega) = \beta_{\rm dw}(\omega) - \beta_{\rm s}(\omega_0)
    - \beta_{1,\rm s}(\omega_0)(\omega-\omega_0) - k_{\rm NL}
 
-vanishes (:func:`phase_mismatch`). The last term is the soliton's nonlinear wavenumber
-and uses the largest unchirped constituent when pulse data are given
-(:func:`soliton_content`). Without pulse data the condition is linear.
-``docs/guide/workflows/design-tools.md`` derives both and says what the nonlinear term
-assumes.
+vanishes (:func:`~solprop.tools.phase_matching.phase_mismatch`). The last term is the
+soliton's nonlinear wavenumber and uses the largest unchirped constituent when pulse
+data are given (:func:`~solprop.tools.soliton.soliton_content`). Without pulse data the
+condition is linear. ``docs/guide/workflows/design-tools.md`` derives both and says what
+the nonlinear term assumes.
 
 Everything is SI except pressure, which is in bar as at the rest of the user interface
 (``docs/dev/conventions.md`` section 1).

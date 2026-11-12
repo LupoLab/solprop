@@ -101,7 +101,7 @@ bracket's ends, for the change to be a root. Brent's method converges onto a pol
 readily as onto a zero; at a zero the residual it ends on is of the order of the slope
 times the tolerance, many orders below the ends, and at a pole it diverges past both.
 A parameter has no integral like ``beta1`` to test the change against (see
-:data:`_POLE_FACTOR`), so the residual's own size decides."""
+:data:`~solprop.tools.waveguide._POLE_FACTOR`), so the residual's own size decides."""
 
 
 def _pressure_root(
@@ -601,12 +601,12 @@ class ZDW:
 class RDW:
     """Target a resonant dispersive wave phase matched at a wavelength.
 
-    The residual :func:`solve_parameter` brackets is :func:`phase_mismatch` of the
-    trial mode at `rdw`, in 1/m, exactly as :func:`pressure_rdw` evaluates it: with
-    `peak_power` the soliton's nonlinear wavenumber is included, with the trial
-    mode's own nonlinear coefficient, and with the largest constituent (`fwhm`
-    given) a trial value in normal dispersion or below the first soliton threshold
-    has no residual and cannot bracket a root.
+    The residual :func:`solve_parameter` brackets is
+    :func:`~solprop.tools.phase_matching.phase_mismatch` of the trial mode at `rdw`, in
+    1/m, exactly as :func:`pressure_rdw` evaluates it: with `peak_power` the soliton's
+    nonlinear wavenumber is included, with the trial mode's own nonlinear coefficient,
+    and with the largest constituent (`fwhm` given) a trial value in normal dispersion
+    or below the first soliton threshold has no residual and cannot bracket a root.
 
     Attributes
     ----------
@@ -622,7 +622,8 @@ class RDW:
     shape : {'sech', 'gauss'}
         Unchirped input shape for the largest constituent.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}
-        The nonlinear phase model, as :func:`phase_mismatch` takes it.
+        The nonlinear phase model, as
+        :func:`~solprop.tools.phase_matching.phase_mismatch` takes it.
 
     Raises
     ------
@@ -674,13 +675,14 @@ class RDW:
 class SolitonOrder:
     """Target a conventional soliton order for a fixed pulse.
 
-    The residual :func:`solve_parameter` brackets is :func:`soliton_order` of the
-    pulse in the trial mode, with the trial mode's own nonlinear coefficient, minus
-    `order`: a guide or fill parameter is solved for, the pulse is held. The order
-    is the conventional measure on either side of a zero-dispersion point, so a
-    search across one may find a root on each side. The opposite question, the
-    pulse that has an order on a given mode, is closed form:
-    :func:`soliton_peak_power` and :func:`pulse_energy`.
+    The residual :func:`solve_parameter` brackets is
+    :func:`~solprop.tools.soliton.soliton_order` of the pulse in the trial mode, with
+    the trial mode's own nonlinear coefficient, minus `order`: a guide or fill parameter
+    is solved for, the pulse is held. The order is the conventional measure on either
+    side of a zero-dispersion point, so a search across one may find a root on each
+    side. The opposite question, the pulse that has an order on a given mode, is closed
+    form: :func:`~solprop.tools.soliton.soliton_peak_power` and
+    :func:`~solprop.tools.pulse.pulse_energy`.
 
     Attributes
     ----------
@@ -760,7 +762,8 @@ class SolitonOrder:
     def peak_power(self) -> float:  # numpydoc ignore=RT01
         """The pulse's peak power, W.
 
-        The pulse's own, or that of its energy (:func:`pulse_peak_power`).
+        The pulse's own, or that of its energy
+        (:func:`~solprop.tools.pulse.pulse_peak_power`).
         """
         if self.pulse.peak_power is not None:
             return self.pulse.peak_power
@@ -778,7 +781,8 @@ RootChoice = Literal["lowest", "highest"] | int
 
 DesignBuild = Callable[[float], Mode | tuple[Mode, float]]
 """A builder: a trial value of the parameter to a mode, or to a mode and the fill's
-nonlinear coefficient in rad/(W m) (:func:`nonlinear_coefficient`)."""
+nonlinear coefficient in rad/(W m)
+(:func:`~solprop.tools.soliton.nonlinear_coefficient`)."""
 
 
 @dataclass(frozen=True)
@@ -1016,7 +1020,8 @@ def _target_residual(
 def _rdw_window(target: RDW) -> tuple[float, float]:
     """Return the window an RDW target's attainable wavelengths are searched in.
 
-    - Returns: :func:`lambda_rdw`'s default window, 100 nm to 0.9 of the pump, when the
+    - Returns: :func:`~solprop.tools.phase_matching.lambda_rdw`'s default window, 100 nm
+    to 0.9 of the pump, when the
       target is on the blue side of the pump, widened to include it; and the mirror of
       it, 1/0.9 of the pump to 3 um, on the red side.
     """
@@ -1121,10 +1126,11 @@ def solve_parameter(
     Parameters
     ----------
     build : callable
-        ``build(value)`` returns the mode at a trial value of the parameter, or
-        ``(mode, gamma)`` with the fill's nonlinear coefficient in rad/(W m)
-        (:func:`nonlinear_coefficient`), which an RDW target with a peak power and a
-        soliton-order target need: a mode need not know its fill's Kerr response.
+        ``build(value)`` returns the mode at a trial value of the parameter, or ``(mode,
+        gamma)`` with the fill's nonlinear coefficient in rad/(W m)
+        (:func:`~solprop.tools.soliton.nonlinear_coefficient`), which an RDW target with
+        a peak power and a soliton-order target need: a mode need not know its fill's
+        Kerr response.
     search : tuple of float
         Finite ordered range of the parameter, ``(low, high)``, in its unit.
     target : ZDW, RDW or SolitonOrder

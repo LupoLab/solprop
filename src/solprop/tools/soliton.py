@@ -49,7 +49,7 @@ def dispersion_length(fwhm: float, beta2: float, shape: PulseShape = "sech") -> 
     beta2 : float
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
-        The pulse shape; see :func:`pulse_width`.
+        The pulse shape; see :func:`~solprop.tools.pulse.pulse_width`.
 
     Returns
     -------
@@ -154,11 +154,11 @@ def soliton_peak_power(
 ) -> float:
     r"""Return the peak power that gives a soliton order.
 
-    The inverse of :func:`soliton_order` at fixed dispersion, nonlinear coefficient
-    and width: :math:`N^2 = \gamma P_0\tau_0^2/|\beta_2|` is linear in the peak
-    power, so :math:`P_0 = N^2|\beta_2|/(\gamma\tau_0^2)`. :func:`pulse_energy`
-    turns it into an energy. On a mode, take `beta2` from
-    :func:`solprop.modes.base.beta2` at the pump and `gamma` from
+    The inverse of :func:`soliton_order` at fixed dispersion, nonlinear coefficient and
+    width: :math:`N^2 = \gamma P_0\tau_0^2/|\beta_2|` is linear in the peak power, so
+    :math:`P_0 = N^2|\beta_2|/(\gamma\tau_0^2)`.
+    :func:`~solprop.tools.pulse.pulse_energy` turns it into an energy. On a mode, take
+    `beta2` from :func:`solprop.modes.base.beta2` at the pump and `gamma` from
     :func:`nonlinear_coefficient`, both at the launch position.
 
     Parameters
@@ -357,7 +357,7 @@ def fission_length(
     beta2 : float
         Group-velocity dispersion in s^2/m, non-zero.
     shape : {'sech', 'gauss'}, optional
-        The pulse shape; see :func:`pulse_width`.
+        The pulse shape; see :func:`~solprop.tools.pulse.pulse_width`.
 
     Returns
     -------
