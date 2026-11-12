@@ -123,6 +123,8 @@ def load(
     - ``field``: the state, shape ``(n_modes, n_pol, n_omega)``, of any strides.
     - ``noise``: the realisation to carry, or ``None`` for the problem's own.
     - ``z``: where the state belongs, m.
+    - ``resume``: `field` came back from a saved plane of this run, and so never takes
+      the ``input`` draw.
     """
     values = np.ascontiguousarray(field, dtype=np.complex128)
     if values.shape != problem.shape:
@@ -162,6 +164,7 @@ def schedule_index(stepper: StepperSettings, z: float) -> int:
     """Return how many steps of a replayed schedule a position has consumed.
 
     - ``z``: the position, m.
+    - Returns: the index of the schedule's edge at `z`, and 0 without a schedule.
     """
     schedule = stepper.schedule
     if schedule is None:

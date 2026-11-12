@@ -185,6 +185,8 @@ def plans(path: Path | None) -> tuple[dict[str, str], bool]:
 
     - ``path``: this build's plan file (:func:`wisdom_file`); ``None`` offers this
       process's own plans alone.
+    - Returns: each plan's wisdom by key, the file's under those this process measured,
+      and whether the file held any plan.
     """
     with _LOCK:
         found = _load(path) if path is not None else {}
@@ -224,6 +226,7 @@ def store(
     """Merge plans a run measured into the file.
 
     - ``path``: this build's plan file (:func:`wisdom_file`); ``None`` does nothing.
+    - ``profiled``: the keys a calibration profile holds, which are never stored here.
     """
     new = {key: plan for key, plan in measured.items() if key not in profiled}
     if path is None or not new:

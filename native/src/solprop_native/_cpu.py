@@ -254,6 +254,7 @@ def missing_features(baseline: str, flags: Iterable[str]) -> list[str]:
 def cpuinfo_flags(cpuinfo: str, key: str = "flags") -> frozenset[str] | None:
     """Return the first processor's feature names from ``/proc/cpuinfo`` text.
 
+    - ``key``: the line naming them: ``"flags"`` on x86, ``"Features"`` on Arm.
     - Returns: the names, or ``None`` when the text has no such line.
     """
     for line in cpuinfo.splitlines():
@@ -408,6 +409,7 @@ def select_variant(
 
     - ``requested``: a baseline to run instead, which must be listed and no better than
       the one chosen; the default reads ``SOLPROP_NATIVE_CPU_VARIANT``.
+    - Returns: the stem; ``"_core"`` for a package with one extension.
     """
     variants = read_variants(package_dir)
     request = os.environ.get(VARIANT_SETTING, "") if requested is None else requested

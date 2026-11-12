@@ -336,7 +336,10 @@ class Store:
         return generation
 
     def publish(self, generation: Generation) -> Path:
-        """Write `generation` completely, then make it current; return its file."""
+        """Write `generation` completely, then make it current; return its file.
+
+        If the store cannot be written, the previous generation stays current.
+        """
         directory = self.directory(generation.fingerprint)
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{generation.name}.json"

@@ -82,6 +82,9 @@ def hold(
 ) -> str:
     """Take the host BLAS pools for one more backend; return what applies.
 
+    - ``acquire``: an explicit host-lease hook supplied by solprop's backend adapter,
+      so construction and backend lifetimes share their pool ownership. Standalone use
+      keeps the local threadpoolctl limit and imports no solprop code.
     - Returns: the libraries limited and their width, ``"none"`` when there is no other
       BLAS, or ``"unavailable"`` without threadpoolctl.
     """

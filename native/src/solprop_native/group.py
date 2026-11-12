@@ -686,7 +686,13 @@ class NativeGroupSession:
         return member
 
     def _window(self, *, stepping: bool, final: bool) -> GroupBatch:
-        """Run every running member to its window's end, in rounds; report it."""
+        """Run every running member to its window's end, in rounds; report it.
+
+        - ``stepping``: the window takes common steps (a save plane's), so the stop
+          token is polled before its first round. The launch and the completion take
+          none; any later round of any window is polled too.
+        - ``final``: the window is the completion, which ends the group.
+        """
         windows = {
             index: _Window()
             for index, outcome in enumerate(self._outcomes)
@@ -800,6 +806,8 @@ class NativeGroupSession:
         """End every running member with a group-wide stop or failure.
 
         - ``windows``: the window's progress of each member running when it began.
+        - Returns: each running member's terminal event at its own committed position; a
+          member that ended in this window keeps its own terminal event.
         """
         events: list[tuple[Event, ...]] = [()] * len(self._sessions)
         for index, window in windows.items():

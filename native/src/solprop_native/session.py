@@ -330,8 +330,9 @@ def _refuse_foreign_monitor(
     """Refuse a boundary monitor built for another grid or mode set, by name.
 
     Its weights would be read out of bounds by the compiled sums, so they are held to
-    the grid's samples and the state's modes before they are bound, as the reference
-    refuses them where it attaches the monitor.
+    the grid's samples (weights ``(4, n_t)``) and the state's modes (columns
+    ``(n_modes,)``) before they are bound, as the reference refuses them where it
+    attaches the monitor.
     """
     n_t = problem.grids.n_t
     n_modes = problem.shape[0]
@@ -1623,7 +1624,10 @@ class NativeSession:
 
     @staticmethod
     def _history(attempts: np.ndarray) -> BackendHistory:
-        """Return a chunk's attempt rows as a history."""
+        """Return a chunk's attempt rows as a history.
+
+        - ``attempts``: ``(n, 5)`` rows: end, step, norm, acceptance, wall time.
+        """
         return BackendHistory(
             z=np.ascontiguousarray(attempts[:, 0]),
             dz=np.ascontiguousarray(attempts[:, 1]),

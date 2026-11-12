@@ -561,6 +561,7 @@ class NativeBackend:
           of any strides.
         - ``noise``: the realisation, or ``None`` for the problem's own.
         - ``z``: where the state belongs, m.
+        - ``resume``: the state came back from a saved plane, taking no ``input`` draw.
         """
         if self._closed:
             raise BackendError("this backend is closed; its buffers were released")
@@ -2905,6 +2906,8 @@ class _ZTables:
         """Evaluate ``D(z)`` into the rate slot; return its weights over the terms.
 
         - ``z``: position, m.
+        - ``before``: read an interior breakpoint from the interval ending there.
+        - Returns: shape ``(n_phi,)``, one at the rate slot.
         """
         assert self._native is not None
         assert self.rate_slot is not None

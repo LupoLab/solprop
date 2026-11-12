@@ -422,7 +422,11 @@ def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
 
 
 def _root(metric: np.ndarray) -> np.ndarray:
-    """Return the metric's square root as :func:`solprop.stats._whitened` forms it."""
+    """Return the metric's square root as :func:`solprop.stats._whitened` forms it.
+
+    ``W`` is ``(n_modes, n_modes, n_omega)``; ``W^(1/2)`` comes back frequency first,
+    ``(n_omega, n_modes, n_modes)``.
+    """
     values, vectors = np.linalg.eigh(np.moveaxis(metric, (0, 1), (-2, -1)))
     if np.any(values <= 0.0):
         msg = (

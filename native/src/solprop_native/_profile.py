@@ -229,6 +229,7 @@ def descriptor(
 
     - ``grid_kind``: ``"field"`` or ``"envelope"``.
     - ``sizing``: the workspace's ``execution_sizing``; only its keys are read.
+    - Returns: 24 hexadecimal digits.
     """
     text = json.dumps(
         {

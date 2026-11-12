@@ -152,6 +152,7 @@ class Counters:
         """Count one native march call from its returned rows.
 
         - ``kind``: the march, ``adams_march`` or ``rk_march``.
+        - ``rows``: the call's attempt rows, the accepted flag in column 3.
         - ``due``: accepted steps from the call's start to each piece of the driver's
           work, by name, as the call's ``host_step`` bound was formed.
         - ``read_at``: the transverse edge's next read, if the call was bounded by one.
