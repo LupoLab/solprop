@@ -210,11 +210,6 @@ def _probing() -> Iterator[None]:
     not results. The answer itself is re-evaluated outside this context, so a root
     that lies outside a model's range, or at a density beyond the dilute law,
     still warns.
-
-    Yields
-    ------
-    None
-        Control, with the warning categories ignored.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -223,25 +218,7 @@ def _probing() -> Iterator[None]:
 
 
 def _positive(name: str, value: float) -> float:
-    """Return a finite positive number or refuse it by name.
-
-    Parameters
-    ----------
-    name : str
-        The argument's name, for the message.
-    value : float
-        The value.
-
-    Returns
-    -------
-    float
-        The value as a float.
-
-    Raises
-    ------
-    ToolsError
-        If it is not finite and positive.
-    """
+    """Return a finite positive number or refuse it by name."""
     number = float(value)
     if not math.isfinite(number) or number <= 0.0:
         raise ToolsError(f"{name} must be finite and positive, got {value!r}")
@@ -251,15 +228,8 @@ def _positive(name: str, value: float) -> float:
 def _omega(wavelength: float) -> float:
     """Return the angular frequency of a vacuum wavelength.
 
-    Parameters
-    ----------
-    wavelength : float
-        Vacuum wavelength in m, > 0.
-
-    Returns
-    -------
-    float
-        Angular frequency in rad/s.
+    - ``wavelength``: vacuum wavelength in m, > 0.
+    - Returns: angular frequency in rad/s.
     """
     return 2.0 * math.pi * C / _positive("wavelength", wavelength)
 
@@ -267,15 +237,7 @@ def _omega(wavelength: float) -> float:
 def _check_shape(shape: str) -> None:
     """Refuse a pulse shape the design numbers are not defined for.
 
-    Parameters
-    ----------
-    shape : str
-        The shape keyword.
-
-    Raises
-    ------
-    ToolsError
-        If it is neither ``"sech"`` nor ``"gauss"``.
+    - ``shape``: the shape keyword.
     """
     if shape not in ("sech", "gauss"):
         raise ToolsError(f"shape must be 'sech' or 'gauss', got {shape!r}")
@@ -571,62 +533,18 @@ class SolitonContent:
 def _scattering_angle(
     x: float, theta: Float[np.ndarray, " n_components"], order: float, eta: float
 ) -> list[float]:
-    """Evaluate the real Zakharov-Shabat phase equation for a Gaussian.
-
-    Parameters
-    ----------
-    x : float
-        Time divided by the input width.
-    theta : numpy.ndarray
-        Unwrapped scattering angle, one element.
-    order : float
-        Conventional soliton order, the field's peak.
-    eta : float
-        Trial imaginary eigenvalue.
-
-    Returns
-    -------
-    list of float
-        Angle derivative.
-    """
+    """Evaluate the real Zakharov-Shabat phase equation for a Gaussian."""
     return [-order * math.exp(-x * x / 2.0) - eta * math.sin(2 * theta[0])]
 
 
 def _gaussian_eigenvalue(order: float) -> float:
-    """Solve the half-line scattering problem for the largest Gaussian eigenvalue.
-
-    Parameters
-    ----------
-    order : float
-        Conventional soliton order, above the first Gaussian threshold.
-
-    Returns
-    -------
-    float
-        Positive imaginary part of the dimensionless eigenvalue.
-
-    Raises
-    ------
-    ToolsError
-        If integration or eigenvalue refinement fails.
-    """
+    """Solve the half-line scattering problem for the largest Gaussian eigenvalue."""
     # The omitted field area is <= 1e-13. Moving the boundary with the amplitude
     # avoids assuming that the Gaussian tail is negligible for every input N.
     extent = math.sqrt(2.0) * float(erfcinv(1e-13 / (order * math.sqrt(math.pi / 2.0))))
 
     def residual(eta: float) -> float:
-        """Return the ground-state symmetry residual at the pulse centre.
-
-        Parameters
-        ----------
-        eta : float
-            Trial imaginary eigenvalue.
-
-        Returns
-        -------
-        float
-            Phase angle plus pi/4.
-        """
+        """Return the ground-state symmetry residual at the pulse centre."""
         if eta == 0.0:
             # The exact area protects the first threshold from tail truncation.
             return math.pi / 4.0 - order * math.sqrt(math.pi / 2.0)
@@ -1269,32 +1187,13 @@ def _resolve_fill(
 ) -> Mixture:
     """Return the mixture a fill declaration means, as the run interfaces read it.
 
-    Parameters
-    ----------
-    gas : Gas, str, Mapping or Mixture
-        A built-in gas, ``"air"`` (nitrogen and oxygen), mole fractions, or a
-        complete mixture.
-    pressure : float or None
-        Total pressure in bar; must be ``None`` beside a `Mixture`, which carries its
-        own, and defaults to one bar otherwise.
-    temperature : float or None
-        Fill temperature in K; ``None`` is room temperature, or the mixture's own
-        beside a `Mixture`, which refuses any other.
-    materials : MaterialSelection or None, optional
-        Resolve a name, a fraction mapping's names and ``"air"`` from optmat under
-        this selection, as the drivers' ``capillary_fill`` does; ``None`` is
-        ``MaterialSelection()``. A mixture is taken as it is.
-
-    Returns
-    -------
-    Mixture
-        The ordered populations.
-
-    Raises
-    ------
-    ToolsError
-        If a pressure, or a temperature other than its own, is given beside a
-        mixture, or the mixture's temperature varies along z.
+    - ``pressure``: total pressure in bar; must be ``None`` beside a `Mixture`, which
+      carries its own, and defaults to one bar otherwise.
+    - ``temperature``: fill temperature in K; ``None`` is room temperature, or the
+      mixture's own beside a `Mixture`, which refuses any other.
+    - ``materials``: resolve a name, a fraction mapping's names and ``"air"`` from
+      optmat under this selection, as the drivers' ``capillary_fill`` does; ``None`` is
+      ``MaterialSelection()``. A mixture is taken as it is.
     """
     if isinstance(gas, Mixture):
         if pressure is not None:
@@ -1337,17 +1236,7 @@ def _check_carrier(materials: MaterialSelection | None, wavelength: float) -> No
     wavelength, so a design tool refuses one other than the wavelength it evaluates
     the Kerr coefficient at: the two then evaluate it at the same carrier.
 
-    Parameters
-    ----------
-    materials : MaterialSelection or None
-        The design's material selection.
-    wavelength : float
-        The pump wavelength in m.
-
-    Raises
-    ------
-    ToolsError
-        If the selection names another carrier.
+    - ``wavelength``: the pump wavelength in m.
     """
     carrier = None if materials is None else materials.carrier_wavelength
     if carrier is not None and not carriers_agree(float(carrier), wavelength):
@@ -1365,16 +1254,7 @@ def _default_cladding(
 ) -> GlassIndex | complex:
     """Return the cladding a design's capillary takes, as the capillary driver does.
 
-    Parameters
-    ----------
-    cladding : GlassIndex, complex or None
-        The cladding given; ``None`` is the package default.
-
-    Returns
-    -------
-    GlassIndex or complex
-        A given cladding as it is; the default as optmat's recommended fused
-        silica.
+    - ``cladding``: the cladding given; ``None`` is the package default.
     """
     return fused_silica() if cladding is None else cladding
 
@@ -1382,24 +1262,10 @@ def _default_cladding(
 def _fill_chi3(mixture: Mixture, wavelength: float, z: float = 0.0) -> float:
     """Return a fill's density-weighted third-order susceptibility.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    wavelength : float
-        Vacuum wavelength in m, the carrier at which an optmat Kerr model is taken.
-    z : float, optional
-        Position in m at which the densities are evaluated.
-
-    Returns
-    -------
-    float
-        ``chi3`` in m^2/V^2.
-
-    Raises
-    ------
-    ToolsError
-        If a component of the fill has no Kerr data.
+    - ``wavelength``: vacuum wavelength in m, the carrier at which an optmat Kerr model
+      is taken.
+    - ``z``: position in m at which the densities are evaluated.
+    - Returns: ``chi3`` in m^2/V^2.
     """
     try:
         return float(mixture.gamma3_path(wavelength)(np.array([float(z)]))[0])
@@ -1412,25 +1278,11 @@ def _fill_n2(
 ) -> tuple[float, float]:
     """Return a fill's nonlinear index and its linear index at a wavelength.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        The fill.
-    wavelength : float
-        Vacuum wavelength in m, the carrier at which an optmat Kerr model is taken.
-    z : float, optional
-        Position in m at which the densities are evaluated.
-
-    Returns
-    -------
-    tuple of float
-        ``n2`` in m^2/W, from the density-weighted ``chi3`` and the exact ``n0^2`` of
-        the fill, and that linear index ``n0``.
-
-    Raises
-    ------
-    ToolsError
-        If a component of the fill has no Kerr data.
+    - ``wavelength``: vacuum wavelength in m, the carrier at which an optmat Kerr model
+      is taken.
+    - ``z``: position in m at which the densities are evaluated.
+    - Returns: ``n2`` in m^2/W, from the density-weighted ``chi3`` and the exact
+      ``n0^2`` of the fill, and that linear index ``n0``.
     """
     chi3 = _fill_chi3(mixture, wavelength, z)
     here = np.array([float(z)])
@@ -1442,20 +1294,10 @@ def _fill_n2(
 def _on_axis_intensity(mode: Mode, peak_power: float, z: float) -> float:
     """Return the on-axis intensity of a mode carrying a given power.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    peak_power : float
-        Power in W.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        Intensity on the axis in W/m^2, both transverse components included; NaN for
-        a mode that declares no transverse profile.
+    - ``peak_power``: power in W.
+    - ``z``: position along the waveguide, m.
+    - Returns: intensity on the axis in W/m^2, both transverse components included; NaN
+      for a mode that declares no transverse profile.
     """
     # The same synthesis the run's peak_intensity statistic uses: the normalised mode
     # field at the origin in V/m per sqrt(W), so that eps0 c |e|^2 / 2 is the
@@ -1481,20 +1323,11 @@ def _refine_zero(mode: Mode, low: float, high: float, z: float) -> float:
     of the differenced ``beta2``, which a scalar search converges onto until the model
     returns NaN.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    low, high : float
-        The bracket, rad/s, whose ends have ``beta2`` of opposite signs.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        The first sign change upwards in frequency, rad/s, linearly interpolated in the
-        last bracket; or NaN when samples that are not finite separate the signs.
+    - ``low``, ``high``: the bracket, rad/s, whose ends have ``beta2`` of opposite
+      signs.
+    - ``z``: position along the waveguide, m.
+    - Returns: the first sign change upwards in frequency, rad/s, linearly interpolated
+      in the last bracket; or NaN when samples that are not finite separate the signs.
     """
     first = last = math.nan
     for _ in range(_ZDW_REFINE_ROUNDS):
@@ -1524,19 +1357,10 @@ def _zdw_near(mode: Mode, omega: float, z: float) -> float:
     interval (3.6e13 rad/s) restore the sign and are both missed, and a sample that is
     not finite cannot bracket anything.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    omega : float
-        Pump angular frequency in rad/s.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        Wavelength in m, or NaN when the dispersion has no zero in 100 nm to 3 um.
+    - ``omega``: pump angular frequency in rad/s.
+    - ``z``: position along the waveguide, m.
+    - Returns: wavelength in m, or NaN when the dispersion has no zero in 100 nm to 3
+      um.
     """
     grid = np.linspace(
         2.0 * math.pi * C / _ZDW_RANGE[1],
@@ -1709,29 +1533,9 @@ def _capillary(
 ) -> MarcatiliMode:
     """Build the HE, TE or TM capillary the capillary design tools report on.
 
-    Parameters
-    ----------
-    radius : float
-        Core radius in m, > 0.
-    mixture : Mixture
-        The resolved fill.
-    n : int
-        Azimuthal mode index.
-    m : int
-        Radial mode index, >= 1.
-    kind : {'HE', 'TE', 'TM'}
-        Mode family.
-    model : {'full', 'reduced'}
-        Marcatili model.
-    loss : bool, float or callable
-        Loss policy of the mode.
-    cladding : GlassIndex, complex or None
-        Cladding index; ``None`` is fused silica.
-
-    Returns
-    -------
-    MarcatiliMode
-        The mode, as `prop_capillary` builds it for the same arguments.
+    - ``radius``: core radius in m, > 0.
+    - ``m``: radial mode index, >= 1.
+    - ``cladding``: cladding index; ``None`` is fused silica.
     """
     return MarcatiliMode(
         _positive("radius", radius),
@@ -1841,15 +1645,7 @@ def capillary_params(
 def _area_per_order(shape: PulseShape) -> float:
     """Return the pulse area over pi per unit conventional soliton order.
 
-    Parameters
-    ----------
-    shape : {'sech', 'gauss'}
-        The pulse shape.
-
-    Returns
-    -------
-    float
-        One for sech, ``sqrt(2 / pi)`` for a Gaussian (:func:`soliton_content`).
+    - ``shape``: the pulse shape.
     """
     return 1.0 if shape == "sech" else math.sqrt(2.0 / math.pi)
 
@@ -1857,36 +1653,13 @@ def _area_per_order(shape: PulseShape) -> float:
 def _gaussian_order(eigenvalue: float) -> float:
     """Return the conventional order whose Gaussian has a given largest eigenvalue.
 
-    Parameters
-    ----------
-    eigenvalue : float
-        Target imaginary part of the largest Zakharov-Shabat eigenvalue, > 0.
-
-    Returns
-    -------
-    float
-        The conventional soliton order.
-
-    Raises
-    ------
-    ToolsError
-        If the eigenvalue solve fails or the bracket does not hold the root.
+    - ``eigenvalue``: target imaginary part of the largest Zakharov-Shabat eigenvalue, >
+      0.
     """
     threshold = 0.5 / _area_per_order("gauss")
 
     def residual(order: float) -> float:
-        """Return the largest eigenvalue at an order less the target.
-
-        Parameters
-        ----------
-        order : float
-            Conventional soliton order.
-
-        Returns
-        -------
-        float
-            The difference, dimensionless.
-        """
+        """Return the largest eigenvalue at an order less the target."""
         # At and below the first threshold there is no bound state: the eigenvalue
         # that appears there starts from zero.
         if order <= threshold:
@@ -1916,26 +1689,10 @@ def _target_order(
 ) -> float:
     """Return the conventional soliton order that meets exactly one design target.
 
-    Parameters
-    ----------
-    order : float or None
-        A conventional soliton order, > 0.
-    count : int or None
-        A number of solitons, >= 1.
-    eigenvalue : float or None
-        The largest Zakharov-Shabat eigenvalue, > 0.
-    shape : {'sech', 'gauss'}
-        The pulse shape.
-
-    Returns
-    -------
-    float
-        The conventional soliton order.
-
-    Raises
-    ------
-    ToolsError
-        If not exactly one target is given, or it is out of range.
+    - ``order``: a conventional soliton order, > 0.
+    - ``count``: a number of solitons, >= 1.
+    - ``eigenvalue``: the largest Zakharov-Shabat eigenvalue, > 0.
+    - ``shape``: the pulse shape.
     """
     given = [
         name
@@ -2195,15 +1952,9 @@ class _BulkGas:
         difference quotient removes its rounding, which at a gas's ``n - 1`` of 1e-5 is
         the larger part of the quotient.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``omega (n - 1) / c`` in 1/m, with ``n - 1`` formed without cancellation.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: ``omega (n - 1) / c`` in 1/m, with ``n - 1`` formed without
+          cancellation.
         """
         chi = self.fill.susceptibility(omega, np.zeros(1))[0]
         excess = chi / (1.0 + np.sqrt(1.0 + chi))
@@ -2213,17 +1964,8 @@ class _BulkGas:
 def _bulk_beta2(bulk: _BulkGas, omega: float) -> float:
     """Return the bulk group-velocity dispersion by a Richardson central difference.
 
-    Parameters
-    ----------
-    bulk : _BulkGas
-        The gas.
-    omega : float
-        Angular frequency in rad/s.
-
-    Returns
-    -------
-    float
-        ``d^2 beta / d omega^2`` in s^2/m.
+    - ``omega``: angular frequency in rad/s.
+    - Returns: ``d^2 beta / d omega^2`` in s^2/m.
     """
     # A second difference of the gas's part of beta: only a ratio of two such numbers is
     # used, so the few parts in 1e5 this reaches at the step modes.base chose are ample.
@@ -2232,15 +1974,8 @@ def _bulk_beta2(bulk: _BulkGas, omega: float) -> float:
     def second(h: float) -> float:
         """Return the three-point second difference at step ``h``.
 
-        Parameters
-        ----------
-        h : float
-            Step in rad/s.
-
-        Returns
-        -------
-        float
-            The difference quotient in s^2/m.
+        - ``h``: step in rad/s.
+        - Returns: the difference quotient in s^2/m.
         """
         values = bulk.excess_beta(np.array([omega - h, omega, omega + h]))
         return float(values[0] - 2.0 * values[1] + values[2]) / h**2
@@ -2252,18 +1987,7 @@ def _bulk_beta2(bulk: _BulkGas, omega: float) -> float:
 
 
 def _check_phase(nonlinear_phase: str) -> None:
-    """Refuse a nonlinear phase model the phase matching does not define.
-
-    Parameters
-    ----------
-    nonlinear_phase : str
-        The phase keyword.
-
-    Raises
-    ------
-    ToolsError
-        If it is not ``"largest"``, ``"supplied_power"`` or ``"linear"``.
-    """
+    """Refuse a nonlinear phase model the phase matching does not define."""
     if nonlinear_phase not in ("largest", "supplied_power", "linear"):
         raise ToolsError(
             "nonlinear_phase must be 'largest', 'supplied_power' or 'linear', "
@@ -2282,13 +2006,7 @@ class _PhasePulse:
     nonlinear_phase: NonlinearPhase
 
     def __post_init__(self) -> None:
-        """Refuse incomplete or contradictory phase declarations.
-
-        Raises
-        ------
-        ToolsError
-            If the phase choice or pulse declaration is invalid.
-        """
+        """Refuse incomplete or contradictory phase declarations."""
         _check_shape(self.shape)
         _check_phase(self.nonlinear_phase)
         if (self.peak_power is None) != (self.gamma is None):
@@ -2324,24 +2042,9 @@ class _PhasePulse:
     def wavenumber(self, mode: Mode, omega: float, z: float) -> float:
         """Calculate the nonlinear phase in the soliton mode.
 
-        Parameters
-        ----------
-        mode : Mode
-            Mode carrying the soliton.
-        omega : float
-            Pump angular frequency in rad/s.
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        float
-            Nonlinear wavenumber in 1/m.
-
-        Raises
-        ------
-        ToolsError
-            If the largest-constituent model has no discrete soliton.
+        - ``omega``: pump angular frequency in rad/s.
+        - ``z``: position in m.
+        - Returns: nonlinear wavenumber in 1/m.
         """
         if self.peak_power is None or self.gamma is None:
             return 0.0
@@ -2375,15 +2078,8 @@ class _PhaseMismatch:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the mismatch at trial frequencies.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-
-        Returns
-        -------
-        numpy.ndarray
-            Mismatch in 1/m.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: mismatch in 1/m.
         """
         return np.asarray(
             base.beta(self.mode, omega, self.z)
@@ -2402,23 +2098,9 @@ def _prepare_mismatch(
 ) -> _PhaseMismatch:
     """Prepare a phase-matching calculation at one position.
 
-    Parameters
-    ----------
-    mode : Mode
-        Dispersive-wave mode.
-    wavelength : float
-        Pump wavelength in m.
-    soliton_mode : Mode or None
-        Pump mode, or None to use mode.
-    z : float
-        Position in m.
-    pulse : _PhasePulse
-        Validated pulse and phase choice.
-
-    Returns
-    -------
-    _PhaseMismatch
-        Callable with the nonlinear phase evaluated once.
+    - ``wavelength``: pump wavelength in m.
+    - ``soliton_mode``: pump mode, or None to use mode.
+    - ``z``: position in m.
     """
     soliton = mode if soliton_mode is None else soliton_mode
     omega0 = _omega(wavelength)
@@ -2592,18 +2274,11 @@ def lambda_rdw_all(
         2.0 * math.pi * C / longest, 2.0 * math.pi * C / shortest, _MISMATCH_SAMPLES
     )
 
-    def mismatch(value: float) -> float:
+    def _mismatch(value: float) -> float:
         """Return the mismatch at one frequency, for the root finder.
 
-        Parameters
-        ----------
-        value : float
-            Angular frequency in rad/s.
-
-        Returns
-        -------
-        float
-            Mismatch in 1/m.
+        - ``value``: angular frequency in rad/s.
+        - Returns: mismatch in 1/m.
         """
         return float(prepared(np.array([value]))[0])
 
@@ -2625,13 +2300,13 @@ def lambda_rdw_all(
                 # The refinement may land on a resonance exactly, where a model may
                 # divide by zero: such a point is no root, and is told apart below.
                 with np.errstate(divide="ignore", invalid="ignore"):
-                    root = float(brentq(mismatch, float(grid[i]), float(grid[i + 1])))
+                    root = float(brentq(_mismatch, float(grid[i]), float(grid[i + 1])))
             except ValueError:
                 # The index model is not a number inside the bracket: a resonance of
                 # the guide (an antiresonant fibre's), not a phase-matched wavelength.
                 continue
             with np.errstate(divide="ignore", invalid="ignore"):
-                residual = mismatch(root)
+                residual = _mismatch(root)
             if not abs(residual) <= min(abs(sampled[i]), abs(sampled[i + 1])):
                 # Refined onto a pole, through which the sign changed: no root.
                 continue
@@ -2746,24 +2421,9 @@ def _pressure_root(
 ) -> float:
     """Return the pressure at which a function of pressure vanishes.
 
-    Parameters
-    ----------
-    residual : callable
-        A function of the pressure in bar.
-    pressure_max : float
-        Upper end of the bracket in bar.
-    what : str
-        What is being matched, for the refusal.
-
-    Returns
-    -------
-    float
-        The root in bar.
-
-    Raises
-    ------
-    ToolsError
-        If the function has the same sign at both ends of the bracket.
+    - ``residual``: a function of the pressure in bar.
+    - ``pressure_max``: upper end of the bracket in bar.
+    - Returns: the root in bar.
     """
     top = _positive("pressure_max", pressure_max)
     if top <= _PRESSURE_FLOOR:
@@ -2804,29 +2464,10 @@ def _design_capillary(
     ``"air"``) as an optmat fill at one bar and ``cladding=None`` as optmat's
     recommended silica.
 
-    Parameters
-    ----------
-    radius : float
-        Core radius in m, > 0.
-    gas : Gas or str
-        The species.
-    temperature : float
-        Fill temperature in K.
-    m : int
-        Radial index of the HE_1m mode.
-    model : {'full', 'reduced'}
-        Marcatili model.
-    cladding : GlassIndex, complex or None
-        Cladding index; ``None`` is fused silica.
-    lattice : TubeLattice or None
-        Tube geometry for a VincettiMode; None builds a Marcatili capillary.
-    materials : MaterialSelection or None
-        The design's material selection.
-
-    Returns
-    -------
-    MarcatiliMode
-        The capillary at one bar.
+    - ``radius``: core radius in m, > 0.
+    - ``temperature``: fill temperature in K.
+    - ``cladding``: cladding index; ``None`` is fused silica.
+    - ``lattice``: tube geometry for a VincettiMode; None builds a Marcatili capillary.
     """
     bore = _positive("radius", radius)
     wall = _default_cladding(cladding)
@@ -2857,17 +2498,7 @@ def _capillary_at(mode: MarcatiliMode, pressure: float) -> MarcatiliMode:
     species' own equation of state (optmat's); a selected air, two populations at
     one shared pressure, is frozen at that pressure.
 
-    Parameters
-    ----------
-    mode : MarcatiliMode
-        The capillary, filled at any pressure.
-    pressure : float
-        Pressure in bar.
-
-    Returns
-    -------
-    MarcatiliMode
-        The same capillary at that pressure.
+    - ``pressure``: pressure in bar.
     """
     # pressure_rdw and pressure_zdw build this mode at their one scalar temperature.
     temperature = cast("float", mode.temperature)
@@ -2885,18 +2516,8 @@ def _search_grid(
 ) -> Float[np.ndarray, " n_samples"]:
     """Return the values a sampled root search evaluates its residual at.
 
-    Parameters
-    ----------
-    low, high : float
-        Finite ordered ends of the search range.
-    samples : int, optional
-        Number of linear samples, and of logarithmic ones.
-
-    Returns
-    -------
-    numpy.ndarray
-        `samples` linear values, and as many logarithmic ones where ``low > 0``,
-        merged and ascending; both ends are among them.
+    - Returns: `samples` linear values, and as many logarithmic ones where ``low > 0``,
+      merged and ascending; both ends are among them.
     """
     # The logarithmic grid resolves the low end of a range spanning decades (a
     # pressure from 1e-6 bar); the linear grid resolves structure at its high end.
@@ -2941,28 +2562,8 @@ def _sampled_roots(
     point is a root only if the residual there is below :data:`_ROOT_RESIDUAL` of
     its larger value at the bracket's ends. A sample that is exactly zero is a root.
 
-    Parameters
-    ----------
-    residual : callable
-        A function of the parameter returning a finite float, or None where the
-        target is undefined (an inadmissible state, such as no soliton).
-    limits : tuple of float
-        Finite ordered ends of the search range.
-    what : str
-        What the residual is, for the refusals.
-    narrow : str
-        What the caller narrows to resolve a bracket, for the refusals.
-
-    Returns
-    -------
-    _Sampled
-        The roots, and the samples.
-
-    Raises
-    ------
-    ToolsError
-        If the residual is not finite at a value, or a refinement reaches a value
-        where it is undefined.
+    - ``residual``: a function of the parameter returning a finite float, or None where
+      the target is undefined (an inadmissible state, such as no soliton).
     """
     low, high = limits
     grid = _search_grid(low, high)
@@ -2973,20 +2574,7 @@ def _sampled_roots(
     def checked(value: float) -> float | None:
         """Evaluate the residual once per value, refusing a value that is not finite.
 
-        Parameters
-        ----------
-        value : float
-            Trial value of the parameter.
-
-        Returns
-        -------
-        float or None
-            Finite residual, or None where the target is undefined.
-
-        Raises
-        ------
-        ToolsError
-            If the residual is not finite.
+        - Returns: finite residual, or None where the target is undefined.
         """
         if value not in seen:
             result = residual(value)
@@ -2996,23 +2584,7 @@ def _sampled_roots(
         return seen[value]
 
     def refine(value: float) -> float:
-        """Evaluate the residual inside one bracket, where it must be defined.
-
-        Parameters
-        ----------
-        value : float
-            Trial value of the parameter.
-
-        Returns
-        -------
-        float
-            The residual.
-
-        Raises
-        ------
-        ToolsError
-            If the bracket crossed a value where the target is undefined.
-        """
+        """Evaluate the residual inside one bracket, where it must be defined."""
         result = checked(value)
         if result is None:
             # The only undefined state a target has is the largest constituent's
@@ -3060,23 +2632,10 @@ def _rdw_pressure_root(
 ) -> float:
     """Find a unique pressure root without crossing a sampled inadmissible region.
 
-    Parameters
-    ----------
-    residual : callable
-        Mismatch in 1/m, or None only where no focusing discrete soliton exists.
-    limits : tuple of float
-        Positive ordered pressure bracket in bar.
-
-    Returns
-    -------
-    float
-        Unique pressure root in bar.
-
-    Raises
-    ------
-    ToolsError
-        If the bracket is invalid, the mismatch is nonfinite, a refinement enters
-        an inadmissible region, or there is no unique sampled root.
+    - ``residual``: mismatch in 1/m, or None only where no focusing discrete soliton
+      exists.
+    - ``limits``: positive ordered pressure bracket in bar.
+    - Returns: unique pressure root in bar.
     """
     low, high = limits
     if not (math.isfinite(low) and math.isfinite(high) and 0 < low < high):
@@ -3211,18 +2770,11 @@ def pressure_rdw(
         materials=materials,
     )
 
-    def residual(pressure: float) -> float | None:
+    def _residual(pressure: float) -> float | None:
         """Return the mismatch at the target for one pressure.
 
-        Parameters
-        ----------
-        pressure : float
-            Pressure in bar.
-
-        Returns
-        -------
-        float or None
-            Mismatch in 1/m, or None when the constituent does not exist.
+        - ``pressure``: pressure in bar.
+        - Returns: mismatch in 1/m, or None when the constituent does not exist.
         """
         mode = _capillary_at(base_mode, pressure)
         gamma = None
@@ -3232,7 +2784,7 @@ def pressure_rdw(
             gamma = nonlinear_coefficient(mode, index, wavelength)
         return _rdw_residual(design, mode, gamma, 0.0)
 
-    return _rdw_pressure_root(residual, limits)
+    return _rdw_pressure_root(_residual, limits)
 
 
 def pressure_zdw(
@@ -3302,18 +2854,11 @@ def pressure_zdw(
     )
     omega = np.array([_omega(zdw_wavelength)])
 
-    def residual(pressure: float) -> float:
+    def _residual(pressure: float) -> float:
         """Return the dispersion at the wavelength for one pressure.
 
-        Parameters
-        ----------
-        pressure : float
-            Pressure in bar.
-
-        Returns
-        -------
-        float
-            ``beta_2`` in s^2/m, scaled to order one.
+        - ``pressure``: pressure in bar.
+        - Returns: ``beta_2`` in s^2/m, scaled to order one.
         """
         mode = _capillary_at(base_mode, pressure)
         # Scaled so that brentq's absolute tolerance on the residual is meaningless
@@ -3321,7 +2866,7 @@ def pressure_zdw(
         return float(base.beta2(mode, omega)[0]) * 1e30
 
     return _pressure_root(
-        residual,
+        _residual,
         pressure_max,
         f"a zero-dispersion wavelength of {zdw_wavelength * 1e9:.4g} nm",
     )
@@ -3670,13 +3215,7 @@ class DesignRoots:
         return self.roots[root]
 
     def _unreachable(self) -> str:
-        """Return why no root was found.
-
-        Returns
-        -------
-        str
-            The search range and the attainable range of the quantity.
-        """
+        """Return why no root was found."""
         low, high = self.search
         if self.attainable is None:
             seen = f"the {self.quantity} is undefined across it"
@@ -3694,15 +3233,7 @@ class DesignRoots:
 def _describe(target: DesignTarget) -> str:
     """Return a target in words, for messages.
 
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-
-    Returns
-    -------
-    str
-        For example ``"a zero-dispersion wavelength of 500 nm"``.
+    - Returns: for example ``"a zero-dispersion wavelength of 500 nm"``.
     """
     if isinstance(target, ZDW):
         return f"a zero-dispersion wavelength of {target.wavelength * 1e9:.6g} nm"
@@ -3715,18 +3246,7 @@ def _describe(target: DesignTarget) -> str:
 
 
 def _quantity_name(target: DesignTarget) -> str:
-    """Return what a target's attainable range measures, with its unit.
-
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-
-    Returns
-    -------
-    str
-        The quantity and its unit.
-    """
+    """Return what a target's attainable range measures, with its unit."""
     if isinstance(target, ZDW):
         return "zero-dispersion wavelength nearest the target (m)"
     if isinstance(target, RDW):
@@ -3735,18 +3255,7 @@ def _quantity_name(target: DesignTarget) -> str:
 
 
 def _needs_gamma(target: DesignTarget) -> bool:
-    """Return whether a target needs the fill's nonlinear coefficient.
-
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-
-    Returns
-    -------
-    bool
-        True for a soliton order and for an RDW with a peak power.
-    """
+    """Return whether a target needs the fill's nonlinear coefficient."""
     if isinstance(target, RDW):
         return target.peak_power is not None
     return isinstance(target, SolitonOrder)
@@ -3755,24 +3264,9 @@ def _needs_gamma(target: DesignTarget) -> bool:
 def _pump_dispersion(mode: Mode, wavelength: float, z: float) -> float:
     """Return the group-velocity dispersion at a pump, refusing one not finite.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    wavelength : float
-        Pump wavelength in m.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``beta_2`` in s^2/m.
-
-    Raises
-    ------
-    ToolsError
-        If it is not finite.
+    - ``wavelength``: pump wavelength in m.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``beta_2`` in s^2/m.
     """
     dispersion = float(base.beta2(mode, np.array([_omega(wavelength)]), z)[0])
     if not math.isfinite(dispersion):
@@ -3788,27 +3282,10 @@ def _rdw_residual(
 ) -> float | None:
     """Return the phase mismatch at a dispersive-wave target, as the RDW search uses it.
 
-    Parameters
-    ----------
-    target : RDW
-        The target.
-    mode : Mode
-        The trial mode, carrying both the soliton and the wave.
-    gamma : float or None
-        The mode's nonlinear coefficient in rad/(W m); given with a peak power.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float or None
-        Mismatch in 1/m, or None when the largest constituent does not exist: in
-        normal dispersion, or at a pulse area at or below the first threshold.
-
-    Raises
-    ------
-    ToolsError
-        If the pump dispersion is not finite.
+    - ``gamma``: the mode's nonlinear coefficient in rad/(W m); given with a peak power.
+    - ``z``: position along the waveguide, m.
+    - Returns: mismatch in 1/m, or None when the largest constituent does not exist: in
+      normal dispersion, or at a pulse area at or below the first threshold.
     """
     if target.peak_power is not None and target.fwhm is not None:
         dispersion = _pump_dispersion(mode, target.pump, z)
@@ -3843,22 +3320,10 @@ def _target_residual(
 ) -> float | None:
     """Return a target's residual on one trial mode.
 
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-    mode : Mode
-        The trial mode.
-    gamma : float or None
-        Its nonlinear coefficient in rad/(W m), where the target needs one.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float or None
-        ``beta_2`` in s^2/m, the mismatch in 1/m (None where no soliton exists), or
-        the soliton order less the target's.
+    - ``gamma``: its nonlinear coefficient in rad/(W m), where the target needs one.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``beta_2`` in s^2/m, the mismatch in 1/m (None where no soliton exists),
+      or the soliton order less the target's.
     """
     if isinstance(target, ZDW):
         return float(base.beta2(mode, np.array([_omega(target.wavelength)]), z)[0])
@@ -3874,17 +3339,9 @@ def _target_residual(
 def _rdw_window(target: RDW) -> tuple[float, float]:
     """Return the window an RDW target's attainable wavelengths are searched in.
 
-    Parameters
-    ----------
-    target : RDW
-        The target.
-
-    Returns
-    -------
-    tuple of float
-        :func:`lambda_rdw`'s default window, 100 nm to 0.9 of the pump, when the
-        target is on the blue side of the pump, widened to include it; and the
-        mirror of it, 1/0.9 of the pump to 3 um, on the red side.
+    - Returns: :func:`lambda_rdw`'s default window, 100 nm to 0.9 of the pump, when the
+      target is on the blue side of the pump, widened to include it; and the mirror of
+      it, 1/0.9 of the pump to 3 um, on the red side.
     """
     if target.rdw < target.pump:
         return (min(_ZDW_RANGE[0], 0.9 * target.rdw), 0.9 * target.pump)
@@ -3896,22 +3353,10 @@ def _target_quantity(
 ) -> float:
     """Return what a target measures on one trial mode, for the attainable range.
 
-    Parameters
-    ----------
-    target : ZDW, RDW or SolitonOrder
-        The target.
-    mode : Mode
-        The trial mode.
-    gamma : float or None
-        Its nonlinear coefficient in rad/(W m), where the target needs one.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        The zero-dispersion or phase-matched wavelength nearest the target's in m,
-        or the soliton order; NaN where the mode has none.
+    - ``gamma``: its nonlinear coefficient in rad/(W m), where the target needs one.
+    - ``z``: position along the waveguide, m.
+    - Returns: the zero-dispersion or phase-matched wavelength nearest the target's in
+      m, or the soliton order; NaN where the mode has none.
     """
     if isinstance(target, ZDW):
         return _zdw_near(mode, _omega(target.wavelength), z)
@@ -3946,26 +3391,8 @@ def _built(
 ) -> tuple[Mode, float | None]:
     """Call a builder and check what it returned.
 
-    Parameters
-    ----------
-    build : callable
-        The builder.
-    value : float
-        Trial value of the parameter.
-    target : ZDW, RDW or SolitonOrder
-        The target, which says whether a nonlinear coefficient is needed.
-
-    Returns
-    -------
-    tuple
-        The mode, and the nonlinear coefficient in rad/(W m), or None where the
-        target does not use one.
-
-    Raises
-    ------
-    ToolsError
-        If the builder returned neither a mode nor a mode and a positive
-        coefficient, or no coefficient for a target that needs one.
+    - Returns: the mode, and the nonlinear coefficient in rad/(W m), or None where the
+      target does not use one.
     """
     result = build(value)
     if isinstance(result, tuple):
@@ -4065,18 +3492,10 @@ def solve_parameter(
         raise ToolsError(f"z must be finite, got {z!r}")
     builds = 0
 
-    def residual(value: float) -> float | None:
+    def _residual(value: float) -> float | None:
         """Build the mode at one value and return the target's residual.
 
-        Parameters
-        ----------
-        value : float
-            Trial value of the parameter.
-
-        Returns
-        -------
-        float or None
-            The residual, or None where the target is undefined.
+        - Returns: the residual, or None where the target is undefined.
         """
         nonlocal builds
         builds += 1
@@ -4084,11 +3503,11 @@ def solve_parameter(
         return _target_residual(target, mode, gamma, z)
 
     sampled = _sampled_roots(
-        residual, (low, high), what="the target's residual", narrow="search"
+        _residual, (low, high), what="the target's residual", narrow="search"
     )
     # Outside the probing context, so a root beyond an index model's range warns.
     for root in sampled.roots:
-        residual(root)
+        _residual(root)
     attainable = None
     if not sampled.roots:
         # The modes are rebuilt rather than kept from the search, on a coarser grid:

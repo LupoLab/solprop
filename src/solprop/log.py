@@ -1081,32 +1081,11 @@ class LogReporter:
         )
 
     def _say(self, level: int, message: str, *args: object) -> None:
-        """Log one of the lines a person reads whole: the summary and the closing one.
-
-        Parameters
-        ----------
-        level : int
-            The record's level.
-        message : str
-            The ``%``-format of the record.
-        *args : object
-            Its arguments.
-        """
+        """Log a line a person reads whole: the summary or the closing one."""
         self._logger.log(level, message, *args)
 
     def _median_error(self, index: int) -> float:
-        """Return the median absolute relative error of one of the two estimators.
-
-        Parameters
-        ----------
-        index : int
-            ``0`` for the windowed estimate, ``1`` for the whole-run one.
-
-        Returns
-        -------
-        float
-            The median over every line that published an estimate, or NaN.
-        """
+        """Return the median absolute relative error of one of the two estimators."""
         if self._elapsed_final is None:
             return math.nan
         errors = [
@@ -1123,15 +1102,7 @@ class LogReporter:
         The one place the estimator's bookkeeping happens, so every reporter built on
         this one -- the line and the bar -- is measured the same way.
 
-        Parameters
-        ----------
-        now : float
-            The clock reading the status is formed at, s.
-
-        Returns
-        -------
-        ProgressStatus
-            Where the run is and what it expects.
+        - ``now``: the clock reading the status is formed at, s.
         """
         elapsed = now - self._t0 if self._t0 is not None else 0.0
         self._window.append((now, self._z, self._n_accepted))
@@ -1153,18 +1124,7 @@ class LogReporter:
 
     @staticmethod
     def _tail(status: "ProgressStatus") -> str:
-        """Return the ETA clause of a line or a bar.
-
-        Parameters
-        ----------
-        status : ProgressStatus
-            What :meth:`_status` returned.
-
-        Returns
-        -------
-        str
-            ``ETA H:MM:SS (from the last H:MM:SS)`` or ``ETA unknown``.
-        """
+        """Return the ETA clause of a line or a bar."""
         if not status.known:
             return "ETA unknown"
         return (
@@ -1175,10 +1135,7 @@ class LogReporter:
     def _emit(self, now: float) -> None:
         """Form both ETAs, record them, and log one periodic line.
 
-        Parameters
-        ----------
-        now : float
-            The clock reading this line is being emitted at, s.
+        - ``now``: the clock reading this line is being emitted at, s.
         """
         status = self._status(now)
         if not self._logger.isEnabledFor(self._level):
@@ -1200,19 +1157,11 @@ class LogReporter:
     def _estimates(self, now: float, elapsed: float) -> tuple[float, float, float]:
         """Return the windowed ETA, the whole-run ETA and the window's own length.
 
-        Parameters
-        ----------
-        now : float
-            The clock reading the estimates are formed at, s.
-        elapsed : float
-            Time since :meth:`started`, s.
-
-        Returns
-        -------
-        tuple of float
-            The windowed estimate, the whole-run estimate and the length of the window
-            the first was taken over, all in seconds. An estimate that cannot be formed
-            from a positive rate is infinite, which formats as ``unknown``.
+        - ``now``: the clock reading the estimates are formed at, s.
+        - ``elapsed``: time since :meth:`started`, s.
+        - Returns: the windowed estimate, the whole-run estimate and the length of the
+          window the first was taken over, all in seconds. An estimate that cannot be
+          formed from a positive rate is infinite, which formats as ``unknown``.
         """
         remaining = max(self._z_end - self._z, 0.0)
         done = self._z - self._z_start
@@ -1273,10 +1222,7 @@ TQDM_MISSING = (
 def _tqdm_available() -> bool:
     """Return whether tqdm can be imported, without importing it.
 
-    Returns
-    -------
-    bool
-        Whether a bar can be drawn in this environment.
+    - Returns: whether a bar can be drawn in this environment.
     """
     return importlib.util.find_spec("tqdm") is not None
 
@@ -1288,16 +1234,6 @@ def _tqdm_class() -> Any:
     import happens when a bar is first drawn. ``tqdm.auto`` warns when a notebook
     lacks ``ipywidgets`` and falls back to the text bar, which is the documented
     fallback, so the warning is not one the suite should turn into an error.
-
-    Returns
-    -------
-    type
-        The ``tqdm`` class to draw with.
-
-    Raises
-    ------
-    ImportError
-        If tqdm is not installed in this environment, saying what to do.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1314,14 +1250,6 @@ class _BarHandler(logging.Handler):
     Takes the place of a :class:`logging.StreamHandler` for a bar's lifetime and
     writes each record with ``tqdm.write``, which clears the bars drawn on that stream,
     writes the line and redraws them.
-
-    Parameters
-    ----------
-    tqdm : type
-        The class whose ``write`` to use.
-    original : logging.StreamHandler
-        The handler being stood in for, whose stream, level, formatter and filters
-        this one takes.
     """
 
     def __init__(self, tqdm: Any, original: logging.StreamHandler) -> None:  # type: ignore[type-arg] - a text stream
@@ -1333,13 +1261,7 @@ class _BarHandler(logging.Handler):
         self._stream = original.stream
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Write one record above the bars on this handler's stream.
-
-        Parameters
-        ----------
-        record : logging.LogRecord
-            The record to write.
-        """
+        """Write one record above the bars on this handler's stream."""
         try:
             self._tqdm.write(self.format(record), file=self._stream)
         except Exception:  # logging must not end a run: logging.Handler's contract
@@ -1561,10 +1483,7 @@ class BarReporter(LogReporter):
     def _emit(self, now: float) -> None:
         """Advance the estimator and redraw the bar.
 
-        Parameters
-        ----------
-        now : float
-            The clock reading this redraw happens at, s.
+        - ``now``: the clock reading this redraw happens at, s.
         """
         status = self._status(now)
         if self._bar is None:
@@ -1582,17 +1501,7 @@ class BarReporter(LogReporter):
         self._bar.refresh()
 
     def _say(self, level: int, message: str, *args: object) -> None:
-        """Log a line a person reads whole, and write it out when nothing else would.
-
-        Parameters
-        ----------
-        level : int
-            The record's level.
-        message : str
-            The ``%``-format of the record.
-        *args : object
-            Its arguments.
-        """
+        """Log a line a person reads whole, and write it out when nothing else would."""
         super()._say(level, message, *args)
         if self._echo and not self._console_shows(level):
             stream: Any = sys.stderr if self._file is None else self._file
@@ -1600,20 +1509,7 @@ class BarReporter(LogReporter):
             stream.flush()
 
     def _console_shows(self, level: int) -> bool:
-        """Return whether a console handler already prints a record of this level.
-
-        Parameters
-        ----------
-        level : int
-            The record's level.
-
-        Returns
-        -------
-        bool
-            Whether the logger is enabled for it and a handler on its path, at or
-            below that level, writes to standard output or error or to the bar's own
-            stream.
-        """
+        """Return whether a console handler already prints a record of this level."""
         if not self._logger.isEnabledFor(level):
             return False
         consoles = [sys.stdout, sys.stderr, self._file]
@@ -1632,13 +1528,7 @@ class BarReporter(LogReporter):
         return False
 
     def _redirect_logging(self, tqdm: Any) -> None:
-        """Stand a bar-aware handler in for each console handler, for the bar's life.
-
-        Parameters
-        ----------
-        tqdm : type
-            The class whose ``write`` the stand-ins use.
-        """
+        """Stand a bar-aware handler in for each console handler, for the bar's life."""
         consoles = [sys.stdout, sys.stderr]
         if self._file is not None:
             consoles.append(self._file)

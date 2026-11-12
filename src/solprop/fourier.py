@@ -76,16 +76,6 @@ def _check_kind(kind: str) -> None:
     The parameter is a plain string rather than :data:`GridKind` on purpose: this is the
     run-time guard for callers that ignore the annotation, and the test session's
     ``beartype`` hook would otherwise reject the bad value before this check is reached.
-
-    Parameters
-    ----------
-    kind : str
-        Layout name to check.
-
-    Raises
-    ------
-    GridError
-        If ``kind`` is not one of the two layout names.
     """
     if kind not in ("field", "envelope"):
         msg = f"kind must be 'field' or 'envelope', got {kind!r}"
@@ -95,22 +85,7 @@ def _check_kind(kind: str) -> None:
 def _n_t_from_n_omega(n_omega: int, kind: GridKind) -> int:
     """Return the number of time samples a spectrum of ``n_omega`` bins came from.
 
-    Parameters
-    ----------
-    n_omega : int
-        Number of spectral bins.
-    kind : {'field', 'envelope'}
-        Spectral layout.
-
-    Returns
-    -------
-    int
-        The corresponding number of time samples, ``n_t``.
-
-    Raises
-    ------
-    GridError
-        If the bin count is too small to be a valid grid.
+    - ``kind``: spectral layout.
     """
     _check_kind(kind)
     n_t = 2 * (n_omega - 1) if kind == "field" else n_omega
@@ -160,20 +135,7 @@ def n_omega_for(n_t: int, kind: GridKind) -> int:
 
 
 def _check_time_dtype(x: np.ndarray, kind: GridKind) -> None:
-    """Check that time samples have the dtype their layout requires.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Time samples to check.
-    kind : {'field', 'envelope'}
-        Layout the samples are claimed to belong to.
-
-    Raises
-    ------
-    GridError
-        If a field array is complex or an envelope array is real.
-    """
+    """Check that time samples have the dtype their layout requires."""
     _check_kind(kind)
     if kind == "field" and np.iscomplexobj(x):
         msg = (
@@ -192,22 +154,8 @@ def _check_time_dtype(x: np.ndarray, kind: GridKind) -> None:
 def _check_spectrum(x_omega: np.ndarray, kind: GridKind) -> int:
     """Check a spectrum's trailing axis against its layout and return ``n_t``.
 
-    Parameters
-    ----------
-    x_omega : numpy.ndarray
-        Spectrum whose last axis is the frequency axis.
-    kind : {'field', 'envelope'}
-        Spectral layout.
-
-    Returns
-    -------
-    int
-        The number of time samples the spectrum corresponds to.
-
-    Raises
-    ------
-    GridError
-        If the trailing axis is not a valid length for the layout.
+    - ``x_omega``: spectrum whose last axis is the frequency axis.
+    - ``kind``: spectral layout.
     """
     return _n_t_from_n_omega(np.shape(x_omega)[-1], kind)
 
@@ -457,18 +405,7 @@ def to_internal(x: Num[np.ndarray, "*shape"]) -> Num[np.ndarray, "*shape"]:
 
 
 def _origin_shift(n_omega: int) -> Float[np.ndarray, " n_omega"]:
-    """Return the half-window phase-origin factor as an array of alternating signs.
-
-    Parameters
-    ----------
-    n_omega : int
-        Number of spectral bins.
-
-    Returns
-    -------
-    numpy.ndarray
-        The values ``(-1)**k`` for storage index ``k``, shape ``(n_omega,)``.
-    """
+    """Return the half-window phase-origin factor as an array of alternating signs."""
     shift = np.ones(n_omega)
     shift[1::2] = -1.0
     return shift
@@ -592,21 +529,7 @@ def spectrum_to_internal(
 
 
 def _check_sizes(n_t: int, n_to: int) -> None:
-    """Check a coarse/fine size pair, naming the offending quantity.
-
-    Parameters
-    ----------
-    n_t : int
-        Coarse number of time samples.
-    n_to : int
-        Fine number of time samples.
-
-    Raises
-    ------
-    GridError
-        If either size is not an even integer of at least 4, if ``n_to`` is smaller than
-        ``n_t``, or if it is not an integer multiple of ``n_t``.
-    """
+    """Check a coarse/fine size pair, naming the offending quantity."""
     for name, value in (("n_t", n_t), ("n_to", n_to)):
         if value < MIN_N_T or value % 2:
             msg = f"{name} must be an even integer of at least {MIN_N_T}, got {value}"

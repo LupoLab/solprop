@@ -346,13 +346,7 @@ class Absorber:
         self._check_user_rate()
 
     def _check_user_rate(self) -> None:
-        """Check that the user's rate is a share of the total spectral rate.
-
-        Raises
-        ------
-        GridError
-            If it is misshaped, not finite, negative or above the total.
-        """
+        """Check that the user's rate is a share of the total spectral rate."""
         if self.user_rate is None:
             return
         share = np.asarray(self.user_rate, dtype=np.float64)
@@ -394,17 +388,7 @@ class Absorber:
 def _check_length(name: str, length: float) -> None:
     """Refuse a collar length that is not positive and finite.
 
-    Parameters
-    ----------
-    name : str
-        The field's name, for the message.
-    length : float
-        The length, m.
-
-    Raises
-    ------
-    GridError
-        If the length is not positive and finite.
+    - ``length``: the length, m.
     """
     if not (math.isfinite(length) and length > 0.0):
         msg = (
@@ -534,27 +518,7 @@ def _reference_length(
 ) -> float:
     """Return the absorber reference length in metres.
 
-    Parameters
-    ----------
-    grid : TimeGrid
-        The grid, for its propagation length.
-    boundary_n : float
-        Applications of the collar profile over the whole propagation.
-    boundary_length : float or None
-        An explicit reference length in metres, which wins if given.
-
-    Returns
-    -------
-    float
-        The reference length in metres.
-
-    Raises
-    ------
-    GridError
-        If the result would not be positive and finite. This is checked here so that
-        every caller is covered: a zero length makes the rate ``0/0`` in the interior
-        and fills the grid with NaN, and a negative one inverts the clamp so that the
-        absorber amplifies everywhere rather than absorbing in the collar.
+    - ``boundary_length``: an explicit reference length in metres, which wins if given.
     """
     if boundary_length is not None:
         if not (math.isfinite(boundary_length) and boundary_length > 0.0):
@@ -574,22 +538,8 @@ def _check_collar(
 ) -> None:
     """Reject a collar whose edges are too narrow to be a taper on this axis.
 
-    Parameters
-    ----------
-    name : str
-        The collar's name, for the message.
-    collar : Collar
-        The geometry to check.
-    axis : numpy.ndarray
-        The axis the collar is evaluated on, shape ``(n,)``.
-    units : str
-        The axis units, for the message.
-
-    Raises
-    ------
-    GridError
-        If either edge has non-positive width, or is resolved by fewer than
-        ``MIN_COLLAR_SAMPLES`` samples.
+    - ``axis``: the axis the collar is evaluated on, shape ``(n,)``.
+    - ``units``: the axis units, for the message.
     """
     span = float(np.max(axis) - np.min(axis))
     for edge, width, low, high in (
@@ -631,22 +581,8 @@ def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
     grid. For two edges of width ``w`` the Planck taper's symmetry makes it ``w``,
     giving ``ell_c = 6.3 w L / (Gamma dtau)``.
 
-    Parameters
-    ----------
-    grid : TimeGrid
-        The grid, for its temporal collar and its propagation length.
-    walkoff : float
-        The drift over ``grid.length``, s.
-
-    Returns
-    -------
-    float
-        The collar length in metres.
-
-    Raises
-    ------
-    GridError
-        If the drift is not positive and finite, or the length it asks for is not.
+    - ``walkoff``: the drift over ``grid.length``, s.
+    - Returns: the collar length in metres.
     """
     if not (math.isfinite(walkoff) and walkoff > 0.0):
         msg = (
@@ -1090,19 +1026,8 @@ class SplitCrossing:
         re, im = np.real(spectrum), np.imag(spectrum)
         weights = None if columns is None else np.asarray(columns, dtype=np.float64)
 
-        def block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
-            """Return a block of modes' energy per bucket.
-
-            Parameters
-            ----------
-            rows : slice
-                The block of modes.
-
-            Returns
-            -------
-            numpy.ndarray
-                The block's energy in each bucket.
-            """
+        def _block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
+            """Return a block of modes' energy per bucket."""
             energy = np.einsum("bmpw,bmpw->mw", re[:, rows], re[:, rows]) + np.einsum(
                 "bmpw,bmpw->mw", im[:, rows], im[:, rows]
             )
@@ -1114,7 +1039,7 @@ class SplitCrossing:
                 minlength=SPLIT_RATE_BUCKETS,
             ).astype(np.float64)
 
-        return np.sum(parallel_rows(spectrum.shape[1], spectrum.nbytes, block), axis=0)
+        return np.sum(parallel_rows(spectrum.shape[1], spectrum.nbytes, _block), axis=0)
 
     def limit(self, occupancy: Float[np.ndarray, " n_buckets"]) -> float:
         """Return the crossing limit of an occupancy, m.
@@ -1467,15 +1392,7 @@ def warn_walkoff(
 
 
 def _log_summary(grid: TimeGrid, boundary: Absorber) -> None:
-    """Record the absorber's strength and geometry at debug level.
-
-    Parameters
-    ----------
-    grid : TimeGrid
-        The grid the absorber was built from.
-    boundary : Absorber
-        The finished absorber.
-    """
+    """Record the absorber's strength and geometry at debug level."""
     if logger.isEnabledFor(logging.DEBUG):
         collar = grid.t_collar
         window = float(np.max(grid.t) - np.min(grid.t))

@@ -67,10 +67,7 @@ class PolarisationEllipse:
 def _angle(value: float) -> None:
     """Reject a non-finite angle before evaluating trigonometric functions.
 
-    Parameters
-    ----------
-    value : float
-        Angle in rad.
+    - ``value``: angle in rad.
     """
     if not math.isfinite(value):
         raise PolarisationError(f"angle must be finite, got {value!r}")
@@ -79,20 +76,7 @@ def _angle(value: float) -> None:
 def _complex_array(
     value: ArrayLike, shape: tuple[int, ...]
 ) -> Complex[np.ndarray, " *shape"]:
-    """Validate a finite Jones vector or matrix without broadcasting.
-
-    Parameters
-    ----------
-    value : array_like
-        Jones data in field units or dimensionless for a matrix.
-    shape : tuple of int
-        Required dimensions.
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite complex128 data with the required shape.
-    """
+    """Validate a finite Jones vector or matrix without broadcasting."""
     array = np.asarray(value, dtype=np.complex128)
     if array.shape != shape or not np.all(np.isfinite(array)):
         raise PolarisationError(
@@ -104,15 +88,7 @@ def _complex_array(
 def _stokes_vector(value: ArrayLike) -> Float[np.ndarray, " 4"]:
     """Validate the Stokes cone with arithmetic roundoff at the surface.
 
-    Parameters
-    ----------
-    value : array_like
-        Stokes vector of shape ``(4,)`` in squared field units.
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite real Stokes vector inside the physical cone.
+    - ``value``: stokes vector of shape ``(4,)`` in squared field units.
     """
     array = np.asarray(value)
     if np.iscomplexobj(array) or array.shape != (4,) or not np.all(np.isfinite(array)):

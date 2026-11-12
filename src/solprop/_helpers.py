@@ -112,14 +112,6 @@ class Helpers:
         Returns the :data:`TablesFunction`, for a record that forms an exponential
         Adams trial's tables in one call; ``None``, the default, composes them from
         the basis.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop._helpers import PLAIN
-    >>> rows, weights = PLAIN.basis(np.array([1.0, 0.0]), 1.0, True)
-    >>> weights.tolist()
-    [0.5, 0.5]
     """
 
     name: str
@@ -129,60 +121,33 @@ class Helpers:
 
     @functools.cached_property
     def points(self) -> PointsFunction:
-        """Return the Chebyshev rows at several positions.
-
-        Returns
-        -------
-        collections.abc.Callable
-            The :data:`PointsFunction`.
-        """
+        """Return the Chebyshev rows at several positions."""
         return self.load_points()
 
     @functools.cached_property
     def basis(self) -> BasisFunction:
-        """Return the Lagrange basis on an Adams formula's nodes.
-
-        Returns
-        -------
-        collections.abc.Callable
-            The :data:`BasisFunction`.
-        """
+        """Return the Lagrange basis on an Adams formula's nodes."""
         return self.load_basis()
 
     @functools.cached_property
     def tables(self) -> TablesFunction | None:
         """Return an exponential Adams trial's tables in one call, if the record has it.
 
-        Returns
-        -------
-        collections.abc.Callable or None
-            The :data:`TablesFunction`, or ``None``: the tables are then composed from
-            :attr:`basis`.
+        - Returns: the :data:`TablesFunction`, or ``None``: the tables are then composed
+          from :attr:`basis`.
         """
         return None if self.load_tables is None else self.load_tables()
 
 
 def _plain_points() -> PointsFunction:
-    """Return the Chebyshev rows' Python form.
-
-    Returns
-    -------
-    collections.abc.Callable
-        :func:`solprop.translate.chebyshev._clenshaw_points`.
-    """
+    """Return the Chebyshev rows' Python form."""
     from solprop.translate import chebyshev  # noqa: PLC0415 - where it lives
 
     return chebyshev._clenshaw_points
 
 
 def _plain_basis() -> BasisFunction:
-    """Return the Adams basis' Python form.
-
-    Returns
-    -------
-    collections.abc.Callable
-        :func:`solprop.stepper.multistep._basis_rows`.
-    """
+    """Return the Adams basis' Python form."""
     from solprop.stepper import multistep  # noqa: PLC0415 - where it lives
 
     return multistep._basis_rows

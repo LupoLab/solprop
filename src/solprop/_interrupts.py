@@ -35,15 +35,7 @@ __all__ = [
 def poll(flag: StopFlag | None) -> None:
     """Raise :class:`StopRequested` when a run's stop flag is set.
 
-    Parameters
-    ----------
-    flag : StopFlag or None
-        The run's flag; ``None`` never stops.
-
-    Raises
-    ------
-    StopRequested
-        If the flag is set.
+    - ``flag``: the run's flag; ``None`` never stops.
     """
     if flag is not None and flag.is_set():
         raise StopRequested(flag)
@@ -66,24 +58,8 @@ class committing:  # noqa: N801 - used as a function, ``with committing():``
 
     A class rather than a generator: it is entered at every accepted step.
 
-    Parameters
-    ----------
-    deliver : bool, optional
-        Raise a signal that arrived during the block when it ends; ``False`` drops it,
-        for a commit written while the run is already stopping.
-
-    Raises
-    ------
-    solprop.exceptions.RunTerminated
-        If SIGTERM arrived during the block and `deliver` holds.
-    KeyboardInterrupt
-        If Ctrl-C arrived during the block and `deliver` holds.
-
-    Examples
-    --------
-    >>> from solprop._interrupts import committing
-    >>> with committing():
-    ...     state, position = "new state", 1.0
+    - ``deliver``: raise a signal that arrived during the block when it ends; ``False``
+      drops it, for a commit written while the run is already stopping.
     """
 
     __slots__ = ("_deliver",)
@@ -99,18 +75,8 @@ class committing:  # noqa: N801 - used as a function, ``with committing():``
     def __exit__(self, kind: type[BaseException] | None, *_: object) -> None:
         """Leave the commit, raising a signal that waited for it.
 
-        Parameters
-        ----------
-        kind : type or None
-            The exception leaving the block, if any; a pending signal does not
-            replace it.
-        *_ : object
-            The exception and its traceback, unused.
-
-        Raises
-        ------
-        BaseException
-            The pending signal's exception, when the block ended normally.
+        - ``kind``: the exception leaving the block, if any; a pending signal does not
+          replace it.
         """
         _GUARD.depth -= 1
         if _GUARD.depth or _GUARD.pending is None:
@@ -121,22 +87,7 @@ class committing:  # noqa: N801 - used as a function, ``with committing():``
 
 
 def _handle(signal_number: int, frame: FrameType | None) -> None:
-    """Raise the signal's exception now, or when the current commit ends.
-
-    Parameters
-    ----------
-    signal_number : int
-        The signal received.
-    frame : types.FrameType or None
-        The interrupted frame, unused.
-
-    Raises
-    ------
-    solprop.exceptions.RunTerminated
-        For SIGTERM, outside a commit.
-    KeyboardInterrupt
-        For SIGINT, outside a commit.
-    """
+    """Raise the signal's exception now, or when the current commit ends."""
     del frame
     error: BaseException = (
         KeyboardInterrupt()
@@ -157,25 +108,12 @@ def deferred_handlers() -> Iterator[None]:
     application handlers too, then restore and invoke them after the transaction.
     Ignored signals stay ignored. A failing transaction keeps its primary error.
     Outside the main thread only the existing commit guard applies.
-
-    Yields
-    ------
-    None
-        With TERM and Ctrl-C deferred until all working files are open again.
     """
     pending: tuple[int, FrameType | None] | None = None
     previous: dict[int, Callable[[int, FrameType | None], object]] = {}
 
     def defer(number: int, frame: FrameType | None) -> None:
-        """Remember the last signal without running application code.
-
-        Parameters
-        ----------
-        number : int
-            Signal number.
-        frame : types.FrameType or None
-            Interrupted Python frame to pass to the original handler.
-        """
+        """Remember the last signal without running application code."""
         nonlocal pending
         pending = number, frame
 
@@ -204,16 +142,7 @@ def handled() -> Iterator[None]:
     over Python's own defaults: an application that set its own handler keeps it.
     Restored on exit.
 
-    Yields
-    ------
-    None
-        With the handlers installed where they could be.
-
-    Examples
-    --------
-    >>> from solprop._interrupts import handled
-    >>> with handled():
-    ...     pass
+    - Yields: with the handlers installed where they could be.
     """
     defaults: dict[int, Callable[..., object] | int | None] = {
         signal.SIGTERM: signal.SIG_DFL,

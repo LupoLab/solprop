@@ -268,10 +268,7 @@ class SpatialPulse(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             ("waist", f"{engineering(self.waist, 'm')} (1/e^2 intensity radius)"),
@@ -549,15 +546,7 @@ class SpatialPulse(Displayed):
     def _profile(self, radius: Float[np.ndarray, " n_r"]) -> Float[np.ndarray, " n_r"]:
         """Return the unit-peak field profile at the given radii.
 
-        Parameters
-        ----------
-        radius : numpy.ndarray
-            Distances from the beam axis in m, shape ``(n_r,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``exp(-(r/waist)**(2 order))``, shape ``(n_r,)``.
+        - ``radius``: distances from the beam axis in m, shape ``(n_r,)``.
         """
         limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
         scaled = np.minimum(radius, self.waist * limit) / self.waist
@@ -666,10 +655,7 @@ class SpatialPulseSum(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and one row per member.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "SpatialPulseSum", [
             (f"beam {index}", repr(member)) for index, member in enumerate(self.beams)
@@ -751,29 +737,8 @@ class _Aligner:
     ) -> "_Aligner | None":
         """Return a beam's aligner, refusing what the launch cannot carry.
 
-        Parameters
-        ----------
-        beam : SpatialPulse
-            The beam.
-        grid : solprop.grid.TimeGrid
-            The temporal grid.
-        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-            The transverse grid.
-        medium : solprop.spatial.SpatialMedium
-            The launch medium.
-        at : float
-            Where the medium is evaluated, m.
-
-        Returns
-        -------
-        _Aligner or None
-            ``None`` for a beam neither displaced nor tilted.
-
-        Raises
-        ------
-        PulseError
-            On a radial grid, a y component on a line grid, a tilt outside the grid's
-            band, or a pulse-front delay longer than the time window.
+        - ``at``: where the medium is evaluated, m.
+        - Returns: ``None`` for a beam neither displaced nor tilted.
         """
         if not beam.aligned:
             return None
@@ -828,20 +793,7 @@ class _Aligner:
     ) -> Complex[np.ndarray, "n_nodes n_pol n_omega"]:
         """Tilt, then displace, a launch spectrum; refuse one that reaches the edge.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            The Cartesian DFT spectrum, shape ``(n_nodes, n_pol, n_omega)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The moved spectrum.
-
-        Raises
-        ------
-        PulseError
-            If the moved beam is not negligible at the window's edges.
+        - ``field``: the Cartesian DFT spectrum, shape ``(n_nodes, n_pol, n_omega)``.
         """
         space = self.space
         cube = field.reshape(space.n_y, space.n_x, *field.shape[1:])
@@ -885,17 +837,9 @@ class _Aligner:
 def _edge(axis: Float[np.ndarray, " n"], radius: float) -> np.ndarray:
     """Return the samples of an axis at or beyond its window's half-width.
 
-    Parameters
-    ----------
-    axis : numpy.ndarray
-        The centred axis, m.
-    radius : float
-        The requested half-width, m; the outermost samples when none reach it.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask, shape ``(n,)``.
+    - ``axis``: the centred axis, m.
+    - ``radius``: the requested half-width, m; the outermost samples when none reach it.
+    - Returns: boolean mask, shape ``(n,)``.
     """
     reach = np.abs(axis)
     return reach >= min(radius, float(np.max(reach)))
@@ -927,15 +871,7 @@ class IncidentField:
 def _unit_jones(jones: Sequence[complex]) -> Complex[np.ndarray, " n_pol"]:
     """Return a Jones vector scaled to unit squared magnitude.
 
-    Parameters
-    ----------
-    jones : sequence of complex
-        One or two finite components, not all zero.
-
-    Returns
-    -------
-    numpy.ndarray
-        The vector divided by its norm, complex128, shape ``(n_pol,)``.
+    - ``jones``: one or two finite components, not all zero.
     """
     vector = np.asarray(jones, dtype=np.complex128)
     # Dividing by the largest part first keeps the norm from overflowing.
@@ -1052,10 +988,7 @@ class PlanarPulse(SpatialPulse):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "PlanarPulse: an astigmatic Gaussian beam into a planar guide", [
             ("waist in x", f"{engineering(self.waist_x, 'm')} (1/e field radius)"),
@@ -1186,25 +1119,9 @@ def _incident_admittance(  # noqa: PLR0917 - called positionally
     average. The integrand is analytic away from cutoff, where its weight is
     negligible for any beam the grid resolves.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    space : solprop.modes.slab.PlanarGrid
-        The y axis.
-    medium : solprop.spatial.SpatialMedium
-        The fill medium.
-    z : float
-        Position of the entrance plane in m.
-    side : {'before', 'after'} or None
-        Side of a declared index jump at ``z``.
-    waist_x : float
-        The 1/e field radius in x, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex dimensionless admittance, shape ``(n_y, n_omega)``.
+    - ``space``: the y axis.
+    - ``z``: position of the entrance plane in m.
+    - ``waist_x``: the 1/e field radius in x, m.
     """
     frame = Frame(grid.omega0, subtract_beta0=False, beta0=0.0, beta1=0.0)
     material, _, _, _ = SpatialDispersion(medium, grid, frame).shared_values(
@@ -1232,20 +1149,7 @@ def _incident_admittance(  # noqa: PLR0917 - called positionally
 
 
 def _check_positive(name: str, value: float) -> None:
-    """Reject a quantity that is not finite and strictly positive.
-
-    Parameters
-    ----------
-    name : str
-        Name of the quantity, used in the message.
-    value : float
-        Value to check.
-
-    Raises
-    ------
-    PulseError
-        If the value is not a finite positive number.
-    """
+    """Reject a quantity that is not finite and strictly positive."""
     if not math.isfinite(value) or value <= 0.0:
         msg = f"{name} must be a finite positive number, got {value!r}"
         raise PulseError(msg, parameter=name)
@@ -1256,22 +1160,9 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
 
     Every pulse constructor shares this one definition and one message.
 
-    Parameters
-    ----------
-    energy : float or None
-        Requested pulse energy, J.
-    peak_power : float or None
-        Requested peak power, W.
-
-    Returns
-    -------
-    tuple
-        The target value and the name of the quantity it fixes.
-
-    Raises
-    ------
-    PulseError
-        If both or neither is given, or the given one is not finite and positive.
+    - ``energy``: requested pulse energy, J.
+    - ``peak_power``: requested peak power, W.
+    - Returns: the target value and the name of the quantity it fixes.
     """
     if energy is not None:
         if peak_power is not None:
@@ -1308,29 +1199,7 @@ def _hard_masked(
     and an energy-normalised launch requires it unoccupied (SEP 34 section 4.3):
     content beyond the rounding of the beam's field norm there is refused.
 
-    Parameters
-    ----------
-    field : numpy.ndarray
-        The beam spectrum, ``(n_modes, n_pol, n_omega)``.
-    live : numpy.ndarray
-        Bins with nonzero admittance, ``(n_modes, n_omega)``.
-    weights : numpy.ndarray
-        Transverse Parseval weights, ``(n_modes,)``.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    column_norms : numpy.ndarray
-        Filled with each column's ``sum |field|^2`` over the polarisations before
-        the mask, ``(n_modes, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The masked beam: `field`, masked in place.
-
-    Raises
-    ------
-    PulseError
-        If the nonpropagating share of the field norm exceeds its rounding budget.
+    - ``live``: bins with nonzero admittance, ``(n_modes, n_omega)``.
     """
     band = grid.active_mask & (grid.omega > 0)
     outside = band[None, :] & ~live
@@ -1338,15 +1207,7 @@ def _hard_masked(
     def shares(rows: slice) -> tuple[float, float]:
         """Return a block's norm in the columns that don't propagate, and in all.
 
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
-
-        Returns
-        -------
-        tuple of float
-            The block's two sums.
+        - ``rows``: the block of the first axis.
         """
         squares = np.sum(np.abs(field[rows]) ** 2, axis=1)
         column_norms[rows] = squares
@@ -1356,10 +1217,7 @@ def _hard_masked(
     def mask(rows: slice) -> None:
         """Zero one block's dead bins.
 
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
+        - ``rows``: the block of the first axis.
         """
         field[rows] *= live[rows, None, :]
 
@@ -1387,31 +1245,14 @@ def _separable_field(
 ) -> np.ndarray:
     """Return ``spectrum * jones * temporal`` in a new array, its rows in threads.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        The beam's transverse spectrum, ``(n_modes,)``.
-    jones : numpy.ndarray
-        Its polarisation, ``(n_pol,)``.
-    temporal : numpy.ndarray
-        Its temporal spectrum, ``(1, 1, n_omega)``.
-    n_omega : int
-        The bins.
-
-    Returns
-    -------
-    numpy.ndarray
-        The field, ``(n_modes, n_pol, n_omega)``.
+    - ``temporal``: its temporal spectrum, ``(1, 1, n_omega)``.
     """
     field = np.empty((spectrum.size, jones.size, n_omega), dtype=np.complex128)
 
     def work(rows: slice) -> None:
         """Form one block, whose first touch is then this thread's.
 
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
+        - ``rows``: the block of the first axis.
         """
         field[rows] = spectrum[rows, None, None] * jones[None, :, None] * temporal
 
@@ -1422,22 +1263,14 @@ def _separable_field(
 def _add_rows(total: np.ndarray, part: np.ndarray | None) -> None:
     """Add `part` to `total` in place, row by row, in threads.
 
-    Parameters
-    ----------
-    total : numpy.ndarray
-        The sum so far.
-    part : numpy.ndarray or None
-        What to add, of the same shape; ``None`` adds zero, which leaves every
-        number as it is but makes a negative zero positive.
+    - ``part``: what to add, of the same shape; ``None`` adds zero, which leaves every
+      number as it is but makes a negative zero positive.
     """
 
     def work(rows: slice) -> None:
         """Add one block.
 
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
+        - ``rows``: the block of the first axis.
         """
         total[rows] += 0.0 if part is None else part[rows]
 
@@ -1445,18 +1278,7 @@ def _add_rows(total: np.ndarray, part: np.ndarray | None) -> None:
 
 
 def _members(pulse: Pulse) -> list[Pulse]:
-    """Return the members of a pulse sum, flattened, or the pulse itself.
-
-    Parameters
-    ----------
-    pulse : Pulse
-        A temporal pulse or a :class:`PulseSum`.
-
-    Returns
-    -------
-    list of Pulse
-        Each member carries its own requested energy or peak power.
-    """
+    """Return the members of a pulse sum, flattened, or the pulse itself."""
     if isinstance(pulse, PulseSum):
         return [leaf for member in pulse.pulses for leaf in _members(member)]
     return [pulse]
@@ -1467,20 +1289,9 @@ def _target(
 ) -> tuple[_Quantity, float]:
     """Return which quantity a temporal pulse fixes and its requested value.
 
-    Parameters
-    ----------
-    pulse : Pulse
-        One temporal pulse.
-    temporal : numpy.ndarray
-        Its built spectrum, shape ``(1, 1, n_omega)``.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-
-    Returns
-    -------
-    tuple
-        ``("peak_power", W)`` for a pulse given a peak power, otherwise
-        ``("energy", J)``: the energy its built spectrum carries.
+    - ``temporal``: its built spectrum, shape ``(1, 1, n_omega)``.
+    - Returns: ``("peak_power", W)`` for a pulse given a peak power, otherwise
+      ``("energy", J)``: the energy its built spectrum carries.
     """
     peak = getattr(pulse, "peak_power", None)
     if isinstance(pulse, ShapedPulse) and peak is not None:
@@ -1500,32 +1311,10 @@ def _normalising_factor(
 ) -> float:
     """Return the factor giving a beam its requested physical energy or peak power.
 
-    Parameters
-    ----------
-    pulse : Pulse
-        The temporal pulse fixing the request.
-    temporal : numpy.ndarray
-        Its built spectrum, shape ``(1, 1, n_omega)``.
-    beam : numpy.ndarray
-        The unnormalised beam's column spectra, ``(n_modes, n_pol, n_omega)``.
-    plane : _Plane
-        Its measure at the launch plane.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    column_norms : numpy.ndarray or None, optional
-        Each column's ``sum |beam|^2`` over the polarisations, ``(n_modes,
-        n_omega)``, where the caller has it: wherever it differs from the beam's own,
-        the admittance must be zero.
-
-    Returns
-    -------
-    float
-        The amplitude factor.
-
-    Raises
-    ------
-    PulseError
-        If the beam carries no positive, finite forward flux.
+    - ``temporal``: its built spectrum, shape ``(1, 1, n_omega)``.
+    - ``column_norms``: each column's ``sum |beam|^2`` over the polarisations,
+      ``(n_modes, n_omega)``, where the caller has it: wherever it differs from the
+      beam's own, the admittance must be zero.
     """
     quantity, target = _target(pulse, temporal, grid)
     if quantity == "energy":
@@ -1535,10 +1324,7 @@ def _normalising_factor(
         def work(rows: slice) -> None:
             """Form one block of the flux's terms.
 
-            Parameters
-            ----------
-            rows : slice
-                The block of the first axis.
+            - ``rows``: the block of the first axis.
             """
             squares = (
                 np.sum(np.abs(beam[rows]) ** 2, axis=1)
@@ -1585,27 +1371,8 @@ def _normalised(  # noqa: PLR0917 - called positionally
 ) -> np.ndarray:
     """Scale a spatial beam in place to its requested physical energy or peak power.
 
-    Parameters
-    ----------
-    pulse : Pulse
-        The temporal pulse fixing the request.
-    temporal : numpy.ndarray
-        Its built spectrum, shape ``(1, 1, n_omega)``.
-    field : numpy.ndarray
-        The unnormalised beam spectrum, ``(n_modes, n_pol, n_omega)``, scaled in place.
-    flux : solprop.spatial.SpatialFlux
-        The launch plane's measure.
-    admittance : numpy.ndarray
-        Its admittance, ``(n_modes, n_omega)``.
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    column_norms : numpy.ndarray or None, optional
-        Passed to :func:`_normalising_factor`.
-
-    Returns
-    -------
-    numpy.ndarray
-        The normalised beam.
+    - ``temporal``: its built spectrum, shape ``(1, 1, n_omega)``.
+    - Returns: the normalised beam.
     """
     plane = _Plane(
         weights=flux.space.spectral_weights,
@@ -1619,10 +1386,7 @@ def _normalised(  # noqa: PLR0917 - called positionally
     def scale(rows: slice) -> None:
         """Scale one block.
 
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
+        - ``rows``: the block of the first axis.
         """
         field[rows] *= factor
 
@@ -1633,21 +1397,7 @@ def _normalised(  # noqa: PLR0917 - called positionally
 def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:
     """Return the Taylor coefficients as a validated read-only array.
 
-    Parameters
-    ----------
-    phase : array_like
-        Spectral phase Taylor coefficients about the pulse's centre frequency: radians
-        for the coefficient of order 0 and ``s**n`` for order ``n`` thereafter.
-
-    Returns
-    -------
-    numpy.ndarray
-        A read-only copy, shape ``(n_deg,)``.
-
-    Raises
-    ------
-    PulseError
-        If any coefficient is not finite.
+    - Returns: a read-only copy, shape ``(n_deg,)``.
     """
     coefficients = np.array(phase, dtype=np.float64).reshape(-1)
     if not np.all(np.isfinite(coefficients)):
@@ -1663,17 +1413,7 @@ def _check_delay(grid: TimeGrid, t0: float) -> None:
     The delay is applied as a spectral phase, so a value past the half-window wraps the
     pulse round to the other end rather than moving it out of the way.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Grid the pulse is built on.
-    t0 : float
-        Requested delay, s.
-
-    Raises
-    ------
-    PulseError
-        If ``t0`` is not finite, or reaches the edge of the window.
+    - ``t0``: requested delay, s.
     """
     half = 0.5 * grid.n_t * grid.dt
     if not math.isfinite(t0) or abs(t0) >= half:
@@ -1703,21 +1443,9 @@ def _phase_factor(
     step. A Taylor phase and a pure delay both commute with the half-window origin
     shift, so they are applied to the stored spectrum directly (conventions.md §2).
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Grid supplying the frequency axis.
-    phase : numpy.ndarray
-        Taylor coefficients, shape ``(n_deg,)``, in ``s**n`` for order ``n``.
-    t0 : float
-        Delay, s, positive for later arrival.
-    omega_ref : float
-        Frequency the Taylor expansion is about, rad/s.
-
-    Returns
-    -------
-    numpy.ndarray
-        Unit-modulus factor, shape ``(n_omega,)``, to multiply a stored spectrum by.
+    - ``grid``: grid supplying the frequency axis.
+    - ``t0``: delay, s, positive for later arrival.
+    - ``omega_ref``: frequency the Taylor expansion is about, rad/s.
     """
     optics_phase = taylor_phase(grid.omega, phase, omega_ref, t0)
     return fourier.to_internal(np.exp(1j * optics_phase))
@@ -1726,19 +1454,9 @@ def _phase_factor(
 def _analytic(
     spectrum: Complex[np.ndarray, " n_omega"], grid: TimeGrid
 ) -> Complex[np.ndarray, " n_t"]:
-    """Return the analytic signal of a stored spectrum, whose modulus squared is power.
+    """Return the analytic signal of a stored spectrum, in sqrt(W).
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_omega,)``.
-    grid : solprop.grid.TimeGrid
-        Grid the spectrum belongs to.
-
-    Returns
-    -------
-    numpy.ndarray
-        Analytic signal, shape ``(n_t,)``, in the square root of watts.
+    Its modulus squared is the power.
     """
     samples = fourier.inverse(spectrum, kind=grid.kind)
     if grid.kind == "envelope":
@@ -1751,20 +1469,8 @@ def _realised(
 ) -> float:
     """Return the value a spectrum already has of the quantity being scaled.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_omega,)``.
-    grid : solprop.grid.TimeGrid
-        Grid the spectrum belongs to.
-    quantity : {'energy', 'peak_power', 'average_power'}
-        Which quantity to measure.
-
-    Returns
-    -------
-    float
-        The energy in J, or the peak or mean power in W. The mean is taken over the flat
-        part of the temporal window, where the collar is exactly one.
+    - Returns: the energy in J, or the peak or mean power in W. The mean is taken over
+      the flat part of the temporal window, where the collar is exactly one.
     """
     if quantity == "energy":
         return float(fourier.energy_omega(spectrum, grid.dt, kind=grid.kind))
@@ -1782,26 +1488,7 @@ def _rescale(
 ) -> Complex[np.ndarray, " n_omega"]:
     """Scale a spectrum so that the named quantity takes the requested value.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_omega,)``.
-    grid : solprop.grid.TimeGrid
-        Grid the spectrum belongs to.
-    target : float
-        Requested value, J for an energy and W for a power.
-    quantity : {'energy', 'peak_power', 'average_power'}
-        Which quantity ``target`` fixes.
-
-    Returns
-    -------
-    numpy.ndarray
-        The scaled spectrum, shape ``(n_omega,)``.
-
-    Raises
-    ------
-    PulseError
-        If the spectrum carries nothing to scale, so no factor exists.
+    - ``target``: requested value, J for an energy and W for a power.
     """
     realised = _realised(spectrum, grid, quantity)
     if realised <= 0.0:
@@ -1819,15 +1506,8 @@ def _canonical(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return a single-mode spectrum in the canonical kernel layout.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same spectrum, shape ``(1, 1, n_omega)``, complex128 and C-contiguous.
+    - Returns: the same spectrum, shape ``(1, 1, n_omega)``, complex128 and
+      C-contiguous.
     """
     return np.ascontiguousarray(spectrum, dtype=np.complex128)[np.newaxis, np.newaxis]
 
@@ -1883,20 +1563,14 @@ class ShapedPulse(Displayed):
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the fields a subclass adds, for printing.
 
-        Returns
-        -------
-        list of tuple
-            ``(key, value)`` pairs describing the shape: its duration, its order.
+        - Returns: ``(key, value)`` pairs describing the shape: its duration, its order.
         """
         return []
 
     def _scale(self) -> tuple[str, str]:
         """Return which of energy and peak power scales the pulse, for printing.
 
-        Returns
-        -------
-        tuple of str
-            The key and the formatted value.
+        - Returns: the key and the formatted value.
         """
         if self.energy is not None:
             return "energy", engineering(self.energy, "J")
@@ -1924,10 +1598,7 @@ class ShapedPulse(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return type(self).__name__, [
             ("wavelength", engineering(self.wavelength, "m")),
@@ -2083,10 +1754,7 @@ class PulseSum(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and one row per member.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "PulseSum", [
             (f"pulse {index}", repr(member)) for index, member in enumerate(self.pulses)
@@ -2124,23 +1792,7 @@ class PulseSum(Displayed):
 def _power_envelope(pulse: ShapedPulse, grid: TimeGrid) -> Float[np.ndarray, " n_t"]:
     """Evaluate a pulse's envelope on the grid and check that it is usable.
 
-    Parameters
-    ----------
-    pulse : ShapedPulse
-        Pulse whose :meth:`ShapedPulse.intensity` is evaluated.
-    grid : solprop.grid.TimeGrid
-        Grid supplying the time axis.
-
-    Returns
-    -------
-    numpy.ndarray
-        The power envelope, shape ``(n_t,)``.
-
-    Raises
-    ------
-    PulseError
-        If the envelope has the wrong length, is not finite, is negative anywhere, or is
-        zero at every sample.
+    - ``grid``: grid supplying the time axis.
     """
     values = np.asarray(pulse.intensity(grid.t), dtype=np.float64)
     if values.shape != grid.t.shape:
@@ -2222,10 +1874,7 @@ class GaussianPulse(ShapedPulse):
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the duration, and the order when it is not the plain Gaussian's.
 
-        Returns
-        -------
-        list of tuple
-            ``(key, value)`` pairs.
+        - Returns: ``(key, value)`` pairs.
         """
         fields: list[tuple[str, object]] = [("fwhm", engineering(self.fwhm, "s"))]
         if self.m != 1:
@@ -2316,10 +1965,7 @@ class SechPulse(ShapedPulse):
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return whichever of the two durations was given.
 
-        Returns
-        -------
-        list of tuple
-            ``(key, value)`` pairs.
+        - Returns: ``(key, value)`` pairs.
         """
         if self.fwhm is not None:
             return [("fwhm", engineering(self.fwhm, "s"))]
@@ -2354,22 +2000,9 @@ class SechPulse(ShapedPulse):
 def _sech_width(fwhm: float | None, width: float | None) -> float:
     """Return the natural width of a ``sech**2`` pulse from whichever duration is given.
 
-    Parameters
-    ----------
-    fwhm : float or None
-        Intensity full width at half maximum, s.
-    width : float or None
-        Natural width, s.
-
-    Returns
-    -------
-    float
-        The natural width, s.
-
-    Raises
-    ------
-    PulseError
-        If both or neither is given, or the given one is not finite and positive.
+    - ``fwhm``: intensity full width at half maximum, s.
+    - ``width``: natural width, s.
+    - Returns: the natural width, s.
     """
     if width is not None:
         if fwhm is not None:
@@ -2426,10 +2059,7 @@ class CustomPulse(ShapedPulse):
     def _shape_fields(self) -> list[tuple[str, object]]:
         """Return the name of the shape function.
 
-        Returns
-        -------
-        list of tuple
-            ``(key, value)`` pairs.
+        - Returns: ``(key, value)`` pairs.
         """
         return [("shape_fn", getattr(self.shape_fn, "__name__", "callable"))]
 
@@ -2473,22 +2103,8 @@ def _checked_spectral_phase(
     disagreement keeps a ``dataclasses.replace`` of ``spectrum`` from silently keeping
     the old phase.
 
-    Parameters
-    ----------
-    spectral_phase : numpy.ndarray
-        The given phase, rad.
-    spectrum : numpy.ndarray
-        The complex spectrum it belongs to, shape ``(n_data,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The phase as a read-only float array, shape ``(n_data,)``.
-
-    Raises
-    ------
-    PulseError
-        If the phase differs from the spectrum in length, or is not its phase.
+    - ``spectral_phase``: the given phase, rad.
+    - Returns: the phase as a read-only float array, shape ``(n_data,)``.
     """
     angle = np.array(spectral_phase, dtype=np.float64).reshape(-1)
     if angle.size != spectrum.size:
@@ -2648,10 +2264,7 @@ class DataPulse(Displayed):
     def _reference_frequency(self) -> float:
         """Return the frequency the Taylor phase is expanded about, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of ``wavelength``, else the weighted mean of ``omega``.
+        - Returns: the frequency of ``wavelength``, else the weighted mean of ``omega``.
         """
         if self.wavelength is not None:
             return 2.0 * np.pi * C / self.wavelength
@@ -2672,23 +2285,14 @@ class DataPulse(Displayed):
         )
 
     def _data_text(self) -> str:
-        """Return the extent of the measured spectrum, for printing.
-
-        Returns
-        -------
-        str
-            The number of samples and the wavelengths they span.
-        """
+        """Return the extent of the measured spectrum, for printing."""
         wavelengths = 2.0 * np.pi * C / np.asarray(self.omega, dtype=float)
         return summarise(wavelengths, "m")
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         reference = (
             "the data's centre"
@@ -2866,22 +2470,10 @@ def _record_spectrum(
     The chirp-z transform evaluates the sum in ``O((n_data + n_wanted) log)`` operations
     for any two spacings, where an FFT needs them to be commensurate.
 
-    Parameters
-    ----------
-    t : numpy.ndarray
-        Uniform time axis, s, shape ``(n_data,)``.
-    values : numpy.ndarray
-        Samples on ``t``, shape ``(n_data,)``.
-    omega : numpy.ndarray
-        The frequencies wanted, rad/s, shape ``(n_wanted,)``, in any order, each a whole
-        number of `d_omega` from the others.
-    d_omega : float
-        Spacing of the axis `omega` belongs to, rad/s.
-
-    Returns
-    -------
-    numpy.ndarray
-        The sum at each frequency, shape ``(n_wanted,)``.
+    - ``t``: uniform time axis, s, shape ``(n_data,)``.
+    - ``omega``: the frequencies wanted, rad/s, shape ``(n_wanted,)``, in any order,
+      each a whole number of `d_omega` from the others.
+    - ``d_omega``: spacing of the axis `omega` belongs to, rad/s.
     """
     # scipy.signal takes half a second to import: only this function needs it.
     from scipy.signal import czt  # noqa: PLC0415
@@ -3018,15 +2610,8 @@ class TimeDataPulse(Displayed):
     def _spectral_centre(self) -> float:
         """Return the spectral centre of mass of the record, rad/s.
 
-        Returns
-        -------
-        float
-            The mean of the positive frequencies of the record's DFT, by its power.
-
-        Raises
-        ------
-        PulseError
-            If the record has nothing at positive frequencies.
+        - Returns: the mean of the positive frequencies of the record's DFT, by its
+          power.
         """
         dt = float(self.t[-1] - self.t[0]) / (self.t.size - 1)
         omega = 2.0 * np.pi * np.fft.fftfreq(self.t.size, dt)
@@ -3054,10 +2639,8 @@ class TimeDataPulse(Displayed):
     def _reference_frequency(self) -> float:
         """Return the frequency the Taylor phase is expanded about, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of ``wavelength``, else the record's spectral centre of mass.
+        - Returns: the frequency of ``wavelength``, else the record's spectral centre of
+          mass.
         """
         if self.wavelength is not None:
             return 2.0 * np.pi * C / self.wavelength
@@ -3077,22 +2660,13 @@ class TimeDataPulse(Displayed):
         )
 
     def _data_text(self) -> str:
-        """Return the extent of the measured record, for printing.
-
-        Returns
-        -------
-        str
-            The number of samples and the times they span.
-        """
+        """Return the extent of the measured record, for printing."""
         return summarise(np.asarray(self.t, dtype=float), "s")
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         reference = (
             "the record's centre"
@@ -3109,15 +2683,7 @@ class TimeDataPulse(Displayed):
     def _warn_if_folded(
         self, values: Inexact[np.ndarray, " n_data"], grid: TimeGrid
     ) -> None:
-        """Warn when enough of the record lies outside the grid's window to matter.
-
-        Parameters
-        ----------
-        values : numpy.ndarray
-            The record as it is transformed, shape ``(n_data,)``.
-        grid : solprop.grid.TimeGrid
-            Grid to build on.
-        """
+        """Warn when enough of the record lies outside the grid's window to matter."""
         arrival = self.t + self.t0
         half = 0.5 * grid.n_t * grid.dt
         power = np.abs(values) ** 2
@@ -3240,15 +2806,7 @@ _NEGATIVE_POWER_LIMIT = 0.1
 def _is_number(text: str) -> bool:
     """Return whether a field of a text table reads as a number.
 
-    Parameters
-    ----------
-    text : str
-        The field.
-
-    Returns
-    -------
-    bool
-        True if ``float(text)`` succeeds.
+    - Returns: True if ``float(text)`` succeeds.
     """
     try:
         float(text)
@@ -3266,21 +2824,7 @@ def _read_table(
     holding a comma is split on commas, any other on whitespace. The first line that is
     not a comment may be a header, and is skipped when none of its fields is a number.
 
-    Parameters
-    ----------
-    path : str, os.PathLike or io.TextIOBase
-        The file, or an open text stream, which is read from where it stands.
-
-    Returns
-    -------
-    numpy.ndarray
-        The table, shape ``(n_rows, n_columns)``.
-
-    Raises
-    ------
-    PulseError
-        If there is no file at ``path``, a line after the header is not a row of
-        numbers, the rows differ in length, or there is no row at all.
+    - ``path``: the file, or an open text stream, which is read from where it stands.
     """
     if isinstance(path, io.TextIOBase):
         text, name = path.read(), "the stream"
@@ -3328,25 +2872,9 @@ def _chosen_columns(
 ) -> tuple[int, ...]:
     """Return the zero-based indices of the axis, power and optional phase columns.
 
-    Parameters
-    ----------
-    n_columns : int
-        Number of columns in the file.
-    columns : sequence or None
-        The indices asked for, two or three integers; ``None`` takes the first three
-        columns, or the first two of a two-column file. Anything else is refused here,
-        because the public annotation is not enforced at runtime.
-
-    Returns
-    -------
-    tuple of int
-        Two or three distinct indices of columns the file has.
-
-    Raises
-    ------
-    PulseError
-        If the file has fewer than two columns, or ``columns`` is not two or three
-        distinct indices of columns the file has.
+    - ``columns``: the indices asked for, two or three integers; ``None`` takes the
+      first three columns, or the first two of a two-column file. Anything else is
+      refused here, because the public annotation is not enforced at runtime.
     """
     if columns is None:
         if n_columns < 2:
@@ -3385,24 +2913,11 @@ def _chosen_columns(
 def _axis_factor(axis: str, axis_unit: str | None) -> float:
     """Return the factor that takes the axis column to rad/s or to metres.
 
-    Parameters
-    ----------
-    axis : str
-        What the axis column holds, ``"frequency"`` or ``"wavelength"``; it is
-        checked here because the public annotation is not enforced at runtime.
-    axis_unit : str or None
-        Its unit; ``None`` is the axis's SI unit, Hz or m.
-
-    Returns
-    -------
-    float
-        The angular frequency in rad/s of one unit of a frequency column, or the
-        length in metres of one unit of a wavelength column.
-
-    Raises
-    ------
-    PulseError
-        If ``axis`` is not one of the two, or ``axis_unit`` is not one of its units.
+    - ``axis``: what the axis column holds, ``"frequency"`` or ``"wavelength"``; it is
+      checked here because the public annotation is not enforced at runtime.
+    - ``axis_unit``: its unit; ``None`` is the axis's SI unit, Hz or m.
+    - Returns: the angular frequency in rad/s of one unit of a frequency column, or the
+      length in metres of one unit of a wavelength column.
     """
     _check_choice("axis", axis, ("frequency", "wavelength"))
     units, default = (
@@ -3418,22 +2933,7 @@ def _axis_factor(axis: str, axis_unit: str | None) -> float:
 
 
 def _check_choice(name: str, value: str, choices: Sequence[str]) -> None:
-    """Reject a keyword that is not one of its documented values.
-
-    Parameters
-    ----------
-    name : str
-        Name of the keyword, used in the message.
-    value : str
-        Value given.
-    choices : sequence of str
-        The values it may take.
-
-    Raises
-    ------
-    PulseError
-        If ``value`` is not among ``choices``.
-    """
+    """Reject a keyword that is not one of its documented values."""
     if value not in choices:
         allowed = " or ".join(repr(choice) for choice in choices)
         msg = f"{name} must be {allowed}, got {value!r}"
@@ -3448,19 +2948,11 @@ def _undersampled_share(
     Unwrapping cannot tell a step near ``+pi`` from one near ``-pi``, so the first such
     step on each side of the peak, counting outward, is where a wrong turn may start.
 
-    Parameters
-    ----------
-    steps : numpy.ndarray
-        Wrapped phase steps between neighbouring significant samples, rad, shape
-        ``(n_significant - 1,)``.
-    power : numpy.ndarray
-        Power of the significant samples, shape ``(n_significant,)``, positive.
-
-    Returns
-    -------
-    float
-        The power of the samples beyond the innermost near-pi step on either side of
-        the peak, as a share of the whole; zero if there is no such step.
+    - ``steps``: wrapped phase steps between neighbouring significant samples, rad,
+      shape ``(n_significant - 1,)``.
+    - ``power``: power of the significant samples, shape ``(n_significant,)``, positive.
+    - Returns: the power of the samples beyond the innermost near-pi step on either side
+      of the peak, as a share of the whole; zero if there is no such step.
     """
     peak = int(np.argmax(power))
     near = np.abs(steps) > _NEAR_PI
@@ -3488,29 +2980,12 @@ def _unwrapped_above_floor(
     samples the phase is interpolated linearly across any gap, and beyond the first and
     last it is held at their values.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequency, rad/s, shape ``(n_data,)``, increasing.
-    phase : numpy.ndarray
-        The wrapped phase, rad, shape ``(n_data,)``.
-    significant : numpy.ndarray
-        Boolean mask of the samples above the floor, shape ``(n_data,)``, not all
-        false.
-    power : numpy.ndarray
-        The power column, shape ``(n_data,)``, positive where ``significant``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The unwrapped phase, rad, shape ``(n_data,)``.
-
-    Warns
-    -----
-    SolpropWarning
-        If the phase looks undersampled: the samples beyond the innermost step within a
-        tenth of pi of ``+-pi``, on either side of the peak, hold more than a
-        thousandth of the power.
+    - ``omega``: angular frequency, rad/s, shape ``(n_data,)``, increasing.
+    - ``phase``: the wrapped phase, rad, shape ``(n_data,)``.
+    - ``significant``: boolean mask of the samples above the floor, shape ``(n_data,)``,
+      not all false.
+    - ``power``: the power column, shape ``(n_data,)``, positive where ``significant``.
+    - Returns: the unwrapped phase, rad, shape ``(n_data,)``.
     """
     index = np.flatnonzero(significant)
     unwrapped = np.unwrap(phase[index])
@@ -3540,26 +3015,13 @@ def _read_phase(
 ) -> Float[np.ndarray, " n_data"]:
     """Return the optics-convention spectral phase of a phase column in radians.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequency, rad/s, shape ``(n_data,)``, increasing.
-    values : numpy.ndarray
-        The phase column, rad, shape ``(n_data,)``.
-    power : numpy.ndarray
-        The power column, shape ``(n_data,)``, with a positive peak.
-    wrapped : bool or None
-        Whether the column is wrapped; ``None`` takes it as wrapped when it spans at
-        most ``2 pi``.
-    floor : float
-        Share of the peak power above which a sample is significant.
-    phase_convention : {"optics", "fft"}
-        The sign convention of the column.
-
-    Returns
-    -------
-    numpy.ndarray
-        The phase, rad, shape ``(n_data,)``.
+    - ``omega``: angular frequency, rad/s, shape ``(n_data,)``, increasing.
+    - ``values``: the phase column, rad, shape ``(n_data,)``.
+    - ``power``: the power column, shape ``(n_data,)``, with a positive peak.
+    - ``wrapped``: whether the column is wrapped; ``None`` takes it as wrapped when it
+      spans at most ``2 pi``.
+    - ``phase_convention``: the sign convention of the column.
+    - Returns: the phase, rad, shape ``(n_data,)``.
     """
     is_wrapped = float(np.ptp(values)) <= _WRAPPED_RANGE if wrapped is None else wrapped
     phase = (
@@ -3851,10 +3313,7 @@ class CWPulse(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "CWPulse: a continuous-wave field", [
             ("wavelength", engineering(self.wavelength, "m")),

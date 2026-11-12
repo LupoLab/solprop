@@ -298,10 +298,7 @@ class _AffineSquare:
     def magnitude(self) -> Float[np.ndarray, "n_modes n_omega"]:
         """Return the scale S of the terms that form s, for its rounding error.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``|base + k_perp^2| + sum_i |b_i| max|rho_i| + k_perp^2`` in m^-2.
+        - Returns: ``|base + k_perp^2| + sum_i |b_i| max|rho_i| + k_perp^2`` in m^-2.
         """
         pieces = self.pieces
         scale = np.max(
@@ -318,15 +315,7 @@ class _AffineSquare:
     def at(self, values: Float[np.ndarray, " n_paths"]) -> np.ndarray:
         """Return s for one density per path.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            One density per path.
-
-        Returns
-        -------
-        numpy.ndarray
-            The square s in m^-2, shape ``(n_modes, n_omega)``.
+        - Returns: the square s in m^-2, shape ``(n_modes, n_omega)``.
         """
         return self.base + np.sum(self.slope * values[:, None], axis=0)[None, :]
 
@@ -335,20 +324,12 @@ class _AffineSquare:
     ) -> np.ndarray:
         """Return ``|Delta ln q|`` from ``Delta s / s``, enlarged by its rounding.
 
-        Parameters
-        ----------
-        change : numpy.ndarray
-            The change of s, formed from the density changes, not by subtraction.
-        reference : numpy.ndarray
-            The square s at the start of the change.
-        magnitude : numpy.ndarray
-            The scale S of the terms forming s.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``|log1p(change/reference)| / 2`` times one plus its relative error
-            bound; zero where the reference is not positive (a crossing).
+        - ``change``: the change of s, formed from the density changes, not by
+          subtraction.
+        - ``reference``: the square s at the start of the change.
+        - ``magnitude``: the scale S of the terms forming s.
+        - Returns: ``|log1p(change/reference)| / 2`` times one plus its relative error
+          bound; zero where the reference is not positive (a crossing).
         """
         terms = self.slope.shape[0] + 3
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -367,20 +348,9 @@ class _AffineSquare:
     def _box(self, j: int, low: np.ndarray, magnitude: np.ndarray) -> np.ndarray:
         """Return the bound ``sum_i |b_i| TV(rho_i) / (2 s_min)`` on piece j.
 
-        Parameters
-        ----------
-        j : int
-            The piece.
-        low : numpy.ndarray
-            ``s_min`` over the piece's box of densities.
-        magnitude : numpy.ndarray
-            The scale S of the terms forming s.
-
-        Returns
-        -------
-        numpy.ndarray
-            The bound of ``TV(ln q)`` on the piece, enlarged by its rounding, and
-            infinite where ``s_min`` is not positive.
+        - ``magnitude``: the scale S of the terms forming s.
+        - Returns: the bound of ``TV(ln q)`` on the piece, enlarged by its rounding, and
+          infinite where ``s_min`` is not positive.
         """
         terms = self.slope.shape[0] + 4
         change = np.sum(
@@ -395,12 +365,9 @@ class _AffineSquare:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, bool]:
         """Enclose ``Lambda`` and the range of s for every column.
 
-        Returns
-        -------
-        tuple
-            ``Lambda`` (meaningful where s stays positive), the lowest and highest
-            enclosed s, each of shape ``(n_modes, n_omega)``, and whether every
-            varying piece was monotone, so that ``Lambda`` is attained.
+        - Returns: ``Lambda`` (meaningful where s stays positive), the lowest and
+          highest enclosed s, each of shape ``(n_modes, n_omega)``, and whether every
+          varying piece was monotone, so that ``Lambda`` is attained.
         """
         pieces, slope = self.pieces, self.slope
         magnitude = self.magnitude
@@ -440,22 +407,7 @@ class _AffineSquare:
 def _variation_of(path: ZProfile, start: float, end: float) -> PathVariation:
     """Return a path's enclosure, refusing one that cannot give it.
 
-    Parameters
-    ----------
-    path : ZProfile
-        A density path.
-    start, end : float
-        The interval in m.
-
-    Returns
-    -------
-    PathVariation
-        The path's record.
-
-    Raises
-    ------
-    MaterialError
-        If the path has no enclosure, such as a callable without declared variation.
+    - ``start``, ``end``: the interval in m.
     """
     try:
         return path.variation(start, end)
@@ -468,17 +420,8 @@ def _variation_of(path: ZProfile, start: float, end: float) -> PathVariation:
 def _pieces(paths: Sequence[ZProfile], start: float, end: float) -> _Pieces:
     """Collect every path's enclosure on the union of their pieces.
 
-    Parameters
-    ----------
-    paths : sequence of ZProfile
-        The density paths, at least one.
-    start, end : float
-        The run path in m.
-
-    Returns
-    -------
-    _Pieces
-        The aligned records.
+    - ``paths``: the density paths, at least one.
+    - ``start``, ``end``: the run path in m.
     """
     knots = np.unique(
         np.concatenate([_variation_of(p, start, end).knots for p in paths])
@@ -489,18 +432,7 @@ def _pieces(paths: Sequence[ZProfile], start: float, end: float) -> _Pieces:
     ]
 
     def table(name: str) -> np.ndarray:
-        """Return one field of every collapsed piece, paths by pieces.
-
-        Parameters
-        ----------
-        name : str
-            A :class:`~solprop.profiles.PathVariation` field.
-
-        Returns
-        -------
-        numpy.ndarray
-            Its first value per path and piece.
-        """
+        """Return one field of every collapsed piece, paths by pieces."""
         return np.array([[float(getattr(c, name)[0]) for c in row] for row in rows])
 
     return _Pieces(
@@ -515,18 +447,7 @@ def _pieces(paths: Sequence[ZProfile], start: float, end: float) -> _Pieces:
 
 
 def _log_condition(ratio: np.ndarray) -> np.ndarray:
-    """Return the relative condition number of ``log1p`` at each argument.
-
-    Parameters
-    ----------
-    ratio : numpy.ndarray
-        Arguments greater than -1.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``|x / ((1 + x) log1p(x))|``, which tends to one at zero.
-    """
+    """Return the relative condition number of ``log1p`` at each argument."""
     with np.errstate(divide="ignore", invalid="ignore"):
         value = np.abs(ratio / ((1.0 + ratio) * np.log1p(ratio)))
     return np.where(np.abs(ratio) < 1e-8, 1.0, value)
@@ -535,15 +456,7 @@ def _log_condition(ratio: np.ndarray) -> np.ndarray:
 def _wavelength_text(omega: float) -> str:
     """Return a vacuum wavelength for a message.
 
-    Parameters
-    ----------
-    omega : float
-        Angular frequency in rad/s.
-
-    Returns
-    -------
-    str
-        For example ``'800 nm'``.
+    - ``omega``: angular frequency in rad/s.
     """
     return f"{2 * math.pi * C / omega * 1e9:.6g} nm"
 
@@ -731,18 +644,9 @@ def _material_terms(
 ) -> tuple[np.ndarray, np.ndarray, list[ZProfile], dict[str, object]]:
     """Split a spatial medium into its affine permittivity and density paths.
 
-    Parameters
-    ----------
-    dispersion : solprop.spatial.SpatialDispersion
-        The medium and grid.
-    omega : numpy.ndarray
-        Active angular frequencies in rad/s.
-
-    Returns
-    -------
-    tuple
-        Constant permittivity, per-path susceptibilities, the density paths and
-        the material identity.
+    - ``omega``: active angular frequencies in rad/s.
+    - Returns: constant permittivity, per-path susceptibilities, the density paths and
+      the material identity.
     """
     medium = dispersion.medium
     material = medium.material

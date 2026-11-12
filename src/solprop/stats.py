@@ -288,18 +288,9 @@ def _power(
 ) -> Float[np.ndarray, "*batch n_t"]:
     """Return the instantaneous power of a stored spectrum, in watts.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the spectrum lives on.
-    field : numpy.ndarray
-        Stored spectrum, shape ``(..., n_omega)``, internal convention, in the square
-        root of watts.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``P(t) = |E_a(t)|^2``, shape ``(..., n_t)``, W.
+    - ``field``: stored spectrum, shape ``(..., n_omega)``, internal convention, in the
+      square root of watts.
+    - Returns: ``P(t) = |E_a(t)|^2``, shape ``(..., n_t)``, W.
     """
     return np.abs(analytic_field(grid, field)) ** 2
 
@@ -328,24 +319,11 @@ def _whitened(
     ``metric=None`` is the identity and returns the field itself, unchanged and
     uncopied, so an unweighted run's arithmetic is bitwise what it was.
 
-    Parameters
-    ----------
-    field : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal convention.
-    metric : numpy.ndarray or None
-        The basis flux metric ``W(omega)``, Hermitian positive definite, shape
-        ``(n_modes, n_modes, n_omega)``, dimensionless; ``None`` is the identity.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``c = W^(1/2) a``, of the field's own shape and units.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the metric's extents disagree with the field, or it is not positive
-        definite at some frequency.
+    - ``field``: stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal
+      convention.
+    - ``metric``: the basis flux metric ``W(omega)``, Hermitian positive definite, shape
+      ``(n_modes, n_modes, n_omega)``, dimensionless; ``None`` is the identity.
+    - Returns: ``c = W^(1/2) a``, of the field's own shape and units.
     """
     if metric is None:
         return field
@@ -383,17 +361,8 @@ def _window_masks(
     option, because a windowed *energy* never returns to the time domain and so has
     nothing to gain from a smooth edge.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid, whose ``omega`` axis the gate is taken on.
-    windows : numpy.ndarray
-        Window edges, shape ``(n_windows, 2)``, rad/s, each row ``(lo, hi)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean masks, shape ``(n_windows, n_omega)``.
+    - ``grid``: the grid, whose ``omega`` axis the gate is taken on.
+    - ``windows``: window edges, shape ``(n_windows, 2)``, rad/s, each row ``(lo, hi)``.
     """
     lower = windows[:, 0, np.newaxis]
     upper = windows[:, 1, np.newaxis]
@@ -913,22 +882,6 @@ def _crossing(
     intercept of the line and evaluating ``(level - c)/m`` instead would, on a time axis
     whose values are of order ``1e-12`` and whose intercept is of order ``1e12``, lose
     most of the significand.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Abscissa, shape ``(n,)``.
-    y : numpy.ndarray
-        The trace, shape ``(n,)``.
-    level : float
-        The value to cross.
-    pair : tuple of int
-        Indices of the two samples that bracket the crossing.
-
-    Returns
-    -------
-    float
-        The crossing point, in the units of ``x``.
     """
     low, high = pair
     span = y[high] - y[low]
@@ -944,22 +897,9 @@ def _half_max_range(
     :func:`solprop.processing.time.half_max_range`, which documents the two
     conventions, both call it.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Abscissa, shape ``(n,)``, increasing.
-    y : numpy.ndarray
-        The trace, shape ``(n,)``, unclipped.
-    outer : bool
-        Take the first and last sample above the level anywhere, rather than walking
-        outwards from the peak to the first sample below it on either side.
-
-    Returns
-    -------
-    tuple of float
-        The lower and upper crossings, both ``nan`` when the trace carries nothing, does
-        not fall to half its maximum on both sides, or reaches the end of the axis still
-        above it.
+    - Returns: the lower and upper crossings, both ``nan`` when the trace carries
+      nothing, does not fall to half its maximum on both sides, or reaches the end of
+      the axis still above it.
     """
     undefined = (float("nan"), float("nan"))
     peak = float(np.max(y))
@@ -1002,23 +942,11 @@ def _half_width(
 ) -> Float[np.ndarray, ""]:
     """Return the full width at half maximum of the total power, in seconds.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the spectrum lives on.
-    field : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal convention.
-    outermost : bool
-        Whether to take the outermost pair of half-maximum crossings rather than the
-        innermost pair on either side of the global peak.
-    metric : numpy.ndarray or None, optional
-        The basis flux metric ``W(omega)``; ``None`` is the identity.
-
-    Returns
-    -------
-    numpy.ndarray
-        The width as a zero-dimensional array, s, or ``nan`` when the trace does not
-        cross half its maximum on both sides of the peak.
+    - ``field``: stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal
+      convention.
+    - ``metric``: the basis flux metric ``W(omega)``; ``None`` is the identity.
+    - Returns: the width as a zero-dimensional array, s, or ``nan`` when the trace does
+      not cross half its maximum on both sides of the peak.
     """
     return _power_half_width(
         grid,
@@ -1032,19 +960,8 @@ def _power_half_width(
 ) -> Float[np.ndarray, ""]:
     """Measure half-maximum crossings of a power trace without clipping its sign.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-    power : numpy.ndarray
-        Unclipped temporal flux, shape (n_t,), in watts.
-    outermost : bool
-        Use the outermost half-maximum crossings when true.
-
-    Returns
-    -------
-    numpy.ndarray
-        Scalar duration in seconds, NaN when crossings are absent.
+    - ``outermost``: use the outermost half-maximum crossings when true.
+    - Returns: scalar duration in seconds, NaN when crossings are absent.
     """
     start, end = _half_max_range(grid.t, power, outer=outermost)
     return np.asarray(end - start)
@@ -1335,13 +1252,7 @@ class StatDefinition:
 
 
 def _catalogue() -> dict[str, StatDefinition]:
-    """Return the fixed catalogue of statistics, keyed by name.
-
-    Returns
-    -------
-    dict
-        Every statistic solprop knows about, implemented or reserved.
-    """
+    """Return the fixed catalogue of statistics, keyed by name."""
     entries = (
         StatDefinition(
             name="omega0",
@@ -1850,24 +1761,8 @@ def _aperture_array(
 ) -> np.ndarray:
     """Own a finite float64 copy of one aperture table, read-only.
 
-    Parameters
-    ----------
-    values : object
-        The table as given.
-    shape : tuple of int or None
-        The shape it must have; ``None`` asks for any flat vector.
-    name : str
-        The field, named in the refusal.
-
-    Returns
-    -------
-    numpy.ndarray
-        A read-only, C-contiguous float64 copy.
-
-    Raises
-    ------
-    OutputError
-        If the table is not numeric, finite and of the stated shape.
+    - ``shape``: the shape it must have; ``None`` asks for any flat vector.
+    - Returns: a read-only, C-contiguous float64 copy.
     """
     stated = "a flat vector" if shape is None else f"shape {shape}"
     try:
@@ -1918,18 +1813,7 @@ def check_aperture_choices(profile: object, weighting: object) -> None:
 
 
 def _off_axis(shape: str) -> int:
-    """Return the index of the coordinate a half-plane does not depend on.
-
-    Parameters
-    ----------
-    shape : str
-        A half-plane's name.
-
-    Returns
-    -------
-    int
-        1 for a half-plane bounded in x, 0 for one bounded in y.
-    """
+    """Return the index of the coordinate a half-plane does not depend on."""
     return 1 if shape.startswith("half_plane_x") else 0
 
 
@@ -2101,17 +1985,6 @@ class ApertureSet:
 
         All circles are stored as no `shapes`, and rows of one profile as that
         `profile`, so that one request has one record.
-
-        Parameters
-        ----------
-        count : int
-            The number of apertures.
-
-        Raises
-        ------
-        OutputError
-            If a choice is unknown, there is not one per aperture, or `profile` is
-            given beside `profiles`.
         """
         if self.shapes is not None:
             shapes = tuple(self.shapes)
@@ -2144,19 +2017,7 @@ class ApertureSet:
         object.__setattr__(self, "profiles", None if len(one) == 1 else profiles)
 
     def _check_outlines(self, count: int) -> None:
-        """Own the extents and check each row's measures against its shape.
-
-        Parameters
-        ----------
-        count : int
-            The number of apertures.
-
-        Raises
-        ------
-        OutputError
-            If a diameter or an extent is missing, not positive or silently unused,
-            or a half-plane's centre is off the axis it names.
-        """
+        """Own the extents and check each row's measures against its shape."""
         shapes = self.row_shapes
         circle = np.array([shape == "circle" for shape in shapes])
         sized = np.array([shape in ("ellipse", "rectangle") for shape in shapes])
@@ -2198,12 +2059,9 @@ class ApertureSet:
     def _edge_measures(self) -> Float[np.ndarray, " n_apertures"]:
         """Return the width each row's edge width is measured against.
 
-        Returns
-        -------
-        numpy.ndarray
-            A circle's diameter, ``sqrt(D_x D_y)`` of an ellipse (the diameter of its
-            circular frame), the smaller of a rectangle's widths, and zero on a
-            half-plane, which has none, in m, shape ``(n_apertures,)``.
+        - Returns: a circle's diameter, ``sqrt(D_x D_y)`` of an ellipse (the diameter of
+          its circular frame), the smaller of a rectangle's widths, and zero on a
+          half-plane, which has none, in m, shape ``(n_apertures,)``.
         """
         measures = np.array(np.asarray(self.diameters))
         if self.extents is not None:
@@ -2216,18 +2074,7 @@ class ApertureSet:
         return measures
 
     def _check_edges(self, count: int) -> None:
-        """Own the edge table and check it against the profiles and the weighting.
-
-        Parameters
-        ----------
-        count : int
-            The number of apertures.
-
-        Raises
-        ------
-        OutputError
-            If the edges disagree with the profiles or the weighting.
-        """
+        """Own the edge table and check it against the profiles and the weighting."""
         kinds = self.row_profiles
         smooth = [kind for kind in kinds if kind != "hard"]
         if not smooth:
@@ -2259,20 +2106,7 @@ class ApertureSet:
     def _check_orders(
         self, edges: Float[np.ndarray, " n_apertures"], rows: np.ndarray
     ) -> None:
-        """Check the rows with a supergauss profile.
-
-        Parameters
-        ----------
-        edges : numpy.ndarray
-            The edge table.
-        rows : numpy.ndarray
-            Which rows have the profile.
-
-        Raises
-        ------
-        OutputError
-            Under quadrature weighting, on a half-plane, or for an order below 2.
-        """
+        """Check the rows with a supergauss profile."""
         if self.weighting == "quadrature":
             msg = (
                 "quadrature weighting needs a symmetric edge, and a supergauss "
@@ -2298,24 +2132,7 @@ class ApertureSet:
     ) -> None:
         """Check the rows with one symmetric edge profile.
 
-        Parameters
-        ----------
-        kind : str
-            The profile, ``tanh`` or ``rcos``.
-        edges : numpy.ndarray
-            The edge table.
-        rows : numpy.ndarray
-            Which rows have the profile.
-
-        Raises
-        ------
-        OutputError
-            If an edge width is out of its range.
-
-        Warns
-        -----
-        solprop.exceptions.ApertureEdgeWarning
-            For ``tanh`` under amplitude weighting with ``r/w < 4``.
+        - ``kind``: the profile, ``tanh`` or ``rcos``.
         """
         shapes = self.row_shapes
         half_plane = np.array([shape.startswith("half_plane") for shape in shapes])
@@ -2361,11 +2178,6 @@ class ApertureSet:
         A half-plane reaches the disc's edge by its nature, and the columns there
         carry zero weight (SEP 23 section 4.2); its edge must lie inside the disc, or
         it would select all of the disc or nothing.
-
-        Raises
-        ------
-        OutputError
-            Naming the apertures that reach it.
         """
         centres = np.asarray(self.centres)
         reach = np.array(
@@ -2386,20 +2198,9 @@ class ApertureSet:
     def _reach(self, row: int, shape: str, centre: Float[np.ndarray, " 2"]) -> float:
         """Return how far from the origin a row's outline reaches in the mask plane.
 
-        Parameters
-        ----------
-        row : int
-            The aperture.
-        shape : str
-            Its outline.
-        centre : numpy.ndarray
-            Its centre, m.
-
-        Returns
-        -------
-        float
-            The reach in m. A raised cosine's reaches its edge width further out; the
-            unbounded ``tanh`` and ``supergauss`` tails are zeroed at the disc's edge.
+        - ``centre``: its centre, m.
+        - Returns: the reach in m. A raised cosine's reaches its edge width further out;
+          the unbounded ``tanh`` and ``supergauss`` tails are zeroed at the disc's edge.
         """
         width = (
             float(np.asarray(self.edges)[row])
@@ -2500,24 +2301,12 @@ class ApertureSet:
 
 
 def _no_windows() -> Float[np.ndarray, "n_windows 2"]:
-    """Return the empty window list a spec defaults to.
-
-    Returns
-    -------
-    numpy.ndarray
-        An array of shape ``(0, 2)``.
-    """
+    """Return the empty window list a spec defaults to."""
     return np.empty((0, 2))
 
 
 def _no_regions() -> Float[np.ndarray, "n_regions 4"]:
-    """Return the empty region table a spec defaults to.
-
-    Returns
-    -------
-    numpy.ndarray
-        An array of shape ``(0, 4)``.
-    """
+    """Return the empty region table a spec defaults to."""
     return np.empty((0, 4))
 
 
@@ -2693,18 +2482,7 @@ class StatsSpec:
 
 
 def _check_names(names: Sequence[str]) -> None:
-    """Check that every requested statistic exists, is implemented and appears once.
-
-    Parameters
-    ----------
-    names : collections.abc.Sequence
-        The requested names.
-
-    Raises
-    ------
-    OutputError
-        If a name is unknown, reserved for physics that does not exist yet, or repeated.
-    """
+    """Check that every requested statistic exists, is implemented and appears once."""
     unknown = sorted(set(names) - set(CATALOGUE))
     if unknown:
         msg = f"unknown statistics {unknown}; the catalogue holds {sorted(CATALOGUE)}"
@@ -2723,21 +2501,7 @@ def _check_names(names: Sequence[str]) -> None:
 
 
 def _check_between_planes(names: Sequence[str]) -> None:
-    """Check that every periodic statistic is one a backend evaluates between planes.
-
-    Parameters
-    ----------
-    names : collections.abc.Sequence
-        The periodic subset, already known to be a subset of the requested names.
-
-    Raises
-    ------
-    OutputError
-        Naming the statistics that cannot be evaluated between planes, and the ones
-        that can. The refusal is by name and at construction because the alternative --
-        evaluating them anyway -- can cost a fifth of a step: ``zdw`` is a root search
-        per mode and does not belong on every accepted step.
-    """
+    """Check that every periodic statistic is one a backend evaluates between planes."""
     refused = sorted(name for name in names if not CATALOGUE[name].between_planes)
     if refused:
         available = sorted(
@@ -2753,17 +2517,7 @@ def _check_between_planes(names: Sequence[str]) -> None:
 def _check_windows(windows: Float[np.ndarray, "n_windows 2"]) -> None:
     """Check that every spectral window is a properly ordered pair.
 
-    Parameters
-    ----------
-    windows : numpy.ndarray
-        Window edges, shape ``(n_windows, 2)``, rad/s.
-
-    Raises
-    ------
-    OutputError
-        If the array holds a NaN, or has a row whose lower edge is not below its upper
-        edge. That it is a list of pairs is fixed by the annotation, as it is for
-        :class:`solprop.stepper.tableau.Tableau`.
+    - ``windows``: window edges, shape ``(n_windows, 2)``, rad/s.
     """
     if np.isnan(windows).any():
         msg = "energy_windows must not hold a NaN edge"
@@ -2780,17 +2534,7 @@ def _check_windows(windows: Float[np.ndarray, "n_windows 2"]) -> None:
 def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
     """Check that every region of transverse wavevector is a properly ordered box.
 
-    Parameters
-    ----------
-    regions : numpy.ndarray
-        Region edges, shape ``(n_regions, 4)``, rad/m.
-
-    Raises
-    ------
-    OutputError
-        If there are more than :data:`MAX_REGIONS` rows, an edge is NaN, or a row's
-        lower edge is not below its upper edge on either axis. That it is a list of
-        quadruples is fixed by the annotation, as for the energy windows.
+    - ``regions``: region edges, shape ``(n_regions, 4)``, rad/m.
     """
     if regions.shape[0] > MAX_REGIONS:
         msg = (
@@ -2814,22 +2558,7 @@ def _check_regions(regions: Float[np.ndarray, "n_regions 4"]) -> None:
 def _profile_for(profiles: Mapping[str, ZProfile] | None, name: str) -> ZProfile:
     """Return the z-profile one statistic needs, or say which one is missing.
 
-    Parameters
-    ----------
-    profiles : collections.abc.Mapping or None
-        The profiles the run has, keyed by statistic name.
-    name : str
-        The statistic asking.
-
-    Returns
-    -------
-    solprop.profiles.ZProfile
-        The profile.
-
-    Raises
-    ------
-    OutputError
-        If no profile of that name was given.
+    - ``profiles``: the profiles the run has, keyed by statistic name.
     """
     if profiles is None or name not in profiles:
         available = sorted(profiles) if profiles else []
@@ -2850,24 +2579,8 @@ def _zdw_or_nan(
     plane records ``nan`` with a warning, as :func:`fwhm_t` does for a missing crossing.
     A direct call to :func:`zdw` still raises.
 
-    Parameters
-    ----------
-    modes : collections.abc.Sequence
-        The propagated modes, in state order.
-    z : float
-        Position along the waveguide, m.
-    grid : solprop.grid.TimeGrid
-        The grid whose band is searched.
-
-    Returns
-    -------
-    numpy.ndarray
-        Zero-dispersion wavelength or ``nan``, shape ``(n_modes,)``, m.
-
-    Warns
-    -----
-    solprop.exceptions.SolpropWarning
-        If ``beta_2`` has one sign at both ends of the band for any mode.
+    - ``z``: position along the waveguide, m.
+    - Returns: Zero-dispersion wavelength or ``nan``, shape ``(n_modes,)``, m.
     """
     window = inband_wavelengths(grid)
     values = np.full(len(modes), np.nan)
@@ -3117,23 +2830,8 @@ def _poynting_statistics(
     The real instantaneous sum-frequency term is excluded. Negative broadband
     excursions of the Hermitian flux are retained, without clipping.
 
-    Parameters
-    ----------
-    spec : StatsSpec
-        Requested statistics and half-open spectral windows.
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-    field : numpy.ndarray
-        Internal modal spectrum, shape (n_modes, n_pol, n_omega).
-    weight : numpy.ndarray
-        Positive power weight, with the same modal shape.
-    axis : numpy.ndarray or None
-        Physical on-axis synthesis matrix, shape (2, n_modes).
-
-    Returns
-    -------
-    dict
-        Requested energy, temporal flux and axial intensity statistics.
+    - ``axis``: physical on-axis synthesis matrix, shape (2, n_modes).
+    - Returns: requested energy, temporal flux and axial intensity statistics.
     """
     names = set(spec.names) & _POYNTING_STATISTICS
     values: dict[str, np.ndarray] = {}
@@ -3209,19 +2907,9 @@ def _far_field_statistics(
 ) -> dict[str, np.ndarray]:
     """Form every saved-field far-field statistic a spec asks for, in one pass.
 
-    Parameters
-    ----------
-    spec : StatsSpec
-        The request, with its far-field tables.
-    flux : solprop.spatial.SpatialFlux
-        The plane's measure; a radial grid is refused by name.
-    field : numpy.ndarray
-        Internal Cartesian spectrum in V/m, shape ``(n_x*n_y, n_pol, n_omega)``.
-
-    Returns
-    -------
-    dict
-        The requested statistics of :data:`_SAVED_FAR_FIELD`, keyed by name.
+    - ``field``: internal Cartesian spectrum in V/m, shape ``(n_x*n_y, n_pol,
+      n_omega)``.
+    - Returns: the requested statistics of :data:`_SAVED_FAR_FIELD`, keyed by name.
     """
     # The translation layer imports this module, so its tables are reached lazily.
     from solprop.translate.spatial import aperture_tables  # noqa: PLC0415
@@ -3249,20 +2937,8 @@ def _spatial_statistic(
 ) -> np.ndarray:
     """Evaluate a spatial saved-field statistic through its physics reference.
 
-    Parameters
-    ----------
-    name : str
-        Requested spatial catalogue name.
-    flux : solprop.spatial.SpatialFlux
-        The plane's measure, binding its grids and medium.
-    field : numpy.ndarray
-        Internal spectrum, shape (n_modes, n_pol, n_omega): a Hankel spectrum in
-        V m or a raw Cartesian DFT spectrum in V/m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Scalar or array value in the catalogue's units.
+    - ``field``: internal spectrum, shape (n_modes, n_pol, n_omega): a Hankel spectrum
+      in V m or a raw Cartesian DFT spectrum in V/m.
     """
     if name == "energy":
         return np.asarray(spatial_energy(field, flux))

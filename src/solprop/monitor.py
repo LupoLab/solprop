@@ -148,21 +148,7 @@ def _guard_message(
     One text for every owner of a monitor's decisions: :meth:`BoundaryMonitor._judge`
     and a backend whose session judges natively (SEP 47 section 6.4).
 
-    Parameters
-    ----------
-    check : BoundaryCheck
-        The thresholds.
-    worst : float
-        The amplitude of the worse guard occupancy.
-    z : float or None
-        Where, m, or ``None`` for the launch.
-    stop : bool
-        Whether it stops the run, rather than warns.
-
-    Returns
-    -------
-    str
-        The message.
+    - ``z``: where, m, or ``None`` for the launch.
     """
     if z is None:
         where = "at the launch"
@@ -188,20 +174,7 @@ def _guard_message(
 
 
 def _removal_message(check: BoundaryCheck, removed: float) -> str:
-    """Return the message of the end of a run's removal warning (D5).
-
-    Parameters
-    ----------
-    check : BoundaryCheck
-        The thresholds.
-    removed : float
-        The removed fraction of the launch energy.
-
-    Returns
-    -------
-    str
-        The message.
-    """
+    """Return the message of the end of a run's removal warning (D5)."""
     return (
         f"the temporal collar removed {removed:.2e} of the launch energy, "
         f"whose square root is above the {check.budget:.0e} budget: "
@@ -210,15 +183,7 @@ def _removal_message(check: BoundaryCheck, removed: float) -> str:
 
 
 def _log_finish(removed: float, low: float, high: float) -> None:
-    """Log the removed fraction and the guards' peaks at the end of a run (D5).
-
-    Parameters
-    ----------
-    removed : float
-        The removed fraction of the launch energy.
-    low, high : float
-        The guards' largest occupancies.
-    """
+    """Log the removed fraction and the guards' peaks at the end of a run (D5)."""
     logger.info(
         "the temporal collar removed %.3e of the launch energy; the guards peaked "
         "at %.2e (low) and %.2e (high)",
@@ -234,16 +199,6 @@ def _boundary_warning(message: str) -> BoundaryWarning:
     One construction for every owner of a monitor's decisions: the monitor here and a
     backend whose session judges natively (SEP 47 section 6.4), so that both issue the
     same warning.
-
-    Parameters
-    ----------
-    message : str
-        Its text.
-
-    Returns
-    -------
-    solprop.exceptions.BoundaryWarning
-        The warning, concerning ``boundary_check``.
     """
     return BoundaryWarning(message, parameter="boundary_check")
 
@@ -254,23 +209,6 @@ def _count(value: float, name: str) -> int:
     Python's ``int`` of the recorded number, which truncates; a count that is not
     finite, or truncates below zero, is refused, by the monitor here and by a native
     session's alike (SEP 47 section 5.5).
-
-    Parameters
-    ----------
-    value : float
-        The recorded number.
-    name : str
-        Its field, for the message.
-
-    Returns
-    -------
-    int
-        The count.
-
-    Raises
-    ------
-    BoundaryError
-        When `value` is not finite or is negative.
     """
     if not math.isfinite(value) or math.trunc(value) < 0:
         msg = f"a resumed boundary record holds an invalid count: {name} = {value!r}"
@@ -281,22 +219,7 @@ def _count(value: float, name: str) -> int:
 def _number(
     record: Mapping[str, object], name: str, default: float = math.nan
 ) -> float:
-    """Return a record's number, or `default` when it is absent or not a number.
-
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        A monitor record read back from a run's file.
-    name : str
-        The field.
-    default : float, optional
-        What an absent or unmeasured field stands for.
-
-    Returns
-    -------
-    float
-        The value.
-    """
+    """Return a record's number, or `default` when it is absent or not a number."""
     value = record.get(name)
     if isinstance(value, bool) or not isinstance(value, int | float):
         return default
@@ -703,18 +626,8 @@ class BoundaryMonitor:
     def _judged(energies: BoundaryEnergies) -> tuple[float, Float[np.ndarray, " 4"]]:
         """Return a reading's energy and weighted energies, or nothing for no light.
 
-        Parameters
-        ----------
-        energies : BoundaryEnergies
-            A backend's reading of one state.
-
-        Returns
-        -------
-        total : float
-            The state's energy in the proxy's units; zero for a state with none.
-        regions : numpy.ndarray
-            The energies in the low guard, the high guard and the collar, and the
-            collar's removal rate, energy per metre.
+        - Returns ``regions``: the energies in the low guard, the high guard and the
+          collar, and the collar's removal rate, energy per metre.
         """
         total = float(energies.total)
         if total <= 0.0 or not math.isfinite(total):
@@ -728,16 +641,6 @@ class BoundaryMonitor:
         The removal rate subtracts the floor's expectation and keeps its sign: its
         integral along z averages the fluctuation out, which clipping would rectify
         into a spurious removal.
-
-        Parameters
-        ----------
-        regions : numpy.ndarray
-            A state's four weighted energies (:meth:`_regions`).
-
-        Returns
-        -------
-        numpy.ndarray
-            The same four, above the floor.
         """
         above = regions - self._floor_regions * np.array(
             [FLOOR_MARGIN, FLOOR_MARGIN, FLOOR_MARGIN, 1.0]
@@ -996,18 +899,7 @@ class BoundaryMonitor:
         self._judge(shares, z)
 
     def _read_cap(self, energies: BoundaryEnergies) -> None:
-        """Read the split collar's crossing limit from a reading's occupancy.
-
-        Parameters
-        ----------
-        energies : BoundaryEnergies
-            The backend's reading.
-
-        Raises
-        ------
-        BackendError
-            When the run has a crossing limit and the reading carries no occupancy.
-        """
+        """Read the split collar's crossing limit from a reading's occupancy."""
         if self.crossing is None:
             return
         if energies.occupancy is None:
@@ -1041,23 +933,6 @@ class BoundaryMonitor:
         the deep collar, the guards with it, by ``exp(-alpha h)``, which would hide the
         light that reached the edge by a factor set by the step. Otherwise the state's
         own reading.
-
-        Parameters
-        ----------
-        energies : BoundaryEnergies
-            The backend's reading of the committed state.
-
-        Returns
-        -------
-        BoundaryEnergies
-            The reading to judge.
-
-        Raises
-        ------
-        BackendError
-            Under the split, if the reading carries nothing found, or found nothing
-            where the state holds light: every committed step was split, and a split
-            finds at least the energy it leaves.
         """
         if not self.split:
             return energies
@@ -1077,17 +952,7 @@ class BoundaryMonitor:
     def _judge(self, shares: Float[np.ndarray, " 4"], z: float | None) -> None:
         """Warn once, or stop, on a state's guard occupancy (D7).
 
-        Parameters
-        ----------
-        shares : numpy.ndarray
-            The state's shares above the floor.
-        z : float or None
-            Its position, m, or ``None`` for the launch.
-
-        Raises
-        ------
-        BoundaryError
-            When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
+        - ``z``: its position, m, or ``None`` for the launch.
         """
         check = self.check
         worst = math.sqrt(max(float(shares[0]), float(shares[1]), 0.0))
@@ -1110,13 +975,8 @@ class BoundaryMonitor:
         raised only for a run that opted in, after :data:`QUIET_CHECKS` quiet checks
         in a row.
 
-        Parameters
-        ----------
-        shares : numpy.ndarray or None
-            The state's shares above the floor, or ``None`` for a state with no light
-            to judge, which is quiet and checked lazily.
-        raw_collar : float, optional
-            The collar's share of the whole field, floor included.
+        - ``shares``: the state's shares above the floor, or ``None`` for a state with
+          no light to judge, which is quiet and checked lazily.
         """
         if shares is None:
             self._busy, calm = False, True
@@ -1265,10 +1125,7 @@ class BoundaryMonitor:
         h))`` for the step ``h`` that ended at `z`. A position behind the last
         committed one (a plane observed inside the step after it) adds nothing.
 
-        Parameters
-        ----------
-        z : float
-            The committed position, m.
+        - ``z``: the committed position, m.
         """
         step = z - self._committed
         if not step > 0.0:
@@ -1350,10 +1207,7 @@ class BoundaryMonitor:
     def _plane_row(self, z: float) -> None:
         """Append one saved plane's row and start the next plane's guard maxima.
 
-        Parameters
-        ----------
-        z : float
-            The plane's position, m.
+        - ``z``: the plane's position, m.
         """
         row = self._planes
         read, self._read_since_plane = self._read_since_plane, False
@@ -1424,32 +1278,24 @@ class BoundaryMonitor:
             continues all of these (:meth:`resume`).
         """
 
-        def finite(value: float) -> float | None:
+        def _finite(value: float) -> float | None:
             """Return `value`, or ``None`` when it was never measured (not finite).
 
-            Parameters
-            ----------
-            value : float
-                A recorded value.
-
-            Returns
-            -------
-            float or None
-                The value, or ``None``.
+            - Returns: the value, or ``None``.
             """
             return value if math.isfinite(value) else None
 
         record: dict[str, object] = {
             **dataclasses.asdict(self.check),
-            "launch_energy": finite(self._launch),
+            "launch_energy": _finite(self._launch),
             "resumed_at": list(self._resumed_at),
-            "launch_guard_low": finite(self._launch_occupancy[0]),
-            "launch_guard_high": finite(self._launch_occupancy[1]),
-            "launch_collar": finite(self._launch_occupancy[2]),
+            "launch_guard_low": _finite(self._launch_occupancy[0]),
+            "launch_guard_high": _finite(self._launch_occupancy[1]),
+            "launch_collar": _finite(self._launch_occupancy[2]),
             "guard_low_max": self._guard_max[0],
             "guard_high_max": self._guard_max[1],
-            "guard_low_at": finite(self._guard_at[0]),
-            "guard_high_at": finite(self._guard_at[1]),
+            "guard_low_at": _finite(self._guard_at[0]),
+            "guard_high_at": _finite(self._guard_at[1]),
             "collar_max": self._collar_max,
             "removed_fraction": max(self.removed, 0.0),
             "removed_signed": self.removed,
@@ -1464,7 +1310,7 @@ class BoundaryMonitor:
             "raw_removed_fraction": self._raw_removed,
             "collar_left_out_checks": self._left_out_checks,
             "planes": {
-                name: [finite(value) for value in values]
+                name: [_finite(value) for value in values]
                 for name, values in self._planes.items()
             },
         }

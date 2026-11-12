@@ -165,17 +165,10 @@ class OutputCapabilities:
 def _quantities(basis: BasisCapability) -> dict[str, Quantity]:
     """Return what each derived quantity is on a basis.
 
-    Parameters
-    ----------
-    basis : {'modal', 'general_modal', 'spatial'}
-        The basis.
-
-    Returns
-    -------
-    dict
-        The quantities: physical on an orthogonal modal basis, coordinate on a general
-        one (whose physical energy is :func:`solprop.processing.modal.physical_energy`)
-        and on a spatial grid, whose amplitudes are per transverse column.
+    - Returns: the quantities: physical on an orthogonal modal basis, coordinate on a
+      general one (whose physical energy is
+      :func:`solprop.processing.modal.physical_energy`) and on a spatial grid, whose
+      amplitudes are per transverse column.
     """
     kind: QuantityKind = "physical" if basis == "modal" else "coordinate"
     return {
@@ -187,18 +180,7 @@ def _quantities(basis: BasisCapability) -> dict[str, Quantity]:
 
 
 def _compression_refusal(handler: Output) -> str | None:
-    """Return the compressors' refusal of a file, or ``None``.
-
-    Parameters
-    ----------
-    handler : solprop.output.schema.Output
-        The opened file.
-
-    Returns
-    -------
-    str or None
-        The refusal text, as the compressors raise it.
-    """
+    """Return the compressors' refusal of a file, or ``None``."""
     from solprop.processing.compression import (  # noqa: PLC0415 - layer above
         _require_modal,  # pyright: ignore[reportPrivateUsage]
     )
@@ -247,20 +229,7 @@ def output(source: str | Path | Output) -> OutputCapabilities:
 
 
 def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabilities:
-    """Return the statement for an opened handler.
-
-    Parameters
-    ----------
-    handler : solprop.output.schema.Output
-        The opened file.
-    resumable : Resumability or None
-        Its resumability, for a file.
-
-    Returns
-    -------
-    OutputCapabilities
-        The statement.
-    """
+    """Return the statement for an opened handler."""
     metadata = handler.metadata
     if metadata is None:
         from solprop.exceptions import OutputError  # noqa: PLC0415 - only here
@@ -843,16 +812,8 @@ def _ionisation_models(gas: Gas) -> tuple[IonisationModel, ...]:
     The models are the ones :func:`solprop.nonlinear.optmat_rates.selected_rate`
     resolves a selection's name from, each built once to read its record.
 
-    Parameters
-    ----------
-    gas : solprop.physdata.Gas
-        The gas.
-
-    Returns
-    -------
-    tuple of IonisationModel
-        The recommended model first, then the literature forms in optmat's order;
-        empty for a gas neither of optmat's rate families covers.
+    - Returns: the recommended model first, then the literature forms in optmat's order;
+      empty for a gas neither of optmat's rate families covers.
     """
     from optmat.gas.ionisation_rates import (  # noqa: PLC0415 - optmat is lazy
         ionisation_rate_coverage,
@@ -893,18 +854,7 @@ def _ionisation_models(gas: Gas) -> tuple[IonisationModel, ...]:
 
 @functools.cache
 def _species(gas: Gas) -> SpeciesCapabilities:
-    """Return a built-in gas's capabilities, once per gas.
-
-    Parameters
-    ----------
-    gas : solprop.physdata.Gas
-        The gas, not air.
-
-    Returns
-    -------
-    SpeciesCapabilities
-        The statement.
-    """
+    """Return a built-in gas's capabilities, once per gas."""
     from solprop.nonlinear.optmat_raman import raman_status  # noqa: PLC0415 - layer
     from solprop.physdata.species import OptmatGas  # noqa: PLC0415 - as above
     from solprop.physdata.species import species as built_in  # noqa: PLC0415

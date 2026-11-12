@@ -173,14 +173,7 @@ class SpatialMedium:
             object.__setattr__(self, "density", Constant(1.0))
 
     def _resolve_temperature(self) -> None:
-        """Resolve the one temperature: the given one, the mixture's, or room's.
-
-        Raises
-        ------
-        MaterialError
-            If a temperature is a path along z, is not finite and positive, or
-            differs from the mixture's beside a mixture.
-        """
+        """Resolve the one temperature: the given one, the mixture's, or room's."""
         own = self.material.temperature if isinstance(self.material, Mixture) else None
         given = self.temperature
         if isinstance(given, ZProfile) or isinstance(own, ZProfile):
@@ -216,11 +209,6 @@ class SpatialMedium:
         """Resolve a named gas's susceptibility and density path.
 
         The built-in gas is optmat's: its law and its equation of state.
-
-        Raises
-        ------
-        MaterialError
-            If the pressure is negative.
         """
         gas = as_gas(cast("str | Gas", self.material))
         pressure = as_profile(self.pressure)
@@ -567,17 +555,10 @@ class SpatialDispersion:
     ) -> Complex[np.ndarray, "n_modes n_omega"]:
         """Preserve unsquared Cartesian inputs when evaluating the launch operator.
 
-        Parameters
-        ----------
-        transverse : solprop.grid.FreeGrid or numpy.ndarray
-            Cartesian axes or already squared transverse frequencies in m^-2.
-        z : float
-            Material sampling position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex longitudinal squares in m^-2, one row per transverse column.
+        - ``transverse``: cartesian axes or already squared transverse frequencies in
+          m^-2.
+        - ``z``: material sampling position in m.
+        - Returns: complex longitudinal squares in m^-2, one row per transverse column.
         """
         if isinstance(transverse, FreeGrid):
             square, low, transverse_low = self.cartesian_squares(transverse, z)
@@ -658,12 +639,8 @@ class SpatialDispersion:
 def _check_evaluation(omega: np.ndarray, z: float) -> None:
     """Reject nonphysical frequency samples and nonfinite positions.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Physical angular frequencies in rad/s.
-    z : float
-        Propagation position in m.
+    - ``omega``: physical angular frequencies in rad/s.
+    - ``z``: propagation position in m.
     """
     if not np.all(np.isfinite(omega)) or np.any(omega <= 0) or not math.isfinite(z):
         msg = "spatial index needs finite positive frequencies and a finite position"
@@ -673,10 +650,7 @@ def _check_evaluation(omega: np.ndarray, z: float) -> None:
 def _check_transverse(kperp_sq: np.ndarray) -> None:
     """Reject nonfinite or negative squared transverse wave numbers.
 
-    Parameters
-    ----------
-    kperp_sq : numpy.ndarray
-        Transverse wave-number squares in m^-2.
+    - ``kperp_sq``: transverse wave-number squares in m^-2.
     """
     if not np.all(np.isfinite(kperp_sq)) or np.any(kperp_sq < 0):
         msg = "transverse wave-number squares must be finite and nonnegative"
@@ -691,14 +665,7 @@ def _check_field(
     A planar grid's slab amplitudes are not field samples; every caller routes
     them to :func:`_check_planar` before this check.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid specifying the frequency count.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse geometry specifying the column count.
-    spectrum : numpy.ndarray
-        Internal spatial spectrum, shape (n_modes, n_pol, n_omega).
+    - ``spectrum``: internal spatial spectrum, shape (n_modes, n_pol, n_omega).
     """
     space.validate()
     if (
@@ -717,21 +684,12 @@ def _analytic(
 ) -> np.ndarray:
     """Reconstruct the analytic field with the common temporal FFT convention.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal transform layout and sampling.
-    spectrum : numpy.ndarray
-        Internal temporal spectrum with frequency on the final axis.
-    oversampling : int, optional
-        Factor by which to resample the time axis by zero-padding the spectrum, at
-        least 1; the samples then lie on
-        :func:`solprop.processing.fields.time_axis` of the grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex analytic samples with time on the final axis.
+    - ``grid``: temporal transform layout and sampling.
+    - ``spectrum``: internal temporal spectrum with frequency on the final axis.
+    - ``oversampling``: factor by which to resample the time axis by zero-padding the
+      spectrum, at least 1; the samples then lie on
+      :func:`solprop.processing.fields.time_axis` of the grid.
+    - Returns: complex analytic samples with time on the final axis.
     """
     _check_oversampling(oversampling)
     if oversampling > 1:
@@ -741,18 +699,7 @@ def _analytic(
 
 
 def _check_oversampling(oversampling: int) -> None:
-    """Refuse an oversampling factor below one.
-
-    Parameters
-    ----------
-    oversampling : int
-        The factor.
-
-    Raises
-    ------
-    GridError
-        If it is below one.
-    """
+    """Refuse an oversampling factor below one."""
     if oversampling < 1:
         msg = f"oversampling must be at least 1, got {oversampling}"
         raise GridError(msg)
@@ -980,18 +927,7 @@ class SpatialFlux:
         return self._admittance_of(self.space.spectral_weights.size)
 
     def _admittance_of(self, n_columns: int) -> Complex[np.ndarray, "n_modes n_omega"]:
-        """Return the admittance of the coefficients' first `n_columns` columns.
-
-        Parameters
-        ----------
-        n_columns : int
-            The number of columns the coefficients hold.
-
-        Returns
-        -------
-        numpy.ndarray
-            :meth:`admittance` of every column, its chunks formed in threads.
-        """
+        """Return the admittance of the coefficients' first `n_columns` columns."""
         size = max(1, _FLUX_CHUNK // self.grid.n_omega)
         chunks = [
             slice(start, min(start + size, n_columns))
@@ -1000,13 +936,7 @@ class SpatialFlux:
         admittance = np.empty((n_columns, self.grid.n_omega), dtype=np.complex128)
 
         def work(rows: slice) -> None:
-            """Form one block of the chunks' admittance.
-
-            Parameters
-            ----------
-            rows : slice
-                The block of chunks.
-            """
+            """Form one block of the chunks' admittance."""
             for columns in chunks[rows]:
                 admittance[columns] = self.admittance(columns)
 
@@ -1037,29 +967,11 @@ def _gathered(
 
     A large launch's single gather, page faults and all, took 2 s of its build
     (solprop issue #347).
-
-    Parameters
-    ----------
-    rows : numpy.ndarray
-        The distinct rows.
-    index : numpy.ndarray
-        The row each output row copies, ``(n_modes,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The gathered rows.
     """
     gathered = np.empty((index.size, rows.shape[1]), dtype=rows.dtype)
 
     def work(block: slice) -> None:
-        """Copy one block of rows.
-
-        Parameters
-        ----------
-        block : slice
-            The block of output rows.
-        """
+        """Copy one block of rows."""
         gathered[block] = rows[index[block]]
 
     parallel_rows(index.size, gathered.nbytes, work)
@@ -1071,16 +983,9 @@ def _exact_squares(
 ) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
     """Return each value's square as the sum of two floats, exactly (Dekker, Veltkamp).
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Each zero or of magnitude within ``[2**-450, 2**500]``, where the split can't
-        overflow and the low part can't underflow.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The rounded squares and their exact residuals.
+    - ``values``: each zero or of magnitude within ``[2**-450, 2**500]``, where the
+      split can't overflow and the low part can't underflow.
+    - Returns: the rounded squares and their exact residuals.
     """
     split = 134217729.0 * values  # 2**27 + 1
     upper = split - (split - values)
@@ -1094,15 +999,8 @@ def _transverse_residual(space: FreeGrid) -> Float[np.ndarray, " n_modes"]:
 
     ``math.fsum`` rounds the exact sum of its floats, as a rational sum would.
 
-    Parameters
-    ----------
-    space : solprop.grid.FreeGrid
-        Stored unsquared transverse axes in rad/m, with x fastest.
-
-    Returns
-    -------
-    numpy.ndarray
-        The real residuals in m^-2.
+    - ``space``: stored unsquared transverse axes in rad/m, with x fastest.
+    - Returns: the real residuals in m^-2.
     """
     k_x, k_y = np.asarray(space.k_x), np.asarray(space.k_y)
     moduli = np.abs(np.concatenate((k_x, k_y)))
@@ -1142,19 +1040,8 @@ def _check_flux(
 ) -> None:
     """Validate a spectrum against its flux record.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-    planar : bool or None, optional
-        True requires a planar grid, False refuses one, None admits either.
-
-    Raises
-    ------
-    GridError
-        If the shape or finiteness is invalid or the grid kind is refused.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - ``planar``: True requires a planar grid, False refuses one, None admits either.
     """
     space = flux.space
     if isinstance(space, PlanarGrid):
@@ -1178,18 +1065,9 @@ def _column_power(
 ) -> Float[np.ndarray, " n_modes"]:
     """Return each column's weighted axial energy, summed over polarisation.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``scale * v_j * sum_k e_k Re(Y_jk) sum_p |X_jpk|^2`` in J (J/m on a line),
-        one per column.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - Returns: ``scale * v_j * sum_k e_k Re(Y_jk) sum_p |X_jpk|^2`` in J (J/m on a
+      line), one per column.
     """
     grid = flux.grid
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -1435,18 +1313,9 @@ def _synthesise(
 ) -> np.ndarray:
     """Return a spectrum's physical field in V/m at the transverse nodes.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        Transverse geometry.
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Frequency-domain field at the nodes, shape ``(n_nodes, n_pol, n_omega)``;
-        planar nodes are flattened ``ix + n_x*iy``.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - Returns: Frequency-domain field at the nodes, shape ``(n_nodes, n_pol, n_omega)``;
+      planar nodes are flattened ``ix + n_x*iy``.
     """
     if isinstance(space, RadialGrid):
         return np.moveaxis(space.hankel.inverse(np.moveaxis(spectrum, 0, -1)), -1, 0)
@@ -1466,17 +1335,8 @@ def _closure(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
     conjugate of the optics one (``docs/dev/conventions.md`` §2), so the closure
     applies the conjugate admittance.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    numpy.ndarray
-        Spectrum of the same shape.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - Returns: spectrum of the same shape.
     """
     closure = np.empty_like(spectrum, dtype=np.complex128)
     for columns in flux.chunks():
@@ -1491,17 +1351,9 @@ def _local_pair(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Synthesise E and its closure at the nodes, in the frequency domain.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``E`` in V/m and ``G / (eps0 c)`` in V/m, each ``(n_nodes, n_pol, n_omega)``.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - Returns: ``E`` in V/m and ``G / (eps0 c)`` in V/m, each ``(n_nodes, n_pol,
+      n_omega)``.
     """
     return _synthesise(flux.space, spectrum), _synthesise(
         flux.space, _closure(spectrum, flux)
@@ -1513,18 +1365,9 @@ def _signed_fluence(
 ) -> tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, " n_nodes"]]:
     """Return the signed fluence and its rounding budget at the nodes.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Fluence in J/m^2 at the nodes and a bound on its accumulated rounding,
-        the same at every node.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    - Returns: fluence in J/m^2 at the nodes and a bound on its accumulated rounding,
+      the same at every node.
     """
     grid = flux.grid
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -1634,19 +1477,10 @@ def _local_intensity(
 ) -> np.ndarray:
     """Return the signed local axial flux at the nodes in time.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``, already validated.
-    flux : SpatialFlux
-        The plane's measure.
-    oversampling : int, optional
-        Factor by which to resample the time axis, at least 1.
-
-    Returns
-    -------
-    numpy.ndarray
-        Flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
+    - ``spectrum``: internal spectrum, shape ``(n_modes, n_pol, n_omega)``, already
+      validated.
+    - ``oversampling``: factor by which to resample the time axis, at least 1.
+    - Returns: flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
     """
     field, closure = _local_pair(spectrum, flux)
     grid = flux.grid
@@ -1772,20 +1606,11 @@ def _check_planar(
 ) -> np.ndarray:
     """Validate a planar ``(p, k_y)`` spectrum and return it as y rows.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid specifying the frequency count.
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels and the y axis.
-    spectrum : numpy.ndarray
-        Internal spectrum, shape ``(n_p*n_y, 1, n_omega)``, the channel fastest.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same state as slab amplitudes in sqrt(W/m) at each y sample, shape
-        ``(n_y, n_p, n_omega)``.
+    - ``space``: the slab channels and the y axis.
+    - ``spectrum``: internal spectrum, shape ``(n_p*n_y, 1, n_omega)``, the channel
+      fastest.
+    - Returns: the same state as slab amplitudes in sqrt(W/m) at each y sample, shape
+      ``(n_y, n_p, n_omega)``.
     """
     if spectrum.shape != (space.n_columns, 1, grid.n_omega) or not np.all(
         np.isfinite(spectrum)
@@ -1803,19 +1628,10 @@ def _on_axis_pair(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Reconstruct E and its closure at the geometric axis.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        On-axis temporal spectra of ``E`` and ``G / (eps0 c)`` in V/m, each
-        ``(n_pol, n_omega)``.
+    - ``spectrum``: internal radial spectrum in V m or Cartesian spectrum in V/m, shape
+      ``(n_modes, n_pol, n_omega)``.
+    - Returns: On-axis temporal spectra of ``E`` and ``G / (eps0 c)`` in V/m, each
+      ``(n_pol, n_omega)``.
     """
     _check_flux(spectrum, flux)
     space = flux.space
@@ -2915,21 +2731,8 @@ def _aperture_weight(
 ) -> Float[np.ndarray, "n_chunk n_omega"]:
     """Return one aperture's weight on a chunk of columns at every frequency.
 
-    Parameters
-    ----------
-    tables : ApertureTables
-        The far-field tables.
-    index : int
-        The aperture.
-    k_x, k_y : numpy.ndarray
-        The chunk's stored transverse wavevectors in rad/m, shape ``(n_chunk,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``W_a`` of the column's image, exactly zero at and below zero frequency and
-        wherever the column's image lies at or beyond the mask plane's distance from
-        the origin (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
+    - ``k_x``, ``k_y``: the chunk's stored transverse wavevectors in rad/m, shape
+      ``(n_chunk,)``.
     """
     scale = tables.scale[index]
     across, along = mask_plane_offsets(scale, k_x, k_y, tables.centres[index])
@@ -3026,29 +2829,7 @@ def _far_field_request(
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables,
 ) -> set[str]:
-    """Check a far-field request against the field and its tables.
-
-    Parameters
-    ----------
-    names : collections.abc.Sequence of str
-        The statistics wanted.
-    grid : solprop.grid.TimeGrid
-        The temporal grid.
-    field : numpy.ndarray
-        The spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
-    tables : ApertureTables
-        The far-field tables.
-
-    Returns
-    -------
-    set of str
-        The names, checked.
-
-    Raises
-    ------
-    OutputError
-        As :func:`aperture_statistics` documents.
-    """
+    """Check a far-field request against the field and its tables."""
     wanted = set(names)
     unknown = sorted(wanted - set(FAR_FIELD_STATISTICS))
     if unknown:
@@ -3082,19 +2863,7 @@ _THROUGH_APERTURES = frozenset({"aperture_spectrum", "aperture_on_axis_spectrum"
 
 
 class _FarFieldSums:
-    """Accumulate the far-field partials chunk by chunk, in ascending order.
-
-    Parameters
-    ----------
-    wanted : set of str
-        The far-field statistics asked for.
-    grid : solprop.grid.TimeGrid
-        The temporal grid.
-    tables : ApertureTables
-        The far-field tables.
-    n_pol : int
-        The spectrum's polarisation components.
-    """
+    """Accumulate the far-field partials chunk by chunk, in ascending order."""
 
     def __init__(
         self, wanted: set[str], grid: TimeGrid, tables: ApertureTables, n_pol: int
@@ -3120,22 +2889,7 @@ class _FarFieldSums:
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],
         axial: AxialFactors,
     ) -> None:
-        """Add one chunk of columns, starting at column `first`.
-
-        Parameters
-        ----------
-        first : int
-            The chunk's first column.
-        spectrum : numpy.ndarray
-            The chunk of the spectrum, shape ``(n_chunk, n_pol, n_omega)``.
-        axial : callable
-            The plane's per-chunk admittance and rates.
-
-        Raises
-        ------
-        OutputError
-            If ``absorbed_power`` is wanted and the rates are not available.
-        """
+        """Add one chunk of columns, starting at column `first`."""
         tables, grid, wanted = self._tables, self._grid, self._wanted
         stop = first + spectrum.shape[0]
         columns = np.arange(first, stop)
@@ -3172,12 +2926,7 @@ class _FarFieldSums:
     ) -> None:
         """Add a chunk's weighted density to every region its columns belong to.
 
-        Parameters
-        ----------
-        weighted : numpy.ndarray
-            ``w_c`` times the polarisation-summed spectral density.
-        k_x, k_y : numpy.ndarray
-            The chunk's stored transverse wavevectors in rad/m.
+        - ``k_x``, ``k_y``: the chunk's stored transverse wavevectors in rad/m.
         """
         # Membership compares the physical wavevector, an exact negation of the
         # stored axes, with half-open edges, so regions that tile the plane tile the
@@ -3203,18 +2952,7 @@ class _FarFieldSums:
     ) -> None:
         """Add a chunk to every aperture's collected spectrum and on-axis amplitude.
 
-        Parameters
-        ----------
-        first : int
-            The chunk's first column.
-        spectrum : numpy.ndarray
-            The chunk of the spectrum.
-        admittance : numpy.ndarray
-            The chunk's complex admittance.
-        weighted : numpy.ndarray
-            ``w_c`` times the polarisation-summed spectral density.
-        k_x, k_y : numpy.ndarray
-            The chunk's stored transverse wavevectors in rad/m.
+        - ``k_x``, ``k_y``: the chunk's stored transverse wavevectors in rad/m.
         """
         tables = self._tables
         stop = first + spectrum.shape[0]
@@ -3239,13 +2977,7 @@ class _FarFieldSums:
                 )
 
     def values(self) -> dict[str, np.ndarray]:
-        """Return the requested statistics from the accumulated partials.
-
-        Returns
-        -------
-        dict
-            The statistics :func:`aperture_statistics` documents.
-        """
+        """Return the requested statistics from the accumulated partials."""
         conversion = 0.5 * EPS0 * C
         grid = self._grid
         factor = fourier.spectral_density(
@@ -3349,19 +3081,12 @@ def radial_fluence_widths(
     values = np.concatenate(([axis_fluence], fluence))
     positions = np.concatenate(([0.0], radius))
 
-    def crossing(fraction: float) -> float:
+    def _crossing(fraction: float) -> float:
         """Interpolate the first outward threshold crossing.
 
-        Parameters
-        ----------
-        fraction : float
-            Threshold divided by the central fluence, between zero and one.
-
-        Returns
-        -------
-        float
-            Radius in m, or NaN when the axis lies below the threshold or the
-            trace never crosses it.
+        - ``fraction``: threshold divided by the central fluence, between zero and one.
+        - Returns: radius in m, or NaN when the axis lies below the threshold or the
+          trace never crosses it.
         """
         level = fraction * peak
         if axis_fluence < level:
@@ -3378,7 +3103,7 @@ def radial_fluence_widths(
             * (positions[index] - positions[index - 1])
         )
 
-    return second, crossing(math.exp(-2)), 2 * crossing(0.5)
+    return second, _crossing(math.exp(-2)), 2 * _crossing(0.5)
 
 
 def cartesian_fluence_widths(
@@ -3520,18 +3245,10 @@ def _fluence_rings(
     centroid inside the axes, and an angular spacing no larger than that arc length on
     the largest ring of the plane.
 
-    Parameters
-    ----------
-    x, y : numpy.ndarray
-        Uniform increasing physical axes in m, of at least two samples each.
-    center_x, center_y : float
-        The fluence centroid in m.
-
-    Returns
-    -------
-    _FluenceRings or None
-        The rings, or ``None`` when the centroid lies within two half-spacings of an
-        edge, where the threshold widths are undefined.
+    - ``x``, ``y``: uniform increasing physical axes in m, of at least two samples each.
+    - ``center_x``, ``center_y``: the fluence centroid in m.
+    - Returns: the rings, or ``None`` when the centroid lies within two half-spacings of
+      an edge, where the threshold widths are undefined.
     """
     limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
     spacing = min(x[1] - x[0], y[1] - y[0]) / 2
@@ -3553,15 +3270,8 @@ def _ring_angles(
     circle inside the axes: fixed by the axes alone, whatever the centroid, so a
     backend that finishes the widths natively forms them once (SEP 47 section 6.4).
 
-    Parameters
-    ----------
-    x, y : numpy.ndarray
-        Uniform increasing physical axes in m, of at least two samples each.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The cosines and the sines, shape ``(n_angles,)``, at least eight of each.
+    - ``x``, ``y``: uniform increasing physical axes in m, of at least two samples each.
+    - Returns: the cosines and the sines, shape ``(n_angles,)``, at least eight of each.
     """
     spacing = min(x[1] - x[0], y[1] - y[0]) / 2
     largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
@@ -3575,23 +3285,10 @@ def _ring_fluence_widths(
 ) -> tuple[float, float]:
     """Return the threshold widths of a fluence averaged on its rings.
 
-    Parameters
-    ----------
-    radii : numpy.ndarray
-        The rings' radii in m, the first zero (``_fluence_rings``).
-    averaged : numpy.ndarray
-        The nonnegative fluence averaged on each ring.
-
-    Returns
-    -------
-    tuple of float
-        The first 1/e^2 radius and the FWHM in m, as :func:`radial_fluence_widths`
-        defines them, with the first ring as the axis.
-
-    Raises
-    ------
-    GridError
-        With fewer than three radii, too few to find a width from.
+    - ``radii``: the rings' radii in m, the first zero (``_fluence_rings``).
+    - ``averaged``: the nonnegative fluence averaged on each ring.
+    - Returns: the first 1/e^2 radius and the FWHM in m, as
+      :func:`radial_fluence_widths` defines them, with the first ring as the axis.
     """
     _, radius_e2, width = radial_fluence_widths(
         radii[1:], averaged[1:], np.ones(radii.size - 1), float(averaged[0])
@@ -3604,24 +3301,11 @@ def _line_fluence_widths(
 ) -> tuple[float, float, float]:
     """Measure the one-dimensional widths of a line's fluence about its centroid.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Validated uniform increasing axis in m.
-    samples : numpy.ndarray
-        Fluence divided by its maximum, nonnegative and not all zero.
-
-    Returns
-    -------
-    tuple of float
-        ``2*sqrt(mean((x - x_c)**2))``, the first 1/e^2 half-width and the FWHM in
-        m, the last two NaN when the centroid lies within two half-spacings of an
-        edge or the profile does not cross the level.
-
-    Raises
-    ------
-    GridError
-        If the moment is not representable.
+    - ``x``: validated uniform increasing axis in m.
+    - ``samples``: fluence divided by its maximum, nonnegative and not all zero.
+    - Returns: ``2*sqrt(mean((x - x_c)**2))``, the first 1/e^2 half-width and the FWHM
+      in m, the last two NaN when the centroid lies within two half-spacings of an edge
+      or the profile does not cross the level.
     """
     total = float(np.sum(samples))
     center = float(np.sum(samples * x) / total)
@@ -3655,24 +3339,9 @@ def _line_fluence_widths(
 def _beam_widths(spectrum: np.ndarray, flux: SpatialFlux) -> tuple[float, float, float]:
     """Reduce the signed fluence profile with its spatial measure.
 
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape ``(n_modes, n_pol, n_omega)``.
-    flux : SpatialFlux
-        The plane's measure on a radial or Cartesian grid.
-
-    Returns
-    -------
-    tuple of float
-        Second-moment radius, central 1/e^2 radius and FWHM in m.
-
-    Raises
-    ------
-    GridError
-        If the fluence is negative anywhere beyond its rounding budget: a width
-        needs a nonnegative profile, and a signed axial flux is not clipped.
+    - ``spectrum``: internal radial spectrum in V m or Cartesian spectrum in V/m, shape
+      ``(n_modes, n_pol, n_omega)``.
+    - Returns: Second-moment radius, central 1/e^2 radius and FWHM in m.
     """
     _check_flux(spectrum, flux, planar=False)
     fluence, budget = _signed_fluence(spectrum, flux)
