@@ -130,7 +130,9 @@ class BackendHistory:
             ("accepted", np.bool_),
             ("wall_time", np.float64),
         ):
-            values = frozen_copy(getattr(self, name), dtype)
+            # At least one-dimensional, as numpy.ascontiguousarray made it: a scalar
+            # stands for one entry.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
             object.__setattr__(self, name, values)
             # The rank is fixed by the annotations, which the test session enforces;
             # what a caller can still get wrong is the number of entries.
@@ -255,8 +257,10 @@ class StepStats:
         BackendError
             Naming the offending column or statistic.
         """
-        positions = frozen_copy(self.z, np.float64)
-        indices = frozen_copy(self.step, np.int64)
+        # At least one-dimensional, as numpy.ascontiguousarray made them: a scalar
+        # position is one row.
+        positions = frozen_copy(np.atleast_1d(self.z), np.float64)
+        indices = frozen_copy(np.atleast_1d(self.step), np.int64)
         object.__setattr__(self, "z", positions)
         object.__setattr__(self, "step", indices)
         if indices.shape != positions.shape:

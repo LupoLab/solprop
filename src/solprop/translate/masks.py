@@ -188,9 +188,11 @@ class Grids:
             ("t_window_fine", np.float64),
             ("t_window_fine_derivative", np.float64),
         ):
-            object.__setattr__(self, name, frozen_copy(getattr(self, name), dtype))
+            # At least one-dimensional, as numpy.ascontiguousarray made them.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
+            object.__setattr__(self, name, values)
         if self.carrier_2w0 is not None:
-            carrier = frozen_copy(self.carrier_2w0, np.complex128)
+            carrier = frozen_copy(np.atleast_1d(self.carrier_2w0), np.complex128)
             object.__setattr__(self, "carrier_2w0", carrier)
         n_omega = self.omega.size
         for name in (

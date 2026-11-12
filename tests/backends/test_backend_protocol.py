@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop import _process
 from solprop.backends import (
     Backend,
@@ -261,6 +262,26 @@ def test_a_channel_leaves_the_caller_s_arrays_writeable_and_rewraps_without_a_co
     again = StepStats(z=channel.z, step=channel.step, values=dict(channel.values))
     assert again.z is channel.z
     assert again.values["energy"] is channel.values["energy"]
+
+
+def test_a_scalar_position_is_one_row_as_it_always_was():
+    # Production code is not type checked: a scalar z and step are one row, as
+    # numpy.ascontiguousarray made them, while a scalar statistic is still refused.
+    channel = StepStats.__new__(StepStats)
+    unchecked(StepStats.__init__)(
+        channel, np.float64(0.1), np.int64(0), {"energy": np.ones((1, 1, 1, 1))}
+    )
+    assert channel.n_rows == 1
+    assert channel.z.shape == (1,) and channel.step.shape == (1,)
+    history = BackendHistory.__new__(BackendHistory)
+    unchecked(BackendHistory.__init__)(
+        history, np.float64(0.1), 0.1, 0.4, np.bool_(True), 0.01
+    )
+    assert history.n_steps == 1
+    with pytest.raises(BackendError, match="leading axis"):
+        unchecked(StepStats.__init__)(
+            StepStats.__new__(StepStats), np.float64(0.1), np.int64(0), {"energy": 1.0}
+        )
 
 
 def test_an_empty_channel_is_what_a_run_without_a_periodic_subset_carries():

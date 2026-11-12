@@ -335,17 +335,20 @@ class LinearOperator:
             ("phi_degrees", np.intp),
             ("hard_kinks", np.float64),
         ):
-            object.__setattr__(self, name, frozen_copy(getattr(self, name), dtype))
+            # At least one-dimensional, as numpy.ascontiguousarray made them.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
+            object.__setattr__(self, name, values)
         for name in ("phi_coefficients", "phi_constant"):
             optional = getattr(self, name)
             if optional is None:
                 continue
-            object.__setattr__(self, name, frozen_copy(optional, np.complex128))
+            values = frozen_copy(np.atleast_1d(optional), np.complex128)
+            object.__setattr__(self, name, values)
         if self.power_weight_constant is not None:
             object.__setattr__(
                 self,
                 "power_weight_constant",
-                frozen_copy(self.power_weight_constant, np.float64),
+                frozen_copy(np.atleast_1d(self.power_weight_constant), np.float64),
             )
         self._check_representation()
         n_intervals = self.phi_degrees.size
