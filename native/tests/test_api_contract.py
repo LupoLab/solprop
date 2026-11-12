@@ -634,7 +634,11 @@ def test_the_process_pool_follows_the_affinity_mask(
 def four_cpus(monkeypatch: pytest.MonkeyPatch) -> None:
     """solprop's budget reader on four CPUs of one kind, with no quota."""
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(4)))
-    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+
+    def no_cores(cpus: object) -> None:
+        return None
+
+    monkeypatch.setattr(_process, "physical_cores", no_cores)
     monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
 
