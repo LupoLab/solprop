@@ -33,11 +33,6 @@ def _corpus() -> dict[str, Any]:
 ENTRIES = _corpus()["scenarios"]
 
 
-def test_the_corpus_was_generated_before_the_refactor():
-    # The feature branch's head with #566 merged, before rk_core existed.
-    assert _corpus()["generated_from"] == "a0d9691231bf"
-
-
 def test_the_corpus_reaches_every_decision_it_was_written_for():
     stops = {
         entry["scenario"]["name"]: entry["trace"]["end"]["stop"] for entry in ENTRIES

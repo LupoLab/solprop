@@ -176,7 +176,6 @@ accuracy is measured, not adapted, and the alarm is a statistic.
 | alarm against radial order, three HE₁ₘ modes | **2.365e-1, 3.316e-2, 1.451e-4, 1.777e-8, 4.224e-15** at n_r = 8, 16, 24, 32, 48; the 1e-6 threshold separates 24 from 32 | `tests/backends/test_numpy_ref_multimode.py` |
 | what an alarm of 1.0e-1 costs | the M2 VUV band wrong by 6.6e-5 (`m2_alarm_cost.json`) | `tests/driver/test_prop_capillary.py` |
 | the Kerr overlap tensor | solprop's projected drive is the analytic quartic overlap of the Bessel profiles to 8.9e-16 (two modes) and 1.6e-13 (four): 0.4785422894, 0.0221346036, −0.0023723438 for modes 2–4 | `tests/driver/test_prop_capillary.py` |
-| Luna's own projection of the same field | the same overlaps to 1.9e-12 at 64, 128 and 256 nodes, with and without Kronrod; its discrete Gram matrix the identity to 8.9e-16 | `tests/data/luna_overlap.jl` |
 | the M2 quadrature ladder | n_r = 32, 64, 128 leave the second mode's exit energy unchanged to seven digits on **both** codes | `tests/driver/test_prop_capillary.py` |
 | the alarm on the milestone runs | ≤ 1.0e-6 over the M2 planes where it is defined, `nan` at a true vacuum end; 2.24e-11 on the CtC case at 48 nodes | `tests/backends/test_numpy_ref_multimode.py`, `tests/driver/test_prop_capillary.py` |
 | the default radial order | `max(32, 8 n_modes)`: 32 for four modes, 48 for six, both measured converged | `tests/driver/test_prop_capillary.py` |
@@ -544,7 +543,7 @@ field's contraction pragma removed
 ## 9. Regenerating the numbers
 
 **The witnesses.** Every Luna witness has a generator beside it under `tests/data/`
-(`generate_luna_rdw.py`, `generate_luna_ctc.py`, `generate_luna_overlap.py`,
+(`generate_luna_rdw.py`, `generate_luna_ctc.py`,
 `generate_luna_rdw_switches.py`, `generate_luna_rdw_converged.py` and the others named
 `generate_luna_*.py`), each recording Luna's commit, the thread counts and the run time in
 its provenance; none is run by the suite, and nothing on this page needs a new Luna run.
