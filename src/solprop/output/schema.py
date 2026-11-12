@@ -802,8 +802,8 @@ class BackendRecord:
     A resumed file keeps the record it was opened with, creation time and all, so the
     backend it names is the one that **started** the run. That is append mode's rule
     for the whole record and not a special case for this group. The name may be one this
-    package no longer has (:data:`solprop.backends.registry.REMOVED_BACKENDS`): an old
-    file's record reads as it was written, in its backend's own vocabulary.
+    package no longer has, such as ``numba_cpu``: a recorded name is not a request, so
+    an old file's record reads as it was written, in its backend's own vocabulary.
 
     Attributes
     ----------
@@ -1316,8 +1316,8 @@ class NoiseResolution:
     resolved : {'input', 'modified'} or None
         The model the run carries, or ``None`` for a noiseless run.
     reason : str or None
-        Why a default resolved to no noise, for example that single precision carries
-        none; ``None`` otherwise.
+        Why a default resolved to no noise, for example that the hybrid planar grid
+        declares no photon measure; ``None`` otherwise.
 
     Examples
     --------

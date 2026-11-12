@@ -24,7 +24,7 @@ from backends.planar_cases import planar_case
 from capability_routes import ROUTES
 from sessions.runs import bare, load_native, native_trial, run
 from solprop.backends.events import ObservationReady
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.exceptions import MaterialRangeWarning
@@ -431,7 +431,6 @@ def linear_cartesian(mode: str):
             problem,
             responses=dataclasses.replace(
                 problem.responses,
-                response_order=problem.responses.response_order[-1:],
                 kerr_coefficients=None,
             ),
         ),

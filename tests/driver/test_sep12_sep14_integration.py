@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module
@@ -30,7 +30,7 @@ from solprop.nonlinear.tdse import (
 )
 from solprop.output import MemoryOutput, open_file, resume
 from solprop.stats import StatsSpec
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import AtomicCallBudget, TDSEResult, waveform_identity
 
@@ -178,7 +178,7 @@ def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulat
         initial = backend.observe()
         assert backend._adams is not None
         # The interaction formulation's fused path, or the exponential one's own.
-        assert backend._adams._fused is (formulation == "interaction")
+        assert (backend._adams._exponential is None) is (formulation == "interaction")
         with pytest.raises(BackendError, match="predictor chunk failure"):
             backend.propagate_to(simulation.grid.length)
         actual = backend.observe()
@@ -195,44 +195,6 @@ def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulat
     finally:
         backend.close()
         binding.close()
-
-
-@pytest.mark.medium
-def test_corrected_provider_failure_checkpoints_the_previous_accepted_state(
-    monkeypatch,
-):
-    method = ComparisonMultistep(order=1, corrector="pece", corrector_order=2)
-    simulation = _atomic_simulation(method=method)
-    descriptor = tdse_descriptor(simulation.translate().route)
-    assert descriptor is not None
-    binding = _Binding(descriptor, 20, fail_at=5)
-    monkeypatch.setattr(
-        runtime_module, "prepare_binding", lambda *args, **kwargs: binding
-    )
-    output = MemoryOutput()
-    with pytest.raises(BackendError, match="corrected chunk failure"):
-        simulation.run(output, progress="none")
-    assert binding.closed
-    assert binding.purposes == ["startup", "predictor", "corrected"]
-    # This guard makes rollback observable even though the manufactured nonlinear
-    # current vanishes: the linear evolution changed the attempted end field.
-    assert not np.array_equal(binding.inputs[0], binding.inputs[-1])
-    checkpoint = output.terminal_checkpoint
-    assert checkpoint is not None and checkpoint.landed
-    assert checkpoint.plane.z == simulation.initial_z
-    assert checkpoint.next_save_index == 0
-    assert checkpoint.plane.step_history.n_steps == 0
-    assert_array_equal(checkpoint.plane.field, output.fields(convention="fft")[0])
-    outcome = output.outcome
-    assert outcome is not None and outcome.status == "failed"
-    assert outcome.z == checkpoint.plane.z
-    assert outcome.logical_calls["startup"] == 1
-    assert outcome.logical_calls["predictor"] == 1
-    assert outcome.logical_calls["corrected"] == 1
-    assert outcome.logical_calls["accepted_steps"] == 0
-    assert outcome.atomic_calls["attempted"] == 5
-    assert outcome.atomic_calls["failed_calls"] == 1
-    assert outcome.atomic_calls["reserved"] == 0
 
 
 def _install_bindings(monkeypatch):

@@ -726,16 +726,14 @@ def test_under_input_noise_a_collar_s_strip_is_judged_above_the_noise_s() -> Non
     assert floor > 0.0
 
 
-@pytest.mark.parametrize("dtype", [np.complex128, np.complex64])
-def test_row_energy_sums_each_rows_squared_magnitude(dtype: type) -> None:
-    """A read's row sums equal ``sum |E|^2`` per row, in either precision.
+def test_row_energy_sums_each_rows_squared_magnitude() -> None:
+    """A read's row sums equal ``sum |E|^2`` per row, from the real-view sum.
 
-    Double precision takes the real-view sum, including on a non-contiguous slice;
-    single precision takes the plain one.
+    Including on a non-contiguous slice.
     """
     rng = np.random.default_rng(3)
     real, imaginary = rng.standard_normal((2, 5, 14))
-    rows = (real + 1j * imaginary).astype(dtype)
+    rows = real + 1j * imaginary
     sliced = rows[:, ::2]
-    expected = np.sum(np.abs(sliced.astype(np.complex128)) ** 2, axis=1)
+    expected = np.sum(np.abs(sliced) ** 2, axis=1)
     np.testing.assert_allclose(_row_energy(sliced), expected, rtol=1e-6)

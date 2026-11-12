@@ -566,6 +566,8 @@ native::Problem problem_from(const nb::dict& values) {
       // solprop SEP 18: the running-integral rule. Translation designed and
       // certified the taps; the core checks their extent, finiteness and the
       // trapezoid's one identity tap.
+      if (values.contains("plasma_gated"))
+        result.plasma_gated = nb::cast<bool>(values["plasma_gated"]);
       if (values.contains("plasma_band")) {
         result.plasma_band = nb::cast<bool>(values["plasma_band"]);
         const auto taps = exact_array<RealInput>(values["plasma_taps"]);
@@ -3087,7 +3089,6 @@ nb::dict build_record() {
   result["build_type"] = SOLPROP_NATIVE_BUILD_TYPE;
   result["coverage_instrumented"] = (SOLPROP_NATIVE_COVERAGE_INSTRUMENTED != 0);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
-  result["precision"] = "complex128";
   result["fft_normalization"] = "none (explicit inverse scaling)";
 #ifdef KOKKOS_ENABLE_CUDA
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";

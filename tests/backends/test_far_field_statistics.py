@@ -699,26 +699,27 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
 def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
     grid, monkeypatch
 ):
+    native = pytest.importorskip("solprop_native")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0.1)
     simulation = free_simulation(grid, space, gaussian(60e-6))
     problem = simulation.translate()
     run_request = simulation._run_request()
     # A build that declares none of them, as every build before SEP 23's third phase:
-    # the refusal precedes the native build and names the backends that form them.
-    monkeypatch.setattr(registry, "_plugin_far_field", lambda name: frozenset())
+    # the refusal precedes the native build and names the backend that forms them.
+    monkeypatch.setattr(native.NativeBackend, "far_field_statistics", frozenset())
     with pytest.raises(BackendError, match="or run them on numpy_ref"):
         select("native", problem, run_request, grid=grid)
     assert statistics_refusal("native", ["energy"]) is None
     assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None
     # A build that declares some of them is refused the others, by name.
     monkeypatch.setattr(
-        registry, "_plugin_far_field", lambda name: frozenset({"beam_spectrum"})
+        native.NativeBackend, "far_field_statistics", frozenset({"beam_spectrum"})
     )
     refusal = statistics_refusal("native", ["beam_spectrum", "region_spectrum"])
     assert refusal is not None
     assert "['region_spectrum']" in refusal
     assert statistics_refusal("native", ["beam_spectrum"]) is None
-    monkeypatch.setattr(registry, "_plugin_far_field", lambda name: frozenset())
+    monkeypatch.setattr(native.NativeBackend, "far_field_statistics", frozenset())
 
     plain = free_simulation(
         grid, space, gaussian(60e-6), spec=StatsSpec(names=("energy",))
@@ -741,26 +742,24 @@ def test_an_older_native_build_is_refused_the_far_field_statistics_by_name(
         owner.close()
 
 
-def test_the_plugin_probe_reads_what_an_installed_build_declares(monkeypatch):
+def test_the_native_probe_reads_what_the_installed_build_declares(monkeypatch):
     # Not installed: no refusal here, and selecting it reports the missing package.
-    monkeypatch.setattr(registry, "_satisfied", lambda entry: False)
-    assert registry._plugin_far_field("native") is None
+    monkeypatch.setattr(registry, "_native_installed", lambda: False)
     assert statistics_refusal("native", ["beam_spectrum"]) is None
-    assert registry._plugin_far_field("numpy_ref") is None
     monkeypatch.undo()
+    assert statistics_refusal("numpy_ref", list(ALL_SIX)) is None
     if importlib.util.find_spec("solprop_native") is None:
         pytest.skip("solprop-native is not installed")
-    # The optional plugin is imported only after its availability check.
+    # The package is imported only after its availability check.
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         NativeBackend,
     )
 
-    declared = registry._plugin_far_field("native")
-    assert declared == frozenset(getattr(NativeBackend, "far_field_statistics", ()))
-    # A build that predates the attribute declares none.
-    monkeypatch.delattr(NativeBackend, "far_field_statistics", raising=False)
-    assert registry._plugin_far_field("native") == frozenset()
-    assert statistics_refusal("native", list(ALL_SIX)) is not None
+    assert statistics_refusal("native", list(ALL_SIX)) is None
+    # A build that declares none is refused every one, naming numpy_ref.
+    monkeypatch.setattr(NativeBackend, "far_field_statistics", frozenset())
+    refusal = statistics_refusal("native", list(ALL_SIX))
+    assert refusal is not None and "numpy_ref" in refusal
 
 
 def test_the_host_pass_refuses_what_it_was_not_given(grid):

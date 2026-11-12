@@ -205,8 +205,6 @@ def modal_records():
         # The coherent wall block: its declaration, the ratios it was admitted under and
         # the operator itself.
         "CoherentWall": CoherentWall(),
-        # Its CF4 declaration, whose growth limit and fallback only a CF4 wall prints.
-        "CoherentWallCF4": CoherentWall(method="cf4", fallback="frozen_residual"),
         # The moving-basis connection: a synthetic two-channel record, because the
         # measured one costs three provider solves and this gallery is about the
         # printing.
@@ -517,7 +515,6 @@ NAMES = sorted(
         "CompressionBounces",
         "CepOptimum",
         "CoherentWall",
-        "CoherentWallCF4",
         "ModalConnection",
         "WallOperator",
         "WallLimits",
@@ -658,8 +655,8 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     # the transverse quadrature, the norm's region in the controller, the
     # interaction formulation's name in an Adams method's representation, the
     # held-current identity, whose record and hash
-    # separation have their own held-source contract test, the precision, which its
-    # own resume test separates (SEP 33), and the absorber's spatial flag (SEP 21).
+    # separation have their own held-source contract test, and the absorber's spatial
+    # flag (SEP 21).
     # Every built-in material is optmat's since SEP 3, so the manifest is never
     # empty here.
     #
@@ -680,7 +677,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     hashed["configuration"] = {
         key: value
         for key, value in hashed["configuration"].items()
-        if key not in ("plasma_source", "precision")
+        if key != "plasma_source"
     }
     stepper = dict(hashed["stepper"])
     stepper["controller"] = {
@@ -938,7 +935,6 @@ def rounding(block: str) -> str:
         "SolitonParams",
         "CompressionTaylor",
         "CoherentWall",
-        "CoherentWallCF4",
         "ModalConnection",
         "WallOperator",
         "WallLimits",

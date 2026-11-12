@@ -364,16 +364,6 @@ class Observation:
         and this one, empty unless the run asked for one. Separate from
         ``step_history`` because the two are sampled differently: the history is every
         attempt, these are every ``period``-th accepted step.
-    field_owned : bool
-        Whether the backend made `field` for this observation alone and keeps no
-        reference to it: a copy from a device or a widened single-precision state,
-        made fresh at each call. ``False`` where the field may be the backend's own
-        state array, frozen and left behind by the next step, and always ``False``
-        without a field. The session that observed it, its only holder, converts an
-        owned field to output units where it is, rather than into a new array
-        (:meth:`solprop.backends.host.session.HostSession.export`); for any other
-        field that conversion is what detaches it from the backend (SEP 47
-        section 5.4).
 
     Raises
     ------
@@ -402,7 +392,6 @@ class Observation:
     # `dataclasses.field` qualified, because this class has an attribute called
     # `field` and a bare name would read as that one.
     step_stats: StepStats = dataclasses.field(default_factory=StepStats.empty)
-    field_owned: bool = False
 
     def __post_init__(self) -> None:
         """Freeze the arrays, copying any solprop does not already hold, and check.
@@ -416,7 +405,6 @@ class Observation:
             if self.noise_phase is not None:
                 msg = "a noise_phase is given without a field"
                 raise BackendError(msg)
-            object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
         # A backend holds what it hands over (solprop._ownership.hold), which is then

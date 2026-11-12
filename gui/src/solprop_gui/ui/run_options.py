@@ -138,8 +138,6 @@ class RunOptions(QWidget):
         row.addWidget(self.threads)
         row.addStretch(1)
         self._budget = 0
-        self.single: tuple[str, ...] = ()
-        """The backends here that compute in single precision."""
         self._shown: tuple[object, bool] = ("auto", True)
 
     def set_options(self, options: Mapping[str, object], threads: int | None) -> None:
@@ -152,8 +150,7 @@ class RunOptions(QWidget):
         threads : int or None
             The count chosen before, or ``None`` for the default.
         """
-        installed: Sequence[str] = options["double"]  # pyright: ignore[reportAssignmentType]
-        self.single = tuple(options["single"])  # pyright: ignore[reportArgumentType]
+        installed: Sequence[str] = options["backends"]  # pyright: ignore[reportAssignmentType]
         self.backend.clear()
         for name in ("auto", *installed):
             self.backend.addItem(_NAMES.get(name, name), name)

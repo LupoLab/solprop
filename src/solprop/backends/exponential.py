@@ -277,8 +277,7 @@ def refuse_formulation(
 
     The exponential formulation steps constant, separable and varying diagonal
     operators (phases 2--4) and the constant-Schur and frozen-residual sections of a
-    coupled flow (phase 5); a CF4 section is excluded (Q3) and refused by name before
-    any source is evaluated.
+    coupled flow (phase 5).
 
     Parameters
     ----------
@@ -302,15 +301,6 @@ def refuse_formulation(
     if flow is None:
         return
     methods = set(flow.section_methods)
-    if "cf4" in methods:
-        # SEP 16 Q3: a CF4 section has no explicit residual and exponentiates the
-        # generator inside each stage; it is excluded from delivery.
-        msg = (
-            f"{backend}: the {method.name} integrator does not step a 'cf4' section "
-            "of a coupled flow, which only the Runge-Kutta march does; pass "
-            "integrator=RungeKutta()"
-        )
-        raise BackendError(msg)
     if not methods <= COUPLED_SECTIONS:
         unsupported = ", ".join(sorted(repr(one) for one in methods - COUPLED_SECTIONS))
         msg = (
@@ -593,14 +583,10 @@ def _carrier_refusal(
     backend: str,
     delivered: frozenset[str],
     geometry: str | None,
-    *,
-    single: bool = False,
 ) -> str | None:
     """Return why `backend` cannot step a carrier frame, or ``None`` when it can.
 
     - ``geometry``: the spatial geometry's kind; ``None`` on a guided route.
-    - ``single``: whether the run is held in single precision (SEP 33), where the shift
-      was not qualified.
     """
     if policy == "off":
         return None
@@ -613,11 +599,6 @@ def _carrier_refusal(
         return (
             f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
             f"a free-space route ({geometry!r} geometry); pass carrier_frame='off'"
-        )
-    if single:
-        return (
-            f"{backend}: Multistep(carrier_frame={policy!r}) is not qualified in "
-            "single precision; pass carrier_frame='off' or precision='double'"
         )
     return None
 
@@ -656,7 +637,6 @@ def refuse_carrier_frame(
         backend,
         delivered,
         None if geometry is None else geometry.kind,
-        single=problem.precision.single,
     )
     if refusal is not None:
         raise BackendError(refusal)

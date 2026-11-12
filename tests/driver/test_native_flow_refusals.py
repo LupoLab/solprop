@@ -25,9 +25,8 @@ from flow_parity import (
     ten_step_bound,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.admission import refuse_general_leaves
 from solprop.backends.numpy_ref.backend import _coupled_flow_maps
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, TranslationError
 from solprop.translate.coupled import constant_schur_flow, orthonormal_metric
 
 pytestmark = [
@@ -86,24 +85,11 @@ def on_march(run_request, march):
 MARCHES = pytest.mark.parametrize("march", ["default", "runge_kutta"])
 
 
-def test_a_backend_that_does_not_admit_the_leaf_is_refused_by_its_name(cases):
-    """The shared leaf door, which both in-tree backends now pass for a flow.
-
-    Every in-tree backend names all four general-modal leaves, so the door
-    ``refuse_general_leaves`` keeps for a separately built adapter is exercised here
-    directly: a backend admitting none of them is refused by the flow's dotted name.
-    """
-    _, problem = cases("scalar")
-    with pytest.raises(BackendError, match=r"adapter does not execute linear\.coupled"):
-        refuse_general_leaves(problem, "adapter")
-    refuse_general_leaves(problem, "adapter", admits=("linear.coupled_flow",))
-
-
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_words(
     backend,
 ):
-    """The reference's constant-representation door, under each backend's name."""
+    """The constant-representation door, the same on each backend."""
     if backend == "native":
         pytest.importorskip("solprop_native")
     implementation = NumpyRefBackend if backend == "numpy_ref" else native_class()
@@ -125,7 +111,7 @@ def test_a_varying_carrier_beside_a_constant_section_is_refused_in_the_same_word
             ),
         ),
     )
-    with pytest.raises(BackendError, match=f"{backend} executes a constant-Schur"):
+    with pytest.raises(TranslationError, match="solprop executes a constant-Schur"):
         implementation(spoiled_problem, run_request, grid=simulation.grid)
 
 
@@ -197,12 +183,10 @@ def test_a_varying_flow_s_factors_are_the_reference_s_to_their_rounding(cases, n
 def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
     cases, march
 ):
-    """The reference's own refusals run under native's name: one list.
+    """Every flow one backend refuses, the other refuses in the same words: one list.
 
-    Each spoiler is refused by both, and the two messages differ in the backend's
-    name alone, so the admitted sets cannot drift apart. Under the default
-    integrator a section method it does not step is refused first, by the
-    integrator; the Runge-Kutta march reaches the leaf's own list.
+    Under the default integrator a section method it does not step is refused first,
+    by the integrator; the Runge-Kutta march reaches the problem's own validation.
     """
     simulation, problem = cases("scalar")
     run_request = on_march(simulation._run_request(), march)
@@ -251,18 +235,12 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
         ),
     }
     for name, problem_spoiled in spoilers.items():
-        with pytest.raises(BackendError) as theirs:
+        with pytest.raises((BackendError, TranslationError)) as theirs:
             NumpyRefBackend(problem_spoiled, run_request, grid=grid)
-        with pytest.raises(BackendError) as ours:
+        with pytest.raises((BackendError, TranslationError)) as ours:
             native_class()(problem_spoiled, run_request, grid=grid)
-        assert "numpy_ref" in str(theirs.value), name
-        # The one difference by design: a varying flow's methods, where native names
-        # 'frozen_residual' alone because it refuses 'cf4' first.
-        expected = (
-            str(theirs.value)
-            .replace("numpy_ref", "native")
-            .replace("'frozen_residual' or 'cf4'", "'frozen_residual'")
-        )
+        assert type(ours.value) is type(theirs.value), name
+        expected = str(theirs.value).replace("numpy_ref", "native")
         assert str(ours.value) == expected, name
 
 

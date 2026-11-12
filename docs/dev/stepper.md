@@ -177,17 +177,14 @@ completed step (irrelevant without dense output, but tested).
 
 **Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
 its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
-`HostGeneralPath`, `HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
+`HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
 native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
 decision corpora hold the reference's marches and the compiled ones to the same
 decisions on the same readings; where this page names a member of the reference's
-march, the compiled march's decision is the same. The comparison variants
-(`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
-overrides a decision are the reference's alone: the native backend refuses them by name
-(SEP 47 section 6.3).
+march, the compiled march's decision is the same.
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
@@ -219,10 +216,8 @@ may be reused through it.
 **A coupled flow recycles no stage, on any backend.** A frozen-residual flow adds
 `R_s(z)·u` to the same lab-frame source the material response is evaluated in, so its
 stages are the same objects a diagonal flow's are. The flow actions a step holds are keyed
-on `(section, dz)`, so a step that begins in a different section rebuilds them; a `"cf4"`
-section's actions are keyed on `(section, dz, z)` as well, because they exponentiate the
-generator at Gauss nodes inside each stage's own interval, and nothing is reused between
-steps. An adaptive run, whose `dz` changes every step, re-forms the actions every trial;
+on `(section, dz)`, so a step that begins in a different section rebuilds them. An
+adaptive run, whose `dz` changes every step, re-forms the actions every trial;
 the compiled backends form them in their own kernels, at 3 to 11 % of a step.
 
 The identity itself is known. On a frozen-residual or constant section the last stage's
@@ -233,9 +228,8 @@ fraction where the action is the identity, is `N(y) + R_{s'}(z + h) y`. So
 section**, `s' = s`: the certified forward action it needs is the whole step's `U_h`,
 which the step already holds and whose conditioning it has measured. It fails at a
 section edge, where the next anchor's frozen block and one-sided weights differ — the
-same invalidation as the actions' own key. A CF4 section has no such identity (its
-actions depend on `z`). In rounding the rebased stage differs from a fresh one by the
-round trip `U_h U_h⁻¹`, a few `C u` with `C` the declared conditioning.
+same invalidation as the actions' own key. In rounding the rebased stage differs from a
+fresh one by the round trip `U_h U_h⁻¹`, a few `C u` with `C` the declared conditioning.
 
 It is not taken. One stage evaluation on the coherent-wall cases (scalar wall, TE/TM
 wall, taper; one thread) costs 0.18 to 1.39 ms on
@@ -256,20 +250,6 @@ normative: the step's section wins wherever the position lies inside it, matched
 1e-10 of the flow's span so that a schedule arriving a few ulp short of a kink and one
 arriving a few ulp past name the same section, and a stage that ran past its step's
 section takes the section it **closes** in.
-
-**A CF4 section's flow error is outside the embedded pair.** On a `"cf4"` section the
-interaction picture is built on the commutator-free fourth-order exponential of the whole
-generator rather than on a frozen block, and no explicit linear term enters the source.
-The embedded difference compares two combinations of the same stages, each carried by the
-same approximate flow, so the flow's own local defect — `O(h⁵)`, which makes the run at
-most **fourth** order — never appears in the error norm, and the controller can neither
-see nor bound it; the flow's error enters the source only through the stage actions'
-perturbation, one order of `h` higher. What governs it is the declared step:
-`validate_coupled_flow` compares the step-doubling estimate `(16/15) ‖V(h) − V(h/2)²‖` at
-the largest declared step with the controller's `rtol` and warns, advisory like the frozen
-split's advisory step. That estimate is asymptotic, not a bound; it has been checked
-against independent solves and the run's measured order. CF4 is admitted on `numpy_ref`
-only and is never selected by default.
 
 ### The low-storage march
 
@@ -323,7 +303,7 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 
 ### Low-call Adams methods
 
-`stepper/multistep.py` and `backends/multistep.py` hold the Adams integrator, the default
+`stepper/multistep.py` and `backends/numpy_ref/multistep.py` hold the Adams integrator, the default
 of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-037, ADR-045, ADR-055;
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).
@@ -336,10 +316,7 @@ picture, transporting the history, on request
 - a corrector one order higher than its predictor;
 - variable order up to five by default.
 
-`ComparisonMultistep` keeps the variants SEP 13 compared and did not select (PECE,
-explicit Adams–Bashforth, matched pairs) for the benchmarks.
-
-The march (`backends/multistep.py`) is shared: a backend supplies the step driver's two
+The march (`backends/numpy_ref/multistep.py`) is shared: a backend supplies the step driver's two
 hooks `_adams_source`, one source evaluation at a lab-frame field returned in the step's
 anchor frame, and `_adams_propagator`, and takes the march as its `_march_to` when the
 problem carries an integrator. `numpy_ref` evaluates through its reference passes. `native` keeps
@@ -375,7 +352,7 @@ take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
-and CF4 sections are refused by name (`backends.exponential.refuse_formulation`).
+is refused by name (`backends.exponential.refuse_formulation`).
 
 **The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
@@ -425,8 +402,7 @@ whose passes are the kernels above; a backend may return its own from the hook
 `_adams_engine`, as `native` does to keep the history resident in its
 native state, always -- beside a coupled flow too, whose block functions, coupled predictor,
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
-frozen-residual flow's generator applied once per sample. The general
-path (PECE and the comparison variants) keeps host arrays.
+frozen-residual flow's generator applied once per sample.
 
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
 `HostDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
@@ -439,11 +415,9 @@ holds its extension; in SEP 47's native session the march holds it through its e
 `rk::Engine::extend`, finishes the step itself and the session observes the plane where the
 state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
-(reduced natively in both loops), on CPU and device builds alike. A `PIController` subclass
-that overrides one of its decisions or its norm (`scale`, `accepts`, `propose`,
-`rejection_factor`, `start_factor`, `equivalent_norm`) is a reference-only experiment:
-`native` refuses it by name where the backend is built, before it allocates
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3), and `numpy_ref` runs it.
+(reduced natively in both loops), on CPU and device builds alike. `PIController` is final
+(ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
+only ones either backend takes.
 
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
@@ -467,9 +441,7 @@ reading through the monitor at its own step. The Python march is the reference -
 `HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
 native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
 formulation beside a coupled flow, a representation its stage tables do not read and
-the untransported compensation witness are refused by name. The comparison methods
-(`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
-overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
+the untransported compensation witness are refused by name. A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). A native
 group replays each member in its own native session (`solprop_native.group`).
@@ -488,10 +460,9 @@ flow's `G(z_j) u_j` per sample as `applied` where the host engine keeps the samp
 weights (`weights_<row>`). Each engine refuses rows it does not keep, so those two
 histories do not cross; every other history does. The engines' trial and dense-step
 bookkeeping is not exported: a load forgets it (`reset`), as the next step is a new
-trial. Both methods are part of the `AdamsEngine` protocol. A march that cannot carry
-its history (the reference's general path), or one whose saved rows the engine
-refuses (another engine's rows, another build's shapes), resumes afresh, and the driver
-warns.
+trial. Both methods are part of the `AdamsEngine` protocol. A march whose saved rows
+the engine refuses (another engine's rows, another build's shapes) resumes afresh, and
+the driver warns.
 Nothing in the trial lifecycle reads a held trial across the snapshot: it is taken
 only at an accepted position with nothing ahead of it.
 
@@ -616,8 +587,7 @@ the measurements behind them.
   record the norm each step actually scored; recording the equivalent instead would make
   a run whose last steps were forced short close as a failure.
 - **A diverged trial is a rejection.** A trial whose norm is infinite or NaN -- a
-  propagator past `exp(88.72)` under single precision, past `exp(709.78)` in binary64, on
-  a step too long for a strong collar or loss -- is rejected whatever the mode
+  propagator past `exp(709.78)`, on a step too long for a strong collar or loss -- is rejected whatever the mode
   (`PIController.accepts`), and the proposal shrinks by `min_factor`; the history records
   its norm as infinity, which `BackendHistory` admits on a rejected entry only. A replayed
   schedule cannot shrink, and refuses such a step by name.

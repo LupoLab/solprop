@@ -17,9 +17,9 @@ processor is at or above a build's baseline, and otherwise raises `BackendError`
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
 Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
-enforce it. Two requests resolve before the registry and never consult native: a TDSE
-response's `auto` is `numpy_ref`, and single precision's is refused: name `numpy_ref`. Explicit names are preserved, so `backend="numpy_ref"` runs where native is
-absent and `backend="native"` on a processor below the baseline raises the package's refusal.
+enforce it. A TDSE response's `auto` resolves before the registry, to `numpy_ref`, and
+never consults native. Explicit names are preserved, so `backend="numpy_ref"` runs where
+native is absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
 successful construction. Import, build, device and unsupported-problem errors stay visible and
@@ -94,29 +94,26 @@ buffers, layout and plans are private; the state is never a parameter of `propag
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
-what is usable, a known name whose dependencies are missing raises `ImportError` saying
-what to install, and a removed name keeps a tombstone (`REMOVED_BACKENDS`):
-`backend="numba_cpu"` raises `BackendError` naming `native` and `numpy_ref`, wherever a
-requested name is resolved. A recorded name is not a request, so old output and snapshots
-that record it still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend, a retired
+one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
+`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
+`ImportError` saying what to install. A recorded name is not a request, so old output and
+snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
-**Registration.** A backend is one row of `registry.BACKENDS`, a `BackendEntry` that
-names by import path (`"module:attribute"`) everything selection reads of it, so
-`select`, `select_batch` and the policy checks read the row and never branch on the
-name: the modules it `requires` and the `extras` or `install` text that supply them;
-its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
-the reference group's lockstep runner `batch(owners)` (`select_batch`; the native row
-names none, its group running one native session per member); and the native policies, each `None` on a row without it: `first_use`, called
-before each construction (SEP 46's first-use calibration), `device`, the build
-description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
-device by name), and `far_field`, the far-field statistics the installed build declares
-(`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
-is imported until selection needs it, and only after `requires` is found. There are
-exactly two backends, and no other will be added, in this repository or as a plugin from
-another distribution (ADR-077); there is no entry-point discovery.
+**The two backends.** There are exactly two (ADR-077), `registry.BACKEND_NAMES`:
+`numpy_ref` and `native`, with no plugin rows and no other backend. `select` constructs
+the reference through `solprop.backends.numpy_ref.construct` and the native backend
+through `solprop_native.NativeBackend`, each called as
+`factory(problem, request, *, grid, modes, profiles, options)`, importing each only when
+it is selected. Before a native construction it runs SEP 46's first-use calibration;
+`SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
+reference is refused a required device by name); and `statistics_refusal` reads the
+far-field statistics `NativeBackend.far_field_statistics` declares. `select_batch` is the
+reference group's lockstep runner; the native group runs one native session per member
+through its own `prepare_group` (**Selection** below). `auto` is `registry.AUTO`,
+`native`, with no fallback.
 
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
@@ -153,7 +150,7 @@ assembled outside that grouping is refused by name, at `driver.batch`'s
 `refuse_mixed_guides` and again by each backend's group: the reference's `_validate_members`
 (`backends/host/group.py`) and the native `solprop_native.group.refusal`. A group hands each member its own problem, so a batched general run is what its members
 are alone, to the same rounding bound; a problem is one trajectory and carries no batch
-axis. A member carrying a coupled flow is refused by name by the reference's binary64
+axis. A member carrying a coupled flow is refused by name by the reference's
 lockstep batch (`NumpyBatchBackend`), whose stage arithmetic over the member axis applies
 no flow action; the native group admits one, each member's own session carrying its flow.
 
@@ -216,7 +213,7 @@ checks; `native` takes its own
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
 filled them. A record may add a third operation, an exponential Adams trial's
 coefficient tables in one call (`Helpers.tables`, the composition of
-`backends.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
+`backends.numpy_ref.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
 the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
 table of a trial in one call rather than a dozen; `PLAIN` composes them. Translation runs
 before any backend exists and needs nothing compiled:
@@ -370,8 +367,8 @@ threading beyond what `scipy.fft` does with `workers=1`. It exists to be read an
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
-the supported executor of the short list of features `native` does not run yet: the TDSE
-response, CF4 coupled-flow sections and single precision away from Apple silicon
+the supported executor of the one feature `native` does not run yet: the TDSE
+response
 ([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
@@ -408,7 +405,11 @@ unitary change of basis, the tables' own execution maps (at one interval of degr
 for a constant guide; any sections and degree for a moving one, below), `n_pol = 1`, the
 constant unit `power_weight` and each region's declared responses — the instantaneous
 cubic in either form, and a delayed silica tensor Raman term beside it — over the
-reference's three components — and refuses every other by name, before it allocates. The
+reference's three components. Every other combination is refused by name once, in the
+problem's own validation (`translate/admission.py`, `check_general_route`), which both
+backends run before they allocate; the per-node tensor, the form and the delayed maps are
+`translate/general.py`'s (`node_kerr_tensor`, `node_kerr_form`, `node_delayed_maps`) and
+the node chunk `backends/node_chunk.py`'s (`general_planned_chunk`), shared with `native`. The
 real cubic is evaluated by its **symmetric contraction**, `symmetric_cubic`: the tensor
 summed once per node and evaluation over the orderings of each monomial
 `(E_j E_k) E_l`, `j <= k <= l`, and ten monomials a sample in place of the dense 81
@@ -423,10 +424,11 @@ the in-stage absorber and the return to the interaction picture.
 the coherent wall block of a capillary (scalar, one `HE_1m` family, or vector, the two
 radial families of one azimuthal order), the declared unitary basis of a *split* block on
 the general modal route, and the connection of a moving solid guide. All take the same path
-through this backend. Each section's method is one of three:
+through this backend. Each section's method is one of two:
 
-- **`"constant_schur"`.** The backend decomposes the leaf's frozen generator once per
-  section, in its own constructor, and applies a Schur matrix-function action over the
+- **`"constant_schur"`.** The leaf's frozen generator is decomposed once per section,
+  in the backend's constructor, by the factors both backends read
+  (`translate/coupled.py`, `coupled_flow_factors`), and the backend applies a Schur matrix-function action over the
   channel axis inside `_trial_step`, taking the inverse the interaction picture needs as
   the matrix function of the negated exponent rather than as a solve and measuring
   `norm(U) norm(U^-1)` of the whole step against the leaf's declared bound. The Schur
@@ -441,21 +443,10 @@ through this backend. Each section's method is one of three:
   picture's own factors carry it back. The residual is evaluated from the stage bundle's
   `flow_section` and `flow_weights` rows, and applied only on the bins the error norm
   scores (`grids.inband_mask`); the frozen flow alone carries the spectral collar.
-- **`"cf4"`**. A step anchored in a CF4 section applies, for each stage fraction `c`, the
-  commutator-free product `exp(B₂) exp(B₁)` of the whole generator `G − C` at the two
-  Gauss nodes of `[z, z + c h]` — the node weights built from the leaf by
-  `translate.coupled.flow_weights`, not from the bundle, because a node is not a stage —
-  and its exact inverse `exp(−B₁) exp(−B₂)`, both by the same scaled Taylor series the
-  Schur path uses; the source carries no residual there. The four factors' spectral norms
-  are measured at every stage and refused above the section's declared pair bound. A flow
-  whose declared fallback left some sections `"frozen_residual"` is executed step by step
-  by the method of the anchor's section. The held actions are keyed on the step's start as
-  well as its section and length, so the resident peak `memory_ledger` reports does not
-  grow.
 
 The route needs the cumulative `Phi` beside the flow to be a multiple of the identity,
 because the two factors are applied as a product, and it checks that; a frozen-residual
-or CF4 flow needs `Phi` only to be a **weighted sum of fixed terms**, and a problem whose
+flow needs `Phi` only to be a **weighted sum of fixed terms**, and a problem whose
 `Phi` took the z table is refused by name. FSAL is absent there as it is everywhere in this
 backend.
 
@@ -464,8 +455,7 @@ expansion per section of the guide's path, and `numpy_ref` evaluates `S(z1)` and
 at every stage as the weighted sum of their coefficients over the stage bundle's
 `transform_weights`, in the seam's own evaluation form, before the source pass runs on
 them (`GeneralMaps.at`). It admits them only beside a `"frozen_residual"` flow carrying the
-connection on every section; a CF4 flow or none at all beside moving maps is refused by
-name.
+connection on every section; moving maps with no flow beside them are refused by name.
 
 The anatomy of one stage — the node chunks, mode-averaged propagation as the one-node
 case (ADR-010), the transverse components, the dual synthesis–projection pair, the fused
@@ -515,37 +505,6 @@ vibrational line matches `-Im H(Ω)` to 0.4 % on a 140 ps window and 1.6 % on 70
 that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency shift matches
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
-
-**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054). A
-problem whose `precision` is single is executed by `NumpySingleBackend`
-(`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
-reference's passes and step loop in binary32, through hooks of the reference that leave
-its binary64 arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`,
-`_error_norm`, `_envelope_sources`). It narrows the source tables once at construction,
-each with its block exponent (applied at upload where that is exact, refused otherwise
-unless the pass carries it, as the Raman kernel's does); holds the state at the launch's
-power-of-two scale `s`; forms every propagator, prefactor and z-table value in binary64
-and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the field-grid
-plasma in binary32 with each term's homogeneity factor in one host coefficient, the
-stable population forms and blocked running integrals
-(`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
-squares against `atol / s`; applies the split-step collar as the correction
-`a + F(F^-1(a)(f - 1))` in binary32, `f - 1` formed in binary64 and rounded once (a
-binary64 state keeps `F(F^-1(a) f)`); and checks after every trial that the
-state and stages stayed complex64, and after every step that the finished state is
-complex64 and finite. Its fixed-schedule batches are the plain `HostGroup`, each
-member through its own binary32 trial: `NumpyBatchBackend`'s stage arithmetic over the
-member axis is binary64, so it refuses a single-precision member by name, and every
-lockstep batch refuses members of mixed precisions (`_validate_members`). The
-ionisation rate's table
-lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
-binary64 from the binary32 field, which is what the oracle defines. Its constructor applies the settings' own admission (`translate.precision.admit_precision`):
-a problem that reaches `registry.select` without passing `SimulationSettings` is still
-refused an adaptive `rtol` below the floor. The Adams integrator is admitted (#342):
-binary32 Adams agrees with binary64 Adams to the method's own truncation on the survival
-cases, and a single-precision history resumes in binary32 (`HostHistory.load_rows`,
-`NumpySingleBackend._adams_restore`). `native` refuses a single-precision
-problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
@@ -600,7 +559,7 @@ either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
 `NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
 (an adaptive member, step planes, members that do not share the schedule) before any
 member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
-opens its own `HostGroupSession` over the group runner its registry row names. A backend
+opens its own `HostGroupSession` over the group runner `select_batch` builds. A backend
 that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
@@ -1014,10 +973,9 @@ the low-storage march holds flows (§8).
 ### 3.8 The general modal route
 
 `native` executes the general modal route — `transform.modal_tables`, `linear.modal_metric`
-and `responses.regional_responses` — in the combinations `numpy_ref` admits, and refuses the
-rest with the reference's own words: its admission runs the shared list
-`solprop.backends.numpy_ref.admission.refuse_general_route` under its own name, so a new
-refusal there is a refusal here. It adds one limit of its own: a delayed response must be the
+and `responses.regional_responses` — in the combinations solprop's problem validation
+admits (`solprop.translate.admission.check_general_route`), which it runs where it is
+built, so a refusal there is a refusal on both backends, raised once. It adds one limit of its own: a delayed response must be the
 six channels of the silica tensor Raman model on three components (§4,
 `_refuse_native_route`). `linear.coupled_flow` is §3.9. The route is a **second execution
 path** (`src/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
@@ -1070,12 +1028,12 @@ frequency-dependent map of three Cartesian components.
 
 ### 3.9 The coupled flow
 
-`native` executes `linear.coupled_flow` in the combinations `numpy_ref` admits but CF4: the
+`native` executes `linear.coupled_flow` in every combination `numpy_ref` admits: the
 single constant-Schur section (the scalar wall, the TE/TM wall, the split block on the general
 route) and the varying `"frozen_residual"` flow with its explicit residual and the taper
-connection. A `"cf4"` section is refused by name at the backend and at the capillary entry
-point, and so is a flow beside a Cartesian free-space problem, which no translation builds
-(`require_coupled_flow`). Its admission is the shared list under its own name.
+connection. A flow beside a Cartesian free-space problem, which no translation builds, is
+refused by name (`require_coupled_flow`). Its admission is the shared list under its own
+name.
 
 - **Host-side, shared with the reference.** The Schur factors of every section's frozen block,
   once at construction, as the reference forms them, and the eigenbasis of each triangular
@@ -1250,7 +1208,7 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   a symmetric response beside others, none alone, two for the polynomial; a Cartesian or planar
   column adds its products and their spectra (`backends/node_chunk.py`, `_dispersive_chunk`). The
   general modal route's chunk counts two buffers per node and component for each filtered field and
-  each product of its workspace (`numpy_ref.general_modal.general_dispersive_buffers`,
+  each product of its workspace (`backends/node_chunk.py`, `general_dispersive_buffers`,
   `general_node_chunk`).
 - **Parity** (`tests/backends/test_native_dispersive_kerr.py`,
   `tests/backends/test_native_dispersive_routes.py`): one evaluation, one step and ten replayed
@@ -1463,14 +1421,11 @@ version it was built at without comparing it, so an editable build stays valid a
 commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
 
-**Every backend refuses what it cannot execute.** The general modal route's optional
-leaves (the coupled flow, the moving guide and the others) are part of the contract whether
-or not a backend executes them, and a backend that
-accepted a problem carrying one it ignores would silently run a different model. A backend
-therefore calls
-{py:func}`~solprop.backends.numpy_ref.admission.refuse_general_leaves` before it runs, naming in
-`admits` the leaves it executes, as `numpy_ref` does, or makes the same
-refusals itself, as `native` does in its own adapter. A third-party backend owes the same. A change that
+**What is executed is checked once.** The general modal route's optional leaves (the
+coupled flow, the moving guide and the others) are executed by both backends in the same
+combinations, and the problem's own validation refuses every other by name
+({py:func}`~solprop.translate.admission.check_general_route`), so neither backend repeats
+the list. A change that
 touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
 are green with the current build installed.
 
@@ -1711,13 +1666,14 @@ the engine's existing code; the coarse channel spectra, times the pad scale and 
 analytic doubling, are written by the existing stage-combination kernel. Views, host-map
 release and plans happen at construction; the `general_*` rows join
 `memory_ledger()`. The adapter derives the per-node tensor, the form, the chunk and the
-delayed maps with `solprop.backends.numpy_ref.general_modal`'s public functions, so the
+delayed maps with solprop's shared derivations (`solprop.translate.general`,
+`solprop.backends.node_chunk`), so the
 arrays are the reference's own, and refuses every combination the reference refuses by
 name before allocating. A general modal run's statistics are solprop's `collect` on the
 observed channel field with the basis metric.
 
-**Moving maps.** The adapter admits moving maps through the shared list
-(`moving_maps=True`) and packs each stage's `transform_weights`; the engine uploads every
+**Moving maps.** The problem's validation admits moving maps beside their connection's
+flow, and the adapter packs each stage's `transform_weights`; the engine uploads every
 Chebyshev coefficient of both maps once, finds each stage's section on the host when a
 trial's weights are loaded, and before each stage's source combines that section's `n_deg`
 terms in a named team kernel (one team per map row, the row's bins its vector lanes, the
@@ -1726,8 +1682,8 @@ synthesis and projection read; nothing is allocated in a trial, and the ledger a
 weights (`general_map_weights`).
 
 **The coupled flow** (`src/coupled_flow.cpp`, `CoupledFlowAction`) executes the
-constant-Schur and frozen-residual sections; CF4 stays `numpy_ref`'s and is refused by
-name. The adapter uploads each section's eigenbasis
+constant-Schur and frozen-residual sections, every section the translation builds. The
+adapter uploads each section's eigenbasis
 (`solprop.translate.coupled.schur_eigenbasis`: `W`, `Y`, the eigenvalues and the route per
 bin, with the Schur factors of the bins routed to scaling and squaring) once at
 construction, and `CoupledFlowAction::form_actions` forms every stage's and the whole
@@ -1861,18 +1817,17 @@ and a CPU target may contract multiply-adds, so the builds' answers agree to rou
 bitwise, and every build is held to the same parity bounds against `numpy_ref` and the same
 rounding bounds between repeats and thread counts. No build carries numerical pins
 ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): `REFERENCE` keeps its name for
-its tidy and sanitizer role only. The native adapter's contract tuples `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`
-and `COUPLED_FLOW_FIELDS` name the general leaves' members its adapter reads, so a rename
-is refused by `check_build`.
+its tidy and sanitizer role only. A rename of a seam member the adapter reads is caught by
+solprop's frozen tables (`tests/backends/test_driver.py`), which move with the seam.
 
 ## 4a. `mlx`: retired
 
 [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
-was restructured. `backend="mlx"` raises `BackendError` (`registry.REMOVED_BACKENDS`),
-and output that records it still opens. Single precision runs on `numpy_ref`, its
-oracle. SEP 33 and the benchmark ledger keep what it measured.
+was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
+backend does, and output that records it still opens. Single precision went with it (ADR-077): every
+backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
 
@@ -1996,22 +1951,18 @@ that execution space.
 | the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP; other combinations not qualified |
 | general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
-| coupled flow: `"cf4"` sections | yes | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident at any width and on either route of each bin, in the native session (past 16 channels or off the eigenbasis route: run on an NVIDIA A40, not yet qualified); qualified |
-| the Adams comparison methods (`ComparisonMultistep`, benchmark-only: PEC, PECE, explicit Adams–Bashforth, the matched pairs) | yes | refused by name (SEP 47 §6.3) | refused by name (SEP 47 §6.3) |
-| a `PIController` subclass overriding a decision or the norm (`scale`, `accepts`, `propose`, `rejection_factor`, `start_factor`, `equivalent_norm`) | yes | refused by name (SEP 47 §6.3) | refused by name (SEP 47 §6.3) |
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | qualified |
-| fixed-schedule groups | fibre and general guides; a coupled flow member by member (binary64 lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
+| fixed-schedule groups | fibre and general guides; a coupled flow member by member (the lockstep batch for the rest) | fibre and general guides, a coupled flow included (the native group session) | fibre and general guides, and a coupled flow where the session admits each member (the native group session) |
 | the native execution session and group session (SEP 47) | its own session (`HostSession`) | every native run and group (phase 5: no other native executor) | admitted on CUDA and HIP as on the CPU build (SEP 47 phase 4): beyond the modal route with planes, rows, the temporal monitor and the Adams history (phase 3), the spatial routes (radial, Cartesian, line, planar) with their fluence widths, a transverse edge and a collar's current, the noise models, dense output, the low-storage replay, a coupled flow wider than 16 channels or off its eigenbasis route, and the native group session; run on an NVIDIA A40 against the transitional bridge on the same device before phase 5 deleted it (bitwise, but for the bounded transverse sums and dense Runge-Kutta planes), not yet qualified on either vendor |
 | periodic statistics between planes | yes | yes | yes: the native session takes each row natively and keeps it in a resident buffer until the next observation, with no return to Python (SEP 47 §6.4) |
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -2057,12 +2008,11 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 ## 10. What each backend is for
 
-solprop has exactly two backends (ADR-077, which replaced ADR-061's tiers), and no other,
-in this repository or as a plugin, will be implemented. ADR-068 makes `native` the primary
-backend, and ADR-064 retired `numba_cpu`. ADR-077 also settles binary64 as the only
-arithmetic: the single-precision path that still runs on `numpy_ref` is being removed. A
-feature lands on `native` and `numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
-reference, and refuses the rest by name.
+There are exactly two backends, with fixed roles and no tiers, and no other backend will be
+implemented, in this repository or as a plugin (ADR-077; ADR-064 retired `numba_cpu`,
+ADR-068 made `native` the primary backend). A feature lands on `native` and `numpy_ref` in
+either order. Each backend keeps what it runs, correct and in parity with the other, and
+refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|
@@ -2082,11 +2032,6 @@ Which backend and build to choose for a run is the user guide's
 
 ## 11. Current limits
 
-- `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs on `numpy_ref`, its oracle, alone; it
-  refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
-  the dispersive electronic response, the far-field statistics, noise models, the Adams
-  integrator and an adaptive `rtol` below `1e-6`.
 - The dispersive electronic response runs on `numpy_ref` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

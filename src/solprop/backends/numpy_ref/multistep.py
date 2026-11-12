@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The interaction-picture Adams march every CPU backend steps with (SEP 13, SEP 14).
+"""The reference's interaction-picture Adams march (SEP 13, SEP 14).
 
-One accepted step of a mature method costs one expensive source evaluation (explicit
-Adams-Bashforth and PEC) or two (PECE), against seven for the reference backend's
-IP-DOPRI5. The march keeps a short history of **transported** derivatives, re-anchored
-at every accepted step, and decides each step on a local-defect estimate formed from
-that history without another evaluation (SEP 13 sections 4.1--4.3).
+One accepted step of the PEC method costs one expensive source evaluation, against
+seven for the reference backend's IP-DOPRI5. The march keeps a short history of
+**transported** derivatives, re-anchored at every accepted step, and decides each step
+on a local-defect estimate formed from that history without another evaluation (SEP 13
+sections 4.1--4.3).
 
 The interaction picture is anchored at the start of each step, ``z_n``. With
 ``U(z_2, z_1) = exp(Phi(z_2) - Phi(z_1))``, the variable ``v(z) = U(z_n, z) a(z)``
@@ -31,25 +31,21 @@ section 6.1):
 - a trial computes its predictor, its single source call and its estimate without
   touching the history; only an accepted step commits, so a rejection leaves the
   accepted history exactly as it was;
-- PECE decides acceptance before its second call, so a rejection costs one call;
-- explicit Adams-Bashforth rejects for free on a history estimate before the call,
-  and checks the step again afterwards with the new derivative (section 4.3), at the
-  cost of the call it has made;
 - a hard kink is landed on and the history restarted on its far side; a save plane is
   a pure observation and keeps the history;
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
 
 **Who marches.** The NumPy reference marches with
 :class:`solprop.backends.host.adams.HostAdamsMarch`; the native backend's session
-marches natively from one policy record (SEP 39, SEP 47). This module holds what is
-stateless and shared: the kernels, the host engine :class:`HostHistory`, the tables and
-the call ledger (SEP 47 Part III decision 5).
+marches natively from one policy record (SEP 39, SEP 47). This module holds the
+reference's kernels, its host engine :class:`HostHistory` and the tables; the call
+ledger both backends keep is :mod:`solprop.backends.ledger`.
 """
 
 import logging
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, cast
 
 import numpy as np
@@ -63,31 +59,28 @@ from solprop.backends.exponential import (
     phi_functions,
 )
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.ledger import source_absent
 from solprop.backends.numpy_ref import passes
-from solprop.exceptions import BackendError, ResponseBudgetError
+from solprop.exceptions import BackendError
 from solprop.stepper.multistep import (
     Multistep,
     integrated_weights,
     lagrange_coefficients,
 )
 from solprop.translate.linop import phi_rate
-from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
     "AdamsEngine",
     "AdamsKernels",
-    "CallLedger",
     "CoupledBlock",
     "CoupledExponentialKernels",
     "ExponentialKernels",
     "HostHistory",
-    "budget_error",
     "compensation_tables",
     "coupled_moments",
     "exponential_tables",
     "factored_defect_rows",
     "fused_tables",
-    "source_absent",
     "trial_tables",
 ]
 
@@ -102,272 +95,14 @@ _Factors = Complex[np.ndarray, "n_used #n_batch 1 1 #n_omega"]
 
 
 @dataclass
-class CallLedger:
-    """Expensive source evaluations of one run, by purpose (SEP 13 section 5).
-
-    Attributes
-    ----------
-    startup : int
-        Evaluations at an accepted field to start or restart the history.
-    predictor : int
-        Evaluations at a predicted field, accepted or not.
-    corrected : int
-        PECE's evaluations at the corrected, accepted field.
-    rejected : int
-        Evaluations spent on steps that were then rejected (included in the above).
-    accepted_steps, rejected_steps : int
-        Step counts.
-    restarts : int
-        History restarts at hard kinks.
-    failure_restarts : int
-        History restarts after :data:`~solprop.stepper.multistep.RESTART_AFTER`
-        consecutive rejections.
-    dense_observations : int
-        Save planes observed by interpolation instead of a landing; none costs a call.
-    orders : list of int
-        The predictor order of every accepted step. Its record
-        (:meth:`to_record`) run-length encodes it, as ``[order, count]`` pairs: a
-        run's order settles, and the record is rewritten at every saved plane.
-    """
-
-    startup: int = 0
-    predictor: int = 0
-    corrected: int = 0
-    rejected: int = 0
-    accepted_steps: int = 0
-    rejected_steps: int = 0
-    restarts: int = 0
-    failure_restarts: int = 0
-    dense_observations: int = 0
-    orders: list[int] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        """Start the record's encoding of the orders empty."""
-        # The encoded runs of `orders[:_encoded]`, of the list `_source`: the record
-        # is rewritten at every saved plane, and re-encoding every step's order each
-        # time made a run saved step by step quadratic in its steps.
-        self._source: list[int] | None = None
-        self._runs: list[list[int]] = []
-        self._encoded = 0
-
-    def to_record(self) -> dict[str, object]:
-        """Return the ledger as its run record holds it, the orders run-length encoded.
-
-        The encoding is extended from the orders appended since the last record. A
-        list of orders that was replaced, or shortened, is encoded afresh.
-
-        Returns
-        -------
-        dict
-            Every counter by name, and ``orders`` as ``[order, count]`` pairs, in
-            step order, no two neighbours of the same order.
-
-        Examples
-        --------
-        >>> from solprop.backends.multistep import CallLedger
-        >>> CallLedger(accepted_steps=5, orders=[1, 2, 2, 3, 3]).to_record()["orders"]
-        [[1, 1], [2, 2], [3, 2]]
-        """
-        orders, runs = self.orders, self._runs
-        if (
-            orders is not self._source
-            or len(orders) < self._encoded
-            or (self._encoded and orders[self._encoded - 1] != runs[-1][0])
-        ):
-            self._source, runs, self._encoded = orders, [], 0
-            self._runs = runs
-        for order in orders[self._encoded :]:
-            if runs and runs[-1][0] == order:
-                runs[-1][1] += 1
-            else:
-                runs.append([order, 1])
-        self._encoded = len(orders)
-        record: dict[str, object] = {
-            name: getattr(self, name) for name in _LEDGER_FIELDS
-        }
-        record["orders"] = [list(run) for run in runs]
-        return record
-
-    @classmethod
-    def from_record(cls, record: Mapping[str, object]) -> "CallLedger":
-        """Restore validated cumulative counts without restoring numerical history.
-
-        Parameters
-        ----------
-        record : mapping
-            Persisted counter fields and accepted predictor orders, as
-            :meth:`to_record` writes them.
-
-        Returns
-        -------
-        CallLedger
-            Independently owned counters, the orders decoded step by step.
-
-        Raises
-        ------
-        BackendError
-            If a counter is absent, unknown, negative or not an integer, an order run
-            is not a pair of positive integers, or the runs do not count one order
-            per accepted step.
-
-        Examples
-        --------
-        >>> from solprop.backends.multistep import CallLedger
-        >>> ledger = CallLedger(accepted_steps=3, orders=[1, 2, 2])
-        >>> CallLedger.from_record(ledger.to_record()) == ledger
-        True
-        """
-        if set(record) != set(_LEDGER_FIELDS):
-            raise BackendError("logical call ledger fields do not match this schema")
-        ledger = cls()
-        for name, value in record.items():
-            if name == "orders":
-                continue
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                raise BackendError(f"invalid logical call counter {name}")
-            setattr(ledger, name, value)
-        ledger.orders = _decoded_orders(record["orders"], ledger.accepted_steps)
-        return ledger
-
-    @property
-    def total(self) -> int:  # numpydoc ignore=RT01
-        """Every charged source evaluation.
-
-        Startup, predictor and corrected evaluations together.
-        """
-        return self.startup + self.predictor + self.corrected
-
-
-_LEDGER_FIELDS = tuple(one.name for one in fields(CallLedger))
-"""The counters and the orders a ledger's record holds, in field order."""
-
-
-def budget_error(
-    max_calls: int | None,
-    spent: int,
-    z: float,
-    cost: int,
-    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> ResponseBudgetError:
-    """Return the error of an Adams trial the source-call budget cannot pay for.
-
-    One message for every march that keeps the budget: solprop's and the native
-    session's, which charge the same calls (SEP 39 section 4.9).
-
-    Parameters
-    ----------
-    max_calls : int or None
-        The method's budget.
-    spent : int
-        The calls charged so far (:attr:`CallLedger.total`).
-    z : float
-        The last accepted position, m.
-    cost : int
-        The calls the refused trial needs.
-    field : numpy.ndarray
-        The accepted state there, ``(n_modes, n_pol, n_omega)``, owned by the error.
-
-    Returns
-    -------
-    solprop.exceptions.ResponseBudgetError
-        Carrying the last accepted position and state and the calls spent.
-    """
-    msg = (
-        f"the source-call budget of {max_calls} is spent ({spent} "
-        f"charged) at z = {z:.6g} m: the next trial needs {cost}; "
-        "the run stops at its last accepted step, unfinished"
-    )
-    return ResponseBudgetError(msg, z=z, field=field, calls=spent)
-
-
-def _decoded_orders(runs: object, steps: int) -> list[int]:
-    """Return the order of every accepted step from its run-length record.
-
-    - ``runs``: the record's ``orders``: ``[order, count]`` pairs of positive integers.
-    """
-    if (
-        isinstance(runs, list)
-        and runs
-        and all(isinstance(one, int) and not isinstance(one, bool) for one in runs)
-    ):
-        # Development builds between two releases share the output schema, and
-        # those before the encoding wrote one order per step (#80). Read as pairs,
-        # such a list would be refused for its shape alone; it is named instead.
-        raise BackendError(
-            "the record's predictor orders are in the flat form an earlier "
-            "development build wrote, one order per step, not the [order, count] "
-            "pairs this build reads: rerun the case, or read it with that build"
-        )
-    if not isinstance(runs, list) or not all(
-        isinstance(run, list)
-        and len(run) == 2
-        and all(
-            isinstance(one, int) and not isinstance(one, bool) and one > 0
-            for one in run
-        )
-        for run in runs
-    ):
-        raise BackendError(
-            "logical call ledger orders must be [order, count] pairs of positive "
-            "integers"
-        )
-    # Checked before the expansion, which the counts bound.
-    counted = sum(count for _, count in runs)
-    if counted != steps:
-        raise BackendError(
-            f"logical call ledger orders count {counted} steps, and the ledger "
-            f"{steps} accepted steps"
-        )
-    return [order for order, count in runs for _ in range(count)]
-
-
-@dataclass
-class _Derivative:
-    """One history entry, in the current anchor's frame."""
-
-    z: float
-    value: _State | None
-    """The derivative on the general path; the store's row, or ``None`` for an engine
-    that keeps its rows resident, on the fused and exponential paths."""
-    identity: str
-    slot: int = -1
-    """Its row of the fused path's history store; -1 off that path."""
-
-
-@dataclass
 class _DenseStep:
     """The last accepted step, in its anchor's frame, for dense observation."""
 
     z: float
     dz: float
     start: _State
-    end: _State
-    start_slope: _State
-    end_slope: _State
     nodes: np.ndarray
     slopes: list[_State]
-
-
-def _hermite(step: _DenseStep, theta: float) -> _State:
-    """Return the cubic Hermite interpolant of an accepted step at `theta`.
-
-    The generic option (a2) of SEP 13 section 6.4: the two end states and the two end
-    derivatives, all in the step's anchor frame, with local error ``O(h^4)``.
-
-    - ``theta``: the observation as a fraction of the step, in ``[0, 1]``.
-    """
-    theta2 = theta * theta
-    theta3 = theta2 * theta
-    h00 = 2 * theta3 - 3 * theta2 + 1
-    h10 = theta3 - 2 * theta2 + theta
-    h01 = -2 * theta3 + 3 * theta2
-    h11 = theta3 - theta2
-    return (
-        h00 * step.start
-        + h10 * step.dz * step.start_slope
-        + h01 * step.end
-        + h11 * step.dz * step.end_slope
-    )
 
 
 class AdamsKernels:
@@ -1532,40 +1267,6 @@ class _Compensation:
         return [1.0, *self.nodes[:order]], [self.endpoint.copy(), *history]
 
 
-def source_absent(problem: Any) -> bool:
-    """Return whether a problem's complete source is structurally zero.
-
-    No response is compiled beyond the accumulation, and no in-stage absorber, no
-    atomic response and no general or spatial pipeline adds a term: SEP 16 section 4.2
-    then requires the exact chord rather than an interpolated compensation, which
-    need not cancel even at the endpoint. Decided from the problem's structure,
-    never from a sample that happens to vanish.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-
-    Returns
-    -------
-    bool
-        Whether every source evaluation is identically zero.
-    """
-    responses = problem.responses
-    geometry = problem.transform.geometry
-    in_stage = (
-        responses.temporal_absorber_fine is not None
-        and responses.absorber_scheme == "nonlinear"
-    ) or (geometry is not None and bool(np.any(geometry.absorber_rate)))
-    return (
-        len(responses.response_order) == 1
-        and not in_stage
-        and tdse_descriptor(problem.route) is None
-        and problem.transform.modal_tables is None
-        and problem.linear.separable is None
-    )
-
-
 class AdamsEngine(Protocol):
     """What an Adams march asks of the engine that holds its history (SEP 16).
 
@@ -1575,8 +1276,8 @@ class AdamsEngine(Protocol):
     """
 
     dense: Any
-    """The general path's last accepted step (a ``_DenseStep`` or ``None``), which the
-    march sets for observation."""
+    """The interaction formulation's last accepted step (a ``_DenseStep`` or ``None``),
+    for observation."""
 
     compensated: bool
     """Whether trials carry a varying operator's linear compensation (SEP 16 4.2)."""
@@ -1616,15 +1317,13 @@ class AdamsEngine(Protocol):
         """
         ...
 
-    def start(self, z: float, *, stored: bool) -> _State | None:
-        """Evaluate the history's first sample at the accepted state.
+    def start(self, z: float) -> _State | None:
+        """Evaluate the history's first sample at the accepted state into row zero.
 
         Parameters
         ----------
         z : float
             The accepted position, m.
-        stored : bool
-            Whether the sample goes to the store's row zero.
 
         Returns
         -------
@@ -1837,7 +1536,6 @@ class HostHistory:
         self._kernels = kernels
         self._exponential = exponential
         self._compensation = compensation
-        self._interpolant = getattr(method, "interpolant", "adams")
         linear = backend._problem.linear
         # SEP 16 phase 4: a varying operator's linear compensation, integrated in the
         # reference flow's frame (Q8); the untransported treatment is a test witness.
@@ -1914,16 +1612,15 @@ class HostHistory:
 
     # --- startup ----------------------------------------------------------------------
 
-    def start(self, z: float, *, stored: bool) -> _State:
+    def start(self, z: float) -> _State:
         """Evaluate the source at the accepted state, the history's first sample.
+
+        The sample goes to the store's row zero.
 
         Parameters
         ----------
         z : float
             The accepted position, m.
-        stored : bool
-            Whether the sample goes to the store's row zero (the fused and exponential
-            paths) or is returned alone (the general path).
 
         Returns
         -------
@@ -1938,20 +1635,12 @@ class HostHistory:
             value = backend._adams_lab_source(state, z, purpose="startup")
         else:
             value, _ = backend._adams_source(state, z, z, purpose="startup")
-        if not stored:
-            return value
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
-            # In the state's precision: complex64 on SEP 33's single-precision path.
-            self._store = np.zeros(
-                (self.n_slots, *value.shape),
-                dtype=np.result_type(value, np.complex64),
-            )
+            self._store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
             if self.compensated:
                 self._states = np.zeros_like(self._store)
-                # The operator's rates are binary64 host data, differenced against
-                # the step's exponent, so they stay binary64 under SEP 33 too.
                 self._rates = np.zeros(self._store.shape, dtype=np.complex128)
         self._store[0] = value
         if self.compensated:
@@ -2057,7 +1746,7 @@ class HostHistory:
         store = self._store
         assert trial is not None and store is not None
         self._fused_trial = None
-        finished = self._backend._adams_adopt(trial.advanced, trial.dz)
+        self._backend._adams_adopt(trial.advanced, trial.dz)
         order = trial.order
         if interpolate:
             # Copied before the transport re-anchors the rows in place: the step's own
@@ -2070,9 +1759,6 @@ class HostHistory:
                 z=trial.z,
                 dz=trial.dz,
                 start=trial.state.copy(),
-                end=finished / trial.propagator,
-                start_slope=slopes[1],
-                end_slope=trial.source,
                 nodes=np.array([1.0, *trial.nodes[:order]]),
                 slopes=slopes,
             )
@@ -2182,14 +1868,9 @@ class HostHistory:
                 )
                 raise BackendError(msg)
         self.reset()
-        # In the state's precision: binary32 on SEP 33's single-precision path, as the
-        # store was kept; the operator's rates stay binary64 there too.
-        dtype = (
-            np.complex64 if self._backend._problem.precision.single else np.complex128
-        )
-        self._store = np.array(rows["store"], dtype=dtype, copy=True)
+        self._store = np.array(rows["store"], dtype=np.complex128, copy=True)
         if self.compensated:
-            self._states = np.array(rows["states"], dtype=dtype, copy=True)
+            self._states = np.array(rows["states"], dtype=np.complex128, copy=True)
             self._rates = np.array(rows["rates"], dtype=np.complex128, copy=True)
         self._weights = [
             None
@@ -2263,11 +1944,6 @@ class HostHistory:
         if block is not None:
             kernels = kernels.coupled()
         moments, flow = _trial_propagators(kernels, exponent, width, block, dz, shift)
-        if state.dtype == np.complex64:
-            # SEP 33: the flow and its moments are evaluated in binary64, like every
-            # propagator, and rounded once to the state's binary32.
-            moments = np.asarray(moments).astype(np.complex64)
-            flow = np.asarray(flow).astype(np.complex64)
         rows_read = slots[: width - 1]
         factors = (
             None if shift is None else _carrier_factors(nodes, len(rows_read), shift)
@@ -2291,10 +1967,6 @@ class HostHistory:
             if shift is not None:
                 compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
-            if state.dtype == np.complex64:
-                # SEP 33: the compensation is formed in binary64 from the binary32
-                # history and the prediction rounded once.
-                lab = lab.astype(np.complex64)
         source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
         corrector = _exponential_corrector(nodes, order, width, helpers=backend.helpers)
         rows = kernels.defect_rows(nodes, orders, width)
@@ -2326,8 +1998,6 @@ class HostHistory:
             extra,
             **({} if factors is None else {"factors": factors}),
         )
-        if state.dtype == np.complex64:
-            advanced = np.asarray(advanced).astype(np.complex64)
         self._exponential_trial = _ExponentialTrial(
             z=z,
             dz=dz,
@@ -2482,13 +2152,10 @@ class HostHistory:
         assert step is not None
         backend = self._backend
         theta = (position - step.z) / step.dz
-        if self._interpolant == "adams":
-            weights = integrated_weights(
-                step.nodes, theta, check=False, helpers=backend.helpers
-            )
-            value = step.start + _combine(weights, step.slopes, step.dz)
-        else:
-            value = _hermite(step, theta)
+        weights = integrated_weights(
+            step.nodes, theta, check=False, helpers=backend.helpers
+        )
+        value = step.start + _combine(weights, step.slopes, step.dz)
         # A bin the linear flow changes by more than an e-fold over the step (the
         # spectral collar's) takes the anchor's linear flow: no polynomial follows its
         # exponentially growing derivative (as for the Runge-Kutta extension).
@@ -2623,13 +2290,17 @@ def _divisor(
 ) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
-    See :func:`solprop.backends.host.general._norm_function` for why the state
-    before the step is the scale.
+    The Runge-Kutta march scales by the larger of the states before and after the step.
+    An Adams step outside its stability region can multiply the state many times over
+    while its predictor and corrector still agree to a fraction of the *new* state, so
+    that scale lets a divergence pass as accurate: SEP 13 phase 2 measured PEC4 growing
+    from 1e7 to 1e236 in five accepted steps with every scaled norm below 0.6. The state
+    the step starts from is the scale that cannot grow with the step it judges.
 
     - Returns: the scale of every bin, shape ``(n_omega,)``.
     """
     mask = backend._problem.grids.norm_mask
-    controller = backend._norm_controller
+    controller = backend._stepper.controller
     magnitude = float(np.linalg.norm(state[..., mask]))
     scale = controller.scale(magnitude, magnitude)
     return (

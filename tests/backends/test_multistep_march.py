@@ -15,20 +15,18 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID
-from solprop.backends.memory import adams_memory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import (
     BackendError,
-    DriverError,
     ResponseBudgetError,
     SolpropWarning,
 )
 from solprop.gasflow import steady_fill
 from solprop.grid import EnvelopeGrid
 from solprop.stepper import TSIT5, FixedSchedule, PIController, RungeKutta
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.linop import delta_phi
 
@@ -36,10 +34,9 @@ from solprop.translate.linop import delta_phi
 # its -11.83 fs^2/mm fibre (tests/backends/conftest.py).
 SOLITON_PERIOD = math.pi / 2 * (100e-15) ** 2 / 11.83e-27
 
-PEC4 = ComparisonMultistep(corrector="pec", order=4)
-PECE4 = ComparisonMultistep(corrector="pece", order=4)
-AB4 = ComparisonMultistep(corrector="none", order=4)
-RICHTER = ComparisonMultistep(corrector="pec", order=1, corrector_order=2)
+RICHTER = Multistep(order=1, variable_order=False, formulation="interaction")
+PEC34 = Multistep(order=3, variable_order=False, formulation="interaction")
+PEC45 = Multistep(order=4, variable_order=False, formulation="interaction")
 
 
 @pytest.fixture(scope="session")
@@ -49,14 +46,6 @@ def narrow_grid():
     The measurements here were fixed on it, and their subject is not the boundaries.
     """
     return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
-
-
-def test_an_unfused_method_holds_no_history_rows(linear_problem, narrow_grid):
-    # Its history is a list of arrays, outside the fused store's rows.
-    problem, run_request = linear_problem(
-        narrow_grid, save_planes=[0.01], integrator=PECE4
-    )
-    assert adams_memory(problem, run_request.stepper) == {}
 
 
 def run(problem, run_request, grid):
@@ -71,9 +60,7 @@ def run(problem, run_request, grid):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize(
-    ("method", "order"), [(AB4, 4), (PEC4, 4), (PECE4, 4), (RICHTER, 2)]
-)
+@pytest.mark.parametrize(("method", "order"), [(RICHTER, 2)])
 def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, order):
     # A fundamental soliton over one period. dz_max sets the mature step; the tolerance
     # is a loose safety net that never binds, and the startup ramp starts a thousandth
@@ -96,15 +83,15 @@ def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, orde
         for n in (20, 80)
     ]
     observed = math.log(errors[0] / errors[1]) / math.log(4)
-    # Three levels of the measurement: 3.7-5.4 for the order-four methods, 2.0 for
-    # Richter's; the margin admits the irregular startup and landing steps.
+    # Three levels of the measurement: 2.0 for Richter's; the margin admits the
+    # irregular startup and landing steps.
     assert observed > order - 0.6
 
 
 def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_problem):
     length = 0.5
     problem, run_request = linear_problem(
-        narrow_grid, save_planes=[length], integrator=PECE4
+        narrow_grid, save_planes=[length], integrator=PEC45
     )
     field, ledger = run(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
@@ -120,9 +107,7 @@ def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_pro
         (Multistep(formulation="interaction"), 1),
         (Multistep(order=1, formulation="interaction"), 1),
         (Multistep(interval_cap=True, formulation="interaction"), 1),
-        (AB4, 1),
-        (PEC4, 1),
-        (PECE4, 2),
+        (PEC45, 1),
     ],
 )
 def test_adams_call_ledger(narrow_grid, soliton_problem, method, per_step):
@@ -145,21 +130,17 @@ def test_adams_call_ledger(narrow_grid, soliton_problem, method, per_step):
     assert max(ledger.orders) <= method.order
 
 
-def test_settings_refuse_an_integrator_elsewhere():
+def test_settings_refuse_a_backend_that_is_neither_whatever_the_integrator():
+    """Both backends step every integrator; the registry refuses any other name."""
     planes = [1.0]
     common = {"save_planes": planes, "dz_max": 0.1, "dz_init": 1e-3}
     control = PIController(rtol=1e-6, atol=1e-12)
-    with pytest.raises(DriverError, match="RungeKutta"):
-        SimulationSettings(control, backend="cuda", integrator=PEC4, **common)
-    with pytest.raises(DriverError, match="RungeKutta"):
-        SimulationSettings(control, backend="cuda", **common)
-    settings = SimulationSettings(control, integrator=PEC4, **common)
+    for integrator in (PEC45, None, RungeKutta(TSIT5)):
+        with pytest.raises(BackendError, match="'cuda' is not a backend"):
+            SimulationSettings(control, backend="cuda", integrator=integrator, **common)
+    settings = SimulationSettings(control, integrator=PEC45, **common)
     # Resolved as for the Runge-Kutta march (SEP 16 phase 3).
     assert settings.backend == resolve_name("auto")
-    # Any backend steps the Runge-Kutta march.
-    assert SimulationSettings(
-        control, backend="cuda", integrator=RungeKutta(TSIT5), **common
-    ).integrator == RungeKutta(TSIT5)
 
 
 def test_the_default_integrator_is_exponential_adams():
@@ -189,19 +170,16 @@ def test_contract_admits_an_integrator_with_a_schedule(narrow_grid, soliton_prob
     # SEP 16 phase 2: a schedule fixes an Adams run's accepted positions.
     schedule = FixedSchedule.uniform(0.0, 0.1, 0.01, save_planes=[0.1])
     _, run_request = soliton_problem(
-        narrow_grid, 1, save_planes=[0.1], schedule=schedule, integrator=PEC4
+        narrow_grid, 1, save_planes=[0.1], schedule=schedule, integrator=PEC45
     )
     assert run_request.stepper.schedule is schedule
 
 
-@pytest.mark.parametrize("dense", ["adams", "hermite"])
 def test_dense_observation_is_the_exact_linear_flow_without_a_source(
-    narrow_grid, linear_problem, dense
+    narrow_grid, linear_problem
 ):
     planes = [0.1, 0.2, 0.3, 0.5]
-    method = ComparisonMultistep(
-        corrector="pec", order=3, corrector_order=4, interpolant=dense
-    )
+    method = PEC34
     problem, run_request = linear_problem(
         narrow_grid, save_planes=planes, integrator=method, interpolate_planes=True
     )
@@ -213,7 +191,7 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
         field = backend.observe().require_field()[0, 0]
         exact = np.exp(delta_phi(problem.linear, 0.0, plane))[0, 0, 0] * start
         # With no source the interaction variable is constant across the step, so
-        # every interpolant reproduces it: round-off in the propagators only.
+        # the interpolant reproduces it: round-off in the propagators only.
         np.testing.assert_allclose(
             field, exact, rtol=0, atol=1e-12 * np.abs(start).max()
         )
@@ -224,8 +202,7 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("dense", ["adams", "hermite"])
-def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
+def test_dense_observation_matches_landing(narrow_grid, soliton_problem):
     planes = list(np.linspace(0.05, 1.0, 20) * SOLITON_PERIOD)
 
     def fields(method, *, interpolate=False):
@@ -247,17 +224,14 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
         backend.close()
         return np.array(observed), ledger
 
-    landed, _ = fields(PECE4)
-    interpolated, ledger = fields(
-        ComparisonMultistep(corrector="pece", order=4, interpolant=dense),
-        interpolate=True,
-    )
+    landed, _ = fields(PEC45)
+    interpolated, ledger = fields(PEC45, interpolate=True)
     assert ledger is not None and ledger.dense_observations > 0
     scale = np.linalg.norm(landed, axis=1)
     error = np.linalg.norm(interpolated - landed, axis=1) / scale
     # The two runs take different steps, so they differ by their own global errors at
-    # rtol 1e-7: 2.0e-7 measured, identical for both interpolants, which therefore add
-    # less than that. A factor of ten above the measurement.
+    # rtol 1e-7: 2.0e-7 measured for PECE4 when this bound was set, 6.1e-8 for PEC4/5;
+    # the interpolant adds less than that. A factor of ten above the first measurement.
     assert error.max() < 2e-6
 
 
@@ -289,7 +263,7 @@ def test_variable_order_converges_and_uses_its_orders(narrow_grid, soliton_probl
 
 def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     budget = 25
-    method = ComparisonMultistep(corrector="pece", order=3, max_calls=budget)
+    method = replace(PEC34, max_calls=budget)
     problem, run_request = soliton_problem(
         narrow_grid,
         1,
@@ -304,8 +278,8 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     assert backend._adams is not None
     ledger = backend._adams.ledger
     assert ledger.total == caught.value.calls <= budget
-    # PECE needs two calls a trial: the stop leaves at most one unspent.
-    assert budget - ledger.total < 2
+    # PEC needs one call a trial: the stop leaves none unspent.
+    assert ledger.total == budget
     assert 0.0 < caught.value.z < SOLITON_PERIOD
     assert backend._state is not None
     np.testing.assert_array_equal(caught.value.field, backend._state[0])
@@ -315,7 +289,7 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
 def test_resume_restarts_the_history_and_charges_its_startup(
     narrow_grid, soliton_problem
 ):
-    method = ComparisonMultistep(corrector="pec", order=3, corrector_order=4)
+    method = PEC34
     problem, run_request = soliton_problem(
         narrow_grid,
         1,
@@ -347,7 +321,7 @@ def test_resume_restarts_the_history_and_charges_its_startup(
 
 
 def test_capillary_constructor_takes_the_collar_scheme_and_integrator():
-    method = ComparisonMultistep(corrector="pec", order=3, corrector_order=4)
+    method = PEC34
     simulation = Simulation.from_capillary(
         150e-6,
         0.1,
@@ -486,40 +460,3 @@ def test_repeated_rejections_restart_the_history(narrow_grid, soliton_problem):
     assert march._history == []
     assert march._rejections == 0
     backend.close()
-
-
-def test_variable_order_pece_one_order_higher_takes_the_general_path(
-    narrow_grid, soliton_problem
-):
-    # The selected family (one-order-higher PEC) takes the fused path; PECE one order
-    # higher with variable order takes the general one, scoring the neighbouring
-    # orders' defects (SEP 13 section 4.4) and still converging on the soliton.
-    planes = [SOLITON_PERIOD / 4]
-    method = ComparisonMultistep(
-        corrector="pece", order=4, corrector_order=5, variable_order=True
-    )
-
-    def final(integrator, rtol):
-        problem, run_request = soliton_problem(
-            narrow_grid,
-            2,
-            save_planes=planes,
-            controller=PIController(rtol=rtol, atol=1e-18),
-            integrator=integrator,
-        )
-        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(planes[-1])
-        field = np.array(backend.observe().require_field())
-        march = backend._adams
-        backend.close()
-        return field, march
-
-    reference, _ = final(None, 1e-11)
-    field, march = final(method, 1e-6)
-    assert march is not None
-    assert march._fused is False
-    assert len(set(march.ledger.orders)) > 2
-    scale = np.max(np.abs(reference))
-    # Measured 1.1e-7 of the peak over orders one to four.
-    assert np.max(np.abs(field - reference)) < 1e-6 * scale

@@ -76,7 +76,6 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import DOUBLE, Precision
 from solprop.translate.problem import PropagationProblem, Translation, assemble
 from solprop.translate.run_request import (
     IntegrationSpec,
@@ -155,7 +154,6 @@ def soliton(
     interpolate: bool = False,
     integrator: Multistep | None = None,
     planes: Collection[float] = PLANES,
-    precision: Precision = DOUBLE,
 ) -> Translation:
     """Return the fundamental soliton over :data:`PLANES`, and its run's request.
 
@@ -171,8 +169,6 @@ def soliton(
         The Adams method; the default Runge-Kutta tableau by default.
     planes : collection of float, optional
         The save planes, m, increasing and ending at :data:`LENGTH`.
-    precision : solprop.translate.precision.Precision, optional
-        The run's arithmetic; binary64 by default.
 
     Returns
     -------
@@ -196,7 +192,6 @@ def soliton(
         step_planes=step_planes,
         interpolate_planes=interpolate,
         integrator=integrator,
-        precision=precision,
         stats_spec=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),

@@ -6,8 +6,8 @@
 
 A rule too coarse for the field is a statistic (``quadrature_error``) and one logged
 warning a plane, never a controller input. The native session reads the largest
-accepted step's score once an advance and gives the reference's warning, on its logger
-and at its threshold (``solprop.backends.numpy_ref.QUADRATURE_ALARM``), once between
+accepted step's score once an advance and gives the shared warning
+(``solprop.translate.modal.warn_quadrature``, at ``QUADRATURE_ALARM``), once between
 two observations; a rule that resolves the field gives none.
 """
 
@@ -65,7 +65,7 @@ def _warnings(name: str, n_r: int, caplog: pytest.LogCaptureFixture) -> list[str
     grid, modes, problem, request = _problem(n_r)
     backend = select(name, problem, request, grid=grid, modes=modes)
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.numpy_ref.backend"):
+    with caplog.at_level(logging.WARNING, logger="solprop.translate.modal"):
         session = start_session(backend, problem, request, entrance(problem))
         drive(Started(session))
     if name == "native":

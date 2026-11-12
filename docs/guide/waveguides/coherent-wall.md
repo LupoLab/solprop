@@ -78,8 +78,8 @@ owns the refusal. The `input` noise model is admitted
 draw is part of the launch, one photon per channel and bin in the $\mathrm{HE}_{1m}$
 set, which is orthonormal in true power (real Bessel profiles, orthogonal on the core,
 each normalised to its own power), and the block propagates it like any field. Both
-backends execute the block — `numpy_ref` and `native`, on the CPU and on the qualified GPU builds ([the native backend](../performance/native.md)) —
-except that `method="cf4"` runs on `numpy_ref` alone. The **vector** boundary response
+backends execute the block — `numpy_ref` and `native`, on the CPU and on the qualified GPU builds ([the native backend](../performance/native.md)).
+The **vector** boundary response
 [chapter](vector-wall.md) covers the additional families and is declared instead of it rather than
 beside it.
 
@@ -354,8 +354,8 @@ carried in the flow's diagonal, beside the block:
 real, zero for $\mathrm{HE}_{11}$ and zero wherever the guide does not vary, with the
 slope $w_n' = \operatorname{Re}\,dn_\text{eff}/dz$ taken in closed form through the
 radius and the fill ({py:meth}`~solprop.modes.capillary.MarcatiliMode.dneff_dz`), never
-by a difference. It is part of the generator, so the frozen block, the explicit residual
-and CF4 all carry it. On the 50 to 40 µm taper below, leaving it out — giving every
+by a difference. It is part of the generator, so the frozen block and the explicit
+residual both carry it. On the 50 to 40 µm taper below, leaving it out — giving every
 channel the lowest channel's normalisation — moves $\mathrm{HE}_{12}$ and
 $\mathrm{HE}_{13}$ relative to $\mathrm{HE}_{11}$ by $9\times10^{-6}$ and
 $3\times10^{-5}$ at 800 nm and by $1.5\times10^{-4}$ and $5.5\times10^{-4}$ at the
@@ -455,22 +455,3 @@ and a walled *straight* bore $10^{-6}$.
 {doc}`../../auto_tutorials/capillaries/plot_08_coherent_wall_taper` runs this taper beside the two
 straight bores it joins, reads the sectioning off the record, and shows that four frozen
 sections per interval and one give the same answer to $2\times10^{-10}$.
-
-**Integrating the varying section by CF4.** `CoherentWall(method="cf4")` integrates each
-section's whole generator by the fourth-order commutator-free exponential instead of
-freezing it: no explicit residual, so no advisory step, but a flow error the step
-controller cannot see and a run that is at most fourth order. It is admitted only where
-its internal factors provably cannot exceed $\exp(h\,m_{\rm hi})$ — the largest norm
-the exact flow could have over a step $h$, with $m_{\rm hi}$ the largest eigenvalue of
-the generator's Hermitian part — by more than `growth_limit` (default 2); a rejected
-section is refused
-by name, or integrated by the frozen split where `fallback="frozen_residual"` says so.
-That guard bounds growth, not accuracy: a lossless section passes it at any step, and
-only the step-doubling defect estimate, on which `validate` warns against `rtol`, says
-whether a step is small enough. On every taper measured a CF4 step costs 3.3 times a
-frozen one and is the more accurate only for steps beyond the frozen split's advisory
-limit, so the default frozen split is the better choice at equal cost. CF4 is refused
-on a guide that does not vary, whose one section the constant-Schur action already
-integrates exactly; beside `impedance="te_tm"` it is admitted, because it integrates the
-stored expansion and reads nothing of the block that built it — measured fourth order,
-3.996 and 3.999, on the vector taper below.

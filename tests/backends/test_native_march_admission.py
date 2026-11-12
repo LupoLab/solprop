@@ -7,9 +7,7 @@
 The native march steps ``Multistep()`` in either formulation, adaptive or replayed, on
 every route the backend admits: since solprop SEP 47's phase 5 there is no Python march
 to fall back on, and what the native march does not step is refused by name before
-anything is allocated. The comparison family,
-``ComparisonMultistep``, is benchmark-only and the reference's alone (solprop SEP 47
-section 6.3): the backend refuses every variant by name before it allocates anything.
+anything is allocated.
 """
 
 import copy
@@ -23,7 +21,7 @@ from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, HostMarchWarning
-from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
@@ -99,56 +97,6 @@ def test_a_replayed_schedule_is_native():
         assert backend.metadata()["adams_march"] == "native"
     finally:
         backend.close()
-
-
-@pytest.mark.parametrize(
-    "integrator",
-    [
-        ComparisonMultistep(corrector="pece", order=4),
-        ComparisonMultistep(corrector="pece", order=4, corrector_order=5),
-        ComparisonMultistep(corrector="none", order=3),
-        ComparisonMultistep(corrector="pec", order=4),
-        ComparisonMultistep(corrector="pec", order=4, corrector_order=4),
-        # The one-order-higher PEC variants, the selected recurrence under the
-        # comparison family's name, are benchmark-only too.
-        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
-        ComparisonMultistep(
-            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
-        ),
-        ComparisonMultistep(
-            corrector="pec", order=4, corrector_order=5, variable_order=True
-        ),
-    ],
-    ids=[
-        "pece4",
-        "pece4/5",
-        "ab3",
-        "pec4 matched",
-        "pec4/4",
-        "pec4/5",
-        "pec4/5 hermite",
-        "pec4/5 variable",
-    ],
-)
-@pytest.mark.parametrize("device", [False, True], ids=["cpu", "device"])
-def test_every_comparison_variant_is_refused_before_allocation(
-    integrator, device, monkeypatch
-):
-    # solprop SEP 47 section 6.3: benchmark-only and reference-only, refused by name
-    # at admission on CPU and device builds alike (the device patched in: the
-    # decision is the method's alone). The native state, the first allocation, is
-    # never built.
-    monkeypatch.setattr(backend_module, "_on_device", lambda: device)
-    built_states = []
-    monkeypatch.setattr(
-        backend_module._core, "State", lambda *args: built_states.append(args)
-    )
-    with pytest.raises(BackendError, match="reference-only") as refused:
-        built(on_route("gnlse", integrator))
-    message = str(refused.value)
-    assert f"comparison variant {integrator.name}: " in message
-    assert "backend='numpy_ref'" in message
-    assert built_states == []
 
 
 @pytest.mark.parametrize("leaf", ["operator", "prefactor"])

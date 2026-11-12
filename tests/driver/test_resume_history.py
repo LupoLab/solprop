@@ -42,8 +42,6 @@ from solprop.output import HDF5Output
 from solprop.output.hdf5 import open_file, resume
 from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
 from solprop.stepper import Multistep, RungeKutta
-from solprop.stepper.multistep import ComparisonMultistep
-from solprop.translate.precision import SINGLE_RTOL_FLOOR
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -88,15 +86,6 @@ def varying(backend, rtol=RTOL, **keywords):
         return gradient(integrator=EXPONENTIAL, rtol=rtol, backend=backend, **keywords)
 
     return build
-
-
-def single(rtol):
-    """Return the precision of a single-precision case at `rtol`.
-
-    The tight reference runs below single precision's tolerance floor, so it is the
-    binary64 run, which the binary32 one is held against (#342).
-    """
-    return {"precision": "single" if rtol >= SINGLE_RTOL_FLOOR else "double"}
 
 
 def coupled(backend, rtol=RTOL):
@@ -158,10 +147,6 @@ CASES = {
     "varying-native": lambda _, rtol=RTOL: varying("native", rtol),
     "coupled-numpy_ref": lambda _, rtol=RTOL: coupled("numpy_ref", rtol),
     "coupled-native": lambda _, rtol=RTOL: coupled("native", rtol),
-    # #342: binary32 Adams resumes in binary32, its history and state narrowed.
-    "single-soliton-numpy_ref": lambda build, rtol=RTOL: soliton(
-        build, "numpy_ref", rtol=rtol, atol=0.0, **single(rtol)
-    ),
 }
 
 
@@ -600,33 +585,3 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
         assert backend.march_snapshot() is None
     finally:
         backend.close()
-
-
-def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation):
-    # Called directly, a march that keeps no history store says so rather than
-    # installing rows it has nowhere to put.
-    simulation = build_simulation(
-        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
-    )
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    general = build_simulation(
-        length=LENGTH,
-        n_save=N_SAVE,
-        backend="numpy_ref",
-        integrator=ComparisonMultistep(order=3),
-    )
-    backends = [
-        NumpyRefBackend(problem, run_request, grid=simulation.grid),
-        NumpyRefBackend(general.translate(), general._run_request(), grid=general.grid),
-    ]
-    try:
-        backends[0].set_initial(problem.initial.field0, None)
-        backends[0].propagate_to(float(run_request.stepper.save_planes[0]))
-        snapshot = backends[0].march_snapshot()
-        assert snapshot is not None
-        backends[1].set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "general Adams path" in str(backends[1].restore_march(snapshot))
-    finally:
-        for backend in backends:
-            backend.close()

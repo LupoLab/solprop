@@ -414,12 +414,6 @@ _RULES: Final = (
         "The low-storage march lands on its schedule's edges and has no dense output.",
         _BOTH,
     ),
-    Rule(
-        "integrator-backends",
-        ("integrator", "backend"),
-        "The Multistep and low-storage integrators run on numpy_ref and native only.",
-        _BOTH,
-    ),
     # The gnlse route.
     Rule(
         "gnlse-envelope-grid",
@@ -542,12 +536,6 @@ _RULES: Final = (
         _CAPILLARY,
     ),
     Rule(
-        "wall-cf4-numpy-ref",
-        ("wall", "backend"),
-        "A coherent wall with method='cf4' runs on numpy_ref alone.",
-        _CAPILLARY,
-    ),
-    Rule(
         "wall-is-the-loss",
         ("wall", "loss"),
         "A coherent wall block is the loss model, so loss stays True beside it.",
@@ -607,12 +595,6 @@ _RULES: Final = (
         "tdse-execution-needs-tdse",
         ("tdse_execution", "tdse"),
         "tdse_execution is the resources of a TDSE response, which tdse declares.",
-        _CAPILLARY,
-    ),
-    Rule(
-        "tdse-double-precision",
-        ("tdse_execution", "precision"),
-        "No backend runs the TDSE response in binary32.",
         _CAPILLARY,
     ),
     Rule(
@@ -701,7 +683,7 @@ def route(name: str) -> RouteCapabilities:
     >>> capillary.choices["shape"], capillary.choices["noise"]
     (('gauss', 'sech'), ('default', 'input', 'modified', 'none'))
     >>> [rule.id for rule in capillary.rules_for("tdse_execution")][:2]
-    ['tdse-execution-needs-tdse', 'tdse-double-precision']
+    ['tdse-execution-needs-tdse', 'tdse-numpy-ref']
     """
     # The recipe layer sits above this module, which the driver imports.
     from solprop.recipe.core import ROUTES  # noqa: PLC0415 - layer above

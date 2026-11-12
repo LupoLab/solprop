@@ -63,9 +63,8 @@ following and refuses every other feature by name before allocating anything
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
 - no group (:mod:`solprop_native.group` runs one native session per member); and no
-  comparison method, controller that overrides a decision or TDSE response, which the
-  backend refuses by name where it is built, before it allocates (SEP 47 section
-  6.3).
+  TDSE response, which the backend refuses by name where it is built, before it
+  allocates (SEP 47 section 6.3).
 """
 
 from __future__ import annotations
@@ -95,8 +94,7 @@ from solprop.backends.events import (
     Terminal,
 )
 from solprop.backends.export import destination_refusal
-from solprop.backends.multistep import CallLedger, budget_error
-from solprop.backends.numpy_ref import QUADRATURE_ALARM
+from solprop.backends.ledger import CallLedger, budget_error
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
@@ -133,6 +131,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import LANDING_ULPS
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
+from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 
 from . import _core, _counters, _transverse, _watch
 from ._load import Loaded
@@ -159,10 +158,6 @@ from .backend import (
 )
 
 _LOG = logging.getLogger(__name__)
-
-_QUADRATURE_LOG = logging.getLogger("solprop.backends.numpy_ref.backend")
-"""The reference's logger, on which the transverse quadrature alarm is given, so that a
-filter on the alarm reads both backends alike (``_check_quadrature``)."""
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -241,10 +236,9 @@ def refusal(
 
     Decided from the problem, the request and the start alone, before anything is
     allocated: the statistics the session does not evaluate. Everything else native
-    does not run -- a comparison method, a controller that overrides a decision, a
-    TDSE response, a coupled flow beside the interaction formulation, stage rows the
-    native tables do not read -- the backend refuses by name where it is built
-    (``NativeBackend``), still before any native state (SEP 47 section 6.3).
+    does not run -- a TDSE response, a coupled flow beside the interaction formulation,
+    stage rows the native tables do not read -- the backend refuses by name where it is
+    built (``NativeBackend``), still before any native state (SEP 47 section 6.3).
 
     Parameters
     ----------
@@ -918,8 +912,8 @@ class NativeSession:
     def _check_quadrature(self, event: Event) -> None:
         """Warn once a plane if a step's transverse quadrature score passed the alarm.
 
-        The reference's warning (``NumpyRefBackend._update_alarm``), on its logger and
-        with its threshold: the native state keeps the largest accepted step's score
+        The shared warning (:func:`solprop.translate.modal.warn_quadrature`): the native
+        state keeps the largest accepted step's score
         since the last read, which the session reads under its lock once an advance
         (``Session::quadrature_peak``); the warning
         is given once between two observations, as the reference gives it once a
@@ -933,15 +927,7 @@ class NativeSession:
             self._quadrature_peak = peak
         if peak > QUADRATURE_ALARM and not self._alarm_reported:
             self._alarm_reported = True
-            _QUADRATURE_LOG.warning(
-                "the transverse quadrature reproduces the nonlinear polarisation to "
-                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
-                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
-                "the mode set) and no step size can fix it",
-                peak,
-                float(self._native.status().z),
-                QUADRATURE_ALARM,
-            )
+            warn_quadrature(peak, float(self._native.status().z))
         if isinstance(event, ObservationReady):
             self._alarm_reported = False
 
@@ -1763,8 +1749,8 @@ class NativeSession:
         """Return the error of a trial the call budget could not pay for.
 
         Formed from the session's own ledger, position and committed field, as the
-        backend's march forms it from its own (:func:`~solprop.backends.multistep.
-        budget_error`).
+        backend's march forms it from its own
+        (:func:`~solprop.backends.ledger.budget_error`).
         """
         calls = self._sync_calls()
         assert calls is not None

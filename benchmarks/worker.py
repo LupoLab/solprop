@@ -717,7 +717,6 @@ def measure(
             "counted": counters,
             "repeat_difference": _repeat_difference(finals),
             "integrator": integrator_label(stepper.integrator),
-            "precision": configuration.get("precision", "double"),
             "rtol": controller.rtol,
             "atol": controller.atol,
             "noise": simulation.noise_resolution.resolved

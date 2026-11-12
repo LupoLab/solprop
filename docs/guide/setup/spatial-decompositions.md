@@ -49,7 +49,7 @@ How each is reached, and where it runs:
 | [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | both CPU |
 | [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | both CPU |
 | [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | both CPU |
-| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | both CPU (CF4 on `numpy_ref` only) |
+| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | both CPU |
 | [antiresonant](#antiresonant-tube-lattice) | √W, J | `prop_capillary(..., lattice=TubeLattice(...))` | both CPU |
 | [step-index, exact](#step-index-fibres-exact) | √W, J | `prop_gnlse(fibre=StepIndexMode(...))`; the general route | both CPU |
 | [graded-index](#graded-index-providers) | √W true power, J | `prop_waveguide((), ..., provider=guide)` | both CPU |
@@ -65,8 +65,8 @@ How each is reached, and where it runs:
 "Both CPU" backends means `numpy_ref` and the native backend's CPU build.
 The native backend's GPU builds (CUDA and HIP) also run the mode-averaged, multimode, general modal,
 coherent-wall and moving-guide routes, and the CUDA build runs radial, Cartesian and line
-free space; the planar guide resolved in y is not qualified on a GPU, and a CF4
-section runs on `numpy_ref` alone ([choosing a backend](../performance/backends.md),
+free space; the planar guide resolved in y is not qualified on a GPU
+([choosing a backend](../performance/backends.md),
 [the native backend](../performance/native.md)).
 Every modal route writes energy in joules and amplitudes in the true-power √W of
 [power and intensity](../results/power-and-intensity.md): $b = \sqrt{\operatorname{Re}n_{\rm eff}}\,a$
@@ -276,8 +276,8 @@ exact vector Maxwell roots family by family, but it has not been checked against
 resolved-cladding solve of a mixed state.
 
 **Entry point.** `prop_capillary(..., wall=CoherentWall())`. The scalar and TE/TM blocks
-run on both CPU backends, straight, tapered or in a gradient; `method="cf4"` runs on
-`numpy_ref` alone ([the capillary chapter](../waveguides/capillaries.md)). The block is
+run on both CPU backends, straight, tapered or in a gradient
+([the capillary chapter](../waveguides/capillaries.md)). The block is
 scalar in the **state**, one component per channel, but not in the synthesis: a
 $\mathrm{TE}_{0m}$, $\mathrm{TM}_{0m}$ or EH set beside the `te_tm` wall resolves
 $E_x$ and $E_y$, so its Kerr and plasma terms see the whole field.

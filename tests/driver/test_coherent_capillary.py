@@ -20,7 +20,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Literal, cast
+from typing import cast
 
 import mpmath
 import numpy as np
@@ -37,13 +37,10 @@ from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.admission import refuse_coupled_flow
 from solprop.backends.numpy_ref.backend import (
     _MAX_FLOW_SQUARINGS,
-    _coupled_flow_maps,
     _triangular_exponential,
 )
-from solprop.backends.numpy_ref.backend import _cf4_action as _backend_cf4_action
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, prop_capillary, prop_gnlse
@@ -83,13 +80,10 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, RungeKutta
+from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import (
-    CF4_GROWTH_LIMIT,
     SECTION_TOL,
-    _cf4_action,
     advisory_step,
-    cf4_defect,
-    cf4_growth_bound,
     constant_schur_flow,
     flow_weights,
     frozen_generator,
@@ -98,7 +92,6 @@ from solprop.translate.coupled import (
     residual_truncation,
     schur_blocks,
     section_expansion,
-    wall_identity,
 )
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import (
@@ -170,11 +163,6 @@ def kept(field: np.ndarray | None) -> np.ndarray:
     return field
 
 
-def _steps_cf4(wall) -> bool:
-    """Return whether a wall declares CF4 sections, which only the RK march steps."""
-    return wall is not None and getattr(wall, "method", None) == "cf4"
-
-
 def capillary(
     *,
     wall=None,
@@ -208,9 +196,6 @@ def capillary(
         "plasma": False,
         "raman": False,
     } | overrides
-    if _steps_cf4(wall) and "integrator" not in arguments:
-        # CF4 sections are stepped by the Runge-Kutta march alone.
-        arguments["integrator"] = RungeKutta()
     return Simulation.from_capillary(
         radius,
         LENGTH,
@@ -245,9 +230,6 @@ def run_capillary(
         "plasma": False,
         "raman": False,
     } | overrides
-    if _steps_cf4(wall) and "integrator" not in arguments:
-        # CF4 sections are stepped by the Runge-Kutta march alone.
-        arguments["integrator"] = RungeKutta()
     radius = arguments.pop("radius_override", RADIUS)
     return cast(
         "MemoryOutput",
@@ -883,15 +865,15 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         )
 
     # Refused by the Adams path's check or the Runge-Kutta march's, by name either way.
-    with pytest.raises(BackendError, match=r"'diagonal'"):
+    with pytest.raises((BackendError, TranslationError), match=r"'diagonal'"):
         NumpyRefBackend(spoiled(section_methods=("diagonal",)), run_request, grid=grid)
-    with pytest.raises(BackendError, match="executes no taper connection"):
+    with pytest.raises(TranslationError, match="executes no taper connection"):
         NumpyRefBackend(
             spoiled(connection=np.zeros((1, 1, 3, 3, grid.n_omega), dtype=complex)),
             run_request,
             grid=grid,
         )
-    with pytest.raises(BackendError, match="no explicit"):
+    with pytest.raises(TranslationError, match="no explicit"):
         NumpyRefBackend(
             spoiled(residual_norm_bound=np.ones((1, grid.n_omega))),
             run_request,
@@ -899,7 +881,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
         )
     assert flow.generator is not None
     doubled = np.concatenate([flow.generator, flow.generator], axis=1)
-    with pytest.raises(BackendError, match="Chebyshev degrees along z"):
+    with pytest.raises(TranslationError, match="Chebyshev degrees along z"):
         NumpyRefBackend(spoiled(generator=doubled), run_request, grid=grid)
     factored = replace(
         problem,
@@ -915,7 +897,7 @@ def test_the_reference_refuses_every_coupled_flow_it_does_not_execute():
             ),
         ),
     )
-    with pytest.raises(BackendError, match="dense generator"):
+    with pytest.raises(TranslationError, match="dense generator"):
         NumpyRefBackend(factored, run_request, grid=grid)
 
 
@@ -929,7 +911,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     assert constant is not None
     varied = constant.copy()
     varied[0, 1] *= 1.0000001
-    with pytest.raises(BackendError, match="mode-independent Phi"):
+    with pytest.raises(TranslationError, match="mode-independent Phi"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, phi_constant=varied)),
             run_request,
@@ -942,7 +924,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
         gauge_id="lab",
         certificate_id="sampled-gram",
     )
-    with pytest.raises(BackendError, match="no explicit metric"):
+    with pytest.raises(TranslationError, match="no explicit metric"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, modal_metric=metric)),
             run_request,
@@ -952,11 +934,11 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     # second polarisation would be mixed by it as though it described both. The
     # refusal is taken on the check itself, because a state whose polarisation axis
     # disagrees with the rest of the problem is refused by `PropagationProblem.validate`
-    # before any backend sees it -- which is exactly why this one is defence in
-    # depth rather than the only door.
+    # for its shape as well -- which is exactly why this one is defence in depth
+    # rather than the only door.
     channels, _, bins = problem.shape
-    with pytest.raises(BackendError, match="only for a scalar state") as refused:
-        refuse_coupled_flow(replace(problem, shape=(channels, 2, bins)))
+    with pytest.raises(TranslationError, match="only for a scalar state") as refused:
+        check_general_route(replace(problem, shape=(channels, 2, bins)))
     assert "not the state's polarisation axis" in str(refused.value)
     # It names the state's two components, the product route, and not the
     # synthesis, which may resolve two.
@@ -1010,7 +992,7 @@ def test_the_reference_refuses_a_flow_beside_a_varying_phi():
         dz_max=run_request.stepper.dz_max,
         edges=edges,
     )
-    with pytest.raises(BackendError, match="exact constant representation"):
+    with pytest.raises(TranslationError, match="exact constant representation"):
         NumpyRefBackend(spoiled, run_request, grid=simulation.grid)
 
 
@@ -1029,7 +1011,7 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
         ),
     )
     with pytest.raises(
-        BackendError, match="no 'modified' noise model beside a coupled flow"
+        TranslationError, match="no 'modified' noise model beside a coupled flow"
     ):
         NumpyRefBackend(noisy, run_request, grid=grid)
 
@@ -1599,9 +1581,6 @@ def varying(
         "plasma": False,
         "raman": False,
     } | overrides
-    if _steps_cf4(wall) and "integrator" not in arguments:
-        # CF4 sections are stepped by the Runge-Kutta march alone.
-        arguments["integrator"] = RungeKutta()
     return Simulation.from_capillary(
         taper() if radius is None else radius,
         LENGTH,
@@ -2158,11 +2137,11 @@ def test_a_frozen_residual_flow_is_refused_beside_a_carrier_it_cannot_share(
     """
     problem = varying(wall=CoherentWall()).translate()
     monkeypatch.setattr(type(problem), "device_ready", property(lambda self: False))
-    with pytest.raises(BackendError, match="took the z table"):
-        refuse_coupled_flow(problem)
+    with pytest.raises(TranslationError, match="took the z table"):
+        check_general_route(problem)
     constant = capillary(wall=CoherentWall()).translate()
-    with pytest.raises(BackendError, match="exact constant representation"):
-        refuse_coupled_flow(
+    with pytest.raises(TranslationError, match="exact constant representation"):
+        check_general_route(
             replace(
                 problem,
                 linear=replace(
@@ -3030,9 +3009,6 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
         "plasma": False,
         "raman": False,
     } | overrides
-    if _steps_cf4(arguments["wall"]) and "integrator" not in arguments:
-        # CF4 sections are stepped by the Runge-Kutta march alone.
-        arguments["integrator"] = RungeKutta()
     return cast(
         "MemoryOutput",
         prop_capillary(taper(), LENGTH, "He", 1.0, **{"noise": None, **arguments}),
@@ -3358,18 +3334,16 @@ def test_on_a_taper_the_families_exchange_power_only_through_the_wall_anisotropy
     assert float(power[1]) > 0.05, power
 
 
-def _vector_refined(
-    steps, method: Literal["frozen_residual", "cf4"] = "frozen_residual"
-):
+def _vector_refined(steps):
     """Return the final plane of the vector taper on a schedule of `steps`.
 
     Stepped by the Runge-Kutta march: the refinement measures DOPRI5's fifth order on
-    the frozen split, and CF4 sections are stepped by that march alone.
+    the frozen split.
     """
     return propagated(
         *translated(
             varying(
-                wall=CoherentWall(impedance="te_tm", method=method),
+                wall=CoherentWall(impedance="te_tm"),
                 integrator=RungeKutta(),
                 modes=vector_modes(radius=taper()),
                 schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
@@ -3382,18 +3356,13 @@ def _vector_refined(
 
 
 @pytest.mark.medium
-def test_the_vector_taper_converges_at_each_methods_own_order():
-    """Independent refinement: fifth order frozen, fourth order CF4, one reference.
+def test_the_vector_taper_converges_at_the_frozen_split_s_order():
+    """Independent refinement: fifth order frozen, against one reference.
 
     Bounds, stated first. The embedded DOPRI5 pair integrates the frozen split's
     explicit residual at fifth order, so halving the step divides the departure from a
     160-step frozen run by 32 -- gate an order above 4.0 on the first halving, and a
-    ten-step departure below 1e-8 of the state (measured 6.2e-11, then 4.82). CF4
-    integrates the same stored expansion whole and is at most fourth order: gate an
-    order between 3.8 and 4.2 on both halvings (measured 3.996 and 3.999; 3.993 and
-    3.998 on the scalar taper), which is what "CF4 composes with the vector block
-    trivially" means -- it reads the expansion and the connection and nothing of the
-    block that built them.
+    ten-step departure below 1e-8 of the state (measured 6.2e-11, then 4.82).
     """
     reference = _vector_refined(STEPS * 16)
     scale = float(np.max(abs(reference)))
@@ -3403,12 +3372,6 @@ def test_the_vector_taper_converges_at_each_methods_own_order():
     ]
     assert frozen[0] < 1e-8, frozen
     assert math.log2(frozen[0] / frozen[1]) > 4.0, frozen
-    cf4 = [
-        float(np.max(abs(_vector_refined(STEPS * count, "cf4") - reference))) / scale
-        for count in (1, 2, 4)
-    ]
-    orders = [math.log2(cf4[index] / cf4[index + 1]) for index in range(2)]
-    assert all(3.8 < order < 4.2 for order in orders), (cf4, orders)
 
 
 def test_the_vector_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
@@ -3429,533 +3392,6 @@ def test_the_vector_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path)
         stored.close()
     with pytest.raises(OutputError, match="cannot be resumed"):
         capillary(wall=CoherentWall(), modes=1).run(path, resume=True)
-
-
-# ------------------------------------------------------------ the CF4 varying flow
-
-CF4_WALL = CoherentWall(method="cf4")
-"""The commutator-free fourth-order alternative on the qualification taper."""
-
-
-def test_a_cf4_wall_declares_cf4_sections_on_the_frozen_split_s_expansion():
-    """The same expansion, a different certificate: no residual, the pair bound.
-
-    `method="cf4"` changes what the sections are certified as and nothing about what
-    they carry: the generator and the connection are the frozen-residual leaf's to the
-    last bit, because both come from one `section_expansion` of one profile. What
-    differs is the rows. Bound, stated first: the pair conditioning is
-    `exp((2/sqrt(3)) dz_max (m_hi - m_lo))` over the Weyl enclosure of each step's
-    reach, at least the frozen block's own `exp(dz_max (mu_max - mu_min))` and here
-    1.0190 against 1.0068 to 1.0132; the growth bound is that to the power
-    `(2 - sqrt(3))/4`,
-    1.00127 at worst -- the qualification taper is deep inside the asymptotic regime
-    the growth-bound guard admits.
-    """
-    flow = varying(wall=CF4_WALL).translate().linear.coupled_flow
-    frozen = varying(wall=CoherentWall()).translate().linear.coupled_flow
-    assert flow is not None and frozen is not None
-    assert flow.section_methods == ("cf4",) * 4
-    assert flow.certificate_id == "cf4"
-    assert flow.generator is not None and frozen.generator is not None
-    assert np.array_equal(flow.generator, frozen.generator)
-    assert flow.connection is not None and frozen.connection is not None
-    assert np.array_equal(flow.connection, frozen.connection)
-    assert np.all(flow.residual_norm_bound == 0.0)
-    assert np.all(np.isinf(advisory_step(flow)))
-    assert np.all(flow.inverse_condition_bound >= frozen.inverse_condition_bound)
-    assert float(np.max(flow.inverse_condition_bound)) < 1.02
-    assert 1.0 < float(np.max(cf4_growth_bound(flow))) < 1.0013
-
-
-def test_the_executor_and_the_estimator_are_two_implementations_of_one_step():
-    """`numpy_ref`'s scaled Taylor series and SciPy's exponential agree on every step.
-
-    The translation layer's estimator forms a CF4 step with `scipy.linalg.expm`; the
-    backend forms it with its own scaled Taylor series, from the stage bundle's
-    evaluation form rather than the leaf's arrays. Bound, stated first: the two
-    agree to a few ulp of the action's norm (measured 2.2e-16 at worst over four
-    steps, one per section), the backend's inverse is the inverse of its forward to
-    rounding (7.8e-16), and the four factor norms it measures stay under the declared
-    pair bound -- 1.0132 against 1.0153 on a straight section, which is the
-    `1/(1 + 4|a|) = sqrt(3)/2` of the bound's logarithm a constant generator reaches
-    exactly (measured 0.8660241), and 1.0073 against 1.0190 on the transition.
-    """
-    problem = varying(wall=CF4_WALL).translate()
-    flow = problem.linear.coupled_flow
-    assert flow is not None and flow.generator is not None
-    assert flow.connection is not None
-    held = _coupled_flow_maps(problem)
-    assert held is not None
-    terms = (flow.generator - flow.connection).reshape(-1, *flow.generator.shape[2:])
-    for start, length, section in (
-        (0.0, 2e-5, 0),
-        (6e-5, 2e-5, 1),
-        (1.0e-4, 1e-5, 1),
-        (1.5e-4, 2e-5, 2),
-    ):
-        reference = _cf4_action(flow, terms, start, length, section)[held.active]
-        forward, inverse, growth = _backend_cf4_action(held, start, length, section)
-        departure = np.linalg.norm(forward - reference, 2, axis=(-2, -1))
-        assert np.all(
-            departure
-            <= 8 * np.finfo(float).eps * np.linalg.norm(reference, 2, axis=(-2, -1))
-        )
-        identity = np.linalg.norm(forward @ inverse - np.eye(3), 2, axis=(-2, -1))
-        assert float(np.max(identity)) < 8 * np.finfo(float).eps
-        declared = flow.inverse_condition_bound[section][held.active]
-        assert np.all(growth <= declared)
-    straight = _backend_cf4_action(held, 1.5e-4, 2e-5, 2)[2]
-    bound = flow.inverse_condition_bound[2][held.active]
-    ratio = np.log(straight) / np.log(bound)
-    # To 1.3e-6 (measured 1.28e-6). This is not the samples' round-off: it was the
-    # same 1.28e-6 before and after the wall's diagonal stopped carrying the rounding
-    # of a difference of two wavenumbers, and the straight section's
-    # residual enclosure is exactly zero. Its source is not established here.
-    assert float(np.max(ratio)) == pytest.approx(math.sqrt(3.0) / 2.0, abs=1e-5)
-
-
-def _taper_generator(flow):
-    """Return ``z -> L(z)`` on the active bins, frequency first, from the leaf."""
-    assert flow.generator is not None and flow.connection is not None
-    terms = (flow.generator - flow.connection).reshape(-1, *flow.generator.shape[2:])
-    active = np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))
-
-    def generator(z):
-        combined = np.tensordot(flow_weights(flow, z), terms, axes=1)
-        return np.moveaxis(combined, -1, 0)[active]
-
-    return generator, terms, active
-
-
-def test_the_step_doubling_defect_tracks_the_true_error_on_the_lossy_taper():
-    """The step-doubling estimator against an independent solve of the flow alone.
-
-    The taper's generator is lossy -- the Hermitian part of `L` spans -373 to +21 1/m
-    relative to the carrier -- and nonnormal: Henrici's departure
-    `||L L^H - L^H L||_F / ||L||_F^2` reaches 4.7e-2 at the transition's middle. The
-    reference is `solve_ivp`'s DOP853 on `u' = L(z) u` at rtol 1e-13, which shares
-    nothing with the CF4 scheme but the stored expansion. Predeclared: at the
-    lowest, the middle and the highest active bin, one CF4 step from the start of the
-    transition has a true relative error within 1 % of the step-doubling estimate
-    `(16/15) ||V(h) - V(h/2)^2|| / ||V(h/2)^2||`, at 20, 10 and 5 micrometres, and
-    both fall at the step's fifth power. Measured ratios 0.99987 to 0.99999, true
-    errors 6.19e-8, 1.79e-9 and 5.39e-11 at the lowest bin.
-    """
-    flow = varying(wall=CF4_WALL).translate().linear.coupled_flow
-    assert flow is not None
-    generator, terms, active = _taper_generator(flow)
-    count = int(np.count_nonzero(active))
-    truths = []
-    for length in (2e-5, 1e-5, 5e-6):
-        coarse = _cf4_action(flow, terms, 6e-5, length, 1)[active]
-        fine = (
-            _cf4_action(flow, terms, 6e-5 + 0.5 * length, 0.5 * length, 1)[active]
-            @ _cf4_action(flow, terms, 6e-5, 0.5 * length, 1)[active]
-        )
-        for index in (0, count // 2, count - 1):
-            solution = solve_ivp(
-                lambda z, state, index=index: (
-                    generator(z)[index] @ state.reshape(3, 3)
-                ).ravel(),
-                (6e-5, 6e-5 + length),
-                np.eye(3, dtype=complex).ravel(),
-                method="DOP853",
-                rtol=1e-13,
-                atol=1e-16,
-            )
-            exact = solution.y[:, -1].reshape(3, 3)
-            truth = np.linalg.norm(coarse[index] - exact, 2) / np.linalg.norm(exact, 2)
-            estimate = (
-                16.0
-                / 15.0
-                * np.linalg.norm(coarse[index] - fine[index], 2)
-                / np.linalg.norm(fine[index], 2)
-            )
-            assert abs(estimate / truth - 1.0) < 1e-2, (length, index)
-            if index == 0:
-                truths.append(float(truth))
-    orders = np.log2(np.array(truths[:-1]) / np.array(truths[1:]))
-    assert np.all(abs(orders - 5.0) < 0.3), orders
-
-
-@pytest.mark.medium
-def test_a_cf4_run_converges_at_fourth_order_against_the_frozen_split():
-    """Independent refinement: CF4's schedule against the frozen split's finest run.
-
-    The combined method is **at most fourth order**: a fourth-order flow inside a
-    fifth-order Runge-Kutta source. The reference is the other method -- the frozen
-    split on 160 steps, fifth order and already 3.4e-9 at ten -- so that the refinement
-    is not the scheme checked against itself. Predeclared: the observed orders over 10,
-    20 and 40 steps within 4 +- 0.3. Measured 3.99 and 4.00, from 4.71e-8 of the state
-    at ten steps; the frozen split's own error there is 3.45e-9, so on this taper and
-    this step CF4 is the less accurate method by a factor 14.
-
-    Bound, stated first, on the ten-step error: the sum of the ten steps' estimated
-    local defects, `10 * max cf4_defect(h) * max ||U||||U^-1||`, is 1.76e-6 -- an
-    asymptotic estimate, not a proof -- and the measured error sits under it.
-    """
-    reference = _refined(STEPS * 16)
-    scale = float(np.max(abs(reference)))
-    departures = []
-    for count in (1, 2, 4):
-        steps = STEPS * count
-        final = propagated(
-            *translated(
-                varying(
-                    wall=CF4_WALL,
-                    schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
-                    dz_max=LENGTH / steps,
-                    dz_init=LENGTH / steps,
-                )
-            ),
-            GRID,
-        )
-        departures.append(float(np.max(abs(final - reference))) / scale)
-    orders = np.log2(np.array(departures[:-1]) / np.array(departures[1:]))
-    assert np.all(abs(orders - 4.0) < 0.3), (departures, orders)
-    flow = varying(wall=CF4_WALL).translate().linear.coupled_flow
-    assert flow is not None
-    estimate = (
-        STEPS
-        * float(np.max(cf4_defect(flow, LENGTH / STEPS)))
-        * float(np.max(flow.inverse_condition_bound))
-    )
-    assert departures[0] < estimate
-    frozen = float(np.max(abs(_refined(STEPS) - reference))) / scale
-    assert frozen < departures[0]
-
-
-def test_the_growth_guard_falls_back_by_section_only_where_declared():
-    """A limit between the sections' bounds rejects some; the declaration decides what.
-
-    The transition's two sections carry growth bounds 1.00125 and 1.00127 at
-    `dz_max` = 20 um, the
-    straight tail 1.00102; a limit of 1.0011 lies between. Without a fallback the
-    translation refuses by name; with `fallback="frozen_residual"` the rejected
-    sections take the frozen split, the warning names them, the leaf mixes the two
-    methods, and those sections carry exactly the frozen rows.
-    """
-    with pytest.raises(TranslationError, match=r"reject 2 of its 4 section"):
-        varying(wall=CoherentWall(method="cf4", growth_limit=1.0011)).translate()
-    with pytest.warns(SolpropWarning, match=r"section 0 has internal growth bound"):
-        problem = varying(
-            wall=CoherentWall(
-                method="cf4", growth_limit=1.0011, fallback="frozen_residual"
-            )
-        ).translate()
-    flow = problem.linear.coupled_flow
-    frozen = varying(wall=CoherentWall()).translate().linear.coupled_flow
-    assert flow is not None and frozen is not None
-    assert flow.section_methods == ("frozen_residual", "frozen_residual", "cf4", "cf4")
-    for name in ("generator_error", "residual_norm_bound", "inverse_condition_bound"):
-        assert np.array_equal(getattr(flow, name)[:2], getattr(frozen, name)[:2])
-    assert np.all(flow.residual_norm_bound[2:] == 0.0)
-
-
-@pytest.mark.medium
-def test_a_mixed_flow_runs_each_section_by_its_own_method():
-    """Ten steps of the mixed leaf land between the two pure runs' own errors.
-
-    Each step is integrated by the method of the section its anchor lies in -- a
-    frozen block with the explicit residual, or CF4 with none -- so the mixed run
-    solves the same equation and must agree with the frozen split's 160-step reference
-    to within the larger of the two pure runs' own ten-step errors, 4.71e-8 (CF4).
-    Measured 3.45e-9, the frozen split's own: the two sections rejected are the
-    entrance and the transition, and the straight tail CF4 keeps is a constant
-    generator, which it integrates exactly.
-    """
-    reference = _refined(STEPS * 16)
-    scale = float(np.max(abs(reference)))
-    with pytest.warns(SolpropWarning, match="fall back"):
-        problem, run_request = translated(
-            varying(
-                wall=CoherentWall(
-                    method="cf4", growth_limit=1.0011, fallback="frozen_residual"
-                )
-            )
-        )
-    mixed = (
-        float(np.max(abs(propagated(problem, run_request, GRID) - reference))) / scale
-    )
-    assert mixed < 4.8e-8
-
-
-def test_the_reference_measures_the_cf4_factors_against_the_declared_bound():
-    """A pair bound declared too small is caught by the factors the backend forms.
-
-    The growth-bound guard at the executor: with the conditioning row of every CF4
-    section set to one -- a bound no dissipative generator meets -- the first stage's
-    measured four-factor product, 1.0073 on the transition, is refused by name.
-    """
-    simulation = varying(wall=CF4_WALL)
-    problem = simulation.translate()
-    flow = problem.linear.coupled_flow
-    assert flow is not None
-    understated = replace(
-        problem,
-        linear=replace(
-            problem.linear,
-            coupled_flow=replace(
-                flow, inverse_condition_bound=np.ones_like(flow.inverse_condition_bound)
-            ),
-        ),
-    )
-    with pytest.raises(BackendError, match="CF4 factor-norm product"):
-        propagated(understated, simulation._run_request(), simulation.grid)
-
-
-def test_a_cf4_step_above_the_estimated_defect_warns_by_name():
-    """The step-doubling diagnostic: a declared step whose defect exceeds the tolerance.
-
-    The embedded pair does not see a CF4 flow's error, so `validate` compares the
-    step-doubling estimate at the largest declared step with the controller's
-    relative tolerance and warns, advisory like the advisory step. At `dz_max` =
-    100 um the transition's estimate is 1.02e-4 -- over its whole 80 um, because a
-    step ends at the next hard kink -- a hundred times the default tolerance of
-    1e-6; at the ten-step schedule's 20 um it is 1.72e-7, under it, and nothing is
-    said.
-    """
-    with (
-        warnings.catch_warnings(),
-        pytest.warns(SolpropWarning, match="estimated local defect"),
-    ):
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        warnings.simplefilter("ignore", GrazingIncidenceWarning)
-        varying(wall=CF4_WALL, dz_max=1e-4, dz_init=1e-4, schedule=None).translate()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        varying(wall=CF4_WALL).translate()
-    assert not [one for one in caught if "estimated local defect" in str(one.message)]
-
-
-def test_cf4_is_refused_wherever_it_would_be_ignored():
-    """Every door a CF4 declaration passes, each refusing what it cannot honour.
-
-    The declaration: an unknown method, and a growth limit or a fallback without CF4 --
-    or out of range with it. The translation layer: CF4 on a guide that does not vary,
-    whose constant-Schur flow is already exact, for either wall impedance. CF4 beside
-    the vector block is **admitted**: it integrates the stored expansion and reads
-    nothing of the block (`test_the_vector_taper_converges_at_each_methods_own_order`).
-    """
-    assert CoherentWall(method="cf4", impedance="te_tm").method == "cf4"
-    with pytest.raises(ModeError, match="read only with method='cf4'"):
-        CoherentWall(growth_limit=3.0)
-    with pytest.raises(ModeError, match="read only with method='cf4'"):
-        CoherentWall(fallback="frozen_residual")
-    for bad in (0.5, math.inf):
-        with pytest.raises(ModeError, match="at least one"):
-            CoherentWall(method="cf4", growth_limit=bad)
-    for field, bad, match in (
-        ("method", "midpoint", "'frozen_residual' or 'cf4'"),
-        ("fallback", "midpoint", "which integrates it"),
-    ):
-        # Built without `__init__`: the test session's runtime type check stops a
-        # value outside the `Literal` at the annotation, and production has no hook.
-        wall = object.__new__(CoherentWall)
-        for name, value in (
-            ("condition_limit", 1.0e4),
-            ("validity_limit", 0.25),
-            ("sections", 1),
-            ("impedance", "mean"),
-            ("method", "cf4"),
-            ("growth_limit", None),
-            ("fallback", None),
-        ):
-            object.__setattr__(wall, name, value)
-        object.__setattr__(wall, field, bad)
-        with pytest.raises(ModeError, match=match):
-            wall.__post_init__()
-    with pytest.raises(TranslationError, match="its one constant section"):
-        capillary(wall=CF4_WALL).translate()
-    with pytest.raises(TranslationError, match="its one constant section"):
-        capillary(
-            wall=CoherentWall(method="cf4", impedance="te_tm"),
-            modes=vector_modes(counts=(1, 1)),
-        ).translate()
-    assert repr(CoherentWall(method="cf4", growth_limit=3.0)).endswith(
-        "method=cf4, growth_limit=3, fallback=None)"
-    )
-    assert "growth limit 3, fallback None" in str(
-        CoherentWall(method="cf4", growth_limit=3.0)
-    )
-    assert "TE/TM impedances, paraxial, frozen per section" in str(VECTOR_WALL)
-    assert "TE/TM impedances, paraxial, commutator-free per section" in str(
-        CoherentWall(method="cf4", impedance="te_tm")
-    )
-
-
-def test_a_cf4_wall_refuses_every_declaration_the_frozen_one_refuses():
-    """The varying route's doors stand for CF4 too: noise, polarisation, batch, kinks.
-
-    The rule: a CF4 taper reaches every door the frozen one does rather
-    than slipping past on its new branch. The batch axis is refused by the reference
-    backend's own `max_batch = 1` before a coupled flow is looked at, and a fixed
-    schedule straddling the taper's corner by `flow_edge_slack`.
-    """
-    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
-        varying(wall=CF4_WALL, noise="modified", seed=1).translate()
-    with pytest.raises(DriverError, match="polarisation"):
-        varying(wall=CF4_WALL, polarisation="linear").translate()
-    with pytest.raises(DriverError, match="loss=False"):
-        varying(wall=CF4_WALL, loss=False).translate()
-    edges = np.linspace(0.0, LENGTH, STEPS + 1)
-    edges[3] -= 1e-13
-    with pytest.raises(TranslationError, match=r"does not land on it.*coupled_flow"):
-        varying(wall=CF4_WALL, schedule=FixedSchedule(np.diff(edges))).translate()
-    simulation = varying(wall=CF4_WALL)
-    problem = simulation.translate()
-    channels, _, bins = problem.shape
-    with pytest.raises(BackendError, match="only for a scalar state") as refused:
-        refuse_coupled_flow(replace(problem, shape=(channels, 2, bins)))
-    assert "not the state's polarisation axis" in str(refused.value)
-    # It names the state's two components, the product route, and not the
-    # synthesis, which may resolve two.
-    assert "a state with two polarisation components" in str(refused.value)
-    # `native` executes the frozen flow and refuses a CF4 one at the entry point: CF4 is
-    # not yet implemented on the compiled backend. "auto" follows when it selects it.
-    for name in ("native", *(("auto",) if "native" in available() else ())):
-        with pytest.raises(DriverError, match=r"method='cf4'"):
-            varying(wall=CF4_WALL, backend=name).translate()
-
-
-@pytest.mark.medium
-def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
-    """The entry point runs the CF4 taper, and the record carries both guards.
-
-    Ten steps through `prop_capillary(taper, ..., wall=CoherentWall(method="cf4"))`.
-    Bound, stated first: the run solves the equation the frozen split does, so
-    its final plane agrees with that run's to the two methods' own ten-step errors,
-    4.71e-8 and 3.45e-9 of the state (measured 4.58e-8), and every channel's energy
-    fraction with it; the record names four `"cf4"` sections, no advisory limit, the
-    growth bound 1.00127 against the default limit 2 and the step-doubling defect
-    1.72e-7 at the declared step, named as the asymptotic estimator it is.
-    """
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": 3,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-        # CF4 sections are stepped by the Runge-Kutta march alone, and the frozen
-        # run is compared with them on the same steps.
-        "integrator": RungeKutta(),
-    }
-    walled = cast(
-        "MemoryOutput",
-        prop_capillary(
-            taper(),
-            LENGTH,
-            "He",
-            1.0,
-            wall=CF4_WALL,
-            **{"noise": None, **arguments},
-        ),
-    )
-    frozen = cast(
-        "MemoryOutput",
-        prop_capillary(
-            taper(),
-            LENGTH,
-            "He",
-            1.0,
-            wall=CoherentWall(),
-            **{"noise": None, **arguments},
-        ),
-    )
-    written = walled.metadata
-    assert written is not None and written.modal is not None
-    record = cast("Mapping[str, object]", written.modal["flow"])
-    assert record["section_methods"] == ["cf4"] * 4
-    assert record["certificate_id"] == "cf4"
-    assert math.isinf(float(cast("float", record["advisory_step"])))
-    guards = cast("Mapping[str, object]", record["cf4"])
-    assert guards["growth_limit"] == CF4_GROWTH_LIMIT
-    assert guards["fallback"] is None
-    assert guards["defect_estimator"] == "step doubling, asymptotic"
-    assert 1.0 < float(cast("float", guards["growth_bound"])) < 1.0013
-    assert 1e-7 < float(cast("float", guards["defect"])) < 1e-6
-    field = kept(walled.planes()[-1].field)
-    control = kept(frozen.planes()[-1].field)
-    scale = float(np.max(abs(control)))
-    assert float(np.max(abs(field - control))) / scale < 4.71e-8 + 3.45e-9
-    assert_allclose(_channel_fractions(walled), _channel_fractions(frozen), atol=1e-7)
-    control_metadata = frozen.metadata
-    assert control_metadata is not None and control_metadata.modal is not None
-    assert "cf4" not in cast("Mapping[str, object]", control_metadata.modal["flow"])
-
-
-def test_the_cf4_record_needs_its_declaration():
-    """A CF4 flow recorded without its growth limit or its step is refused by name."""
-    simulation = varying(wall=CF4_WALL)
-    flow = simulation.translate().linear.coupled_flow
-    assert flow is not None
-    limits = worst_wall_limits(
-        cast("Sequence[MarcatiliMode]", simulation.modes),
-        GRID.omega,
-        positions=[0.0],
-        active=GRID.active_mask,
-    )
-    with pytest.raises(TranslationError, match="pass growth_limit and dz_max"):
-        wall_identity(
-            flow, limits, channels=[mode.channel_label for mode in simulation.modes]
-        )
-
-
-def _six_channel_taper(wall, dz):
-    """Return the qualification taper with six channels on a uniform schedule."""
-    return propagated(
-        *translated(
-            varying(
-                wall=wall,
-                modes=6,
-                schedule=FixedSchedule.uniform(
-                    0.0,
-                    LENGTH,
-                    dz,
-                    save_planes=[0.0, LENGTH],
-                    hard_kinks=list(SMOOTH_STAGES[1:3]),
-                ),
-                dz_max=dz,
-                dz_init=dz,
-            )
-        ),
-        GRID,
-    )
-
-
-@pytest.mark.slow
-# Both advisory diagnostics fire at this step on purpose: it is beyond the frozen
-# split's advisory limit and CF4's estimated defect, which is the regime measured.
-@pytest.mark.filterwarnings("ignore:the coherent wall's")
-def test_cf4_wins_at_a_step_beyond_the_frozen_split_s_advisory_limit_and_not_below():
-    """Where CF4 is better: at equal step, only once the frozen residual is stiff.
-
-    The frozen split's explicit residual has an advisory step `0.9/(K cond)`, 2.2e-5 m
-    on the six-channel taper (K = 3.3e4 1/m). Below it the fifth-order split is the more
-    accurate at the same step (the three-channel qualification taper at 20 um: 3.45e-9
-    against CF4's 4.71e-8, in the medium tier); at three times it, CF4 is, because it
-    has no explicit linear term to be stiff. Predeclared: at four steps of at most
-    6.7e-5 m, CF4's error against the frozen split's 320-step reference is below the
-    frozen split's own; measured 4.75e-6 against 1.78e-5. **At equal cost the frozen
-    split still wins** -- CF4 costs 3.3 times as much per step (measured) and the frozen
-    split gains 32 per halving -- which is why CF4 is the certified alternative and not
-    the default.
-    """
-    reference = _six_channel_taper(CoherentWall(sections=4), LENGTH / 320)
-    scale = float(np.max(abs(reference)))
-    frozen = float(
-        np.max(abs(_six_channel_taper(CoherentWall(), LENGTH / 3) - reference))
-    )
-    cf4 = float(np.max(abs(_six_channel_taper(CF4_WALL, LENGTH / 3) - reference)))
-    assert cf4 < frozen, (cf4 / scale, frozen / scale)
 
 
 def _taper_note_bore(count: int) -> Simulation:

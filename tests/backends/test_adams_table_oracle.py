@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 
 from solprop._helpers import PLAIN, Helpers
-from solprop.backends.multistep import fused_tables, trial_tables
+from solprop.backends.numpy_ref.multistep import fused_tables, trial_tables
 
 try:
     from solprop_native._helpers import NATIVE  # pyright: ignore[reportMissingImports]

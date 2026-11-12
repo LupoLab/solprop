@@ -119,8 +119,8 @@ either into a named channel with `channel=` or as an incident beam with
 `incident=` coupled under `coupling=`, of which the channels launch the share they
 capture, the rest lost rather than restored. It runs on a **field** grid on `numpy_ref` and the native
 backend, CPU and GPU builds alike, for a constant guide and for a moving one or a
-declared coupled flow (a split block or a coherent wall); a CF4 wall runs on `numpy_ref`
-alone. `backend="auto"` selects `native`.
+declared coupled flow (a split block or a coherent wall). `backend="auto"` selects
+`native`.
 
 It **writes and resumes an HDF5 file**: the file carries the channel labels, the
 provider, sampling, table and metric identities and the accessors the basis admits, so

@@ -32,22 +32,19 @@ import pytest
 
 import solprop.backends.host
 import solprop.backends.numpy_ref
-from solprop.backends import low_storage, multistep
+from solprop.backends import low_storage
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.host.group_session import HostGroupSession
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
-from solprop.backends.multistep import HostHistory
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref import NumpyRefBackend, multistep
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group, start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
-from solprop.stepper.multistep import ComparisonMultistep
 
 PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
 """The reference backend and its host machinery."""
@@ -62,7 +59,7 @@ runner deleted in SEP 47 phase 5, which held nothing else: none may come back in
 reference."""
 
 LEGACY_NAMES = {
-    "solprop.backends.multistep": {"AdamsMarch"},
+    "solprop.backends.numpy_ref.multistep": {"AdamsMarch"},
     "solprop.backends.low_storage": {"LowStorageMarch"},
 }
 """The bridge's classes in modules whose other contents are shared numerical code."""
@@ -199,7 +196,7 @@ def test_importing_the_reference_loads_no_legacy_driver():
     code = (
         "import sys\n"
         "import solprop.backends.numpy_ref, solprop.backends.numpy_ref.batch\n"
-        "import solprop.backends.numpy_ref.single, solprop.backends.host.session\n"
+        "import solprop.backends.host.session\n"
         "import solprop.backends.host.adams, solprop.backends.host.group\n"
         "import solprop.backends.host.group_session\n"
         "import solprop.backends.sessions\n"
@@ -227,9 +224,7 @@ def test_a_reference_module_holds_no_legacy_control(name):
             assert not legacy, (name, key)
 
 
-@pytest.mark.parametrize(
-    "backend", [NumpyRefBackend, NumpySingleBackend, NumpyBatchBackend]
-)
+@pytest.mark.parametrize("backend", [NumpyRefBackend, NumpyBatchBackend])
 def test_a_reference_backend_inherits_only_the_host_driver(backend):
     assert issubclass(backend, HostDriver)
     assert not {one.__name__ for one in backend.__mro__} & LEGACY_CLASS_NAMES
@@ -306,11 +301,12 @@ def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(
 def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
     soliton_problem, narrow_grid
 ):
-    # The bridge's march takes a resident engine on the fused and exponential paths
-    # only; the reference's takes an injected one there alone, and names what it lacks.
+    # The reference's march takes an injected engine and names what it lacks.
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
     with closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend:
         with pytest.raises(BackendError, match="exponential path lacks"):
             HostAdamsMarch(backend, Multistep(), engine=object())
-        general = HostAdamsMarch(backend, ComparisonMultistep(order=3), engine=object())
-        assert isinstance(general._engine, HostHistory)
+        with pytest.raises(BackendError, match="fused path lacks"):
+            HostAdamsMarch(
+                backend, Multistep(formulation="interaction"), engine=object()
+            )

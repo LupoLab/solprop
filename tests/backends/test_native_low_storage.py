@@ -492,7 +492,6 @@ def test_a_linear_cartesian_beam_agrees():
         # Without the Kerr coefficients too, which a compiled backend may read.
         responses=dataclasses.replace(
             problem.responses,
-            response_order=problem.responses.response_order[-1:],
             kerr_coefficients=None,
         ),
     )
@@ -535,7 +534,6 @@ def test_a_planar_beam_with_neither_term_is_the_flow():
         problem,
         responses=dataclasses.replace(
             problem.responses,
-            response_order=problem.responses.response_order[-1:],
             kerr_coefficients=None,
             temporal_absorber=None,
             temporal_absorber_fine=None,

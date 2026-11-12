@@ -16,7 +16,7 @@
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | John Travers with Opus 5.5 (AI); phases 1–4 on `feature/sep-0033-single-precision`, one pull request |
-| **Manual pages** | [Single precision](../../../guide/performance/single-precision.md); [Choosing a backend](../../../guide/performance/backends.md); the worked example [Single precision](../../../auto_examples/performance/plot_01_single_precision.rst) |
+| **Manual pages** | Single precision (the page, retired by ADR-077); [Choosing a backend](../../../guide/performance/backends.md); the worked example Single precision (retired by ADR-077) |
 
 ## Part I — Proposal
 

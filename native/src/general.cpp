@@ -1423,6 +1423,10 @@ void require_general_problem(const Problem& problem) {
   if (!problem.plasma_band &&
       (problem.plasma_taps.size() != 1 || problem.plasma_taps[0] != 1.0))
     throw std::invalid_argument("the trapezoid rule is the one identity tap");
+  if (problem.plasma_gated &&
+      (!problem.plasma || problem.envelope_plasma || problem.general_modal))
+    throw std::invalid_argument(
+        "the gated plasma benchmark needs a field plasma column off the general route");
   if (problem.plasma_band) {
     if (!problem.plasma || problem.envelope_plasma ||
         problem.family == FieldFamily::envelope)
@@ -2658,9 +2662,13 @@ public:
   void project(std::size_t first_node, std::size_t node_count, bool first_chunk,
                const EnvelopeStream* stream = nullptr,
                const FieldCurrentStream* field_stream = nullptr);
-  bool held_plasma() const noexcept {
+  bool field_plasma() const noexcept {
     return problem_.plasma && !problem_.envelope_plasma;
   }
+  bool held_plasma() const noexcept { return field_plasma() && !problem_.plasma_gated; }
+  // solprop's private gated benchmark: the current's running integral, gated by the
+  // time window, joins the local polarisation before it is projected.
+  bool gated_plasma() const noexcept { return field_plasma() && problem_.plasma_gated; }
   bool held_radial() const noexcept {
     return held_plasma() && !problem_.separable_geometry() &&
            !problem_.spatial_spectral_weights.empty();
@@ -2706,6 +2714,7 @@ public:
   void transform_forward_pack();
   void held_response(std::size_t stage, std::size_t first_node, std::size_t node_count,
                      const TransverseChunk* chunk = nullptr);
+  void gated_response(std::size_t node_count);
   void held_transform(bool coarse_only = false, bool transformed = false);
   void finish_quadrature();
   bool deferred_quadrature_eligible() const noexcept {
@@ -3050,6 +3059,9 @@ public:
   std::unique_ptr<ForwardRealPlan> forward_pack_fine_plan_,
       forward_pack_fine_tail_plan_, forward_pack_coarse_plan_;
   RealView2 held_current_, held_projection_;
+  // The gated benchmark's running integral of each current row, and the band rule's
+  // filtered rows (`gated_response`).
+  RealView2 gated_prefix_, gated_filtered_;
   ComplexView2 held_nodal_spectrum_, held_projected_spectrum_;
   RealView held_derivative_, held_inverse_;
   RealView3 envelope_rule_nodes_, envelope_rule_weights_, envelope_moments_;
@@ -3499,7 +3511,7 @@ bool GeneralWorkspace::folds_single_node() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return false;
 #else
-  return !general_ && !dispersive_ && !held_radial() &&
+  return !general_ && !dispersive_ && !held_radial() && !gated_plasma() &&
          !problem_.separable_geometry() && problem_.n_modes == 1 &&
          problem_.n_nodes == 1 && problem_.node_chunk == 1 &&
          problem_.n_pol_state == 1 && problem_.n_pol_transform == 1 &&
@@ -4079,8 +4091,15 @@ void GeneralWorkspace::allocate() {
             : RealView2("solprop_native.absorber.fine_real", temporal_columns,
                         problem_.n_to);
   }
-  if (held_plasma()) {
+  if (field_plasma())
     held_current_ = RealView2("solprop_native.held.current", chunk_rows, problem_.n_to);
+  if (gated_plasma()) {
+    gated_prefix_ = RealView2("solprop_native.gated.prefix", chunk_rows, problem_.n_to);
+    if (problem_.plasma_band)
+      gated_filtered_ =
+          RealView2("solprop_native.gated.filtered", chunk_rows, problem_.n_to);
+  }
+  if (held_plasma()) {
     held_derivative_ = RealView("solprop_native.held.derivative", problem_.n_to);
     held_inverse_ = RealView("solprop_native.held.inverse", problem_.n_omega);
     const bool radial = held_radial();
@@ -10268,6 +10287,8 @@ void GeneralWorkspace::separable_core(const std::size_t stage, const bool materi
         dispersive->respond(chunk.nodes);
       if (held_plasma())
         held_response(stage, chunk.first_node, chunk.nodes, &chunk);
+      if (gated_plasma())
+        gated_response(chunk.nodes);
       Kokkos::Profiling::popRegion();
       // Alone with products of its own, nothing of the stage's is projected.
       const bool stage_projects = !alone || dispersive->borrowed();
@@ -10677,6 +10698,8 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.held.response");
       held_response(stage, first_node, node_count);
     }
+    if (gated_plasma())
+      gated_response(node_count);
     if (stage_projects && !folded && !held_radial()) {
       const Kokkos::Profiling::ScopedRegion region("solprop_native.projection");
       project(first_node, node_count, first_chunk);
@@ -13288,6 +13311,34 @@ void GeneralWorkspace::held_response(const std::size_t stage,
         });
     held_radial_projection(first_node, node_count);
   }
+}
+
+// solprop's private gated benchmark (`NumpyRefBackend._column_sources`): the chunk's
+// live current rows are integrated by the problem's running-integral rule, the band
+// rule's filter then the trapezoid (solprop SEP 18), and w(t) times each prefix joins
+// the local polarisation, which is then projected as the held current's streams would
+// have been. The scans are the device column's portable primitives; no hot column
+// changes, and a run without the benchmark never reaches this.
+void GeneralWorkspace::gated_response(const std::size_t node_count) {
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.gated.response");
+  const auto live = std::pair<std::size_t, std::size_t>(
+      0, node_count * problem_.effective_node_pol());
+  const auto current = Kokkos::subview(held_current_, live, Kokkos::ALL);
+  const auto prefix = Kokkos::subview(gated_prefix_, live, Kokkos::ALL);
+  const auto& space = response_space_for(node_count);
+  if (problem_.plasma_band)
+    portable_team_band_scan(space, current,
+                            Kokkos::subview(gated_filtered_, live, Kokkos::ALL), prefix,
+                            plasma_taps_, problem_.dt_fine);
+  else
+    portable_team_trapezoid_scan(space, current, prefix, problem_.dt_fine);
+  const auto window = time_window_;
+  const auto polarisation = polarisation_real_;
+  cartesian_for(
+      "solprop_native.gated.polarisation", space, live.second, problem_.n_to,
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t time) {
+        polarisation(row, time) += window(time) * prefix(row, time);
+      });
 }
 
 // A stage's forward rows in one transform: all of them when the absorber's are due,
@@ -17227,6 +17278,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"held_current_host_derivative",
        problem_.time_window_derivative.capacity() * real_bytes},
       {"held_current", held_current_.size() * real_bytes},
+      {"gated_current_prefix",
+       (gated_prefix_.size() + gated_filtered_.size()) * real_bytes},
       {"held_current_gj", held_streams_[0].bytes()},
       {"held_current_edge", held_streams_[1].bytes()},
       {"held_current_nonplasma", held_streams_[2].bytes()},
@@ -17534,6 +17587,8 @@ void GeneralWorkspace::close() noexcept {
   forward_pack_spectrum_ = {};
   forward_pack_tail_spectrum_ = {};
   held_current_ = {};
+  gated_prefix_ = {};
+  gated_filtered_ = {};
   held_projection_ = {};
   held_nodal_spectrum_ = {};
   held_projected_spectrum_ = {};

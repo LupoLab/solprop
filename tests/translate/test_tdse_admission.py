@@ -29,7 +29,6 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.problem import _route, assemble, validate_run
 from solprop.translate.responses import (
-    ResponseStage,
     compile_responses,
     kerr_coefficients,
 )
@@ -299,7 +298,6 @@ def test_atomic_cubic_models_refuse_an_extra_compiled_kerr(
     ordinary = dataclasses.replace(
         admitted.responses,
         kerr_coefficients=kerr_coefficients(KerrResponse(chi3=1e-50, thg=True), grid),
-        response_order=(ResponseStage.KERR, ResponseStage.ACCUMULATE),
     )
     damaged = dataclasses.replace(
         _with_source(admitted, descriptor=TDSEDescriptor.from_response(response, grid)),

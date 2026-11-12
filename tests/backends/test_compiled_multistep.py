@@ -4,11 +4,11 @@
 
 """SEP 14 phase 2: the Adams march on the compiled backends, against the reference.
 
-The march is shared (``solprop.backends.multistep``); only the one source evaluation
-and the propagator differ: Kokkos evaluates through its general engine's stage pipeline.
-Parity is the reference's
-trajectory to round-off: the same steps, orders and calls, and fields that agree to
-the accumulated rounding of the evaluation orders.
+The march is shared (``solprop.backends.numpy_ref.multistep``); only the one source
+evaluation and the propagator differ: Kokkos evaluates through its general engine's
+stage pipeline. Parity is the reference's trajectory to round-off: the same steps,
+orders and calls, and fields that agree to the accumulated rounding of the evaluation
+orders.
 """
 
 import dataclasses
@@ -27,7 +27,7 @@ from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver.simulation import Simulation, SimulationSettings
-from solprop.exceptions import DriverError
+from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise
 from solprop.stepper import PIController
@@ -138,7 +138,7 @@ def test_the_settings_admit_the_compiled_backends():
         **common,
     )
     assert settings.backend == "native"
-    with pytest.raises(DriverError, match="numpy_ref and native only"):
+    with pytest.raises(BackendError, match="'cuda' is not a backend"):
         SimulationSettings(
             control,
             backend="cuda",

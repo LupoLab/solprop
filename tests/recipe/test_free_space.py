@@ -382,8 +382,6 @@ def test_the_object_routes_list_their_objects_and_leave_the_absorber_to_settings
     assert resolver is not None
     assert resolver({}).value == "input"
     assert "transverse column" in resolver({}).rule
-    single = {"settings": {"type": "SimulationSettings", "precision": "single"}}
-    assert resolver(single).value is None
 
 
 @pytest.mark.parametrize("key", SETTINGS_KEYWORDS)
@@ -401,6 +399,20 @@ def test_the_execution_settings_are_refused_in_the_settings_table():
     with pytest.raises(RecipeError, match=r"\[execution\]") as caught:
         Recipe.loads(text).build()
     assert caught.value.parameter == "settings.fields"
+
+
+def test_a_double_precision_settings_table_still_builds_and_single_is_refused():
+    """``precision = "double"`` under settings is what solprop does anyway: dropped."""
+    double = RADIAL.replace(
+        'backend = "numpy_ref"', 'backend = "numpy_ref"\nprecision = "double"'
+    )
+    assert _hash(Recipe.loads(double).build()) == _hash(_radial_call())
+    single = Recipe.loads(double.replace('"double"', '"single"'))
+    with pytest.raises(
+        RecipeError, match=r"binary64 only \(ADR-077\); remove the key"
+    ) as caught:
+        single.build()
+    assert caught.value.parameter == "settings.precision"
 
 
 def test_what_only_python_holds_points_to_the_export():

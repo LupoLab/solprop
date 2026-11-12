@@ -52,7 +52,7 @@ the general modal route and the radial, Cartesian, line and planar free-space ro
 with constant and varying operators and every noise model the route admits. Beside a
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
 exponential formulation runs, on its constant-Schur and frozen-residual sections; the
-interaction formulation and CF4 sections are refused by name. Another backend refuses
+interaction formulation is refused by name. Another backend refuses
 `Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
 ([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`
@@ -143,9 +143,7 @@ alone does not describe, and the cap cost it calls.
 
 ### What was compared
 
-SEP 13 also ran these variants. They remain executable, as
-`solprop.stepper.multistep.ComparisonMultistep`, for the benchmarks only, on
-`backend="numpy_ref"`; the native backend refuses them by name:
+SEP 13 also ran these variants. They were removed once the selection was settled:
 
 - **PECE**, which spends a second call at the corrected field;
 - **plain Adams–Bashforth**, with an a-posteriori recheck;
@@ -294,7 +292,7 @@ a multiple of the identity in the channel axis, so a step's reference is
 $B = (\Delta\Phi/h)\,I + G_s$, with $G_s$ the frozen block of the section the step is
 anchored in, and the two commute. On the bins that carry a block the step's flow and
 moments are matrix functions of $hB$ in the channel axis
-(`backends.multistep.coupled_moments`, from the exponential of an augmented matrix
+(`backends.numpy_ref.multistep.coupled_moments`, from the exponential of an augmented matrix
 carried back by the block's Schur vectors), applied to each sample's channel vector; off
 them they are the diagonal ones. A frozen-residual section's residual $R_s(z)u$ is
 linear in the state and joins the transported compensation above: each sample keeps its
@@ -303,9 +301,8 @@ own section's block -- rebuilding the history's residual when a step enters a ne
 section -- and carries it by the reference's forward flow, never an inverse one. The
 residual acts on the in-band bins, as the Runge-Kutta stage applies it. The lab-frame
 sample is the material source alone. The interaction formulation stays refused, since it
-would carry its history through inverse actions whose conditioning grows with loss; a
-CF4 section, which exponentiates the generator inside each stage, is excluded. On the
-scalar wall and the taper (0.2 mm windows) it takes
+would carry its history through inverse actions whose conditioning grows with loss. On
+the scalar wall and the taper (0.2 mm windows) it takes
 two to three times fewer calls than IP-DOPRI5 at matched error. On
 the native backend, the bins on the flow actions' eigenbasis route take their matrix functions as
 `W f(x + h λ) Y` from that basis, and the bins off it read them off the augmented exponential as
@@ -555,12 +552,10 @@ operator adds `q + 2` compensation volumes. These buffers are omitted when
 complex field volumes. The [memory investigation](../../dev/benchmarks.md#resident-adams-storage)
 gives measured peaks and an allocation breakdown for a large Cartesian beam.
 
-For the comparison benchmarks, `ComparisonMultistep(interpolant="hermite")` uses the
-generic cubic Hermite interpolant of the step's end states and derivatives instead. It
-is a reference, not a production option: its error is one order
-below what the step's estimate controls, so it can miss the requested accuracy even in
-the strong field. The witness is $u' = x^3$ on $[0, h]$, where the step is exact and
-the Hermite midpoint value is 0 against $h^4/64$.
+SEP 13 also compared the generic cubic Hermite interpolant of the step's end states and
+derivatives. Its error is one order below what the step's estimate controls, so it can
+miss the requested accuracy even in the strong field. The witness is $u' = x^3$ on
+$[0, h]$, where the step is exact and the Hermite midpoint value is 0 against $h^4/64$.
 
 Interpolation is refused with the per-step collar (`absorber_scheme="split_step"`),
 whose collared field is not the interpolant's, a coupled flow and the `modified` noise
@@ -578,8 +573,8 @@ What dense observation saves depends on the plane spacing:
   spacing, so it saves only a few calls.
 - **With 501 planes,** landing caps every step at the spacing. Dense observation then
   takes 272 calls against 506 at `rtol=1e-3`. Its window error, 8.9e-4, is what that
-  tolerance buys, the same as a landed run with 50 planes. The native and Hermite
-  interpolants agree to every printed digit.
+  tolerance buys, the same as a landed run with 50 planes. The Adams and Hermite
+  interpolants agreed to every printed digit.
 
 **A resume continues the history.** At every save plane and terminal checkpoint the
 output keeps the march's state beside the field: the accepted state exactly as the
@@ -598,8 +593,7 @@ snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or on
 the resuming backend cannot continue (a frozen-residual coupled flow's history does not
 cross between `numpy_ref` and `native`) -- the history restarts at order one and the
 startup call is charged again, and the resumed run agrees with the uninterrupted one to
-its tolerance. A method whose history cannot be kept at all (the comparison methods'
-general path) warns when its resume restarts it.
+its tolerance.
 
 **Repeated rejections.** After three consecutive rejections the history is restarted
 from the accepted state, which removes a parasitic mode a smaller step cannot.
@@ -659,7 +653,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
 
 - `numpy_ref` and `native` on every route, for both formulations, but
   beside a coupled flow, where the exponential formulation alone steps its
-  constant-Schur and frozen-residual sections and CF4 sections are refused. On `native`
+  constant-Schur and frozen-residual sections. On `native`
   the history and the step's arithmetic are resident in the engine, on the CPU and on
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too:
   at any width and whichever route each bin takes. On the CPU build the

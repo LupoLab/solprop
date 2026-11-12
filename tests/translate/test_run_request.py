@@ -21,31 +21,18 @@ from solprop.exceptions import TranslationError
 from solprop.output.schema import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
-from solprop.stepper.multistep import ComparisonMultistep
 from solprop.translate.problem import StepperSettings
 from solprop.translate.run_request import HistoryPolicy, MethodKind, describe_run
 
 
 @pytest.mark.parametrize(
-    ("integrator", "kind", "reference_only"),
-    [
-        (None, MethodKind.RUNGE_KUTTA, False),
-        (Multistep(), MethodKind.ADAMS, False),
-        (ComparisonMultistep(order=3), MethodKind.ADAMS, True),
-        # The PEC variant one order higher is the selected recurrence, but the
-        # comparison family is benchmark-only as a whole (SEP 47 section 6.3).
-        (
-            ComparisonMultistep(corrector="pec", order=3, corrector_order=4),
-            MethodKind.ADAMS,
-            True,
-        ),
-    ],
-    ids=["runge-kutta", "adams", "comparison", "comparison-pec"],
+    ("integrator", "kind"),
+    [(None, MethodKind.RUNGE_KUTTA), (Multistep(), MethodKind.ADAMS)],
+    ids=["runge-kutta", "adams"],
 )
-def test_only_the_comparison_family_is_reference_only(integrator, kind, reference_only):
+def test_the_integrator_sets_the_method_kind(integrator, kind):
     integration = soliton(integrator=integrator).request.integration
     assert integration.kind is kind
-    assert integration.reference_only is reference_only
 
 
 @pytest.mark.parametrize("start_plane", [-1, 5])

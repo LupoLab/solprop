@@ -20,8 +20,8 @@ import pytest
 from bounds import EPS, assert_within, gamma
 from solprop._helpers import PLAIN, Helpers
 from solprop.backends.host.driver import HostDriver
-from solprop.backends.multistep import trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import trial_tables
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 from solprop.translate.chebyshev import build
 

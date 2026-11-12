@@ -5,15 +5,14 @@
 """The input-noise default and its recorded resolution (SEP 37 phase 2)."""
 
 import json
+import re
 
 import numpy as np
 import pytest
 
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
-from solprop.driver.simulation import (
-    INTERIOR_LAUNCH_NOISE,
-    SINGLE_PRECISION_NOISE,
-)
+from solprop.driver.defaults import FREE_NOISE, resolve_noise
+from solprop.driver.simulation import INTERIOR_LAUNCH_NOISE
 from solprop.driver.summary import _noise
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, RadialGrid
@@ -76,18 +75,15 @@ def test_a_seed_beside_no_noise_is_refused():
         _gnlse(noise=None, seed=3)
 
 
-def test_single_precision_falls_back_and_says_why():
-    simulation = _gnlse(precision="single")
+def test_a_fallback_says_why():
+    simulation = _interior(_gnlse())
     assert simulation.noise is None
-    assert simulation.noise_resolution == NoiseResolution(
-        "default", None, SINGLE_PRECISION_NOISE
-    )
-    assert _noise(simulation.metadata()) == f"off (default: {SINGLE_PRECISION_NOISE})"
+    assert _noise(simulation.metadata()) == f"off (default: {INTERIOR_LAUNCH_NOISE})"
 
 
 def test_a_seed_beside_a_fallback_is_refused():
-    with pytest.raises(DriverError, match="single precision carries no noise"):
-        _gnlse(precision="single", seed=3)
+    with pytest.raises(DriverError, match=re.escape(f"by default ({FREE_NOISE})")):
+        resolve_noise("free", "default", 3)
 
 
 def test_the_capillary_and_radial_routes_default_to_input_noise():

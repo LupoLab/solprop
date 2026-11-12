@@ -44,7 +44,7 @@ pulse, noise and output keywords; these differ, by interface:
 | keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_radial`, `prop_free`, `prop_planar` |
 |---|---|---|---|---|
 | `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
-| `rtol`, `atol`, `backend`, `precision` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
+| `rtol`, `atol`, `backend` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
 | loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
 | `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
@@ -185,7 +185,7 @@ Quoted departures are results of particular comparisons, not general error bars.
 | declared basis ([chapter](../waveguides/solid-fibres.md#declared-bases-circular-polarisation-and-split-pairs)) | a unitary change of an exactly degenerate block (e.g. circular polarisation); a split block propagated as a coupled flow | a rotated channel of a split block reports the block's *mean* $n_{\rm eff}$, which is not a propagation constant (the block beats); `zdw` is withheld there |
 | coherent wall ([chapter](../waveguides/capillaries.md), [model](../waveguides/coherent-wall.md#the-coherent-wall)) | the condensed Robin boundary of the retained `HE_1m` set; each channel's loss rate departs from Marcatili's by the relative amount $-(4N^2t^2 + u_m^2/2(ka)^2)$, with $N$ retained channels and $t = v_n/k_0a$ as on the model page — e.g. $1.2\times10^{-5}$ for one channel of a 125 µm bore at 800 nm | quasi-static and paraxial: the three validity ratios are recorded and the run warns within a factor ten of the limit and refuses above it |
 | vector (TE/TM) wall | each family's own impedance, the $\mathrm{HE}\leftrightarrow\mathrm{EH}$ coupling by the wall's anisotropy | grazing-impedance boundary; checked against the exact vector Maxwell roots family by family (to between $5\times10^{-6}$ and $5\times10^{-5}$ at 800 nm), but not against a resolved-cladding solve of a mixed state, which is a known limitation |
-| taper and gradient ([chapter](../waveguides/capillaries.md#tapers-and-pressure-gradients)) | the frozen-section split is a rearrangement, not an approximation (the residual is evaluated exactly); the taper connection of the capillary's $J_0$ basis; each channel's own normalisation | the step error, controlled by the stepper; CF4's flow error is invisible to the controller |
+| taper and gradient ([chapter](../waveguides/capillaries.md#tapers-and-pressure-gradients)) | the frozen-section split is a rearrangement, not an approximation (the residual is evaluated exactly); the taper connection of the capillary's $J_0$ basis; each channel's own normalisation | the step error, controlled by the stepper |
 | moving solid guide ([chapter](../waveguides/solid-fibres.md#a-solid-guide-that-moves-along-z), [model](../waveguides/moving-modal.md#a-guide-whose-geometry-moves-along-z)) | the mode fields re-solved along z at the degree a held-out check demands, the moving synthesis and projection maps, the solid-mode connection in the frozen-residual flow | the frozen-section step error, controlled by the stepper; a strong taper needs short steps or `sections=` (the advisory step warns) |
 | planar guide resolved in y ([model](../waveguides/planar.md#resolving-y)) | slab modes in x times an FFT in y, exact (non-paraxial) in y, each channel's complex wall term in its longitudinal wave number; a field uniform in y is the slab run | the slab's first-order wall model; constant gap and fill; one polarisation family (TE or TM) |
 | hollow planar (slab) guide ([model](../waveguides/planar.md#hollow-planar-waveguides)) | Laakmann–Steier's one wall pair with the filled-core contrast; $N$ and $A_{\rm eff}=4a/3$ per unit width; the Gaussian launch's projection onto the slab modes | first order in $p\lambda/4a$; **uniform in y**: powers and energies are per metre of y, and self-focusing, filamentation and modulational instability in y are absent (they set a real compressor's energy limit); a taper follows each mode adiabatically |
@@ -202,8 +202,7 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 |---|---|---|---|
 | general modal route (all its responses, declared bases, a split block as a coupled flow) | yes | yes | qualified |
 | a moving solid guide (moving maps beside the frozen-residual flow) | yes | yes | qualified |
-| coherent wall, scalar and TE/TM, straight, tapered or in a gradient (`method="frozen_residual"`), and the taper coupling of a multimode capillary without a wall | yes | yes | qualified |
-| `CoherentWall(method="cf4")` | yes | refused by name | refused by name |
+| coherent wall, scalar and TE/TM, straight, tapered or in a gradient, and the taper coupling of a multimode capillary without a wall | yes | yes | qualified |
 | a varying guide whose linear operator or nonlinear prefactor takes the general z table rather than an expansion in the medium's parameters (e.g. a moving dispersion, the adiabatic opt-out `taper_coupling=False` of a multimode taper whose expansion does not resolve, or a mixture of three or more species on independent density paths) | yes | yes | refused by name |
 | a hollow planar (slab) set, constant gap or tapered, mode-averaged or multimode | yes | yes | runs as any mode set; not separately qualified |
 | a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | qualified (CUDA) |
@@ -215,9 +214,9 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 
 `backend="auto"`, the default, is `native`, and it **never falls back**: it refuses if the
 native package is missing or the processor is below its minimum, and a problem the native
-backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its two
-exceptions are the TDSE response, which it runs on `numpy_ref`, and single precision, which it
-refuses, for you to name `numpy_ref` ([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
+backend refuses is refused, by name, and you choose `numpy_ref` for it explicitly. Its one
+exception is the TDSE response, which it runs on `numpy_ref`
+([which backend a run uses](../performance/backends.md#which-backend-a-run-uses)). Whether the native backend runs on the CPU or on a GPU
 is decided by how it was built. The [backends chapter](../performance/backends.md) compares the
 backends and budgets memory; [the native backend](../performance/native.md) says how to build it,
 locally or for a GPU; [performance](../performance/tuning.md) covers threads and tuning. Every

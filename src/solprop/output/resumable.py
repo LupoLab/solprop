@@ -125,7 +125,7 @@ def _unusable_state(state: ResumeState) -> str | None:
         # A resume under Multistep installs the charged ledger and refuses one it
         # cannot read, such as the flat orders of an earlier development build of
         # this schema (#80): the answer says so before a resume is tried.
-        from solprop.backends.multistep import CallLedger  # noqa: PLC0415 - heavy
+        from solprop.backends.ledger import CallLedger  # noqa: PLC0415 - heavy
 
         try:
             CallLedger.from_record(state.outcome.logical_calls)

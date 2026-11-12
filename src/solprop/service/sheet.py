@@ -888,14 +888,13 @@ def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
     -------
     dict
         ``threads`` (the budget a run gets by default), ``limit`` (what sets it),
-        and ``double`` and ``single`` (the backends installed for each precision).
+        and ``backends`` (the backends installed).
     """
     budget = _run_budget()
     return {
         "threads": budget.threads,
         "limit": budget.source,
-        "double": list(available("double")),
-        "single": list(available("single")),
+        "backends": list(available()),
     }
 
 

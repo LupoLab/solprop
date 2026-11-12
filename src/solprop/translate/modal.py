@@ -51,14 +51,54 @@ from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.spatial import SpatialGeometry
 
 __all__ = [
+    "QUADRATURE_ALARM",
     "Transform",
     "TransformKind",
     "general_modal_transform",
     "mode_averaged_transform",
     "multimode_transform",
+    "warn_quadrature",
 ]
 
 logger = logging.getLogger(__name__)
+
+QUADRATURE_ALARM = 1e-6
+"""Relative quadrature error above which the alarm is logged, once per plane.
+
+The fixed rule integrates the Kerr quartic of a mode set to the reference's own
+rounding -- 2e-14 at ``n_r = 32`` for four HE_1m modes
+(``docs/guide/waveguides/mode-sets.md``) -- so
+anything a millionth of the polarisation is not the rule converging slowly but the
+integrand being unresolved, which no step size can fix. It also sits at the loose end
+of the tolerances a run asks the controller for, so an alarm means the quadrature has
+become the largest error in the step. The number is a judgement, not a measurement.
+"""
+
+
+def warn_quadrature(score: float, z: float) -> None:
+    """Log that a step's transverse quadrature score passed :data:`QUADRATURE_ALARM`.
+
+    Every backend gives the alarm here, on this module's logger, once per plane: the
+    embedded coarse rule's projection departs from the fixed rule's by ``score`` of the
+    nonlinear polarisation at ``z``, in metres.
+
+    Parameters
+    ----------
+    score : float
+        The relative quadrature error, above :data:`QUADRATURE_ALARM`.
+    z : float
+        The position of the step, m.
+    """
+    logger.warning(
+        "the transverse quadrature reproduces the nonlinear polarisation to "
+        "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
+        "resolved by this rule (a kinked ionisation rate, or too few nodes for "
+        "the mode set) and no step size can fix it",
+        score,
+        z,
+        QUADRATURE_ALARM,
+    )
+
 
 TransformKind = Literal["mode_averaged", "modal", "radial", "free", "slab"]
 """What a transform represents (kernel schema 26, SEP 19).

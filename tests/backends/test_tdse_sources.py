@@ -33,7 +33,6 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import assemble
-from solprop.translate.responses import ResponseStage
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
 from solprop.translate.tdse import TDSEDescriptor, TDSEResult, waveform_identity
@@ -116,9 +115,7 @@ def model_case(case, model, *, remainder_scale=2.0, cubic_scale=3.0):
     compiled = problem.responses
     if model != "optmat_cubic":
         # Only the optmat closure owns an ordinary compiled cubic response.
-        compiled = dataclasses.replace(
-            compiled, kerr_coefficients=None, response_order=(ResponseStage.ACCUMULATE,)
-        )
+        compiled = dataclasses.replace(compiled, kerr_coefficients=None)
     problem = dataclasses.replace(
         problem,
         responses=compiled,
@@ -201,7 +198,6 @@ def test_native_scale_preserves_complete_nonlinearity_after_linear_subtraction(
         responses=dataclasses.replace(
             problem.responses,
             kerr_coefficients=None,
-            response_order=(ResponseStage.ACCUMULATE,),
         ),
         route=dataclasses.replace(
             problem.route,
@@ -485,7 +481,6 @@ def test_hacc_source_is_the_sae_native_formula_with_its_gate(source_case, window
     compiled = dataclasses.replace(
         problem.responses,
         kerr_coefficients=None,
-        response_order=(ResponseStage.ACCUMULATE,),
     )
     results = []
     for declared_response in (native, hacc):

@@ -56,8 +56,12 @@ from sessions.runs import bare, final_field, load_native, to_planes
 from sessions.runs import run as run_session
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
-from solprop.backends.multistep import CoupledBlock, coupled_moments, trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
+    CoupledBlock,
+    coupled_moments,
+    trial_tables,
+)
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -465,7 +469,7 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     assert type(engine).__name__ == "_ResidentAdams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
     load_native(backend, field, clear_fsal=False)
-    engine.start(0.0, stored=True)
+    engine.start(0.0)
     rows = {
         name: np.broadcast_to(row[:1], row.shape).copy()
         for name, row in engine.snapshot_rows().items()

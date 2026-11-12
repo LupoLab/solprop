@@ -131,7 +131,7 @@ solprop's field-grid plasma holds the post-pulse current through
 ([SEP 27](../../dev/seps/archive/sep-0027-held-plasma-current.md)); Luna's gated polarisation
 switches off both the residual current and polarisation at the temporal collar. The
 propagation comparisons with Luna therefore run Luna's gated source through a test-only
-hook, under a separate identity that cannot be resumed.
+hook, on either backend, under a separate identity that cannot be resumed.
 
 
 **The modal nonlinear prefactor.** solprop's modal prefactor is
