@@ -5,7 +5,6 @@
 """Verify local-owner identity checks without relying on a running scheduler."""
 
 import socket
-import subprocess
 import sys
 
 import pytest
@@ -24,54 +23,6 @@ def test_queue_record_requires_a_json_object(tmp_path):
     path.write_text("[]")
     with pytest.raises(DriverError, match="JSON object"):
         state.read_json(path)
-
-
-def test_linux_process_stamp_handles_parentheses_in_process_name(tmp_path, monkeypatch):
-    path = tmp_path / "stat"
-    path.write_text(
-        "123 (command (with) brackets) " + " ".join(str(i) for i in range(30))
-    )
-    monkeypatch.setattr(state, "Path", lambda name: path)
-    assert state.process_stamp(123) == "19"
-
-
-@pytest.mark.parametrize("error", [FileNotFoundError, ProcessLookupError])
-def test_a_process_that_exits_while_its_stamp_is_read_has_none(monkeypatch, error):
-    """`/proc/<pid>/stat` existed when checked and is gone when read."""
-
-    class Vanishing:
-        def exists(self):
-            return True
-
-        def read_text(self, encoding):
-            raise error(2, "No such file or directory")
-
-    monkeypatch.setattr(state, "Path", lambda name: Vanishing())
-    assert state.process_stamp(123) is None
-
-
-@pytest.mark.parametrize(
-    "printed,stamp",
-    [("Tue Sep 23 13:44:28 2026\n", "Tue Sep 23 13:44:28 2026"), ("", None)],
-)
-def test_process_stamp_asks_ps_where_there_is_no_proc(
-    tmp_path, monkeypatch, printed, stamp
-):
-    """Without `/proc` (macOS) the stamp is `ps`'s start time, or None if it has none.
-
-    `/proc` is taken away on every platform, so Linux exercises the branch only
-    macOS takes in production.
-    """
-    monkeypatch.setattr(state, "Path", lambda name: tmp_path / "absent")
-    calls = []
-
-    def ps(arguments, **options):
-        calls.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, stdout=printed, stderr="")
-
-    monkeypatch.setattr(state.subprocess, "run", ps)
-    assert state.process_stamp(123) == stamp
-    assert calls == [["ps", "-p", "123", "-o", "lstart="]]
 
 
 def test_owner_with_invalid_pid_can_be_reclaimed():
