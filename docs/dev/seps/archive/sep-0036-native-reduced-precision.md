@@ -244,8 +244,7 @@ can therefore qualify noise where single cannot (§4.4).
   through hooks of the reference (`_upload`, `_propagator`, `_rounded`, `_error_norm`,
   `_finish`, `_envelope_sources` and others). ADR-054 records single precision as an
   opt-in arithmetic validated against its oracle. The manual page
-  [Single precision](../../../guide/performance/single-precision.md) carries the survival
-  record.
+  Single precision (retired by ADR-077) carried the survival record.
 - **What SEP 33 measured** (its Part II):
   - Every survival case survives in binary32 at the floor except the reduced
     comb-to-continuum case. That case survives only over 0.05 m, because noise-free
