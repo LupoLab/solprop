@@ -555,7 +555,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         (SEP 16 section 4.5), with ``G_s`` the frozen block of the section the step is
         anchored in. ``None``, the default, is a problem with no coupled flow; a
         backend that holds one returns its
-        :class:`~solprop.backends.multistep.CoupledBlock`.
+        :class:`~solprop.backends.numpy_ref.multistep.CoupledBlock`.
 
         - ``z``: where the step starts, m.
         - ``dz``: the step, m.
@@ -943,7 +943,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if logical and self._adams is not None:
             # The march imports its driver, so the ledger type is loaded only when
             # a constructed backend restores a saved run.
-            from solprop.backends.multistep import CallLedger  # noqa: PLC0415
+            from solprop.backends.ledger import CallLedger  # noqa: PLC0415
 
             self._adams.ledger = CallLedger.from_record(logical)
 
@@ -2370,7 +2370,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         A rule with a node on the axis hands over that node's row from this
         observation's node scan; otherwise the axis row is scanned once
-        (:func:`solprop.backends.populations.axis_populations`).
+        (:func:`solprop.backends.numpy_ref.populations.axis_populations`).
 
         - ``field``: one batch member at this plane, shape (n_modes, n_pol, n_omega), or
           ``None`` from a backend whose :meth:`_axis_row_populations` reads its own
@@ -2430,7 +2430,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         if field is None:
             raise BackendError("the on-axis statistics scan needs the field")
-        from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
+        from solprop.backends.numpy_ref.populations import (  # noqa: PLC0415 - a cycle
             axis_populations,
         )
 
