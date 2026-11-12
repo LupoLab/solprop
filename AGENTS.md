@@ -165,7 +165,7 @@ validity range is cited to its primary source; say what you verified and what yo
   a nested function's name starts with an underscore, so it is private too — has no
   `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections (`poe size-check`
   caps those left ⚙): one summary line, then only what
-  the signature and annotations don't say — a non-SI unit, a valid range, a condition, a
+  the signature and annotations don't say — a unit, a valid range, a condition, a
   convention, or why it exists. A function whose name and signature say everything needs
   no docstring; a non-obvious inner function gets a one-line comment.
 - Comments explain **why**, never **what**: the physics (or the page with the derivation),
