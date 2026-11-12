@@ -3380,10 +3380,12 @@ def _lower(
 def _lower_linear(
     native: _core.Problem, problem: PropagationProblem, plan: _LowerPlan
 ) -> None:
-    """Fill the fixed terms: one empty term on a separable route, a z table's slots."""
+    """Fill the fixed terms, (n_terms, rows, n_omega): one empty term on a separable
+    route, a z table's slots."""
     del problem
     tables = plan.tables
     linear = native.linear
+    n_omega = native.dims.n_omega
     linear.phi_table = tables is not None and tables.phi
     linear.prefactor_table = tables is not None and tables.prefactor
     if plan.terms.separable is not None:
@@ -3398,14 +3400,18 @@ def _lower_linear(
         raise BackendError("Kokkos requires a device-ready fixed-term problem")
     else:
         linear.n_phi_terms = plan.terms.phi.shape[0]
-        linear.phi_terms = np.ascontiguousarray(plan.terms.phi)
+        linear.phi_terms = np.ascontiguousarray(
+            plan.terms.phi.reshape(plan.terms.phi.shape[0], -1, n_omega)
+        )
     if tables is not None and tables.prefactor:
         linear.n_prefactor_terms = tables.slots
     elif plan.terms.prefactor is None:
         raise BackendError("Kokkos requires a device-ready fixed-term problem")
     else:
         linear.n_prefactor_terms = plan.terms.prefactor.shape[0]
-        linear.prefactor_terms = np.ascontiguousarray(plan.terms.prefactor)
+        linear.prefactor_terms = np.ascontiguousarray(
+            plan.terms.prefactor.reshape(plan.terms.prefactor.shape[0], -1, n_omega)
+        )
 
 
 def _lower_spatial(

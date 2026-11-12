@@ -684,6 +684,53 @@ def test_native_raman_rows_refuse_hidden_array_conversions(
         _spoil()
 
 
+@pytest.mark.parametrize("spoiling", ["undamped", "tensor_weights"])
+def test_native_raman_tables_refuse_a_transposed_layout(
+    raman_case: RamanCase, spoiling: str
+) -> None:
+    """A table with the right element count but its axes swapped is refused by name."""
+    payload = _raman_native_payload(raman_case)
+    raman = payload.raman
+    if spoiling == "undamped":
+        raman.undamped = raman.undamped.reshape(-1, raman.n_terms)
+    else:
+        raman.tensor_weights = raman.tensor_weights.reshape(2, raman.n_terms)
+    with pytest.raises(ValueError, match=f"raman_{spoiling} must have shape"):
+        _core.State(payload)
+
+
+@pytest.mark.parametrize("spoiling", ["flat", "rank_four", "count"])
+def test_native_fixed_terms_refuse_a_wrong_layout(
+    phase_a_case: PhaseACase, spoiling: str
+) -> None:
+    """The fixed terms are (n_phi_terms, ...) arrays of rank two or three."""
+    problem, run_request, grid = phase_a_case
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        terms = backend._terms  # pyright: ignore[reportPrivateUsage]
+        payload = _lower(problem, run_request, _LowerPlan(terms=terms))
+    finally:
+        backend.close()
+    assert terms.phi is not None
+    # As the adapter lays them out: (n_phi_terms, rows, n_omega).
+    phi = np.ascontiguousarray(terms.phi).reshape(
+        terms.phi.shape[0], -1, problem.shape[-1]
+    )
+    if spoiling == "flat":
+        payload.linear.phi_terms = phi.reshape(-1)
+        message = "rank-two or rank-three"
+    elif spoiling == "rank_four":
+        payload.linear.phi_terms = phi.reshape(1, *phi.shape)
+        message = "rank-two or rank-three"
+    else:
+        # The same elements, the leading axis no longer the term count.
+        assert phi.shape[::-1][0] != payload.linear.n_phi_terms
+        payload.linear.phi_terms = phi.reshape(phi.shape[::-1])
+        message = "phi_terms must hold n_phi_terms rows"
+    with pytest.raises(ValueError, match=message):
+        _core.State(payload)
+
+
 def test_native_raman_rows_accept_read_only_input(raman_case: RamanCase) -> None:
     """Construction reads Raman rows but does not require write access to them."""
     payload = _raman_native_payload(raman_case)

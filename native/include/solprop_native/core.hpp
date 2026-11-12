@@ -576,6 +576,10 @@ struct Problem {
       (`prefactor_table`); its terms are then `n_phi_terms` (`n_prefactor_terms`) slots
       that `table_evaluate` fills with the table's values at a trial's positions, and
       `phi_terms` (`prefactor_terms`) is empty. */
+  /** The shapes the bindings received for the arrays whose layout counts beside them
+      give, by field name: `validate` holds each to its counts (a vector keeps its
+      elements alone). Empty for a problem built in C++. */
+  using Shapes = std::map<std::string, std::vector<std::size_t>>;
   struct Linear {
     std::size_t n_phi_terms{};
     std::size_t n_prefactor_terms{};
@@ -583,6 +587,7 @@ struct Problem {
     bool prefactor_table{};
     std::vector<Complex> phi_terms;
     std::vector<Complex> prefactor_terms;
+    Shapes shapes;
   };
   /** The temporal absorber, applied in each stage or split around the step. */
   struct Absorber {
@@ -647,6 +652,7 @@ struct Problem {
     // Channel-major rows: log_min, d_log, field_min, field_max, rate_max,
     // interval count, coefficient offset, charge/mass ratio, ionisation potential.
     std::vector<double> channel_parameters, channel_coefficients;
+    Shapes shapes;
   };
   /** The delayed Raman response. */
   struct Raman {
@@ -661,6 +667,7 @@ struct Problem {
     std::vector<double> tensor_weights;
     std::size_t n_components{1};
     std::vector<double> row_component, component_fraction;
+    Shapes shapes;
   };
   /** solprop's general modal route. Row-major: synthesis (map terms, nodes,
       components, modes, n_omega); projection (map terms, modes, nodes, components,

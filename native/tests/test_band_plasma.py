@@ -780,6 +780,27 @@ def test_native_taps_are_validated(damage: str) -> None:
         _core.State(payload)
 
 
+def test_native_rate_table_refuses_a_transposed_layout() -> None:
+    """(n_intervals, 4) holds the right elements but is refused: (4, n_intervals)."""
+    grid, problem, run_request = modal("mode_averaged", "band")
+    backend = NativeBackend(problem, run_request, grid=grid)
+    try:
+        payload = _lower(
+            problem,
+            run_request,
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
+        )
+    finally:
+        backend.close()
+    plasma = payload.plasma
+    assert plasma.rate_intervals != 4
+    plasma.rate_coefficients = plasma.rate_coefficients.reshape(
+        plasma.rate_intervals, 4
+    )
+    with pytest.raises(ValueError, match=r"rate_coefficients must have shape"):
+        _core.State(payload)
+
+
 def test_the_diagnostics_need_a_field_plasma_column(phase_a_case: PhaseACase) -> None:
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)

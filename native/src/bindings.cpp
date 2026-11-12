@@ -380,11 +380,17 @@ template <> struct ExactArray<unsigned char> {
 
 template <class Element>
 std::vector<Element> exact_vector(const nb::handle value, const std::string& field,
-                                  const std::size_t rank) {
+                                  const std::size_t rank,
+                                  std::vector<std::size_t>* shape = nullptr) {
   typename ExactArray<Element>::Input array;
   if (!nb::try_cast(value, array, false) || (rank != 0 && array.ndim() != rank))
     native::refuse(field, " must be a C-contiguous ", ExactArray<Element>::dtype,
                    " array", rank == 0 ? "" : native::concat(" of rank ", rank));
+  if (shape != nullptr) {
+    shape->resize(array.ndim());
+    for (std::size_t axis = 0; axis < array.ndim(); ++axis)
+      (*shape)[axis] = array.shape(axis);
+  }
   if constexpr (std::is_same_v<Element, double>)
     return real_vector(array);
   else if constexpr (std::is_same_v<Element, native::Complex>)
@@ -435,9 +441,18 @@ public:
                          ExactArray<Element>::scalar, "], /) -> None");
       class_.def_prop_rw(
           name, [member](const Group& self) { return array_of(self.*member); },
-          [member, rank, path = path_ + "." + name](Group& self,
-                                                    const nb::handle value) {
-            self.*member = exact_vector<Element>(value, path, rank);
+          [member, rank, name, path = path_ + "." + name](Group& self,
+                                                          const nb::handle value) {
+            // A group whose layouts its counts give keeps each array's shape for
+            // `Problem::validate`.
+            if constexpr (requires { self.shapes; }) {
+              std::vector<std::size_t> shape;
+              self.*member = exact_vector<Element>(value, path, rank, &shape);
+              self.shapes[name] = std::move(shape);
+            } else {
+              static_cast<void>(name);
+              self.*member = exact_vector<Element>(value, path, rank);
+            }
           },
           nb::for_getter(nb::rv_policy::automatic),
           nb::for_setter(nb::sig(setter.c_str())));

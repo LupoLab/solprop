@@ -371,7 +371,7 @@ def test_envelope_currents_steps_statistics_and_repeatability(
 
 @pytest.mark.parametrize(
     "corruption",
-    ["field", "shape", "nan", "weight", "inactive", "sign", "thg", "stash"],
+    ["field", "shape", "layout", "nan", "weight", "inactive", "sign", "thg", "stash"],
 )
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
     problem, run_request, _ = envelope_case("modal", 1, mixture=False)
@@ -390,13 +390,16 @@ def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) ->
             payload.kerr.harmonic_factor = 1.0
         elif corruption == "stash":
             plasma.stash = True
-        elif corruption in ("shape", "nan", "weight"):
+        elif corruption in ("shape", "layout", "nan", "weight"):
             weight = corruption == "weight"
             rule = (
                 plasma.envelope_rule_weights if weight else plasma.envelope_rule_nodes
             )
             if corruption == "shape":
                 corrupted = rule
+            elif corruption == "layout":
+                # The rule's elements, its (n_channels, 4, 512) axes reversed.
+                corrupted = rule.reshape(shape[::-1])
             else:
                 corrupted = rule.reshape(shape)
                 corrupted.flat[0] = np.nan if corruption == "nan" else 0.0
@@ -412,7 +415,9 @@ def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) ->
             plasma.envelope_drude_factor = array
         _core.State(payload)
 
-    with pytest.raises(ValueError, match="envelope"):
+    # A reordered rule keeps its elements: only its layout can refuse it.
+    match = "envelope rules require" if corruption == "layout" else "envelope"
+    with pytest.raises(ValueError, match=match):
         _spoil()
 
 
