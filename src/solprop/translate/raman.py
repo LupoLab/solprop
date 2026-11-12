@@ -482,26 +482,20 @@ class RamanKernels:
             )
 
     @property
-    def n_terms(self) -> int:
-        """Return the number of independently damped terms.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """Number of independently damped terms.
 
-        Returns
-        -------
-        int
-            One for a glass or a vibration-only gas, two for a gas with both a
-            rotational and a vibrational coherence.
+        One for a glass or a vibration-only gas, two for a gas with both a
+        rotational and a vibrational coherence.
         """
         return int(self.undamped.shape[0])
 
     @property
-    def dephasings(self) -> tuple[Dephasing, ...]:
-        """Return the dephasing of each term, in the order of :attr:`undamped`.
+    def dephasings(self) -> tuple[Dephasing, ...]:  # numpydoc ignore=RT01
+        """Dephasing of each term, in the order of :attr:`undamped`.
 
-        Returns
-        -------
-        tuple of Dephasing
-            One entry per row of the kernel; :meth:`decay_rates` turns them into the
-            paths the contract carries.
+        One entry per row of the kernel; :meth:`decay_rates` turns them into the
+        paths the contract carries.
         """
         return tuple(model.dephasing for model in self.response.models)
 
@@ -536,14 +530,11 @@ class RamanKernels:
         return decay_rate_profiles(self.response, density, self.grid)
 
     @property
-    def recomputations(self) -> int:
-        """Return how many times the spectrum has been transformed.
+    def recomputations(self) -> int:  # numpydoc ignore=RT01
+        """How many times the spectrum has been transformed.
 
-        Returns
-        -------
-        int
-            One per distinct density asked for in succession; repeated calls at the
-            same density do not add to it.
+        One per distinct density asked for in succession; repeated calls at the
+        same density do not add to it.
         """
         return self._memo.transforms
 

@@ -172,35 +172,28 @@ class ConstantDispersion:
     function: DispersionFunction
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the empty set of breakpoints.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Empty set of breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            An empty float array: a constant path kinks nowhere.
+        An empty float array: a constant path kinks nowhere.
         """
         return np.empty(0, dtype=float)
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the path covers.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the path covers.
 
-        Returns
-        -------
-        tuple of float
-            ``(0, inf)``: a constant path covers any run.
+        ``(0, inf)``: a constant path covers any run.
         """
         return 0.0, math.inf
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path varies along z.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path varies along z.
 
-        Returns
-        -------
-        bool
-            Always ``True``.
+        Always ``True``.
         """
         return True
 
@@ -328,37 +321,30 @@ class InterpolatedDispersion:
         object.__setattr__(self, "members", members)
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the declared positions, every one of which is a kink.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Declared positions, every one of which is a kink.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, shape ``(n_positions,)``.
+        The positions in m, shape ``(n_positions,)``.
         """
         return np.asarray(self.positions, dtype=float)
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the declared sets cover.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the declared sets cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(first position, last position)`` in m.
+        ``(first position, last position)`` in m.
         """
         nodes = np.asarray(self.positions, dtype=float)
         return float(nodes[0]), float(nodes[-1])
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether every position declares the same set.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every position declares the same set.
 
-        Returns
-        -------
-        bool
-            ``True`` only when one object was declared at every position, which is
-            the conservative test an arbitrary callable admits.
+        ``True`` only when one object was declared at every position, which is
+        the conservative test an arbitrary callable admits.
         """
         members = tuple(self.members)
         return all(one is members[0] for one in members[1:])
@@ -1167,26 +1153,20 @@ class SpecifiedMode:
     # properties, and a `ClassVar` does not satisfy a protocol property for the type
     # checker.
     @property
-    def z_constant(self) -> bool:
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the mode is independent of ``z``.
 
-        Returns
-        -------
-        bool
-            ``True`` when the effective area, the dispersion, its derivative and
-            the loss are all constant along z.
+        ``True`` when the effective area, the dispersion, its derivative and
+        the loss are all constant along z.
         """
         return self.area_path.is_constant and self.dispersion_is_constant
 
     @property
-    def dispersion_is_constant(self) -> bool:
+    def dispersion_is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the spectral quantities are functions of frequency alone.
 
-        Returns
-        -------
-        bool
-            ``True`` when the dispersion, its derivative and the loss all report
-            themselves constant along z.
+        ``True`` when the dispersion, its derivative and the loss all report
+        themselves constant along z.
 
         Examples
         --------
@@ -1200,53 +1180,41 @@ class SpecifiedMode:
         )
 
     @property
-    def area_path(self) -> ZProfile:
-        """Return the declared effective-area path in m^2.
+    def area_path(self) -> ZProfile:  # numpydoc ignore=RT01
+        """Declared effective-area path in m^2.
 
-        Returns
-        -------
-        solprop.profiles.ZProfile
-            The path, a :class:`~solprop.profiles.Constant` when the area is a
-            number. It is the path the transform's kink walk and
-            :func:`solprop.translate.linop.declared_paths` take their breakpoints
-            from, so that the tables split there and the schedule lands on them.
+        The path, a :class:`~solprop.profiles.Constant` when the area is a
+        number. It is the path the transform's kink walk and
+        :func:`solprop.translate.linop.declared_paths` take their breakpoints
+        from, so that the tables split there and the schedule lands on them.
         """
         return as_profile(self.effective_area)
 
     @property
-    def dispersion_path(self) -> DispersionPath:
-        """Return the propagation constant as a path along z.
+    def dispersion_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """Propagation constant as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path, a :class:`ConstantDispersion` when the dispersion is
-            a function of frequency alone. Its breakpoints are kinks of the
-            cumulative operator exactly as the area path's are.
+        The declared path, a :class:`ConstantDispersion` when the dispersion is
+        a function of frequency alone. Its breakpoints are kinks of the
+        cumulative operator exactly as the area path's are.
         """
         return as_dispersion_path(self.dispersion)
 
     @property
-    def derivative_path(self) -> DispersionPath:
-        """Return ``d beta / d omega`` as a path along z.
+    def derivative_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """``d beta / d omega`` as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path, a :class:`ConstantDispersion` when the derivative is
-            a function of frequency alone.
+        The declared path, a :class:`ConstantDispersion` when the derivative is
+        a function of frequency alone.
         """
         return as_dispersion_path(self.dispersion_derivative)
 
     @property
-    def loss_path(self) -> DispersionPath:
-        """Return the power attenuation as a path along z.
+    def loss_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """Power attenuation as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path; a constant number becomes a uniform attenuation at
-            every frequency and every position.
+        The declared path; a constant number becomes a uniform attenuation at
+        every frequency and every position.
         """
         loss = self.loss
         if isinstance(loss, float | int):
@@ -1254,37 +1222,28 @@ class SpecifiedMode:
         return as_dispersion_path(loss)
 
     @property
-    def scale_invariant(self) -> bool:
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the profile scales exactly with a core radius along ``z``.
 
-        Returns
-        -------
-        bool
-            Always ``True``: the surrogate profile is a disc of radius
-            ``sqrt(A_eff(z) / pi)``, which is exactly ``f(r / a(z))``.
+        Always ``True``: the surrogate profile is a disc of radius
+        ``sqrt(A_eff(z) / pi)``, which is exactly ``f(r / a(z))``.
         """
         return True
 
     @property
-    def azimuthal_order(self) -> int:
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
         """Highest azimuthal order of the profile.
 
-        Returns
-        -------
-        int
-            Always 0: the disc is azimuthally uniform.
+        Always 0: the disc is azimuthally uniform.
         """
         return 0
 
     @property
-    def channel_label(self) -> ChannelLabel:
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
         """Name this channel: a dispersion, not an eigenmode of a guide.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``specified``, with no azimuthal or radial order, no parity and
-            no handedness: a mode given by ``beta(omega)`` has no quantum numbers.
+        Family ``specified``, with no azimuthal or radial order, no parity and
+        no handedness: a mode given by ``beta(omega)`` has no quantum numbers.
 
         Examples
         --------
@@ -1405,13 +1364,10 @@ class SpecifiedMode:
             raise ModeError(msg)
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the scalar path this mode's z dependence runs through.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Scalar path this mode's z dependence runs through.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            ``{"effective_area": path}`` in m^2.
+        ``{"effective_area": path}`` in m^2.
 
         Notes
         -----
@@ -1443,7 +1399,7 @@ class SpecifiedMode:
         return MappingProxyType({"effective_area": self.area_path})
 
     @property
-    def parameters_own_z(self) -> bool:
+    def parameters_own_z(self) -> bool:  # numpydoc ignore=RT01
         """Whether the declared parameters are the whole of this mode's z dependence.
 
         The trait the translation layer reads before it expands the cumulative
@@ -1452,10 +1408,7 @@ class SpecifiedMode:
         is everything, and ``False`` once the dispersion follows a path, which no
         scalar parameter can be frozen at.
 
-        Returns
-        -------
-        bool
-            :attr:`dispersion_is_constant`.
+        :attr:`dispersion_is_constant`.
 
         Examples
         --------
@@ -2328,13 +2281,10 @@ class GnlseProblem:
     n2_origin: str = field(default="user", metadata={"record": False})
 
     @property
-    def responses(self) -> tuple[object, ...]:
-        """Return the declared responses, in the order the compiler is given them.
+    def responses(self) -> tuple[object, ...]:  # numpydoc ignore=RT01
+        """Declared responses, in the order the compiler is given them.
 
-        Returns
-        -------
-        tuple
-            The Kerr response, and the Raman response beside it when one was asked for.
+        The Kerr response, and the Raman response beside it when one was asked for.
         """
         return (self.kerr,) if self.raman is None else (self.kerr, self.raman)
 

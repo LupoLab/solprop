@@ -386,15 +386,12 @@ class GasFillMixin(Displayed):
         )
 
     @property
-    def fill_species(self) -> Species | None:
-        """Return the single species a fill without a mixture carries.
+    def fill_species(self) -> Species | None:  # numpydoc ignore=RT01
+        """Single species a fill without a mixture carries.
 
-        Returns
-        -------
-        Species or None
-            The species of the density path, whose equation of state gives the
-            density and, for an optmat law, whose susceptibility is the fill's;
-            ``None`` for vacuum or a mixture.
+        The species of the density path, whose equation of state gives the
+        density and, for an optmat law, whose susceptibility is the fill's;
+        ``None`` for vacuum or a mixture.
         """
         if self.mixture is not None or not isinstance(self.density, DensityPath):
             return None

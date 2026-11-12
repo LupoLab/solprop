@@ -238,13 +238,10 @@ class CouplingModel:
             raise CouplingError(msg)
 
     @property
-    def cone(self) -> float:
-        """Return the admitted cone half-angle of the budget.
+    def cone(self) -> float:  # numpydoc ignore=RT01
+        """Admitted cone half-angle of the budget.
 
-        Returns
-        -------
-        float
-            :func:`cone_angle` of `model_error`, rad.
+        :func:`cone_angle` of `model_error`, rad.
 
         Raises
         ------
@@ -534,13 +531,10 @@ class ScalarModeBasis:
         return values
 
     @property
-    def n_modes(self) -> int:
-        """Return the number of channels.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """Number of channels.
 
-        Returns
-        -------
-        int
-            ``len(labels)``.
+        ``len(labels)``.
         """
         return len(self.labels)
 

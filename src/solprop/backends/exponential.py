@@ -442,13 +442,10 @@ class CarrierReference:
     chord: CarrierChord | None = None
 
     @property
-    def active(self) -> bool:
-        """Return whether the shift can be nonzero.
+    def active(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the shift can be nonzero.
 
-        Returns
-        -------
-        bool
-            ``False`` when the run takes ``sigma = 0``, the present arithmetic exactly.
+        ``False`` when the run takes ``sigma = 0``, the present arithmetic exactly.
         """
         return self.bin is not None
 

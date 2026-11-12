@@ -462,13 +462,10 @@ class GeneralModalRoute(Displayed):
             object.__setattr__(self, name, array)
 
     @property
-    def moving(self) -> bool:
-        """Return whether the route is a moving guide's.
+    def moving(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the route is a moving guide's.
 
-        Returns
-        -------
-        bool
-            True when the route carries a moving flow, whose maps then move too.
+        True when the route carries a moving flow, whose maps then move too.
         """
         return self.moving_generator is not None
 
@@ -571,26 +568,20 @@ class GeneralModalRoute(Displayed):
             raise TranslationError(msg)
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the guide propagates.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the guide propagates.
 
-        Returns
-        -------
-        int
-            The channel axis of the stored reference.
+        The channel axis of the stored reference.
         """
         return int(self.tables.electric.shape[3])
 
     @property
-    def metric(self) -> ModalMetricTables:
-        """Return the basis metric this route declares.
+    def metric(self) -> ModalMetricTables:  # numpydoc ignore=RT01
+        """The basis metric this route declares.
 
-        Returns
-        -------
-        solprop.translate.coupled.ModalMetricTables
-            The declared dense metric where a change of basis was declared, and
-            otherwise the identity metric on the tables' own grids, carrying the
-            measured Gram defect as its error row.
+        The declared dense metric where a change of basis was declared, and
+        otherwise the identity metric on the tables' own grids, carrying the
+        measured Gram defect as its error row.
         """
         if self.metric_tables is not None:
             return self.metric_tables

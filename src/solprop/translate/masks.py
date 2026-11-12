@@ -230,13 +230,10 @@ class Grids:
             raise TranslationError(msg)
 
     @property
-    def n_omega(self) -> int:
-        """Return the number of coarse spectral bins.
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse spectral bins.
 
-        Returns
-        -------
-        int
-            The length of ``omega``.
+        The length of ``omega``.
 
         Examples
         --------

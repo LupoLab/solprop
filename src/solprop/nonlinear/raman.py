@@ -506,13 +506,10 @@ class RotationalLines:
             object.__setattr__(self, name, array)
 
     @property
-    def n_lines(self) -> int:
-        """Return the number of ``J -> J + 2`` transitions.
+    def n_lines(self) -> int:  # numpydoc ignore=RT01
+        """Number of ``J -> J + 2`` transitions.
 
-        Returns
-        -------
-        int
-            Two fewer than the number of levels.
+        Two fewer than the number of levels.
         """
         return int(self.frequencies.size)
 
@@ -787,26 +784,20 @@ class IntermediateBroadening:
     amplitude: float = 1.0
 
     @property
-    def dephasing(self) -> Dephasing:
-        """Return the density-dependent dephasing, which for a glass is none.
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
+        """Density-dependent dephasing, which for a glass is none.
 
-        Returns
-        -------
-        Dephasing
-            A dephasing whose factor is one everywhere; the Lorentzian widths of
-            :attr:`lines` already carry the decay.
+        A dephasing whose factor is one everywhere; the Lorentzian widths of
+        :attr:`lines` already carry the decay.
         """
         return undamped_dephasing()
 
     @property
-    def raw_integral(self) -> float:
-        """Return the integral of the unnormalised line sum over the positive axis.
+    def raw_integral(self) -> float:  # numpydoc ignore=RT01
+        """Integral of the unnormalised line sum over the positive axis.
 
-        Returns
-        -------
-        float
-            ``sum_i A_i Im[(sqrt(pi)/Gamma_i) w((omega_i + i gamma_i)/Gamma_i)]``, in
-            the units of the tabulated amplitudes times seconds.
+        ``sum_i A_i Im[(sqrt(pi)/Gamma_i) w((omega_i + i gamma_i)/Gamma_i)]``, in
+        the units of the tabulated amplitudes times seconds.
 
         Examples
         --------
@@ -836,14 +827,11 @@ class IntermediateBroadening:
         return float(np.dot(amplitudes, per_line))
 
     @property
-    def scale(self) -> float:
-        """Return the factor the raw line sum is multiplied by.
+    def scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor the raw line sum is multiplied by.
 
-        Returns
-        -------
-        float
-            :attr:`amplitude` divided by :attr:`raw_integral`, so that the response
-            integrates to :attr:`amplitude`.
+        :attr:`amplitude` divided by :attr:`raw_integral`, so that the response
+        integrates to :attr:`amplitude`.
 
         Raises
         ------
@@ -1225,47 +1213,35 @@ class RamanResponse:
         object.__setattr__(self, "species", species)
 
     @property
-    def models(self) -> tuple[RamanModel, ...]:
-        """Return the scalar models in declaration order.
+    def models(self) -> tuple[RamanModel, ...]:  # numpydoc ignore=RT01
+        """Scalar models in declaration order.
 
-        Returns
-        -------
-        tuple of RamanModel
-            A derived compatibility view; replace ``tensor_terms`` to update models.
+        A derived compatibility view; replace ``tensor_terms`` to update models.
         """
         return tuple(term.model for term in self.tensor_terms)
 
     @property
-    def tensor_capable(self) -> bool:
-        """Return whether every term has an established vector contraction.
+    def tensor_capable(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every term has an established vector contraction.
 
-        Returns
-        -------
-        bool
-            False if any term is declared ``scalar_only``.
+        False if any term is declared ``scalar_only``.
         """
         return all(term.contraction != "scalar_only" for term in self.tensor_terms)
 
     @property
-    def scale(self) -> float:
-        """Return the overall multiplier the response carries.
+    def scale(self) -> float:  # numpydoc ignore=RT01
+        """Overall multiplier the response carries.
 
-        Returns
-        -------
-        float
-            :attr:`fraction`, or 1.0 when it is ``None``.
+        :attr:`fraction`, or 1.0 when it is ``None``.
         """
         return 1.0 if self.fraction is None else self.fraction
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the Raman response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the Raman response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution on both grids consuming the density path. Tensor-capable
-            declarations couple Cartesian components; other declarations are scalar.
+        A convolution on both grids consuming the density path. Tensor-capable
+        declarations couple Cartesian components; other declarations are scalar.
 
         Examples
         --------
@@ -1704,14 +1680,11 @@ class SilicaTensorResponse(Displayed):
         ]
 
     @property
-    def fraction(self) -> float:
-        """Return the Raman fraction ``f_R`` the parameters declare.
+    def fraction(self) -> float:  # numpydoc ignore=RT01
+        """Raman fraction ``f_R`` the parameters declare.
 
-        Returns
-        -------
-        float
-            A share of the medium's third-order susceptibility, in ``(0, 1]``: an
-            optmat bundle's own ``f_R``.
+        A share of the medium's third-order susceptibility, in ``(0, 1]``: an
+        optmat bundle's own ``f_R``.
         """
         parameters = self.parameters
         if isinstance(parameters, SilicaBundle):
@@ -1719,26 +1692,20 @@ class SilicaTensorResponse(Displayed):
         return float(parameters.fraction)
 
     @property
-    def instantaneous_share(self) -> float:
-        """Return ``1 - f_R``, the share the instantaneous Kerr term keeps.
+    def instantaneous_share(self) -> float:  # numpydoc ignore=RT01
+        """``1 - f_R``, the share the instantaneous Kerr term keeps.
 
-        Returns
-        -------
-        float
-            A dimensionless share in ``[0, 1)``.
+        A dimensionless share in ``[0, 1)``.
         """
         return 1.0 - self.fraction
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of this response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of this response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution on a field grid, coupling Cartesian components, with no
-            density path at all: a glass has none, and the magnitude comes from
-            the region's own ``chi3``.
+        A convolution on a field grid, coupling Cartesian components, with no
+        density path at all: a glass has none, and the magnitude comes from
+        the region's own ``chi3``.
 
         Examples
         --------
@@ -2206,35 +2173,26 @@ class SampledShape:
             raise MaterialError(msg)
 
     @property
-    def name(self) -> str:
-        """Return the term's name: the bundle's and the channel.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The term's name: the bundle's and the channel.
 
-        Returns
-        -------
-        str
-            For example ``"silica_bundle/default:parallel"``.
+        For example ``"silica_bundle/default:parallel"``.
         """
         return f"{self.bundle.name}:{self.channel}"
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the bundle the term samples.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the bundle the term samples.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The bundle's, its Kerr fit's and its shape's.
+        The bundle's, its Kerr fit's and its shape's.
         """
         return self.bundle.material_records
 
     @property
-    def dephasing(self) -> Dephasing:
-        """Return the density-dependent dephasing, which for a glass is none.
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
+        """Density-dependent dephasing, which for a glass is none.
 
-        Returns
-        -------
-        Dephasing
-            A dephasing whose factor is one everywhere.
+        A dephasing whose factor is one everywhere.
         """
         return undamped_dephasing()
 

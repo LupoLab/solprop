@@ -242,30 +242,28 @@ class HostGroup(HostDriver[tuple[object, ...]]):
                 self._watched(index, functools.partial(member.attach_monitor, monitor))
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
-        """Return what stopped each member's watch, in member order.
+    def member_stops(
+        self,
+    ) -> tuple[BoundaryError | BoundaryWarning | None, ...]:  # numpydoc ignore=RT01
+        """What stopped each member's watch, in member order.
 
-        Returns
-        -------
-        tuple
-            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, the
-            :class:`~solprop.exceptions.BoundaryWarning` raised as an error for it
-            under an ``"error"`` warnings filter, or ``None`` for one still watched
-            or never watched.
+        The :class:`~solprop.exceptions.BoundaryError` that stopped a member, the
+        :class:`~solprop.exceptions.BoundaryWarning` raised as an error for it
+        under an ``"error"`` warnings filter, or ``None`` for one still watched
+        or never watched.
         """
         return tuple(self._stops)
 
     @property
-    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
-        """Return each member's monitor record, as it closed, in member order.
+    def member_records(
+        self,
+    ) -> tuple[Mapping[str, object] | None, ...]:  # numpydoc ignore=RT01
+        """Each member's monitor record, as it closed, in member order.
 
         A stopped member's is its record at the stop; a watched one's is read now.
 
-        Returns
-        -------
-        tuple
-            The :meth:`~solprop.monitor.BoundaryMonitor.summary` of each member, or
-            ``None`` for one never watched.
+        The :meth:`~solprop.monitor.BoundaryMonitor.summary` of each member, or
+        ``None`` for one never watched.
         """
         return tuple(
             record if member._monitor is None else member._monitor.summary()

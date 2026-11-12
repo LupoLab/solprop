@@ -204,13 +204,10 @@ class IndexMaterial:
         return np.asarray(index**2, dtype=complex)
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the validity interval in rad/s.
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Validity interval in rad/s.
 
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
+        Lower and upper angular frequency in rad/s.
         """
         if isinstance(self.index, GlassIndex):
             low, high = self.index.wavelength_range
@@ -218,13 +215,10 @@ class IndexMaterial:
         return 0.0, float("inf")
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the material model and its validity interval.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Material model and its validity interval.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "index": self.index
@@ -674,13 +668,10 @@ class MaterialRegion(Displayed):
         ]
 
     @property
-    def raman(self) -> SilicaTensorResponse | None:
-        """Return the region's declared delayed response, or ``None``.
+    def raman(self) -> SilicaTensorResponse | None:  # numpydoc ignore=RT01
+        """The region's declared delayed response, or ``None``.
 
-        Returns
-        -------
-        solprop.nonlinear.raman.SilicaTensorResponse or None
-            The one declared delayed response, or ``None``.
+        The one declared delayed response, or ``None``.
         """
         declared = [
             one for one in self.responses if isinstance(one, SilicaTensorResponse)
@@ -688,25 +679,19 @@ class MaterialRegion(Displayed):
         return declared[0] if declared else None
 
     @property
-    def kerr(self) -> MaterialKerr | None:
-        """Return the region's declared Kerr response, or ``None`` if it is linear.
+    def kerr(self) -> MaterialKerr | None:  # numpydoc ignore=RT01
+        """The region's declared Kerr response, or ``None`` if it is linear.
 
-        Returns
-        -------
-        MaterialKerr or None
-            The one declared instantaneous response, or ``None``.
+        The one declared instantaneous response, or ``None``.
         """
         declared = [one for one in self.responses if isinstance(one, MaterialKerr)]
         return declared[0] if declared else None
 
     @property
-    def gas(self) -> GasKerr | None:
-        """Return the region's gas fill response, or ``None``.
+    def gas(self) -> GasKerr | None:  # numpydoc ignore=RT01
+        """The region's gas fill response, or ``None``.
 
-        Returns
-        -------
-        GasKerr or None
-            The one declared gas fill, or ``None``.
+        The one declared gas fill, or ``None``.
         """
         declared = [one for one in self.responses if isinstance(one, GasKerr)]
         return declared[0] if declared else None

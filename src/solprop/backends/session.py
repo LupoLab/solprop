@@ -258,24 +258,18 @@ class ExecutionOptions:
                 object.__setattr__(self, name, positive_count(name, value))
 
     @property
-    def budget(self) -> int | None:
-        """Return the explicit node budget as an ``int``, or ``None``.
+    def budget(self) -> int | None:  # numpydoc ignore=RT01
+        """Explicit node budget as an ``int``, or ``None``.
 
-        Returns
-        -------
-        int or None
-            :attr:`node_budget`, which construction already made an ``int``.
+        :attr:`node_budget`, which construction already made an ``int``.
         """
         return None if self.node_budget is None else operator.index(self.node_budget)
 
     @property
-    def chunk(self) -> int | None:
-        """Return the exact node chunk as an ``int``, or ``None``.
+    def chunk(self) -> int | None:  # numpydoc ignore=RT01
+        """Exact node chunk as an ``int``, or ``None``.
 
-        Returns
-        -------
-        int or None
-            :attr:`node_chunk`, which construction already made an ``int``.
+        :attr:`node_chunk`, which construction already made an ``int``.
         """
         return None if self.node_chunk is None else operator.index(self.node_chunk)
 
@@ -1253,23 +1247,17 @@ class SessionLedger:
         return True
 
     @property
-    def pending(self) -> Receipt | None:
-        """Return the pending batch's receipt.
+    def pending(self) -> Receipt | None:  # numpydoc ignore=RT01
+        """Pending batch's receipt.
 
-        Returns
-        -------
-        solprop.backends.events.Receipt or None
-            The receipt, or ``None`` when nothing is pending.
+        The receipt, or ``None`` when nothing is pending.
         """
         return self._pending
 
     @property
-    def finished(self) -> bool:
-        """Return whether a terminal batch was issued.
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a terminal batch was issued.
 
-        Returns
-        -------
-        bool
-            True once the session yielded its terminal event.
+        True once the session yielded its terminal event.
         """
         return self.outcome is not None

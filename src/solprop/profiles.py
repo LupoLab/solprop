@@ -254,25 +254,19 @@ class PathVariation:
             object.__setattr__(self, name, values)
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the interior knots where the path jumps.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Interior knots where the path jumps.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m where the next piece's `first` differs from `last`.
+        Positions in m where the next piece's `first` differs from `last`.
         """
         return self.knots[1:-1][self.first[1:] != self.last[:-1]]
 
     @property
-    def total_variation(self) -> float:
-        """Return the enclosed total variation over the whole interval.
+    def total_variation(self) -> float:  # numpydoc ignore=RT01
+        """Enclosed total variation over the whole interval.
 
-        Returns
-        -------
-        float
-            The sum of the pieces' variations and the jumps' magnitudes, in the unit
-            of the path.
+        The sum of the pieces' variations and the jumps' magnitudes, in the unit
+        of the path.
         """
         jumps = np.abs(self.first[1:] - self.last[:-1])
         return float(np.sum(self.variation) + np.sum(jumps))
@@ -628,57 +622,44 @@ class Constant:
     span: tuple[float, float] = (0.0, math.inf)
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the interval edges, which for a constant are none.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Interval edges, which for a constant are none.
 
-        Returns
-        -------
-        numpy.ndarray
-            An empty array: a constant has no kinks.
+        An empty array: a constant has no kinks.
         """
         return np.empty(0, dtype=float)
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the path is defined over.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the path is defined over.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m.
+        ``(start, end)`` in m.
         """
         return self.span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            Always ``True``: the derivative is identically zero.
+        Always ``True``: the derivative is identically zero.
         """
         return True
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path is the same everywhere.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path is the same everywhere.
 
-        Returns
-        -------
-        bool
-            Always ``True``.
+        Always ``True``.
         """
         return True
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities, which for a constant are none.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities, which for a constant are none.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m.
+        Positions in m.
         """
         return np.empty(0, dtype=float)
 
@@ -840,57 +821,44 @@ class PiecewiseLinear(Displayed):
         object.__setattr__(self, "values", heights)
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the stage boundaries, every one of which is a kink.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Stage boundaries, every one of which is a kink.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions, in m.
+        The positions, in m.
         """
         return self.positions
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the stages cover.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the stages cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(first position, last position)`` in m.
+        ``(first position, last position)`` in m.
         """
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            Always ``True``.
+        Always ``True``.
         """
         return True
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether every stage carries the same value.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every stage carries the same value.
 
-        Returns
-        -------
-        bool
-            ``True`` when the path never varies.
+        ``True`` when the path never varies.
         """
         return bool(np.all(self.values == self.values[0]))
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities, none for a continuous interpolant.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities, none for a continuous interpolant.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m.
+        Positions in m.
         """
         return np.empty(0, dtype=float)
 
@@ -1013,57 +981,44 @@ class Linear(Displayed):
         )
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the two ends of the varying section.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Two ends of the varying section.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``[0, length]`` in m.
+        ``[0, length]`` in m.
         """
         return self._stages.breakpoints
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the path varies over.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the path varies over.
 
-        Returns
-        -------
-        tuple of float
-            ``(0, length)`` in m.
+        ``(0, length)`` in m.
         """
         return self._stages.z_span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            Always ``True``.
+        Always ``True``.
         """
         return True
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the two ends carry the same value.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the two ends carry the same value.
 
-        Returns
-        -------
-        bool
-            ``True`` when ``start == end``.
+        ``True`` when ``start == end``.
         """
         return self._stages.is_constant
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities, which for a linear path are none.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities, which for a linear path are none.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m.
+        Positions in m.
         """
         return np.empty(0, dtype=float)
 
@@ -1743,61 +1698,48 @@ class PressureGradient(Displayed):
         )
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the stage boundaries and the bore's kinks, every one a hard kink.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Stage boundaries and the bore's kinks, every one a hard kink.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m: the stage boundaries, joined for a fill that follows
-            a varying bore or carries a flow weight by their breakpoints inside the
-            fill, where the slope of the pressure kinks with theirs.
+        The positions in m: the stage boundaries, joined for a fill that follows
+        a varying bore or carries a flow weight by their breakpoints inside the
+        fill, where the slope of the pressure kinks with theirs.
         """
         if self._bore is None:
             return self.positions
         return self._bore.edges
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the fill covers.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the fill covers.
 
-        Returns
-        -------
-        tuple of float
-            ``(first position, last position)`` in m.
+        ``(first position, last position)`` in m.
         """
         return float(self.positions[0]), float(self.positions[-1])
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            Always ``True``.
+        Always ``True``.
         """
         return True
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether every stage carries the same pressure.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every stage carries the same pressure.
 
-        Returns
-        -------
-        bool
-            ``True`` when the fill never varies.
+        ``True`` when the fill never varies.
         """
         return bool(np.all(self.pressures == self.pressures[0]))
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities, which for a steady-flow fill are none.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities, which for a steady-flow fill are none.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m.
+        Positions in m.
         """
         return np.empty(0, dtype=float)
 
@@ -2233,14 +2175,13 @@ class DensityPath(Displayed):
         return float(density(species, pressure, temperature))
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the breakpoints of the pressure path, and of a temperature path.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """The breakpoints of the pressure path, and of a temperature path.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m; the density kinks exactly where the pressure or the
-            temperature does.
+        The positions in m; the density kinks exactly where the pressure or the
+        temperature does.
         """
         if not isinstance(self.temperature, ZProfile):
             return self.pressure.breakpoints
@@ -2256,14 +2197,11 @@ class DensityPath(Displayed):
         )
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the path covers.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the path covers.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m, from the pressure path; from a temperature path
-            where the pressure's is unbounded.
+        ``(start, end)`` in m, from the pressure path; from a temperature path
+        where the pressure's is unbounded.
         """
         span = self.pressure.z_span
         if isinstance(self.temperature, ZProfile) and not math.isfinite(span[1]):
@@ -2271,14 +2209,11 @@ class DensityPath(Displayed):
         return span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            ``True`` when the pressure path's derivative is, and a temperature path's:
-            the tables contribute exact derivatives of their interpolants.
+        ``True`` when the pressure path's derivative is, and a temperature path's:
+        the tables contribute exact derivatives of their interpolants.
         """
         if isinstance(self.temperature, ZProfile):
             return (
@@ -2288,14 +2223,11 @@ class DensityPath(Displayed):
         return self.pressure.derivative_is_analytic
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the density never varies.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the density never varies.
 
-        Returns
-        -------
-        bool
-            ``True`` when the pressure never varies and neither does the temperature,
-            or the pressure is identically zero.
+        ``True`` when the pressure never varies and neither does the temperature,
+        or the pressure is identically zero.
         """
         if isinstance(self.temperature, ZProfile):
             return self.pressure.is_constant and not np.any(
@@ -2347,13 +2279,10 @@ class DensityPath(Displayed):
         return np.where(pressures == 0.0, 0.0, values)
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities of the pressure and temperature paths.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities of the pressure and temperature paths.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m; the density jumps only where an argument does.
+        Positions in m; the density jumps only where an argument does.
         """
         if not isinstance(self.temperature, ZProfile):
             return self.pressure.jumps
@@ -2618,57 +2547,44 @@ class SeriesOfPath(Displayed):
         ]
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the inner path's breakpoints.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Inner path's breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m; a smooth function kinks where its argument does.
+        The positions in m; a smooth function kinks where its argument does.
         """
         return self.path.breakpoints
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the inner path's interval.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Inner path's interval.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m.
+        ``(start, end)`` in m.
         """
         return self.path.z_span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            ``True`` when the inner path's is: the series has an exact derivative.
+        ``True`` when the inner path's is: the series has an exact derivative.
         """
         return self.path.derivative_is_analytic
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the inner path is constant.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the inner path is constant.
 
-        Returns
-        -------
-        bool
-            ``True`` when the argument never varies.
+        ``True`` when the argument never varies.
         """
         return self.path.is_constant
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the inner path's declared discontinuities.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Inner path's declared discontinuities.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m.
+        Positions in m.
         """
         return self.path.jumps
 
@@ -2870,57 +2786,44 @@ class Scaled:
             raise TranslationError("path scale factor must be finite")
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the underlying breakpoints in m.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Underlying breakpoints in m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions of derivative discontinuities.
+        Positions of derivative discontinuities.
         """
         return self.path.breakpoints
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the underlying span in m.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Underlying span in m.
 
-        Returns
-        -------
-        tuple of float
-            Start and end positions.
+        Start and end positions.
         """
         return self.path.z_span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the underlying derivative is analytic.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the underlying derivative is analytic.
 
-        Returns
-        -------
-        bool
-            The underlying path's declaration.
+        The underlying path's declaration.
         """
         return self.path.derivative_is_analytic
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the scaled path is constant.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the scaled path is constant.
 
-        Returns
-        -------
-        bool
-            True for a constant path or a zero multiplier.
+        True for a constant path or a zero multiplier.
         """
         return self.factor == 0.0 or self.path.is_constant
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the underlying declared discontinuities in m.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Underlying declared discontinuities in m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions where the path jumps.
+        Positions where the path jumps.
         """
         return self.path.jumps
 
@@ -2990,59 +2893,46 @@ class Sum:
         object.__setattr__(self, "paths", tuple(self.paths))
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the union of the component breakpoints in m.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Union of the component breakpoints in m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Sorted unique positions.
+        Sorted unique positions.
         """
         return np.unique(np.concatenate([p.breakpoints for p in self.paths]))
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the union of the component spans in m.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Union of the component spans in m.
 
-        Returns
-        -------
-        tuple of float
-            Earliest start and latest end.
+        Earliest start and latest end.
         """
         return min(p.z_span[0] for p in self.paths), max(
             p.z_span[1] for p in self.paths
         )
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether every component derivative is analytic.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every component derivative is analytic.
 
-        Returns
-        -------
-        bool
-            Conjunction of the component declarations.
+        Conjunction of the component declarations.
         """
         return all(p.derivative_is_analytic for p in self.paths)
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether every component is constant.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every component is constant.
 
-        Returns
-        -------
-        bool
-            Conjunction of the component declarations.
+        Conjunction of the component declarations.
         """
         return all(p.is_constant for p in self.paths)
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the union of the component discontinuities in m.
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Union of the component discontinuities in m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Sorted unique positions.
+        Sorted unique positions.
         """
         return np.unique(np.concatenate([p.jumps for p in self.paths]))
 
@@ -3241,13 +3131,12 @@ class FromCallable:
         return edges
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the declared kinks and jumps.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Declared kinks and jumps.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, sorted and unique.
+        The positions in m, sorted and unique.
         """
         if not self.jumps.size:
             return self.kinks
@@ -3296,36 +3185,27 @@ class FromCallable:
         return _monotone_pieces(knots, values[:-1], below[1:])
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the declared span.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Declared span.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m.
+        ``(start, end)`` in m.
         """
         return self.span
 
     @property
-    def derivative_is_analytic(self) -> bool:
-        """Return whether the derivative is exact.
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the derivative is exact.
 
-        Returns
-        -------
-        bool
-            ``True`` only when a `slope` was supplied.
+        ``True`` only when a `slope` was supplied.
         """
         return self.slope is not None
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path is known to be constant.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path is known to be constant.
 
-        Returns
-        -------
-        bool
-            Always ``False``: an arbitrary callable cannot be inspected, and the
-            conservative answer only costs a re-evaluation.
+        Always ``False``: an arbitrary callable cannot be inspected, and the
+        conservative answer only costs a re-evaluation.
         """
         return False
 

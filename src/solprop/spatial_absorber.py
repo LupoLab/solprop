@@ -544,13 +544,12 @@ class SpatialAbsorber:
         object.__setattr__(self, "safety_fraction", float(self.safety_fraction))
 
     @property
-    def band_source(self) -> Literal["kappa", "angle", "launch"]:
-        """Return where the protected band comes from, in order of precedence.
+    def band_source(
+        self,
+    ) -> Literal["kappa", "angle", "launch"]:  # numpydoc ignore=RT01
+        """Where the protected band comes from, in order of precedence.
 
-        Returns
-        -------
-        str
-            ``"kappa"``, ``"angle"`` or ``"launch"``.
+        ``"kappa"``, ``"angle"`` or ``"launch"``.
         """
         if self.kappa is not None:
             return "kappa"
@@ -663,12 +662,9 @@ class SpatialAbsorberDesign:
         return record
 
     @property
-    def has_collar(self) -> bool:
-        """Return whether the design carries a real-space collar.
+    def has_collar(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the design carries a real-space collar.
 
-        Returns
-        -------
-        bool
-            True when :attr:`collar_rate` is set.
+        True when :attr:`collar_rate` is set.
         """
         return self.collar_rate is not None

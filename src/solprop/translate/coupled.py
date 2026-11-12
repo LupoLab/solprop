@@ -300,13 +300,10 @@ class ModalMetricTables(Displayed):
     certificate_id: str
 
     @property
-    def n_omega(self) -> int:
-        """Return how many coarse frequencies the metric is tabulated on.
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """How many coarse frequencies the metric is tabulated on.
 
-        Returns
-        -------
-        int
-            The length of ``omega``.
+        The length of ``omega``.
         """
         return len(self.omega)
 
@@ -330,14 +327,11 @@ class ModalMetricTables(Displayed):
         )
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the metric describes.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the metric describes.
 
-        Returns
-        -------
-        int
-            The channel count of whichever coefficient array is stored; 0 for
-            ``"identity"``, which owns none and takes its size from the state.
+        The channel count of whichever coefficient array is stored; 0 for
+        ``"identity"``, which owns none and takes its size from the state.
         """
         if self.dense is not None:
             return int(self.dense.shape[2])
@@ -631,39 +625,30 @@ class CoupledFlowTables(Displayed):
     certificate_id: str
 
     @property
-    def representation(self) -> Literal["dense", "factored"]:
-        """Return which of the two complete representations is stored.
+    def representation(self) -> Literal["dense", "factored"]:  # numpydoc ignore=RT01
+        """Which of the two complete representations is stored.
 
-        Returns
-        -------
-        {'dense', 'factored'}
-            ``"dense"`` when the generator array is present, ``"factored"`` when the
-            fixed matrices and their weights are.
+        ``"dense"`` when the generator array is present, ``"factored"`` when the
+        fixed matrices and their weights are.
         """
         return "dense" if self.generator is not None else "factored"
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the flow couples.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the flow couples.
 
-        Returns
-        -------
-        int
-            The channel count of the stored representation.
+        The channel count of the stored representation.
         """
         terms = self.generator if self.generator is not None else self.fixed_terms
         assert terms is not None
         return int(terms.shape[-2])
 
     @property
-    def n_deg(self) -> int:
-        """Return how many Chebyshev coefficients along z each section carries.
+    def n_deg(self) -> int:  # numpydoc ignore=RT01
+        """How many Chebyshev coefficients along z each section carries.
 
-        Returns
-        -------
-        int
-            The degree axis of the dense generator, or one for the factored
-            representation, whose weights carry the z dependence instead.
+        The degree axis of the dense generator, or one for the factored
+        representation, whose weights carry the z dependence instead.
         """
         return 1 if self.generator is None else int(self.generator.shape[1])
 

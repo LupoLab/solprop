@@ -76,13 +76,10 @@ class Resumability:
     gate_error: str | None = None
 
     @property
-    def rebuildable(self) -> bool:
-        """Return whether the file can rebuild itself.
+    def rebuildable(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the file can rebuild itself.
 
-        Returns
-        -------
-        bool
-            True when it records a recipe this solprop reads.
+        True when it records a recipe this solprop reads.
         """
         return self.recipe == "stored"
 

@@ -105,13 +105,10 @@ class StageTerms:
     separable: SeparableOperator | None = None
 
     @property
-    def device_ready(self) -> bool:
-        """Return whether both quantities are a weighted sum of fixed arrays.
+    def device_ready(self) -> bool:  # numpydoc ignore=RT01
+        """Whether both quantities are a weighted sum of fixed arrays.
 
-        Returns
-        -------
-        bool
-            True when neither member is ``None``.
+        True when neither member is ``None``.
         """
         return self.separable is not None or (
             self.phi is not None and self.prefactor is not None
@@ -295,13 +292,10 @@ class StageScalars:
     dispersive_kerr_densities: tuple[float, ...] = ()
 
     @property
-    def preionisation(self) -> float:
-        """Return the initial fraction for the one-channel specialised path.
+    def preionisation(self) -> float:  # numpydoc ignore=RT01
+        """Initial fraction for the one-channel specialised path.
 
-        Returns
-        -------
-        float
-            The sole channel's fraction, or zero when there is no sole channel.
+        The sole channel's fraction, or zero when there is no sole channel.
         """
         return (
             self.plasma_preionisation[0] if len(self.plasma_preionisation) == 1 else 0.0

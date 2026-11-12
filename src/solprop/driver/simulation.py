@@ -1083,13 +1083,10 @@ class SimulationSettings(Displayed):
             object.__setattr__(self, "absorber_scheme", _Defaulted(scheme))
 
     @property
-    def absorber_scheme_named(self) -> bool:
+    def absorber_scheme_named(self) -> bool:  # numpydoc ignore=RT01
         """Whether the caller named the collar scheme, rather than taking the route's.
 
-        Returns
-        -------
-        bool
-            False when :attr:`absorber_scheme` is the route's default.
+        False when :attr:`absorber_scheme` is the route's default.
         """
         return not isinstance(self.absorber_scheme, _Defaulted)
 
@@ -2071,8 +2068,8 @@ class Simulation(Displayed):
         )
 
     @property
-    def settings(self) -> SimulationSettings:
-        """Return how the run steps, records and executes; fixed once translated.
+    def settings(self) -> SimulationSettings:  # numpydoc ignore=RT01
+        """How the run steps, records and executes; fixed once translated.
 
         Assigning a new :class:`SimulationSettings` before the first :meth:`translate`
         (or :meth:`run`) takes effect. After it the translated problem is cached, so an
@@ -2080,10 +2077,7 @@ class Simulation(Displayed):
         it could no longer change the run; the ``backend`` and ``tdse_execution``
         resources, which are read when the run executes, may still change.
 
-        Returns
-        -------
-        SimulationSettings
-            The settings the run is, or will be, translated with.
+        The settings the run is, or will be, translated with.
         """
         return self._settings
 
@@ -6749,24 +6743,18 @@ class SimulationRunner(Displayed):
         self.close()
 
     @property
-    def closed(self) -> bool:
-        """Return whether the runner, and its backend, are closed.
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the runner, and its backend, are closed.
 
-        Returns
-        -------
-        bool
-            True once :meth:`close` has run.
+        True once :meth:`close` has run.
         """
         return self._closed
 
     @property
-    def backend(self) -> Backend:
-        """Return the backend every run is stepped on.
+    def backend(self) -> Backend:  # numpydoc ignore=RT01
+        """Backend every run is stepped on.
 
-        Returns
-        -------
-        solprop.backends.protocol.Backend
-            The one backend the runner constructed.
+        The one backend the runner constructed.
         """
         return self._backend
 

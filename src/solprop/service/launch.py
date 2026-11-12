@@ -237,13 +237,10 @@ class SlurmResources:
     setup: tuple[str, ...] = field(default=())
 
     @property
-    def brief(self) -> str:
-        """Return the resources in one line, as the window shows them.
+    def brief(self) -> str:  # numpydoc ignore=RT01
+        """The resources in one line, as the window shows them.
 
-        Returns
-        -------
-        str
-            The partition, CPUs, memory, generic resources and time that are set.
+        The partition, CPUs, memory, generic resources and time that are set.
         """
         parts = [
             self.partition,

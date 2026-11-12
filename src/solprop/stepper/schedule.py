@@ -330,69 +330,51 @@ class FixedSchedule:  # numpydoc ignore=PR02
         return cls(lengths, float(starts[0]))
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of steps.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of steps.
 
-        Returns
-        -------
-        int
-            Number of steps.
+        Number of steps.
         """
         return int(self.steps.size)
 
     @property
-    def edges(self) -> Float[np.ndarray, " n_edges"]:
-        """Return the positions the steps start and end at.
+    def edges(self) -> Float[np.ndarray, " n_edges"]:  # numpydoc ignore=RT01
+        """The positions the steps start and end at.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions of shape ``(n_steps + 1,)``, m, accumulated in step order so
-            that they match what a driver marching the schedule would reach.
+        Positions of shape ``(n_steps + 1,)``, m, accumulated in step order so
+        that they match what a driver marching the schedule would reach.
         """
         return self.z_start + np.concatenate(([0.0], np.cumsum(self.steps)))
 
     @property
-    def z_end(self) -> float:
-        """Return the position the last step ends at.
+    def z_end(self) -> float:  # numpydoc ignore=RT01
+        """Position the last step ends at.
 
-        Returns
-        -------
-        float
-            Final position, m.
+        Final position, m.
         """
         return float(self.edges[-1])
 
     @property
-    def total_length(self) -> float:
-        """Return the propagation length the schedule covers.
+    def total_length(self) -> float:  # numpydoc ignore=RT01
+        """Propagation length the schedule covers.
 
-        Returns
-        -------
-        float
-            Length, m.
+        Length, m.
         """
         return self.z_end - self.z_start
 
     @property
-    def max_step(self) -> float:
-        """Return the longest step.
+    def max_step(self) -> float:  # numpydoc ignore=RT01
+        """Longest step.
 
-        Returns
-        -------
-        float
-            Length, m.
+        Length, m.
         """
         return float(self.steps.max())
 
     @property
-    def min_step(self) -> float:
-        """Return the shortest step.
+    def min_step(self) -> float:  # numpydoc ignore=RT01
+        """Shortest step.
 
-        Returns
-        -------
-        float
-            Length, m.
+        Length, m.
         """
         return float(self.steps.min())
 
@@ -615,16 +597,13 @@ class Calibration:
     message: str
 
     @property
-    def ratio(self) -> float:
-        """Return the achieved global error as a multiple of the requested tolerance.
+    def ratio(self) -> float:  # numpydoc ignore=RT01
+        """Achieved global error as a multiple of the requested tolerance.
 
-        Returns
-        -------
-        float
-            ``achieved_error / requested``. It is not 1 and it is not constant: the map
-            from a local tolerance to the global error is problem dependent and misses
-            by one to three orders in either direction, which is the whole reason this
-            is measured rather than assumed.
+        ``achieved_error / requested``. It is not 1 and it is not constant: the map
+        from a local tolerance to the global error is problem dependent and misses
+        by one to three orders in either direction, which is the whole reason this
+        is measured rather than assumed.
         """
         return self.achieved_error / self.requested
 

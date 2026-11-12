@@ -199,46 +199,34 @@ class CallbackOutput:
         self._closed = True
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes the callable has taken.
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes the callable has taken.
 
-        Returns
-        -------
-        int
-            The number of planes.
+        The number of planes.
         """
         return self._n_saved
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened.
 
-        Returns
-        -------
-        RunMetadata or None
-            What produced the planes.
+        What produced the planes.
         """
         return self._metadata
 
     @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored at every plane: none.
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored at every plane: none.
 
-        Returns
-        -------
-        tuple of str
-            Empty, so that nothing asks to read one back.
+        Empty, so that nothing asks to read one back.
         """
         return ()
 
     @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored between planes: none.
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored between planes: none.
 
-        Returns
-        -------
-        tuple of str
-            Empty.
+        Empty.
         """
         return ()
 

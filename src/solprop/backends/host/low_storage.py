@@ -73,13 +73,10 @@ class HostLowStorageMarch:
         self.source_evaluations = 0
 
     @property
-    def engine(self) -> HostLowStorage:
-        """Return the engine that holds the registers.
+    def engine(self) -> HostLowStorage:  # numpydoc ignore=RT01
+        """Engine that holds the registers.
 
-        Returns
-        -------
-        solprop.backends.low_storage.HostLowStorage
-            The host engine.
+        The host engine.
         """
         return self._engine
 

@@ -244,15 +244,12 @@ class ParameterExpansion:
             raise TranslationError(msg)
 
     @property
-    def n_terms(self) -> int:
-        """Return the number of expansion terms.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """Number of expansion terms.
 
-        Returns
-        -------
-        int
-            The length of the flattened multi-index: ``prod(degrees + 1)``, plus
-            ``prod(endpoint_degrees + 1)`` for the appended endpoint block when one is
-            present.
+        The length of the flattened multi-index: ``prod(degrees + 1)``, plus
+        ``prod(endpoint_degrees + 1)`` for the appended endpoint block when one is
+        present.
 
         Examples
         --------
@@ -270,47 +267,35 @@ class ParameterExpansion:
         return int(self.terms.shape[0])
 
     @property
-    def value_shape(self) -> tuple[int, ...]:
-        """Return the shape of one evaluated value.
+    def value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of one evaluated value.
 
-        Returns
-        -------
-        tuple of int
-            The trailing axes of `terms`.
+        The trailing axes of `terms`.
         """
         return tuple(self.terms.shape[1:])
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the range of z the weights cover.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Range of z the weights cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(first breakpoint, last breakpoint)`` in m.
+        ``(first breakpoint, last breakpoint)`` in m.
         """
         return self.weights.z_span
 
     @property
-    def budget_exceeded(self) -> bool:
-        """Return whether the weights' adaptive split ran out of intervals.
+    def budget_exceeded(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the weights' adaptive split ran out of intervals.
 
-        Returns
-        -------
-        bool
-            The flag of the scalar tables; the parameter search itself reports failure
-            by returning ``None`` from :func:`build_expansion` instead.
+        The flag of the scalar tables; the parameter search itself reports failure
+        by returning ``None`` from :func:`build_expansion` instead.
         """
         return self.weights.budget_exceeded
 
     @property
-    def nbytes(self) -> int:
-        """Return the memory the expansion occupies.
+    def nbytes(self) -> int:  # numpydoc ignore=RT01
+        """Memory the expansion occupies.
 
-        Returns
-        -------
-        int
-            Bytes of the terms and of the scalar tables together.
+        Bytes of the terms and of the scalar tables together.
 
         Examples
         --------

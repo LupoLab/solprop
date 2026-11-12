@@ -295,13 +295,10 @@ class BoundaryCheck:
             raise BoundaryError(msg)
 
     @property
-    def edge_budget(self) -> float:
-        """Return the transverse edge's budget: `transverse_budget`, else `budget`.
+    def edge_budget(self) -> float:  # numpydoc ignore=RT01
+        """Transverse edge's budget: `transverse_budget`, else `budget`.
 
-        Returns
-        -------
-        float
-            A field amplitude.
+        A field amplitude.
         """
         return self.budget if self.transverse_budget is None else self.transverse_budget
 
@@ -911,15 +908,12 @@ class BoundaryMonitor:
         self._cap = self.crossing.limit(energies.occupancy)
 
     @property
-    def step_cap(self) -> float:
-        """Return the split collar's crossing limit the last reading gave, m.
+    def step_cap(self) -> float:  # numpydoc ignore=RT01
+        """Split collar's crossing limit the last reading gave, m.
 
         The steps until the next check are held to it; ``inf`` without one.
 
-        Returns
-        -------
-        float
-            The cap, m.
+        The cap, m.
         """
         return self._cap
 
@@ -1106,13 +1100,10 @@ class BoundaryMonitor:
         return max(CADENCE - self._since_check, 1)
 
     @property
-    def checked_at(self) -> float | None:
-        """Return the position of the last check, m, or ``None`` before the first.
+    def checked_at(self) -> float | None:  # numpydoc ignore=RT01
+        """Position of the last check, m, or ``None`` before the first.
 
-        Returns
-        -------
-        float or None
-            Where :meth:`due`'s distance rule measures from.
+        Where :meth:`due`'s distance rule measures from.
         """
         return None if self._last is None else self._last[0]
 
@@ -1136,28 +1127,22 @@ class BoundaryMonitor:
             self._floor_taken += self._floor / self.weights.shape[1] * taken
 
     @property
-    def stale(self) -> bool:
+    def stale(self) -> bool:  # numpydoc ignore=RT01
         """Whether the last committed step went unchecked.
 
-        Returns
-        -------
-        bool
-            True when :meth:`skip` was the last call.
+        True when :meth:`skip` was the last call.
         """
         return self._stale
 
     @property
-    def collar_quiet(self) -> bool:
+    def collar_quiet(self) -> bool:  # numpydoc ignore=RT01
         """Whether the collar's in-stage term may be left out of the next stages.
 
         True only when the run opted in (:attr:`BoundaryCheck.quiet_collar`) and the
         collar held less than :data:`QUIET` of the field's energy, floor included, at
         the last :data:`QUIET_CHECKS` checks.
 
-        Returns
-        -------
-        bool
-            The flag.
+        The flag.
         """
         return self._quiet
 
@@ -1176,18 +1161,15 @@ class BoundaryMonitor:
         self._left_out = left_out
 
     @property
-    def removed(self) -> float:
-        """Return the collar's removal of the launched signal, above the floor's share.
+    def removed(self) -> float:  # numpydoc ignore=RT01
+        """The collar's removal of the launched signal, above the floor's share.
 
         The whole field's removal (``raw_removed_fraction``) less what the input
         noise's floor is expected to lose, which is at most the floor itself: the
         input model puts one floor in at the launch and never adds to it.
         Signed; the record and the warning read it clipped at zero.
 
-        Returns
-        -------
-        float
-            A fraction of the launch energy.
+        A fraction of the launch energy.
         """
         floor = self._floor / self._launch if self._launch > 0.0 else 0.0
         return self._raw_removed - min(self._floor_removed, floor)

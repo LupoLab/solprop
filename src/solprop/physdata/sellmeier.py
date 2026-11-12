@@ -184,24 +184,18 @@ class GasSusceptibility(ABC):
         """
 
     @property
-    def reference_density(self) -> float:
-        """Return the number density at the reference state of the source.
+    def reference_density(self) -> float:  # numpydoc ignore=RT01
+        """Number density at the reference state of the source.
 
-        Returns
-        -------
-        float
-            Number density in m^-3.
+        Number density in m^-3.
         """
         return _reference_density(self.gas, self.reference_state)
 
     @property
-    def absorbing(self) -> bool:
-        """Return whether the model has an imaginary part anywhere.
+    def absorbing(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the model has an imaginary part anywhere.
 
-        Returns
-        -------
-        bool
-            False: a refractivity fit is real by construction.
+        False: a refractivity fit is real by construction.
         """
         return False
 
@@ -649,35 +643,26 @@ class OptmatSusceptibility(GasSusceptibility):
         raise MaterialError(msg)
 
     @property
-    def reference_density(self) -> float:
-        """Return the density of the reference state, the dilute limit.
+    def reference_density(self) -> float:  # numpydoc ignore=RT01
+        """Density of the reference state, the dilute limit.
 
-        Returns
-        -------
-        float
-            0.0 m^-3.
+        0.0 m^-3.
         """
         return 0.0
 
     @property
-    def absorbing(self) -> bool:
-        """Return whether the optmat model carries an imaginary polarizability.
+    def absorbing(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the optmat model carries an imaginary polarizability.
 
-        Returns
-        -------
-        bool
-            The model's own ``absorbing``, or any constituent's for an air model.
+        The model's own ``absorbing``, or any constituent's for an air model.
         """
         return _model_absorbs(self.model)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the optmat model, for a run's manifest.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the optmat model, for a run's manifest.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The dispersion model's identity.
+        The dispersion model's identity.
         """
         return (_optmat.record(self.model),)
 

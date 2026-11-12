@@ -490,13 +490,10 @@ class OptmatRamanResponse(RamanResponse):
         object.__setattr__(self, "source", source)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of optmat's response, for the run's manifest.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of optmat's response, for the run's manifest.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The response's identity, or none for a response without its source.
+        The response's identity, or none for a response without its source.
         """
         return () if self.source is None else (_optmat.record(self.source),)
 

@@ -790,25 +790,19 @@ class TransverseQuadrature:
             raise ModeError(msg)
 
     @property
-    def n_nodes(self) -> int:
-        """Return the number of quadrature nodes.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """Number of quadrature nodes.
 
-        Returns
-        -------
-        int
-            ``n_r * n_theta``.
+        ``n_r * n_theta``.
         """
         return self.n_r * self.n_theta
 
     @property
-    def has_embedded_rule(self) -> bool:
-        """Return whether the coarse weights differ from the fine ones.
+    def has_embedded_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the coarse weights differ from the fine ones.
 
-        Returns
-        -------
-        bool
-            ``True`` when there is a genuine embedded rule, so that the difference of
-            the two projections is an error estimate rather than identically zero.
+        ``True`` when there is a genuine embedded rule, so that the difference of
+        the two projections is an error estimate rather than identically zero.
         """
         fine, coarse = (
             (self.w_r, self.w_r_coarse)

@@ -535,13 +535,10 @@ class RunningIntegral:
         return cls("trapezoid", np.ones(1), boundary="none", exposure="none")
 
     @property
-    def half_width(self) -> int:
-        """Return ``K``, the number of samples the filter reads on each side.
+    def half_width(self) -> int:  # numpydoc ignore=RT01
+        """``K``, the number of samples the filter reads on each side.
 
-        Returns
-        -------
-        int
-            ``len(taps) - 1``; zero for the trapezoid.
+        ``len(taps) - 1``; zero for the trapezoid.
         """
         return self.taps.size - 1
 

@@ -298,46 +298,34 @@ class PlaneSummary(Protocol):
     """
 
     @property
-    def n_steps(self) -> int:
-        """Return the steps taken to reach the plane, accepted and rejected together.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """The steps taken to reach the plane, accepted and rejected together.
 
-        Returns
-        -------
-        int
-            The attempted steps.
+        The attempted steps.
         """
         ...
 
     @property
-    def n_rejected(self) -> int:
-        """Return the rejected steps among them.
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Rejected steps among them.
 
-        Returns
-        -------
-        int
-            The rejected steps.
+        The rejected steps.
         """
         ...
 
     @property
-    def max_norm(self) -> float:
-        """Return the largest scaled error norm over the accepted steps.
+    def max_norm(self) -> float:  # numpydoc ignore=RT01
+        """Largest scaled error norm over the accepted steps.
 
-        Returns
-        -------
-        float
-            The norm; 1 is the tolerance the run asked for.
+        The norm; 1 is the tolerance the run asked for.
         """
         ...
 
     @property
-    def wall_time(self) -> float:
-        """Return the seconds the plane took.
+    def wall_time(self) -> float:  # numpydoc ignore=RT01
+        """The seconds the plane took.
 
-        Returns
-        -------
-        float
-            Wall time, s.
+        Wall time, s.
         """
         ...
 
@@ -868,66 +856,51 @@ class LogReporter:
         self._elapsed_final: float | None = None
 
     @property
-    def n_steps(self) -> int:
-        """Return the attempted steps of the run so far.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Attempted steps of the run so far.
 
-        Returns
-        -------
-        int
-            The larger of the two channels that count: the per-step calls when a driver
-            is attached, and the plane summaries otherwise. Both count every attempted
-            step, so when both are live they agree.
+        The larger of the two channels that count: the per-step calls when a driver
+        is attached, and the plane summaries otherwise. Both count every attempted
+        step, so when both are live they agree.
         """
         return max(self._n_attempts, self._plane_steps)
 
     @property
-    def n_rejected(self) -> int:
-        """Return the rejected steps of the run so far.
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Rejected steps of the run so far.
 
-        Returns
-        -------
-        int
-            Counted from whichever channel is live; see :attr:`n_steps`.
+        Counted from whichever channel is live; see :attr:`n_steps`.
         """
         return max(self._n_rejected, self._plane_rejected)
 
     @property
-    def tolerance_ratio(self) -> float:
-        """Return what the run achieved against what it asked for.
+    def tolerance_ratio(self) -> float:  # numpydoc ignore=RT01
+        """What the run achieved against what it asked for.
 
-        Returns
-        -------
-        float
-            The largest scaled error norm any accepted step scored
-            (:attr:`solprop.stepper.controller.ControlRecord.tolerance_ratio`); 0 before
-            the first plane.
+        The largest scaled error norm any accepted step scored
+        (:attr:`solprop.stepper.controller.ControlRecord.tolerance_ratio`); 0 before
+        the first plane.
         """
         return self._max_norm
 
     @property
-    def eta_error(self) -> float:
-        """Return how far off the reported ETAs were.
+    def eta_error(self) -> float:  # numpydoc ignore=RT01
+        """How far off the reported ETAs were.
 
-        Returns
-        -------
-        float
-            Median absolute relative error of the windowed estimate over every periodic
-            line that published one; NaN before ``finished()``, or when no line did.
+        Median absolute relative error of the windowed estimate over every periodic
+        line that published one; NaN before ``finished()``, or when no line did.
         """
         return self._median_error(0)
 
     @property
-    def eta_error_whole_run(self) -> float:
-        """Return how far off the whole-run estimator would have been.
+    def eta_error_whole_run(self) -> float:  # numpydoc ignore=RT01
+        """How far off the whole-run estimator would have been.
 
         Formed on the same lines as :attr:`eta_error` but never reported, so that the
         two can be compared on every run.
 
-        Returns
-        -------
-        float
-            Median absolute relative error of the whole-run estimate; NaN as for
-            :attr:`eta_error`.
+        Median absolute relative error of the whole-run estimate; NaN as for
+        :attr:`eta_error`.
         """
         return self._median_error(1)
 
@@ -1385,13 +1358,10 @@ class BarReporter(LogReporter):
         self._swapped: list[tuple[logging.Logger, list[logging.Handler]]] = []
 
     @property
-    def bar(self) -> Any:
-        """Return the tqdm instance while the bar is up, else ``None``.
+    def bar(self) -> Any:  # numpydoc ignore=RT01
+        """Tqdm instance while the bar is up, else ``None``.
 
-        Returns
-        -------
-        tqdm.tqdm or None
-            The bar, for a parent placing its own beside it.
+        The bar, for a parent placing its own beside it.
         """
         return self._bar
 

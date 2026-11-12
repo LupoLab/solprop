@@ -227,13 +227,10 @@ class SessionFacts:
         )
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the in-place step a failure left in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """In-place step a failure left in flight, or ``None``.
 
-        Returns
-        -------
-        tuple or None
-            Where the step started and its length, m, as the session reports it.
+        Where the step started and its length, m, as the session reports it.
         """
         return getattr(self._session, "in_flight", None)
 

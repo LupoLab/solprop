@@ -417,14 +417,11 @@ class OptmatRate:
         return self.source
 
     @property
-    def optmat_model(self) -> _optmat.Untyped:
-        """Return the optmat rate model the adapter evaluates.
+    def optmat_model(self) -> _optmat.Untyped:  # numpydoc ignore=RT01
+        """Optmat rate model the adapter evaluates.
 
-        Returns
-        -------
-        Any
-            The model, for direct comparison with its own methods. Typed loosely, as
-            the bridge types every optmat object (``solprop.physdata._optmat``).
+        The model, for direct comparison with its own methods. Typed loosely, as
+        the bridge types every optmat object (``solprop.physdata._optmat``).
         """
         return self._model()
 
@@ -595,26 +592,20 @@ class OptmatRate:
         )
 
     @property
-    def threshold(self) -> float:
-        """Return the field amplitude below which the rate is exactly zero.
+    def threshold(self) -> float:  # numpydoc ignore=RT01
+        """Field amplitude below which the rate is exactly zero.
 
-        Returns
-        -------
-        float
-            Field in V/m at which optmat's rate reaches `negligible_rate`, to a
-            relative 1e-12 from above.
+        Field in V/m at which optmat's rate reaches `negligible_rate`, to a
+        relative 1e-12 from above.
         """
         return self._threshold
 
     @property
-    def citation(self) -> str:
-        """Return the model's references and the adapter's settings.
+    def citation(self) -> str:  # numpydoc ignore=RT01
+        """The model's references and the adapter's settings.
 
-        Returns
-        -------
-        str
-            The model's citation as optmat gives it, its name and digest, the
-            threshold and the energy convention.
+        The model's citation as optmat gives it, its name and digest, the
+        threshold and the energy convention.
         """
         record = self.material_records[0]
         reference = (
@@ -630,14 +621,13 @@ class OptmatRate:
         )
 
     @property
-    def parameters(self) -> tuple[tuple[str, float | int | bool | str], ...]:
-        """Return every setting that changes the rate, name-sorted and hashable.
+    def parameters(
+        self,
+    ) -> tuple[tuple[str, float | int | bool | str], ...]:  # numpydoc ignore=RT01
+        """Every setting that changes the rate, name-sorted and hashable.
 
-        Returns
-        -------
-        tuple
-            The model's identity digest, the species, the carrier, the threshold and
-            its negligible rate, the ceiling and the energy convention.
+        The model's identity digest, the species, the carrier, the threshold and
+        its negligible rate, the ceiling and the energy convention.
         """
         settings: dict[str, float | int | bool | str] = {
             "model": "optmat-rate",
@@ -652,140 +642,104 @@ class OptmatRate:
         return tuple(sorted(settings.items()))
 
     @property
-    def convention(self) -> RateConvention:
-        """Return the optical-cycle convention of the rate.
+    def convention(self) -> RateConvention:  # numpydoc ignore=RT01
+        """Optical-cycle convention of the rate.
 
-        Returns
-        -------
-        str
-            ``'instantaneous-isotropic'``: optmat's instantaneous rate of the field's
-            magnitude, which an envelope averages over the polarisation ellipse.
+        ``'instantaneous-isotropic'``: optmat's instantaneous rate of the field's
+        magnitude, which an envelope averages over the polarisation ellipse.
         """
         return "instantaneous-isotropic"
 
     @property
-    def species_identity(self) -> str:
-        """Return the species the model describes.
+    def species_identity(self) -> str:  # numpydoc ignore=RT01
+        """The species the model describes.
 
-        Returns
-        -------
-        str
-            The gas's name, or a custom species' name as its model gives it.
+        The gas's name, or a custom species' name as its model gives it.
         """
         gas = self._model().gas
         return str(getattr(gas, "value", gas))
 
     @property
-    def ionisation_potential(self) -> float:
-        """Return the constant energy per ionisation event the plasma loss pays.
+    def ionisation_potential(self) -> float:  # numpydoc ignore=RT01
+        """Constant energy per ionisation event the plasma loss pays.
 
-        Returns
-        -------
-        float
-            The rate-weighted energy at the reference field, in J, or the
-            weak-field limit without one.
+        The rate-weighted energy at the reference field, in J, or the
+        weak-field limit without one.
         """
         return self._energy
 
     @property
-    def plasma_energy(self) -> float:
-        """Return the energy per event a plasma response pays, the same constant.
+    def plasma_energy(self) -> float:  # numpydoc ignore=RT01
+        """Energy per event a plasma response pays, the same constant.
 
-        Returns
-        -------
-        float
-            :attr:`ionisation_potential`, J; declaring it is what makes a response
-            take it (:func:`solprop.nonlinear.ionisation.bind_rate_energy`).
+        :attr:`ionisation_potential`, J; declaring it is what makes a response
+        take it (:func:`solprop.nonlinear.ionisation.bind_rate_energy`).
         """
         return self._energy
 
     @property
-    def energy_bound(self) -> float:
-        """Return the bound of the constant energy over the span it is defined on.
+    def energy_bound(self) -> float:  # numpydoc ignore=RT01
+        """Bound of the constant energy over the span it is defined on.
 
-        Returns
-        -------
-        float
-            ``max |I(E) / I_ref - 1|`` over the tabulated fields above the threshold
-            (:attr:`energy_span`), dimensionless; zero for a one-channel model.
+        ``max |I(E) / I_ref - 1|`` over the tabulated fields above the threshold
+        (:attr:`energy_span`), dimensionless; zero for a one-channel model.
         """
         return self._bound
 
     @property
-    def energy_span(self) -> tuple[float, float]:
-        """Return the fields the bound is taken over.
+    def energy_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """The fields the bound is taken over.
 
-        Returns
-        -------
-        tuple of float
-            Lowest and highest field in V/m.
+        Lowest and highest field in V/m.
         """
         return self._span
 
     @property
-    def effective_reference_field(self) -> float | None:
-        """Return the field the constant energy is taken at, after clipping.
+    def effective_reference_field(self) -> float | None:  # numpydoc ignore=RT01
+        """Field the constant energy is taken at, after clipping.
 
-        Returns
-        -------
-        float or None
-            Field in V/m, or ``None`` for the weak-field limit.
+        Field in V/m, or ``None`` for the weak-field limit.
         """
         return self._reference
 
     @property
-    def energy_kind(self) -> str:
-        """Return the kind of the energies the rate's exponent uses.
+    def energy_kind(self) -> str:  # numpydoc ignore=RT01
+        """Kind of the energies the rate's exponent uses.
 
-        Returns
-        -------
-        str
-            ``'adiabatic'``, ``'vertical'`` or ``'not stated'``, as optmat states it.
+        ``'adiabatic'``, ``'vertical'`` or ``'not stated'``, as optmat states it.
         """
         return str(self._model().energy_kind)
 
     @property
-    def status(self) -> str:
-        """Return the model's optmat status.
+    def status(self) -> str:  # numpydoc ignore=RT01
+        """The model's optmat status.
 
-        Returns
-        -------
-        str
-            ``'validated'``, ``'provisional'``, ``'untested'``, ``'comparison'`` or
-            ``'user'``.
+        ``'validated'``, ``'provisional'``, ``'untested'``, ``'comparison'`` or
+        ``'user'``.
         """
         return self.material_records[0].status
 
     @property
-    def maximum_field(self) -> float:
-        """Return the largest field at which optmat gives the rate without a warning.
+    def maximum_field(self) -> float:  # numpydoc ignore=RT01
+        """Largest field at which optmat gives the rate without a warning.
 
-        Returns
-        -------
-        float
-            Field in V/m.
+        Field in V/m.
         """
         return float(self._model().maximum_field)
 
     @property
-    def uncertainty_factor(self) -> float:
-        """Return the factor within which optmat expects the rate to be right.
+    def uncertainty_factor(self) -> float:  # numpydoc ignore=RT01
+        """Factor within which optmat expects the rate to be right.
 
-        Returns
-        -------
-        float
-            Dimensionless; NaN for a literature form or an override, which state none.
+        Dimensionless; NaN for a literature form or an override, which state none.
         """
         return float(self._model().uncertainty_factor)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the optmat model.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the optmat model.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            One record.
+        One record.
         """
         return (cast("MaterialRecord", self._record),)
 

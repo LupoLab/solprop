@@ -268,13 +268,10 @@ class Transform:
             raise TranslationError(msg)
 
     @property
-    def n_modes(self) -> int:
-        """Return the number of modes the transform carries.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """Number of modes the transform carries.
 
-        Returns
-        -------
-        int
-            The width of ``synthesis``.
+        The width of ``synthesis``.
 
         Examples
         --------
@@ -293,14 +290,11 @@ class Transform:
         )
 
     @property
-    def n_nodes(self) -> int:
-        """Return the number of quadrature nodes, one for a mode-averaged run.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """Number of quadrature nodes, one for a mode-averaged run.
 
-        Returns
-        -------
-        int
-            ``synthesis.shape[0] // n_pol``; the rows carry node and polarisation
-            together, so this divides the stored rows rather than guessing.
+        ``synthesis.shape[0] // n_pol``; the rows carry node and polarisation
+        together, so this divides the stored rows rather than guessing.
 
         Examples
         --------
@@ -319,15 +313,12 @@ class Transform:
         )
 
     @property
-    def n_pol(self) -> int:
-        """Return the transverse components the transform resolves at each node.
+    def n_pol(self) -> int:  # numpydoc ignore=RT01
+        """Transverse components the transform resolves at each node.
 
-        Returns
-        -------
-        int
-            1 when the rows of `synthesis` are one component per node -- a scalar run,
-            or the mode-averaged case -- and 2 when both Cartesian components are
-            carried, which is the polarisation-resolved multimode set.
+        1 when the rows of `synthesis` are one component per node -- a scalar run,
+        or the mode-averaged case -- and 2 when both Cartesian components are
+        carried, which is the polarisation-resolved multimode set.
 
         Examples
         --------
@@ -342,17 +333,14 @@ class Transform:
         return self._n_pol
 
     @property
-    def mode_averaged(self) -> bool:
-        """Return whether this is the effective-area case.
+    def mode_averaged(self) -> bool:  # numpydoc ignore=RT01
+        """Whether this is the effective-area case.
 
         Read from the stored `kind`, never inferred from the node count: a one-node
         quadrature (SEP 19's field-scale rule at ``n_r=1``) is an ordinary modal
         transform, and a general modal guide's placeholder column is not a node.
 
-        Returns
-        -------
-        bool
-            ``True`` when ``kind == "mode_averaged"``.
+        ``True`` when ``kind == "mode_averaged"``.
 
         Examples
         --------

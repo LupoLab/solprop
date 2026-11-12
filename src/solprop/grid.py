@@ -430,68 +430,50 @@ class RadialGrid(Displayed):
         self.validate()
 
     @property
-    def outer_radius(self) -> float:
-        """Return the Dirichlet boundary: the aperture with its collar's room.
+    def outer_radius(self) -> float:  # numpydoc ignore=RT01
+        """Dirichlet boundary: the aperture with its collar's room.
 
-        Returns
-        -------
-        float
-            ``radius * (1 + collar_fraction)``, m.
+        ``radius * (1 + collar_fraction)``, m.
         """
         return self.radius * (1.0 + self.collar_fraction)
 
     @property
-    def r(self) -> Float[np.ndarray, " n_r"]:
-        """Return the positive interior radial samples.
+    def r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Positive interior radial samples.
 
-        Returns
-        -------
-        numpy.ndarray
-            Radii in m, shape ``(n_r,)``; zero and the outer boundary are excluded.
+        Radii in m, shape ``(n_r,)``; zero and the outer boundary are excluded.
         """
         return self.hankel.r
 
     @property
-    def k_r(self) -> Float[np.ndarray, " n_r"]:
-        """Return the transverse spectral samples.
+    def k_r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Transverse spectral samples.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positive angular frequencies in rad/m, shape ``(n_r,)``.
+        Positive angular frequencies in rad/m, shape ``(n_r,)``.
         """
         return self.hankel.k_r
 
     @property
-    def radial_weights(self) -> Float[np.ndarray, " n_r"]:
-        """Return the quadrature weights of the transverse area integral.
+    def radial_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Quadrature weights of the transverse area integral.
 
-        Returns
-        -------
-        numpy.ndarray
-            Weights of ``2*pi*r*dr``, in m^2, shape ``(n_r,)``.
+        Weights of ``2*pi*r*dr``, in m^2, shape ``(n_r,)``.
         """
         return self.hankel.radial_weights
 
     @property
-    def spectral_weights(self) -> Float[np.ndarray, " n_r"]:
-        """Return the quadrature weights of the transverse spectral integral.
+    def spectral_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Quadrature weights of the transverse spectral integral.
 
-        Returns
-        -------
-        numpy.ndarray
-            Weights of ``2*pi*k_r*dk_r``, in m^-2, shape ``(n_r,)``.
+        Weights of ``2*pi*k_r*dk_r``, in m^-2, shape ``(n_r,)``.
         """
         return self.hankel.spectral_weights
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of transverse spectral columns.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of transverse spectral columns.
 
-        Returns
-        -------
-        int
-            The radial sample count.
+        The radial sample count.
         """
         return self.n_r
 
@@ -727,13 +709,10 @@ class FreeGrid(Displayed):
         self.validate()
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of flattened transverse spectral columns.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of flattened transverse spectral columns.
 
-        Returns
-        -------
-        int
-            ``n_x*n_y``.
+        ``n_x*n_y``.
         """
         return self.n_x * self.n_y
 
@@ -921,14 +900,11 @@ class LineGrid(FreeGrid):
         )
 
     @property
-    def transverse_measure(self) -> Literal["per_unit_width"]:
-        """Return what the grid's transverse integrals measure.
+    def transverse_measure(self) -> Literal["per_unit_width"]:  # numpydoc ignore=RT01
+        """What the grid's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"``: energies are J/m and powers W/m, per metre of y
-            (:data:`solprop.modes.protocol.TransverseMeasure`).
+        ``"per_unit_width"``: energies are J/m and powers W/m, per metre of y
+        (:data:`solprop.modes.protocol.TransverseMeasure`).
         """
         return "per_unit_width"
 
@@ -995,24 +971,18 @@ class Collar:
     zero_high: float
 
     @property
-    def width_low(self) -> float:
-        """Return the width of the rising edge, in the collar's own units.
+    def width_low(self) -> float:  # numpydoc ignore=RT01
+        """Width of the rising edge, in the collar's own units.
 
-        Returns
-        -------
-        float
-            The distance from ``zero_low`` to ``one_low``.
+        The distance from ``zero_low`` to ``one_low``.
         """
         return self.one_low - self.zero_low
 
     @property
-    def width_high(self) -> float:
-        """Return the width of the falling edge, in the collar's own units.
+    def width_high(self) -> float:  # numpydoc ignore=RT01
+        """Width of the falling edge, in the collar's own units.
 
-        Returns
-        -------
-        float
-            The distance from ``one_high`` to ``zero_high``.
+        The distance from ``one_high`` to ``zero_high``.
         """
         return self.zero_high - self.one_high
 
@@ -1318,70 +1288,52 @@ class TimeGrid(Displayed):
     # --- sizes ---------------------------------------------------------------------
 
     @property
-    def n_t(self) -> int:
-        """Return the number of coarse time samples.
+    def n_t(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse time samples.
 
-        Returns
-        -------
-        int
-            The length of ``t``.
+        The length of ``t``.
         """
         return self.t.size
 
     @property
-    def n_to(self) -> int:
-        """Return the number of fine time samples.
+    def n_to(self) -> int:  # numpydoc ignore=RT01
+        """Number of fine time samples.
 
-        Returns
-        -------
-        int
-            The length of ``t_fine``.
+        The length of ``t_fine``.
         """
         return self.t_fine.size
 
     @property
-    def n_omega(self) -> int:
-        """Return the number of coarse spectral bins.
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse spectral bins.
 
-        Returns
-        -------
-        int
-            The length of ``omega``.
+        The length of ``omega``.
         """
         return self.omega.size
 
     @property
-    def n_omega_fine(self) -> int:
-        """Return the number of fine spectral bins.
+    def n_omega_fine(self) -> int:  # numpydoc ignore=RT01
+        """Number of fine spectral bins.
 
-        Returns
-        -------
-        int
-            The length of ``omega_fine``.
+        The length of ``omega_fine``.
         """
         return self.omega_fine.size
 
     # --- frequencies ---------------------------------------------------------------
 
     @property
-    def omega0(self) -> float:
-        """Return the reference angular frequency, rad/s.
+    def omega0(self) -> float:  # numpydoc ignore=RT01
+        """Reference angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            ``2 pi c / reference_wavelength``.
+        ``2 pi c / reference_wavelength``.
         """
         return 2.0 * np.pi * C / self.reference_wavelength
 
     @property
-    def d_omega(self) -> float:
-        """Return the spectral bin spacing, rad/s.
+    def d_omega(self) -> float:  # numpydoc ignore=RT01
+        """Spectral bin spacing, rad/s.
 
-        Returns
-        -------
-        float
-            ``2 pi / (n_to dt_fine)``, the same on the coarse and the fine grid.
+        ``2 pi / (n_to dt_fine)``, the same on the coarse and the fine grid.
         """
         # The axes are built from the fine window, and dt = dt_fine (n_to // n_t) is
         # rounded, so 2 pi / (n_t dt) can differ from this in the last place on a grid
@@ -1389,137 +1341,104 @@ class TimeGrid(Displayed):
         return 2.0 * np.pi / (self.n_to * self.dt_fine)
 
     @property
-    def omega_min(self) -> float:
-        """Return the lowest in-band angular frequency, rad/s.
+    def omega_min(self) -> float:  # numpydoc ignore=RT01
+        """Lowest in-band angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of the longest requested wavelength.
+        The frequency of the longest requested wavelength.
         """
         return self.omega_collar.one_low
 
     @property
-    def omega_max(self) -> float:
-        """Return the highest in-band angular frequency, rad/s.
+    def omega_max(self) -> float:  # numpydoc ignore=RT01
+        """Highest in-band angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of the shortest requested wavelength.
+        The frequency of the shortest requested wavelength.
         """
         return self.omega_collar.one_high
 
     @property
-    def omega_max_window(self) -> float:
-        """Return the upper edge of the apodised frequency window, rad/s.
+    def omega_max_window(self) -> float:  # numpydoc ignore=RT01
+        """Upper edge of the apodised frequency window, rad/s.
 
-        Returns
-        -------
-        float
-            ``1.1 omega_max``, where the spectral collar reaches zero.
+        ``1.1 omega_max``, where the spectral collar reaches zero.
         """
         return self.omega_collar.zero_high
 
     # --- masks and windows -----------------------------------------------------------
 
     @property
-    def active_mask(self) -> Bool[np.ndarray, " n_omega"]:
-        """Return the bins where the physics lives, inside the apodised window.
+    def active_mask(self) -> Bool[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """The bins where the physics lives, inside the apodised window.
 
         The dispersion relation, the noise and the error norm are
         evaluated here and nowhere else.
 
-        Returns
-        -------
-        numpy.ndarray
-            Boolean mask over the coarse frequency axis, shape ``(n_omega,)``.
+        Boolean mask over the coarse frequency axis, shape ``(n_omega,)``.
         """
         return (self.omega > 0.5 * self.omega_min) & (
             self.omega < self.omega_max_window
         )
 
     @property
-    def inband_mask(self) -> Bool[np.ndarray, " n_omega"]:
-        """Return the bins inside the requested wavelength limits.
+    def inband_mask(self) -> Bool[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """The bins inside the requested wavelength limits.
 
-        Returns
-        -------
-        numpy.ndarray
-            Boolean mask over the coarse frequency axis, shape ``(n_omega,)``, true
-            where ``omega_min <= omega <= omega_max``.
+        Boolean mask over the coarse frequency axis, shape ``(n_omega,)``, true
+        where ``omega_min <= omega <= omega_max``.
         """
         return (self.omega >= self.omega_min) & (self.omega <= self.omega_max)
 
     @property
-    def omega_window(self) -> Float[np.ndarray, " n_omega"]:
-        """Return the spectral collar profile on the coarse frequency axis.
+    def omega_window(self) -> Float[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """Spectral collar profile on the coarse frequency axis.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_omega,)``, equal to 1 in band.
+        Window values in ``[0, 1]``, shape ``(n_omega,)``, equal to 1 in band.
         """
         return self.omega_collar.window(self.omega)
 
     @property
-    def t_window(self) -> Float[np.ndarray, " n_t"]:
-        """Return the temporal collar profile on the coarse time axis.
+    def t_window(self) -> Float[np.ndarray, " n_t"]:  # numpydoc ignore=RT01
+        """Temporal collar profile on the coarse time axis.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_t,)``, equal to 1 inside the window.
+        Window values in ``[0, 1]``, shape ``(n_t,)``, equal to 1 inside the window.
         """
         return self.t_collar.window(self.t)
 
     @property
-    def t_window_fine(self) -> Float[np.ndarray, " n_to"]:
-        """Return the temporal collar profile on the fine time axis.
+    def t_window_fine(self) -> Float[np.ndarray, " n_to"]:  # numpydoc ignore=RT01
+        """Temporal collar profile on the fine time axis.
 
         Both temporal windows come from the one collar geometry, so the coarse and fine
         apodisations agree exactly wherever their samples coincide, rather than each
         window being built from its own axis's extremes, which differ at the upper edge.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_to,)``, 1 inside the window.
+        Window values in ``[0, 1]``, shape ``(n_to,)``, 1 inside the window.
         """
         return self.t_collar.window(self.t_fine)
 
     # --- oversampling -----------------------------------------------------------------
 
     @property
-    def crop_index(self) -> np.ndarray:
-        """Return the positions of the coarse spectral bins inside the fine spectrum.
+    def crop_index(self) -> np.ndarray:  # numpydoc ignore=RT01
+        """The positions of the coarse spectral bins inside the fine spectrum.
 
-        Returns
-        -------
-        numpy.ndarray
-            Index array of ``numpy.intp``, shape ``(n_omega,)``.
+        Index array of ``numpy.intp``, shape ``(n_omega,)``.
         """
         return fourier.crop_index(self.n_t, self.n_to, kind=self.kind)
 
     @property
-    def pad_scale(self) -> float:
-        """Return the factor applied when padding the coarse spectrum out.
+    def pad_scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor applied when padding the coarse spectrum out.
 
-        Returns
-        -------
-        float
-            ``n_to / n_t``.
+        ``n_to / n_t``.
         """
         return fourier.pad_scale(self.n_t, self.n_to)
 
     @property
-    def crop_scale(self) -> float:
-        """Return the factor applied when cropping the fine spectrum back.
+    def crop_scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor applied when cropping the fine spectrum back.
 
-        Returns
-        -------
-        float
-            ``n_t / n_to``.
+        ``n_t / n_to``.
         """
         return fourier.crop_scale(self.n_t, self.n_to)
 

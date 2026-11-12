@@ -1144,48 +1144,36 @@ class StepIndexMode(Displayed):
         return result
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether the radius path is constant.
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the radius path is constant.
 
-        Returns
-        -------
-        bool
-            True if the radius path is constant.
+        True if the radius path is constant.
         """
         return self.core_radius.is_constant
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return whether the transverse geometry is constant along z.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the transverse geometry is constant along z.
 
-        Returns
-        -------
-        bool
-            True if the geometry is fixed along z.
+        True if the geometry is fixed along z.
         """
         return self.core_radius.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return False because changing the radius changes the normalised frequency.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """False because changing the radius changes the normalised frequency.
 
-        Returns
-        -------
-        bool
-            False, since V changes with core radius.
+        False, since V changes with core radius.
         """
         return False
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the exact vector family, its indices and its parity.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Exact vector family, its indices and its parity.
 
-        Returns
-        -------
-        ChannelLabel
-            Family, azimuthal and radial order, and the hybrid parity. An axially
-            symmetric TE0m or TM0m channel has no parity partner, so its parity is
-            ``None`` rather than the orientation its constructor defaulted to.
+        Family, azimuthal and radial order, and the hybrid parity. An axially
+        symmetric TE0m or TM0m channel has no parity partner, so its parity is
+        ``None`` rather than the orientation its constructor defaulted to.
 
         Examples
         --------
@@ -1205,13 +1193,10 @@ class StepIndexMode(Displayed):
         )
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the azimuthal mode index n.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Azimuthal mode index n.
 
-        Returns
-        -------
-        int
-            The mode index n, dimensionless.
+        The mode index n, dimensionless.
         """
         return self.n
 
@@ -1231,26 +1216,20 @@ class StepIndexMode(Displayed):
         del z
 
     @property
-    def orthogonal_polarisation(self) -> "StepIndexMode | None":
-        """Return the other hybrid parity, or None for TE and TM.
+    def orthogonal_polarisation(self) -> "StepIndexMode | None":  # numpydoc ignore=RT01
+        """Other hybrid parity, or None for TE and TM.
 
-        Returns
-        -------
-        StepIndexMode or None
-            Opposite hybrid parity; None for TE and TM.
+        Opposite hybrid parity; None for TE and TM.
         """
         if self.n == 0:
             return None
         return replace(self, parity="odd" if self.parity == "even" else "even")
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the core-radius path carrying the entire z dependence.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """The core-radius path carrying the entire z dependence.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            The core_radius path in m.
+        The core_radius path in m.
         """
         return MappingProxyType({"core_radius": self.core_radius})
 

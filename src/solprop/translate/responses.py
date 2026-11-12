@@ -541,13 +541,10 @@ class DispersiveKerrTerms:
             )
 
     @property
-    def n_channels(self) -> int:
-        """Return the number of species channels.
+    def n_channels(self) -> int:  # numpydoc ignore=RT01
+        """Number of species channels.
 
-        Returns
-        -------
-        int
-            One per labelled population with a dispersive response.
+        One per labelled population with a dispersive response.
         """
         return len(self.labels)
 
@@ -1164,13 +1161,10 @@ class RamanCoefficients:
             raise TranslationError(msg)
 
     @property
-    def n_terms(self) -> int:
-        """Return the number of independently damped terms.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """Number of independently damped terms.
 
-        Returns
-        -------
-        int
-            The number of kernel rows, which is also the number of decay-rate tables.
+        The number of kernel rows, which is also the number of decay-rate tables.
         """
         return int(self.undamped.shape[0])
 
@@ -1269,37 +1263,28 @@ class RegionalResponseTables(Displayed):
     policy_id: str
 
     @property
-    def n_responses(self) -> int:
-        """Return how many responses the record assigns.
+    def n_responses(self) -> int:  # numpydoc ignore=RT01
+        """How many responses the record assigns.
 
-        Returns
-        -------
-        int
-            The length of ``response_region``.
+        The length of ``response_region``.
         """
         return int(self.response_region.size)
 
     @property
-    def n_components(self) -> int:
-        """Return how many Cartesian components each tensor contracts over.
+    def n_components(self) -> int:  # numpydoc ignore=RT01
+        """How many Cartesian components each tensor contracts over.
 
-        Returns
-        -------
-        int
-            At least one and at most
-            :data:`solprop.translate.problem.MAX_N_COMPONENTS`.
+        At least one and at most
+        :data:`solprop.translate.problem.MAX_N_COMPONENTS`.
         """
         return int(self.instantaneous_tensor.shape[1])
 
     @property
-    def n_terms(self) -> int:
-        """Return how many delayed terms each response carries.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """How many delayed terms each response carries.
 
-        Returns
-        -------
-        int
-            Zero for a purely instantaneous response, two for the silica tensor
-            Raman model's trace and rank-two channels.
+        Zero for a purely instantaneous response, two for the silica tensor
+        Raman model's trace and rank-two channels.
         """
         return int(self.delayed_tensor.shape[1])
 
@@ -1940,14 +1925,11 @@ class CompiledResponses:
             raise TranslationError(msg)
 
     @property
-    def harmonic_carrier(self) -> bool:
-        """Return whether the pass needs ``grids.carrier_2w0``.
+    def harmonic_carrier(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the pass needs ``grids.carrier_2w0``.
 
-        Returns
-        -------
-        bool
-            True when an envelope grid's constant Kerr term radiates the harmonic, or
-            its dispersive term keeps the full cubic.
+        True when an envelope grid's constant Kerr term radiates the harmonic, or
+        its dispersive term keeps the full cubic.
         """
         kerr = self.kerr_coefficients
         dispersive = self.dispersive_kerr
@@ -1956,15 +1938,12 @@ class CompiledResponses:
         )
 
     @property
-    def electronic_thg(self) -> bool | None:
-        """Return the field grid's harmonic form, read off the electronic term.
+    def electronic_thg(self) -> bool | None:  # numpydoc ignore=RT01
+        """Field grid's harmonic form, read off the electronic term.
 
-        Returns
-        -------
-        bool or None
-            Whether the electronic cubic keeps the third harmonic on a field grid --
-            the constant Kerr term's real cubic, or the dispersive term's full
-            sector -- or ``None`` with no electronic term.
+        Whether the electronic cubic keeps the third harmonic on a field grid --
+        the constant Kerr term's real cubic, or the dispersive term's full
+        sector -- or ``None`` with no electronic term.
         """
         if self.kerr_coefficients is not None:
             return not self.kerr_coefficients.analytic_signal
@@ -1973,25 +1952,21 @@ class CompiledResponses:
         return None
 
     @property
-    def n_species(self) -> int:
-        """Return the number of labelled populations.
+    def n_species(self) -> int:  # numpydoc ignore=RT01
+        """Number of labelled populations.
 
-        Returns
-        -------
-        int
-            Length of the species axis, including inactive populations.
+        Length of the species axis, including inactive populations.
         """
         return len(self.labels)
 
     @property
-    def population_channels(self) -> tuple[PlasmaChannel | EnvelopePlasmaChannel, ...]:
-        """Return labelled population channels in material order.
+    def population_channels(
+        self,
+    ) -> tuple[PlasmaChannel | EnvelopePlasmaChannel, ...]:  # numpydoc ignore=RT01
+        """Labelled population channels in material order.
 
-        Returns
-        -------
-        tuple
-            Field channels or envelope channels. Their stage density and initial
-            population paths share the same scalar packing order.
+        Field channels or envelope channels. Their stage density and initial
+        population paths share the same scalar packing order.
         """
         return (
             self.plasma_channels
@@ -2000,24 +1975,18 @@ class CompiledResponses:
         )
 
     @property
-    def plasma_coefficients(self) -> PlasmaChannel | None:
-        """Return the one-channel leaf for the original specialised execution path.
+    def plasma_coefficients(self) -> PlasmaChannel | None:  # numpydoc ignore=RT01
+        """One-channel leaf for the original specialised execution path.
 
-        Returns
-        -------
-        PlasmaChannel or None
-            The sole channel, or ``None`` when there are zero or multiple channels.
+        The sole channel, or ``None`` when there are zero or multiple channels.
         """
         return self.plasma_channels[0] if len(self.plasma_channels) == 1 else None
 
     @property
-    def raman_coefficients(self) -> RamanCoefficients | None:
-        """Return the one-component Raman leaf for its original arithmetic.
+    def raman_coefficients(self) -> RamanCoefficients | None:  # numpydoc ignore=RT01
+        """One-component Raman leaf for its original arithmetic.
 
-        Returns
-        -------
-        RamanCoefficients or None
-            The sole component, or ``None`` when there are zero or multiple terms.
+        The sole component, or ``None`` when there are zero or multiple terms.
         """
         return self.raman_terms[0] if len(self.raman_terms) == 1 else None
 
@@ -2063,13 +2032,10 @@ class CompiledResponses:
             raise TranslationError(msg)
 
     @property
-    def prefactor_value_shape(self) -> tuple[int, ...]:
-        """Return the shape of the prefactor at one position.
+    def prefactor_value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of the prefactor at one position.
 
-        Returns
-        -------
-        tuple of int
-            ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
+        ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
         """
         if self.separable is not None:
             return self.separable.value_shape[1:]
@@ -2080,13 +2046,10 @@ class CompiledResponses:
         return cast("PiecewiseChebyshev", self.prefactor).value_shape
 
     @property
-    def prefactor_span(self) -> tuple[float, float]:
-        """Return the range of z the prefactor covers.
+    def prefactor_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Range of z the prefactor covers.
 
-        Returns
-        -------
-        tuple of float
-            ``(first breakpoint, last breakpoint)`` in m, the same as ``Phi``'s.
+        ``(first breakpoint, last breakpoint)`` in m, the same as ``Phi``'s.
         """
         if self.separable is not None:
             return self.separable.z_span

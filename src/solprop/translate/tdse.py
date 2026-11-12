@@ -163,24 +163,18 @@ class AtomicWindowRecord:
     gate: tuple[float, float, float, float]
 
     @property
-    def samples(self) -> int:
-        """Return the number of retained samples ``last - first + 1``.
+    def samples(self) -> int:  # numpydoc ignore=RT01
+        """Number of retained samples ``last - first + 1``.
 
-        Returns
-        -------
-        int
-            Atomic samples passed to the provider.
+        Atomic samples passed to the provider.
         """
         return self.last - self.first + 1
 
     @property
-    def atomic_duration(self) -> float:
-        """Return the realised atomic duration ``t_e - t_s``.
+    def atomic_duration(self) -> float:  # numpydoc ignore=RT01
+        """Realised atomic duration ``t_e - t_s``.
 
-        Returns
-        -------
-        float
-            Duration in s, compared with a preset's tested window.
+        Duration in s, compared with a preset's tested window.
         """
         return self.t_e - self.t_s
 
@@ -565,49 +559,37 @@ class TDSEDescriptor:
             )
 
     @property
-    def gated(self) -> bool:
-        """Return whether the source is gated and edge-free (SEP 26).
+    def gated(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the source is gated and edge-free (SEP 26).
 
-        Returns
-        -------
-        bool
-            True for the native closure, whose remainder current is gated by the
-            window or grid collar with the edge term removed; False for the cubic
-            replacements, whose sources are never gated.
+        True for the native closure, whose remainder current is gated by the
+        window or grid collar with the edge term removed; False for the cubic
+        replacements, whose sources are never gated.
         """
         return self.kerr_model == "tdse_native"
 
     @property
-    def model(self) -> TDSEModel:
-        """Return the atomic model family recorded in the configuration.
+    def model(self) -> TDSEModel:  # numpydoc ignore=RT01
+        """Atomic model family recorded in the configuration.
 
-        Returns
-        -------
-        {'sae', 'hacc'}
-            The recorded ``response.model``.
+        The recorded ``response.model``.
         """
         return self.response.model
 
     @property
-    def response(self) -> TDSEGasResponse:
-        """Return the revalidated scientific response this descriptor carries.
+    def response(self) -> TDSEGasResponse:  # numpydoc ignore=RT01
+        """Revalidated scientific response this descriptor carries.
 
-        Returns
-        -------
-        TDSEGasResponse
-            Reconstructed record; its consistency policy is the default, because
-            policy never enters a descriptor.
+        Reconstructed record; its consistency policy is the default, because
+        policy never enters a descriptor.
         """
         return _cached_response(self.configuration_json)
 
     @property
-    def atomic_window(self) -> AtomicWindowRecord | None:
-        """Return the resolved atomic window, or None for the full lattice.
+    def atomic_window(self) -> AtomicWindowRecord | None:  # numpydoc ignore=RT01
+        """Resolved atomic window, or None for the full lattice.
 
-        Returns
-        -------
-        AtomicWindowRecord or None
-            Sample range, endpoint times and gate breakpoints in s.
+        Sample range, endpoint times and gate breakpoints in s.
         """
         return _window_from_json(self.configuration_json)
 
@@ -1308,13 +1290,10 @@ class TDSEBinding(Protocol):
     """Provide the driver's explicit, resource-owning host atomic service."""
 
     @property
-    def ledger(self) -> AtomicCallLedger:
-        """Return the current immutable atomic-call accounting snapshot.
+    def ledger(self) -> AtomicCallLedger:  # numpydoc ignore=RT01
+        """Current immutable atomic-call accounting snapshot.
 
-        Returns
-        -------
-        AtomicCallLedger
-            Binding-local budget and attempted-call counts.
+        Binding-local budget and attempted-call counts.
         """
         ...
 

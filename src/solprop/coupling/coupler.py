@@ -173,13 +173,10 @@ class AdmissionItem:
     note: str = ""
 
     @property
-    def passed(self) -> bool:
-        """Return whether the item is within its own cap.
+    def passed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the item is within its own cap.
 
-        Returns
-        -------
-        bool
-            True when it has no value or no cap, or its value is at most the cap.
+        True when it has no value or no cap, or its value is at most the cap.
         """
         return (
             self.value is None or self.allowance is None or self.value <= self.allowance
@@ -258,83 +255,64 @@ class CouplingReport(Displayed):
         object.__setattr__(self, "source", MappingProxyType(dict(self.source)))
 
     @property
-    def uncaptured(self) -> Float[np.ndarray, " n_omega"] | None:
-        """Return the incident energy each bin leaves outside the target, not clipped.
+    def uncaptured(
+        self,
+    ) -> Float[np.ndarray, " n_omega"] | None:  # numpydoc ignore=RT01
+        """Incident energy each bin leaves outside the target, not clipped.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            ``incident - captured``, J, in the common positive metric where the
-            orthogonal-residual identity makes it a nonnegative physical share;
-            None where `captured` is None.
+        ``incident - captured``, J, in the common positive metric where the
+        orthogonal-residual identity makes it a nonnegative physical share;
+        None where `captured` is None.
         """
         return None if self.captured is None else self.incident - self.captured
 
     @property
-    def incident_energy(self) -> float:
-        """Return the whole incident energy.
+    def incident_energy(self) -> float:  # numpydoc ignore=RT01
+        """Whole incident energy.
 
-        Returns
-        -------
-        float
-            J.
+        J.
         """
         return float(np.sum(self.incident))
 
     @property
-    def launched_energy(self) -> float:
-        """Return the energy the launch carries into the target.
+    def launched_energy(self) -> float:  # numpydoc ignore=RT01
+        """Energy the launch carries into the target.
 
-        Returns
-        -------
-        float
-            J.
+        J.
         """
         return float(np.sum(self.launched))
 
     @property
-    def captured_energy(self) -> float | None:
-        """Return the captured energy in the common metric.
+    def captured_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Captured energy in the common metric.
 
-        Returns
-        -------
-        float or None
-            J; None where it is not defined.
+        J; None where it is not defined.
         """
         return None if self.captured is None else float(np.sum(self.captured))
 
     @property
-    def uncaptured_energy(self) -> float | None:
-        """Return the uncaptured energy in the common metric, not clipped.
+    def uncaptured_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Uncaptured energy in the common metric, not clipped.
 
-        Returns
-        -------
-        float or None
-            J; None where it is not defined.
+        J; None where it is not defined.
         """
         uncaptured = self.uncaptured
         return None if uncaptured is None else float(np.sum(uncaptured))
 
     @property
-    def efficiency(self) -> float | None:
-        """Return the launched energy as a share of the incident energy.
+    def efficiency(self) -> float | None:  # numpydoc ignore=RT01
+        """Launched energy as a share of the incident energy.
 
-        Returns
-        -------
-        float or None
-            Dimensionless; None when nothing is incident, where it is undefined.
+        Dimensionless; None when nothing is incident, where it is undefined.
         """
         incident = self.incident_energy
         return None if incident == 0.0 else self.launched_energy / incident
 
     @property
-    def budget(self) -> float:
-        """Return the sum of the counted admission items.
+    def budget(self) -> float:  # numpydoc ignore=RT01
+        """Sum of the counted admission items.
 
-        Returns
-        -------
-        float
-            Dimensionless; at most `model_error` for an admitted coupling.
+        Dimensionless; at most `model_error` for an admitted coupling.
         """
         return float(
             sum(item.value for item in self.items if item.counted and item.value)

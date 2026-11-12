@@ -779,36 +779,27 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         return HostPreparedGroup(members, problems, requests)
 
     @property
-    def request(self) -> RunRequest:
-        """Return the request this backend was built for.
+    def request(self) -> RunRequest:  # numpydoc ignore=RT01
+        """Request this backend was built for.
 
-        Returns
-        -------
-        solprop.translate.run_request.RunRequest
-            Its method, error control, itinerary, planes and statistics; a run adapts
-            it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        Its method, error control, itinerary, planes and statistics; a run adapts
+        it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
         """
         return self._request
 
     @property
-    def node_chunk(self) -> int:
-        """Return the nodes a response pass of this backend holds at once.
+    def node_chunk(self) -> int:  # numpydoc ignore=RT01
+        """The nodes a response pass of this backend holds at once.
 
-        Returns
-        -------
-        int
-            The planned chunk (:attr:`chunk_plan`).
+        The planned chunk (:attr:`chunk_plan`).
         """
         return self._chunk_plan.chunk
 
     @property
-    def chunk_plan(self) -> NodeChunkPlan:
-        """Return the node-chunk plan and what chose it.
+    def chunk_plan(self) -> NodeChunkPlan:  # numpydoc ignore=RT01
+        """Node-chunk plan and what chose it.
 
-        Returns
-        -------
-        solprop.backends.node_chunk.NodeChunkPlan
-            The plan made at construction.
+        The plan made at construction.
         """
         return self._chunk_plan
 
@@ -1414,51 +1405,39 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         return plane
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the low-storage step a failure abandoned in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """Low-storage step a failure abandoned in flight, or ``None``.
 
-        Returns
-        -------
-        tuple of float or None
-            The step's start and length, m, while the state is neither of its ends
-            (``solprop.backends.low_storage``).
+        The step's start and length, m, while the state is neither of its ends
+        (``solprop.backends.low_storage``).
         """
         return self._in_flight
 
     @property
-    def position(self) -> float:
-        """Return where the march stands, m.
+    def position(self) -> float:  # numpydoc ignore=RT01
+        """Where the march stands, m.
 
-        Returns
-        -------
-        float
-            The committed state's position, or the end of a step a group took but
-            neither validated nor recorded, which leaves the state in flight
-            (:attr:`in_flight`).
+        The committed state's position, or the end of a step a group took but
+        neither validated nor recorded, which leaves the state in flight
+        (:attr:`in_flight`).
         """
         return float(self._z)
 
     @property
-    def halted(self) -> bool:
-        """Return whether the last march stopped at a requested halt short of its end.
+    def halted(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the last march stopped at a requested halt short of its end.
 
-        Returns
-        -------
-        bool
-            True while the halt latch of :meth:`request_halt` or the yield check of
-            :meth:`set_halt_check` stopped it.
+        True while the halt latch of :meth:`request_halt` or the yield check of
+        :meth:`set_halt_check` stopped it.
         """
         return self._halted
 
     @property
-    def holding_plane(self) -> bool:
-        """Return whether a dense observation holds the state between endpoints.
+    def holding_plane(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a dense observation holds the state between endpoints.
 
-        Returns
-        -------
-        bool
-            True while this driver's own (a Runge-Kutta march's) or its Adams march's
-            observation holds an interpolated plane, the march ahead of it.
+        True while this driver's own (a Runge-Kutta march's) or its Adams march's
+        observation holds an interpolated plane, the march ahead of it.
         """
         return self._dense_ahead is not None or (
             self._adams is not None and self._adams._ahead is not None
@@ -2539,13 +2518,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         raise BackendError(msg)
 
     @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers, as a failure may.
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend has released its buffers, as a failure may.
 
-        Returns
-        -------
-        bool
-            ``True`` when it can run no other input.
+        ``True`` when it can run no other input.
         """
         return self._closed
 

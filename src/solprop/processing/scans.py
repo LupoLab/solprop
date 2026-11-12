@@ -77,35 +77,26 @@ class Reduction(Protocol):
     """
 
     @property
-    def name(self) -> str:
-        """Return the unique result name.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """Unique result name.
 
-        Returns
-        -------
-        object
-            Result of the declared operation.
+        Result of the declared operation.
         """
         ...
 
     @property
-    def dtype(self) -> np.dtype:
-        """Return the exact result dtype.
+    def dtype(self) -> np.dtype:  # numpydoc ignore=RT01
+        """Exact result dtype.
 
-        Returns
-        -------
-        object
-            Result of the declared operation.
+        Result of the declared operation.
         """
         ...
 
     @property
-    def units(self) -> str:
-        """Return the physical units.
+    def units(self) -> str:  # numpydoc ignore=RT01
+        """Physical units.
 
-        Returns
-        -------
-        object
-            Result of the declared operation.
+        Result of the declared operation.
         """
         ...
 
@@ -658,50 +649,38 @@ class ScanOutput(Displayed):
         ]
 
     @property
-    def recipe(self) -> RecipeRecord | None:
-        """Return the recipe the scan was built from, or ``None`` for a scan script's.
+    def recipe(self) -> RecipeRecord | None:  # numpydoc ignore=RT01
+        """Recipe the scan was built from, or ``None`` for a scan script's.
 
-        Returns
-        -------
-        solprop.output.schema.RecipeRecord or None
-            The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
-            records (SEP 41, S2).
+        The authored recipe a scan from :meth:`solprop.recipe.core.Recipe.scan`
+        records (SEP 41, S2).
         """
         with read_scan(self.path) as file:
             return read_recipe(file)
 
     @property
-    def shape(self) -> tuple[int, ...]:
-        """Return the Cartesian axis lengths.
+    def shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Cartesian axis lengths.
 
-        Returns
-        -------
-        tuple of int
-            Complete scan shape.
+        Complete scan shape.
         """
         with read_scan(self.path) as file:
             return tuple(int(i) for i in _dataset(file, "scan/shape")[...])
 
     @property
-    def status(self) -> np.ndarray:
-        """Return point statuses in global-index order.
+    def status(self) -> np.ndarray:  # numpydoc ignore=RT01
+        """Point statuses in global-index order.
 
-        Returns
-        -------
-        numpy.ndarray
-            Strings todo, running, done or failed, shape (n_points,).
+        Strings todo, running, done or failed, shape (n_points,).
         """
         with read_scan(self.path) as file:
             return np.asarray(_dataset(file, "points/status").asstr()[...])
 
     @property
-    def layouts(self) -> Mapping[str, tuple[int, ...]]:
-        """Return known layout identifiers and their completed global points.
+    def layouts(self) -> Mapping[str, tuple[int, ...]]:  # numpydoc ignore=RT01
+        """Known layout identifiers and their completed global points.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Layout digest to global indices; also works before consolidation.
+        Layout digest to global indices; also works before consolidation.
         """
         result: dict[str, list[int]] = {}
         with read_scan(self.path) as file:

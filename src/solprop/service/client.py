@@ -131,13 +131,10 @@ class KernelClient:
         self._reader.start()
 
     @property
-    def revision(self) -> int:
-        """Return the current recipe revision.
+    def revision(self) -> int:  # numpydoc ignore=RT01
+        """Current recipe revision.
 
-        Returns
-        -------
-        int
-            Replies to requests made for another revision are dropped.
+        Replies to requests made for another revision are dropped.
         """
         return self.filter.revision
 
@@ -153,13 +150,10 @@ class KernelClient:
         self.filter.revision = value
 
     @property
-    def alive(self) -> bool:
-        """Return whether the kernel process is running.
+    def alive(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the kernel process is running.
 
-        Returns
-        -------
-        bool
-            True while it is.
+        True while it is.
         """
         return self._process.is_alive()
 

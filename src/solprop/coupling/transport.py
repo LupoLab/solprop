@@ -109,14 +109,11 @@ class TransportReport:
     source_certificate: AdiabaticAdmission | None = None
 
     @property
-    def ledger_residual(self) -> float:
-        """Return the part of the energy change the ledger does not account for.
+    def ledger_residual(self) -> float:  # numpydoc ignore=RT01
+        """Part of the energy change the ledger does not account for.
 
-        Returns
-        -------
-        float
-            ``energy_out - (energy_in - specified_loss - removed +
-            approximation_error)`` in J; rounding only.
+        ``energy_out - (energy_in - specified_loss - removed +
+        approximation_error)`` in J; rounding only.
         """
         explained = self.energy_in - self.specified_loss - self.removed
         return self.energy_out - (explained + self.approximation_error)
