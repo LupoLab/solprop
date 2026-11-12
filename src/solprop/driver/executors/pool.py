@@ -22,6 +22,7 @@ from typing import Protocol, cast, runtime_checkable
 
 from solprop._process import (
     LOAD_TIME_BLAS_VARIABLES,
+    THREAD_VARIABLES,
     allowed_cpus,
     sizes_blas_after_load,
     spawn_environment,
@@ -40,15 +41,6 @@ if sys.platform == "win32":
     type _Pipe = Connection | PipeConnection  # pyright: ignore[reportRedeclaration]
 else:
     type _Pipe = Connection
-
-_THREAD_VARIABLES = (
-    "SOLPROP_THREADS",
-    "OMP_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS",
-)
-
 
 # The worker pipe's messages. Controller to worker: ``("run", point)`` or
 # ``("probe", point)``, the ``STOP`` string while a point runs, and ``None`` to exit.
@@ -537,7 +529,7 @@ def _spawn(
     )
     # Workers sleep between regions unless the user chose, or a calibration's row for
     # the workers' allocation did (solprop SEP 46); they never calibrate themselves.
-    environment = dict.fromkeys(_THREAD_VARIABLES, str(threads)) | {
+    environment = dict.fromkeys(THREAD_VARIABLES, str(threads)) | {
         "SOLPROP_NATIVE_WAIT_REQUEST": "passive",
         "SOLPROP_CALIBRATION_ROLE": "worker",
     }

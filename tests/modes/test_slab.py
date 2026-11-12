@@ -288,7 +288,9 @@ def test_slab_derivative_by_contour_and_finite_difference(polarisation):
     total = np.zeros_like(omega, dtype=complex)
     for phase in np.arange(64) * 2 * np.pi / 64:
         offset = 0.1 * omega * np.exp(1j * phase)
-        value = mode._model_values(replace(terms, omega=omega + offset), 50e-6)[0]
+        value = mode._model_values(
+            replace(terms, omega=omega + offset), mode._walls(0.0)
+        )[0]
         total = total + value / offset
     # RectMode's contour tolerance: rounding amplified by the Cauchy radius, with
     # exponentially small 64-node trapezoid truncation.
@@ -628,7 +630,9 @@ def test_slab_quadrature_and_model_refusals():
         SlabMode(50e-6, cladding=1.0).neff(OMEGA_800)
     terms = mode._terms(OMEGA_800, 0.0)
     with np.errstate(invalid="ignore"), pytest.raises(ModeError, match="non-finite"):
-        mode._model_values(replace(terms, chi=np.asarray([np.nan + 0j])), 50e-6)
+        mode._model_values(
+            replace(terms, chi=np.asarray([np.nan + 0j])), mode._walls(0.0)
+        )
     loss = replace(mode, loss=False)
     assert np.imag(loss.neff(OMEGA_800))[0] == 0.0
 

@@ -36,7 +36,7 @@ from solprop.exceptions import (
 from solprop.grid import FieldGrid
 from solprop.nonlinear.mixtures import responses_for
 from solprop.nonlinear.responses import PlasmaResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec

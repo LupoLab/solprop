@@ -49,7 +49,7 @@ from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.grid import FieldGrid
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule, Multistep

@@ -43,7 +43,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Literal
 
-from solprop.output.schema import RunMetadata
+from solprop.output.metadata import RunMetadata
 from solprop.stats import (
     _GAS_OR_SPATIAL_NAMES,
     _STEP_DIAGNOSTICS,
@@ -258,7 +258,7 @@ def capability_of(metadata: RunMetadata) -> BasisCapability:
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The record read back from a handler.
 
     Returns
@@ -269,7 +269,7 @@ def capability_of(metadata: RunMetadata) -> BasisCapability:
     Examples
     --------
     >>> from solprop.output.capability import capability_of
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> capability_of(_example_metadata())
     'modal'
     """
@@ -389,7 +389,7 @@ def reading_refusal(
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The stored record.
     name : str
         The reader or accessor asked for, which the refusal names.
@@ -406,7 +406,7 @@ def reading_refusal(
     --------
     >>> from dataclasses import replace
     >>> from solprop.output.capability import reading_refusal
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> reading_refusal(_example_metadata(), "get_power") is None
     True
     >>> radial = replace(
@@ -498,7 +498,7 @@ def withheld_from(metadata: RunMetadata) -> tuple[str, ...]:
 
     Parameters
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The stored record.
 
     Returns

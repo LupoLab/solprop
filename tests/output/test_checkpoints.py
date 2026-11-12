@@ -27,11 +27,8 @@ from solprop.output import (
     resume,
 )
 from solprop.output.hdf5 import _dataset, _write_checkpoint
-from solprop.output.schema import (
-    StepStats,
-    _example_metadata,
-    _prepend_checkpoint_history,
-)
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import StepStats, _prepend_checkpoint_history
 
 
 @pytest.fixture

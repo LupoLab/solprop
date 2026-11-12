@@ -66,6 +66,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 
 from solprop._display import Displayed, engineering, line
+from solprop._validation import choice, positive
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE, STD_ATMOSPHERE
 from solprop.exceptions import GasFlowWarning, MaterialError, TranslationError
 from solprop.physdata.mixtures import Mixture
@@ -406,24 +407,6 @@ def _viscosity_law(
     )
 
 
-def _positive(value: float, what: str) -> float:
-    """Return a finite positive number, or refuse it by name."""
-    number = float(value)
-    if not (math.isfinite(number) and number > 0.0):
-        raise TranslationError(f"{what} must be finite and positive, got {value}")
-    return number
-
-
-def _checked_choice(value: object, name: str, choices: tuple[str, ...]) -> None:
-    """Refuse, by name, a keyword outside its literal choices.
-
-    The annotations already say which strings are allowed; this is the check a caller
-    without a type checker meets.
-    """
-    if value not in choices:
-        raise TranslationError(f"{name} must be one of {choices}, got {value!r}")
-
-
 def _choked_from(high_pa: float, factor: float) -> float:
     """Solve ``k (p_h^2 - p_e^2) = p_e`` for the exit pressure without cancellation.
 
@@ -461,7 +444,7 @@ def _resistance(radius: float | ZProfile, length: float) -> tuple[ZProfile, floa
     - Returns: the radius as a path, and ``int_0^length a^-4 dz`` in m^-3.
     """
     path = as_profile(radius)
-    edges = np.array([0.0, _positive(length, "length in m")])
+    edges = np.array([0.0, positive(length, "length in m", TranslationError)])
     return path, float(hydraulic_integral(path, edges)[0])
 
 
@@ -589,7 +572,7 @@ def choked_pressure(
     >>> f"{choked_pressure('Ar', 15e-6, 1.0, 20.0) * 1e3:.1f}"
     '79.1'
     """
-    _checked_choice(exit_end, "exit_end", ("start", "end"))
+    choice(exit_end, "exit_end", ("start", "end"), TranslationError)
     flow = _FlowGas.of(gas, temperature)
     path, resistance = _resistance(radius, length)
     position = 0.0 if exit_end == "start" else float(length)
@@ -818,7 +801,9 @@ def chamber_pressure(
     """
     rate = _checked_pressure(throughput, "throughput")
     if not callable(pump_speed):
-        return rate / _positive(pump_speed, "pump speed in m^3/s") / BAR
+        return (
+            rate / positive(pump_speed, "pump speed in m^3/s", TranslationError) / BAR
+        )
     if rate == 0.0:
         return 0.0
     excess = functools.partial(_pump_excess, pump_speed=pump_speed, rate=rate)
@@ -841,7 +826,7 @@ def _pump_excess(
     - ``rate``: the gas throughput in Pa m^3 s^-1.
     - Returns: ``p S(p) - Q`` in Pa m^3 s^-1.
     """
-    speed = _positive(pump_speed(pressure_bar), "pump speed in m^3/s")
+    speed = positive(pump_speed(pressure_bar), "pump speed in m^3/s", TranslationError)
     return pressure_bar * BAR * speed - rate
 
 
@@ -899,7 +884,9 @@ def standard_litres_per_minute(
     >>> f"{standard_litres_per_minute(1.0, 273.15):.4f}"
     '0.5922'
     """
-    scale = STANDARD_TEMPERATURE / _positive(temperature, "temperature in K")
+    scale = STANDARD_TEMPERATURE / positive(
+        temperature, "temperature in K", TranslationError
+    )
     return float(throughput) * scale / STANDARD_PRESSURE * 1000.0 * 60.0
 
 
@@ -1573,7 +1560,7 @@ def steady_fill(
     >>> f"{fill.pressures[-1] * 1e3:.2f} mbar"
     '41.18 mbar'
     """
-    _checked_choice(vacuum_end, "vacuum_end", get_args(VacuumEnd))
+    choice(vacuum_end, "vacuum_end", get_args(VacuumEnd), TranslationError)
     edges = _checked_edges(positions, "steady_fill")
     declared = _checked_pressures(edges, pressures_bar)
     path = as_profile(radius)

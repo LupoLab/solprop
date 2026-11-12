@@ -26,7 +26,7 @@ import h5py
 import numpy as np
 import pytest
 
-import solprop.driver.run as run_module
+import solprop.driver.session_loop as session_loop_module
 from backends.test_exponential_varying import EXPONENTIAL, gradient
 from driver.test_resume import LENGTH, N_SAVE, CrashError, run_until
 from flow_parity import LENGTH as FLOW_LENGTH
@@ -40,7 +40,8 @@ from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
 from solprop.output.hdf5 import open_file, resume
-from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import MarchSnapshot, SavedPlane
 from solprop.stepper import Multistep, RungeKutta
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -244,7 +245,7 @@ def test_without_the_history_a_resume_starts_afresh(build_simulation, tmp_path):
 def test_a_snapshot_over_the_default_size_is_kept_only_on_request(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
     path = tmp_path / "run.h5"
     with caplog.at_level(logging.INFO, logger="solprop.driver.run"):
         soliton(build_simulation, "numpy_ref")().run(path, progress="none")
@@ -264,7 +265,7 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
     # The state and the whole history on the host, to learn a size that needs no copy.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
 
     def refuse(*_):
         pytest.fail("a snapshot over the limit was taken")

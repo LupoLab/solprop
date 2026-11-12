@@ -11,9 +11,9 @@ them once (:meth:`SessionBackend.prepare`, which every backend offers as
 ``Backend.prepare``), and the prepared execution starts one
 :class:`RunSession` per trajectory. The session is the only owner of that trajectory's
 mutable numerical state: the field, the method's history, the controller and monitor,
-the counters and cursors, and the pending events. Python's service loop
-(:mod:`solprop.driver.service`) advances it, services the events it yields -- files,
-callbacks, warnings, progress -- and acknowledges them::
+the counters and cursors, and the pending events. Python's session loop
+(:mod:`solprop.driver.session_loop`) advances it, services the events it yields --
+files, callbacks, warnings, progress -- and acknowledges them::
 
     prepared = backend.prepare(problem, request)
     with prepared.start(start, stop=token) as session:
@@ -79,7 +79,7 @@ from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.exceptions import BackendError
 from solprop.log import StopFlag
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stats import CATALOGUE, PLASMA_INTEGRATION_STATISTICS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -491,7 +491,7 @@ class Start:
         The run's noise realisation, when a noise model is active.
     plane_index : int
         The first save plane strictly beyond `z`.
-    march : solprop.output.schema.MarchSnapshot or None
+    march : solprop.output.records.MarchSnapshot or None
         A method history to restore, when resuming one that was retained.
     ledgers : collections.abc.Mapping or None
         Persisted call ledgers to restore (TDSE and budgeted sources).

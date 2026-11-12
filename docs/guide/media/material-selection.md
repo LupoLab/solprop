@@ -93,7 +93,7 @@ $n_2 = 3\chi^{(3)}/(4\varepsilon_0 c n_0^2)$: optmat's own gas `n2` takes $n_0 =
 `n2(..., wavelength=)` give the selected values (or take the carrier from
 `selection=`'s `carrier_wavelength`); a
 {class}`~solprop.physdata.mixtures.Mixture` evaluates its populations at a carrier with
-`gamma3_path(wavelength)`, which {func}`solprop.tools.soliton_params` passes its
+`gamma3_path(wavelength)`, which {func}`solprop.tools.capillary.soliton_params` passes its
 `wavelength`.
 
 ```{code-block} python
@@ -194,7 +194,7 @@ $h_R$ are imported; a test records the $n_0^2$ ratio.
 ## Selecting a run's materials
 
 The drivers take the same selection as `materials=`: `prop_capillary`,
-`prop_waveguide`, `prop_gnlse`, `prop_free`, `prop_radial` and `prop_planar`, the
+`prop_waveguide`, `prop_gnlse`, `prop_free` and `prop_planar`, the
 `Simulation.from_*` constructors behind them, and `solprop.sol`'s re-exports; an
 omitted one is `MaterialSelection()`. What the driver resolves itself comes from
 optmat; what the caller built is taken as it is.
@@ -214,7 +214,7 @@ optmat; what the caller built is taken as it is.
      - the gas, the fraction mapping and ``"air"``; the supplied modes keep their
        claddings. A provider's material regions are its own; a region's
        ``SilicaTensorResponse()`` is optmat's tensor silica bundle by default
-   * - ``prop_free``, ``prop_radial``
+   * - ``prop_free``
      - a :py:class:`~solprop.spatial.SpatialMedium` naming a built-in gas becomes the
        one-population mixture of that gas under the selection, at the same pressure
        and temperature; a supplied susceptibility is kept beside optmat's equation of

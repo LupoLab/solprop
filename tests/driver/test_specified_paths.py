@@ -29,7 +29,7 @@ from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from solprop.backends.registry import resolve_name
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
-from solprop.driver.simulation import _gnlse_mode
+from solprop.driver.routes.gnlse import _gnlse_mode
 from solprop.exceptions import ModeError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.linear import Frame

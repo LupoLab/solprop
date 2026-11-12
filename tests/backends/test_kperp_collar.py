@@ -27,7 +27,7 @@ from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta

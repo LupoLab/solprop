@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from solprop.nonlinear.raman import RamanResponse
-from solprop.output.schema import RecipeFile, RecipeRecord
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
     Document,
@@ -110,14 +110,14 @@ def _used(
     if build.get("provider") is not None:
         # A general guide takes its physics from the guide: the route refuses these
         # beside a provider, so the resolved text must not name them.
-        from solprop.driver.simulation import (  # noqa: PLC0415 - layer above
-            _GAS_KEYWORD_DEFAULTS,
+        from solprop.driver.routes.general import (  # noqa: PLC0415 - layer above
+            GAS_KEYWORD_DEFAULTS,
         )
 
         values = {
             name: value
             for name, value in values.items()
-            if name not in _GAS_KEYWORD_DEFAULTS
+            if name not in GAS_KEYWORD_DEFAULTS
         }
     return values
 
@@ -227,7 +227,7 @@ def record(
 
     Returns
     -------
-    solprop.output.schema.RecipeRecord
+    solprop.output.records.RecipeRecord
         The authored and resolved texts, and the data files.
     """
     # A pinned recipe builds through its resolved copy, which remembers the authored

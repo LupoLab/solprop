@@ -8,7 +8,7 @@ import pytest
 
 from solprop.backends.registry import resolve_name
 from solprop.driver import SimulationSettings
-from solprop.driver.simulation import LOW_STORAGE_BACKENDS
+from solprop.driver.settings import LOW_STORAGE_BACKENDS
 from solprop.exceptions import DriverError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 

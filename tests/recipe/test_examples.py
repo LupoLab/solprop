@@ -55,13 +55,11 @@ ROUTE_CALLS: Final = frozenset(
         "prop_gnlse",
         "prop_capillary",
         "prop_waveguide",
-        "prop_radial",
         "prop_free",
         "prop_planar",
         "from_gnlse",
         "from_capillary",
         "from_waveguide",
-        "from_radial",
         "from_free",
         "from_planar",
     }

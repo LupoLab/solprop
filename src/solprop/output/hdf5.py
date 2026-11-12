@@ -11,7 +11,7 @@ metadata calls reuse the handle. Without snapshots the file opens only once.
 ``schema_version``, ``spectral_convention``, ``field_layout``, ``configuration_hash``,
 ``simulation_kind``, ``grid_kind``, ``created`` and, once a backend has executed the
 run, ``backend`` -- and ``meta/json`` carries the
-whole :class:`solprop.output.schema.RunMetadata` as one JSON string. The metadata goes
+whole :class:`solprop.output.metadata.RunMetadata` as one JSON string. The metadata goes
 in a *dataset* rather than an attribute because HDF5 caps an attribute in the object
 header at 64 kB and a serialised configuration -- a capillary with a tabulated
 cladding glass, a stored noise realisation -- goes past that; the identifying scalars
@@ -25,7 +25,7 @@ and ``step_history/<column>`` the attempts of the whole run concatenated, with
 
 **Preallocation and the saved-plane count.** The plane-indexed datasets are created at
 the first save for every plane the run reserved
-(:meth:`~solprop.output.schema.PlaneStore.reserve`), with an unlimited leading axis, and
+(:meth:`~solprop.output.store.PlaneStore.reserve`), with an unlimited leading axis, and
 grow by doubling if the run saves more; the step-history and between-planes columns
 grow by doubling too. The root attribute ``n_saved`` counts the planes actually
 written: each plane's data is written and flushed first and the count last, so a hard
@@ -36,7 +36,7 @@ read only the first ``n_saved`` planes. A clean close trims every dataset to its
 so a finished file holds no unused rows.
 
 **Field retention** (SEP 22). The root attribute ``fields`` says
-which planes keep their field (:class:`~solprop.output.schema.FieldRetention`), and
+which planes keep their field (:class:`~solprop.output.store.FieldRetention`), and
 ``field_shape`` the shape of one plane's field whether or not it is stored. A run that
 keeps every field stores ``field`` and ``noise_phase`` as above. One that keeps the
 named planes stores exactly those, in plane order, with a ``field_planes`` dataset of
@@ -48,7 +48,7 @@ which holds no checkpoint is refused by name when a run is continued from it.
 **Cache and resume.** :func:`check_cache` compares the file's configuration hash with
 the requested one (ADR-066): they must be equal, so resuming with different physics or
 numerics of the same shape is refused, by naming what changed. A file of another output
-schema is not read at all (:data:`~solprop.output.schema.SCHEMA_VERSION`).
+schema is not read at all (:data:`~solprop.output.metadata.SCHEMA_VERSION`).
 :func:`resume` returns the metadata, the last plane -- converted back to the internal
 convention -- and the step history. A handler built with ``append=True`` then carries
 on in the same file: it opens it read-write instead of replacing it, compares the
@@ -79,25 +79,27 @@ from solprop import fourier
 from solprop._display import Displayed, line, tail
 from solprop.exceptions import OutputError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
-    FieldRetention,
-    FieldsChoice,
-    JsonValue,
     MarchSnapshot,
-    Output,
-    PlaneLayout,
-    PlaneStore,
     RecipeFile,
     RecipeRecord,
-    RunMetadata,
     RunOutcome,
     SavedPlane,
     StepHistory,
     StepStats,
     StoredField,
     TerminalCheckpoint,
+)
+from solprop.output.serialisation import JsonValue
+from solprop.output.store import (
+    FieldRetention,
+    FieldsChoice,
+    Output,
+    PlaneLayout,
+    PlaneStore,
 )
 
 __all__ = [
@@ -636,23 +638,23 @@ class ResumeState(Displayed):
 
     Attributes
     ----------
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The record of the interrupted run, including its step schedule.
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The accepted terminal checkpoint when present, otherwise the last regular
         plane, with its field back in the **internal** FFT convention. Modal
         amplitudes remain in output units until the driver applies the weight at z.
     n_saved : int
         Number of regular planes stored. The next scheduled index is determined
         from the actual position, independently of this count.
-    history : solprop.output.schema.StepHistory
+    history : solprop.output.records.StepHistory
         Every attempt of the whole run so far, concatenated.
-    outcome : solprop.output.schema.RunOutcome or None
+    outcome : solprop.output.records.RunOutcome or None
         Completion status and cumulative call ledgers; ``None`` when the file
         records none.
-    checkpoint : solprop.output.schema.TerminalCheckpoint or None
+    checkpoint : solprop.output.records.TerminalCheckpoint or None
         Separate accepted terminal state, preferred over the last regular save.
-    march : solprop.output.schema.MarchSnapshot or None
+    march : solprop.output.records.MarchSnapshot or None
         The Adams march's state where the run stopped, when the file kept one there.
 
     Examples
@@ -718,7 +720,7 @@ class HDF5Output(PlaneStore):
     """Stream a run to one HDF5 file, opened once and extended plane by plane.
 
     Reading through ``__getitem__`` and
-    :meth:`~solprop.output.schema.PlaneStore.fields` works while the handler is
+    :meth:`~solprop.output.store.PlaneStore.fields` works while the handler is
     open and stops when it is closed, because the arrays live in the file rather than in
     memory; :func:`open_file` opens a finished file for reading afterwards.
 
@@ -757,9 +759,8 @@ class HDF5Output(PlaneStore):
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
-    >>> from solprop.output.schema import (
-    ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-    ... )
+    >>> from solprop.output.metadata import RunMetadata
+    >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     >>> from solprop.stepper import DOPRI5, PIController
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> metadata = RunMetadata(
@@ -912,7 +913,7 @@ class HDF5Output(PlaneStore):
     def _store(self, plane: SavedPlane, exported: StoredField | None) -> None:
         """Store one plane and flush it to disk (:meth:`save`); refused if read-only.
 
-        An exported field (:meth:`~solprop.output.schema.PlaneStore.save_exported`)
+        An exported field (:meth:`~solprop.output.store.PlaneStore.save_exported`)
         is a new array, which h5py writes into the plane's chunk as it is: no NumPy
         copy, and an uncompressed chunk no copy of HDF5's own either (a compressed one
         is filtered through HDF5's buffer).
@@ -948,7 +949,7 @@ class HDF5Output(PlaneStore):
 
         Parameters
         ----------
-        snapshot : solprop.output.schema.MarchSnapshot
+        snapshot : solprop.output.records.MarchSnapshot
             The march's state at the last saved plane or terminal checkpoint.
 
         Raises
@@ -1400,7 +1401,7 @@ class HDF5Output(PlaneStore):
 
         - ``plane``: the plane: its field in the internal convention, or ``None`` where
           the field was exported straight into the stored form
-          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          (:meth:`~solprop.output.store.PlaneStore.save_exported`) and `stored` alone
           holds it. A subclass whose own ``_append`` reads the plane's field does not
           take exports (``PlaneStore.takes_exports``).
         - ``stored``: that field converted to the optics convention; ``None`` on a
@@ -1610,7 +1611,7 @@ def _write_annotation(file: h5py.File, name: str, text: str) -> None:
 def _stored_metadata(path: Path | str) -> tuple[RunMetadata, str]:
     """Return the record a file carries and the digest stored beside it.
 
-    - Returns: the :class:`solprop.output.schema.RunMetadata` and the
+    - Returns: the :class:`solprop.output.metadata.RunMetadata` and the
       ``configuration_hash`` attribute the writer stored, which are checked against each
       other.
     """
@@ -1666,7 +1667,7 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
 
     Parameters
     ----------
-    path : pathlib.Path or str or solprop.output.schema.Output
+    path : pathlib.Path or str or solprop.output.store.Output
         The file to check; an output handler is refused by name.
     metadata : RunMetadata
         The record of the run about to start.
@@ -1687,7 +1688,7 @@ def check_cache(path: Path | str | Output, metadata: RunMetadata) -> bool:
     Examples
     --------
     >>> from solprop.output.hdf5 import check_cache
-    >>> from solprop.output.schema import _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
     >>> check_cache("no-such-file.h5", _example_metadata())
     False
     """
@@ -1747,7 +1748,7 @@ def _last_history(file: h5py.File, index: int) -> tuple[StepHistory, StepHistory
     """Return the whole step history and the part belonging to one plane.
 
     - Returns: the whole history and the slice, both as
-      :class:`solprop.output.schema.StepHistory`.
+      :class:`solprop.output.records.StepHistory`.
     """
     group = _group(file, "step_history")
     counts = np.asarray(_dataset(group, "counts")[: index + 1], dtype=np.int64)
@@ -1802,7 +1803,7 @@ def resume(path: Path | str | Output) -> ResumeState:
 
     Parameters
     ----------
-    path : pathlib.Path or str or solprop.output.schema.Output
+    path : pathlib.Path or str or solprop.output.store.Output
         The file to read; an output handler is refused by name.
 
     Returns
@@ -1824,7 +1825,8 @@ def resume(path: Path | str | Output) -> ResumeState:
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import HDF5Output
     >>> from solprop.output.hdf5 import resume
-    >>> from solprop.output.schema import SavedPlane, _example_metadata
+    >>> from solprop.output.metadata import _example_metadata
+    >>> from solprop.output.records import SavedPlane
     >>> metadata = _example_metadata()
     >>> n_omega = metadata.grid.n_omega
     >>> with tempfile.TemporaryDirectory() as folder:
@@ -1957,9 +1959,8 @@ def open_file(path: Path | str) -> HDF5Output:
     >>> from pathlib import Path
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.output import MemoryOutput, open_file
-    >>> from solprop.output.schema import (
-    ...     GridRecord, RunMetadata, SavedPlane, StepperRecord
-    ... )
+    >>> from solprop.output.metadata import RunMetadata
+    >>> from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     >>> from solprop.stepper import DOPRI5, PIController
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> memory = MemoryOutput()

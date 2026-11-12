@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.plotting import propagation, style
 from solprop.processing._examples import example_output
-from solprop.processing.axes import _check_choice
 
 
 def test_prop_2d_draws_one_figure_of_two_panels_for_one_mode(single):
@@ -160,8 +160,11 @@ def test_time_1d_draws_into_a_given_axis(single):
 
 
 def test_time_1d_refuses_an_unknown_quantity():
-    with pytest.raises(ProcessingError, match="quantity must be one of"):
-        _check_choice("intensity", propagation.SLICE_QUANTITIES, "quantity")
+    with pytest.raises(
+        ProcessingError,
+        match="quantity must be 'power', 'field' or 'field_squared', got 'intensity'",
+    ):
+        choice("intensity", "quantity", propagation.SLICE_QUANTITIES, ProcessingError)
 
 
 def test_time_1d_sums_the_modes_when_asked(multimode):

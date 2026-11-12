@@ -14,7 +14,7 @@ import pytest
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import DriverError, OutputError, PulseError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec, collect, default_spec
@@ -145,7 +145,7 @@ def test_spatial_metadata_requires_geometry_and_the_current_schema(
     case, changes, refusal
 ):
     grid, space, pulse, settings = case
-    metadata = Simulation.from_radial(
+    metadata = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).metadata()
     with pytest.raises(OutputError, match=refusal):
@@ -177,7 +177,7 @@ def test_spatial_response_compilation_requires_a_translated_prefactor(case):
 @pytest.mark.parametrize("change", ["polarisation", "matrix"])
 def test_radial_transform_rejects_incompatible_scalar_map(case, change):
     grid, space, pulse, settings = case
-    problem = Simulation.from_radial(
+    problem = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
     transform = problem.transform
@@ -196,7 +196,7 @@ def test_radial_transform_rejects_incompatible_scalar_map(case, change):
 
 def test_spatial_response_compilation_rejects_modal_averaging(case):
     grid, space, pulse, settings = case
-    problem = Simulation.from_radial(
+    problem = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
     with pytest.raises(TranslationError, match="mode_averaged=False"):
@@ -214,7 +214,7 @@ def test_radial_assembly_rejects_wrong_column_count(case):
     grid, space, pulse, settings = case
     initial = pulse.build(grid, space, medium=SpatialMedium())[:-1]
     with pytest.raises(DriverError, match="spatial input"):
-        Simulation.from_radial(
+        Simulation.from_free(
             grid, space, SpatialMedium(), [], initial, settings=settings, noise=None
         )
     with pytest.raises(TranslationError, match="spatial columns"):

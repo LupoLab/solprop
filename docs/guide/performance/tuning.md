@@ -56,8 +56,8 @@ compares the backends by problem.
 
 Each interface has its own default integrator
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` on
-`prop_capillary`, `prop_radial` and `prop_planar`, `RungeKutta()` on `prop_gnlse`,
-`prop_waveguide` and `prop_free`. `Multistep()` evaluates the nonlinear response once
+`prop_capillary`, `prop_free` on a radial grid and `prop_planar`, `RungeKutta()` on
+`prop_gnlse`, `prop_waveguide` and `prop_free` on a Cartesian or line grid. `Multistep()` evaluates the nonlinear response once
 per step; `RungeKutta()` usually six times, in fewer, longer steps. `Multistep()` tends
 to gain where the response dominates a step's cost, `RungeKutta()` where it is cheap.
 Compare the two on a short stretch of your own problem when it matters: the call counts
@@ -397,8 +397,8 @@ solprop runs a line, and those threads spin for about 0.1 s before they sleep. O
 time, against 0.75 in 0.67 with `OPENBLAS_THREAD_TIMEOUT=20`, which makes idle threads
 sleep after about 0.4 ms of spinning and changes no width. A Python process solprop
 starts itself takes `OPENBLAS_THREAD_TIMEOUT=20` unless the variable is already set: a
-run started from the window (directly or as a Slurm job), the window's kernel, and
-`Pool` workers. Your own script loads NumPy first, so set it yourself if CPU time on a
+run started from the window (directly or as a Slurm job), the window's kernel,
+`Pool` workers and a `Slurm` scan's controllers. Your own script loads NumPy first, so set it yourself if CPU time on a
 shared machine matters, before Python starts:
 
 ```sh

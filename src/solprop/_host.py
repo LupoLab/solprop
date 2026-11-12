@@ -9,7 +9,7 @@ the backend sized its pools (``BackendRecord``). This module adds the rest of wh
 needed to inspect a case afterwards: the architecture, the CPU model, the CPU counts,
 the memory and the operating system (:func:`machine`), and the wall time, CPU time and
 peak resident memory since a :class:`RunClock` started (:func:`usage`). The driver
-writes both into each execution's record (:class:`solprop.output.schema.RunOutcome`),
+writes both into each execution's record (:class:`solprop.output.records.RunOutcome`),
 so a resume on another machine keeps its own.
 
 Neither costs a run anything measurable: :func:`machine` is asked once per process (at

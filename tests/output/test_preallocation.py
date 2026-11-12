@@ -25,9 +25,9 @@ from solprop.driver import Simulation
 from solprop.driver.estimate import _catalogued_entries, plane_bytes
 from solprop.grid import EnvelopeGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file, resume
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     GridRecord,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepperRecord,
@@ -309,7 +309,8 @@ def test_a_hard_stop_part_way_through_a_plane_loses_only_that_plane(metadata, tm
         import os
         import numpy as np
         from solprop.output import HDF5Output
-        from solprop.output.schema import RunMetadata, SavedPlane
+        from solprop.output.metadata import RunMetadata
+        from solprop.output.records import SavedPlane
 
         metadata = RunMetadata.from_json({metadata.to_json()!r})
         n_omega = metadata.grid.n_omega

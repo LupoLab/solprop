@@ -21,7 +21,8 @@ import pytest
 import solprop.nonlinear.ionisation
 import solprop.physdata
 import solprop.physdata.selection
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import MaterialError, MaterialStatusWarning, SolpropWarning
 from solprop.grid import FieldGrid, FreeGrid
 from solprop.modes.guide import ModalGuide

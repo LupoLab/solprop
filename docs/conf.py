@@ -148,6 +148,9 @@ nitpick_ignore = [
     # The private wall-pair base RectMode and SlabMode share, for
     # the same reason.
     ("py:class", "solprop.modes.rectangular._WallPairFill"),
+    # The private base of the two pulses from measured data, DataPulse and
+    # TimeDataPulse, for the same reason.
+    ("py:class", "solprop.pulses._MeasuredPulse"),
     # The private mixin that gives a class its printed block. It is a base
     # of every class that prints specially, so `show-inheritance` names it; it is not
     # part of the API reference for the same reason as above.

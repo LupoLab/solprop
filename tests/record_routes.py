@@ -91,7 +91,7 @@ def _pulse() -> SpatialPulse:
 def radial() -> Simulation:
     """Return a small radial run."""
     grid = _spatial_grid()
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(250e-6, 16, collar_fraction=0.2),
         SpatialMedium(),

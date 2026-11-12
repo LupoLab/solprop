@@ -31,7 +31,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
 from solprop.driver import Simulation
-from solprop.driver.simulation import _warn_sampled_peak
+from solprop.driver.routes.hollow import _warn_sampled_peak
 from solprop.exceptions import (
     BackendError,
     DriverError,

@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from solprop.output.hdf5 import _read_march, _write_march
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 
 
 def snapshot(state):

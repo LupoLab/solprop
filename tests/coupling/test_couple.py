@@ -1099,7 +1099,7 @@ def test_the_report_prints_and_carries_its_terms(port):
 def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
     """A gradient run's rebuilt certificate reaches the report, separately."""
     grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
-    gradient = Simulation.from_radial(
+    gradient = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium("Ar", PressureGradient.two_point(2e-3, 1.0, 2.0)),

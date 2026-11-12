@@ -6,10 +6,10 @@
 
 A run's session exports a kept field straight into the stored form, the true-power
 amplitude in the optics convention, into the room the store gives it
-(:meth:`~solprop.output.schema.PlaneStore.field_destination`): ``MemoryOutput``'s
+(:meth:`~solprop.output.store.PlaneStore.field_destination`): ``MemoryOutput``'s
 own block row, so the field is written once where it is kept, or a new array for
-``HDF5Output``. :meth:`~solprop.output.schema.PlaneStore.save_exported` then stores
-exactly what :meth:`~solprop.output.schema.PlaneStore.save` would have stored for the
+``HDF5Output``. :meth:`~solprop.output.store.PlaneStore.save_exported` then stores
+exactly what :meth:`~solprop.output.store.PlaneStore.save` would have stored for the
 same field: equalities here are exact, structural contracts of lossless storage.
 """
 
@@ -21,7 +21,8 @@ from solprop import fourier
 from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import FieldRetention, SavedPlane, StoredField
+from solprop.output.records import SavedPlane, StoredField
+from solprop.output.store import FieldRetention
 from solprop.stepper import FixedSchedule
 
 

@@ -79,7 +79,7 @@ def beam(fraction=0.0, absorber=None, check=True):
         dz_max=LENGTH,
         dz_init=LENGTH * 1e-4,
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         medium,

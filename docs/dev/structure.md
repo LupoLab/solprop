@@ -114,8 +114,8 @@ and what it deliberately leaves out is as much of the design as what it covers.
 
 ![A saved run's datasets and metadata, the resume digest, and the accessors that read them back](figures/output.svg)
 
-Text: [architecture.md §10](architecture.md), and `output/schema.py` for the record
-types.
+Text: [architecture.md §10](architecture.md), and `output/records.py` and
+`output/metadata.py` for the record types.
 
 The output layer also owns `output/snapshots.py`: coordinated suspension of both
 writers, immutable publication and verified restoration. This sits above the backend

@@ -17,12 +17,9 @@ from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import OutputError, ProcessingError
 from solprop.grid import FieldGrid
 from solprop.output.memory import MemoryOutput
+from solprop.output.metadata import _example_metadata
+from solprop.output.records import GridRecord, SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
-from solprop.output.schema import (
-    GridRecord,
-    SavedPlane,
-    _example_metadata,
-)
 from solprop.processing import scans
 from solprop.processing.axes import grid_from_record
 from solprop.processing.fields import get_spectral_density

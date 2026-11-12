@@ -79,7 +79,7 @@ def spatial(kind):
         )
     pulse = SpatialPulse(temporal, 40e-6)
     if kind == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid,
             RadialGrid(300e-6, 16),
             SpatialMedium(1.0),

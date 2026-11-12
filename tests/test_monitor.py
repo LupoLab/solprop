@@ -31,8 +31,8 @@ from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
 from solprop.driver.executors import Batch, Local
-from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
+from solprop.driver.session_loop import _earlier_execution
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
@@ -45,16 +45,11 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import MemoryOutput, open_file, schema
+from solprop.output import MemoryOutput, open_file, records
 from solprop.output.hdf5 import resume
+from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
-from solprop.output.schema import (
-    CheckpointOutput,
-    Output,
-    PlaneStore,
-    RunOutcome,
-    TerminalCheckpoint,
-)
+from solprop.output.store import CheckpointOutput, Output, PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -229,7 +224,7 @@ def _split(
 def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simulation:
     """Return a 1 pJ radial pulse at 1150 nm whose group delay walks out of 400 fs."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),
@@ -447,14 +442,14 @@ def test_a_saved_plane_validates_its_record_once(
     # The driver builds the record once a plane, and the store amends it with what it
     # has already validated -- its earlier executions -- rather than checking the whole
     # record again: one JSON round trip a plane, not nine.
-    validate = schema._outcome_record
+    validate = records._outcome_record
     validated: list[Mapping[str, object]] = []
 
     def counted(record: Mapping[str, object]) -> dict[str, object]:
         validated.append(record)
         return validate(record)
 
-    monkeypatch.setattr(schema, "_outcome_record", counted)
+    monkeypatch.setattr(records, "_outcome_record", counted)
     output = _Recording()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)

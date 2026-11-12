@@ -52,12 +52,11 @@ from solprop.processing import (
 )
 from solprop.processing.compression import Compression
 from solprop.processing.time import fwhm
+from solprop.service._payload import Payload
 from solprop.service.reduce import TIME_OVERSAMPLING
 from solprop.service.results import band_of
 
 __all__ = ["POSTPROCESS_HANDLERS", "catalogue", "compress_chain"]
-
-Payload = Mapping[str, object]
 
 
 def catalogue(_payload: Payload) -> dict[str, list[str]]:

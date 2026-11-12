@@ -28,7 +28,7 @@ from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_optics
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 

@@ -18,7 +18,7 @@ from matplotlib.figure import Figure
 
 from solprop.constants import C
 from solprop.optics import TransferFunction
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.plotting.propagation import DEFAULT_TIME_RANGE, DEFAULT_WAVELENGTH_RANGE
 from solprop.plotting.style import (
     T_TO_FS,
@@ -63,7 +63,7 @@ def spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     z : float or None
         Position of the plane, m; the end of the run by default.

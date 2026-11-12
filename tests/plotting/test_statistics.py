@@ -7,13 +7,8 @@ import numpy as np
 import pytest
 
 from solprop.output import MemoryOutput
-from solprop.output.schema import (
-    GridRecord,
-    RunMetadata,
-    SavedPlane,
-    StepperRecord,
-    StepStats,
-)
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, SavedPlane, StepperRecord, StepStats
 from solprop.plotting.statistics import _should_log, _trace, plot_stats
 from solprop.processing._examples import example_grid, example_output, gvd_phase
 from solprop.pulses import GaussianPulse

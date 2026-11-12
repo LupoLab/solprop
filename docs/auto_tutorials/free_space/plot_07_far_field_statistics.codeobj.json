@@ -408,7 +408,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   },
@@ -443,7 +443,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   }
@@ -452,7 +452,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },
@@ -2461,7 +2461,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.plane_field"
   },
@@ -2704,7 +2704,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.driver.simulation",
+   "module": "solprop.driver.settings",
    "module_short": "solprop.driver",
    "name": "SimulationSettings"
   },

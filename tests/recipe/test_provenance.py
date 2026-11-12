@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput

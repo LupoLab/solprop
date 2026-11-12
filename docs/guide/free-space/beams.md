@@ -33,7 +33,7 @@ media each accepts are defined in [the free-space model](model.md):
 
 | grid | resolves | use it for | entry point |
 |---|---|---|---|
-| {py:class}`~solprop.grid.RadialGrid` | $r$, assuming each polarisation component is cylindrically symmetric | round beams on axis: focusing, self-focusing, a single filament; the cheapest | `prop_radial`, `Simulation.from_radial` |
+| {py:class}`~solprop.grid.RadialGrid` | $r$, assuming each polarisation component is cylindrically symmetric | round beams on axis: focusing, self-focusing, a single filament; the cheapest | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.FreeGrid` | $x$ and $y$, a periodic box | anything without that symmetry: a tilted, astigmatic or elliptical beam, several filaments, beam break-up | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.LineGrid` | $x$ alone; uniform in $y$ | a sheet beam, per metre of $y$ | `prop_free` |
 
@@ -81,7 +81,7 @@ through argon with the Kerr effect, on an envelope grid, saving ten planes:
 import numpy as np
 
 from solprop.boundaries import absorber
-from solprop.driver import SimulationSettings, prop_radial
+from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.constants import C
@@ -111,7 +111,7 @@ settings = SimulationSettings(
     stats=StatsSpec(names=("energy", "beam_radius", "peak_intensity")),
     absorber=absorber(grid),
 )
-run = prop_radial(
+run = prop_free(
     grid,
     space,
     argon,
@@ -167,7 +167,7 @@ focusing = SpatialPulse(
     propz=-5e-3,  # the waist is 5 mm into the run
 )
 launch = focusing.build(grid, space, medium=SpatialMedium())  # focused in vacuum
-through_waist = prop_radial(
+through_waist = prop_free(
     grid, space, argon, [], launch, settings=settings, progress="none"
 )
 radius = np.asarray(through_waist["stats/beam_radius"])[..., 0].reshape(-1)
@@ -199,7 +199,7 @@ plasma_settings = replace(
     stats=StatsSpec(names=("energy", "peak_intensity", "electron_density")),
     ionisation_field_range=(1e8, 1e11),
 )
-filament = prop_radial(
+filament = prop_free(
     grid,
     space,
     argon,
@@ -342,7 +342,7 @@ plane, {py:func}`~solprop.processing.beams.radial_spectrum` and
 {py:func}`~solprop.processing.beams.far_field` its energy per solid angle against wavelength,
 where conical emission shows as rings. The angle is the one outside the medium. The
 [filament reader example](../../auto_tutorials/free_space/plot_11_radial_filament.rst) uses them,
-and {py:func}`~solprop.tools.beam_params` gives a beam's Rayleigh range, critical power and
+and {py:func}`~solprop.tools.beam.beam_params` gives a beam's Rayleigh range, critical power and
 Marburger distance.
 
 ## Where it runs

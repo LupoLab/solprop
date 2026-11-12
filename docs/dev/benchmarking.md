@@ -36,7 +36,7 @@ selection it is the tracking set:
 | `argon_blueshift_envelope` | `prop_capillary` | the same on the envelope grid | 1, production |
 | `h2_raman_averaged` | `prop_capillary` | H2 soliton self-frequency shift, 0.4 m | 1, production |
 | `ctc` | `prop_capillary` | H2 comb-to-continuum, three modes, 0.13 m | production |
-| `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, production |
+| `radial_filament_256` | `prop_free` | Ar filament, 256 radial nodes, 3 cm | 1, production |
 | `grin_nonlinear` | `prop_waveguide` | four-channel graded-index fibre, 2 cm | production |
 | `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384², four fixed RK4IP steps | production |
 | `kerr_beam_192` | `prop_free` | the same at 192² | 1 |

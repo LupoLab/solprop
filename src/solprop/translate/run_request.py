@@ -45,7 +45,7 @@ from jaxtyping import Float
 from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.monitor import BoundaryMonitor
-from solprop.output.schema import FieldRetention
+from solprop.output.store import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -69,7 +69,12 @@ __all__ = [
 ]
 
 MARCH_SNAPSHOT_AUTO_BYTES = 256 * 2**20
-"""The automatic method-history retention limit, bytes (SEP 47 section 5.5)."""
+"""The largest Adams march snapshot a run keeps with ``resume_history=None``, bytes.
+
+The snapshot -- the state and the history's rows, a few to sixty copies of the state --
+is rewritten at every save plane; a state too large for that to be cheap keeps none
+unless asked to, and its resume starts the history afresh (SEP 47 section 5.5).
+"""
 
 
 class MethodKind(enum.Enum):
@@ -173,7 +178,7 @@ class ObservationRequest:
         Observe the endpoint of every ``step_planes``-th accepted step; ``0`` for none.
     stats : solprop.stats.StatsSpec
         The plane statistics, and the periodic subset with its period.
-    retention : solprop.output.schema.FieldRetention
+    retention : solprop.output.store.FieldRetention
         Which observed planes keep their field.
     """
 
@@ -387,7 +392,7 @@ class RunRequest:
         ----------
         stats : solprop.stats.StatsSpec or None, optional
             The statistics; this request's own by default.
-        retention : solprop.output.schema.FieldRetention or None, optional
+        retention : solprop.output.store.FieldRetention or None, optional
             Field retention, already resolved against the planes; every field by
             default.
         start_plane : int, optional
@@ -457,7 +462,7 @@ def describe_run(
         control, itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional
         The statistics; none by default.
-    retention : solprop.output.schema.FieldRetention or None, optional
+    retention : solprop.output.store.FieldRetention or None, optional
         Field retention, already resolved against the planes; every field by default.
     start_plane : int, optional
         The first save plane beyond the starting state.

@@ -27,7 +27,7 @@ from solprop.exceptions import (
 from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.spatial import (
@@ -389,7 +389,7 @@ def radial(
     space = RadialGrid(4e-6, 16)
     pulse = evanescent_beam(grid, space, SpatialMedium())
     planes = [length]
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium(),

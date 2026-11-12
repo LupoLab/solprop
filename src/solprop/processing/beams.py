@@ -21,7 +21,7 @@ from jaxtyping import Float
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import RadialGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing.axes import (
     SpectralAxis,
     grid_of,
@@ -131,7 +131,7 @@ def on_axis_spectra(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
@@ -166,7 +166,7 @@ def radial_spectrum(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
@@ -216,7 +216,7 @@ def far_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
@@ -297,7 +297,7 @@ def fluence_along(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
 
     Returns
@@ -328,7 +328,7 @@ def radial_intensity(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     plane : int or None, optional
         The plane, negative from the end; the last when neither it nor ``z`` is given.
@@ -364,7 +364,7 @@ def on_axis_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     plane : int or None, optional
         The plane, negative from the end; the last when neither it nor ``z`` is given.
@@ -407,7 +407,7 @@ def on_axis_spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.

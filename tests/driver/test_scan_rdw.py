@@ -17,8 +17,8 @@ import pytest
 
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.driver import Simulation
+from solprop.driver.defaults import WAVEGUIDE_RTOL
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import WAVEGUIDE_RTOL
 from solprop.processing.scans import energy_in_band
 from solprop.stats import StatsSpec
 

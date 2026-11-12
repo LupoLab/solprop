@@ -48,7 +48,7 @@ from solprop.optics import (
     TransferFunction,
 )
 from solprop.output.capability import capability_of
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing import spectra, time
 from solprop.processing.axes import _keep_index, _plane_field, grid_of
 from solprop.processing.fields import _fft_norm, _to_time
@@ -463,7 +463,7 @@ def apply_transfer(
     ----------
     transfer : TransferFunction
         The element, from :mod:`solprop.optics`.
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int, optional
         Index of the plane, negative from the end.
@@ -513,7 +513,7 @@ def transform_limit(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         An opened output handler.
     grid : solprop.grid.TimeGrid or None
         With `spectrum`, the alternative to `output`.
@@ -632,7 +632,7 @@ def compress_taylor(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         An opened output handler.
     grid : solprop.grid.TimeGrid or None
         With `spectrum`, the alternative to `output`.
@@ -760,7 +760,7 @@ def compress_material(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         An opened output handler.
     medium : GlassIndex, Gas, str or Mixture
         What the material is; see :class:`solprop.optics.Material`.
@@ -876,7 +876,7 @@ def compress_mirrors(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         An opened output handler.
     mirror : ChirpedMirror or str
         The mirror, or the name of a shipped data set
@@ -994,7 +994,7 @@ def optimise_cep(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         An opened output handler.
     grid : solprop.grid.TimeGrid or None
         With `spectrum`, the alternative to `output`.
@@ -1311,7 +1311,7 @@ def compress_gratings(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         Orthogonal modal output; alternative to `grid` and `spectrum` together.
     pair : GratingPair
         Fixed grating density, angles, order, reference, pass count and working band.
@@ -1391,7 +1391,7 @@ def compress_prisms(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output or None
+    output : solprop.output.store.Output or None
         Orthogonal modal output; alternative to `grid` and `spectrum` together.
     pair : PrismPair
         Initial feasible pair and the settings held fixed during the search.

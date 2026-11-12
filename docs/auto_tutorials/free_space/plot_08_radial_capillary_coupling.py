@@ -130,7 +130,7 @@ settings = SimulationSettings(
 kerr = [KerrResponse(gamma3("Ar", wavelength=WAVELENGTH), thg=False)]
 gap = {}
 for name, responses in (("linear", []), ("Kerr", kerr)):
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, responses, beam, settings=settings, noise=None
     )
     gap[name] = (simulation, simulation.run(progress="none"))

@@ -19,7 +19,7 @@ import pytest
 from rate_oracles import adk_oracle
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.simulation import (
+from solprop.driver.inputs import (
     _capillary_input_peak,
     _check_rate_inputs,
     default_field_range,
@@ -32,7 +32,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.output import open_file
 from solprop.output.hdf5 import check_cache
-from solprop.output.schema import PEAK_FIELDS_ANNOTATION
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION
 from solprop.physdata import Mixture, species
 from solprop.physdata.selection import MaterialManifest, MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse

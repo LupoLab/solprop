@@ -106,30 +106,6 @@ def _reference_density(gas: Gas, state: ReferenceState) -> float:
     return density(gas, state.pressure_bar, state.temperature)
 
 
-def _as_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
-    """Validate an angular-frequency argument and return it as a float array.
-
-    - ``omega``: angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an
-      array.
-    """
-    # numpy casts a complex argument to float with a warning rather than an error, so
-    # it is rejected here before the conversion.
-    if np.iscomplexobj(omega):
-        raise MaterialError("angular frequency must be real, got a complex value")
-    try:
-        values = np.asarray(omega, dtype=float)
-    except (TypeError, ValueError) as exc:
-        raise MaterialError(f"angular frequency must be real: {exc}") from exc
-    if not np.all(np.isfinite(values)):
-        raise MaterialError("angular frequency must be finite")
-    if np.any(values < 0.0):
-        raise MaterialError(
-            "angular frequency must not be negative; a refractive index is not defined "
-            "there. Evaluate on the physical band of the grid."
-        )
-    return values
-
-
 def _wavelength_extremes(omega: Float[np.ndarray, "*shape"]) -> tuple[float, float]:
     """Return the shortest and longest wavelength of a set of angular frequencies.
 
@@ -253,7 +229,7 @@ class GasSusceptibility(ABC):
         >>> f"{float(model.susceptibility(2.356e15)):.6e}"
         '2.079791e-29'
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         self._check_range(values)
         u = np.asarray((_INVERSE_MICRON_PER_OMEGA * values) ** 2)
         chi, _ = self._chi_and_derivative(u)
@@ -288,7 +264,7 @@ class GasSusceptibility(ABC):
         >>> float(gamma(Gas.Ar).dsusceptibility_domega(2.356e15)) > 0.0
         True
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         self._check_range(values)
         scale = _INVERSE_MICRON_PER_OMEGA
         _, dchi_du = self._chi_and_derivative(np.asarray((scale * values) ** 2))
@@ -665,7 +641,7 @@ class OptmatSusceptibility(GasSusceptibility):
         - ``omega``: angular frequency in rad/s, >= 0; zero is the static limit.
         - ``method``: ``"complex_polarizability"`` or ``"dpolarizability_domega"``.
         """
-        values = _as_omega(omega)
+        values = _optmat.checked_omega(omega)
         wavelength = _optmat.omega_to_wavelength(values)
         evaluator = getattr(self.model, method)
         # Per particle, the polarizability does not depend on z, yet a translation
