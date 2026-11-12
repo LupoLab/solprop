@@ -280,19 +280,10 @@ def _scan_axis_row(
 ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
     """Scan one row of the field in time: every channel, with the node scan's tables.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The translated problem.
-    row : numpy.ndarray
-        The field on the axis on the fine time grid in V/m.
-    z : float
-        Plane position in m.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The final ionised fraction and the largest rate on the axis, one per channel.
+    - ``row``: the field on the axis on the fine time grid in V/m.
+    - ``z``: plane position in m.
+    - Returns: the final ionised fraction and the largest rate on the axis, one per
+      channel.
     """
     responses, grids = problem.responses, problem.grids
     preionisation = tuple(

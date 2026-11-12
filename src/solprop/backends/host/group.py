@@ -41,19 +41,6 @@ def _refuse_invalid_norm(norms: Sequence[float], backend: str) -> None:
     alone, so this is not a batch-only rule; what the batch owes the caller is the
     member's index, rather than an anonymous history error one plane later that
     the reader cannot attribute to a point.
-
-    Parameters
-    ----------
-    norms : collections.abc.Sequence
-        Each member's own scaled error norm for the step just evaluated,
-        dimensionless, in member order.
-    backend : str
-        Name of the batch runner, for the message.
-
-    Raises
-    ------
-    BackendError
-        Naming the first member with an invalid norm and the value it returned.
     """
     for index, norm in enumerate(norms):
         if not (np.isfinite(norm) and norm >= 0.0):
@@ -111,35 +98,16 @@ class HostGroup(HostDriver[tuple[object, ...]]):
     def _apply_mask(
         self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
     ) -> tuple[object, ...]:
-        """Refuse loading a shared field in place of independently loaded members.
-
-        Parameters
-        ----------
-        state : numpy.ndarray
-            Unused shared initial field.
-
-        Raises
-        ------
-        BackendError
-            Always; member owners must be initialised before construction.
-        """
+        """Refuse loading a shared field in place of independently loaded members."""
         del state
         raise BackendError("HostGroup requires independently loaded members")
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, tuple[object, ...]]:
         """Evaluate independent trial states at one common fixed step.
 
-        Parameters
-        ----------
-        z : float
-            Start position, m.
-        dz : float
-            Positive step length, m.
-
-        Returns
-        -------
-        tuple
-            Maximum diagnostic norm and independently owned trial states.
+        - ``z``: start position, m.
+        - ``dz``: positive step length, m.
+        - Returns: maximum diagnostic norm and independently owned trial states.
         """
         trials = tuple(member._trial_step(z, dz) for member in self._members)
         self._member_norms = tuple(norm for norm, _ in trials)
@@ -158,17 +126,7 @@ class HostGroup(HostDriver[tuple[object, ...]]):
         the shared itinerary is recorded once, with each member's own norm. A member
         left in flight by an abandoned step refuses the next one.
 
-        Parameters
-        ----------
-        schedule : solprop.stepper.schedule.FixedSchedule
-            The common schedule.
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        BackendError
-            If the schedule runs out before the target is reached.
+        - ``target``: position to reach, m.
         """
         marches = [
             member._adams if member._adams is not None else member._low_storage
@@ -223,17 +181,7 @@ class HostGroup(HostDriver[tuple[object, ...]]):
     def _finish(self, state: tuple[object, ...], dz: float) -> tuple[object, ...]:
         """Apply each member's accepted-step boundary handling.
 
-        Parameters
-        ----------
-        state : tuple
-            Trial states in member order.
-        dz : float
-            Accepted step length, m.
-
-        Returns
-        -------
-        tuple
-            Independently finished states, also installed on their owners.
+        - ``dz``: accepted step length, m.
         """
         finished = tuple(
             member._finish(value, dz)
@@ -246,16 +194,8 @@ class HostGroup(HostDriver[tuple[object, ...]]):
     def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         """Record the common itinerary and each member's own error estimate.
 
-        Parameters
-        ----------
-        z : float
-            End position, m.
-        dz : float
-            Step length, m.
-        norm : float
-            Maximum member diagnostic norm.
-        accepted : bool
-            Whether the shared step was accepted.
+        - ``z``: end position, m.
+        - ``dz``: step length, m.
         """
         super()._record(z, dz, norm, accepted)
         for member, own_norm in zip(self._members, self._member_norms, strict=True):
@@ -348,13 +288,6 @@ class HostGroup(HostDriver[tuple[object, ...]]):
 
         The member's march goes on with the others, unwatched and with its collar in
         every stage; its result is the caller's to discard.
-
-        Parameters
-        ----------
-        index : int
-            The member's position.
-        call : collections.abc.Callable
-            The call, which may raise the member's stop.
         """
         member = self._members[index]
         try:
@@ -507,18 +440,7 @@ class HostGroup(HostDriver[tuple[object, ...]]):
 
 
 def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
-    """Require one backend and a shared entrance-to-end replay contract.
-
-    Parameters
-    ----------
-    members : tuple of solprop.backends.host.driver.HostDriver
-        Loaded workspaces whose ownership has not yet transferred.
-
-    Raises
-    ------
-    BackendError
-        If any workspace lies outside the lockstep contract.
-    """
+    """Require one backend and a shared entrance-to-end replay contract."""
     if not members:
         raise BackendError("lockstep execution requires at least one member")
     first = members[0]
@@ -578,16 +500,7 @@ def _validate_members(members: tuple[HostDriver[object], ...]) -> None:
 def _refuse_mixed_precisions(members: tuple[HostDriver[object], ...]) -> None:
     """Refuse members whose problems do not share one precision.
 
-    Parameters
-    ----------
-    members : tuple of solprop.backends.host.driver.HostDriver
-        Loaded workspaces, at least one.
-
-    Raises
-    ------
-    BackendError
-        If a member's precision differs from the first's: each member's trial keeps
-        its own format, and the runner's common step and norms would mix them.
+    - ``members``: loaded workspaces, at least one.
     """
     first = members[0]._problem.precision
     if any(member._problem.precision != first for member in members):
@@ -597,16 +510,8 @@ def _refuse_mixed_precisions(members: tuple[HostDriver[object], ...]) -> None:
 def _general_leaves(problem: PropagationProblem) -> object:
     """Return what general modal guide a problem carries, comparably.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A member's problem.
-
-    Returns
-    -------
-    object
-        A scalar-and-string description, or ``None`` where the problem carries no
-        general modal route at all.
+    - Returns: a scalar-and-string description, or ``None`` where the problem carries no
+      general modal route at all.
     """
     tables = problem.transform.modal_tables
     if tables is None:
@@ -640,18 +545,6 @@ def _refuse_mixed_guides(
     check that does not depend on a caller having grouped carefully, written
     against the leaves a backend actually sees rather than against the driver's
     descriptor.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The member being admitted.
-    reference : solprop.translate.problem.PropagationProblem
-        Member zero's problem, whose guide the group is.
-
-    Raises
-    ------
-    BackendError
-        If the two carry different general modal guides, or only one carries one.
     """
     if _general_leaves(problem) == _general_leaves(reference):
         return

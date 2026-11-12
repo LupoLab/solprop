@@ -317,15 +317,7 @@ class HostAdamsMarch:
     def _refusal(self, snapshot: MarchSnapshot) -> str | None:
         """Return why a snapshot cannot continue this march, or ``None``.
 
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The candidate.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when the snapshot fits.
+        - Returns: the reason, or ``None`` when the snapshot fits.
         """
         backend = self._backend
         refusal = self.export_refusal()
@@ -381,19 +373,8 @@ class HostAdamsMarch:
     ) -> tuple[_State, _State]:
         """Return the source at a lab-frame field, in the anchor's frame, and U.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The frame's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic evaluation label, distinguishing startup and predictor work.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
+        - ``anchor``, ``position``: the frame's anchor and the evaluation position, m.
+        - Returns: ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
         """
         return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
@@ -472,17 +453,7 @@ class HostAdamsMarch:
         while a replay of a replay is identical. A hard kink, an edge of the schedule,
         restarts the history as it does in an adaptive run.
 
-        Parameters
-        ----------
-        schedule : solprop.stepper.schedule.FixedSchedule
-            The schedule to replay.
-        target : float
-            Position to reach, m.
-
-        Raises
-        ------
-        BackendError
-            If the schedule runs out before the target is reached.
+        - ``target``: position to reach, m.
         """
         backend = self._backend
         edges = schedule.edges
@@ -564,27 +535,12 @@ class HostAdamsMarch:
         Interpolated and carried to `position` by the exact linear flow (SEP 13
         section 6.4, SEP 16 section 4.3); never a history point, and no source call.
 
-        Parameters
-        ----------
-        position : float
-            The observation, m, inside the last accepted step.
-
-        Returns
-        -------
-        object
-            The masked lab-frame field at `position`, as the backend holds a state:
-            a host array.
+        - ``position``: the observation, m, inside the last accepted step.
         """
         return self._engine.observe(position)
 
     def _afford(self) -> None:
-        """Refuse a trial the call budget cannot pay for, before any call is made.
-
-        Raises
-        ------
-        ResponseBudgetError
-            Carrying the last accepted position and state and the calls spent.
-        """
+        """Refuse a trial the call budget cannot pay for, before any call is made."""
         self._raise_floor()
         budget = self._policy.max_calls
         cost = (0 if self._history else 1) + (
@@ -597,18 +553,7 @@ class HostAdamsMarch:
         backend._reserve_source_calls(cost)
 
     def _budget_error(self, cost: int) -> ResponseBudgetError:
-        """Return the error of a trial the call budget cannot pay for.
-
-        Parameters
-        ----------
-        cost : int
-            The calls the refused trial needs.
-
-        Returns
-        -------
-        solprop.exceptions.ResponseBudgetError
-            Carrying the last accepted position and state and the calls spent.
-        """
+        """Return the error of a trial the call budget cannot pay for."""
         backend = self._backend
         spent = self.ledger.total
         msg = (
@@ -641,15 +586,8 @@ class HostAdamsMarch:
         landing rule, so a shortened step is not a landing; a fixed schedule's replay
         is not capped.
 
-        Parameters
-        ----------
-        proposal : float
-            The controller's proposal, m.
-
-        Returns
-        -------
-        float
-            The proposal, or the shorter step the cap allows, m.
+        - ``proposal``: the controller's proposal, m.
+        - Returns: the proposal, or the shorter step the cap allows, m.
         """
         if not self._policy.carrier:
             return proposal
@@ -664,15 +602,9 @@ class HostAdamsMarch:
         :func:`~solprop.backends.adams_core.quiet_capped` of the backend's collar and
         monitor, the rule of the driver's own ``_quiet_capped``.
 
-        Parameters
-        ----------
-        proposal : float
-            The controller's proposal, m.
-
-        Returns
-        -------
-        float
-            The proposal, or the monitor's interval while the collar is left out, m.
+        - ``proposal``: the controller's proposal, m.
+        - Returns: the proposal, or the monitor's interval while the collar is left out,
+          m.
         """
         backend = self._backend
         monitor = backend._monitor
@@ -691,20 +623,11 @@ class HostAdamsMarch:
     ) -> tuple[bool, float]:
         """Try one step of length `dz` and commit it if accepted.
 
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-        fixed : bool, optional
-            Whether the step is a prescribed schedule's, accepted whatever its norm.
-        landing : tuple or None, optional
-            Where an accepted step ends, m, and whether that is a hard kink, which
-            restarts the history; ``None`` ends it at ``z + dz`` and restarts nothing.
-
-        Returns
-        -------
-        tuple
-            Whether the step was accepted, and its scaled error norm.
+        - ``dz``: the step, m.
+        - ``landing``: where an accepted step ends, m, and whether that is a hard kink,
+          which restarts the history; ``None`` ends it at ``z + dz`` and restarts
+          nothing.
+        - Returns: whether the step was accepted, and its scaled error norm.
         """
         if self._exponential is not None:
             return self._attempt_exponential(dz, fixed=fixed, landing=landing)
@@ -727,20 +650,10 @@ class HostAdamsMarch:
         (:meth:`HostHistory.fused_trial`): the defects of the neighbouring orders are
         scored in the same pass as the step's own, before the decision.
 
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-        fixed : bool, optional
-            Whether the step is a prescribed schedule's, accepted whatever its norm.
-        landing : tuple or None, optional
-            Where an accepted step ends and whether it is a hard kink
-            (:meth:`_attempt`).
-
-        Returns
-        -------
-        tuple
-            Whether the step was accepted, and its scaled error norm.
+        - ``dz``: the step, m.
+        - ``landing``: where an accepted step ends and whether it is a hard kink
+          (:meth:`_attempt`).
+        - Returns: whether the step was accepted, and its scaled error norm.
         """
         z, nodes, slots, order, orders = self._stencil(dz)
         self.ledger.predictor += 1
@@ -754,16 +667,9 @@ class HostAdamsMarch:
 
         :func:`~solprop.backends.adams_core.stencil` of the history.
 
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-
-        Returns
-        -------
-        tuple
-            The anchor, m; the history's normalised positions and store rows, newest
-            first; the step's order; and the orders scored, its own first.
+        - ``dz``: the step, m.
+        - Returns: the anchor, m; the history's normalised positions and store rows,
+          newest first; the step's order; and the orders scored, its own first.
         """
         z = self._backend._z
         history = self._history
@@ -792,26 +698,10 @@ class HostAdamsMarch:
 
         The new sample takes the oldest row past the method's need.
 
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-        order : int
-            Its order.
-        orders : list of int
-            The orders scored, its own first.
-        norms : numpy.ndarray
-            Their scaled norms.
-        fixed : bool
-            Whether the step is a prescribed schedule's, accepted whatever its norm.
-        landing : tuple or None, optional
-            Where an accepted step ends and whether it is a hard kink
-            (:meth:`_attempt`).
-
-        Returns
-        -------
-        tuple
-            Whether the step was accepted, and its scaled error norm.
+        - ``dz``: the step, m.
+        - ``landing``: where an accepted step ends and whether it is a hard kink
+          (:meth:`_attempt`).
+        - Returns: whether the step was accepted, and its scaled error norm.
         """
         backend, policy, engine = self._backend, self._policy, self._engine
         norm = float(norms[0])
@@ -857,12 +747,7 @@ class HostAdamsMarch:
         step it accepted at that step's end (SEP 39 section 4.4). The floor is raised
         once the march has recorded the step (:meth:`_raise_floor`).
 
-        Parameters
-        ----------
-        dz : float
-            The accepted step, m.
-        factor : float
-            The factor its defect allows.
+        - ``dz``: the accepted step, m.
         """
         policy = self._policy
         try:
@@ -878,11 +763,6 @@ class HostAdamsMarch:
         Every caller that records an accepted step calls this straight after, and every
         attempt calls it before it starts (:meth:`_afford`), so a floor is never
         passed over.
-
-        Raises
-        ------
-        ConvergenceError
-            The floor's error, if one is pending.
         """
         error, self._floor = self._floor, None
         if error is not None:
@@ -894,14 +774,9 @@ class HostAdamsMarch:
         Called inside the commit that installed the step's state, so that the state
         and its position change together whatever interrupts the march afterwards.
 
-        Parameters
-        ----------
-        z : float
-            The step's start, m.
-        dz : float
-            The step, m.
-        landing : tuple or None
-            Where it ends and whether that is a hard kink (:meth:`_attempt`).
+        - ``z``: the step's start, m.
+        - ``dz``: the step, m.
+        - ``landing``: where it ends and whether that is a hard kink (:meth:`_attempt`).
         """
         end, kink = (z + dz, False) if landing is None else landing
         self._backend._z = end
@@ -922,20 +797,10 @@ class HostAdamsMarch:
         (:meth:`HostHistory.exponential_trial`): untransported samples, integrated
         exactly against the step's flow; an accepted step re-anchors nothing.
 
-        Parameters
-        ----------
-        dz : float
-            The step, m.
-        fixed : bool, optional
-            Whether the step is a prescribed schedule's, accepted whatever its norm.
-        landing : tuple or None, optional
-            Where an accepted step ends and whether it is a hard kink
-            (:meth:`_attempt`).
-
-        Returns
-        -------
-        tuple
-            Whether the step was accepted, and its scaled error norm.
+        - ``dz``: the step, m.
+        - ``landing``: where an accepted step ends and whether it is a hard kink
+          (:meth:`_attempt`).
+        - Returns: whether the step was accepted, and its scaled error norm.
         """
         z, nodes, slots, order, orders = self._stencil(dz)
         self.ledger.predictor += 1
@@ -948,16 +813,9 @@ class HostAdamsMarch:
         :func:`~solprop.backends.adams_core.collar_reentry`, recording the collar's
         flag at this attempt.
 
-        Parameters
-        ----------
-        proposal : float
-            The controller's proposal, m.
-
-        Returns
-        -------
-        float
-            The proposal, or the collar's stable step when the term has just
-            returned, m.
+        - ``proposal``: the controller's proposal, m.
+        - Returns: the proposal, or the collar's stable step when the term has just
+          returned, m.
         """
         quiet = self._backend._collar_quiet
         capped = adams_core.collar_reentry(
@@ -983,19 +841,8 @@ class HostAdamsMarch:
         40 % apart. The cap weighs the choice only; the step is the chosen order's
         defect's, as before.
 
-        Parameters
-        ----------
-        current : int
-            The step's own order, which `scores` contains.
-        scores : dict
-            The scaled defect of every scored order.
-        dz : float
-            The accepted step, m.
-
-        Returns
-        -------
-        tuple
-            The order and the norm the next step is controlled with.
+        - ``dz``: the accepted step, m.
+        - Returns: the order and the norm the next step is controlled with.
         """
         stored, control, norm = adams_core.choose_order(
             self._policy, current, scores, dz, quiet=self._backend._collar_quiet
@@ -1011,14 +858,8 @@ class HostAdamsMarch:
         :data:`~solprop.stepper.multistep.RESTART_AFTER` in a row the method restarts
         at order one from the accepted state, paying one startup call.
 
-        Parameters
-        ----------
-        dz : float
-            The rejected step, m.
-        norm : float
-            Its scaled defect, possibly not finite.
-        order : int
-            Its order.
+        - ``dz``: the rejected step, m.
+        - ``norm``: its scaled defect, possibly not finite.
         """
         policy = self._policy
         self.ledger.rejected_steps += 1
@@ -1050,20 +891,7 @@ _ENGINE_MEMBERS = (
 
 
 def _check_engine(engine: object, *, exponential: bool) -> None:
-    """Refuse an injected engine that lacks a member its path calls.
-
-    Parameters
-    ----------
-    engine : object
-        The engine, an :class:`~solprop.backends.multistep.AdamsEngine`.
-    exponential : bool
-        Whether the path is the exponential formulation's, or the fused one's.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        Naming the missing members.
-    """
+    """Refuse an injected engine that lacks a member its path calls."""
     family = "exponential" if exponential else "fused"
     wanted = (*_ENGINE_MEMBERS, f"{family}_trial", f"{family}_accept")
     missing = [name for name in wanted if not hasattr(engine, name)]

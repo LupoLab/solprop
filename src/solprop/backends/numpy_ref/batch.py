@@ -117,17 +117,9 @@ class NumpyBatchBackend(HostGroup):
     def _trial_step(self, z: float, dz: float) -> tuple[float, tuple[object, ...]]:
         """Evaluate vector stage arithmetic with independent member responses.
 
-        Parameters
-        ----------
-        z : float
-            Start position, m.
-        dz : float
-            Positive fixed step length, m.
-
-        Returns
-        -------
-        tuple
-            Maximum diagnostic norm and member trial states.
+        - ``z``: start position, m.
+        - ``dz``: positive fixed step length, m.
+        - Returns: maximum diagnostic norm and member trial states.
         """
         members = self._reference_members
         state = np.concatenate([member._require_state() for member in members])

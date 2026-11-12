@@ -65,23 +65,7 @@ class _Trial:
     ) -> "_Trial":
         """Form the predictor of a step from the history, newest derivative first.
 
-        Parameters
-        ----------
-        history : list
-            The accepted derivatives, oldest first, in the anchor's frame.
-        order : int
-            The order asked for; fewer derivatives during startup lower it.
-        z, dz : float
-            The anchor and the step, m.
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        backend : solprop.backends.host.driver.HostDriver
-            The backend, for the step's propagator and norm.
-
-        Returns
-        -------
-        _Trial
-            The trial, with its predictor formed.
+        - ``z``, ``dz``: the anchor and the step, m.
         """
         recent = history[::-1]
         nodes = np.array([(entry.z - z) / dz for entry in recent])
@@ -104,33 +88,11 @@ class _Trial:
         )
 
     def lab(self, increment: _State) -> _State:
-        """Return the lab-frame field at the end of the step for an increment.
-
-        Parameters
-        ----------
-        increment : numpy.ndarray
-            ``v - a_n`` in the anchor's frame.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``U(z + dz, z) (a_n + increment)``.
-        """
+        """Return the lab-frame field at the end of the step for an increment."""
         return self.propagator * (self.state + increment)
 
     def norm(self, defect: _State) -> float:
-        """Return the weak norm of a defect, carried to the end of the step.
-
-        Parameters
-        ----------
-        defect : numpy.ndarray
-            A local-defect estimate in the anchor's frame.
-
-        Returns
-        -------
-        float
-            The scaled norm; one is the tolerance.
-        """
+        """Return the weak norm of a defect, carried to the end of the step."""
         return self.scale(self.propagator * defect)
 
 
@@ -375,22 +337,6 @@ def _defect_at(trial: _Trial, source: _State, order: int, helpers: Helpers) -> f
 
     The order's predictor and its one-order-higher corrector are formed from the same
     history and the same predicted-state source, so scoring a neighbour costs no call.
-
-    Parameters
-    ----------
-    trial : _Trial
-        The accepted step.
-    source : numpy.ndarray
-        Its predicted-state source, in the step's anchor frame.
-    order : int
-        The neighbouring order, no more than the derivatives the trial holds.
-    helpers : solprop._helpers.Helpers
-        The owning backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    float
-        The scaled predictor-corrector difference at that order.
     """
     nodes, values = trial.nodes[:order], trial.values[:order]
     predicted = _combine(
@@ -419,17 +365,7 @@ def _norm_function(
     from 1e7 to 1e236 in five accepted steps with every scaled norm below 0.6. The state
     the step starts from is the scale that cannot grow with the step it judges.
 
-    Parameters
-    ----------
-    backend : solprop.backends.host.driver.HostDriver
-        The backend, for the controller and the in-band mask.
-    state : numpy.ndarray
-        The accepted state before the step.
-
-    Returns
-    -------
-    callable
-        ``defect -> norm`` for a defect carried to the end of the step.
+    - Returns: ``defect -> norm`` for a defect carried to the end of the step.
     """
     problem = backend._problem
     mask, controller = problem.grids.norm_mask, backend._stepper.controller
@@ -441,18 +377,7 @@ def _norm_function(
     divisor = scale[mask] if isinstance(scale, np.ndarray) else scale
 
     def scaled(defect: _State) -> float:
-        """Return the scaled norm of a defect at the end of the step.
-
-        Parameters
-        ----------
-        defect : numpy.ndarray
-            The defect, carried to the end of the step.
-
-        Returns
-        -------
-        float
-            The scaled norm.
-        """
+        """Return the scaled norm of a defect at the end of the step."""
         return float(np.linalg.norm(defect[..., mask] / divisor))
 
     return scaled

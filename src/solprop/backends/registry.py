@@ -173,18 +173,7 @@ it is built.
 
 
 def _load(path: str) -> object:
-    """Import the object a registry path names.
-
-    Parameters
-    ----------
-    path : str
-        ``"module:attribute"``, the attribute dotted for one inside a class.
-
-    Returns
-    -------
-    object
-        The object.
-    """
+    """Import the object a registry path names."""
     module, _, attribute = path.partition(":")
     found: object = importlib.import_module(module)
     for part in attribute.split("."):
@@ -239,18 +228,10 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
 def _plugin_far_field(name: str) -> frozenset[str] | None:
     """Return the far-field statistics an installed plugin backend declares.
 
-    Parameters
-    ----------
-    name : str
-        A registry name.
-
-    Returns
-    -------
-    frozenset of str or None
-        What the plugin declares (its row's ``far_field``: the native backend's
-        ``NativeBackend.far_field_statistics``), empty for a build that predates the
-        attribute, or ``None`` when the name is not a known, installed plugin that
-        declares them.
+    - Returns: what the plugin declares (its row's ``far_field``: the native backend's
+      ``NativeBackend.far_field_statistics``), empty for a build that predates the
+      attribute, or ``None`` when the name is not a known, installed plugin that
+      declares them.
     """
     entry = BACKENDS.get(name)
     if entry is None or entry.far_field is None or not _satisfied(entry):
@@ -357,18 +338,7 @@ _NATIVE_MISSING = (
 
 
 def _device_build(name: str) -> bool:
-    """Return whether a backend steps on an accelerator in this installation.
-
-    Parameters
-    ----------
-    name : str
-        A backend's name, or ``"auto"``.
-
-    Returns
-    -------
-    bool
-        True for a backend built for a device: ``native`` built for CUDA or HIP.
-    """
+    """Return whether a backend steps on an accelerator in this installation."""
     entry = BACKENDS.get(resolve_name(name))
     if entry is None or entry.device is None:
         return False
@@ -378,15 +348,8 @@ def _device_build(name: str) -> bool:
 def _devices(entry: BackendEntry) -> tuple[str, int]:
     """Return where a backend's installed build runs, from its row's ``device``.
 
-    Parameters
-    ----------
-    entry : BackendEntry
-        A row with a ``device``.
-
-    Returns
-    -------
-    tuple of (str, int)
-        The build's device backend, ``"none"`` on a CPU build, and the devices it sees.
+    - Returns: the build's device backend, ``"none"`` on a CPU build, and the devices it
+      sees.
     """
     info = cast("Callable[[], object]", _load(cast(str, entry.device)))()
     backend = cast(str, getattr(info, "device_backend"))  # noqa: B009 - any build's
@@ -399,16 +362,6 @@ def _check_required_device(name: str) -> None:
     This reads the actual build, never a version label, and runs before any state is
     allocated: a job set up for a GPU should stop, not run for days on a CPU wheel that
     replaced its build.
-
-    Parameters
-    ----------
-    name : str
-        The resolved backend name.
-
-    Raises
-    ------
-    BackendError
-        If the value isn't an accepted one, or the backend or build doesn't meet it.
     """
     value = os.environ.get(REQUIRE_DEVICE_SETTING, "").strip()
     if not value:
@@ -466,11 +419,8 @@ def _native_baseline_shortfall() -> ImportError | None:
     ``__init__`` refuses a processor below the baseline and loads the extension), and
     asked the question the package asks at import.
 
-    Returns
-    -------
-    ImportError or None
-        The package's own refusal, or ``None`` when the processor meets the baseline or
-        the build records none to check.
+    - Returns: the package's own refusal, or ``None`` when the processor meets the
+      baseline or the build records none to check.
     """
     spec = importlib.util.find_spec("solprop_native")
     locations = [] if spec is None else (spec.submodule_search_locations or [])
@@ -484,18 +434,7 @@ def _native_baseline_shortfall() -> ImportError | None:
 
 
 def _baseline_probe(source: Path) -> ModuleType:
-    """Load the native package's processor check from its file, as its own module.
-
-    Parameters
-    ----------
-    source : pathlib.Path
-        ``solprop_native/_cpu.py`` of the installed package.
-
-    Returns
-    -------
-    types.ModuleType
-        The module, under a private name so that it never stands in for the package's.
-    """
+    """Load the native package's processor check from its file, as its own module."""
     spec = importlib.util.spec_from_file_location("_solprop_native_cpu_probe", source)
     if spec is None or spec.loader is None:  # pragma: no cover - a .py file loads
         raise ImportError(f"cannot load the native processor check {source}")
@@ -670,15 +609,7 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
 def _satisfied(entry: BackendEntry) -> bool:
     """Return whether every module an entry requires can be found.
 
-    Parameters
-    ----------
-    entry : BackendEntry
-        The table row.
-
-    Returns
-    -------
-    bool
-        True when nothing is missing.
+    - Returns: True when nothing is missing.
     """
     return all(
         importlib.util.find_spec(module) is not None for module in entry.requires
@@ -698,34 +629,8 @@ def _construct(
 ) -> Backend:
     """Import and build the named backend, whose requirements are already met.
 
-    Parameters
-    ----------
-    name : str
-        The backend's registry name.
-    problem : solprop.translate.problem.PropagationProblem
-        The problem to step.
-    request : solprop.translate.run_request.RunRequest
-        The run's policies.
-    grid : solprop.grid.TimeGrid or None
-        The grid the state lives on.
-    modes : collections.abc.Sequence or None
-        The propagated modes.
-    profiles : collections.abc.Mapping or None
-        The z-profiles keyed by statistic name.
-    tdse_binding : TDSEBinding or None, optional
-        Driver-owned atomic runtime, passed only to the NumPy backend.
-    options : solprop.backends.session.ExecutionOptions or None, optional
-        The run's execution options.
-
-    Returns
-    -------
-    Backend
-        The constructed backend.
-
-    Raises
-    ------
-    ImportError
-        If the name is known and satisfied but no module implements it yet.
+    - ``profiles``: the z-profiles keyed by statistic name.
+    - ``tdse_binding``: Driver-owned atomic runtime, passed only to the NumPy backend.
     """
     entry = BACKENDS.get(name)
     if entry is None:

@@ -185,12 +185,7 @@ class HostLowStorageMarch:
     def _move(self, finished: object, end: float) -> None:
         """Make the finished state the backend's at the step's end; clear the flag.
 
-        Parameters
-        ----------
-        finished : object
-            The state after the backend's ``_finish``.
-        end : float
-            The schedule's edge the step ends on, m.
+        - ``end``: the schedule's edge the step ends on, m.
         """
         backend = self._backend
         backend._state = finished
@@ -201,24 +196,8 @@ class HostLowStorageMarch:
     def _accept(self, z: float, dz: float, squared: float) -> object:
         """Refuse a diverged step, or apply the backend's finish to the state.
 
-        Parameters
-        ----------
-        z : float
-            Where the step started, m.
-        dz : float
-            The step, m.
-        squared : float
-            The accepted state's squared norm the engine returned.
-
-        Returns
-        -------
-        object
-            The state after the backend's ``_finish``.
-
-        Raises
-        ------
-        ConvergenceError
-            If `squared` is not finite.
+        - ``z``: where the step started, m.
+        - ``dz``: the step, m.
         """
         backend = self._backend
         if not math.isfinite(squared):
@@ -237,12 +216,8 @@ class HostLowStorageMarch:
     def _check_stiffness(self, z: float, dz: float) -> None:
         """Warn, once per replay, when a step's stiffness passes RK4's interval.
 
-        Parameters
-        ----------
-        z : float
-            Where the step started, m.
-        dz : float
-            The step, m.
+        - ``z``: where the step started, m.
+        - ``dz``: the step, m.
         """
         stiffness = self._engine.stiffness
         interval = self._method.real_stability_interval
