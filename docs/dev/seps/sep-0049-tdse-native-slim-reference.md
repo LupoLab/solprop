@@ -820,6 +820,11 @@ milestone pull request per phase as for SEP 47 (Q9).
   a backend for now. The review follow-up below records that decision, the revised
   recommendation to consider the native TDSE work separately, and the remaining
   relevant questions. This records a review decision; it does not rewrite Part I.
+- 2026-11-12: The maintainer answered the remaining relevant questions in discussion
+  with the AI reviewer. The review follow-up records the three callbacks, the commit
+  boundary for failures, shared source assembly, one TDSE implementation PR, manual
+  real-provider testing, pipe-only transport, and prompt explicit cancellation with
+  no automatic evaluation timeout. The proposal text awaits the author's revision.
 
 ### AI review — 2026-11-12
 
@@ -1222,25 +1227,113 @@ unchanged.
   slim API, its replay contract, renaming the module and replacing SEP 0's parity
   rules do not need decisions for the retained-backend TDSE scope. Replay or trace
   improvements may still be assessed on their own merits.
-- **Q1 and R10 remain:** the hook entry points, reservation lifetime, and the precise
-  distinction between failure before an accepted commit and failure while recording
-  an already committed step. The recommendation remains three hooks, with explicit
-  commit and cleanup semantics rather than a promise to roll back every exception.
-- **Q3 and R9 remain:** a shared production home for the host TDSE source, called by
-  both backends, with independent manufactured expectations for its arithmetic and
-  separately tested native wiring. Recommended home: `solprop.backends.tdse_source`.
-- **Q9 remains in a narrower form:** delivery of TDSE alone. Recommendation: one
-  implementation pull request for that scope under the normal SEP process; no
-  reference-removal milestone is needed for it to be useful.
-- **Q10 remains:** the real-provider CI and manual qualification contract, including
-  the evidence available while Pyroraptor is unpublished. This is separate from
-  manufactured worker tests.
-- **Q11 and R11 remain:** worker transport, fresh interpreter startup, cancellation
-  and timeout policy, process/resource ownership, cleanup and the one-thread-budget
-  case. The separate worker and no-shared-device decisions are not reopened.
+- **Q1 decided by John Travers, 2026-11-12:** keep the three callbacks:
+  `begin(cost)` reserves the atomic-call budget before the attempt, `evaluate(...)`
+  obtains the response and assembles the source, and `end(accepted)` records the
+  accepted or rejected outcome and releases the remaining reservation. This follows
+  the reference's existing accounting without returning to the session after every
+  attempt solely to manage its reservation and outcome.
+- **R10 decided by John Travers, 2026-11-12:** the numerical commit is the failure
+  boundary. A failure before commit discards the trial and retains the previous
+  accepted field, position and history. A failure after commit, such as archive
+  recording in `end`, preserves the newly accepted state, stops the run with the
+  original error, reports the archive failure explicitly and makes that state
+  available for checkpointing where possible. A rejected attempt does not advance
+  the accepted state. Every failure path releases unused reservations while retaining
+  charges for atomic calls already attempted; cleanup must preserve the original
+  error. Numerical rollback cannot undo completed atomic work or archive writes.
+- **Q3/R9 decided by John Travers, 2026-11-12:** place the host TDSE source assembly
+  in `solprop.backends.tdse_source`, called by both native and `numpy_ref`, without
+  native depending on the reference package. The driver retains provider-worker
+  ownership, budgets, archives and resource lifetime; translation prepares the
+  parameters and tables; the shared module performs source subtraction, scaling,
+  gating, transforms and projection at each evaluation. Both backends retain their
+  independent optical marches and history. Keep independent analytic/manufactured
+  expectations for the shared source's signs, scaling, gating and projection, plus
+  separately tested native wiring: agreement between callers of shared arithmetic
+  cannot by itself verify that arithmetic.
+- **Q9 decided by John Travers, 2026-11-12:** deliver the TDSE scope in one
+  implementation pull request under the normal SEP process, opened as a draft when
+  implementation starts. Develop the shared source module, provider worker, native
+  hook, tests and documentation in successive commits, and mark it ready once the
+  complete TDSE path is qualified. PR #765 remains the proposal/review pull request.
+  Required Pyroraptor changes use a linked companion pull request in that repository;
+  no exception for separate solprop milestone pull requests is needed.
+- **Q10 decided by John Travers, 2026-11-12:** do not add a scheduled or manually
+  triggered real-provider CI job. Test Pyroraptor by hand as it is used, on CPU or
+  GPU as applicable. Retain manufactured-provider and worker-contract tests in CI.
+  The reviewer recommendation for an automated CPU check was not accepted. Public
+  release of Pyroraptor is not a prerequisite for the TDSE implementation; it may
+  remain private. CI therefore establishes the manufactured integration contracts,
+  not compatibility with an installed real provider. Report actual manual evidence
+  and its configuration separately, without implying unperformed provider checks.
+
+  **Review note on the existing dependency boundary:** solprop declares no
+  Pyroraptor dependency or extra and does not fetch a private source during install.
+  The TDSE binding dynamically imports an already installed `pyroraptor`, checks
+  its reported native source revision against `_PROVIDER_REVISION`, checks its
+  execution space, and records its build identity. Keeping the provider private
+  does not obstruct ordinary solprop installs or manufactured tests. A newer provider
+  build requires deliberate coordination with the source pin and manual evidence;
+  CI alone cannot establish real-provider compatibility. The worker implementation
+  should preserve optional loading and report the worker's actual provider identity.
+- **Q11 decided by John Travers, 2026-11-12:** use pipe-only transport for control
+  messages and arrays; do not implement a shared-memory transport. Atomic evaluations
+  take at least minutes in the intended use, so the extra copying is expected to be
+  negligible relative to the provider work. Transfer array values unchanged, use
+  bounded messages and include transport buffers in memory accounting. Keep the
+  communication path responsive to cancellation. Shared memory would need a future
+  demonstrated benefit to justify its additional ownership and cleanup machinery;
+  transport overhead has not been benchmarked in this review.
+- **R11 cancellation/time-limit policy decided by John Travers, 2026-11-12:** no
+  automatic per-evaluation timeout, and prompt cancellation when explicitly
+  requested. The parent checks for cancellation while waiting for the worker; it
+  shuts the worker down, terminating it if necessary, without waiting for a long
+  atomic evaluation to finish. Discard the unfinished optical trial and preserve
+  the last accepted field, position and history for checkpointing, following R10.
+  Keep charges for atomic calls already attempted. A user cancellation is an
+  interrupted run, not a provider malfunction. A bounded shutdown grace period
+  after an explicit stop is distinct from an automatic evaluation timeout.
+
+#### Remaining worker implementation requirements — R11
+
+The following are reviewer requirements for implementing and testing the agreed
+process boundary, not additional maintainer policy decisions:
+
+- **Start a fresh interpreter through an isolated worker entry point.** Do not fork
+  an initialised native runtime or re-execute user startup code that imports it.
+  The provider worker must not load solprop-native, and the optical process must
+  not load Pyroraptor. This includes provider build and preset queries
+  (`basis_from_preset`, `hacc_preset`) and diagnostic sessions, which currently use
+  `_load_provider`; moving only the main evaluation call is insufficient. Exercise
+  the entry point from scripts, notebooks, the GUI and spawned scan workers.
+- **Make the parent responsible for worker and pipe lifetime.** Cover preparation
+  failure, partial messages, provider exceptions, unexpected worker death and
+  cancellation during a blocked transfer or calculation. Reap the worker and close
+  both ends appropriately; discard incomplete results and a pipe interrupted by
+  forced termination. Preserve the primary exception or cancellation reason if
+  cleanup also fails. A dead worker is an observable failure even though a live
+  calculation has no automatic time limit.
+- **Respect the run's resources in both processes.** Apply Q2's provider-priority
+  policy within the declared allocation. A one-core budget must give the provider
+  one working thread while the optical side waits, not zero threads or an implicit
+  requirement for another core. Account for an already initialised native pool
+  without reinitialising its runtime; it should wait passively during provider
+  work. Include provider plans, per-process buffers and pipe transfer copies in
+  memory admission and reporting.
+- **Qualify the boundary with manufactured workers in CI.** Test successful
+  exchange, failures before and after commit, explicit cancellation of a hanging
+  worker, partial startup/transfer, process exit, import isolation and cleanup.
+  Use test-harness deadlines to detect broken cancellation without imposing a
+  production evaluation timeout. Real-provider evidence remains manual under Q10.
+
+**Question disposition:** Q1–Q3 and Q9–Q11 have decisions recorded above; Q4–Q8 are
+deferred with reference removal. R9–R10 and R11's cancellation/time-limit policy
+also have maintainer decisions. The implementation requirements still need to be
+incorporated into the proposal and verified; this review record does not mark the
+SEP accepted or the implementation qualified.
 
 R1–R8 remain recorded as analysis of the proposed replacement and as possible
 verification improvements. They are not automatically prerequisites for a TDSE-only
 change that retains the existing reference; relevant numerical and lifecycle claims
-must still be preserved in TDSE qualification. Further questions should be brought
-to the maintainer individually, with context and a recommendation.
+must still be preserved in TDSE qualification.
