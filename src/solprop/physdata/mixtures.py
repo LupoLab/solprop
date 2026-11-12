@@ -67,17 +67,7 @@ _AIR_COMPOSITIONS: Final = {True: "dry air (N2, O2, Ar)", False: "dry air (N2, O
 def _resolved(key: Gas | str | Species, selection: MaterialSelection | None) -> Species:
     """Return a supplied species as it is, or resolve a name under a selection.
 
-    Parameters
-    ----------
-    key : Gas or str or Species
-        A built-in gas's name or a supplied species.
-    selection : MaterialSelection or None
-        The selection for names; ``None`` is ``MaterialSelection()``.
-
-    Returns
-    -------
-    Species
-        The species. A supplied one is never matched to a built-in by its name.
+    - ``selection``: the selection for names; ``None`` is ``MaterialSelection()``.
     """
     if isinstance(key, Species):
         return key
@@ -89,19 +79,11 @@ def _largest_density(
 ) -> tuple[float, float]:
     """Return a density path's largest sampled value and the temperature there.
 
-    Parameters
-    ----------
-    path : ZProfile
-        Number density in m^-3 along z.
-    temperature : float or ZProfile
-        Temperature in K, or its path along z.
-
-    Returns
-    -------
-    tuple of float
-        The largest density in m^-3 at the path's breakpoints and evenly spaced
-        probes (the same samples a :class:`Component` is validated at), and the
-        temperature in K at that position.
+    - ``path``: number density in m^-3 along z.
+    - ``temperature``: temperature in K, or its path along z.
+    - Returns: the largest density in m^-3 at the path's breakpoints and evenly spaced
+      probes (the same samples a :class:`Component` is validated at), and the
+      temperature in K at that position.
     """
     start, end = path.z_span
     probes = np.unique(
@@ -140,22 +122,13 @@ def _dilute_scaling_checks(
 ) -> tuple[DiluteScalingCheck, ...]:
     """Measure the error of linear density scaling for optmat-selected populations.
 
-    Parameters
-    ----------
-    populations : sequence of tuple
-        ``(label, species, density path)`` of each population; only those whose
-        linear law is an :class:`~solprop.physdata.sellmeier.OptmatSusceptibility`
-        and whose density is not identically zero are checked.
-    temperature : float or ZProfile
-        Temperature in K, or its path along z.
-    omega : numpy.ndarray
-        Angular frequencies in rad/s of the band, > 0.
-
-    Returns
-    -------
-    tuple of DiluteScalingCheck
-        One per checked population, at its largest density; one optmat could not
-        evaluate is returned unmeasured, with its reason.
+    - ``populations``: ``(label, species, density path)`` of each population; only those
+      whose linear law is an :class:`~solprop.physdata.sellmeier.OptmatSusceptibility`
+      and whose density is not identically zero are checked.
+    - ``temperature``: temperature in K, or its path along z.
+    - ``omega``: angular frequencies in rad/s of the band, > 0.
+    - Returns: one per checked population, at its largest density; one optmat could not
+      evaluate is returned unmeasured, with its reason.
     """
     values = np.asarray(omega, dtype=float).ravel()
     values = values[values > 0]
@@ -194,15 +167,7 @@ def _dilute_scaling_checks(
 def _warn_dilute_scaling(checks: Sequence[DiluteScalingCheck]) -> None:
     """Warn once per gas and evaluation context where dilute scaling exceeds its bound.
 
-    Parameters
-    ----------
-    checks : sequence of DiluteScalingCheck
-        The measured checks.
-
-    Warns
-    -----
-    DiluteScalingWarning
-        For each gas whose error exceeds :data:`DILUTE_SCALING_THRESHOLD`.
+    The bound is :data:`DILUTE_SCALING_THRESHOLD`.
     """
     for check in checks:
         if check.exceeded:
@@ -229,32 +194,18 @@ def _pressure_path(
 ) -> ZProfile:
     """Resolve the pressure vocabulary without introducing a driver dependency.
 
-    Parameters
-    ----------
-    value : float or sequence or ZProfile
-        Total pressure in bar.
-    length : float or None
-        Fibre length in m, required for endpoint pairs.
-    floor : float or None
-        Minimum endpoint pressure in bar.
-    radius : float, ZProfile or None, optional
-        Core radius in m. Given, an endpoint pair or stage table becomes the
-        flow-aware fill of :func:`solprop.gasflow.steady_fill`; ``None`` keeps the
-        uniform law and the numerical floor.
-    vacuum_end : {'choked', 'floor'} or None, optional
-        How an outer end below its choked pressure is treated; ``None`` chokes
-        where a radius is given and floors otherwise.
-    composition : Mapping or None, optional
-        Species to mole fraction of the fill, whose transport data the flow uses.
-    temperature : float or ZProfile, optional
-        Temperature in K, validated, or a varying path of it along z: a gradient then
-        follows the flow weight ``eta(T) T`` of the composition
-        (:func:`solprop.gasflow.temperature_weight`) with or without a radius.
-
-    Returns
-    -------
-    ZProfile
-        The total-pressure profile in bar.
+    - ``value``: total pressure in bar.
+    - ``length``: fibre length in m, required for endpoint pairs.
+    - ``floor``: minimum endpoint pressure in bar.
+    - ``radius``: core radius in m. Given, an endpoint pair or stage table becomes the
+      flow-aware fill of :func:`solprop.gasflow.steady_fill`; ``None`` keeps the uniform
+      law and the numerical floor.
+    - ``vacuum_end``: how an outer end below its choked pressure is treated; ``None``
+      chokes where a radius is given and floors otherwise.
+    - ``temperature``: temperature in K, validated, or a varying path of it along z: a
+      gradient then follows the flow weight ``eta(T) T`` of the composition
+      (:func:`solprop.gasflow.temperature_weight`) with or without a radius.
+    - Returns: the total-pressure profile in bar.
     """
     if vacuum_end not in (None, "choked", "floor"):
         raise MaterialError(
@@ -336,33 +287,17 @@ def _endless_path(  # noqa: PLR0917 - called positionally
 ) -> ZProfile:
     """Return a constant pressure or a supplied profile, which have no end to choke.
 
-    Parameters
-    ----------
-    value : float or ZProfile
-        Total pressure in bar.
-    length : float or None
-        Fibre length in m, the span of a constant.
-    vacuum_end : str or None
-        Refused unless ``None``.
-    radius : float, ZProfile or None
-        The guide's core radius in m. A constant pressure ignores it; a varying
-        pressure profile must already follow a varying radius.
-    temperature : float or ZProfile, optional
-        The validated temperature in K. A varying path beside a varying pressure
-        profile needs the profile to carry its flow weight (:func:`_check_flow_weight`).
-    composition : Mapping or None, optional
-        Species to mole fraction of the fill, whose flow weight the profile must carry.
-
-    Returns
-    -------
-    ZProfile
-        The total-pressure profile in bar.
-
-    Raises
-    ------
-    MaterialError
-        If the pressure is invalid, `vacuum_end` is given, or a varying radius or
-        temperature is given beside a varying profile built without it.
+    - ``value``: total pressure in bar.
+    - ``length``: fibre length in m, the span of a constant.
+    - ``vacuum_end``: refused unless ``None``.
+    - ``radius``: the guide's core radius in m. A constant pressure ignores it; a
+      varying pressure profile must already follow a varying radius.
+    - ``temperature``: the validated temperature in K. A varying path beside a varying
+      pressure profile needs the profile to carry its flow weight
+      (:func:`_check_flow_weight`).
+    - ``composition``: species to mole fraction of the fill, whose flow weight the
+      profile must carry.
+    - Returns: the total-pressure profile in bar.
     """
     if isinstance(value, ZProfile):
         if vacuum_end is not None:
@@ -427,22 +362,8 @@ def _check_flow_weight(
     means, at the fill's breakpoints and evenly spaced probes. One check for every door
     that takes a pressure profile beside a temperature.
 
-    Parameters
-    ----------
-    pressure : ZProfile
-        The pressure profile in bar; only a ``PressureGradient`` is checked.
-    temperature : float or ZProfile
-        The validated temperature in K; a number needs nothing.
-    composition : Gas, str, Species or Mapping
-        The gas of the flow, or species to mole fractions.
-    owner : str
-        What carries the profile, for the message.
-
-    Raises
-    ------
-    MaterialError
-        If the fill varies and carries no weight, a weight for another gas or
-        temperature path, or the gas has no transport data to confirm it.
+    - ``pressure``: the pressure profile in bar; only a ``PressureGradient`` is checked.
+    - ``temperature``: the validated temperature in K; a number needs nothing.
     """
     if (
         not isinstance(temperature, ZProfile)
@@ -489,18 +410,7 @@ def _check_flow_weight(
 
 
 def _fractions(values: Sequence[float]) -> tuple[float, ...]:
-    """Validate a distribution without silently renormalising supplied fractions.
-
-    Parameters
-    ----------
-    values : sequence of float
-        Non-negative mole fractions summing to one.
-
-    Returns
-    -------
-    tuple of float
-        Validated fractions in the supplied order.
-    """
+    """Validate a distribution without silently renormalising supplied fractions."""
     result = tuple(float(v) for v in values)
     if not result or any(not math.isfinite(v) or v < 0 for v in result):
         raise MaterialError("fractions must be finite, non-negative and non-empty")
@@ -611,15 +521,7 @@ def check_preionisation(value: object, owner: str = "") -> float | ZProfile:
 def _preionisation_text(value: float | ZProfile) -> str:
     """Return a number as ``%g`` and a path by its own short ``repr``, for printing.
 
-    Parameters
-    ----------
-    value : float or ZProfile
-        An initial ionised fraction, or a path of it along z.
-
-    Returns
-    -------
-    str
-        For example ``'0.1'`` or ``'Linear(0 to 0.2 over 1 m)'``.
+    - Returns: for example ``'0.1'`` or ``'Linear(0 to 0.2 over 1 m)'``.
     """
     return repr(value) if isinstance(value, ZProfile) else f"{value:g}"
 
@@ -693,15 +595,8 @@ class Component(Displayed):
     ) -> Float[np.ndarray, " n_z"]:
         """Reject negative or non-finite population densities at the requested points.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Non-negative finite densities in m^-3.
+        - ``z``: positions in m.
+        - Returns: Non-negative finite densities in m^-3.
         """
         values = self.density(z)
         if np.any(~np.isfinite(values)) or np.any(values < 0):
@@ -751,10 +646,7 @@ class Mixture(Displayed):
     def _pressure_text(self) -> str:
         """Return the shared pressure at the entrance, for printing.
 
-        Returns
-        -------
-        str
-            The pressure in bar, or a note that the populations are independent.
+        - Returns: the pressure in bar, or a note that the populations are independent.
         """
         if self.shared is None:
             return "independent populations"
@@ -780,10 +672,7 @@ class Mixture(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         fractions = self.fractions or (None,) * len(self.components)
         rows: list[tuple[str, object]] = [
@@ -1184,19 +1073,9 @@ class Mixture(Displayed):
     ) -> Num[np.ndarray, "n_z n_omega"]:
         """Sum the active species in component order without promoting real data.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-        z : numpy.ndarray
-            Positions in m.
-        derivative : bool
-            Select the frequency derivative instead of susceptibility.
-
-        Returns
-        -------
-        numpy.ndarray
-            Susceptibility or its derivative, in dimensionless units or s.
+        - ``omega``: angular frequencies in rad/s.
+        - ``z``: positions in m.
+        - Returns: susceptibility or its derivative, in dimensionless units or s.
         """
         result = None
         for component, density in zip(self.components, self.density(z), strict=True):
@@ -1520,15 +1399,8 @@ class Mixture(Displayed):
 def _path_record(path: ZProfile) -> dict[str, object]:
     """Preserve a profile's samples and declarations without serialising a callable.
 
-    Parameters
-    ----------
-    path : ZProfile
-        The profile, with its own value units and z in m.
-
-    Returns
-    -------
-    dict
-        Sampled values, positions in m and breakpoint declarations.
+    - ``path``: the profile, with its own value units and z in m.
+    - Returns: sampled values, positions in m and breakpoint declarations.
     """
     start, end = path.z_span
     positions = np.unique(

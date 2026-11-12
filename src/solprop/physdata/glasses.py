@@ -82,20 +82,8 @@ _MICRON_OMEGA: Final[float] = 2.0 * math.pi * C / _MICRON
 def _as_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
     """Validate an angular-frequency argument and return it as a float array.
 
-    Parameters
-    ----------
-    omega : array_like
-        Angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an array.
-
-    Returns
-    -------
-    ndarray
-        The same values as a float array, 0-d for scalar input.
-
-    Raises
-    ------
-    MaterialError
-        If the values are not real, or any of them is negative or not finite.
+    - ``omega``: angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an
+      array.
     """
     # numpy casts a complex argument to float with a warning rather than an error, so
     # it is rejected here before the conversion.
@@ -147,29 +135,14 @@ class GlassIndex(ABC):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return the complex index and its frequency derivative.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, >= 0, already validated.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``n(omega)`` and ``dn/domega`` in s/rad.
+        - ``omega``: angular frequencies in rad/s, >= 0, already validated.
+        - Returns: ``n(omega)`` and ``dn/domega`` in s/rad.
         """
 
     def _check_range(self, omega: Float[np.ndarray, "*shape"]) -> None:
         """Warn if any frequency lies outside the validity range of the source.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, >= 0.
-
-        Warns
-        -----
-        MaterialRangeWarning
-            If any requested wavelength lies outside ``wavelength_range``.
+        - ``omega``: angular frequencies in rad/s, >= 0.
         """
         shortest_valid, longest_valid = self.wavelength_range
         highest, lowest = float(np.max(omega)), float(np.min(omega))
@@ -347,15 +320,8 @@ class SellmeierGlass(GlassIndex):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return the index and its frequency derivative from the pole sum.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, >= 0.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``n(omega)`` and ``dn/domega``.
+        - ``omega``: angular frequencies in rad/s, >= 0.
+        - Returns: ``n(omega)`` and ``dn/domega``.
         """
         # u = 1/lambda[um]^2 = (omega/_MICRON_OMEGA)^2, so du/domega = 2 u / omega.
         u = np.asarray((omega / _MICRON_OMEGA) ** 2)
@@ -405,15 +371,8 @@ class TabulatedGlass(GlassIndex):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return the index and its frequency derivative from the splines.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, >= 0.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``n(omega)`` and ``dn/domega``.
+        - ``omega``: angular frequencies in rad/s, >= 0.
+        - Returns: ``n(omega)`` and ``dn/domega``.
         """
         lowest, highest = self._log_wavelength_limits
         with np.errstate(divide="ignore"):
@@ -460,15 +419,8 @@ class CompositeGlass(GlassIndex):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return the combined index and its frequency derivative.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, >= 0.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``n(omega)`` and ``dn/domega``.
+        - ``omega``: angular frequencies in rad/s, >= 0.
+        - Returns: ``n(omega)`` and ``dn/domega``.
         """
         real, dreal = self.real_part._index_and_derivative(omega)
         imaginary, dimaginary = self.absorption._index_and_derivative(omega)
@@ -598,10 +550,8 @@ class OptmatGlass(GlassIndex):
     def _identity_key(self) -> tuple[str, bool, float]:
         """Return what the index depends on: the digest and the approximation.
 
-        Returns
-        -------
-        tuple
-            The model's identity digest, whether it is transparent, and the bound.
+        - Returns: the model's identity digest, whether it is transparent, and the
+          bound.
         """
         return (
             _optmat.record(self.model).digest,
@@ -838,11 +788,8 @@ class OptmatGlass(GlassIndex):
     def _check_range(self, omega: Float[np.ndarray, "*shape"]) -> None:
         """Leave the range check to optmat's qualified intervals.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s; the bridge reports any part outside the
-            model's intervals when the index is evaluated.
+        - ``omega``: angular frequencies in rad/s; the bridge reports any part outside
+          the model's intervals when the index is evaluated.
         """
 
     def _record_dropped(
@@ -852,18 +799,7 @@ class OptmatGlass(GlassIndex):
     ) -> None:
         """Record the loss a transparent index drops, and warn once beyond the bound.
 
-        Parameters
-        ----------
-        extinction : numpy.ndarray
-            The dropped ``k``, dimensionless.
-        wavelength : numpy.ndarray
-            The vacuum wavelengths in m it was dropped at.
-
-        Warns
-        -----
-        MaterialRangeWarning
-            When ``4 pi k / lambda`` exceeds the bound: once per run inside a run's
-            evaluation context, and once per adapter outside every context.
+        - ``wavelength``: the vacuum wavelengths in m it was dropped at.
         """
         kappa = np.ravel(np.asarray(extinction, dtype=float))
         if not kappa.size:
@@ -922,16 +858,9 @@ class OptmatGlass(GlassIndex):
     ) -> tuple[Complex[np.ndarray, "*shape"], Complex[np.ndarray, "*shape"]]:
         """Return optmat's complex index and its exact frequency derivative.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s, > 0.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``n(omega)`` and ``dn/domega`` in s/rad; their real parts only for a
-            transparent index.
+        - ``omega``: angular frequencies in rad/s, > 0.
+        - Returns: ``n(omega)`` and ``dn/domega`` in s/rad; their real parts only for a
+          transparent index.
         """
         wavelength = _optmat.omega_to_wavelength(omega)
         model = _optmat.untyped(self.model)
@@ -939,10 +868,7 @@ class OptmatGlass(GlassIndex):
         def evaluate() -> tuple[np.ndarray, np.ndarray]:
             """Evaluate optmat's index and its derivative at the band.
 
-            Returns
-            -------
-            tuple of numpy.ndarray
-                ``n(omega)`` and ``dn/domega``, complex.
+            - Returns: ``n(omega)`` and ``dn/domega``, complex.
             """
             return (
                 np.asarray(model.refractive_index(wavelength), dtype=complex),
@@ -1030,18 +956,7 @@ _UNIAXIAL: Final = frozenset({"MgF2", "Al2O3"})
 
 
 def _material_id(name: str) -> str:
-    """Return optmat's material id of a name, or the name for a caller's own.
-
-    Parameters
-    ----------
-    name : str
-        A material id or alias (``"sapphire"``), or a caller's own name.
-
-    Returns
-    -------
-    str
-        The canonical id, such as ``"Al2O3"``.
-    """
+    """Return optmat's material id of a name, or the name for a caller's own."""
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.materials import as_material  # noqa: PLC0415 - as above
 
@@ -1052,21 +967,7 @@ def _material_id(name: str) -> str:
 
 
 def _check_axis(material: str, axis: str | None) -> None:
-    """Refuse an axis that is not a ray of the material.
-
-    Parameters
-    ----------
-    material : str
-        The material's optmat id.
-    axis : str or None
-        The ray asked for.
-
-    Raises
-    ------
-    MaterialError
-        If a uniaxial crystal is given anything but ``"o"`` or ``"e"``, or an
-        isotropic material is given an axis.
-    """
+    """Refuse an axis that is not a ray of the material."""
     if material in _UNIAXIAL:
         if axis not in (None, "o", "e"):
             msg = f"{material} is uniaxial: axis is 'o' or 'e', not {axis!r}"
@@ -1081,26 +982,10 @@ def _optmat_solid(
 ) -> OptmatGlass:
     """Resolve a built-in solid's optmat model from a name or an object.
 
-    Parameters
-    ----------
-    material : str
-        The material's optmat id: ``"SiO2"``, ``"CaF2"``, ``"MgF2"``, ``"BaF2"``,
-        ``"Al2O3"``, ``"N-BK7"``, ``"Ag"`` or ``"Al"``.
-    model : str or OptmatModel
-        ``"recommended"``, an optmat model name, or a model object, taken as it is.
-    axis : str or None, optional
-        ``"o"`` or ``"e"`` for a uniaxial crystal; required with ``"recommended"``.
-
-    Returns
-    -------
-    OptmatGlass
-        The adapted model.
-
-    Raises
-    ------
-    MaterialError
-        If a uniaxial crystal's recommended model is asked for without an axis,
-        optmat has no such model, or the model describes another material or ray.
+    - ``material``: the material's optmat id: ``"SiO2"``, ``"CaF2"``, ``"MgF2"``,
+      ``"BaF2"``, ``"Al2O3"``, ``"N-BK7"``, ``"Ag"`` or ``"Al"``.
+    - ``axis``: ``"o"`` or ``"e"`` for a uniaxial crystal; required with
+      ``"recommended"``.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.solid.models import registry  # noqa: PLC0415 - as above
@@ -1146,19 +1031,7 @@ def _resolve(
 ) -> OptmatGlass:
     """Resolve a factory's ``model=`` to an optmat solid.
 
-    Parameters
-    ----------
-    material : str
-        The material's optmat id.
-    model : str or OptmatModel or None
-        ``None`` or ``"recommended"``, an optmat model name, or a model object.
-    axis : str or None, optional
-        The ray of a uniaxial crystal.
-
-    Returns
-    -------
-    OptmatGlass
-        The adapted model.
+    - ``model``: ``None`` or ``"recommended"``, an optmat model name, or a model object.
     """
     return _optmat_solid(material, "recommended" if model is None else model, axis)
 
@@ -1631,13 +1504,7 @@ class SilicaBundle:
 
     @property
     def _bundle(self) -> _optmat.Untyped:
-        """Return the optmat bundle for attribute access.
-
-        Returns
-        -------
-        optmat.solid.bundle.SilicaNonlinearBundle
-            The model.
-        """
+        """Return the optmat bundle for attribute access."""
         return _optmat.untyped(self.model)
 
     @property

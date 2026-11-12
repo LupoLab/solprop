@@ -181,25 +181,7 @@ type ModelChoice = str | object
 
 
 def _choice(value: object, field: str) -> ModelChoice:
-    """Validate one model choice: a non-empty name or an optmat model object.
-
-    Parameters
-    ----------
-    value : object
-        The choice as given.
-    field : str
-        The selection field, for the message.
-
-    Returns
-    -------
-    ModelChoice
-        The choice, a name stripped of surrounding space.
-
-    Raises
-    ------
-    MaterialError
-        If the choice is neither a non-empty string nor an object with an identity.
-    """
+    """Validate one model choice: a non-empty name or an optmat model object."""
     if isinstance(value, str):
         name = value.strip()
         if not name:
@@ -216,18 +198,7 @@ def _choice(value: object, field: str) -> ModelChoice:
 
 
 def _choice_record(value: ModelChoice) -> str | dict[str, object]:
-    """Return a choice as plain values: its name, or a model object's record.
-
-    Parameters
-    ----------
-    value : ModelChoice
-        A validated choice.
-
-    Returns
-    -------
-    str or dict
-        The name, or the canonical record of the model's identity.
-    """
+    """Return a choice as plain values: its name, or a model object's record."""
     if isinstance(value, str):
         return value
     return MaterialRecord.from_identity(cast("OptmatModel", value).identity).to_dict()
@@ -571,32 +542,13 @@ class DiluteScalingCheck:
 def _canonical(value: object) -> str:
     """Return plain values as canonical JSON, for ordering and deduplication.
 
-    Parameters
-    ----------
-    value : object
-        Plain values: mappings, sequences, strings, numbers, None.
-
-    Returns
-    -------
-    str
-        Sorted-key, compact JSON.
+    - ``value``: plain values: mappings, sequences, strings, numbers, None.
     """
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _plain(value: object) -> object:
-    """Return a value with tuples as lists and mappings as dicts, recursively.
-
-    Parameters
-    ----------
-    value : object
-        Plain values, possibly nested in tuples and mappings.
-
-    Returns
-    -------
-    object
-        The same values in JSON's own containers.
-    """
+    """Return a value with tuples as lists and mappings as dicts, recursively."""
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -605,18 +557,7 @@ def _plain(value: object) -> object:
 
 
 def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
-    """Return entries as plain dicts, each once, in canonical order.
-
-    Parameters
-    ----------
-    values : iterable of collections.abc.Mapping
-        The entries, possibly repeated.
-
-    Returns
-    -------
-    tuple of dict
-        The distinct entries sorted by their canonical JSON.
-    """
+    """Return entries as plain dicts, each once, in canonical order."""
     distinct = {
         _canonical(_plain(entry)): cast("dict[str, object]", _plain(entry))
         for entry in values
@@ -627,21 +568,7 @@ def _entries(values: Iterable[Mapping[str, object]]) -> tuple[dict[str, object],
 def _keyed(
     entries: Sequence[Mapping[str, object]], fields: Sequence[str]
 ) -> dict[str, object]:
-    """Key entries by the named fields, so a difference names the entry that moved.
-
-    Parameters
-    ----------
-    entries : sequence of collections.abc.Mapping
-        Distinct entries in canonical order.
-    fields : sequence of str
-        The fields whose values, joined by ``:``, make an entry's key. Entries
-        that share a key take a numbered suffix, ``#1``, ``#2``, in their order.
-
-    Returns
-    -------
-    dict
-        The entries by key.
-    """
+    """Key entries by the named fields, so a difference names the entry that moved."""
     names = [
         ":".join(str(entry.get(name) or "-") for name in fields) for entry in entries
     ]
@@ -661,17 +588,7 @@ def _stored_entries(
 ) -> list[Mapping[str, object]]:
     """Return a stored manifest field's entries, keyed or listed.
 
-    Parameters
-    ----------
-    document : collections.abc.Mapping
-        A stored manifest.
-    name : str
-        The field.
-
-    Returns
-    -------
-    list of collections.abc.Mapping
-        Its entries; none when it is absent.
+    - Returns: its entries; none when it is absent.
     """
     stored = document.get(name) or {}
     items = stored.values() if isinstance(stored, Mapping) else stored
@@ -685,15 +602,7 @@ _SOLID_POLICY: Final = ("material", "axis", "model", "digest", "transparent")
 def _solid_identity(solid: Mapping[str, object]) -> dict[str, object]:
     """Return the hashed part of a solid's entry: identity and policy.
 
-    Parameters
-    ----------
-    solid : collections.abc.Mapping
-        One entry of :attr:`MaterialManifest.solids`.
-
-    Returns
-    -------
-    dict
-        Its identifying fields, and the absorption bound of a transparent one.
+    - Returns: its identifying fields, and the absorption bound of a transparent one.
     """
     identity = {name: solid.get(name) for name in _SOLID_POLICY}
     if solid.get("transparent"):

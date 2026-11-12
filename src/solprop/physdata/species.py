@@ -199,13 +199,7 @@ class OptmatGas:
 
     @functools.cached_property
     def _equation(self) -> _optmat.Untyped:
-        """Return optmat's equation of state of the gas, resolved once.
-
-        Returns
-        -------
-        optmat.gas.eos.EquationOfState
-            The gas's, or the pseudo-pure dry air's for ``Gas.Air``.
-        """
+        """Return optmat's equation of state of the gas, resolved once."""
         from optmat.gas.eos import (  # noqa: PLC0415 - optmat is imported lazily
             air_equation_of_state,
             equation_of_state,
@@ -219,11 +213,8 @@ class OptmatGas:
     def _transport(self) -> tuple[tuple[_optmat.Untyped, float], ...]:
         """Return optmat's transport model of each constituent, with its fraction.
 
-        Returns
-        -------
-        tuple
-            ``(TransportModel, mole fraction)`` pairs; one, with fraction 1, for a
-            pure gas.
+        - Returns: ``(TransportModel, mole fraction)`` pairs; one, with fraction 1, for
+          a pure gas.
         """
         from optmat.gas.transport import transport_model  # noqa: PLC0415 - lazily
 
@@ -263,19 +254,9 @@ class OptmatGas:
     ) -> MaterialError:
         """Return the error for a state optmat's equation of state refuses.
 
-        Parameters
-        ----------
-        error : Exception
-            The ``StateError`` optmat raised.
-        pressure_bar : float
-            The pressure asked for, in bar, or NaN when a density was given.
-        temperature : float
-            The temperature asked for, in K.
-
-        Returns
-        -------
-        MaterialError
-            The refusal, naming the saturation pressure below the critical point.
+        - ``pressure_bar``: the pressure asked for, in bar, or NaN when a density was
+          given.
+        - ``temperature``: the temperature asked for, in K.
         """
         equation = self._equation
         low, high = equation.temperature_range
@@ -395,20 +376,7 @@ class OptmatGas:
     def _checked(self, temperature: float) -> float:
         """Refuse a temperature outside the transport range; apply the status policy.
 
-        Parameters
-        ----------
-        temperature : float
-            Temperature in K.
-
-        Returns
-        -------
-        float
-            The temperature as a float.
-
-        Raises
-        ------
-        MaterialError
-            If the temperature is not finite or lies outside the range.
+        - ``temperature``: temperature in K.
         """
         low, high = self.temperature_range
         value = float(temperature)
@@ -636,15 +604,8 @@ class TabulatedSusceptibility:
     def _frequencies(self, omega: ArrayLike | float) -> Float[np.ndarray, "*shape"]:
         """Check requested frequencies against the declared optical support.
 
-        Parameters
-        ----------
-        omega : array_like or float
-            Angular frequencies in rad/s.
-
-        Returns
-        -------
-        numpy.ndarray
-            Finite frequencies in rad/s within the table support.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: finite frequencies in rad/s within the table support.
         """
         values = np.asarray(omega, dtype=float)
         low, high = self.wavelength_range
@@ -912,18 +873,7 @@ def fill_species(gas: Gas | str, susceptibility: GasSusceptibility | None) -> Sp
 
 @functools.cache
 def _default_species(gas: Gas) -> Species:
-    """Build :func:`default_species` once per gas, keyed by the :class:`Gas` member.
-
-    Parameters
-    ----------
-    gas : Gas
-        The gas.
-
-    Returns
-    -------
-    Species
-        ``species(gas)``.
-    """
+    """Build :func:`default_species` once per gas, keyed by the :class:`Gas` member."""
     return species(gas)
 
 
@@ -953,16 +903,8 @@ def built_in_population(material: Species) -> bool:
 def _optmat_ionisation(gas: Gas) -> IonisationData:
     """Return optmat's curated first ionisation energy of a gas, once per gas.
 
-    Parameters
-    ----------
-    gas : Gas
-        A built-in gas other than air.
-
-    Returns
-    -------
-    IonisationData
-        The energy in J, cited to optmat's dataset key. optmat curates one for every
-        built-in gas but air, which its callers refuse first.
+    - Returns: the energy in J, cited to optmat's dataset key. optmat curates one for
+      every built-in gas but air, which its callers refuse first.
     """
     from optmat.gas.ionisation import ionisation_parameters  # noqa: PLC0415 - lazy
 

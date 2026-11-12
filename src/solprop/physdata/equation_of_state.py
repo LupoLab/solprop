@@ -38,19 +38,9 @@ logger = logging.getLogger(__name__)
 def _optmat_density(gas: Gas, pressure_bar: float, temperature: float) -> float:
     """Return optmat's real-gas number density (cached).
 
-    Parameters
-    ----------
-    gas : Gas
-        The species.
-    pressure_bar : float
-        Absolute pressure in bar, > 0.
-    temperature : float
-        Temperature in K, > 0.
-
-    Returns
-    -------
-    float
-        Number density in m^-3.
+    - ``pressure_bar``: absolute pressure in bar, > 0.
+    - ``temperature``: temperature in K, > 0.
+    - Returns: number density in m^-3.
     """
     # species imports this module for the ideal-gas law, so the adapter is imported
     # where it is needed.
@@ -63,19 +53,9 @@ def _optmat_density(gas: Gas, pressure_bar: float, temperature: float) -> float:
 def _optmat_pressure(gas: Gas, number_density: float, temperature: float) -> float:
     """Return optmat's real-gas pressure at a number density (cached).
 
-    Parameters
-    ----------
-    gas : Gas
-        The species.
-    number_density : float
-        Number density in m^-3, > 0.
-    temperature : float
-        Temperature in K, > 0.
-
-    Returns
-    -------
-    float
-        Absolute pressure in bar.
+    - ``number_density``: number density in m^-3, > 0.
+    - ``temperature``: temperature in K, > 0.
+    - Returns: absolute pressure in bar.
     """
     from solprop.physdata.species import OptmatGas  # noqa: PLC0415 - as above
 
@@ -85,17 +65,8 @@ def _optmat_pressure(gas: Gas, number_density: float, temperature: float) -> flo
 def _check_temperature(temperature: object) -> None:
     """Reject a non-physical temperature at the boundary rather than inside CoolProp.
 
-    Parameters
-    ----------
-    temperature : object
-        Temperature in K; typed ``object`` because refusing what is not a number,
-        a temperature path above all, is this check's job.
-
-    Raises
-    ------
-    MaterialError
-        If the temperature is not a positive number: a temperature path along z is
-        refused by name, since one state has one temperature.
+    - ``temperature``: temperature in K; typed ``object`` because refusing what is not a
+      number, a temperature path above all, is this check's job.
     """
     if isinstance(temperature, bool) or not isinstance(temperature, numbers.Real):
         raise MaterialError(
