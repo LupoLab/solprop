@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
-from solprop._ownership import frozen_copy
+from solprop._ownership import frozen_copy, hold
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter, StopFlag
@@ -301,7 +301,7 @@ class StepStats:
         StepStats
             No rows and no statistics.
         """
-        return cls(np.empty(0), np.empty(0, dtype=np.int64), {})
+        return cls(hold(np.empty(0)), hold(np.empty(0, dtype=np.int64)), {})
 
     @property
     def n_rows(self) -> int:
