@@ -751,6 +751,8 @@ class _SampledIndexTable(IndexTable):
 
     - ``omega``: positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
     - ``area``: positive finite effective areas in m^2 at the same samples.
+    - ``loss_interpolation``: ``linear`` by default here, because a lossless source has
+      no logarithm.
     - ``derivative_values``: source ``dneff_domega`` in s/rad at the same frequencies,
       stored sorted and read-only, shape ``(n_sampled_derivatives,)``.
     - ``source_identity``: the sampled mode's type, repr, snapshot position, frequency

@@ -575,6 +575,7 @@ def _cutoffs(
     - ``mu``: azimuthal tube-mode indices, positive, as a column so the cutoffs come out
       with one row per index.
     - ``nu``: radial tube-mode index, positive.
+    - ``ratio``: wall thickness divided by the outer tube radius.
     - ``tube``: real tube index and its slope in s/rad.
     - Returns: HE and EH dimensionless cutoff frequencies and their slopes, shape
       ``(n_terms, n_omega)``.
@@ -769,6 +770,8 @@ class VincettiMode(MarcatiliMode):
 
         - ``radius``: core radius in m.
         - ``density``: number density in m^-3, scalar or per species.
+        - ``conventions``: which form of the disputed terms to evaluate; solprop's by
+          default.
         """
         # Zeroing only the Bessel root uses precisely the parent's susceptibility
         # reduction and stable refractivity arithmetic, including complex species.

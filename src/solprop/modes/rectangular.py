@@ -205,6 +205,8 @@ class _WallPairFill(GasFillMixin):
     ]:
         """Return the TE-like and TM-like wall coefficients and their slopes.
 
+        - ``terms``: core and wall samples; a holomorphically continued (complex)
+          frequency is allowed.
         - Returns: ``q_TE = 1/s``, its derivative, ``q_TM = eps_cl/(eps_co s)`` and its
           derivative, with ``s`` the filled-core contrast; derivatives in s/rad.
         """

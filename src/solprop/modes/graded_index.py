@@ -560,7 +560,8 @@ class GradedIndexProvider(Displayed):
     def _weak_guidance_contrast(self, omega: float) -> float:
         """Return the axis-to-exterior relative permittivity contrast.
 
-        - ``omega``: positive angular frequency in rad/s.
+        ``eps_axis / eps_exterior - 1``: the quantity the LP weak-guidance approximation
+        is declared valid over.
         """
         axis = float(self._eps(omega, np.zeros(1))[0])
         exterior = float(self._eps(omega, np.full(1, 2.0))[0])
@@ -1082,6 +1083,8 @@ class GradedIndexProvider(Displayed):
 
         - ``omega``: positive angular frequency in rad/s.
         - ``radius``: core radius in m.
+        - ``lower``: lower integration radius divided by the core radius.
+        - Returns: dimensionless radial integrals, shape (n_modes,).
         """
         exterior = float(
             np.real(self.exterior.permittivity(np.array([omega], dtype=float))[0])

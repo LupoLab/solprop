@@ -2289,6 +2289,14 @@ def _wall_block_modes(
     And the condensation inverts the **full** model's transverse eigenvalue, so
     ``model="reduced"``, whose leading-order expansion of ``n_eff`` is a different
     carrier, would be overridden by the block it sits beside.
+
+    - ``modes``: typed as the protocol rather than as :class:`MarcatiliMode` so that a
+      set carrying another kind of mode reaches the refusal here and is named, instead
+      of failing the runtime type check the test session installs.
+    - ``wall``: whether the block is a coherent wall's. The taper coupling alone
+      (:func:`taper_connection`) reads the radial orders and the radius, never the loss
+      or the capillary model, so ``False`` admits any loss and either model and keeps
+      every other condition.
     """
     block = tuple(modes)
     if not block:
@@ -2373,6 +2381,8 @@ def _check_wall_channels(
     """Refuse a block whose channels do not declare one guide, by name.
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set, in channel order.
+    - ``wall``: ``False`` (the taper coupling alone) skips the loss and capillary-model
+      conditions, which only the wall needs, and names the taper coupling in the rest.
     """
     owner = "a coherent wall block" if wall else "the taper coupling"
     for index, mode in enumerate(block):

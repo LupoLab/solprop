@@ -1744,6 +1744,9 @@ class _SolvedPathArea:
 def _profile_defect(interpolated: ModalSample, solved: ModalSample) -> float:
     """Return the relative maximum-norm defect between two aligned samples' fields.
 
+    ``solved`` is a fresh provider solve, already rotated onto the table's frequency
+    interpolation by :func:`solprop.translate.modal_tables.align_modal_sample`.
+
     - Returns: the larger of the electric and magnetic relative defects, dimensionless
       and non-negative.
     """

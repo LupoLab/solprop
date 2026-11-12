@@ -37,6 +37,7 @@ def _radial(
     """Evaluate the scaled radial function, slope and axis limit.
 
     - ``edge``: dimensionless Bessel argument at the interface.
+    - ``inside``: the regular core solution (``J``) rather than the cladding one.
     - Returns: dimensionless radial function, argument derivative and divided value.
     """
     if inside:
@@ -293,6 +294,8 @@ def _power(
 
     - ``omega``: positive angular frequency in rad/s.
     - ``z``: position in m within the declared path.
+    - ``start``: lower integration radius divided by the core radius; ``start >= 1``
+      integrates an exterior tail alone.
     - Returns: power in W and the adaptive absolute integration error in W.
     """
     # The quadrature varies radius alone. Resolve the eigenpair and material
@@ -302,7 +305,10 @@ def _power(
     angles = np.arange(2 * mode.n + 3) * 2 * np.pi / (2 * mode.n + 3)
 
     def integrand(x: float) -> float:
-        """Evaluate the angularly integrated radial flux."""
+        """Evaluate the angularly integrated radial flux at ``x = r / a``.
+
+        The caller multiplies by the squared radius, the Jacobian of ``x``.
+        """
         points = radius * x * np.column_stack((np.cos(angles), np.sin(angles)))
         e, h = _prepared_fields(parameters, points)
         return float(

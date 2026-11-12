@@ -359,6 +359,7 @@ def _radial_rule(
 ]:
     """Return the radial nodes on ``(0, 1)`` with their fine and coarse weights.
 
+    - ``n_r``: requested node count, rounded up to ``2 n + 1`` for a Kronrod rule.
     - Returns: ``xi``, ``w`` and ``w_coarse`` on ``xi = r / a``. Without a Kronrod
       extension there is no embedded rule and the coarse weights equal the fine ones.
     """

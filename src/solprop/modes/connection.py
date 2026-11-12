@@ -839,6 +839,7 @@ def _flux_pairing(
     ``X(A, B)_mn = int (A_n x conj(B_m)).zhat dA``. Taking the Gram with the same
     two einsums is what makes ``S + S^H`` the derivative of the Gram itself.
 
+    - ``sample``: the centre sample, whose fields fill the left-hand slot.
     - ``electric``, ``magnetic``: the derivatives ``dE/dz`` and ``dH/dz`` in V/(m
       sqrt(W) m) and A/(m sqrt(W) m), shape ``(n_nodes, 3, n_modes)``.
     - Returns: ``S`` in 1/m, shape ``(n_modes, n_modes)``.

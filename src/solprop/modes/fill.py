@@ -77,7 +77,8 @@ def _sqrt1p_minus_one(
     ``expm1(log1p(x)/2)`` is not equivalent for a complex argument: NumPy's complex
     ``log1p`` forms ``1 + x`` and rounds there (1.3e-12 relative at ``1e-4 + 1e-7j``
     on NumPy 2.5).
-    Every gas-filled guide forms its refractivity here.
+    Every gas-filled guide forms its refractivity here. The result is complex, on the
+    principal branch.
     """
     value = np.asarray(argument, dtype=complex)
     return np.asarray(value / (np.sqrt(1.0 + value) + 1.0))
@@ -291,7 +292,12 @@ class GasFillMixin(Displayed):
         return np.zeros((1, omega.size))
 
     def _fill_paths(self) -> Mapping[str, ZProfile]:
-        """Return the fill's scalar paths, including constant declarations."""
+        """Return the fill's scalar paths, including constant declarations.
+
+        A shared fill whose temperature varies along z is declared by its labelled
+        densities: one pressure does not fix them, so it takes one parameter per
+        population.
+        """
         paths: dict[str, ZProfile] = {}
         if self.mixture is None or len(self.mixture.components) == 1:
             paths["density"] = self.density
@@ -345,6 +351,9 @@ class GasFillMixin(Displayed):
         - ``omega``: positive angular frequencies in rad/s, already checked by the mode.
         - Returns: susceptibility in m³ and its derivative in m³ s/rad, one spectral row
           for a legacy gas and one row per population for an explicit mixture.
+        - Warns :class:`DiluteScalingWarning` once per gas where an optmat-selected
+          population's linear density scaling departs from optmat's finite-density law
+          beyond its bound.
         """
         # One evaluation context: each material's range warning is raised once for
         # the susceptibility and its derivative together.

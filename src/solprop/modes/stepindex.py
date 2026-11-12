@@ -100,7 +100,7 @@ def _k_ratio(
 def _log_slope(
     n: int, w: Float[np.ndarray, "*shape"] | float
 ) -> Float[np.ndarray, "*shape"]:
-    """Return the logarithmic derivative K_n'(w)/K_n(w), finite at any w > 0.
+    """Return the logarithmic derivative K_n'(w)/K_n(w), negative and finite at w > 0.
 
     ``K_n' = -(K_(n-1) + K_(n+1))/2`` from scaled functions where ``kve(n + 1, w)``
     is finite, and ``K_n'/K_n = -K_(n-1)/K_n - n/w`` from :func:`_k_ratio` where
@@ -257,6 +257,7 @@ def _family(u: float, v: float, ratio: float, n: int) -> _Kind:
 def _zero_block(order: int, size: int) -> Float[np.ndarray, " n_zeros"]:
     """Cache one block of the first zeros of one Bessel order.
 
+    - ``size``: a power of two (:func:`_zeros` rounds up).
     - Returns: the first `size` zeros of J_order, dimensionless, read-only.
     """
     block = jn_zeros(order, size)
@@ -279,7 +280,7 @@ def _zeros(order: int, count: int) -> Float[np.ndarray, " n_zeros"]:
 
 @cache
 def _bessel_nodes(n: int, count: int) -> Float[np.ndarray, " n_zeros"]:
-    """Cache frequency-independent Bessel-zero scan nodes."""
+    """Cache the Bessel-zero scan nodes: the zeros of orders n-1, n and n+1."""
     return np.concatenate([_zeros(abs(order), count) for order in (n - 1, n, n + 1)])
 
 
@@ -332,7 +333,10 @@ def _refined_roots(  # noqa: PLR0917 - called positionally
 ) -> dict[str, list[float]]:
     """Refine every sign change on a node set and label each root by family.
 
+    The hybrid families share one product, so one scan serves HE and EH.
+
     - ``ratio``: squared real cladding/core index ratio, between zero and one.
+    - Returns: family name to its roots u in increasing order.
     """
 
     def equation(one: float) -> float:
@@ -415,6 +419,9 @@ def _recovered(
 
     - ``scan``: v, the squared index ratio, the azimuthal order n and the family (HE or
       EH).
+    - Raises :class:`ModeError` if the factor changes sign more than once in an empty
+      cutoff interval: one guided root per interval rules that out, so which candidate
+      is the root cannot be decided.
     """
     v, ratio, n, kind = scan
     bounds = np.asarray(limits)
@@ -606,6 +613,7 @@ class _Profile:
 def _cutoff(kind: _Kind, n: int, m: int, ratio: float) -> float:
     """Return the exact cutoff at a fixed squared material-index ratio.
 
+    - ``m``: positive radial order, counted from the highest effective index.
     - ``ratio``: squared real cladding/core index ratio, between zero and one.
     """
     if kind in ("TE", "TM"):
