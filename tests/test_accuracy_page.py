@@ -83,7 +83,6 @@ class Quote:
 
 ALARM = ("quadrature_alarm", "three HE_1m modes")
 EQUIVALENCE = "backend_equivalence"
-NUMBA = "numba_cpu against numpy_ref"
 NATIVE = "native against numpy_ref"
 CUDA = "native_cuda against numpy_ref"
 M2 = "m2_witness_metrics"
@@ -222,46 +221,46 @@ QUOTES = (
         "0.03833",
         lambda: M4_REDUCED_MEASURED["fundamental, shape"],
     ),
-    # Section 7: backend equivalence, `numba_cpu` and Kokkos against the reference.
+    # Section 7: backend equivalence, the native CPU build against the reference.
     *(
         Quote(f"| {row} | {bound} ε | {measured} |", printed, value)
         for row, bound, measured, printed, value in (
             (
                 "one linear application",
                 32,
-                "4.8e-16 (not bitwise: the contraction above)",
-                "4.8e-16",
-                lambda: at(EQUIVALENCE, NUMBA, "one linear application", "deviation"),
+                "3.1e-22 (not bitwise: the contraction above)",
+                "3.1e-22",
+                lambda: at(EQUIVALENCE, NATIVE, "one linear application", "deviation"),
             ),
             (
                 "one step",
                 16,
-                "5.0e-17",
-                "5.0e-17",
-                lambda: at(EQUIVALENCE, NUMBA, "one step", "deviation"),
+                "3.8e-18",
+                "3.8e-18",
+                lambda: at(EQUIVALENCE, NATIVE, "one step", "deviation"),
             ),
             (
                 "eight steps",
                 128,
-                "2.0e-16",
-                "2.0e-16",
-                lambda: at(EQUIVALENCE, NUMBA, "eight steps", "deviation"),
+                "2.2e-17",
+                "2.2e-17",
+                lambda: at(EQUIVALENCE, NATIVE, "eight steps", "deviation"),
             ),
             (
                 "a full adaptive soliton run",
                 1600,
-                "6.2e-16",
-                "6.2e-16",
-                lambda: at(EQUIVALENCE, NUMBA, "a full adaptive run", "deviation"),
+                "4.9e-16",
+                "4.9e-16",
+                lambda: at(EQUIVALENCE, NATIVE, "a full adaptive run", "deviation"),
             ),
             (
                 "a capillary with an absorber and a kink",
                 3200,
-                "1.4e-15",
-                "1.4e-15",
+                "9.3e-16",
+                "9.3e-16",
                 lambda: at(
                     EQUIVALENCE,
-                    NUMBA,
+                    NATIVE,
                     "a capillary with an absorber and a kink",
                     "deviation",
                 ),
@@ -277,24 +276,24 @@ QUOTES = (
                 "one linear application",
                 32,
                 lambda: (
-                    at(EQUIVALENCE, NUMBA, "one linear application", "bound") / EPSILON
+                    at(EQUIVALENCE, NATIVE, "one linear application", "bound") / EPSILON
                 ),
             ),
             (
                 "one step",
                 16,
-                lambda: at(EQUIVALENCE, NUMBA, "one step", "bound") / EPSILON,
+                lambda: at(EQUIVALENCE, NATIVE, "one step", "bound") / EPSILON,
             ),
             (
                 "eight steps",
                 128,
-                lambda: at(EQUIVALENCE, NUMBA, "eight steps", "bound") / EPSILON,
+                lambda: at(EQUIVALENCE, NATIVE, "eight steps", "bound") / EPSILON,
             ),
             (
                 "a full adaptive soliton run",
                 1600,
                 lambda: (
-                    at(EQUIVALENCE, NUMBA, "a full adaptive run", "bound") / EPSILON
+                    at(EQUIVALENCE, NATIVE, "a full adaptive run", "bound") / EPSILON
                 ),
             ),
             (
@@ -303,7 +302,7 @@ QUOTES = (
                 lambda: (
                     at(
                         EQUIVALENCE,
-                        NUMBA,
+                        NATIVE,
                         "a capillary with an absorber and a kink",
                         "bound",
                     )
@@ -313,27 +312,22 @@ QUOTES = (
         )
     ),
     Quote(
-        "| the analytic field family | 1e-13 | 4.6e-16 |",
+        "| the analytic field family | 1e-13 | 2.2e-18 |",
         "1e-13",
-        lambda: at(EQUIVALENCE, NUMBA, "the analytic field family", "bound"),
+        lambda: at(EQUIVALENCE, NATIVE, "the analytic field family", "bound"),
     ),
     Quote(
-        "| the analytic field family | 1e-13 | 4.6e-16 |",
-        "4.6e-16",
-        lambda: at(EQUIVALENCE, NUMBA, "the analytic field family", "deviation"),
+        "| the analytic field family | 1e-13 | 2.2e-18 |",
+        "2.2e-18",
+        lambda: at(EQUIVALENCE, NATIVE, "the analytic field family", "deviation"),
     ),
     Quote(
         "| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts |",
         "1e-10",
-        lambda: at(EQUIVALENCE, NUMBA, "the reduced M2 case", "bound"),
+        lambda: at(EQUIVALENCE, NATIVE, "the reduced M2 case", "bound"),
     ),
     Quote(
         "| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts |",
-        "3.5e-14",
-        lambda: at(EQUIVALENCE, NUMBA, "the reduced M2 case", "deviation"),
-    ),
-    Quote(
-        "| the reduced M2 case, native CPU | 1e-10 | 3.5e-14, at identical step",
         "3.5e-14",
         lambda: at(EQUIVALENCE, NATIVE, "the reduced M2 case", "deviation"),
     ),

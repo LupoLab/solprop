@@ -327,13 +327,14 @@ was the boundary's (SEP 21, D2).
 
 ## 7. Backend equivalence
 
-The installed native backend against `numpy_ref`, bounds derived from
-summation lengths and then measured. The first rows of the table below, unmarked by a build,
-are what the retired `numba_cpu` backend measured against `numpy_ref`, kept in the record as
-evidence with their bounds, which the native rows share. No comparison is bitwise
-([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): independent floating-point
-computations are compared by numerical error — numpy's complex multiply can contract into a
-fused multiply-add where a compiled kernel's does not — so every round-off bound is a multiple of ε. The ladder has two kinds of row, and the criterion follows the kind
+The installed native backend against `numpy_ref`, bounds derived from summation lengths
+and then measured; the measured values are the native CPU build's unless a row names
+another. No comparison is bitwise
+([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): independent
+floating-point computations are compared by numerical error — numpy's complex multiply
+can contract into a fused multiply-add where a compiled kernel's does not — so every
+round-off bound is a multiple of ε. The ladder has two kinds of row, and the criterion
+follows the kind
 ([testing.md](testing.md) section 3):
 
 - **Matched discrete computations: rounding budgets** (class R). One application, one
@@ -361,19 +362,15 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 
 | ladder rung | bound | measured | where |
 |---|---|---|---|
-| one linear application | 32 ε | 4.8e-16 (not bitwise: the contraction above) | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| one step | 16 ε | 5.0e-17 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| eight steps | 128 ε | 2.0e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| a full adaptive soliton run | 1600 ε | 6.2e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| a capillary with an absorber and a kink | 3200 ε | 1.4e-15 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| the analytic field family | 1e-13 | 4.6e-16 | `tests/backends/test_backend_ladder.py`; the value is `numba_cpu`'s, from the record |
-| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py`; the value is `numba_cpu`'s, from the record |
-| the reduced M2 case, native CPU | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
-| the reduced CtC field with seeded shot noise, native CPU against `numba_cpu` | 1e-9 | 5.2e-11 at identical 4,937 accepted steps | measured while `numba_cpu` existed |
+| one linear application | 32 ε | 3.1e-22 (not bitwise: the contraction above) | `tests/backends/test_backend_ladder.py` |
+| one step | 16 ε | 3.8e-18 | `tests/backends/test_backend_ladder.py` |
+| eight steps | 128 ε | 2.2e-17 | `tests/backends/test_backend_ladder.py` |
+| a full adaptive soliton run | 1600 ε | 4.9e-16 | `tests/backends/test_backend_ladder.py` |
+| a capillary with an absorber and a kink | 3200 ε | 9.3e-16 | `tests/backends/test_backend_ladder.py` |
+| the analytic field family | 1e-13 | 2.2e-18 | `tests/backends/test_backend_ladder.py` |
+| the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
 | the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
-| the reduced CtC field, native CUDA against `numba_cpu` | 1e-9 | below the bound at identical 1,235 accepted steps on the former 1 ps two-mode case; not yet re-measured on the 2 ps one-mode case | measured while `numba_cpu` existed |
 | native Raman kernel/convolution | operation-count and FFT-depth bounds fixed before execution | native host reference, all three drive forms and tail chunks pass | the native tests under `native/tests/native/` |
-| the plasma scan's running sums | `4 n_to ε` across scalar/vector libm paths | 2.79e-16 scaled at 256 samples on an x86-64 host; same-path repetition within the same bound | measured on `numba_cpu` |
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_backend_ladder.py` |
 | same-backend resume through true-power output | 2.7e-16 of the global field peak; statistic-specific rounding bounds | field 1.77333e-16; energy up to 2.64009e-16; rate up to 5.06947e-15 | `tests/driver/test_resume.py` |
 | a run continued on the other backend | — | 2.2–2.7e-16 against either uninterrupted run | `tests/driver/test_resume.py` |
@@ -449,10 +446,9 @@ the same fixed schedule, within a matched-discrete rounding budget, on every bac
 points under `Local` and a fresh `Pool`; batches of 1, 2 and 3 with a partial final
 group). Neither is required to be bitwise: a batch's lockstep reductions, its thread
 layout and a worker process's library state may order sums differently. A scan point or
-batch member run adaptively is class T against its own reference. The short CtC case (0.2 mm, six
-modes, three seeds) agreed between native CUDA and `numba_cpu`, when it was measured, to 2.0e-16 relative L2
-against the 1e-9 CtC bound, and the reduced M2 case on the GPU with the fixed-schedule
-CPU fields to 7.9e-14 (a diagnostic; no bound asserted). A calibrated reduced-M2 schedule
+batch member run adaptively is class T against its own reference. The reduced M2 case on
+the GPU agreed with the fixed-schedule CPU fields to 7.9e-14 (a diagnostic; no bound
+asserted). A calibrated reduced-M2 schedule
 (eight seeds, 515 steps) transfers to 4.7e-7 in its scalar metrics against `rtol = 1e-10`
 adaptive runs, inside the 1e-6 scalar target, but differs by 4.6e-5 in the full field,
 which that target does not bound.
@@ -460,7 +456,7 @@ which that target does not bound.
 .. plot::
    :filename-prefix: accuracy-backend-equivalence
    :include-source: False
-   :caption: Each rung of the backend-equivalence ladder, from ``tests/data/convergence/backend_equivalence.json``. The bar runs from what the rung measures to the bound derived for it; only the seven rungs of the ladder are drawn, not the separate rows of the table above.
+   :caption: Every row of ``tests/data/convergence/backend_equivalence.json``: the seven-rung ladder of each native build, the free-space ladders and the polarisation rows, each on the backend its label names. The bar runs from what the row measures to the bound derived for it.
 
    import accuracy_figures
 
