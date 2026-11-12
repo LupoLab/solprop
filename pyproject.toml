@@ -85,10 +85,11 @@ dev = [
     # pinned so the check does not depend on the machine's LLVM (Ubuntu's 18 and
     # Homebrew's 23 format native/src/general.cpp differently, and each LLVM release
     # adds checks); clang-tidy's PyPI wheels start at 23.1.3, the nearest to the
-    # formatter's 23.1.0. The build tools let it build the editable package and the
-    # distribution wheel without isolation.
+    # formatter's 23.1.0, and exist for Linux and macOS (the gate is bash) but not
+    # Windows on Arm, where a sync would build LLVM. The build tools let it build the
+    # editable package and the distribution wheel without isolation.
     "clang-format==23.1.0",
-    "clang-tidy==23.1.4",
+    "clang-tidy==23.1.4; sys_platform == 'linux' or sys_platform == 'darwin'",
     "nanobind>=2.9",
     "scikit-build-core>=0.11",
     "setuptools-scm>=9",

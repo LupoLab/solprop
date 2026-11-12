@@ -243,8 +243,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/c8487562afaabba832be98bc4eeb39a13b5f5f5a270b4e2547043ada4ea5/clang_tidy-23.1.4-py2.py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:900276dcb577ed8cb411958efc64feb1ba7334e3c9e70ea5d2e6b5c29aa5335f", size = 42757090, upload-time = "2026-10-26T08:37:00.151Z" },
     { url = "https://files.pythonhosted.org/packages/a0/2b/1103bf0e0ae41f3682a4825ce6c7b6290852c4677b2aa4e632b2c43ac60c/clang_tidy-23.1.4-py2.py3-none-musllinux_1_2_i686.whl", hash = "sha256:f428092411271394559c70f7bed218e20409bbd2ee16d0c4cc93f7c6361a595a", size = 53434463, upload-time = "2026-10-26T08:37:03.631Z" },
     { url = "https://files.pythonhosted.org/packages/0b/89/f8a6c51ce1caf68ad4d9b1abf2f8b3b81490f8c9d959c6b3fee1c490d64b/clang_tidy-23.1.4-py2.py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:7c34a8ec573e747412a15a4fea3cd65221b03b2da9a6462f17cbc8bfd47dc7fb", size = 48308787, upload-time = "2026-10-26T08:37:07.276Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/98/39eb001e1d1e9742d4d77aefcb438a44145f262f868892e7cd4ff6e31e65/clang_tidy-23.1.4-py2.py3-none-win32.whl", hash = "sha256:c25f8689d48e6f7909f12a17f6019e572970836e1a6570f8a1f70d84008e5db7", size = 25091276, upload-time = "2026-10-26T08:37:10.081Z" },
-    { url = "https://files.pythonhosted.org/packages/c0/49/b2adbdedbe430d0cce9b354a679d57e28692ce2fb59a575486784d438125/clang_tidy-23.1.4-py2.py3-none-win_amd64.whl", hash = "sha256:8107e05930f53dc477dbb5fb8108d7c10464176fc95d3e58f4ee7317887aed59", size = 28544052, upload-time = "2026-10-26T08:37:13.193Z" },
 ]
 
 [[package]]
@@ -1600,7 +1598,7 @@ dev = [
     { name = "basedpyright" },
     { name = "beartype" },
     { name = "clang-format" },
-    { name = "clang-tidy" },
+    { name = "clang-tidy", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "codespell" },
     { name = "drawsvg" },
     { name = "hypothesis" },
@@ -1651,7 +1649,7 @@ dev = [
     { name = "basedpyright", specifier = "==1.39.10" },
     { name = "beartype" },
     { name = "clang-format", specifier = "==23.1.0" },
-    { name = "clang-tidy", specifier = "==23.1.4" },
+    { name = "clang-tidy", marker = "sys_platform == 'darwin' or sys_platform == 'linux'", specifier = "==23.1.4" },
     { name = "codespell" },
     { name = "drawsvg", specifier = ">=2.4" },
     { name = "hypothesis" },
