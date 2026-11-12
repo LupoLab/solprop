@@ -24,7 +24,7 @@ import subprocess
 import pytest
 
 import convergence_records as cr
-from solprop.backends.registry import BACKENDS, available
+from solprop.backends.registry import BACKEND_NAMES, available
 
 RETIRED_BACKENDS = frozenset({"numba_cuda", "numba_cpu", "mlx"})
 """Backends whose rows stay as evidence after the backend itself was deleted."""
@@ -220,7 +220,7 @@ def _writer_exists(node, collected):
     if node in collected:
         return True
     base, _, parameter = node.partition("[")
-    absent = (set(BACKENDS) | RETIRED_BACKENDS) - set(available())
+    absent = (set(BACKEND_NAMES) | RETIRED_BACKENDS) - set(available())
     coordinates = parameter.rstrip("]").split("-")
     for index, coordinate in enumerate(coordinates):
         if coordinate not in absent:
@@ -260,7 +260,7 @@ def test_a_writer_of_a_removed_backend_counts_as_existing():
     """A row of a deleted backend keeps its numbers without a writer to collect."""
     collected = {"tests/backends/test_x.py::test_y[numpy_ref]"}
     for removed in RETIRED_BACKENDS:
-        assert removed not in BACKENDS
+        assert removed not in BACKEND_NAMES
         assert _writer_exists(f"tests/backends/test_x.py::test_y[{removed}]", collected)
         assert not _writer_exists(
             f"tests/backends/test_z.py::test_y[{removed}]", collected
@@ -285,7 +285,7 @@ def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not(monkeyp
     """The relaxation is exactly one parametrisation on an uninstalled backend."""
     monkeypatch.setattr("test_convergence_records.available", lambda: ("numpy_ref",))
     collected = {"tests/backends/test_x.py::test_y[numpy_ref]"}
-    assert "native" in BACKENDS
+    assert "native" in BACKEND_NAMES
     assert _writer_exists("tests/backends/test_x.py::test_y[native]", collected)
     assert not _writer_exists("tests/backends/test_z.py::test_y[native]", collected)
     assert _writer_exists("tests/backends/test_x.py::test_y[numpy_ref]", collected)

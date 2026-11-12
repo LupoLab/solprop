@@ -21,10 +21,9 @@ __all__ = ["NumpyBatchBackend", "lockstep_runner"]
 
 
 def lockstep_runner(owners: Sequence[Backend]) -> BatchBackend:
-    """Build the reference's lockstep runner for loaded members (the registry's row).
+    """Build the reference's lockstep runner for loaded members.
 
-    :func:`solprop.backends.registry.select_batch` reads it from the reference's
-    registry row.
+    What :func:`solprop.backends.registry.select_batch` returns for the reference.
 
     Parameters
     ----------

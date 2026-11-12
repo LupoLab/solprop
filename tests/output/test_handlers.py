@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from solprop import _process, fourier
-from solprop.backends.registry import REMOVED_BACKENDS
+from solprop.backends.registry import BACKEND_NAMES
 from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import input_noise
@@ -1032,7 +1032,7 @@ def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
     before SEP 47 retired it; the name is refused where a run asks for it
     (``tests/backends/test_registry.py``), never where a file is read.
     """
-    assert name in REMOVED_BACKENDS
+    assert name not in BACKEND_NAMES
     record = BackendRecord.from_metadata(
         {"backend": name, "propagator_mode": "recompute", **settings}
     )

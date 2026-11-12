@@ -95,23 +95,19 @@ a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted
 exception.
 
-## The removed `numba_cpu` backend
+## Retired backends
 
-solprop once had a third double-precision backend, `numba_cpu`, and 0.1.0 is the last
-release with it. Naming it now raises {py:class}`~solprop.exceptions.BackendError`, naming
-`native` and `numpy_ref`, so a script or recipe that selects it needs `backend="native"`, or
-no `backend=` at all. Output, snapshots and a scan's execution metadata that record
-`numba_cpu` still load, and keep saying so: the record is not rewritten.
+solprop has exactly two backends, `native` and `numpy_ref`, and will have no other. It once
+had two more: `numba_cpu`, a third double-precision backend whose last release is 0.1.0,
+and `mlx`, an experimental single-precision backend for Apple GPUs. Naming either now
+raises {py:class}`~solprop.exceptions.BackendError`, naming `native` and `numpy_ref`, as
+any name that is neither does, so a script or recipe that selects one needs
+`backend="native"`, or no `backend=` at all. Output, snapshots and a scan's execution
+metadata that record a retired backend still load, and keep saying so: a recorded name is
+not a request, and the record is not rewritten. A run started on a release that had the
+backend finishes on that release.
 
-The backend is an execution resource, so changing it does not change a run's identity. A
-run can continue on `native` or `numpy_ref`, with its script's or recipe's backend changed
-deliberately, through the normal [resume](../results/resuming.md) checks; the original
-execution record stays and the new one is added. Adams history crosses to the new backend,
-except a frozen-residual coupled flow's: a host engine's history continues on `numpy_ref`,
-and on native starts afresh and says why. Anything refused is recovered with
-`solprop==0.1.0`.
-
-Its settings are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
+The settings of `numba_cpu` are gone too: `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`,
 `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`,
 `NUMBA_DISABLE_JIT` and `NUMBA_NUM_THREADS` no longer do anything.
 

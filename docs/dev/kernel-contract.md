@@ -1254,13 +1254,13 @@ source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
 an exception. There is no version counter to bump (ADR-068).
 
-A new **backend** extends no descriptor: it consumes this contract as it stands. It
-registers with one `BackendEntry` row in `solprop.backends.registry.BACKENDS`
-([backends.md §1](backends.md)), visits every route variant and component to prepare
-or refuse it by name, and runs through its own `prepare` (one run) and
-`prepare_group` (a group of compatible members, or a `BackendError` saying it runs
-none), so the run layer names no backend. It qualifies on the conformance suite in
-`tests/sessions` and against the reference.
+There are exactly two **backends**, `native` and `numpy_ref`, and no other will be
+added (ADR-077; [backends.md §1](backends.md)). Each consumes this contract as it
+stands, visits every route variant and component to prepare or refuse it by name, and
+runs through its own `prepare` (one run) and `prepare_group` (a group of compatible
+members, or a `BackendError` saying it runs none), so the run layer names no backend.
+Both qualify on the conformance suite in `tests/sessions`, native against the
+reference.
 
 ## 11. The Adams march
 

@@ -7,7 +7,7 @@ from `native/`), the threading model, the memory ledger and admission, which bac
 what, and what each backend is for and where new features land (§10). Which
 backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
-ADR-013, ADR-020, ADR-023, ADR-061, ADR-064.
+ADR-013, ADR-020, ADR-023, ADR-064, ADR-068, ADR-077.
 
 ## 1. The seam
 
@@ -94,30 +94,26 @@ buffers, layout and plans are private; the state is never a parameter of `propag
 `observe`; the numbers are the contract — a backend is correct when it reproduces the
 reference to the stated bound. Selection is by name (`backends.select(name, problem, request)`);
 availability is detected with `importlib.util.find_spec` (importing an accelerator package
-can initialise a device runtime), never cached; an unknown name raises `ValueError` listing
-what is usable, a known name whose dependencies are missing raises `ImportError` saying
-what to install, and a removed name keeps a tombstone (`REMOVED_BACKENDS`):
-`backend="numba_cpu"` raises `BackendError` naming `native` and `numpy_ref`, wherever a
-requested name is resolved. A recorded name is not a request, so old output and snapshots
-that record it still load. `metadata()` says what the execution *was* — the name, the
+can initialise a device runtime), never cached; a name that is neither backend, a retired
+one's such as `numba_cpu` or `mlx` included, raises `BackendError` naming `native` and
+`numpy_ref` wherever a requested name is resolved, and `native` without its package raises
+`ImportError` saying what to install. A recorded name is not a request, so old output and
+snapshots that record a retired backend still load. `metadata()` says what the execution *was* — the name, the
 resolved propagator mode, and whatever pools, plans and digests the backend has — and the
 driver writes it into the run's `RunMetadata.backend`, outside the resume key.
 
-**Registration.** A backend is one row of `registry.BACKENDS`, a `BackendEntry` that
-names by import path (`"module:attribute"`) everything selection reads of it, so
-`select`, `select_batch` and the policy checks read the row and never branch on the
-name: the modules it `requires` and the `extras` or `install` text that supply them;
-its `factory`, called as `factory(problem, request, *, grid, modes, profiles, options)`;
-the reference group's lockstep runner `batch(owners)` (`select_batch`; the native row
-names none, its group running one native session per member); and the native policies, each `None` on a row without it: `first_use`, called
-before each construction (SEP 46's first-use calibration), `device`, the build
-description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
-device by name), and `far_field`, the far-field statistics the installed build declares
-(`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
-is imported until selection needs it, and only after `requires` is found. A new
-backend (Tier 3, ADR-061) in another distribution registers with one row, and runs and groups through its
-own `prepare` and `prepare_group` (**Selection** below); there is no entry-point
-discovery, so the row is added to `BACKENDS` in this repository.
+**The two backends.** There are exactly two (ADR-077), `registry.BACKEND_NAMES`:
+`numpy_ref` and `native`, with no plugin rows and no other backend. `select` constructs
+the reference through `solprop.backends.numpy_ref.construct` and the native backend
+through `solprop_native.NativeBackend`, each called as
+`factory(problem, request, *, grid, modes, profiles, options)`, importing each only when
+it is selected. Before a native construction it runs SEP 46's first-use calibration;
+`SOLPROP_REQUIRE_DEVICE` reads the installed native build's `build_info()` (the
+reference is refused a required device by name); and `statistics_refusal` reads the
+far-field statistics `NativeBackend.far_field_statistics` declares. `select_batch` is the
+reference group's lockstep runner; the native group runs one native session per member
+through its own `prepare_group` (**Selection** below). `auto` is `registry.AUTO`,
+`native`, with no fallback.
 
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
@@ -570,7 +566,7 @@ either. The native backend's (`solprop_native.group.NativePreparedGroup`) opens
 `NativeGroupSession`, which refuses by name what `solprop_native.group.refusal` names
 (an adaptive member, step planes, members that do not share the schedule) before any
 member session starts. The reference's (`backends.host.group_session.HostPreparedGroup`)
-opens its own `HostGroupSession` over the group runner its registry row names. A backend
+opens its own `HostGroupSession` over the group runner `select_batch` builds. A backend
 that runs no group raises `BackendError` from `prepare_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
@@ -1840,8 +1836,8 @@ is refused by `check_build`.
 [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s experimental single-precision
 backend for Apple GPUs was retired, unused, by
 [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.6, before the driver hierarchy it inherited
-was restructured. `backend="mlx"` raises `BackendError` (`registry.REMOVED_BACKENDS`),
-and output that records it still opens. Single precision went with it (ADR-077): every
+was restructured. `backend="mlx"` raises `BackendError`, as any name that is neither
+backend does, and output that records it still opens. Single precision went with it (ADR-077): every
 backend computes in binary64. SEP 33 and the benchmark ledger keep what it measured.
 
 ## 5. JAX: evaluated, not adopted
@@ -2026,11 +2022,11 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 ## 10. What each backend is for
 
-These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
-`numba_cpu` and superseded the statement that the documentation build installs no native
-backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
-`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
-reference, and refuses the rest by name.
+There are exactly two backends, with fixed roles and no tiers, and no other backend will be
+implemented, in this repository or as a plugin (ADR-077; ADR-064 retired `numba_cpu`,
+ADR-068 made `native` the primary backend). A feature lands on `native` and `numpy_ref` in
+either order. Each backend keeps what it runs, correct and in parity with the other, and
+refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|
@@ -2039,7 +2035,7 @@ reference, and refuses the rest by name.
 
 A SEP is final when its feature runs on both `numpy_ref` and `native` with parity tests
 ([SEP 0](seps/sep-0000-process.md)), or an accepted exception adds it to the list. A backend's
-role changes by a new decision record, and a new backend starts as experimental. `backend="auto"`
+role changes by a new decision record. `backend="auto"`
 is `native`, and refuses where the native package is missing or the processor is below its
 wheel's baseline (§1). The CI `docs` lane installs the native wheel, so a lesson or tutorial may
 use anything `native` runs; Read the Docs executes no gallery script, because all gallery

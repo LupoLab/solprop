@@ -695,8 +695,7 @@ chooses its own group: `start_group` asks the first member to prepare it,
 - **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
   prepared by `HostPreparedGroup`) serves every `numpy_ref` group.
   It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
-  member-axis stage arithmetic, which `select_batch` builds from the
-  registry row), which adopts the loaded member backends, each with its own tables,
+  member-axis stage arithmetic, which `select_batch` builds), which adopts the loaded member backends, each with its own tables,
   state and noise, and advances them through each common step in turn. It keeps that
   runner rather than composing one `HostSession` per member, because the runner's
   arithmetic and failure positions are what a reference group means:

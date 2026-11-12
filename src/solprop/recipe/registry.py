@@ -282,17 +282,6 @@ builder, an adiabatic budget and a TDSE's resources have no registered type, and
 underscored fields are private.
 """
 
-_RETIRED_GRID_TRANSFORMS: Final = (
-    "transforms was retired in SEP 47 with the mlx backend: fft_size='auto' takes "
-    "FFTW's transform cost; remove the key"
-)
-
-_RETIRED_KEYWORDS: Final[Mapping[tuple[str, str], str]] = {
-    ("FieldGrid.from_limits", "transforms"): _RETIRED_GRID_TRANSFORMS,
-    ("EnvelopeGrid.from_limits", "transforms"): _RETIRED_GRID_TRANSFORMS,
-}
-"""Why a type no longer takes a keyword it once did, by type and keyword."""
-
 _FILL_UNITS: Final[Mapping[str, UnitSpec]] = {
     "pressure": "bar",
     "temperature": "K",
@@ -655,9 +644,6 @@ def build_object(
         if factory.target is SimulationSettings and key in _EXECUTION_FIELDS:
             msg = f"{key} is set in the recipe's [execution] table, not in settings"
             raise RecipeError(msg, path=f"{path}.{key}")
-        retired = _RETIRED_KEYWORDS.get((factory.name, key))
-        if retired is not None:
-            raise RecipeError(retired, path=f"{path}.{key}")
         if key not in accepted:
             raise unknown_key(
                 key,

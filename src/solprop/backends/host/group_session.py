@@ -9,8 +9,8 @@ serves every ``numpy_ref`` group, and :class:`HostPreparedGroup` is
 the prepared group a reference backend returns from ``prepare_group``. The group loads
 each member from its start and hands the loaded members to the reference's group runner
 (:class:`~solprop.backends.host.group.HostGroup`, or its member-axis arithmetic
-:class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, the choice the
-reference's registry row makes through :func:`solprop.backends.registry.select_batch`),
+:class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, the choice
+:func:`solprop.backends.registry.select_batch` makes),
 which advances every member through each step of the common fixed schedule in turn.
 The session presents that march through the group protocol: one window per save plane,
 each member's own events, tickets, counters and outcome, and the failure distinction of

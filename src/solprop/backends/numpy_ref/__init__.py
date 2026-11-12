@@ -86,7 +86,7 @@ def construct(
     tdse_binding: TDSEBinding | None = None,
     options: ExecutionOptions | None = None,
 ) -> NumpyRefBackend:
-    """Construct the reference for a problem (the registry's row).
+    """Construct the reference for a problem, as the registry selects it.
 
     Parameters
     ----------
