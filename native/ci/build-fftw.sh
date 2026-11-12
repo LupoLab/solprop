@@ -4,8 +4,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Build FFTW for a Linux or macOS wheel: double and single precision, shared, with
-# its OpenMP and POSIX-threads libraries.
+# Build FFTW for a Linux or macOS wheel: double precision (the package computes in no
+# other), shared, with its OpenMP and POSIX-threads libraries.
 #
 # The wheel repair (auditwheel, delocate) copies these libraries into the package.
 # The common code is compiled for the wheel's CPU baseline, except on x86-64: there it
@@ -14,8 +14,8 @@
 # x86-64 FFTW's SSE2 and AVX codelets are chosen at run time (AVX2 and AVX-512 codelets were not a
 # uniform gain when measured, so they are left out). On Arm the cycle counter is
 # enabled, so that measured planning (FFTW_MEASURE) works; without one FFTW plans by
-# estimate only. Both Arm wheels also enable FFTW's explicit NEON codelets in both
-# precisions; compiler auto-vectorisation does not enable these implementations.
+# estimate only. Both Arm wheels also enable FFTW's explicit NEON codelets; compiler
+# auto-vectorisation does not enable these implementations.
 #
 # OpenMP: on Linux the compiler's own runtime (GCC's libgomp in the manylinux image);
 # on macOS the libomp of LIBOMP_PREFIX (native/ci/build-libomp.sh), the runtime the
@@ -68,17 +68,13 @@ esac
 archive=$(fetch "https://www.fftw.org/fftw-$version.tar.gz" "$sha256" "$work")
 rm -rf "$work/fftw-$version"
 tar -xzf "$archive" -C "$work"
-for precision in double single; do
-  build="$work/fftw-build-$precision"
-  rm -rf "$build"
-  mkdir -p "$build"
-  precision_args=(--disable-single)
-  [[ $precision == single ]] && precision_args=(--enable-single)
-  (cd "$build" && CFLAGS="$cflags" "$work/fftw-$version/configure" \
-     "${configure_args[@]}" "${simd[@]}" "${precision_args[@]}" >configure.log)
-  make -C "$build" -j"$(jobs)" >"$build/make.log"
-  make -C "$build" install >"$build/install.log"
-done
+build="$work/fftw-build"
+rm -rf "$build"
+mkdir -p "$build"
+(cd "$build" && CFLAGS="$cflags" "$work/fftw-$version/configure" \
+   "${configure_args[@]}" "${simd[@]}" >configure.log)
+make -C "$build" -j"$(jobs)" >"$build/make.log"
+make -C "$build" install >"$build/install.log"
 # The wheel carries FFTW's licence (CMake's SOLPROP_NATIVE_BUNDLED_LICENCES).
 mkdir -p "$prefix/licences"
 cp "$work/fftw-$version/COPYING" "$prefix/licences/LICENSE-fftw.txt"

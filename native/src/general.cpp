@@ -15,16 +15,16 @@
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/general_modal.hpp"
 #include "solprop_native/plasma.hpp"
-
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
+
 #include <KokkosFFT.hpp>
 #include <Kokkos_Profiling_ScopedRegion.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <fftw3.h>
-#if defined(__SSE2__)
+#ifdef __SSE2__
 #include <immintrin.h>
 #define SOLPROP_NATIVE_STREAMING_STORES 1
 #endif
@@ -43,15 +43,17 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
-#if defined(__APPLE__)
+#ifdef __APPLE__
 #include <malloc/malloc.h>
 #elif defined(__GLIBC__)
 #include <dlfcn.h>
 #endif
 
 namespace solprop_native {
+namespace {
 /** The three squared norms an accepted step reports, as one reduction value. */
 struct NormSums {
   double old_sum = 0.0;
@@ -64,6 +66,7 @@ struct NormSums {
     return *this;
   }
 };
+} // namespace
 } // namespace solprop_native
 
 template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
@@ -71,6 +74,7 @@ template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
 };
 
 namespace solprop_native {
+namespace {
 /** A plane's scaled fluence, one reduction value: its sum and its index moments. */
 struct FluenceMoments {
   double total = 0.0;
@@ -83,6 +87,7 @@ struct FluenceMoments {
     return *this;
   }
 };
+} // namespace
 } // namespace solprop_native
 
 template <> struct Kokkos::reduction_identity<solprop_native::FluenceMoments> {
@@ -178,12 +183,13 @@ void apply_generator(const ExecutionSpace& space, const std::size_t n,
 #endif
 }
 
-template <class... Ts> KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&...) {}
+template <class... Ts>
+KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&... /*unused*/) {}
 
 // Net process allocator growth includes opaque vendor FFT plan/workspace
 // allocations. It is measured separately from Kokkos Views and is not a peak bound.
 std::size_t heap_bytes() {
-#if defined(__APPLE__)
+#ifdef __APPLE__
   malloc_statistics_t statistics{};
   malloc_zone_statistics(nullptr, &statistics);
   return statistics.size_in_use;
@@ -208,7 +214,7 @@ std::size_t heap_bytes() {
 #endif
 }
 std::size_t device_free_bytes() {
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   std::size_t available{}, total{};
   if (cudaMemGetInfo(&available, &total) != cudaSuccess)
     throw std::runtime_error("cudaMemGetInfo failed during FFT planning");
@@ -284,7 +290,7 @@ using StripPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2, 1>
 struct EnvelopeStream {
   ComplexView2 node, projected, coarse, stacked, spectrum, coarse_spectrum;
   std::unique_ptr<ComplexPlan> forward, coarse_forward;
-  std::size_t bytes() const {
+  [[nodiscard]] std::size_t bytes() const {
     return sizeof(Complex) *
            (node.size() + projected.size() + coarse.size() + stacked.size() +
             spectrum.size() + coarse_spectrum.size());
@@ -296,7 +302,7 @@ struct FieldCurrentStream {
   RealView2 node, projected, coarse, stacked;
   ComplexView2 spectrum, coarse_spectrum;
   std::unique_ptr<ForwardRealPlan> forward, coarse_forward;
-  std::size_t bytes() const {
+  [[nodiscard]] std::size_t bytes() const {
     return sizeof(double) *
                (node.size() + projected.size() + coarse.size() + stacked.size()) +
            sizeof(Complex) * (spectrum.size() + coarse_spectrum.size());
@@ -316,6 +322,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
       label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, rows),
       KOKKOS_LAMBDA(const std::size_t row) {
         for (std::size_t inner = 0; inner < width; ++inner)
+          // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
           element(row, inner);
       });
 #endif
@@ -337,7 +344,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 // builds compile out the host traversals that use these, hence `maybe_unused`.
 [[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_store(Complex& target,
                                                           const Complex value) {
-#if defined(SOLPROP_NATIVE_STREAMING_STORES)
+#ifdef SOLPROP_NATIVE_STREAMING_STORES
   _mm_stream_pd(reinterpret_cast<double*>(&target),
                 _mm_set_pd(value.imag(), value.real()));
 #else
@@ -346,7 +353,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 }
 
 [[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_fence() {
-#if defined(SOLPROP_NATIVE_STREAMING_STORES)
+#ifdef SOLPROP_NATIVE_STREAMING_STORES
   _mm_sfence();
 #endif
 }
@@ -357,11 +364,12 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 struct CrossingTile {
   std::size_t first_row, last_row, first_bin, last_bin;
 
-  std::size_t size() const noexcept {
+  [[nodiscard]] std::size_t size() const noexcept {
     return (last_row - first_row) * (last_bin - first_bin);
   }
   // An element's place in a tile buffer, rows outermost.
-  std::size_t at(const std::size_t row, const std::size_t bin) const noexcept {
+  [[nodiscard]] std::size_t at(const std::size_t row,
+                               const std::size_t bin) const noexcept {
     return (row - first_row) * (last_bin - first_bin) + (bin - first_bin);
   }
   // Every element in the traversal order `crossing_for` names.
@@ -393,8 +401,10 @@ void crossing_tiles(const char* label, const ExecutionSpace& execution,
         const std::size_t first_row = (index / bin_tiles) * tile_rows;
         const std::size_t first_bin = (index % bin_tiles) * tile_bins;
         visit(CrossingTile{
-            first_row, rows - first_row < tile_rows ? rows : first_row + tile_rows,
-            first_bin, width - first_bin < tile_bins ? width : first_bin + tile_bins});
+            .first_row = first_row,
+            .last_row = rows - first_row < tile_rows ? rows : first_row + tile_rows,
+            .first_bin = first_bin,
+            .last_bin = width - first_bin < tile_bins ? width : first_bin + tile_bins});
         // Each thread orders its own streaming stores before the region ends.
         if constexpr (Streaming)
           stream_fence();
@@ -615,7 +625,7 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
   fftw_plan_with_nthreads(space.concurrency());
   auto* in = reinterpret_cast<fftw_complex*>(input);
   auto* out = reinterpret_cast<fftw_complex*>(output);
-  const fftw_plan seeded = fftw_plan_many_dft(
+  auto* const seeded = fftw_plan_many_dft(
       static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
       input_distance, out, nullptr, 1, output_distance, sign, *chosen);
   // The policy has always tolerated a plane it cannot seed; a profile records it.
@@ -814,7 +824,8 @@ struct SpatialCoefficients {
     const Complex prefactor =
         propagating ? numerator(omega) / root.real() : clamped(omega);
 #endif
-    return {linear - 0.5 * spectral_rate(omega), active ? prefactor : Complex{}};
+    return {.linear = linear - 0.5 * spectral_rate(omega),
+            .prefactor = active ? prefactor : Complex{}};
   }
 };
 
@@ -961,6 +972,7 @@ ionisation_log_rate(const double log_field, const View& coefficients,
   long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
   if (raw_index < 0)
     raw_index = 0;
+  // NOLINTNEXTLINE(modernize-use-integer-sign-comparison): device code; std::cmp_* is host-only
   if (raw_index >= static_cast<long>(intervals))
     raw_index = static_cast<long>(intervals - 1);
   const auto index = static_cast<std::size_t>(raw_index);
@@ -1284,7 +1296,7 @@ void require_general_problem(const Problem& problem) {
       if (!std::isfinite(value))
         throw std::invalid_argument("time_window_derivative is not finite");
     for (std::size_t index = 0; index < problem.n_omega; ++index)
-      if (problem.active_mask[index] &&
+      if (problem.active_mask[index] != 0 &&
           (!(problem.omega[index] > 0.0) || !std::isfinite(problem.omega[index])))
         throw std::invalid_argument(
             "held plasma current requires positive active omega");
@@ -1348,21 +1360,21 @@ void require_general_problem(const Problem& problem) {
     require_extent(problem.channel_parameters.size(),
                    checked_product(problem.n_channels, 9, "channel parameters"),
                    "channel_parameters");
-    if (!std::all_of(problem.channel_parameters.begin(),
-                     problem.channel_parameters.end(),
-                     [](double value) { return std::isfinite(value); }) ||
-        !std::all_of(problem.channel_coefficients.begin(),
-                     problem.channel_coefficients.end(),
-                     [](double value) { return std::isfinite(value); }))
+    if (!std::ranges::all_of(problem.channel_parameters,
+                             [](double value) { return std::isfinite(value); }) ||
+        !std::ranges::all_of(problem.channel_coefficients,
+                             [](double value) { return std::isfinite(value); }))
       throw std::invalid_argument("channel parameters and coefficients must be finite");
     std::size_t expected_offset = 0;
+    // Each interval holds four coefficients.
+    const std::size_t total_intervals = problem.channel_coefficients.size() / 4;
     for (std::size_t channel = 0; channel < problem.n_channels; ++channel) {
       const double* row = problem.channel_parameters.data() + 9 * channel;
       if (!(row[1] > 0.0 && row[2] > 0.0 && row[3] > row[2] && row[4] >= 0.0 &&
             row[5] >= 1.0 && row[5] == std::floor(row[5]) &&
             row[6] == static_cast<double>(expected_offset) && row[7] > 0.0 &&
             row[8] > 0.0) ||
-          row[5] > static_cast<double>(problem.channel_coefficients.size() / 4))
+          row[5] > static_cast<double>(total_intervals))
         throw std::invalid_argument(
             "channel constants and coefficient ranges must be positive and consistent");
       expected_offset = checked_sum(
@@ -1405,8 +1417,8 @@ void require_general_problem(const Problem& problem) {
   // solprop SEP 18's running-integral rule. Translation certified the taps; only their
   // extent, finiteness, the trapezoid's identity tap and the route are checked here.
   if (problem.plasma_taps.empty() || problem.plasma_taps.size() > plasma_max_taps ||
-      !std::all_of(problem.plasma_taps.begin(), problem.plasma_taps.end(),
-                   [](double value) { return std::isfinite(value); }))
+      !std::ranges::all_of(problem.plasma_taps,
+                           [](double value) { return std::isfinite(value); }))
     throw std::invalid_argument("plasma_taps must hold one to nine finite taps");
   if (!problem.plasma_band &&
       (problem.plasma_taps.size() != 1 || problem.plasma_taps[0] != 1.0))
@@ -1430,7 +1442,7 @@ void require_general_problem(const Problem& problem) {
       throw std::invalid_argument("envelope plasma requires separate envelope currents "
                                   "without THG or field stashing");
     const auto rule_size =
-        checked_product(problem.n_channels, 4 * 512, "envelope rules");
+        checked_product(problem.n_channels, std::size_t{4} * 512, "envelope rules");
     require_extent(problem.envelope_rule_nodes.size(), rule_size,
                    "envelope_rule_nodes");
     require_extent(problem.envelope_rule_weights.size(), rule_size,
@@ -1438,7 +1450,8 @@ void require_general_problem(const Problem& problem) {
     for (std::size_t channel = 0; channel < problem.n_channels; ++channel)
       for (std::size_t level = 0; level < 4; ++level) {
         const auto order = std::size_t{64} << level;
-        double sum = 0.0, previous = -1.0;
+        double sum = 0.0;
+        double previous = -1.0;
         for (std::size_t index = 0; index < 512; ++index) {
           const auto offset = (channel * 4 + level) * 512 + index;
           const auto node = problem.envelope_rule_nodes[offset];
@@ -1503,8 +1516,8 @@ void require_general_problem(const Problem& problem) {
         !(problem.raman_epsilon0 > 0.0) || !std::isfinite(problem.raman_epsilon0))
       throw std::invalid_argument(
           "Raman fraction, dt_fine and epsilon0 must be positive and finite");
-    if (!std::all_of(problem.raman_undamped.begin(), problem.raman_undamped.end(),
-                     [](const double value) { return std::isfinite(value); }))
+    if (!std::ranges::all_of(problem.raman_undamped,
+                             [](const double value) { return std::isfinite(value); }))
       throw std::invalid_argument("raman_undamped must contain only finite values");
   } else if (problem.raman_thg || problem.n_raman_terms != 0 ||
              !problem.raman_undamped.empty() || !problem.raman_tensor_weights.empty() ||
@@ -1629,7 +1642,7 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
               update.error_sum += squared_abs(one_residual);
             },
             Kokkos::Sum<NormSums>(sums));
-        Kokkos::single(Kokkos::PerTeam(team), [&]() {
+        Kokkos::single(Kokkos::PerTeam(team), [&] {
           values.old_partial[slot] = sums.old_sum;
           values.new_partial[slot] = sums.new_sum;
           values.error_partial[slot] = sums.error_sum;
@@ -1669,9 +1682,13 @@ struct EntryBlock {
   double magnitude[stage_block], inverse[stage_block];
   double noise_cosine[stage_block], noise_sine[stage_block];
 
-  EntryFactors at(const std::size_t bin) const {
-    return {cosine[bin],  sine[bin],         magnitude[bin],
-            inverse[bin], noise_cosine[bin], noise_sine[bin]};
+  [[nodiscard]] EntryFactors at(const std::size_t bin) const {
+    return {.cosine = cosine[bin],
+            .sine = sine[bin],
+            .magnitude = magnitude[bin],
+            .inverse = inverse[bin],
+            .noise_cosine = noise_cosine[bin],
+            .noise_sine = noise_sine[bin]};
   }
 };
 
@@ -1971,8 +1988,10 @@ struct StageTerms {
                                      const double error_weight,
                                      const std::size_t column, const std::size_t first,
                                      const std::size_t count) const {
-    double real[stage_block], imag[stage_block];
-    double source_real[stage_block], source_imag[stage_block];
+    double real[stage_block];
+    double imag[stage_block];
+    double source_real[stage_block];
+    double source_imag[stage_block];
     for (std::size_t bin = 0; bin < count; ++bin) {
       real[bin] = 0.0;
       imag[bin] = 0.0;
@@ -2048,8 +2067,10 @@ struct StageTerms {
   combine_block(const std::size_t stage, const double dz, const std::size_t column,
                 const std::size_t first, const std::size_t count,
                 const EntryBlock& factors, const bool store_whole) const {
-    double real[stage_block], imag[stage_block];
-    double sum_real[stage_block], sum_imag[stage_block];
+    double real[stage_block];
+    double imag[stage_block];
+    double sum_real[stage_block];
+    double sum_imag[stage_block];
     Complex* inverse = &stage_inverse(column, first);
     for (std::size_t bin = 0; bin < count; ++bin) {
       if constexpr (Mode == EntryPhase::repeated) {
@@ -2340,8 +2361,9 @@ public:
     require_open();
     if (!initialized_)
       throw std::logic_error("no initial field has been loaded");
-    if constexpr (!Kokkos::SpaceAccessibility<Kokkos::HostSpace,
-                                              MemorySpace>::accessible)
+    if constexpr (!static_cast<bool>(
+                      Kokkos::SpaceAccessibility<Kokkos::HostSpace,
+                                                 MemorySpace>::accessible))
       return nullptr;
     execution_space_.fence("solprop_native host_field");
     return current_.data();
@@ -2386,12 +2408,15 @@ public:
   }
   std::map<std::string, int> raman_fft_tasks() const {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    const int full = 0, tail = 0, kernel = 0, products = 0;
+    const int full = 0;
+    const int tail = 0;
+    const int kernel = 0;
+    const int products = 0;
 #else
-    const int full = raman_execution_space_.concurrency(),
-              tail = raman_tail_execution_space_.concurrency(),
-              kernel = raman_kernel_execution_space_.concurrency(),
-              products = raman_product_execution_space_.concurrency();
+    const int full = raman_execution_space_.concurrency();
+    const int tail = raman_tail_execution_space_.concurrency();
+    const int kernel = raman_kernel_execution_space_.concurrency();
+    const int products = raman_product_execution_space_.concurrency();
 #endif
     // `products` is nonzero when the modal products replace the node drives.
     return {
@@ -2413,7 +2438,7 @@ public:
   double quadrature_peak();
   std::string synthesis_provider() const;
   std::string projection_provider() const;
-  static std::string gemm_shape_policy();
+  static std::string_view gemm_shape_policy();
   std::size_t response_team_size() const noexcept;
   bool fsal_ready() const noexcept { return has_recycled_; }
   std::size_t rk_source_evaluations() const noexcept { return rk_source_evaluations_; }
@@ -2486,8 +2511,12 @@ public:
   // Free space and the hybrid planar kind (`Problem::separable_geometry`).
   TransverseLayout transverse_layout() const noexcept {
     const std::size_t plane = transverse_.extent(1) * transverse_.extent(2);
-    return problem_.slab_geometry() ? TransverseLayout{problem_.n_p, true, plane}
-                                    : TransverseLayout{problem_.n_x, false, plane};
+    return problem_.slab_geometry() ? TransverseLayout{.inner = problem_.n_p,
+                                                       .channel_fastest = true,
+                                                       .plane = plane}
+                                    : TransverseLayout{.inner = problem_.n_x,
+                                                       .channel_fastest = false,
+                                                       .plane = plane};
   }
   RegisterIndex register_index() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -2495,8 +2524,11 @@ public:
 #else
     constexpr bool plane = true;
 #endif
-    return {transverse_layout(), problem_.n_pol_state, problem_.n_omega, plane,
-            problem_.n_pol_state == 1};
+    return {.layout = transverse_layout(),
+            .n_pol = problem_.n_pol_state,
+            .n = problem_.n_omega,
+            .plane = plane,
+            .scalar = problem_.n_pol_state == 1};
   }
   // A stage's scratch positions: the volume route's own order on a device, or the
   // scratch's (`register_index`). Every other pass over the scratch forms its own input
@@ -2675,7 +2707,7 @@ public:
   static bool host_forward_pack() noexcept {
     static const bool enabled = [] {
       const char* text = std::getenv("SOLPROP_NATIVE_FORWARD_PACK");
-      return text == nullptr || std::string(text) != "0";
+      return text == nullptr || std::string_view(text) != "0";
     }();
     return enabled;
   }
@@ -2721,7 +2753,7 @@ public:
                               const RealView2& output, bool diagnose = false,
                               double preionisation = 0.0);
   void form_absorber();
-  void split_step(double dz, const ComplexView2& values);
+  void split_step(double dz, const ComplexView2& advanced);
   void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
@@ -2731,7 +2763,7 @@ public:
                          double power_scale);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
-  void separable_split_step(double dz, const ComplexView2& values);
+  void separable_split_step(double dz, const ComplexView2& advanced);
   void mask(const ComplexView2& values);
   bool use_packed_radial_blas() const noexcept;
   // A square radial analytic map synthesises the retained spectrum, before padding,
@@ -3250,13 +3282,11 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return false;
 #else
-  const auto provider = compiled_gemm_provider();
   // Two packed work arrays add two complex-equivalent time columns to the
   // shared conservative twenty-column inventory. Decide before allocation.
-  constexpr std::size_t max_samples = 64 * 1024 * 1024 / (22 * sizeof(Complex));
-  return (provider == GemmProvider::hybrid ||
-          provider == GemmProvider::kokkosblas_tpl) &&
-         !problem_.separable_geometry() && !problem_.spatial_spectral_weights.empty() &&
+  constexpr std::size_t max_samples =
+      std::size_t{64} * 1024 * 1024 / (22 * sizeof(Complex));
+  return !problem_.separable_geometry() && !problem_.spatial_spectral_weights.empty() &&
          problem_.n_modes == problem_.n_nodes &&
          problem_.node_chunk == problem_.n_nodes && problem_.n_pol_state == 1 &&
          problem_.n_pol_transform == 1 && problem_.family == FieldFamily::envelope &&
@@ -3275,8 +3305,7 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 // modal time field, and a dispersive response its own synthesis, so they keep the
 // time-domain product; skinny capillary maps would multiply the transforms.
 bool GeneralWorkspace::retained_synthesis() const noexcept {
-  return compiled_gemm_provider() != GemmProvider::custom &&
-         problem_.family == FieldFamily::field_analytic &&
+  return problem_.family == FieldFamily::field_analytic &&
          !problem_.spatial_spectral_weights.empty() && !problem_.separable_geometry() &&
          !problem_.general_modal && !problem_.dispersive &&
          !problem_.in_stage_absorber && !problem_.raman &&
@@ -3395,23 +3424,18 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
   // The hybrid planar kind contracts its small x rule per y row natively.
   if (problem_.separable_geometry())
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
   if (problem_.n_pol_state != 1)
     return false;
-  if (problem_.family == FieldFamily::envelope) {
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) ||                                       \
-    defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) ||                                         \
-    defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
-    if (provider != GemmProvider::kokkosblas_tpl && provider != GemmProvider::hybrid)
-      return false;
-#else
+#if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
+  // Without a vendor BLAS an envelope keeps the custom kernels.
+  if (problem_.family == FieldFamily::envelope)
     return false;
 #endif
-  } else if (problem_.family != FieldFamily::field_real) {
+  if (problem_.family != FieldFamily::envelope &&
+      problem_.family != FieldFamily::field_real)
     return false;
-  }
 #if defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) || defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
   // Spatial envelope matrices can be large even with a short temporal grid.
   if (!problem_.spatial_spectral_weights.empty() &&
@@ -3421,7 +3445,7 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
       problem_.n_to >= 256)
     return true;
 #endif
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 // An analytic field's or an envelope's synthesis is a real matrix times complex
@@ -3436,20 +3460,14 @@ bool GeneralWorkspace::use_interleaved_synthesis() const noexcept {
   if (problem_.family == FieldFamily::field_real || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_interleaved_projection() const noexcept {
   if (problem_.family != FieldFamily::envelope || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_blas_for_projection() const noexcept {
@@ -3458,21 +3476,15 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
   // The hybrid planar kind contracts its small x rule per y row natively.
   if (problem_.separable_geometry())
     return false;
-  const auto provider = compiled_gemm_provider();
-  if (provider == GemmProvider::custom)
-    return false;
   if (problem_.n_pol_state != 1)
     return false;
-  if (problem_.family == FieldFamily::envelope) {
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) ||                                       \
-    defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) ||                                         \
-    defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
-    if (provider != GemmProvider::kokkosblas_tpl && provider != GemmProvider::hybrid)
-      return false;
-#else
+#if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
+    !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
+  // Without a vendor BLAS an envelope keeps the custom kernels.
+  if (problem_.family == FieldFamily::envelope)
     return false;
 #endif
-  }
 #if defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) || defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
   // Spatial envelope matrices can be large even with a short temporal grid.
   if (!problem_.spatial_spectral_weights.empty() &&
@@ -3482,7 +3494,7 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
       problem_.n_to >= 256)
     return true;
 #endif
-  return provider != GemmProvider::hybrid || hybrid_shape_eligible();
+  return hybrid_shape_eligible();
 }
 
 bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
@@ -3540,7 +3552,7 @@ std::string GeneralWorkspace::projection_provider() const {
   return std::string(use_blas_for_projection() ? provider : std::string_view("custom"));
 }
 
-std::string GeneralWorkspace::gemm_shape_policy() {
+std::string_view GeneralWorkspace::gemm_shape_policy() {
   return "host radial scalar envelope uses packed real BLAS for whole transforms "
          "with n_nodes/n_to >= 256 and a 22-column inventory within 64 MiB; "
          "device radial scalar envelope uses vendor complex BLAS with "
@@ -3561,7 +3573,7 @@ std::string GeneralWorkspace::gemm_shape_policy() {
 
 std::size_t GeneralWorkspace::response_team_size() const noexcept {
   constexpr auto configured = static_cast<std::size_t>(SOLPROP_NATIVE_DEVICE_TEAM_SIZE);
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   // Measured on a Hopper GPU, the crossover is sharp: 4,096-sample fibre problems
   // favour teams of 256, while 8,192 samples and more favour 512. Keep an explicitly
   // configured smaller team intact.
@@ -4418,17 +4430,32 @@ void GeneralWorkspace::allocate() {
     const bool slab = problem_.slab_geometry();
     separable_dispersive_ = std::make_unique<SeparableDispersive>(
         problem_, kernel_pool_,
-        SeparableDispersive::StageViews{
-            fine_spectrum_, projected_spectrum_, node_real_, polarisation_real_,
-            node_complex_, polarisation_complex_, slab ? synthesis_ : RealView2{},
-            slab ? projection_ : RealView2{}, time_window_, carrier_});
+        SeparableDispersive::StageViews{.fine_spectrum = fine_spectrum_,
+                                        .projected_spectrum = projected_spectrum_,
+                                        .node_real = node_real_,
+                                        .polarisation_real = polarisation_real_,
+                                        .node_complex = node_complex_,
+                                        .polarisation_complex = polarisation_complex_,
+                                        .synthesis = slab ? synthesis_ : RealView2{},
+                                        .projection = slab ? projection_ : RealView2{},
+                                        .time_window = time_window_,
+                                        .carrier = carrier_});
   } else if (problem_.dispersive && !problem_.general_modal) {
     dispersive_ = std::make_unique<DispersiveResponse>(
         problem_, kernel_pool_,
         DispersiveResponse::StageViews{
-            fine_spectrum_, projected_spectrum_, projected_coarse_spectrum_, node_real_,
-            polarisation_real_, node_complex_, polarisation_complex_, scaled_synthesis_,
-            scaled_projection_, scaled_projection_coarse_, time_window_, carrier_});
+            .fine_spectrum = fine_spectrum_,
+            .projected_spectrum = projected_spectrum_,
+            .projected_coarse_spectrum = projected_coarse_spectrum_,
+            .node_real = node_real_,
+            .polarisation_real = polarisation_real_,
+            .node_complex = node_complex_,
+            .polarisation_complex = polarisation_complex_,
+            .scaled_synthesis = scaled_synthesis_,
+            .scaled_projection = scaled_projection_,
+            .scaled_projection_coarse = scaled_projection_coarse_,
+            .time_window = time_window_,
+            .carrier = carrier_});
   }
   if (problem_.dispersive) {
     // The response holds execution-space copies of its layout (the general route's
@@ -4510,7 +4537,7 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, held_derivative_, problem_.time_window_derivative);
     std::vector<double> inverse(problem_.n_omega, 0.0);
     for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      if (problem_.active_mask[index])
+      if (problem_.active_mask[index] != 0)
         inverse[index] = 1.0 / problem_.omega[index];
     copy_vector(execution_space_, held_inverse_, inverse);
   }
@@ -4519,9 +4546,8 @@ void GeneralWorkspace::upload() {
   lossless_phase_ = false;
   if (!problem_.phi_table) {
     copy_vector(execution_space_, phi_terms_, problem_.phi_terms);
-    lossless_phase_ =
-        std::all_of(problem_.phi_terms.begin(), problem_.phi_terms.end(),
-                    [](const Complex& term) { return term.real() == 0.0; });
+    lossless_phase_ = std::ranges::all_of(
+        problem_.phi_terms, [](const Complex& term) { return term.real() == 0.0; });
   }
   if (!problem_.prefactor_table)
     copy_vector(execution_space_, prefactor_terms_, problem_.prefactor_terms);
@@ -4535,9 +4561,8 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, projection_coarse_,
                 problem_.projection_coarse_matrix);
   copy_vector(execution_space_, absorber_fine_, problem_.absorber_fine);
-  spatial_only_absorber_ =
-      std::all_of(problem_.absorber_fine.begin(), problem_.absorber_fine.end(),
-                  [](const double rate) { return rate == 0.0; });
+  spatial_only_absorber_ = std::ranges::all_of(
+      problem_.absorber_fine, [](const double rate) { return rate == 0.0; });
   copy_vector(execution_space_, absorber_coarse_, problem_.absorber_coarse);
   if (problem_.plasma)
     copy_vector(execution_space_, rate_coefficients_, problem_.rate_coefficients);
@@ -4556,6 +4581,7 @@ void GeneralWorkspace::upload() {
 // transform/propagation rounding budgets rather than bitwise agreement.
 const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples,
                                                       const std::size_t length) {
+  // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
   return fft_pool_.get(CpuOperation::fft, samples, length);
 }
 
@@ -5115,9 +5141,9 @@ void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const 
   if (problem_.raman) {
     require_extent(scalars.raman_rates.size(),
                    problem_.n_stages * problem_.n_raman_terms, "raman_rates");
-    if (!std::all_of(
-            scalars.raman_rates.begin(), scalars.raman_rates.end(),
-            [](const double value) { return std::isfinite(value) && value >= 0.0; }))
+    if (!std::ranges::all_of(scalars.raman_rates, [](const double value) {
+          return std::isfinite(value) && value >= 0.0;
+        }))
       throw std::invalid_argument("Raman decay rates must be finite and non-negative");
   }
 }
@@ -5203,7 +5229,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
                            const std::vector<double>& source) {
       if (source.size() != stage_offsets_[region + 1] - stage_offsets_[region])
         throw std::invalid_argument("fixed problem array has the wrong extent");
-      std::copy(source.begin(), source.end(), base + stage_offsets_[region]);
+      std::ranges::copy(source, base + stage_offsets_[region]);
     };
     const auto fill = [&](const std::size_t region, const double value) {
       std::fill(base + stage_offsets_[region], base + stage_offsets_[region + 1],
@@ -5250,7 +5276,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
     fill_slot(1, *sample);
   if (rate != nullptr) {
     require_extent(rate->size(), problem_.n_phi_terms, "Adams rate weights");
-    std::copy(rate->begin(), rate->end(), staging.data() + stage_offsets_[13]);
+    std::ranges::copy(*rate, staging.data() + stage_offsets_[13]);
   }
   graph::deep_copy(execution_space_, stage_scalars_, staging);
   bind_stage_scalars(0);
@@ -5269,7 +5295,7 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   if (!problem_.raman)
     throw std::logic_error("this state has no Raman workspace");
   require_extent(rates.size(), problem_.n_raman_terms, "Raman decay rates");
-  if (!std::all_of(rates.begin(), rates.end(), [](const double value) {
+  if (!std::ranges::all_of(rates, [](const double value) {
         return std::isfinite(value) && value >= 0.0;
       }))
     throw std::invalid_argument("Raman decay rates must be finite and non-negative");
@@ -5280,8 +5306,9 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   if (problem_.n_raman_components > 1) {
     require_extent(densities.size(), problem_.n_raman_components,
                    "Raman amplitude densities");
-    if (!std::all_of(densities.begin(), densities.end(),
-                     [](double value) { return std::isfinite(value) && value >= 0.0; }))
+    if (!std::ranges::all_of(densities, [](double value) {
+          return std::isfinite(value) && value >= 0.0;
+        }))
       throw std::invalid_argument(
           "Raman amplitude densities must be finite and non-negative");
     auto density_host = Kokkos::create_mirror_view(stage_raman_densities_);
@@ -5448,17 +5475,18 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
       execution_space_, count, n, dz,
       KOKKOS_LAMBDA(const std::size_t column) {
         const auto slot = column * slots;
-        return UpdateColumn{current.data() + column * current.stride(0),
-                            solution.data() + column * solution.stride(0),
-                            error.data() + column * error.stride(0),
-                            whole.data() + column * whole.stride(0),
-                            advanced.data() + column * advanced.stride(0),
-                            residual.data() + column * residual.stride(0),
-                            in_norm.data(),
-                            partials.data() + slot,
-                            partials.data() + partials.stride(0) + slot,
-                            partials.data() + 2 * partials.stride(0) + slot,
-                            carried.data() + column * carried.stride(0)};
+        return UpdateColumn{.current = current.data() + column * current.stride(0),
+                            .solution = solution.data() + column * solution.stride(0),
+                            .error = error.data() + column * error.stride(0),
+                            .whole = whole.data() + column * whole.stride(0),
+                            .advanced = advanced.data() + column * advanced.stride(0),
+                            .residual = residual.data() + column * residual.stride(0),
+                            .in_norm = in_norm.data(),
+                            .old_partial = partials.data() + slot,
+                            .new_partial = partials.data() + partials.stride(0) + slot,
+                            .error_partial =
+                                partials.data() + 2 * partials.stride(0) + slot,
+                            .carried = carried.data() + column * carried.stride(0)};
       },
       "solprop_native.step.accept_error_partials", slots);
   return collect_trial();
@@ -5485,12 +5513,14 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
   require_extent(input.size(), problem_.n_columns() * problem_.n_omega, "Adams input");
   // The flow is set aside for the evaluation and put back whatever happens.
   auto held_flow = std::exchange(flow_, nullptr);
+  // An aggregate, so it declares no copy or move; it is never copied or moved.
+  // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): a local scope guard
   struct RestoreFlow {
     std::unique_ptr<CoupledFlowAction>& slot;
     std::unique_ptr<CoupledFlowAction>& held;
     // NOLINTNEXTLINE(modernize-use-equals-default): restores the slot (see FlowAside).
     ~RestoreFlow() { slot = std::move(held); }
-  } restore{flow_, held_flow};
+  } restore{.slot = flow_, .held = held_flow};
   require_trial_scalars(scalars);
   upload_trial(scalars);
   if (general_)
@@ -5776,7 +5806,8 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
             const std::size_t width =
                 columns - first < stage_block ? columns - first : stage_block;
             const bool in_band = active(omega) != 0U;
-            double real[stage_block], imag[stage_block];
+            double real[stage_block];
+            double imag[stage_block];
             for (std::size_t offset = 0; offset < width; ++offset) {
               const Complex x =
                   delta(2) *
@@ -5802,16 +5833,17 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
           const std::size_t column = item / blocks;
           const std::size_t first = (item % blocks) * stage_block;
           const std::size_t bins = n - first < stage_block ? n - first : stage_block;
-          double real[stage_block], imag[stage_block];
+          double real[stage_block];
+          double imag[stage_block];
           const auto form = [&](const std::size_t flow, const std::size_t offset) {
             terms.phase_block(offset, column, first, bins, real, imag);
             vmath::exp_complex(real, imag, real, imag, bins);
             for (std::size_t bin = 0; bin < bins; ++bin)
               flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
           };
-          if (count == 1)
+          if (count == 1) {
             form(0, 2 * n_phi);
-          else {
+          } else {
             form(0, 0);
             form(1, n_phi);
           }
@@ -5879,6 +5911,7 @@ void GeneralWorkspace::low_storage_separable_pass(const std::size_t pass,
   }
 }
 
+namespace {
 // Each column's masked squared norm of `state` into `partials(0, column)`, in a team
 // per column: a device's final fold traverses like the others and reduces here, over
 // one volume, instead of reducing inside the fold's crossing (SEP 28).
@@ -5904,6 +5937,7 @@ void column_norms(const char* label, const ExecutionSpace& execution,
         Kokkos::single(Kokkos::PerTeam(team), [&] { partials(0, column) = total; });
       });
 }
+} // namespace
 
 void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const auto state = current_;
@@ -6374,7 +6408,7 @@ SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex adams_phase_sum(
     real = real + weight * fixed.real();
     imag = imag + weight * fixed.imag();
   }
-  return Complex(real, imag);
+  return {real, imag};
 }
 
 } // namespace
@@ -6650,9 +6684,15 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
         advanced(column, index) =
             propagator(column, index) * (current(column, index) + dz * total);
       });
-  const AdamsDefectNorms reducer{weights.n_rows, store,      source,
-                                 propagator,     norm_mask_, adams_divisor_,
-                                 weights,        dz,         n};
+  const AdamsDefectNorms reducer{.value_count = weights.n_rows,
+                                 .store = store,
+                                 .source = source,
+                                 .propagator = propagator,
+                                 .in_norm = norm_mask_,
+                                 .divisor = adams_divisor_,
+                                 .weights = weights,
+                                 .dz = dz,
+                                 .n = n};
   return adams_norms(
       "solprop_native.adams.defect_norms",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns * n), reducer,
@@ -7369,6 +7409,9 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // `strict_scale(1, x)` is x, so its exponential is the same bits. A host block with
 // vector maths forms the same values on its lanes
 // (`adams_lanes_predicted_compensation`).
+// The strict compensation helpers keep their linkage: changing it could change how GCC
+// inlines strict code (fp.hpp), which needs its own A/B.
+// NOLINTBEGIN(misc-use-internal-linkage): strict helpers, linkage unchanged
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
@@ -7441,6 +7484,7 @@ adams_observed_compensation(const ExponentialWeights& weights, const std::size_t
   return total;
 }
 
+// NOLINTEND(misc-use-internal-linkage)
 namespace {
 
 // The elements a host task of the elementwise trial's passes takes in turn. Each pass
@@ -7479,7 +7523,7 @@ adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
   }
 }
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 
 // The history rows a pass reads, rotated by a carrier frame's factors
 // (`adams_history`). Strict.
@@ -7565,7 +7609,8 @@ adams_lanes_predicted_compensation(AdamsLanes& lanes, const ExponentialWeights& 
       lanes.ci[t][b] = ri + ir;
     }
   }
-  double total_r[AdamsLanes::B], total_i[AdamsLanes::B];
+  double total_r[AdamsLanes::B];
+  double total_i[AdamsLanes::B];
   for (std::size_t b = 0; b < count; ++b) {
     total_r[b] = 0.0;
     total_i[b] = 0.0;
@@ -7628,7 +7673,8 @@ inline void adams_lanes_corrected_compensation(AdamsLanes& lanes,
   SOLPROP_NATIVE_STRICT_BLOCK
   constexpr std::size_t B = AdamsLanes::B;
   const std::size_t count = lanes.count;
-  double total_r[B], total_i[B];
+  double total_r[B];
+  double total_i[B];
   const double weight0 = weights.comp_corrector[0];
   for (std::size_t b = 0; b < count; ++b) {
     const double scaled_r = inverse_dz * lanes.xr[b];
@@ -7672,7 +7718,10 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
   constexpr std::size_t B = AdamsLanes::B;
   const std::size_t count = lanes.count;
   for (std::size_t row = 0; row < scored; ++row) {
-    double difference_r[B], difference_i[B], weight_r[B], weight_i[B];
+    double difference_r[B];
+    double difference_i[B];
+    double weight_r[B];
+    double weight_i[B];
     const double weight0 = weights.rows[row][0];
     for (std::size_t b = 0; b < count; ++b) {
       difference_r[b] = weight0 * lanes.wr[b];
@@ -7698,7 +7747,8 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
         weight_i[b] = weight_i[b] + imag;
       }
     }
-    double defect_r[B], defect_i[B];
+    double defect_r[B];
+    double defect_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       const double rr = difference_r[b] * weight_r[b];
       const double ii = difference_i[b] * weight_i[b];
@@ -7710,7 +7760,8 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
       defect_i[b] = dz * product_i;
     }
     if (weights.compensated) {
-      double total_r[B], total_i[B];
+      double total_r[B];
+      double total_i[B];
       const double first = weights.comp_rows[row][0];
       for (std::size_t b = 0; b < count; ++b) {
         total_r[b] = first * lanes.nr[b];
@@ -7743,7 +7794,7 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
 }
 #endif
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 // The whole step's phase increment `sum_t dPhi_t Phi_t` of every lane into `xr`/`xi`,
 // as `adams_phase_sum` forms it, and with `Rate` a varying operator's endpoint rate
 // `sum_t w_t Phi_t` into `dr`/`di`, as `adams_corrected_compensation` forms it, in the
@@ -7792,7 +7843,7 @@ adams_lanes_phase(AdamsLanes& lanes, const Terms& phi_terms, const Weights& phi_
 }
 #endif
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
 /**
  * The predict pass on a host block's lanes, the elements [first, last) of a column
  * whose exponents are formed: the flow, the moments, the predictor's carried samples
@@ -7877,7 +7928,8 @@ inline double adams_lanes_predict(
   adams_lanes_history(lanes, weights, store, weights.order, column, first);
   // The prediction exp(x) u + dz sum_k M_k sum_j c_jk F_j.
   const Complex* accepted = &current(column, first);
-  double total_r[B], total_i[B];
+  double total_r[B];
+  double total_i[B];
   for (std::size_t b = 0; b < n; ++b) {
     lanes.ur[b] = accepted[b].real();
     lanes.ui[b] = accepted[b].imag();
@@ -7885,7 +7937,8 @@ inline double adams_lanes_predict(
     total_i[b] = 0.0;
   }
   for (std::size_t k = 0; k < weights.order; ++k) {
-    double combined_r[B], combined_i[B];
+    double combined_r[B];
+    double combined_i[B];
     for (std::size_t b = 0; b < n; ++b) {
       combined_r[b] = 0.0;
       combined_i[b] = 0.0;
@@ -8006,7 +8059,7 @@ struct ExponentialCorrection {
   // The host lanes' predict pass formed the endpoint rate (off a separable route).
   bool rate_formed;
 
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
   // The pass on a host block's lanes (`AdamsLanes`), as the element-by-element form
   // below writes it; the norms' sums are taken in element order.
   void lanes_block(const std::size_t column, const std::size_t first,
@@ -8031,13 +8084,15 @@ struct ExponentialCorrection {
         lanes.mi[k][b] = moment[b].imag();
       }
     }
-    double total_r[B], total_i[B];
+    double total_r[B];
+    double total_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       total_r[b] = 0.0;
       total_i[b] = 0.0;
     }
     for (std::size_t k = 0; k < weights.count; ++k) {
-      double combined_r[B], combined_i[B];
+      double combined_r[B];
+      double combined_i[B];
       const double weight0 = weights.corrector[0][k];
       for (std::size_t b = 0; b < count; ++b) {
         combined_r[b] = weight0 * lanes.wr[b];
@@ -8200,7 +8255,7 @@ struct ExponentialCorrection {
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
     const double magnitude = device_scale ? Kokkos::sqrt(magnitude_sum()) : 0.0;
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
     if constexpr (vmath::vectorised) {
       lanes_block(column, first, last, magnitude, update);
       return;
@@ -8302,7 +8357,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // weights cross, with the step's and the sample's scalars, in the trial's one copy.
   upload_trial(step, &sample, compensated ? &rate : nullptr);
   const std::size_t blocks = (n + adams_block - 1) / adams_block;
-#if defined(KOKKOS_ENABLE_CUDA)
+#ifdef KOKKOS_ENABLE_CUDA
   // A device thread takes one element of a long FP64 chain, and Kokkos's CUDA range
   // reduction gives each block 256 of them: a four-mode capillary's 10496 elements
   // were 41 blocks on an NVIDIA A40's 84 multiprocessors. Blocks of 128 take them
@@ -8335,7 +8390,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   const std::size_t count = weights.count;
   const std::size_t formed = count > weights.order ? count : weights.order;
   const double inverse_dz = 1.0 / dz;
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
   // A host block's predict pass forms the corrector's endpoint rate beside the phase,
   // from the weights the trial uploaded with its scalars.
   const auto endpoint_rates = stage_rate_weights_;
@@ -8372,7 +8427,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
 #endif
           flow(column, index) = exponential(x);
       }
-#if defined(SOLPROP_NATIVE_ADAMS_LANES)
+#ifdef SOLPROP_NATIVE_ADAMS_LANES
     if constexpr (passes) {
       magnitude += separable
                        ? adams_lanes_predict<false>(
@@ -8444,35 +8499,35 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // On a device the source's launches replay as one graph while they repeat.
   adams_source_graph_.run(execution_space_, [&] { adams_evaluate_source(sample); });
   std::swap(current_, adams_saved_);
-  const ExponentialCorrection reducer{weights.n_rows,
-                                      store,
-                                      moments,
-                                      stages_,
-                                      carried,
-                                      phi_terms,
-                                      adams_source_,
-                                      flow,
-                                      current_,
-                                      advanced_,
-                                      exponent,
-                                      lab,
-                                      adams_endpoint_,
-                                      adams_endpoint_rate_,
-                                      stage_rate_weights_,
-                                      in_norm,
-                                      adams_divisor_,
-                                      adams_scale_weights_,
-                                      adams_magnitude_sum_,
-                                      weights,
-                                      dz,
-                                      inverse_dz,
-                                      adams_rtol_,
-                                      adams_atol_,
-                                      n,
-                                      blocks,
-                                      n_phi,
-                                      device_scale,
-                                      !separable};
+  const ExponentialCorrection reducer{.value_count = weights.n_rows,
+                                      .store = store,
+                                      .moments = moments,
+                                      .stages = stages_,
+                                      .carried = carried,
+                                      .phi_terms = phi_terms,
+                                      .source = adams_source_,
+                                      .flow = flow,
+                                      .current = current_,
+                                      .advanced = advanced_,
+                                      .exponent = exponent,
+                                      .lab = lab,
+                                      .endpoint = adams_endpoint_,
+                                      .endpoint_rate = adams_endpoint_rate_,
+                                      .rate_weights = stage_rate_weights_,
+                                      .in_norm = in_norm,
+                                      .divisor = adams_divisor_,
+                                      .scale_weights = adams_scale_weights_,
+                                      .magnitude_sum = adams_magnitude_sum_,
+                                      .weights = weights,
+                                      .dz = dz,
+                                      .inverse_dz = inverse_dz,
+                                      .rtol = adams_rtol_,
+                                      .atol = adams_atol_,
+                                      .n = n,
+                                      .blocks = blocks,
+                                      .n_phi = n_phi,
+                                      .device_scale = device_scale,
+                                      .rate_formed = !separable};
   auto norms = adams_norms("solprop_native.adams.exponential_correct", tasks, reducer,
                            weights.n_rows);
   adams_trial_compensated_ = compensated;
@@ -9261,10 +9316,20 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         }
       });
 #endif
-  const CoupledDefectNorms reducer{weights.n_rows, store,          moments, source,
-                                   carried,        endpoint,       block,   slots,
-                                   norm_mask_,     adams_divisor_, weights, dz,
-                                   modes,          adams_channels_};
+  const CoupledDefectNorms reducer{.value_count = weights.n_rows,
+                                   .store = store,
+                                   .moments = moments,
+                                   .source = source,
+                                   .carried = carried,
+                                   .endpoint = endpoint,
+                                   .block = block,
+                                   .slots = slots,
+                                   .in_norm = norm_mask_,
+                                   .divisor = adams_divisor_,
+                                   .weights = weights,
+                                   .dz = dz,
+                                   .modes = modes,
+                                   .channels = adams_channels_};
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   // A device item is a (bin, channel) pair, a host item a bin.
   const auto items = n * modes;
@@ -9538,14 +9603,14 @@ void GeneralWorkspace::rk_dense_hold(const double dz) {
     weights.dense[stage] = rk_dense_weights_[stage];
   }
   // The trial's own scalars are bound: their last row is the whole step's.
-  const StepExponent step{problem_.separable_geometry(),
-                          spatial_,
-                          active_mask_,
-                          stage_phi_delta_,
-                          phi_terms_,
-                          problem_.n_pol_state,
-                          problem_.n_stages,
-                          problem_.n_phi_terms};
+  const StepExponent step{.separable = problem_.separable_geometry(),
+                          .spatial = spatial_,
+                          .active = active_mask_,
+                          .delta = stage_phi_delta_,
+                          .phi_terms = phi_terms_,
+                          .n_pol = problem_.n_pol_state,
+                          .n_stages = problem_.n_stages,
+                          .n_phi = problem_.n_phi_terms};
   const auto current = current_;
   const auto stages = stages_;
   const auto coefficients = rk_dense_coefficients_;
@@ -9588,14 +9653,14 @@ void GeneralWorkspace::rk_dense_observe(const double theta, const TrialScalars& 
   require_trial_scalars(carry);
   graph::deep_copy(execution_space_, rk_dense_held_, current_);
   upload_trial(carry);
-  const StepExponent flow{problem_.separable_geometry(),
-                          spatial_,
-                          active_mask_,
-                          stage_phi_delta_,
-                          phi_terms_,
-                          problem_.n_pol_state,
-                          problem_.n_stages,
-                          problem_.n_phi_terms};
+  const StepExponent flow{.separable = problem_.separable_geometry(),
+                          .spatial = spatial_,
+                          .active = active_mask_,
+                          .delta = stage_phi_delta_,
+                          .phi_terms = phi_terms_,
+                          .n_pol = problem_.n_pol_state,
+                          .n_stages = problem_.n_stages,
+                          .n_phi = problem_.n_phi_terms};
   const double rest = 1.0 - theta;
   const auto coefficients = rk_dense_coefficients_;
   const auto stiff = rk_dense_stiff_;
@@ -9644,7 +9709,8 @@ void GeneralWorkspace::rk_dense_release() noexcept {
   rk_dense_coefficients_ = {};
   rk_dense_stiff_ = {};
   rk_dense_held_ = {};
-  rk_dense_weights_ = {};
+  // A moved-in empty vector releases the storage and cannot throw (`= {}` may).
+  rk_dense_weights_ = std::vector<double>();
   rk_dense_ready_ = false;
 }
 
@@ -9690,9 +9756,12 @@ GeneralWorkspace::transverse_chunk(const std::size_t first_unit) const noexcept 
   const auto units =
       std::min(transverse_units_per_chunk(), transverse_units() - first_unit);
   if (problem_.slab_geometry())
-    return {first_unit * problem_.n_p, units * problem_.n_p, first_unit * problem_.n_x,
-            units * problem_.n_x};
-  return {first_unit, units, first_unit, units};
+    return {.first_row = first_unit * problem_.n_p,
+            .rows = units * problem_.n_p,
+            .first_node = first_unit * problem_.n_x,
+            .nodes = units * problem_.n_x};
+  return {
+      .first_row = first_unit, .rows = units, .first_node = first_unit, .nodes = units};
 }
 
 void GeneralWorkspace::transverse_forward() {
@@ -9763,7 +9832,8 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
     crossing_tiles(
         "solprop_native.free.stage_input", execution_space_, problem_.n_columns(),
         problem_.n_omega, [=](const CrossingTile& tile) {
-          PropagatorTile step, finish;
+          PropagatorTile step;
+          PropagatorTile finish;
           Complex linear[PropagatorTile::capacity];
           tile.visit<true>([&](const std::size_t column, const std::size_t omega) {
             const auto k = tile.at(column, omega);
@@ -10700,8 +10770,9 @@ void GeneralWorkspace::general_core(const std::size_t stage) {
     if (general_->dispersive() != nullptr)
       general_->dispersive()->begin(stage);
     general_->evaluate();
-  } else
+  } else {
     graph::deep_copy(execution_space_, general_->source(), Complex{});
+  }
 }
 
 // The transforms scaled by stage `stage`'s taper, whose value `taper` the host holds.
@@ -11119,11 +11190,11 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
         // Cache contiguous pointwise addresses to avoid repeated View stride loads.
         // Plasma retains its measured recurrence-loop layout; applying
         // the same change there regresses HE plasma by 8-9% (kokkos-reopt report).
-        const auto real_input = input_real.data();
-        const auto complex_input = input_complex.data();
-        const auto real_target = target_real.data();
-        const auto complex_target = target_complex.data();
-        const auto window_data = window.data();
+        auto* const real_input = input_real.data();
+        auto* const complex_input = input_complex.data();
+        auto* const real_target = target_real.data();
+        auto* const complex_target = target_complex.data();
+        auto* const window_data = window.data();
         const double pointwise_factor =
             Plasma ? 0.0 : kerr_coefficient * kerr_density(stage);
         for (std::size_t time = 0; time < n_to; ++time) {
@@ -11629,7 +11700,7 @@ KOKKOS_INLINE_FUNCTION BandWindow band_window_of(const BandLive& live,
   if constexpr (band_windows)
     return band_support(live.min_val, live.max_val, samples, half);
   else
-    return {0, samples - 1};
+    return {.first = 0, .last = samples - 1};
 }
 
 /** Count `index` into `live` when `value` is not exactly zero. */
@@ -12588,7 +12659,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                 band_rates_block(magnitudes, &rates(slot, start), count, lower, upper,
                                  highest, within);
               });
-        } else
+        } else {
 #endif
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
@@ -12609,6 +12680,9 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                                           d_log_field, field_min, field_max, rate_max,
                                           intervals);
               });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        }
+#endif
         team.team_barrier();
         team_band_filter<band_staging>(team, tile, rates, slot, filtered, slot, samples,
                                        taps, half);
@@ -12683,7 +12757,7 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                     exposed[k] = fraction[k];
                   }
                 });
-          } else
+          } else {
 #endif
             Kokkos::parallel_for(
                 Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
@@ -12692,6 +12766,9 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                   filtered(slot, time) = rates(slot, time) * (1.0 - fraction);
                   exposures(slot, time) = fraction;
                 });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          }
+#endif
           team.team_barrier();
           double paid = 0.0;
           Kokkos::parallel_reduce(
@@ -12797,8 +12874,8 @@ void GeneralWorkspace::finish_raman(const std::size_t stage,
           const double w = drives == 3 ? convolved(row + 2, time) : 0.0;
           const double factor = epsilon0 * density(stage);
           if (family == FieldFamily::envelope) {
-            const Complex x = node_complex(base, time),
-                          y = node_complex(base + 1, time);
+            const Complex x = node_complex(base, time);
+            const Complex y = node_complex(base + 1, time);
             out_complex(base, time) =
                 (out_complex(base, time) + factor * ((u + v) * x + w * y)) *
                 window(time);
@@ -13750,14 +13827,14 @@ void GeneralWorkspace::form_absorber() {
       "solprop_native.absorber.nonlinear_term",
       Range2(temporal_execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_to}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
-        if (family == FieldFamily::envelope)
+        if (family == FieldFamily::envelope) {
           absorber_complex(column, time) =
               (spatial ? absorber_complex(column, time) : Complex{}) -
               0.5 * rate(time) * modal_complex(column, time);
-        else if (family == FieldFamily::field_real)
+        } else if (family == FieldFamily::field_real) {
           absorber_real(column, time) = (spatial ? absorber_real(column, time) : 0.0) -
                                         0.5 * rate(time) * modal_real(column, time);
-        else {
+        } else {
           double transverse = 0.0;
           if (spatial)
             for (std::size_t source = 0; source < modes; ++source)
@@ -14020,7 +14097,9 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
                                             node_count),
         KOKKOS_LAMBDA(const std::size_t node) {
           for (std::size_t channel = 0; channel < channels; ++channel) {
-            double exposure = 0.0, previous_rate = 0.0, largest_rate = 0.0;
+            double exposure = 0.0;
+            double previous_rate = 0.0;
+            double largest_rate = 0.0;
             for (std::size_t time = 0; time < n_to; ++time) {
               const double first =
                   (real_family ? node_real(node * n_pol, time)
@@ -14145,8 +14224,8 @@ std::vector<double> GeneralWorkspace::statistics(
   require_open();
   const auto& selected_weight =
       power_weight.empty() ? problem_.power_weight : power_weight;
-  statistics_unit_weight_ = std::all_of(selected_weight.begin(), selected_weight.end(),
-                                        [](double value) { return value == 1.0; });
+  statistics_unit_weight_ =
+      std::ranges::all_of(selected_weight, [](double value) { return value == 1.0; });
   if (!selected_weight.empty()) {
     require_extent(selected_weight.size(), statistics_power_weight_.size(),
                    "statistics power weight");
@@ -14532,7 +14611,8 @@ std::vector<double> GeneralWorkspace::statistics(
             double power = 0.0;
             for (std::size_t row = 0; row < rows; ++row) {
               for (std::size_t pol = 0; pol < n_pol; ++pol) {
-                Complex value{}, weighted_value{};
+                Complex value{};
+                Complex weighted_value{};
                 for (std::size_t mode = 0; mode < modes; ++mode) {
                   value += matrix(row * modes + mode) * field(mode * n_pol + pol, time);
                   if (!unit_weight)
@@ -15057,13 +15137,13 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
   const auto scratch = transverse_;
   const auto closure_scratch = flux_transverse_;
   const auto partials = spatial_statistics_partials_;
-  const PhysicalSpectrum spectrum{transverse_layout(),
-                                  synthesis_,
-                                  problem_.n_x,
-                                  problem_.n_p,
-                                  static_cast<double>(problem_.n_t) /
-                                      static_cast<double>(problem_.n_to),
-                                  problem_.slab_geometry()};
+  const PhysicalSpectrum spectrum{.layout = transverse_layout(),
+                                  .synthesis = synthesis_,
+                                  .n_x = problem_.n_x,
+                                  .n_p = problem_.n_p,
+                                  .crop_scale = static_cast<double>(problem_.n_t) /
+                                                static_cast<double>(problem_.n_to),
+                                  .slab = problem_.slab_geometry()};
   const auto n_nodes = problem_.n_nodes;
   const auto n_pol = problem_.n_pol_state;
   const auto n = problem_.n_omega;
@@ -15104,7 +15184,9 @@ void GeneralWorkspace::separable_fluence(const double intensity_factor) {
       KOKKOS_LAMBDA(const std::size_t item) {
         const std::size_t first = item * run;
         const std::size_t count = n_nodes - first < run ? n_nodes - first : run;
-        double sum[run] = {}, electric_size[run] = {}, magnetic_size[run] = {};
+        double sum[run] = {};
+        double electric_size[run] = {};
+        double magnetic_size[run] = {};
         for (std::size_t index = 0; index < n; ++index) {
           const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
           for (std::size_t pol = 0; pol < n_pol; ++pol) {
@@ -15187,8 +15269,9 @@ void GeneralWorkspace::plane_fluence_moments(double (&moments)[plane_moment_slot
           const double sample = Kokkos::max(partials(node, 0), 0.0) / maximum;
           partials(node, 0) = sample;
           update.total += sample;
+          const std::size_t row = node / n_x;
           update.x += sample * static_cast<double>(node % n_x);
-          update.y += sample * static_cast<double>(node / n_x);
+          update.y += sample * static_cast<double>(row);
         },
         Kokkos::Sum<FluenceMoments>(sums));
   moments[0] = worst.val;
@@ -15245,12 +15328,13 @@ std::vector<double> GeneralWorkspace::plane_fluence_trace(
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_nodes),
       KOKKOS_LAMBDA(const std::size_t node, double& update) {
         const double x = (static_cast<double>(node % n_x) * dx - center_x) / extent;
-        const double y = (static_cast<double>(node / n_x) * dy - center_y) / extent;
+        const std::size_t row = node / n_x;
+        const double y = (static_cast<double>(row) * dy - center_y) / extent;
         update += samples(node, 0) * (x * x + y * y);
       },
       Kokkos::Sum<double>(second));
-  const double last_x = static_cast<double>(n_x - 1);
-  const double last_y = static_cast<double>(n_y - 1);
+  const auto last_x = static_cast<double>(n_x - 1);
+  const auto last_y = static_cast<double>(n_y - 1);
   // One thread per ring: a ring's samples are few, and a thread's sum needs no
   // reduction.
   launch::parallel_for(
@@ -15538,18 +15622,18 @@ std::vector<double> GeneralWorkspace::aperture_statistics(
 }
 
 FarFieldPass::Inputs GeneralWorkspace::far_field_inputs() const {
-  return FarFieldPass::Inputs{spatial_spectral_weights_,
-                              spatial_on_axis_,
-                              spatial_.square,
-                              spatial_.square_low,
-                              spatial_.transverse,
-                              spatial_.transverse_low,
-                              spatial_.spectral_rate,
-                              spatial_.user_rate,
-                              spatial_.transverse_rate,
-                              omega_,
-                              active_mask_,
-                              spatial_.evanescent};
+  return FarFieldPass::Inputs{.weights = spatial_spectral_weights_,
+                              .on_axis = spatial_on_axis_,
+                              .square = spatial_.square,
+                              .square_low = spatial_.square_low,
+                              .transverse = spatial_.transverse,
+                              .transverse_low = spatial_.transverse_low,
+                              .spectral_rate = spatial_.spectral_rate,
+                              .user_rate = spatial_.user_rate,
+                              .transverse_rate = spatial_.transverse_rate,
+                              .omega = omega_,
+                              .active = active_mask_,
+                              .evanescent = spatial_.evanescent};
 }
 
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
@@ -15653,7 +15737,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           const bool live = active(index) != 0U;
           double power = 0.0;
           for (std::size_t pol = 0; pol < n_pol; ++pol) {
-            Complex electric{}, magnetic{};
+            Complex electric{};
+            Complex magnetic{};
             for (std::size_t mode = 0; mode < n_modes; ++mode) {
               const Complex value =
                   axis_weights(mode) * current(mode * n_pol + pol, index);
@@ -15706,7 +15791,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           KOKKOS_LAMBDA(const std::size_t time) {
             double power = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
-              Complex electric{}, magnetic{};
+              Complex electric{};
+              Complex magnetic{};
               for (std::size_t mode = 0; mode < n_modes; ++mode) {
                 electric += axis_weights(mode) * field(mode * n_pol + pol, time);
                 magnetic += axis_weights(mode) * closure(mode * n_pol + pol, time);
@@ -15766,7 +15852,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           "solprop_native.spatial.physical_intensity",
           Range2(execution_space_, {0, 0}, {n_nodes, n_t}),
           KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
-            double total = 0.0, size = 0.0;
+            double total = 0.0;
+            double size = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
               const std::size_t at = 2 * (pol * n_t + time);
               const Complex electric =
@@ -15786,7 +15873,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
           KOKKOS_LAMBDA(const std::size_t node) {
             double peak = lowest;
-            double sum = 0.0, size = 0.0;
+            double sum = 0.0;
+            double size = 0.0;
             for (std::size_t time = 0; time < n_t; ++time) {
               peak = Kokkos::max(peak, power(node, time));
               sum += power(node, time);
@@ -16324,6 +16412,7 @@ MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
         double total = 0.0;
         double regions[4] = {0.0, 0.0, 0.0, 0.0};
         for (std::size_t index = first; index < last; ++index) {
+          // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
           const double value = power(row, index);
           total += value;
           for (std::size_t region = 0; region < 4; ++region)
@@ -16667,8 +16756,8 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
       return real * real + imaginary * imaginary;
     };
     const auto sums = [&](const char* label, const RealView2& weights) {
-      return monitor_sums(label, execution_space_, n, rows, EdgeWeights{weights, first},
-                          power);
+      return monitor_sums(label, execution_space_, n, rows,
+                          EdgeWeights{.weights = weights, .first = first}, power);
     };
     take(sums("solprop_native.edge.faces", edge_faces_));
     if (whole)
@@ -16691,7 +16780,7 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
     };
     const auto sums = [&](const char* label, const RealView2& weights) {
       return monitor_sums(label, execution_space_, n_pol * n, nodes - first,
-                          EdgeWeights{weights, first}, power);
+                          EdgeWeights{.weights = weights, .first = first}, power);
     };
     take(sums("solprop_native.edge.faces", edge_faces_));
     if (whole)
@@ -16738,16 +16827,30 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
   if (strip || want_current) {
     for (const auto& line : edge_lines_) {
       if (!separable) {
-        take_line(line, EdgeRadialValue{edge_synthesis_, current, edge_scale_, n_pol, n,
-                                        problem_.n_modes});
+        take_line(line, EdgeRadialValue{.synthesis = edge_synthesis_,
+                                        .current = current,
+                                        .scale = edge_scale_,
+                                        .n_pol = n_pol,
+                                        .n = n,
+                                        .modes = problem_.n_modes});
       } else if (problem_.slab_geometry()) {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), 1, 0, 1});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = 1,
+                                         .row_stride = 0,
+                                         .node_stride = 1});
       } else if (line.axis == 1) {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_y,
-                                         problem_.n_x, 1});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = problem_.n_y,
+                                         .row_stride = problem_.n_x,
+                                         .node_stride = 1});
       } else {
-        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_x,
-                                         1, problem_.n_x});
+        take_line(line, EdgeScratchValue{.scratch = transverse_,
+                                         .units = transverse_units(),
+                                         .across = problem_.n_x,
+                                         .row_stride = 1,
+                                         .node_stride = problem_.n_x});
       }
     }
   }
@@ -18108,7 +18211,7 @@ std::string GeneralState::projection_provider() const {
 }
 std::string GeneralState::gemm_shape_policy() const {
   const CpuTeamScope team(workspace_->cpu_team());
-  return GeneralWorkspace::gemm_shape_policy();
+  return std::string(GeneralWorkspace::gemm_shape_policy());
 }
 std::size_t GeneralState::response_team_size() const noexcept {
   return workspace_ ? workspace_->response_team_size() : 0;

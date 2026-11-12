@@ -85,13 +85,12 @@ function(_solprop_native_add_sleef)
   FetchContent_MakeAvailable(sleef)
   include(ExternalProject)
   # SLEEF requires a C and a C++ compiler of one version: the C driver beside this
-  # build's C++ compiler (clang beside clang++, gcc beside g++, icx beside icpx), else
+  # build's C++ compiler (clang beside clang++, gcc beside g++), else
   # the C compiler this project found.
   get_filename_component(_cxx_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
   get_filename_component(_cxx_name "${CMAKE_CXX_COMPILER}" NAME)
   string(REGEX REPLACE "clang\\+\\+" "clang" _c_name "${_cxx_name}")
   string(REGEX REPLACE "g\\+\\+" "gcc" _c_name "${_c_name}")
-  string(REGEX REPLACE "^icpx" "icx" _c_name "${_c_name}")
   set(_c_compiler "${_cxx_directory}/${_c_name}")
   if(_c_name STREQUAL _cxx_name OR NOT EXISTS "${_c_compiler}")
     set(_c_compiler "${CMAKE_C_COMPILER}")

@@ -318,7 +318,7 @@ ScriptedRungeKutta::ScriptedRungeKutta(const std::vector<double>& norms,
 double ScriptedRungeKutta::trial(const double z, const double dz) {
   if (next_ >= norms_.size())
     throw std::out_of_range("the script ran out of norms");
-  log_.push_back(ScriptedTrial{z, dz});
+  log_.push_back(ScriptedTrial{.z = z, .dz = dz});
   const double noise = norms_[next_++];
   return h0_ > 0.0 ? noise * std::pow(dz / h0_, power_) : noise;
 }

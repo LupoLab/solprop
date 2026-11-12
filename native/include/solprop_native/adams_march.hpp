@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "solprop_native/watch.hpp"
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -12,8 +14,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include "solprop_native/watch.hpp"
 
 /*
  * The exponential Adams march executed natively (solprop SEP 39 phase 2).

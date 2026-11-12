@@ -4,13 +4,13 @@
 
 #pragma once
 
+#include "solprop_native/adams_march.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <stdexcept>
 #include <vector>
-
-#include "solprop_native/adams_march.hpp"
 
 /*
  * The Runge-Kutta march (solprop SEP 45): a trial's stage positions and its scaled

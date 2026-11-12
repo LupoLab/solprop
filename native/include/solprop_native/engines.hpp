@@ -4,17 +4,17 @@
 
 #pragma once
 
-#include <cstddef>
-#include <functional>
-#include <optional>
-#include <utility>
-#include <vector>
-
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
+
+#include <cstddef>
+#include <functional>
+#include <optional>
+#include <utility>
+#include <vector>
 
 /*
  * The engines the native marches hand their field arithmetic to (solprop SEP 39 and

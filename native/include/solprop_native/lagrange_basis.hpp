@@ -164,10 +164,12 @@ inline void trial_tables(const double* nodes, const std::size_t order,
   for (std::size_t t = 0; t + 1 < width; ++t)
     spans[t] = 1.0 - nodes[t];
   basis_rows(nodes, order, 1.0, true, scratch, carried);
+  // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
   basis_rows(through, order + 1, 1.0, true, scratch, endpoint);
   for (std::size_t index = 0; index < n_orders; ++index) {
     const std::size_t scored = orders[index];
     double* const row = defects + index * width;
+    // NOLINTNEXTLINE(readability-suspicious-call-argument): the names only coincide
     basis_rows(through, scored + 1, 1.0, true, scratch, row);
     for (std::size_t t = scored + 1; t < width; ++t)
       row[t] = 0.0;
