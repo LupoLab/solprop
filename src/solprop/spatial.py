@@ -555,7 +555,7 @@ class SpatialDispersion:
     ) -> Complex[np.ndarray, "n_modes n_omega"]:
         """Preserve unsquared Cartesian inputs when evaluating the launch operator.
 
-        - ``transverse``: cartesian axes or already squared transverse frequencies in
+        - ``transverse``: Cartesian axes or already squared transverse frequencies in
           m^-2.
         - ``z``: material sampling position in m.
         - Returns: complex longitudinal squares in m^-2, one row per transverse column.
