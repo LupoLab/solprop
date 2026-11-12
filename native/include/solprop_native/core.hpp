@@ -1090,6 +1090,12 @@ public:
   void close() noexcept;
 
 private:
+  /** `function(workspace, arguments...)` inside the workspace's CPU team scope
+      (`CpuTeamScope`); defined and used in general.cpp alone, so that no other unit
+      sees the workspace class. */
+  template <class Function, class... Arguments>
+  decltype(auto) with_team(Function function, Arguments&&... arguments) const;
+
   std::unique_ptr<GeneralWorkspace> workspace_;
 };
 

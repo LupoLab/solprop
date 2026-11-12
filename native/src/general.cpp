@@ -42,6 +42,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -17823,166 +17824,141 @@ void GeneralWorkspace::close() noexcept {
   raman_kernel_ready_ = false;
 }
 
+template <class Function, class... Arguments>
+decltype(auto) GeneralState::with_team(Function function,
+                                       Arguments&&... arguments) const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return std::invoke(function, *workspace_, std::forward<Arguments>(arguments)...);
+}
+
 GeneralState::GeneralState(Problem problem)
     : workspace_(std::make_unique<GeneralWorkspace>(std::move(problem))) {}
 GeneralState::~GeneralState() { close(); }
 void GeneralState::set_initial(const std::span<const Complex> field,
                                const std::span<const Complex> noise) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->set_initial(field, noise);
+  with_team(&GeneralWorkspace::set_initial, field, noise);
 }
 std::vector<double> GeneralState::trial_step(const double dz,
                                              const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->trial_step(dz, scalars);
+  return with_team(&GeneralWorkspace::trial_step, dz, scalars);
 }
 void GeneralState::prepare_trial(const double dz, const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->prepare_trial(dz, scalars);
+  with_team(&GeneralWorkspace::prepare_trial, dz, scalars);
 }
 std::vector<Complex> GeneralState::adams_source(const std::vector<Complex>& input,
                                                 const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_source(input, scalars);
+  return with_team(&GeneralWorkspace::adams_source, input, scalars);
 }
 void GeneralState::adopt(const std::vector<Complex>& field, const double dz) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adopt(field, dz);
+  with_team(&GeneralWorkspace::adopt, field, dz);
 }
 double GeneralState::low_storage_step(const double dz, const TrialScalars& scalars,
                                       const bool rebuild_table) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->low_storage_step(dz, scalars, rebuild_table);
+  return with_team(&GeneralWorkspace::low_storage_step, dz, scalars, rebuild_table);
 }
 void GeneralState::adams_allocate(const std::size_t slots, const bool compensated,
                                   const bool interpolate) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_allocate(slots, compensated, interpolate);
+  with_team(&GeneralWorkspace::adams_allocate, slots, compensated, interpolate);
 }
 void GeneralState::adams_compensation_start(const std::size_t slot,
                                             const std::vector<double>& rate) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_compensation_start(slot, rate);
+  with_team(&GeneralWorkspace::adams_compensation_start, slot, rate);
 }
 void GeneralState::adams_start(const std::size_t slot, const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_start(slot, scalars);
+  with_team(&GeneralWorkspace::adams_start, slot, scalars);
 }
 double GeneralState::adams_magnitude() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_magnitude();
+  return with_team(&GeneralWorkspace::adams_magnitude);
 }
 void GeneralState::adams_scale(const double rtol, const double atol,
                                const std::vector<double>& weights) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_scale(rtol, atol, weights);
+  with_team(&GeneralWorkspace::adams_scale, rtol, atol, weights);
 }
 std::vector<double> GeneralState::adams_fused_trial(const double dz,
                                                     const AdamsWeights& weights,
                                                     const std::vector<double>& divisor,
                                                     const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_fused_trial(dz, weights, divisor, scalars);
+  return with_team(&GeneralWorkspace::adams_fused_trial, dz, weights, divisor, scalars);
 }
 void GeneralState::adams_fused_accept(const double dz, const AdamsWeights& keep,
                                       const std::size_t free,
                                       const AdamsWeights& dense) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_fused_accept(dz, keep, free, dense);
+  with_team(&GeneralWorkspace::adams_fused_accept, dz, keep, free, dense);
 }
-void GeneralState::adams_hold() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_hold();
-}
-void GeneralState::adams_restore() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_restore();
-}
+void GeneralState::adams_hold() { with_team(&GeneralWorkspace::adams_hold); }
+void GeneralState::adams_restore() { with_team(&GeneralWorkspace::adams_restore); }
 void GeneralState::table_upload(const TableKind kind, std::vector<double> edges,
                                 const double lower, const double upper,
                                 const std::complex<double>* coefficients,
                                 const std::size_t n_intervals,
                                 const std::size_t n_terms, const std::size_t n_values) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->table_upload(kind, std::move(edges), lower, upper, coefficients,
-                           n_intervals, n_terms, n_values);
+  with_team(&GeneralWorkspace::table_upload, kind, std::move(edges), lower, upper,
+            coefficients, n_intervals, n_terms, n_values);
 }
 void GeneralState::table_evaluate(const std::vector<std::size_t>& slots,
                                   const std::vector<double>& positions) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->table_evaluate(slots, positions);
+  with_team(&GeneralWorkspace::table_evaluate, slots, positions);
 }
 void GeneralState::table_rate(const std::size_t slot, const double z,
                               const bool before) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->table_rate(slot, z, before);
+  with_team(&GeneralWorkspace::table_rate, slot, z, before);
 }
 std::vector<Complex> GeneralState::table_terms_to_host(const TableKind kind,
                                                        const std::size_t slot) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->table_terms_to_host(kind, slot);
+  return with_team(&GeneralWorkspace::table_terms_to_host, kind, slot);
 }
 std::vector<Complex>
 GeneralState::phase_sum_to_host(const std::vector<double>& weights) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->phase_sum_to_host(weights);
+  return with_team(&GeneralWorkspace::phase_sum_to_host, weights);
 }
 std::vector<std::string> GeneralState::adams_row_names() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_row_names();
+  return with_team(&GeneralWorkspace::adams_row_names);
 }
 std::array<std::size_t, 3>
 GeneralState::adams_row_extents(const std::string& name) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_row_extents(name);
+  return with_team(&GeneralWorkspace::adams_row_extents, name);
 }
 std::vector<Complex> GeneralState::adams_rows_to_host(const std::string& name) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_rows_to_host(name);
+  return with_team(
+      [&](GeneralWorkspace& workspace) { return workspace.adams_rows_to_host(name); });
 }
 void GeneralState::adams_rows_to_host(const std::string& name,
                                       std::complex<double>* destination,
                                       const std::size_t size) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_rows_to_host(name, destination, size);
+  with_team([&](GeneralWorkspace& workspace) {
+    return workspace.adams_rows_to_host(name, destination, size);
+  });
 }
 void GeneralState::adams_rows_from_host(const std::string& name,
                                         const std::vector<Complex>& values) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_rows_from_host(name, values);
+  with_team(&GeneralWorkspace::adams_rows_from_host, name, values);
 }
 void GeneralState::adams_observe(const AdamsWeights& weights,
                                  const TrialScalars& scalars) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_observe(weights, scalars);
+  with_team(&GeneralWorkspace::adams_observe, weights, scalars);
 }
 std::vector<double> GeneralState::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
     const TrialScalars& sample, const std::vector<double>& rate) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_exponential_trial(dz, weights, divisor, step, sample, rate);
+  return with_team(&GeneralWorkspace::adams_exponential_trial, dz, weights, divisor,
+                   step, sample, rate);
 }
 void GeneralState::adams_exponential_accept(const double dz, const std::size_t free,
                                             const AdamsWeights& dense) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_exponential_accept(dz, free, dense);
+  with_team(&GeneralWorkspace::adams_exponential_accept, dz, free, dense);
 }
 void GeneralState::rk_dense_allocate(const std::vector<double>& weights) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->rk_dense_allocate(weights);
+  with_team(&GeneralWorkspace::rk_dense_allocate, weights);
 }
 void GeneralState::rk_dense_hold(const double dz) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->rk_dense_hold(dz);
+  with_team(&GeneralWorkspace::rk_dense_hold, dz);
 }
 void GeneralState::rk_dense_observe(const double theta, const TrialScalars& carry) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->rk_dense_observe(theta, carry);
+  with_team(&GeneralWorkspace::rk_dense_observe, theta, carry);
 }
 void GeneralState::rk_dense_restore() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->rk_dense_restore();
+  with_team(&GeneralWorkspace::rk_dense_restore);
 }
 void GeneralState::rk_dense_release() noexcept {
   if (workspace_)
@@ -17990,41 +17966,33 @@ void GeneralState::rk_dense_release() noexcept {
 }
 void GeneralState::adams_exponential_observe(const double xi, const double dz,
                                              const ExponentialWeights& weights) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->adams_exponential_observe(xi, dz, weights);
+  with_team(&GeneralWorkspace::adams_exponential_observe, xi, dz, weights);
 }
 std::vector<double> GeneralState::weighted_error(const std::vector<double>& scale) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->weighted_error(scale);
+  return with_team(&GeneralWorkspace::weighted_error, scale);
 }
 void GeneralState::set_flow_actions(const std::vector<Complex>& forward,
                                     const std::vector<Complex>& inverse,
                                     const std::vector<unsigned char>& identity) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->set_flow_actions(forward, inverse, identity);
+  with_team(&GeneralWorkspace::set_flow_actions, forward, inverse, identity);
 }
 std::vector<Complex> GeneralState::flow_actions_to_host(const bool inverse) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->flow_actions_to_host(inverse);
+  return with_team(&GeneralWorkspace::flow_actions_to_host, inverse);
 }
 std::vector<Complex> GeneralState::adams_block_to_host() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_block_to_host();
+  return with_team(&GeneralWorkspace::adams_block_to_host);
 }
 std::vector<Complex> GeneralState::adams_exponent_to_host() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->adams_exponent_to_host();
+  return with_team(&GeneralWorkspace::adams_exponent_to_host);
 }
 std::vector<double>
 GeneralState::form_flow_actions(const std::size_t section, const double dz,
                                 const std::vector<double>& fractions) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->form_flow_actions(section, dz, fractions);
+  return with_team(&GeneralWorkspace::form_flow_actions, section, dz, fractions);
 }
 void GeneralState::prepare_raman(const std::vector<double>& rates,
                                  const std::vector<double>& densities) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->prepare_raman(rates, densities);
+  with_team(&GeneralWorkspace::prepare_raman, rates, densities);
 }
 std::vector<double>
 GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& windows,
@@ -18033,104 +18001,83 @@ GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& w
                          const double intensity_factor,
                          const std::vector<double>& channel_preionisation,
                          const std::vector<double>& power_weight) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->statistics(flags, windows, on_axis, density, taper, preionisation,
-                                intensity_factor, channel_preionisation, power_weight);
+  return with_team(&GeneralWorkspace::statistics, flags, windows, on_axis, density,
+                   taper, preionisation, intensity_factor, channel_preionisation,
+                   power_weight);
 }
 std::vector<double>
 GeneralState::whitened_statistics(const std::vector<Complex>& root,
                                   const std::uint64_t flags,
                                   const std::vector<double>& windows,
                                   const double intensity_factor, const bool spectral) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->whitened_statistics(root, flags, windows, intensity_factor,
-                                         spectral);
+  return with_team(&GeneralWorkspace::whitened_statistics, root, flags, windows,
+                   intensity_factor, spectral);
 }
 std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double intensity_factor,
                                                      const double z) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->spatial_statistics(flags, intensity_factor, z);
+  return with_team(&GeneralWorkspace::spatial_statistics, flags, intensity_factor, z);
 }
 std::vector<double> GeneralState::plane_fluence_trace(
     const double center_x, const double center_y, const double dx, const double dy,
     const double extent, const double spacing, const std::size_t n_radii,
     const std::vector<double>& cosines, const std::vector<double>& sines) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
-                                         n_radii, cosines, sines);
+  return with_team(&GeneralWorkspace::plane_fluence_trace, center_x, center_y, dx, dy,
+                   extent, spacing, n_radii, cosines, sines);
 }
 std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->axis_spectrum(matrix);
+  return with_team(&GeneralWorkspace::axis_spectrum, matrix);
 }
 std::vector<double>
 GeneralState::axis_populations(const std::vector<double>& matrix,
                                const std::vector<double>& channel_preionisation) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->axis_populations(matrix, channel_preionisation);
+  return with_team(&GeneralWorkspace::axis_populations, matrix, channel_preionisation);
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
     const std::vector<double>& regions, const double intensity_factor) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->aperture_statistics(flags, apertures, exponent, regions,
-                                         intensity_factor);
+  return with_team(&GeneralWorkspace::aperture_statistics, flags, apertures, exponent,
+                   regions, intensity_factor);
 }
-void GeneralState::finish(const double dz) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->finish(dz);
-}
+void GeneralState::finish(const double dz) { with_team(&GeneralWorkspace::finish, dz); }
 void GeneralState::bind_monitor(const std::vector<double>& weights,
                                 const std::vector<double>& column_weights) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->bind_monitor(weights, column_weights);
+  with_team(&GeneralWorkspace::bind_monitor, weights, column_weights);
 }
 void GeneralState::unbind_monitor() noexcept {
   if (workspace_)
     workspace_->unbind_monitor();
 }
 std::vector<double> GeneralState::monitor_reading() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->monitor_reading();
+  return with_team(&GeneralWorkspace::monitor_reading);
 }
 void GeneralState::bind_edge(const std::vector<double>& faces,
                              const std::vector<double>& clip,
                              const std::vector<double>& totals,
                              const std::vector<double>& synthesis,
                              const std::size_t first_row) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->bind_edge(faces, clip, totals, synthesis, first_row);
+  with_team(&GeneralWorkspace::bind_edge, faces, clip, totals, synthesis, first_row);
 }
 CrossedBytes GeneralState::crossed_bytes() const noexcept {
   return workspace_->crossed_bytes();
 }
 void GeneralState::bind_edge_lines(const EdgeLines& lines) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->bind_edge_lines(lines);
+  with_team(&GeneralWorkspace::bind_edge_lines, lines);
 }
 EdgeNumbers GeneralState::edge_reading(const bool faces, const bool whole,
                                        const bool totals, const bool strip,
                                        const bool current) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->edge_reading(faces, whole, totals, strip, current);
+  return with_team(&GeneralWorkspace::edge_reading, faces, whole, totals, strip,
+                   current);
 }
 void GeneralState::bind_occupancy(const std::vector<unsigned char>& buckets,
                                   const std::size_t count) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->bind_occupancy(buckets, count);
+  with_team(&GeneralWorkspace::bind_occupancy, buckets, count);
 }
-void GeneralState::promote_fsal() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->promote_fsal();
-}
-void GeneralState::clear_fsal() {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->clear_fsal();
-}
+void GeneralState::promote_fsal() { with_team(&GeneralWorkspace::promote_fsal); }
+void GeneralState::clear_fsal() { with_team(&GeneralWorkspace::clear_fsal); }
 void GeneralState::set_absorber_quiet(const bool quiet) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->set_absorber_quiet(quiet);
+  with_team(&GeneralWorkspace::set_absorber_quiet, quiet);
 }
 double GeneralState::quadrature_error() const {
   return workspace_ ? workspace_->quadrature_error()
@@ -18154,48 +18101,45 @@ std::size_t GeneralState::response_team_size() const noexcept {
   return workspace_ ? workspace_->response_team_size() : 0;
 }
 std::vector<Complex> GeneralState::field_to_host() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->field_to_host();
+  return with_team(
+      [&](GeneralWorkspace& workspace) { return workspace.field_to_host(); });
 }
 void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
   if (workspace_)
     workspace_->set_crossing_workers(workers);
 }
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->field_to_host(destination);
+  with_team([&](GeneralWorkspace& workspace) {
+    return workspace.field_to_host(destination);
+  });
 }
 const Complex* GeneralState::host_field() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->host_field();
+  return with_team(&GeneralWorkspace::host_field);
 }
 void GeneralState::count_to_host(const std::size_t bytes) const noexcept {
   workspace_->count_to_host(bytes);
 }
 void GeneralState::stage_to_host(const std::size_t stage,
                                  const std::span<Complex> destination) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  workspace_->stage_to_host(stage, destination);
+  with_team([&](GeneralWorkspace& workspace) {
+    return workspace.stage_to_host(stage, destination);
+  });
 }
 std::vector<Complex> GeneralState::stage_to_host(const std::size_t stage) const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->stage_to_host(stage);
+  return with_team(
+      [&](GeneralWorkspace& workspace) { return workspace.stage_to_host(stage); });
 }
 std::vector<Complex> GeneralState::projected_to_host(const bool coarse) {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->projected_to_host(coarse);
+  return with_team(&GeneralWorkspace::projected_to_host, coarse);
 }
 std::map<std::string, bool> GeneralState::dispersive_path() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->dispersive_path();
+  return with_team(&GeneralWorkspace::dispersive_path);
 }
 std::map<std::string, std::size_t> GeneralState::memory_ledger() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->memory_ledger();
+  return with_team(&GeneralWorkspace::memory_ledger);
 }
 CpuSizing GeneralState::execution_sizing() const {
-  const CpuTeamScope team(workspace_->cpu_team());
-  return workspace_->execution_sizing();
+  return with_team(&GeneralWorkspace::execution_sizing);
 }
 const CpuExecution& GeneralState::cpu_execution() const {
   return workspace_->cpu_execution();
