@@ -299,8 +299,7 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   run `poe cov-part`.
   **coverage-report** combines their data (`poe cov-report`), requires 100 % of
   statements and branches, and uploads the report to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow` with the wheel installed; on macOS only its
-  functional tests, the statistics-cost timing being Linux's. On Linux,
+- **slow** (Linux and macOS): `poe test-slow` with the wheel installed. On Linux,
   `SOLPROP_TEST_BACKEND=native` selects the ladders' backend.
 - **oldest** (Linux, three shards): the package installed with `uv pip install
   --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with

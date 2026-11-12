@@ -367,8 +367,7 @@ help = "Plan the tracking run; pass track, ab, history or list options (SEP 38).
 # Every thread pool stays at one thread per worker so eighteen workers do not fight over
 # the same cores: SOLPROP_THREADS=1 is each worker's thread budget (ADR-052), which the
 # native backend sizes every pool within; SOLPROP_NATIVE_THREADS is its own cap
-# (OMP_NUM_THREADS does not set it). The statistics-cost check runs alone and keeps the
-# full budget.
+# (OMP_NUM_THREADS does not set it).
 [tool.poe.tasks.test-windows-arm]
 cmd = "pytest -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1" }
@@ -380,20 +379,10 @@ env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", V
 help = "Default lane (fast and medium tiers) under xdist; plain `pytest` runs it serially."
 
 [tool.poe.tasks.test-slow]
-sequence = ["test-slow-functional", "test-statistics-cost"]
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Slow lane, followed by the statistics cost check without competing test workers."
-
-[tool.poe.tasks.test-slow-functional]
 # `--durations=0` times every test: it is the data the tiers are maintained from.
-cmd = "pytest -m slow -k 'not test_the_statistics_channel_costs_under_a_quarter_of_a_step' --durations=0 -n auto --dist loadgroup"
+cmd = "pytest -m slow --durations=0 -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Functional slow tests: the milestones, ladders and CtC-size build."
-
-[tool.poe.tasks.test-statistics-cost]
-cmd = "pytest -m slow tests/driver/test_prop_capillary.py::test_the_statistics_channel_costs_under_a_quarter_of_a_step"
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
-help = "Measure periodic statistics on ten steps, after the parallel slow tests finish."
+help = "Slow lane: the milestones, ladders and CtC-size build."
 
 # The GPU lane, on any machine with a CUDA or HIP build of solprop-native installed and a
 # device it sees (testing.md section 2). `-m gpu` replaces addopts' marker expression on

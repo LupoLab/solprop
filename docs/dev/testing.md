@@ -183,18 +183,12 @@ of the default lane's time is the compiled-kernel tests, which compile one kerne
 parametrisation, so parametrise a compiled test only over what the kernel actually
 branches on.
 
-A test that asserts a **cost** belongs in the slow tier, because its verdict needs a quiet
-machine and repeated fresh processes. The periodic-statistics cost gate
-(`tests/driver/test_prop_capillary.py`, driving `tests/statistics_cost_probe.py`) is the
-pattern: three fresh processes per configuration, rotating the plain/watched order across
-the pairs, each warming its configuration and recording three runs with production
-imports and without coverage or the runtime type hook; the parent compares the median of
-the process medians against the existing 25 % bound and records the MAD, raw wall and CPU
-times, the load, backend metadata and the exact step histories. A child failure fails the
-parent. Each measured window is ten fixed Runge–Kutta steps over 2 mm, on the reduced
-M2 grid. `poe test-slow` completes its parallel functional tests before running this
-cost check serially: competing test workers can otherwise slow one arm more than
-the other. The bound has not been relaxed.
+A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
+repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks
+([benchmarks.md](benchmarks.md)), by hand on an idle machine and recorded with the
+release benchmarks. The periodic-statistics channel's budget, under a quarter of a step
+at a row per step, is `benchmarks/statistics_cost.py`'s: it times the reduced M2 case
+with and without the rows, interleaved, and reports the fraction against that budget.
 
 ## 3. Tolerance policy
 

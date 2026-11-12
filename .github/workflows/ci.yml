@@ -303,8 +303,7 @@ jobs:
           path: junit.xml
           retention-days: 14
 
-  # The slow lane on Linux with the native wheel, and the statistics channel's cost
-  # budget, a timing measurement that runs alone on the runner.
+  # The slow lane on Linux with the native wheel.
   slow:
     needs: [changes, native-wheel]
     if: needs.changes.outputs.lanes == 'full'
@@ -334,8 +333,7 @@ jobs:
       - run: uv pip install --no-deps wheelhouse/*.whl
       - run: uv run --no-sync poe test-slow
 
-  # The slow lane's functional tests on macOS, with the native wheel installed; macOS's
-  # three shared cores make the statistics-cost timing noise.
+  # The slow lane on macOS, with the native wheel installed.
   slow-macos:
     needs: [changes, native-wheel]
     if: needs.changes.outputs.lanes == 'full'
@@ -358,7 +356,7 @@ jobs:
       - run: uv python install 3.14
       - run: uv sync --locked --no-install-package solprop-native
       - run: uv pip install --no-deps wheelhouse/*.whl
-      - run: uv run --no-sync poe test-slow-functional
+      - run: uv run --no-sync poe test-slow
 
   # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
   # installed and the driver tests on it (solprop's native paths are part of the 100 %):

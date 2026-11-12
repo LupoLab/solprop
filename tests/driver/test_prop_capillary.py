@@ -20,9 +20,6 @@ import functools
 import json
 import logging
 import math
-import statistics
-import subprocess
-import sys
 import time
 import warnings
 from collections.abc import Sequence
@@ -35,7 +32,6 @@ import h5py
 import numpy as np
 import pytest
 from CoolProp.CoolProp import PropsSI  # pyright: ignore[reportMissingImports]
-from coverage import Coverage
 from optmat.conditions import State
 from optmat.gas.eos import equation_of_state
 from scipy.constants import N_A
@@ -61,11 +57,9 @@ from selected_backend import selected_backend
 from sessions.runs import run as run_session
 from sessions.runs import to_planes
 from solprop import tools
-from solprop.backends.events import ObservationReady, join_attempts
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.registry import select
-from solprop.backends.session import Start
-from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
 from solprop.driver import Simulation, prop_capillary
@@ -3312,15 +3306,7 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
 
 
 PERIODIC_SUBSET = ("energy", "peak_power", "fwhm_t", "electron_density")
-"""The cost gate's default subset: three field statistics and the plasma one."""
-
-GATE = 0.25
-"""The channel must cost under a quarter of a step at ``period = 1``.
-
-Not a tenth, because the measurement is a wall-clock ratio taken on a shared machine,
-where it has read 10.57 % under load for a change that costs 0.7 percentage points, and
-a gate that fails on load says nothing worth tuning for.
-"""
+"""Three field statistics and the plasma one."""
 
 
 def reduced_m2_simulation(**overrides):
@@ -3370,155 +3356,6 @@ def reduced_m2_channel():
     plain = simulation._run_request()
     spec = StatsSpec(names=PERIODIC_SUBSET, periodic=PERIODIC_SUBSET, period=1)
     return simulation, problem, plain, plain.for_run(stats=spec)
-
-
-@pytest.mark.slow
-def test_the_statistics_channel_costs_under_a_quarter_of_a_step(
-    record_property, tmp_path
-):
-    """The cost gate, on the reduced M2 case at ``period = 1``.
-
-    Ten fixed Runge-Kutta steps to 2 mm retain the real grid, modes and plasma while
-    keeping the measured propagation window short. The measurement uses
-    three fresh processes per configuration, rotated paired order, and
-    medians with unscaled MAD. Each process warms its arm before three timed runs.
-    ``poe test-slow`` runs this check after its parallel functional tests finish;
-    unrelated workers competing with only one arm can dominate a wall-clock ratio.
-
-    The plasma statistics reuse the accepted Runge-Kutta step's last-stage scan.
-    The default Adams step evaluates its source at the predicted state, so its rows
-    scan the accepted field afresh. This cost witness therefore selects Runge-Kutta
-    explicitly (``docs/guide/results/statistics.md``).
-    """
-    # Both coverage and the session's runtime type hook alter the ratio.
-    # The same fixture and strict assertion run in production imports; functional
-    # channel tests retain both instruments and complete source coverage.
-    results = {"plain": [], "watched": []}
-    for repetition in range(3):
-        order = ("plain", "watched") if repetition % 2 == 0 else ("watched", "plain")
-        for selection in order:
-            report = tmp_path / f"statistics-cost-{repetition}-{selection}.json"
-            command = [
-                sys.executable,
-                "-W",
-                "error",
-                # The later option wins; a lane without solprop-native runs on `auto`.
-                "-W",
-                "ignore:solprop-native is not installed",
-                str(Path(__file__).parents[1] / "statistics_cost_probe.py"),
-                str(report),
-                selection,
-            ]
-            result = subprocess.run(
-                command, capture_output=True, text=True, check=False
-            )
-            label = f"statistics_child_{repetition}_{selection}"
-            record_property(label, result.stdout + result.stderr)
-            assert result.returncode == 0, result.stdout + result.stderr
-            results[selection].append(json.loads(report.read_text()))
-    counts = {
-        (row["steps"], tuple(row["accepted"]))
-        for records in results.values()
-        for process in records
-        for row in process["runs"]
-    }
-    assert len(counts) == 1
-    assert counts == {(10, (True,) * 10)}
-    histories = {
-        (tuple(row["z"]), tuple(row["dz"]))
-        for records in results.values()
-        for process in records
-        for row in process["runs"]
-    }
-    assert len(histories) == 1
-    samples = {
-        name: [
-            statistics.median(row["seconds"] for row in item["runs"]) for item in arm
-        ]
-        for name, arm in results.items()
-    }
-    medians = {name: statistics.median(values) for name, values in samples.items()}
-    mads = {
-        name: statistics.median(abs(value - medians[name]) for value in values)
-        for name, values in samples.items()
-    }
-    ratio = medians["watched"] / medians["plain"] - 1.0
-    record_property("statistics_process_seconds", json.dumps(samples))
-    record_property("statistics_medians", json.dumps(medians))
-    record_property("statistics_mads", json.dumps(mads))
-    record_property("statistics_cost_ratio", ratio)
-    record_property("statistics_cost_bound", GATE)
-    assert ratio < GATE, f"the channel cost {100 * ratio:.1f} % of the run"
-
-
-def statistics_channel_measurement(reduced_m2_channel, selection):
-    """Measure one warmed configuration with production imports."""
-    assert Coverage.current() is None, "statistics timing requires an untraced worker"
-    assert selection in ("plain", "watched")
-    simulation, problem, plain, watched = reduced_m2_channel
-    run_request = plain if selection == "plain" else watched
-    # The stash a row is read from is the Runge-Kutta march's last stage.
-    target = 0.002
-    run_request = run_request.with_stepper(
-        replace(
-            run_request.stepper,
-            integrator=None,
-            # Each measurement advances only the schedule's first ten steps, to 2 mm,
-            # its one save plane.
-            schedule=FixedSchedule.uniform(0.0, simulation.grid.length, target / 10),
-            save_planes=np.array([target]),
-        )
-    )
-
-    def arm():
-        backend = select(
-            TEST_BACKEND,
-            problem,
-            run_request,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        # The run's session from the launch, whose plane is not observed: the time
-        # is the march's and its rows', and the one plane's at 2 mm (SEP 47 phase 5).
-        start = Start(field=problem.initial.field0, z=0.0, plane_pending=False)
-        session = start_session(backend, problem, run_request, start)
-        chunks = []
-        try:
-            cpu_started = time.process_time()
-            started = time.perf_counter()
-            while not session.finished:
-                batch = session.advance()
-                chunks.extend(
-                    (
-                        getattr(event, "history", None),
-                        getattr(event, "step_stats", None),
-                    )
-                    for event in batch.events
-                )
-                session.acknowledge(batch.receipt)
-            elapsed = time.perf_counter() - started
-            cpu_elapsed = time.process_time() - cpu_started
-            record = dict(session.execution_record())
-        finally:
-            session.close()
-        history, rows = join_attempts(chunks)
-        # A row per accepted step: a rejected trial records none.
-        accepted = int(np.sum(history.accepted))
-        assert rows.n_rows == (accepted if selection == "watched" else 0)
-        return {
-            "seconds": elapsed,
-            "cpu_seconds": cpu_elapsed,
-            "steps": history.n_steps,
-            "accepted": history.accepted.tolist(),
-            "z": history.z.tolist(),
-            "dz": history.dz.tolist(),
-            "rows": rows.n_rows,
-            "metadata": record,
-        }
-
-    arm()
-    return [arm() for _ in range(3)]
 
 
 @pytest.mark.medium
