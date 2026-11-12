@@ -5654,6 +5654,11 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
                           !problem_.raman.enabled && !absorbing() && !dispersive_;
   terms.in_stage_absorber = absorbing();
   terms.identity_crop = identity_crop_;
+  // A host source is the stage's whole source (solprop SEP 49 section 6.2).
+  terms.hosted = static_cast<bool>(host_source_);
+  terms.host_spectrum = host_spectrum_;
+  if (terms.hosted)
+    terms.zero_response = false;
   return terms;
 }
 
@@ -5843,6 +5848,10 @@ void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const doub
 // low-storage march's passes. Returns whether a source was evaluated: a stage without
 // a response has none to finish.
 bool GeneralWorkspace::modal_core(const std::size_t stage) {
+  if (host_source_) {
+    host_core();
+    return true;
+  }
   if (general_) {
     const bool general_active = general_->responds() || problem_.absorber.in_stage;
     if (general_active)
@@ -5967,6 +5976,58 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (defer_quadrature_ && project_coarse_)
     coarse_pending_ = true;
   return true;
+}
+
+void GeneralWorkspace::bind_host_source(std::shared_ptr<HostSource> source) {
+  if (!source) {
+    host_source_.reset();
+    host_field_ = {};
+    host_out_ = {};
+    host_spectrum_ = ComplexView2();
+    return;
+  }
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  throw BackendRefusal("a host source runs on the native CPU build only");
+#else
+  if (general_ || problem_.separable_geometry() || problem_.n_columns() != 1 ||
+      problem_.dims.family != FieldFamily::field_real)
+    throw BackendRefusal("a host source takes one real-field column of a modal route");
+  const auto n = problem_.dims.n_omega;
+  host_field_.assign(n, {});
+  host_out_.assign(n, {});
+  host_spectrum_ = ComplexView2("solprop_native.host_source.spectrum", 1, n);
+  host_source_ = std::move(source);
+#endif
+}
+
+// solprop SEP 49: the stage core of a host source. The lab-frame field is gathered
+// from the fine spectrum's coarse bins before the inverse transform destroys them, the
+// in-stage absorber is formed from the modal time field as on every route, and the
+// host evaluates the source from the thread that called the march, outside every
+// parallel region, into the view the finish reads. Host builds only.
+void GeneralWorkspace::host_core() {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  throw BackendRefusal("a host source runs on the native CPU build only");
+#else
+  execution_space_.fence("solprop_native.host_source.entry");
+  const auto n = problem_.dims.n_omega;
+  for (std::size_t index = 0; index < n; ++index) {
+    const Complex value = fine_spectrum_(0, crop_index_(index));
+    host_field_[index] = {value.real(), value.imag()};
+  }
+  if (absorbing()) {
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
+    form_absorber();
+    graph::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
+                   KokkosFFT::Normalization::none);
+    execution_space_.fence("solprop_native.host_source.absorber");
+  }
+  host_source_->evaluate(host_field_, host_z_, host_purpose_, host_out_);
+  for (std::size_t index = 0; index < n; ++index)
+    host_spectrum_(0, index) =
+        Complex(host_out_[index].real(), host_out_[index].imag());
+#endif
 }
 
 // The general modal route's stage core: the shared lab-frame input, the in-stage

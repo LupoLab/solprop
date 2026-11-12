@@ -1274,6 +1274,9 @@ struct StageTerms {
   ComplexView2 current, fine, whole, solution, error, stage_phase, stage_inverse, noise;
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
   ComplexView2 projected, absorber;
+  // A host source's spectral source (solprop SEP 49), `(n_columns, n_omega)`: the
+  // stage's source in place of the projected response when `hosted`.
+  ComplexView2 host_spectrum;
   ComplexView3 stages, phi_terms, prefactor_terms;
   RealView tableau, phi_delta, phi_at, prefactor_weights, window;
   IndexView crop, gaps;
@@ -1284,6 +1287,7 @@ struct StageTerms {
   bool add_noise = false, analytic = false, general = false, flow = false;
   bool carried = false, keep_lab = false, zero_response = false;
   bool in_stage_absorber = false;
+  bool hosted = false;
   // Every coarse bin is the fine bin of its own index (`crop` is the identity).
   bool identity_crop = false;
 
@@ -1524,15 +1528,22 @@ struct StageTerms {
     // A zero weight is skipped: a z table's terms are its values at a trial's
     // positions, one-hot weighted (SEP 29 G1). The sum's value is unchanged; at most
     // the sign of an exactly zero sum could differ.
-    Complex prefactor{};
-    for (std::size_t term = 0; term < n_prefactor; ++term) {
-      const double weight = prefactor_weights(stage * n_prefactor + term);
-      if (weight != 0.0)
-        prefactor += weight * prefactor_terms(term, column, index);
+    Complex value{};
+    if (hosted) {
+      // The host's source carries its own factors (solprop SEP 49 section 4): the
+      // collar's product alone, as the reference's `stage_output` with unit factors.
+      value = window(index) * host_spectrum(column, index);
+    } else {
+      Complex prefactor{};
+      for (std::size_t term = 0; term < n_prefactor; ++term) {
+        const double weight = prefactor_weights(stage * n_prefactor + term);
+        if (weight != 0.0)
+          prefactor += weight * prefactor_terms(term, column, index);
+      }
+      value =
+          prefactor * window(index) *
+          (general ? general_source(column, index) : projected(column, crop(index)));
     }
-    Complex value =
-        prefactor * window(index) *
-        (general ? general_source(column, index) : projected(column, crop(index)));
     if (in_stage_absorber && active(index) != 0U)
       value += absorber(column, crop(index));
     value *= stage_inverse(column, index);
@@ -1555,7 +1566,7 @@ struct StageTerms {
   // below: a stage that projects a source into the stage rows, off a coupled flow and
   // the general route, whose stores the per-bin forms keep.
   [[nodiscard]] bool blocks_vectorise() const noexcept {
-    return !flow && !general && !zero_response;
+    return !flow && !general && !zero_response && !hosted;
   }
 
   // `finish` over the `count` bins of a block from `first`, each bin the same

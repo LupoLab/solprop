@@ -377,7 +377,9 @@ void fail(Result& result, const Stage stage, const std::exception& error) {
   result.reason = Reason::error;
   result.stage = stage;
   result.message = error.what();
-  if (dynamic_cast<const EnvelopeConvergenceError*>(&error) != nullptr)
+  if (dynamic_cast<const HostSourceError*>(&error) != nullptr)
+    result.category = Category::host;
+  else if (dynamic_cast<const EnvelopeConvergenceError*>(&error) != nullptr)
     result.category = Category::convergence;
   else if (dynamic_cast<const BackendRefusal*>(&error) != nullptr)
     result.category = Category::refused;
@@ -386,6 +388,40 @@ void fail(Result& result, const Stage stage, const std::exception& error) {
   else
     result.category = Category::backend;
 }
+
+/** One attempt's start and end on the engine (solprop SEP 49 section 6.3): an attempt
+    that leaves without its decision -- a failure, a floor, a diverged replay -- ends
+    abandoned, which only releases what it reserved. That release's own failure is the
+    host's to keep beside the error that left; it never replaces it. */
+class Attempt {
+public:
+  explicit Attempt(Engine& engine) : engine_(engine) {}
+  Attempt(const Attempt&) = delete;
+  Attempt& operator=(const Attempt&) = delete;
+  Attempt(Attempt&&) = delete;
+  Attempt& operator=(Attempt&&) = delete;
+  ~Attempt() {
+    if (!open_)
+      return;
+    try {
+      engine_.end_attempt(HostOutcome::abandoned);
+    } catch (...) { // NOLINT(bugprone-empty-catch) - kept by the host, see above
+    }
+  }
+  void begin(const std::uint64_t cost) {
+    engine_.begin_attempt(cost);
+    open_ = true;
+  }
+  /** End with the decision; closed first, so a failure here is not also abandoned. */
+  void end(const HostOutcome outcome) {
+    open_ = false;
+    engine_.end_attempt(outcome);
+  }
+
+private:
+  Engine& engine_;
+  bool open_ = false;
+};
 
 } // namespace
 
@@ -463,6 +499,13 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
     if (policy.has_budget && state.ledger.total() + cost > policy.max_calls) {
       result.reason = Reason::budget;
       result.cost = cost;
+      return result;
+    }
+    Attempt attempt(engine);
+    try {
+      attempt.begin(cost);
+    } catch (const std::exception& error) {
+      fail(result, Stage::none, error);
       return result;
     }
     if (state.history.empty()) {
@@ -547,6 +590,12 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         return result;
       }
       record(step.end, step.dz, norm, false, trial.order);
+      try {
+        attempt.end(HostOutcome::rejected);
+      } catch (const std::exception& error) {
+        fail(result, Stage::trial, error);
+        return result;
+      }
     } else {
       // The new sample takes the lowest row the kept entries do not use.
       const std::size_t keep = std::min(policy.order, state.history.size());
@@ -589,6 +638,14 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
           proposal(policy, step.dz,
                    factor(policy, choice.norm, choice.control, policy.max_growth));
       record(step.end, step.dz, norm, true, trial.order);
+      // After the commit (SEP 49 section 6.3): a failure here returns the committed
+      // attempt with the error.
+      try {
+        attempt.end(HostOutcome::accepted);
+      } catch (const std::exception& error) {
+        fail(result, Stage::accept, error);
+        return result;
+      }
       if (next < policy.dz_min) {
         result.reason = Reason::floor;
         result.floor_proposal = next;

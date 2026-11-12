@@ -122,9 +122,7 @@ from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
 from solprop.translate.tdse_source import (
-    STEADY_CURRENT_CERTIFICATE_LIMIT,
     TDSE_UNAVAILABLE_STATISTICS,
-    steady_current_certificate,
 )
 
 __all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
@@ -930,7 +928,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 "z": self._tdse_last_z,
                 "projection": self._tdse_last_projection,
             }
-            record["tdse_source"] = _source_record(self._problem)
+            record["tdse_source"] = tdse_source.source_record(self._problem)
         return record
 
     def restore_call_ledgers(
@@ -2945,29 +2943,6 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
         float(np.max(flow.generator_error)),
     )
     return held
-
-
-def _source_record(problem: PropagationProblem) -> dict[str, object]:
-    """Record a TDSE run's source filter and, for the gated one, its certificate.
-
-    The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
-    translation. It is run metadata, never part of the descriptor or any identity.
-
-    - Returns: ``gated``, and for a gated source the certificate, its limit and the
-      taper breakpoints in s.
-    """
-    descriptor = tdse_descriptor(problem.route)
-    assert descriptor is not None
-    record: dict[str, object] = {"gated": descriptor.gated}
-    if descriptor.gated:
-        record |= {
-            "steady_current_certificate": steady_current_certificate(
-                descriptor, problem.grids.omega, problem.grids.active_mask
-            ),
-            "certificate_limit": STEADY_CURRENT_CERTIFICATE_LIMIT,
-            "gate_breakpoints": list(descriptor.source_breakpoints()),
-        }
-    return record
 
 
 def _harmonic_carrier(

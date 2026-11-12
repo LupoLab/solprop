@@ -289,27 +289,26 @@ def test_a_failed_release_is_a_note_on_the_trial_s_own_error(march_problem):
         backend.close()
 
 
-@pytest.mark.parametrize("backend_name", ["native"])
-def test_registry_refuses_tdse_before_constructing_a_backend(
-    march_problem, monkeypatch, backend_name
-):
-    """An unsupported explicit backend never silently redirects the atomic problem."""
+def test_registry_hands_a_tdse_binding_to_either_backend(march_problem, monkeypatch):
+    """Both backends run the TDSE response (SEP 49); the binding goes to the factory."""
     problem, run_request, grid = march_problem
+    constructed = []
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("no backend is constructed for an unsupported TDSE route")
+    class ConstructedError(Exception):
+        pass
 
-    monkeypatch.setattr(registry, "_construct", forbidden)
-    with pytest.raises(BackendError, match=f"{backend_name} does not execute TDSE"):
-        registry.select(backend_name, problem, run_request, grid=grid)
+    def construct(name, *args, **kwargs):
+        constructed.append((name, kwargs.get("tdse_binding")))
+        raise ConstructedError
 
-
-def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
-    """The direct constructor enforces the same named refusal as the registry."""
-    native = pytest.importorskip("solprop_native")
-    problem, run_request, grid = march_problem
-    with pytest.raises(BackendError, match="native does not execute TDSE"):
-        native.NativeBackend(problem, run_request, grid=grid)
+    monkeypatch.setattr(registry, "_construct", construct)
+    monkeypatch.setattr(registry, "_native_installed", lambda: True)
+    monkeypatch.setattr("solprop.calibration.first_use.ensure", lambda: None)
+    binding = ManufacturedBinding(tdse_descriptor(problem.route), 10)
+    for name in ("numpy_ref", "native"):
+        with pytest.raises(ConstructedError):
+            registry.select(name, problem, run_request, grid=grid, tdse_binding=binding)
+    assert constructed == [("numpy_ref", binding), ("native", binding)]
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):

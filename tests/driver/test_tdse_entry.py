@@ -87,10 +87,9 @@ def test_tdse_keyword_builds_the_one_response_run_in_one_step(caplog):
         simulation = _capillary(tdse=response, tdse_execution=execution)
     assert simulation.responses == (response,)
     assert simulation.settings.tdse_execution == execution
-    assert simulation.settings.backend == "numpy_ref"
-    assert "resolves to numpy_ref" in caplog.text
+    assert simulation.settings.backend == "native"
     record = plain(simulation.configuration["tdse_entry"])
-    assert record["backend"] == {"requested": "auto", "resolved": "numpy_ref"}
+    assert record["backend"] == {"requested": "auto", "resolved": "native"}
     assert record["model"] == "sae"
     assert tdse_descriptor(simulation.translate().route) is not None
     # A default execution record is taken when none is given.
@@ -183,9 +182,10 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
         )
 
 
-def test_explicit_incompatible_settings_keep_their_existing_refusals():
-    with pytest.raises(DriverError, match=r"explicit backend='numpy_ref'.*native"):
-        _capillary(tdse=_sae(), backend="native")
+def test_an_explicit_backend_is_kept_for_a_tdse_run():
+    # Both backends run the TDSE response (SEP 49).
+    for backend in ("native", "numpy_ref"):
+        assert _capillary(tdse=_sae(), backend=backend).settings.backend == backend
 
 
 def test_statistics_default_excludes_what_a_tdse_response_cannot_supply():

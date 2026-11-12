@@ -36,7 +36,10 @@ from solprop.translate.responses import ResponseStage
 from solprop.translate.routes import tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEResult, lattice_times, waveform_identity
-from solprop.translate.tdse_source import steady_current_certificate
+from solprop.translate.tdse_source import (
+    STEADY_CURRENT_CERTIFICATE_LIMIT,
+    steady_current_certificate,
+)
 
 __all__ = [
     "FFT_ERROR_CONSTANT",
@@ -44,6 +47,7 @@ __all__ = [
     "atomic_sources",
     "node_fields",
     "project_atomic_sources",
+    "source_record",
 ]
 
 FFT_ERROR_CONSTANT = 8.0
@@ -935,3 +939,35 @@ def _current_operands(
         factor=source.current_numerator / power_weight_at(problem, bundle.z1),
         inverse=_inverse_i_omega(problem) if gated else None,
     )
+
+
+def source_record(problem: PropagationProblem) -> dict[str, object]:
+    """Record a TDSE run's source filter and, for the gated one, its certificate.
+
+    The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
+    translation. It is run metadata, never part of the descriptor or any identity;
+    both backends record it as ``tdse_source``.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        A TDSE problem.
+
+    Returns
+    -------
+    dict
+        ``gated``, and for a gated source the certificate, its limit and the taper
+        breakpoints in s.
+    """
+    descriptor = tdse_descriptor(problem.route)
+    assert descriptor is not None
+    record: dict[str, object] = {"gated": descriptor.gated}
+    if descriptor.gated:
+        record |= {
+            "steady_current_certificate": steady_current_certificate(
+                descriptor, problem.grids.omega, problem.grids.active_mask
+            ),
+            "certificate_limit": STEADY_CURRENT_CERTIFICATE_LIMIT,
+            "gate_breakpoints": list(descriptor.source_breakpoints()),
+        }
+    return record

@@ -11,6 +11,7 @@
 #include "solprop_native/stage_tables.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -63,6 +64,9 @@ public:
   double chord_phase(double z1, double z2) override;
   std::vector<double> step_carrier(std::size_t order) override;
   std::vector<double> reading() override;
+  /** A bound host source's attempt (solprop SEP 49): forwarded to it, if any. */
+  void begin_attempt(std::uint64_t cost) override;
+  void end_attempt(HostOutcome outcome) override;
 
 private:
   void inject(march::Stage stage);

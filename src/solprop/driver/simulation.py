@@ -1059,14 +1059,6 @@ def _admit_tdse_execution(settings: SimulationSettings) -> None:
             f"{type(settings.tdse_execution).__name__}"
         )
         raise DriverError(msg, parameter="tdse_execution")
-    if settings.backend != "numpy_ref":
-        msg = (
-            f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
-            f"that runs the TDSE response; got backend={settings.backend!r}"
-        )
-        raise DriverError(
-            msg, parameter=("tdse_execution", "backend"), rule="tdse-numpy-ref"
-        )
     if not isinstance(settings.integrator, Multistep):
         msg = (
             "tdse_execution requires integrator=Multistep(), the Adams method the TDSE "
@@ -7624,13 +7616,11 @@ def _check_tdse_execution(simulation: Simulation, settings: SimulationSettings) 
         if settings.tdse_execution is not None:
             raise DriverError("tdse_execution requires a TDSEGasResponse")
         return
-    if (
-        settings.tdse_execution is None
-        or settings.backend != "numpy_ref"
-        or not isinstance(settings.integrator, Multistep)
+    if settings.tdse_execution is None or not isinstance(
+        settings.integrator, Multistep
     ):
         raise DriverError(
-            "TDSE requires explicit NumPy, Multistep and tdse_execution settings"
+            "TDSE requires explicit Multistep and tdse_execution settings"
         )
     if simulation.noise is not None and simulation.noise.model == "modified":
         raise DriverError("TDSE refuses noise='modified'; use 'input' or None")
@@ -9308,9 +9298,9 @@ def _tdse_entry(
                 tdse, atomic_window=dataclasses.replace(window, duration=trange)
             )
             duration_source = "trange"
-    resolved_backend = "numpy_ref" if backend == "auto" else backend
-    if backend == "auto":
-        logger.info("backend='auto' resolves to numpy_ref for a TDSE response")
+    # Both backends run the TDSE response; "auto" is native, as for every run
+    # (SEP 49).
+    resolved_backend = "native" if backend == "auto" else backend
     final_only = save_planes is None and n_save is None
     resolved_steps = 1 if step_planes is None else step_planes
     record: dict[str, JsonValue] = {

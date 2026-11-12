@@ -711,8 +711,8 @@ def test_tdse_does_not_guess_how_to_resample_custom_absorbers(atomic_simulation)
 
 def test_tdse_refuses_implicit_execution_and_dense_saves(atomic_simulation):
     simulation = atomic_simulation
-    with pytest.raises(DriverError, match="explicit backend='numpy_ref'"):
-        dataclasses.replace(simulation.settings, backend="auto")
+    # backend="auto" runs a TDSE response on native (SEP 49): no refusal.
+    assert dataclasses.replace(simulation.settings, backend="auto").backend == "native"
     with pytest.raises(DriverError, match="tdse_execution"):
         simulation.settings = dataclasses.replace(
             simulation.settings, tdse_execution=None

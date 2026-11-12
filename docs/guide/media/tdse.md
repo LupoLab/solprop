@@ -235,8 +235,9 @@ run = prop_capillary(
 
 The response is the complete electronic response of the fill, so `plasma`, `raman`,
 `thg`, `preionisation` and the other ionisation settings must be left unset, or the call
-is refused naming them. `backend="auto"` resolves to `"numpy_ref"`, the only backend that
-runs a TDSE response; the run needs the adaptive `Multistep()` integrator and a single
+is refused naming them. `backend="auto"` resolves to `"native"`, as for every run: the
+native CPU build runs the TDSE response, and `backend="numpy_ref"` runs it too, while a
+native GPU build refuses it by name; the run needs the adaptive `Multistep()` integrator and a single
 scalar HE₁₁ mode. A TDSE run carries no shot noise by default: it is expensive, rarely
 repeated as a noise ensemble, and its checks are coherent. Input shot noise
 (`noise="input"`) can be asked for, with a warning; its draw is part of the
@@ -321,7 +322,7 @@ against an exact solution.
 - **The optical band** reaches 120 nm (SAE) or 90 nm (haCC) numerically; that is not a
   claim of validated ultraviolet accuracy.
 - **Scope.** Helium only, one scalar HE₁₁ mode on the uncoupled modal capillary route,
-  `numpy_ref` only (the native backend refuses it by name). Double ionisation, ionic
+  `numpy_ref` and the native CPU build (a native GPU build refuses it by name). Double ionisation, ionic
   channels beyond $n=2$, ion motion, collisions, recombination and space charge are
   omitted.
 - **Cost.** Each source evaluation is a full atomic calculation at every node: minutes
