@@ -60,19 +60,7 @@ _DONE: set[tuple[str, ...]] = set()
 
 
 def _notice(level: str, seconds: float, store: object, cores: int) -> None:
-    """Issue the first-use notice as a warning and a log record.
-
-    Parameters
-    ----------
-    level : str
-        The level about to run.
-    seconds : float
-        Its budget.
-    store : object
-        The store's directory.
-    cores : int
-        The allocation's cores.
-    """
+    """Issue the first-use notice as a warning and a log record."""
     message = (
         f"solprop is calibrating the native backend to this machine ({level}, about "
         f"{seconds:.0f} s on {cores} cores; once per machine, allocation and release). "
@@ -85,13 +73,7 @@ def _notice(level: str, seconds: float, store: object, cores: int) -> None:
 
 
 def _device_build() -> bool:
-    """Return whether the installed native build runs on a device (phase 6's).
-
-    Returns
-    -------
-    bool
-        Whether its build record names a device backend.
-    """
+    """Return whether the installed native build runs on a device (phase 6's)."""
     import json  # noqa: PLC0415
 
     for directory in _native.packages():
@@ -107,23 +89,7 @@ def _device_build() -> bool:
 
 
 def _wait_for(store: Store, digest: str, key: str) -> bool:
-    """Wait for another process on this host calibrating this class; say if one was.
-
-    Parameters
-    ----------
-    store : solprop_native._store.Store
-        The user's store.
-    digest : str
-        The machine and build's key.
-    key : str
-        The allocation class's key.
-
-    Returns
-    -------
-    bool
-        Whether a claim was held, here or elsewhere: then this process does not
-        calibrate.
-    """
+    """Wait for another process on this host calibrating this class; say if one was."""
     import socket  # noqa: PLC0415
 
     holder = store.holder(digest, key)
@@ -137,18 +103,7 @@ def _wait_for(store: Store, digest: str, key: str) -> bool:
 
 
 def _allowed(environ: Mapping[str, str]) -> bool:
-    """Return whether this process may measure implicitly.
-
-    Parameters
-    ----------
-    environ : Mapping[str, str]
-        The environment.
-
-    Returns
-    -------
-    bool
-        ``SOLPROP_CALIBRATION=auto``, not a scan's worker, and a CPU build.
-    """
+    """Return whether this process may measure implicitly."""
     return (
         _native.store.mode(environ) == "auto"
         and environ.get(ROLE) != "worker"
@@ -157,23 +112,7 @@ def _allowed(environ: Mapping[str, str]) -> bool:
 
 
 def _covered(found: Choice, allocation: AllocationClass, need: str) -> bool:
-    """Return whether the profile already has the row an allocation needs.
-
-    Parameters
-    ----------
-    found : solprop_native._profile.Choice
-        What the stores hold for this machine and build.
-    allocation : solprop_native._allocation.AllocationClass
-        The allocation's class.
-    need : str
-        ``"any"``: any row it takes, its own or a nearer one's; ``"standard"``: its own
-        at the standard or thorough level.
-
-    Returns
-    -------
-    bool
-        Whether nothing needs measuring.
-    """
+    """Return whether the profile already has the row an allocation needs."""
     from solprop.calibration.controller import ORDER  # noqa: PLC0415
 
     if need == "any" and found.found is not None:
@@ -193,21 +132,9 @@ def _calibrate(
 ) -> CalibrationReport | None:
     """Calibrate `cpus`' allocation at `level` unless a row it needs exists.
 
-    Parameters
-    ----------
-    level : str
-        ``"quick"`` or ``"standard"``.
-    cpus : sequence of int
-        The allocation's CPUs.
-    environ : Mapping[str, str]
-        The environment.
-    need : str
-        ``"any"`` or ``"standard"`` (:func:`_covered`).
-
-    Returns
-    -------
-    CalibrationReport or None
-        The report, or ``None`` when nothing was measured.
+    - ``level``: ``"quick"`` or ``"standard"``.
+    - ``need``: ``"any"`` or ``"standard"`` (:func:`_covered`).
+    - Returns: the report, or ``None`` when nothing was measured.
     """
     if len(cpus) < 2:
         # One CPU has no team, waiting or grain to choose: a single-threaded scan's

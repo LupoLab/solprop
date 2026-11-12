@@ -105,12 +105,7 @@ class RefinementReport:
 class _Windows:
     """One record's backend on the simulation, and its trial steps along it.
 
-    Parameters
-    ----------
-    simulation : solprop.driver.Simulation
-        The simulation.
-    record : Mapping[str, int or bool] or None
-        A native execution record, or ``None`` for the process's own.
+    - ``record``: a native execution record, or ``None`` for the process's own.
     """
 
     def __init__(
@@ -155,11 +150,6 @@ class _Windows:
 
         A low-storage march advances its state with each step, so it has no fields
         to compare and returns none.
-
-        Returns
-        -------
-        list of numpy.ndarray
-            One per window.
         """
         found: list[np.ndarray] = []
         for z in self.positions:
@@ -170,18 +160,7 @@ class _Windows:
         return found
 
     def time(self, repeats: int) -> float:
-        """Return the seconds per trial step over the windows, after a warm-up.
-
-        Parameters
-        ----------
-        repeats : int
-            Trial steps timed in each window.
-
-        Returns
-        -------
-        float
-            Seconds per step.
-        """
+        """Return the seconds per trial step over the windows, after a warm-up."""
         steps: list[Callable[[], object]] = (
             [self.probe.trial]
             if self.low_storage
@@ -268,21 +247,8 @@ def _candidates(
 ) -> list[grain.Candidate]:
     """Return the grain candidates that change this simulation's widths.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem, for its shape.
-    sizing : Mapping[str, object]
-        Its workspace's ``execution_sizing`` under the base record.
-    base : Mapping[str, int or bool]
-        The process's record.
-    threads : int
-        The pool's width.
-
-    Returns
-    -------
-    list of solprop.calibration.grain.Candidate
-        At most twelve.
+    - ``problem``: the translated problem, for its shape.
+    - ``sizing``: its workspace's ``execution_sizing`` under the base record.
     """
     shape = cast(tuple[int, ...], getattr(problem, "shape"))  # noqa: B009 - typed loosely
     operations = grain.operations(sizing)
@@ -302,22 +268,8 @@ def _rounds(
 ) -> dict[str, list[float | None]]:
     """Time interleaved rounds of every candidate's windows against the base's.
 
-    Parameters
-    ----------
-    base : _Windows
-        The process's record's windows.
-    windows : Mapping[str, _Windows]
-        Each candidate's.
-    repeats : int
-        Trial steps per window.
-    until : float
-        The monotonic time after which no round starts.
-
-    Returns
-    -------
-    dict of str to list
-        ``again``, the base's A/A ratio, and each candidate's ratio to the base, per
-        round.
+    - Returns: ``again``, the base's A/A ratio, and each candidate's ratio to the base,
+      per round.
     """
     generator = random.Random(5000)
     ratios: dict[str, list[float | None]] = {"again": []}
@@ -336,22 +288,7 @@ def _rounds(
 def _together(
     combined: _Windows, base: _Windows, repeats: int, noise: float
 ) -> selection.Validation:
-    """Validate the admitted settings together against the base on fresh rounds.
-
-    Parameters
-    ----------
-    combined, base : _Windows
-        The combination's windows and the base's.
-    repeats : int
-        Trial steps per window.
-    noise : float
-        The session's A/A noise.
-
-    Returns
-    -------
-    solprop.calibration.selection.Validation
-        The verdict.
-    """
+    """Validate the admitted settings together against the base on fresh rounds."""
     ratios: list[float | None] = []
     for index in range(ROUNDS):
         pair = [("combined", combined), ("base", base)]
@@ -371,24 +308,7 @@ def _refine(
 ) -> RefinementReport:
     """Carry out :func:`refine`; its report's seconds are set by the caller.
 
-    Parameters
-    ----------
-    simulation : solprop.driver.Simulation
-        The simulation.
-    budget : float
-        The deadline, in seconds.
-    progress : callable or None
-        Called with a line of text as each stage starts.
-
-    Returns
-    -------
-    RefinementReport
-        The report.
-
-    Raises
-    ------
-    CalibrationError
-        For a budget that is not positive, or a simulation not on the native backend.
+    - ``budget``: the deadline, in seconds.
     """
     if not budget > 0:
         raise CalibrationError(f"a refinement's budget must be positive, got {budget}")
