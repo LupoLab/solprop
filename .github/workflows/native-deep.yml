@@ -1,0 +1,204 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Native deep checks
+
+# Weekly, by hand, and on a pull request that changes this file: the native checks too
+# slow for every pull request. Each job reports (an artifact and the job summary) and
+# gates nothing.
+#
+# - coverage: Clang source coverage of the native code over the GoogleTest suite and
+#   the native pytest suite (SOLPROP_NATIVE_ENABLE_COVERAGE). Its uncovered lines are
+#   where to look for dead code.
+# - extension-asan: the extension itself built with ASan and UBSan and run under the
+#   native pytest suite, which exercises the nanobind bindings the gate's sanitizer
+#   stage (GoogleTest only) never reaches.
+# - include-cleaner: clang-tidy's misc-include-cleaner over the sources, as a report of
+#   missing and unused includes.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+  # A pull request that changes this workflow runs it, so that a change is seen to work
+  # before the next weekly run (dispatch needs the workflow on the default branch).
+  pull_request:
+    paths:
+      - .github/workflows/native-deep.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-deep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CC: clang-18
+      CXX: clang++-18
+      OMP_PROC_BIND: "false"
+      SOLPROP_NATIVE_THREADS: "2"
+      UV_NO_SYNC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install Clang, its OpenMP runtime and FFTW
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang-18 llvm-18 libomp-18-dev cmake libfftw3-dev ninja-build pkg-config
+      - run: uv python install 3.14
+      - run: uv sync --locked --no-install-package solprop-native
+      - name: Build the instrumented extension and native tests
+        # FFTW's pthreads library: Ubuntu's OpenMP FFTW links GNU OpenMP, and Clang's
+        # build runs LLVM's. No vendor BLAS (the reference profile).
+        # Report-only: a warning from this job's compiler, which no pull-request lane
+        # builds with, does not stop the report.
+        env:
+          CMAKE_ARGS: >-
+            -DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF
+            -DSOLPROP_NATIVE_ENABLE_COVERAGE=ON
+            -DSOLPROP_NATIVE_PROFILE=REFERENCE
+            -DSOLPROP_NATIVE_FFTW_THREADING=PTHREADS
+            -DBUILD_TESTING=ON
+        run: |
+          uv pip install --no-deps --no-build-isolation -e native \
+            --config-settings build-dir=build/coverage
+      - name: GoogleTest suite
+        continue-on-error: true
+        env:
+          LLVM_PROFILE_FILE: ${{ github.workspace }}/profiles/gtest-%p-%m.profraw
+        run: native/build/coverage/solprop_native_tests
+      - name: Native pytest suite
+        continue-on-error: true
+        working-directory: native
+        env:
+          LLVM_PROFILE_FILE: ${{ github.workspace }}/profiles/pytest-%p-%m.profraw
+        run: uv run pytest -n 2 -p no:cacheprovider
+      - name: Report
+        if: always()
+        run: |
+          extension=$(uv run python -c "import solprop_native._core as m; print(m.__file__)")
+          llvm-profdata-18 merge -sparse profiles/*.profraw -o coverage.profdata
+          objects=("$extension" -object native/build/coverage/solprop_native_tests)
+          sources=(native/src native/include/solprop_native)
+          mkdir -p native-coverage
+          llvm-cov-18 report "${objects[@]}" -instr-profile coverage.profdata "${sources[@]}" \
+            | tee native-coverage/report.txt
+          llvm-cov-18 show "${objects[@]}" -instr-profile coverage.profdata "${sources[@]}" \
+            -format=html -show-line-counts-or-regions -output-dir native-coverage/html
+          { echo '## Native source coverage'; echo '```'; tail -n 40 native-coverage/report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-coverage
+          path: native-coverage
+          retention-days: 30
+
+  extension-asan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CXX: g++-14
+      OMP_PROC_BIND: "false"
+      SOLPROP_NATIVE_THREADS: "2"
+      UV_NO_SYNC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
+      - run: uv python install 3.14
+      - run: uv sync --locked --no-install-package solprop-native
+      - name: Build the extension with ASan, UBSan and Kokkos bounds checks
+        env:
+          CMAKE_ARGS: >-
+            -DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF
+            -DSOLPROP_NATIVE_ENABLE_SANITIZERS=ON
+            -DSOLPROP_NATIVE_PROFILE=REFERENCE
+            -DKokkos_ENABLE_DEBUG_BOUNDS_CHECK=ON
+        run: |
+          uv pip install --no-deps --no-build-isolation -e native \
+            --config-settings build-dir=build/asan \
+            --config-settings cmake.build-type=RelWithDebInfo
+      - name: Native pytest suite under the sanitizers
+        working-directory: native
+        # Python is not instrumented, so the ASan runtime is preloaded, with libstdc++
+        # beside it: ASan resolves __cxa_throw when it starts, and Python loads no C++
+        # runtime of its own, so without it every C++ exception aborts. CPython's own
+        # allocations at exit are not leaks of this package. setarch -R: Ubuntu's
+        # high-entropy ASLR can map a library inside ASan's shadow range. Report-only:
+        # the summary records the outcome and the log is the artifact.
+        run: |
+          set -o pipefail
+          export LD_PRELOAD="$(g++-14 -print-file-name=libasan.so):$(g++-14 -print-file-name=libstdc++.so)"
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          status=0
+          setarch "$(uname -m)" -R uv run pytest -n 2 -p no:cacheprovider 2>&1 | tee ../asan.log || status=$?
+          { echo '## Native pytest under ASan and UBSan'; echo "exit status ${status}"; echo '```'
+            grep -E 'ERROR: AddressSanitizer|runtime error|^FAILED|passed|failed' ../asan.log | tail -n 40
+            echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-extension-asan
+          path: asan.log
+          retention-days: 30
+
+  include-cleaner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
+      - run: uv python install 3.14
+      - run: uv sync --locked --no-install-package solprop-native
+      - name: Configure the cpu-tidy preset (compile commands and generated headers)
+        working-directory: native
+        run: |
+          cmake --preset cpu-tidy -DCMAKE_CXX_COMPILER="$(command -v g++-14)" \
+            -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
+          # SLEEF's header comes from its own build.
+          cmake --build --preset cpu-tidy --target solprop_native_sleef_build
+      - name: misc-include-cleaner
+        run: |
+          build=native/build/presets/cpu-tidy
+          # The pinned clang-tidy and the arguments the build gives it.
+          mapfile -t tidy < "$build/clang_tidy_command.txt"
+          git ls-files -z -- 'native/src/*.cpp' 'native/tests/native/*.cpp' |
+            xargs -0 -n 1 -P "$(nproc)" "${tidy[@]}" --quiet -p "$build" \
+              --checks='-*,misc-include-cleaner' --warnings-as-errors='' \
+              > include-cleaner.txt 2>&1 || true
+          findings=$(grep -c 'misc-include-cleaner' include-cleaner.txt || true)
+          echo "## misc-include-cleaner: ${findings} findings" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-include-cleaner
+          path: include-cleaner.txt
+          retention-days: 30

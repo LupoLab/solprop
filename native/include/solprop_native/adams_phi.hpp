@@ -81,7 +81,7 @@ adams_phi_fixed(const Complex x, const double magnitude, const Complex exp_x,
   // 1/n for the series' divisors m + order, the doubles the division rounds to.
   static_assert(adams_series_terms + 2 * adams_max_samples <= 40);
   constexpr double inverse_divisor[40] = {
-      0.0,        1.0 / 1.0,  1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,
+      0.0,        1.0,        1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,
       1.0 / 6.0,  1.0 / 7.0,  1.0 / 8.0,  1.0 / 9.0,  1.0 / 10.0, 1.0 / 11.0,
       1.0 / 12.0, 1.0 / 13.0, 1.0 / 14.0, 1.0 / 15.0, 1.0 / 16.0, 1.0 / 17.0,
       1.0 / 18.0, 1.0 / 19.0, 1.0 / 20.0, 1.0 / 21.0, 1.0 / 22.0, 1.0 / 23.0,
@@ -168,7 +168,7 @@ inline constexpr double adams_lane_reciprocal[adams_max_samples + 2] = {
     1.0 / 120.0, 1.0 / 720.0, 1.0 / 5040.0, 1.0 / 40320.0, 1.0 / 362880.0};
 inline constexpr double adams_lane_inverse_divisor[adams_series_terms +
                                                    adams_max_samples + 1] = {
-    0.0,        1.0 / 1.0,  1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,  1.0 / 6.0,
+    0.0,        1.0,        1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,  1.0 / 6.0,
     1.0 / 7.0,  1.0 / 8.0,  1.0 / 9.0,  1.0 / 10.0, 1.0 / 11.0, 1.0 / 12.0, 1.0 / 13.0,
     1.0 / 14.0, 1.0 / 15.0, 1.0 / 16.0, 1.0 / 17.0, 1.0 / 18.0, 1.0 / 19.0, 1.0 / 20.0,
     1.0 / 21.0, 1.0 / 22.0, 1.0 / 23.0, 1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0,
@@ -223,6 +223,9 @@ struct AdamsLanes {
   double dr[B], di[B];
   double defect[3][B];
 };
+// The lane passes spell their branches as signed 64-bit masks and bitwise selections,
+// the form every x86-64 target vectorises.
+// NOLINTBEGIN(bugprone-signed-bitwise, readability-implicit-bool-conversion): lane masks
 
 // The moments' argument and its branch, halvings and series argument, as
 // `adams_moment_argument`, `adams_phi` and `adams_phi_argument` form them, with the
@@ -257,13 +260,10 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     const double square = rr + ii;
     const std::int64_t zero = static_cast<std::int64_t>(lanes.ar[b] == 0.0) &
                               static_cast<std::int64_t>(lanes.ai[b] == 0.0);
-    const std::int64_t large = static_cast<std::int64_t>(std::isgreater(square, 9.0));
-    const std::int64_t above_quarter =
-        static_cast<std::int64_t>(std::isgreater(square, 0.25));
-    const std::int64_t above_one =
-        static_cast<std::int64_t>(std::isgreater(square, 1.0));
-    const std::int64_t above_four =
-        static_cast<std::int64_t>(std::isgreater(square, 4.0));
+    const auto large = static_cast<std::int64_t>(std::isgreater(square, 9.0));
+    const auto above_quarter = static_cast<std::int64_t>(std::isgreater(square, 0.25));
+    const auto above_one = static_cast<std::int64_t>(std::isgreater(square, 1.0));
+    const auto above_four = static_cast<std::int64_t>(std::isgreater(square, 4.0));
     const std::int64_t uncertain =
         static_cast<std::int64_t>(!std::islessequal(square, finite)) |
         static_cast<std::int64_t>(
@@ -279,7 +279,7 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     // zero 0, large 1, series 2, and 2^-squarings, each factor exact; spelt as
     // arithmetic and selections of bits, which every x86-64 target vectorises.
     const std::int64_t branch = (1 - zero) * (2 - large);
-    const std::int64_t series = static_cast<std::int64_t>(branch == adams_lane_series);
+    const auto series = static_cast<std::int64_t>(branch == adams_lane_series);
     lanes.branch[b] = branch;
     lanes.squarings[b] = series * (above_quarter + above_one + above_four);
     scale[b] = adams_lane_select(above_quarter != 0, 0.5, 1.0) *
@@ -329,7 +329,10 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   constexpr double stop = quarter_ulp * quarter_ulp;
   // The series: every lane takes its terms until its own stopping test holds; a lane
   // that has stopped keeps its sum and carries a zero term.
-  double term_r[B], term_i[B], sum_r[B], sum_i[B];
+  double term_r[B];
+  double term_i[B];
+  double sum_r[B];
+  double sum_i[B];
   std::int64_t live[B];
   const double first = adams_lane_reciprocal[order];
   for (std::size_t b = 0; b < count; ++b) {
@@ -412,7 +415,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     double half = 1.0; // 2^-k, exact
     for (std::size_t k = 1; k <= order; ++k) {
       half *= 0.5;
-      double total_r[B], total_i[B];
+      double total_r[B];
+      double total_i[B];
       for (std::size_t b = 0; b < count; ++b) {
         const double rr = lanes.qr[0][b] * lanes.qr[k][b];
         const double ii = lanes.qi[0][b] * lanes.qi[k][b];
@@ -440,7 +444,10 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   // Large arguments: phi_k = (phi_{k-1} - 1/(k-1)!) / x, the inverse by
   // `strict_divide`'s scaled algorithm.
   if (lanes.any_large) {
-    double inverse_r[B], inverse_i[B], last_r[B], last_i[B];
+    double inverse_r[B];
+    double inverse_i[B];
+    double last_r[B];
+    double last_i[B];
     for (std::size_t b = 0; b < count; ++b) {
       const double s = Kokkos::fabs(lanes.ar[b]) + Kokkos::fabs(lanes.ai[b]);
       const double numerator_r = 1.0 / s;
@@ -488,6 +495,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     }
   }
 }
+// NOLINTEND(bugprone-signed-bitwise, readability-implicit-bool-conversion)
+
 // e^argument for the large branch into `gr`/`gi`: the flow `fr`/`fi`, or under a
 // carrier frame the flow times exp(-sigma), as `adams_moment_phi` forms it. Strict.
 SOLPROP_NATIVE_STRICT_FUNCTION

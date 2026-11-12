@@ -71,7 +71,7 @@ def emit(kind: str, **values: object) -> None:
     print(canonical({"event": kind, **values}), flush=True)
 
 
-HOST_SPACES = ("OpenMP", "Threads", "Serial")
+HOST_SPACES = ("OpenMP", "Serial")
 """Kokkos execution spaces of a native CPU build; any other is an accelerator's."""
 
 

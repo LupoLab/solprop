@@ -248,10 +248,10 @@ void bind_transverse(nb::module_& module_) {
           "launch",
           [](transverse::Edge& self, const nb::dict reading, const double z,
              const std::optional<std::pair<double, double>> sums,
-             const std::optional<nb::dict> noise) {
+             const std::optional<nb::dict>& noise) {
             std::optional<transverse::LaunchSums> held;
             if (sums)
-              held = transverse::LaunchSums{sums->first, sums->second};
+              held = transverse::LaunchSums{.total = sums->first, .ramp = sums->second};
             std::optional<transverse::Noise> carried;
             if (noise)
               carried = transverse_noise_from(*noise);
@@ -266,7 +266,7 @@ void bind_transverse(nb::module_& module_) {
              const std::optional<std::pair<double, double>> sums) {
             std::optional<transverse::ReadSums> held;
             if (sums)
-              held = transverse::ReadSums{sums->first, sums->second};
+              held = transverse::ReadSums{.raw = sums->first, .noise = sums->second};
             return transverse_notice_to(
                 self.read(reading_from(reading), z, held ? &*held : nullptr));
           },

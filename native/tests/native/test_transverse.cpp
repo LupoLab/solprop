@@ -11,13 +11,13 @@
 
 #include "solprop_native/transverse.hpp"
 
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace transverse = solprop_native::transverse;

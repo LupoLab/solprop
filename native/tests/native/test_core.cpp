@@ -2,15 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bounds.hpp"
+#include "execution.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/gemm.hpp"
 #include "solprop_native/plasma.hpp"
 
-#include "bounds.hpp"
-#include "execution.hpp"
-
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -26,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-#if defined(KOKKOS_ENABLE_OPENMP)
+#ifdef KOKKOS_ENABLE_OPENMP
 #include <omp.h>
 #endif
 
@@ -95,7 +93,7 @@ std::vector<double> real_time(const std::vector<Complex>& spectrum,
 native::Problem base_problem(const native::FieldFamily family) {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = family == native::FieldFamily::envelope ? 4 : 4;
+  problem.n_t = 4;
   problem.n_to = family == native::FieldFamily::envelope ? 4 : 8;
   problem.n_omega = family == native::FieldFamily::envelope ? 4 : 3;
   problem.n_stages = 1;
@@ -132,21 +130,23 @@ native::Problem base_problem(const native::FieldFamily family) {
 
 native::TrialScalars trial(const native::Problem& problem, const double taper = 1.0) {
   return {
-      std::vector<double>((problem.n_stages + 1) * problem.n_phi_terms, 0.0),
-      std::vector<double>(problem.n_stages * problem.n_phi_terms, 0.0),
-      std::vector<double>(problem.n_stages * problem.n_prefactor_terms, 1.0),
-      std::vector<double>(problem.n_stages, 1.0),
-      std::vector<double>(problem.n_stages, taper),
-      {},
-      std::vector<double>(problem.n_stages * problem.n_raman_terms, 0.0),
-      {},
-      {},
-      {},
-      {},
-      0,
-      {},
-      {},
-      {},
+      .phi_delta =
+          std::vector<double>((problem.n_stages + 1) * problem.n_phi_terms, 0.0),
+      .phi_at = std::vector<double>(problem.n_stages * problem.n_phi_terms, 0.0),
+      .prefactor =
+          std::vector<double>(problem.n_stages * problem.n_prefactor_terms, 1.0),
+      .density = std::vector<double>(problem.n_stages, 1.0),
+      .taper = std::vector<double>(problem.n_stages, taper),
+      .preionisation = {},
+      .raman_rates = std::vector<double>(problem.n_stages * problem.n_raman_terms, 0.0),
+      .kerr_density = {},
+      .plasma_densities = {},
+      .plasma_preionisation = {},
+      .raman_densities = {},
+      .flow_section = 0,
+      .flow_weights = {},
+      .transform_weights = {},
+      .dispersive_densities = {},
   };
 }
 
@@ -944,14 +944,15 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   problem.field_min = 1e6;
   problem.field_max = 1e7;
   problem.log_field_min = std::log(problem.field_min);
-  problem.d_log_field = std::log(10.0);
+  problem.d_log_field = std::numbers::ln10;
   constexpr double population = 0.25;
   // The unit mode at bin one produces E_n = 2*synthesis/N*cos(n theta).
   // The exact finite trapezoid sum of cos is dt*cot(theta/2)*sin(n theta)/2.
   const double amplitude = 2.0 * problem.synthesis / static_cast<double>(problem.n_to);
   const double current_scale = population * problem.charge_mass_ratio * amplitude *
                                problem.dt_fine / (2.0 * std::tan(theta / 2.0));
-  std::vector<Complex> product(problem.n_to), edge(problem.n_to);
+  std::vector<Complex> product(problem.n_to);
+  std::vector<Complex> edge(problem.n_to);
   double operand = 0.0;
   for (std::size_t time = 0; time < problem.n_to; ++time) {
     const double angle = theta * static_cast<double>(time);
@@ -969,7 +970,8 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   const double tolerance =
       512.0 * static_cast<double>(problem.n_to) * kEpsilon * operand;
   ASSERT_GT(tolerance, 0.0);
-  const auto x = dft(product), z = dft(edge);
+  const auto x = dft(product);
+  const auto z = dft(edge);
   native::GeneralState state(problem);
   auto scalars = trial(problem);
   scalars.preionisation = {population};
@@ -1374,7 +1376,6 @@ TEST(Gemm, EngineSelectsTheNativeOrderKernelWithoutAVendorBlas) {
 
 TEST(GeneralState, ProviderPolicyAndLifecycleAreIntrospectable) {
   native::GeneralState state(multimode_problem());
-  const auto compiled = native::compiled_gemm_provider();
   // A host build's hybrid policy sends every eligible transform to the vendor GEMM; a
   // device build keeps its shape guard, which this two-node problem is below.
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -1382,11 +1383,9 @@ TEST(GeneralState, ProviderPolicyAndLifecycleAreIntrospectable) {
 #else
   constexpr bool hybrid_vendor = true;
 #endif
-  const auto expected =
-      compiled == native::GemmProvider::custom ||
-              (compiled == native::GemmProvider::hybrid && !hybrid_vendor)
-          ? std::string("custom")
-          : std::string(native::selected_blas_provider_name());
+  const auto expected = hybrid_vendor
+                            ? std::string(native::selected_blas_provider_name())
+                            : std::string("custom");
   EXPECT_EQ(state.synthesis_provider(), expected);
   EXPECT_EQ(state.projection_provider(), expected);
   EXPECT_NE(state.gemm_shape_policy().find("every whole transform on the host"),
@@ -1410,6 +1409,10 @@ struct SynthesisCapture {
         [](const char* name) { synthesis_regions.emplace_back(name); });
   }
   ~SynthesisCapture() { Kokkos::Tools::Experimental::set_callbacks(previous); }
+  SynthesisCapture(const SynthesisCapture&) = delete;
+  SynthesisCapture& operator=(const SynthesisCapture&) = delete;
+  SynthesisCapture(SynthesisCapture&&) = delete;
+  SynthesisCapture& operator=(SynthesisCapture&&) = delete;
 };
 
 // Five nodes and modes in chunks of three, the tail two. The square map takes the
@@ -1464,12 +1467,10 @@ void check_radial_analytic_chunks(const bool absorber, const char* expected_regi
       std::count(synthesis_regions.begin(), synthesis_regions.end(), expected_region);
   const auto custom = std::count(synthesis_regions.begin(), synthesis_regions.end(),
                                  "solprop_native.transform.synthesis.custom");
-  const bool uses_blas =
-      native::compiled_gemm_provider() != native::GemmProvider::custom;
-  EXPECT_EQ(selected, uses_blas ? 2 : 0);
-  EXPECT_EQ(custom, uses_blas ? 0 : 2);
+  EXPECT_EQ(selected, 2);
+  EXPECT_EQ(custom, 0);
   // Only the absorber-free map keeps the retained spectra.
-  EXPECT_EQ(ledger.at("retained_synthesis") > 0, uses_blas && !absorber);
+  EXPECT_EQ(ledger.at("retained_synthesis") > 0, !absorber);
   chunked.finish(0.01);
   const auto actual = chunked.field_to_host();
   // Both computations have one inverse/forward FFT and two length-five products;
@@ -1507,38 +1508,33 @@ TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
 
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
-  const auto provider = native::compiled_gemm_provider();
-  const auto expected = provider == native::GemmProvider::custom
-                            ? 0U
-                            : (3U + 2U) * problem.n_modes * 3U * sizeof(double);
-  EXPECT_EQ(ledger.at("chunk_transform_buffers"), expected);
+  EXPECT_EQ(ledger.at("chunk_transform_buffers"),
+            (3U + 2U) * problem.n_modes * 3U * sizeof(double));
 
-  if (provider != native::GemmProvider::custom) {
-    auto whole_problem = problem;
-    whole_problem.node_chunk = whole_problem.n_nodes;
-    const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
-                                       {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
-    native::GeneralState whole(whole_problem);
-    whole.set_initial(initial, {});
-    static_cast<void>(whole.trial_step(0.01, trial(whole_problem)));
-    whole.finish(0.01);
-    state.set_initial(initial, {});
-    static_cast<void>(state.trial_step(0.01, trial(problem)));
-    state.finish(0.01);
-    const auto reference = whole.field_to_host();
-    const auto chunked = state.field_to_host();
-    const auto dot_length = static_cast<double>(problem.n_nodes);
-    const double dot_gamma = dot_length * kEpsilon / (1.0 - dot_length * kEpsilon);
-    const double tolerance =
-        512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.n_to))) +
-        4.0 * dot_gamma;
-    for (std::size_t index = 0; index < chunked.size(); ++index)
-      expect_complex_near(chunked[index], reference[index],
-                          tolerance * std::max(1.0, Kokkos::abs(reference[index])));
-  }
+  auto whole_problem = problem;
+  whole_problem.node_chunk = whole_problem.n_nodes;
+  const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
+                                     {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
+  native::GeneralState whole(whole_problem);
+  whole.set_initial(initial, {});
+  static_cast<void>(whole.trial_step(0.01, trial(whole_problem)));
+  whole.finish(0.01);
+  state.set_initial(initial, {});
+  static_cast<void>(state.trial_step(0.01, trial(problem)));
+  state.finish(0.01);
+  const auto reference = whole.field_to_host();
+  const auto chunked = state.field_to_host();
+  const auto dot_length = static_cast<double>(problem.n_nodes);
+  const double dot_gamma = dot_length * kEpsilon / (1.0 - dot_length * kEpsilon);
+  const double tolerance =
+      512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.n_to))) +
+      4.0 * dot_gamma;
+  for (std::size_t index = 0; index < chunked.size(); ++index)
+    expect_complex_near(chunked[index], reference[index],
+                        tolerance * std::max(1.0, Kokkos::abs(reference[index])));
 }
 
-#if defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS)
+#ifdef SOLPROP_NATIVE_TPL_BLAS_OPENBLAS
 TEST(GeneralState, OpenBlasEnvelopePolicyAllocatesAndExecutesComplexTransforms) {
   auto problem = multimode_problem(8);
   problem.family = native::FieldFamily::envelope;
@@ -1649,10 +1645,11 @@ PlanarElement planar_element(const native::Problem& problem, const std::size_t c
   const double attenuation =
       propagating ? root.imag()
                   : std::min(std::abs(root.imag()), problem.spatial_evanescent_rate);
-  return {Complex(-attenuation, -(root.real() - problem.spatial_frame[omega])) -
+  return {.linear =
+              Complex(-attenuation, -(root.real() - problem.spatial_frame[omega])) -
               0.5 * problem.spatial_spectral_rate[omega],
-          propagating ? problem.spatial_numerator[omega] / root.real()
-                      : problem.spatial_clamped[omega]};
+          .prefactor = propagating ? problem.spatial_numerator[omega] / root.real()
+                                   : problem.spatial_clamped[omega]};
 }
 
 // The stage straight from the definitions: the inverse DFT in y, each row's real time
@@ -1660,7 +1657,9 @@ PlanarElement planar_element(const native::Problem& problem, const std::size_t c
 // and each column's prefactor.
 std::vector<Complex> planar_reference(const native::Problem& problem,
                                       const std::vector<Complex>& columns) {
-  const auto n_p = problem.n_p, n_x = problem.n_x, n_y = problem.n_y;
+  const auto n_p = problem.n_p;
+  const auto n_x = problem.n_x;
+  const auto n_y = problem.n_y;
   const auto n = problem.n_omega;
   std::vector<std::vector<double>> rows(n_p * n_y);
   for (std::size_t iy = 0; iy < n_y; ++iy)
@@ -1848,7 +1847,7 @@ std::vector<double> filter_tolerance(const std::vector<double>& row,
              std::abs(row[static_cast<std::size_t>(2 * last - index)]);
     return std::abs(row[static_cast<std::size_t>(index)]);
   };
-  const double operations = static_cast<double>(2 * half + 3);
+  const auto operations = static_cast<double>(2 * half + 3);
   const double gamma = operations * kEpsilon / (1.0 - operations * kEpsilon);
   std::vector<double> tolerance(row.size());
   for (std::ptrdiff_t index = 0; index < samples; ++index) {
@@ -1890,7 +1889,8 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, filtered);
   const auto host_prefixes =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, prefixes);
-  std::vector<double> filtered_values(rows * samples), prefix_values(rows * samples);
+  std::vector<double> filtered_values(rows * samples);
+  std::vector<double> prefix_values(rows * samples);
   for (std::size_t row = 0; row < rows; ++row)
     for (std::size_t sample = 0; sample < samples; ++sample) {
       filtered_values[row * samples + sample] = host_filtered(row, sample);
@@ -2311,8 +2311,11 @@ WindowedScan windowed_band_scan(const std::vector<double>& row,
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, windowed);
   const auto host_totals =
       Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, totals);
-  WindowedScan result{std::vector<double>(samples), std::vector<double>(samples),
-                      std::vector<double>(samples), window, host_totals(0)};
+  WindowedScan result{.filtered = std::vector<double>(samples),
+                      .whole = std::vector<double>(samples),
+                      .windowed = std::vector<double>(samples),
+                      .window = window,
+                      .total = host_totals(0)};
   for (std::size_t i = 0; i < samples; ++i) {
     result.filtered[i] = host_filtered(0, i);
     result.whole[i] = host_whole(0, i);
@@ -2554,7 +2557,8 @@ std::vector<Complex> low_storage_reference(const native::Problem& problem,
       result[element] = base[element] + weight * slope[element];
     return result;
   };
-  std::vector<Complex> picture(size), g1(size);
+  std::vector<Complex> picture(size);
+  std::vector<Complex> g1(size);
   const auto f1 = multimode_reference(problem, state);
   for (std::size_t element = 0; element < size; ++element) {
     picture[element] = flow[element] * state[element];
@@ -2757,7 +2761,8 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
       native::test::table()[native::CpuOperation::modal].threshold,
       native::test::table()[native::CpuOperation::adams].full};
   for (const int cap : {1, 2, 3, 8, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap};
+    native::ThreadPolicy policy{
+        .kernels = cap, .fft = cap, .raman_fft = cap, .raman_tail_fft = cap};
     for (std::size_t index = 0; index < operations.size(); ++index) {
       const auto width = [&](const std::size_t elements) {
         return native::operation_threads(policy, native::test::table(),
@@ -2786,7 +2791,8 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
 }
 
 TEST(CpuThreadPolicy, ShortCopiesDoNotInheritTheStageWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   EXPECT_EQ(native::operation_threads(policy, native::test::table(),
                                       native::CpuPool::kernels,
                                       native::CpuOperation::copy, 8192),
@@ -2807,10 +2813,11 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
   // stage of 8004 elements and coarse FFT batch of 32000 samples take the widths of
   // 8196 and 32768, rather than falling to one thread just under a power-of-two
   // boundary. macOS keeps the earlier boundaries, where the serial ones are faster.
-#if defined(__APPLE__)
+#ifdef __APPLE__
   GTEST_SKIP() << "macOS keeps the 8192/32768 boundaries";
 #endif
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   const auto width = [&](const native::CpuOperation operation, const std::size_t n) {
     return native::operation_threads(policy, native::test::table(),
                                      native::CpuPool::kernels, operation, n);
@@ -2823,11 +2830,15 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
 }
 
 TEST(CpuThreadPolicy, CoupledMatrixWindowRetainsFullWidth) {
-  native::ThreadPolicy policy{72, 72, 72, 72, -1};
+  native::ThreadPolicy policy{.kernels = 72,
+                              .fft = 72,
+                              .raman_fft = 72,
+                              .raman_tail_fft = 72,
+                              .band_tiles = -1};
   // Active bins * modes^3 in the measured three-mode wall, independent of runtime.
-  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
-                                      native::CpuPool::kernels,
-                                      native::CpuOperation::flow, 1433 * 3 * 3 * 3),
+  EXPECT_EQ(native::operation_threads(
+                policy, native::test::table(), native::CpuPool::kernels,
+                native::CpuOperation::flow, std::size_t{1433} * 3 * 3 * 3),
             72);
 }
 
@@ -2835,7 +2846,8 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
   using native::CpuOperation;
   using native::CpuPool;
   for (const int cap : {1, 3, 18, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap};
+    native::ThreadPolicy policy{
+        .kernels = cap, .fft = cap, .raman_fft = cap, .raman_tail_fft = cap};
     const auto width = [&](const std::size_t rows, const std::size_t samples) {
       return native::operation_threads(policy, native::test::table(), CpuPool::kernels,
                                        CpuOperation::response, rows * samples, samples);
@@ -2871,7 +2883,8 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
 TEST(CpuThreadPolicy, ExplicitPoolsBypassSizingIndependently) {
   using native::CpuOperation;
   using native::CpuPool;
-  native::ThreadPolicy policy{7, 6, 5, 4};
+  native::ThreadPolicy policy{
+      .kernels = 7, .fft = 6, .raman_fft = 5, .raman_tail_fft = 4};
   const std::array pools{CpuPool::kernels, CpuPool::fft, CpuPool::raman_fft,
                          CpuPool::raman_tail_fft};
   for (unsigned requested = 0; requested < pools.size(); ++requested) {
@@ -2899,7 +2912,8 @@ TEST(CpuThreadPolicy, ExplicitPoolsBypassSizingIndependently) {
 }
 
 TEST(CpuThreadPolicy, GeneralModalTransformsKeepTheirMeasuredWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18};
+  native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   for (const std::size_t elements : {98496U, 209304U}) {
     EXPECT_EQ(native::operation_threads(policy, native::test::table(),
                                         native::CpuPool::kernels,
@@ -2930,7 +2944,7 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
 }
 
 TEST(CpuThreadPolicy, ACompactTeamScopeHoldsAnOpenMpBlasAtOneThread) {
-#if !defined(KOKKOS_ENABLE_OPENMP)
+#ifndef KOKKOS_ENABLE_OPENMP
   GTEST_SKIP() << "the hold is an OpenMP build's";
 #else
   const int before = omp_get_max_threads();
@@ -3004,12 +3018,13 @@ TEST(CpuThreadPolicy, TransformBatchesThreadByRowsAndRowLength) {
   if (!native::cpu_size_policy_enabled)
     GTEST_SKIP() << "needs automatic per-operation sizing";
   native::CpuExecution execution = native::test::table();
-  execution.grain[static_cast<std::size_t>(native::CpuOperation::fft)] = {8192,
-                                                                          1U << 22};
+  execution.grain[static_cast<std::size_t>(native::CpuOperation::fft)] = {
+      .threshold = 8192, .full = 1U << 22};
   execution.fft_thread_elements = 4096;
   execution.fft_long_row = 16384;
   execution.medium_threads = 4;
-  const native::ThreadPolicy policy{18, 18, 18, 18};
+  const native::ThreadPolicy policy{
+      .kernels = 18, .fft = 18, .raman_fft = 18, .raman_tail_fft = 18};
   const auto threads = [&](const std::size_t rows, const std::size_t length) {
     return native::operation_threads(policy, execution, native::CpuPool::fft,
                                      native::CpuOperation::fft, rows * length, length);

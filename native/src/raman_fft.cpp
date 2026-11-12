@@ -4,8 +4,6 @@
 
 #include "solprop_native/raman_fft.hpp"
 
-#include <Accelerate/Accelerate.h>
-
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -14,6 +12,8 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+
+#include <Accelerate/Accelerate.h>
 
 namespace solprop_native {
 
@@ -52,8 +52,8 @@ struct AccelerateRamanPlan::Implementation {
     const auto last = plan.rows * (task + 1) / plan.task_count;
     auto* input = plan.source + static_cast<vDSP_Stride>(first) * plan.source_stride;
     auto* output = plan.target + static_cast<vDSP_Stride>(first) * plan.target_stride;
-    DSPDoubleSplitComplex source_split{input, input + 1};
-    DSPDoubleSplitComplex target_split{output, output + 1};
+    DSPDoubleSplitComplex source_split{.realp = input, .imagp = input + 1};
+    DSPDoubleSplitComplex target_split{.realp = output, .imagp = output + 1};
     const auto log_length = static_cast<vDSP_Length>(std::countr_zero(plan.samples));
     if (plan.forward) {
       vDSP_fftm_zropD(plan.setups[task].get(), &source_split, 2, plan.source_stride,

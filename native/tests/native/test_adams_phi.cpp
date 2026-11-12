@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <vector>
 
@@ -92,7 +93,7 @@ void add_threshold(std::vector<Complex>& out, const double t) {
   for (const double r : {std::nextafter(t, 0.0), t, std::nextafter(t, infinity)}) {
     out.emplace_back(r, 0.0);
     out.emplace_back(0.0, -r);
-    const double d = r / std::sqrt(2.0);
+    const double d = r / std::numbers::sqrt2;
     for (const double e : {std::nextafter(d, 0.0), d, std::nextafter(d, infinity)})
       out.emplace_back(-e, e);
   }
@@ -143,6 +144,7 @@ TEST(AdamsPhiLanes, EdgeArgumentsAreTheScalarFormsBits) {
 TEST(AdamsPhiLanes, EachLaneIsItsOwnWhateverItsNeighbours) {
   // Mixed blocks of every length: small, series, near-threshold and large arguments
   // side by side, so that lanes stop their series, square and branch apart.
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
   std::mt19937_64 generator(20261029);
   std::uniform_real_distribution<double> phase(-3.2, 3.2);
   std::uniform_real_distribution<double> exponent(-12.0, 1.2);

@@ -15,7 +15,7 @@ namespace solprop_native::test {
 
 inline CpuExecution make_table() {
   CpuExecution table;
-#if defined(__APPLE__)
+#ifdef __APPLE__
   constexpr std::size_t stage = 8192;
   constexpr std::size_t fft = 32768;
   constexpr std::size_t fft_thread = 32768;
@@ -30,7 +30,8 @@ inline CpuExecution make_table() {
 #endif
   const auto set = [&](CpuOperation operation, std::size_t threshold,
                        std::size_t full) {
-    table.grain[static_cast<std::size_t>(operation)] = {threshold, full};
+    table.grain[static_cast<std::size_t>(operation)] = {.threshold = threshold,
+                                                        .full = full};
   };
   set(CpuOperation::stage, stage, stage);
   set(CpuOperation::response, 32768, 196608);

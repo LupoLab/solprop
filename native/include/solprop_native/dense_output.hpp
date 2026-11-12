@@ -4,14 +4,14 @@
 
 #pragma once
 
-#include <array>
-#include <cstddef>
-#include <vector>
-
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/dense.hpp"
 #include "solprop_native/stage_tables.hpp"
+
+#include <array>
+#include <cstddef>
+#include <vector>
 
 /*
  * The native session's dense output over the resident state (solprop SEP 47 section

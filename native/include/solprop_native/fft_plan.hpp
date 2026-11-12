@@ -4,19 +4,21 @@
 
 #pragma once
 
-#include <KokkosFFT.hpp>
-#include <memory>
-
 #include "solprop_native/core.hpp"
 
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+#include <KokkosFFT.hpp>
+
 #include <algorithm>
+#include <memory>
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+#include <fftw3.h>
+
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <fftw3.h>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -140,14 +142,13 @@ inline bool adds_wisdom(const std::string& planned, const std::string& stored) {
       found.emplace_back(text.data() + first, last - first);
       first = last + 1;
     }
-    std::sort(found.begin(), found.end());
+    std::ranges::sort(found);
     return found;
   };
   const auto had = lines(stored);
-  for (const auto line : lines(planned))
-    if (!std::binary_search(had.begin(), had.end(), line))
-      return true;
-  return false;
+  return std::ranges::any_of(lines(planned), [&had](const auto line) {
+    return !std::ranges::binary_search(had, line);
+  });
 }
 
 // Merge `text` beneath the process's wisdom: where both hold an entry, the process's
@@ -398,7 +399,7 @@ inline std::vector<std::string> split_key(const std::string& text, const char by
   return parts;
 }
 
-inline double median_execution(const fftw_plan plan) {
+inline double median_execution(fftw_plan plan) {
   using Clock = std::chrono::steady_clock;
   fftw_execute(plan);
   const auto first = Clock::now();
@@ -412,7 +413,7 @@ inline double median_execution(const fftw_plan plan) {
       fftw_execute(plan);
     batch = std::chrono::duration<double>(Clock::now() - start).count() / repeats;
   }
-  std::sort(batches.begin(), batches.end());
+  std::ranges::sort(batches);
   return batches[2];
 }
 } // namespace detail
@@ -436,7 +437,8 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
   // The step's waiting policy and FFTW team: without the scope LLVM's runtime sleeps
   // its idle threads at once (`KMP_BLOCKTIME=0`) and each loop pays their wake-up.
   const CpuTeamScope scope(threads);
-  const bool r2c = kind == "r2c", c2r = kind == "c2r";
+  const bool r2c = kind == "r2c";
+  const bool c2r = kind == "c2r";
   const bool planes = kind.starts_with("planes-");
   const int sign = kind.ends_with("backward") ? FFTW_BACKWARD : FFTW_FORWARD;
   if (!r2c && !c2r && !planes && !kind.starts_with("c2c-"))
@@ -480,7 +482,7 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
     if ((flags & FFTW_WISDOM_ONLY) != 0U &&
         fftw_import_wisdom_from_string(wisdom.c_str()) == 0)
       return std::numeric_limits<double>::quiet_NaN();
-    const fftw_plan plan = make(flags);
+    auto* const plan = make(flags);
     if (plan == nullptr) {
       fftw_forget_wisdom();
       return std::numeric_limits<double>::quiet_NaN();
@@ -512,7 +514,6 @@ public:
 #include "solprop_native/graph.hpp"
 
 #include <utility>
-#include <vector>
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 #include "solprop_native/launch.hpp"

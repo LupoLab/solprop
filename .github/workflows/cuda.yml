@@ -5,7 +5,8 @@
 name: NVIDIA CUDA validation
 
 # Manual workflow for a self-hosted Linux runner labelled nvidia-gpu, with an NVIDIA
-# GPU, the CUDA Toolkit (nvcc, cuFFT, cuBLAS, Compute Sanitizer) and GCC 13 or newer.
+# GPU, the CUDA Toolkit 12.8 or newer (nvcc, cuFFT, cuBLAS, Compute Sanitizer) and GCC 14
+# or newer (CMakeLists.txt refuses an older host compiler).
 # Set the repository variable SOLPROP_NATIVE_CUDA_ARCH to the runner's Kokkos
 # architecture (for example AMPERE80, ADA89 or HOPPER90); HOPPER90 is used when unset.
 # The repository is public: keep this workflow dispatch-only and never let the
@@ -58,3 +59,5 @@ jobs:
         run: |
           compute-sanitizer --tool memcheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py
           compute-sanitizer --tool racecheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py
+          compute-sanitizer --tool initcheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py
+          compute-sanitizer --tool synccheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py

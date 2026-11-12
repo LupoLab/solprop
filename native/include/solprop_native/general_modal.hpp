@@ -230,10 +230,10 @@ private:
   CpuExecutionPool kernel_pool_, fft_pool_, raman_pool_, raman_tail_pool_;
   ExecutionSpace kernels_, transforms_, delayed_transforms_;
   ExecutionSpace response_, tail_response_, dense_, tail_dense_, maps_;
-  const ExecutionSpace& response_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& response_for(std::size_t count) const {
     return count == chunk_ ? response_ : tail_response_;
   }
-  const ExecutionSpace& dense_for(std::size_t count) const {
+  [[nodiscard]] const ExecutionSpace& dense_for(std::size_t count) const {
     return count == chunk_ ? dense_ : tail_dense_;
   }
   ComplexView synthesis_, projection_, frequency_factor_, delayed_spectrum_;

@@ -216,24 +216,42 @@ KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
                                                  const int low, const int high,
                                                  const double* taps, const int half) {
   switch (half) {
-  case 0:
-    return band_filter_interior<0>(row, out, low, high, taps);
-  case 1:
-    return band_filter_interior<1>(row, out, low, high, taps);
-  case 2:
-    return band_filter_interior<2>(row, out, low, high, taps);
-  case 3:
-    return band_filter_interior<3>(row, out, low, high, taps);
-  case 4:
-    return band_filter_interior<4>(row, out, low, high, taps);
-  case 5:
-    return band_filter_interior<5>(row, out, low, high, taps);
-  case 6:
-    return band_filter_interior<6>(row, out, low, high, taps);
-  case 7:
-    return band_filter_interior<7>(row, out, low, high, taps);
-  default:
-    return band_filter_interior<band_max_half>(row, out, low, high, taps);
+  case 0: {
+    band_filter_interior<0>(row, out, low, high, taps);
+    return;
+  }
+  case 1: {
+    band_filter_interior<1>(row, out, low, high, taps);
+    return;
+  }
+  case 2: {
+    band_filter_interior<2>(row, out, low, high, taps);
+    return;
+  }
+  case 3: {
+    band_filter_interior<3>(row, out, low, high, taps);
+    return;
+  }
+  case 4: {
+    band_filter_interior<4>(row, out, low, high, taps);
+    return;
+  }
+  case 5: {
+    band_filter_interior<5>(row, out, low, high, taps);
+    return;
+  }
+  case 6: {
+    band_filter_interior<6>(row, out, low, high, taps);
+    return;
+  }
+  case 7: {
+    band_filter_interior<7>(row, out, low, high, taps);
+    return;
+  }
+  default: {
+    band_filter_interior<band_max_half>(row, out, low, high, taps);
+    return;
+  }
   }
 }
 
@@ -320,9 +338,9 @@ KOKKOS_INLINE_FUNCTION BandWindow band_support(const int live_first,
                                                const int live_last, const int samples,
                                                const int half) {
   if (live_first > live_last)
-    return {samples, -1};
-  return {live_first > half ? live_first - half : 0,
-          live_last + half < samples - 1 ? live_last + half : samples - 1};
+    return {.first = samples, .last = -1};
+  return {.first = live_first > half ? live_first - half : 0,
+          .last = live_last + half < samples - 1 ? live_last + half : samples - 1};
 }
 
 /**

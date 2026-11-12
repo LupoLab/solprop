@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -84,7 +85,7 @@ double interp(const double point, const std::vector<double>& x,
   if (point > x.back())
     return samples.back();
   // The last `j` with `x[j] <= point`.
-  const auto above = std::upper_bound(x.begin(), x.end(), point);
+  const auto above = std::ranges::upper_bound(x, point);
   const auto j = static_cast<std::size_t>(above - x.begin()) - 1;
   if (j == n - 1 || x[j] == point)
     return samples[j];
@@ -119,10 +120,9 @@ std::array<double, 3> line_widths(const std::vector<double>& x,
                                   const std::vector<double>& values,
                                   const double e2_fraction) {
   const auto finite = [](const double value) { return std::isfinite(value); };
-  if (x.size() < 2 || values.size() != x.size() ||
-      !std::all_of(x.begin(), x.end(), finite) ||
-      !std::all_of(values.begin(), values.end(), finite) ||
-      std::any_of(values.begin(), values.end(), [](const double v) { return v < 0.0; }))
+  if (x.size() < 2 || values.size() != x.size() || !std::ranges::all_of(x, finite) ||
+      !std::ranges::all_of(values, finite) ||
+      std::ranges::any_of(values, [](const double v) { return v < 0.0; }))
     throw std::invalid_argument("Cartesian fluence widths require finite axes "
                                 "and matching nonnegative samples");
   require_uniform(x);
@@ -215,7 +215,7 @@ std::array<double, 3> radial(const double* radius, const double* fluence,
     throw std::invalid_argument("radial fluence moments are not representable");
   if (energy <= 0.0)
     return undefined();
-  const double second = std::sqrt(2.0) * std::sqrt(moment / energy);
+  const double second = std::numbers::sqrt2 * std::sqrt(moment / energy);
   double largest = fluence[0];
   for (std::size_t index = 1; index < n; ++index)
     largest = std::max(largest, fluence[index]);

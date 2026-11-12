@@ -2,43 +2,93 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Whole check families. The exclusions, one reason each:
+# - bugprone-easily-swappable-parameters: numerical kernels take runs of same-typed
+#   extents and scalars by design.
+# - performance-enum-size: the enums are few and small; a narrower base type gains
+#   nothing.
+# - modernize-use-trailing-return-type: style only; the code uses leading return types.
+# - modernize-avoid-c-arrays: small fixed arrays are the idiom in device code.
+# - misc-non-private-member-variables-in-classes: plain aggregates (Problem, plans,
+#   records) are the seam's data.
+# - misc-include-cleaner: too noisy across Kokkos's umbrella headers to gate; it runs
+#   as a weekly report (.github/workflows/native-deep.yml).
+# - misc-no-recursion: recursion is a design choice in host code, not a defect.
+# - misc-const-correctness: it judges one template instantiation and the active #if
+#   branch, so it marks const the locals another instantiation's `if constexpr` or a
+#   device branch assigns (its fixes broke the CPU build in about 30 places).
+# - readability-magic-numbers: the numerical constants are cited where they appear.
+# - readability-identifier-length: short names follow the mathematics (dz, n, k).
+# - readability-math-missing-parentheses: precedence in arithmetic is not ambiguous.
+# - readability-uppercase-literal-suffix: style only.
+# - readability-trailing-comma: style only, and clang-format owns layout.
+# - readability-braces-around-statements: the LLVM convention leaves single
+#   statements unbraced, and adding braces around bodies with #if is unsafe.
+# - readability-function-size, readability-function-cognitive-complexity: the long
+#   setup functions and hot kernels are split first (a later change), then gated.
+# - readability-avoid-nested-conditional-operator: nested conditionals initialise
+#   const locals, in kernels too; an immediately invoked lambda reads worse.
+# - readability-convert-member-functions-to-static: it sees the CPU build only, where
+#   members such as hybrid_shape_eligible() read no state; their device branches do.
+# - readability-use-std-min-max: `if (a > m) m = a` keeps m on a NaN where std::max
+#   takes the NaN, and std::max is not device code.
+# - readability-make-member-function-const: Kokkos views are handles, so a member
+#   that writes through one would be marked const although it changes the state.
+# - clang-analyzer-osx.*: Apple framework checks; the code calls no Objective-C or
+#   Core Foundation API.
+# - clang-analyzer-cplusplus.NewDeleteLeaks: it reports Kokkos's shared allocation
+#   records (freed through a reference count it cannot follow) as leaks; the code holds
+#   no raw ownership (native/AGENTS.md), and the ASan builds check for leaks.
+# - clang-analyzer-optin.performance.Padding: the cold configuration structs are
+#   ordered by concern, not by size.
 Checks: >
   -*,
-  clang-analyzer-core.*,
-  clang-analyzer-deadcode.*,
-  clang-analyzer-security.*,
-  bugprone-argument-comment,
-  bugprone-assert-side-effect,
-  bugprone-exception-escape,
-  bugprone-infinite-loop,
-  bugprone-macro-parentheses,
-  bugprone-multiple-statement-macro,
-  bugprone-parent-virtual-call,
-  bugprone-return-const-ref-from-parameter,
-  bugprone-sizeof-expression,
-  bugprone-string-constructor,
-  bugprone-suspicious-enum-usage,
-  bugprone-suspicious-memory-comparison,
-  bugprone-suspicious-realloc-usage,
-  bugprone-unhandled-exception-at-new,
-  bugprone-unused-local-non-trivial-variable,
-  performance-for-range-copy,
-  performance-implicit-conversion-in-loop,
-  performance-inefficient-algorithm,
-  performance-inefficient-string-concatenation,
-  performance-move-const-arg,
-  performance-no-automatic-move,
-  performance-type-promotion-in-math-fn,
-  performance-unnecessary-copy-initialization,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  performance-*,
+  -performance-enum-size,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-const-correctness,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-math-missing-parentheses,
+  -readability-uppercase-literal-suffix,
+  -readability-trailing-comma,
+  -readability-braces-around-statements,
+  -readability-function-size,
+  -readability-function-cognitive-complexity,
+  -readability-avoid-nested-conditional-operator,
+  -readability-make-member-function-const,
+  -readability-use-std-min-max,
+  -readability-convert-member-functions-to-static,
+  cppcoreguidelines-special-member-functions,
+  clang-analyzer-*,
+  -clang-analyzer-osx.*,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
   portability-restrict-system-includes,
-  portability-simd-intrinsics,
-  modernize-use-equals-default,
-  modernize-use-equals-delete,
-  modernize-use-nullptr,
-  modernize-use-override,
-  readability-avoid-const-params-in-decls,
-  readability-container-size-empty,
-  readability-redundant-*
+  portability-simd-intrinsics
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include|src)/.*'
 FormatStyle: file
+CheckOptions:
+  # `.value()` is a checked access: it throws std::bad_optional_access.
+  bugprone-unchecked-optional-access.IgnoreValueCalls: true
+  # A cast to void is an explicit discard (unique_ptr::release once a capsule owns it).
+  bugprone-unused-return-value.AllowCastToVoid: true
+  # A shift or mask by a positive literal (`std::size_t{64} << 20`) is not a sign bug.
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: true
+  # De Morgan's rewrite of `!(a <= x && x <= b)` changes what a NaN gives: the guards
+  # are written to refuse NaN.
+  readability-simplify-boolean-expr.SimplifyDeMorgan: false
+  # Reference-counted handles, passed by value by convention: Kokkos views (and the
+  # aliases named ...View), and nanobind's handles and ndarrays (nb::dict, nb::object,
+  # nb::handle, nb::ndarray and the bindings' ...Input and ...Array aliases of it).
+  performance-unnecessary-value-param.AllowedTypes: 'View;nb::;nanobind::;Input$;Array$'

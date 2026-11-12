@@ -13,13 +13,13 @@
 
 #include "solprop_native/session.hpp"
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace session = solprop_native::session;
@@ -149,6 +149,7 @@ session::Batch next(session::Session& run, const session::EventKind kind,
 // The rows' accepted-step values a batch carries.
 std::vector<double> rows_of(const session::Batch& batch) {
   std::vector<double> steps;
+  steps.reserve(batch.row_z.size());
   for (std::size_t row = 0; row < batch.row_z.size(); ++row)
     steps.push_back(batch.row_values[2 * row + 1]);
   return steps;
@@ -193,8 +194,8 @@ TEST(SessionMonitor, AWarningIsABarrierBeforeItsStepsRow) {
   ASSERT_FALSE(rows.empty());
   for (std::size_t index = 0; index < rows.size(); ++index)
     EXPECT_EQ(rows[index], 3.0 + static_cast<double>(index));
-  EXPECT_EQ(rows.back(),
-            static_cast<double>(3 + plane.attempts.size() / session::attempt_columns));
+  const std::size_t attempts = plane.attempts.size() / session::attempt_columns;
+  EXPECT_EQ(rows.back(), static_cast<double>(3 + attempts));
   next(run, session::EventKind::observation);
   next(run, session::EventKind::terminal);
   const auto record = run.monitor_record();

@@ -130,7 +130,7 @@ augmented_row(const Complex shift, const double length, const Triangular& triang
   // block and the next block row's scalars, a later block row the scalars alone. Each
   // new block is formed from the old ones into the scratch, then copied.
   for (int term = taylor_order; term > 0; --term) {
-    const double by = static_cast<double>(term);
+    const auto by = static_cast<double>(term);
     for (std::size_t j = 0; j <= count; ++j) {
       const double previous = j >= 1 ? p[j - 1] : 0.0;
       for (std::size_t row = 0; row < modes; ++row)

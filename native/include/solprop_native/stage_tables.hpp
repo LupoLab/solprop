@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -60,8 +61,10 @@ struct Table {
                                   " is outside a stage table's span");
   }
 
-  /** The table's single value at `z`. */
+  /** The table's single value at `z`. The scalar tables are checked to hold one value
+      each when they are loaded (`require_scalar_tables`). */
   [[nodiscard]] double value(const double z) const {
+    assert(n_values <= 1);
     double out = 0.0;
     at(z, &out);
     return out;
@@ -159,7 +162,7 @@ struct Sections {
 private:
   [[nodiscard]] std::size_t clamped(const double key) const {
     // `numpy.searchsorted(edges, key, side="right") - 1`, clamped to the sections.
-    const auto above = std::upper_bound(edges.begin(), edges.end(), key);
+    const auto above = std::ranges::upper_bound(edges, key);
     const auto raw = static_cast<std::ptrdiff_t>(above - edges.begin()) - 1;
     const auto last = static_cast<std::ptrdiff_t>(edges.size()) - 2;
     return static_cast<std::size_t>(std::min(std::max(raw, std::ptrdiff_t{0}), last));
@@ -254,7 +257,7 @@ struct ZSlots {
                                 const std::vector<double>& positions) {
     std::vector<double> wanted;
     for (const double z : positions)
-      if (std::find(wanted.begin(), wanted.end(), z) == wanted.end())
+      if (std::ranges::find(wanted, z) == wanted.end())
         wanted.push_back(z);
     if (wanted.size() > slots)
       throw std::invalid_argument("a native call reads the z table at " +
@@ -264,7 +267,7 @@ struct ZSlots {
     std::vector<std::size_t> slot_of(wanted.size(), slots);
     std::vector<bool> taken(slots, false);
     for (std::size_t index = 0; index < wanted.size(); ++index) {
-      const auto at = std::find(held.begin(), held.end(), wanted[index]);
+      const auto at = std::ranges::find(held, wanted[index]);
       if (at != held.end()) {
         slot_of[index] = static_cast<std::size_t>(at - held.begin());
         taken[slot_of[index]] = true;
@@ -296,8 +299,8 @@ struct ZSlots {
     std::vector<std::size_t> out;
     out.reserve(positions.size());
     for (const double z : positions)
-      out.push_back(slot_of[static_cast<std::size_t>(
-          std::find(wanted.begin(), wanted.end(), z) - wanted.begin())]);
+      out.push_back(slot_of[static_cast<std::size_t>(std::ranges::find(wanted, z) -
+                                                     wanted.begin())]);
     return out;
   }
 
@@ -314,7 +317,7 @@ struct ZSlots {
 
 private:
   void touch(const std::size_t slot) {
-    order.erase(std::find(order.begin(), order.end(), slot));
+    order.erase(std::ranges::find(order, slot));
     order.push_back(slot);
   }
 
@@ -540,7 +543,7 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
   if (tables.flow.present())
     return trial(tables, row(tables, anchor, end, end));
   auto out = step;
-  std::fill(out.phi_delta.begin(), out.phi_delta.end(), 0.0);
+  std::ranges::fill(out.phi_delta, 0.0);
   return out;
 }
 
@@ -554,6 +557,35 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
  * real position forms the imaginary part by these operations, so the two agree but for
  * the sign of a zero (solprop issue #255).
  */
+/**
+ * Refuse, by name, a scalar stage table that holds other than one value: the density,
+ * taper, Kerr density, Raman rates and densities, plasma densities and preionisation,
+ * dispersive densities and the chord's table, each read with `Table::value`. An absent
+ * optional table (no values) is not checked.
+ */
+inline void require_scalar_tables(const Tables& tables) {
+  const auto scalar = [](const Table& table, const std::string& name) {
+    if (table.present() && table.n_values != 1)
+      throw std::invalid_argument("the stage table " + name + " holds " +
+                                  std::to_string(table.n_values) +
+                                  " values where one is read");
+  };
+  const auto scalars = [&scalar](const std::vector<Table>& list,
+                                 const std::string& name) {
+    for (std::size_t index = 0; index < list.size(); ++index)
+      scalar(list[index], name + "[" + std::to_string(index) + "]");
+  };
+  scalar(tables.density, "density");
+  scalar(tables.taper, "taper");
+  scalar(tables.kerr_density, "kerr_density");
+  scalar(tables.chord_table, "chord_table");
+  scalars(tables.raman_rates, "raman_rates");
+  scalars(tables.plasma_densities, "plasma_densities");
+  scalars(tables.plasma_preionisation, "plasma_preionisation");
+  scalars(tables.raman_densities, "raman_densities");
+  scalars(tables.dispersive_densities, "dispersive_densities");
+}
+
 inline double chord(const Tables& tables, const double z1, const double z2) {
   if (tables.chord == Chord::constant)
     return tables.chord_rate * (z2 - z1);
@@ -623,7 +655,7 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
   const std::size_t width = highest + 1;
   std::array<double, most * most> predictor{};
   std::array<double, most * most> corrector{};
-  std::array<double, 3 * 2 * most> factored{};
+  std::array<double, std::size_t{3} * 2 * most> factored{};
   std::array<double, most> spans{};
   std::array<double, most> carried{};
   std::array<double, most + 1> endpoint{};

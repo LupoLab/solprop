@@ -219,14 +219,6 @@ if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
   endif()
   return()
 endif()
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" AND
-   SOLPROP_NATIVE_ENABLE_OPENMP AND
-   SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "FFTW" AND
-   SOLPROP_NATIVE_FFTW_THREADING STREQUAL "OPENMP")
-  message(FATAL_ERROR
-    "IntelLLVM/FFTW CPU builds require FFTW_THREADING=PTHREADS. "
-    "Distribution OpenMP FFTW libraries link GNU OpenMP, not Intel's runtime.")
-endif()
 if(_tpl_request STREQUAL "OFF" AND
    (NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" OR SOLPROP_NATIVE_BLAS_LIBRARIES))
   message(FATAL_ERROR
@@ -237,11 +229,7 @@ if(NOT SOLPROP_NATIVE_BLAS_VENDOR STREQUAL "AUTO" AND
   message(FATAL_ERROR "Select BLAS_VENDOR or explicit BLAS_LIBRARIES, not both.")
 endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  set(_mkl_thread mkl_intel_thread)
-else()
-  set(_mkl_thread mkl_gnu_thread)
-endif()
+set(_mkl_thread mkl_gnu_thread)
 if(NOT SOLPROP_NATIVE_ENABLE_OPENMP)
   set(_mkl_thread mkl_sequential)
 endif()
@@ -476,8 +464,9 @@ if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "MKL_FFTW")
     HINTS "${SOLPROP_NATIVE_MKL_ROOT}" PATH_SUFFIXES include/fftw REQUIRED)
   set(FFTW_INCLUDE_DIRS "${SOLPROP_NATIVE_MKL_FFT_INCLUDE}" CACHE PATH "FFTW API headers" FORCE)
   # Kokkos FFT uses the same FFTW C API for both thread implementations.
-  # MKL exports both precisions and the planning-thread controls from its LP64
-  # interface; its dependency libraries are linked after the FFT/BLAS targets.
+  # MKL exports the planning-thread controls from its LP64 interface; its
+  # dependency libraries are linked after the FFT/BLAS targets. The single-precision
+  # names are the same library, as with FFTW below.
   foreach(_component IN ITEMS DOUBLE_LIB FLOAT_LIB DOUBLE_OPENMP_LIB FLOAT_OPENMP_LIB)
     set(FFTW_${_component} "${SOLPROP_NATIVE_mkl_intel_lp64_LIBRARY}"
         CACHE FILEPATH "MKL FFTW compatibility library" FORCE)
@@ -485,18 +474,11 @@ if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "MKL_FFTW")
   set(SOLPROP_NATIVE_MKL_FFT_LIBRARIES "${_mkl_libraries}")
   set(SOLPROP_NATIVE_HOST_FFT_BACKEND "MKL_FFTW")
   set(SOLPROP_NATIVE_HOST_FFT_PLANNER "MKL_ignores_FFTW_planning_flags")
-elseif(SOLPROP_NATIVE_ENABLE_THREADS)
-  # Kokkos FFT links FFTW's threads library for the Threads host space.
-  set(SOLPROP_NATIVE_HOST_FFT_BACKEND "FFTW_THREADS")
 elseif(SOLPROP_NATIVE_ENABLE_OPENMP)
   if(SOLPROP_NATIVE_FFTW_THREADING STREQUAL "PTHREADS")
     find_library(SOLPROP_NATIVE_FFTW_DOUBLE_PTHREADS fftw3_threads
       HINTS "${FFTW_ROOT}" PATH_SUFFIXES lib lib64 REQUIRED)
-    find_library(SOLPROP_NATIVE_FFTW_FLOAT_PTHREADS fftw3f_threads
-      HINTS "${FFTW_ROOT}" PATH_SUFFIXES lib lib64 REQUIRED)
     set(FFTW_DOUBLE_OPENMP_LIB "${SOLPROP_NATIVE_FFTW_DOUBLE_PTHREADS}"
-        CACHE FILEPATH "FFTW pthread implementation of the thread API" FORCE)
-    set(FFTW_FLOAT_OPENMP_LIB "${SOLPROP_NATIVE_FFTW_FLOAT_PTHREADS}"
         CACHE FILEPATH "FFTW pthread implementation of the thread API" FORCE)
     set(SOLPROP_NATIVE_HOST_FFT_BACKEND "FFTW_PTHREADS")
   else()
@@ -504,4 +486,32 @@ elseif(SOLPROP_NATIVE_ENABLE_OPENMP)
   endif()
 else()
   set(SOLPROP_NATIVE_HOST_FFT_BACKEND "FFTW_SERIAL")
+endif()
+
+# solprop computes in double precision only. Kokkos-FFT's FindFFTW requires the
+# single-precision libraries as well, though each of its fftwf_ calls sits behind an
+# `if constexpr` on float that this package never instantiates. Name the double
+# libraries for them, as the MKL branch above does, so that a build needs no
+# single-precision FFTW and links none. FindFFTW keeps these cached results; a
+# non-default FFTW is named with FFTW_ROOT (or FFTWDIR), as for FindFFTW.
+if(SOLPROP_NATIVE_FFT_PROVIDER STREQUAL "FFTW")
+  set(_suffixes "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  if(FFTW_USE_STATIC_LIBS)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  endif()
+  set(_components DOUBLE_LIB:fftw3)
+  if(SOLPROP_NATIVE_ENABLE_OPENMP)
+    list(APPEND _components DOUBLE_OPENMP_LIB:fftw3_omp)
+  endif()
+  foreach(_component IN LISTS _components)
+    string(REPLACE ":" ";" _component "${_component}")
+    list(GET _component 0 _variable)
+    list(GET _component 1 _name)
+    find_library(FFTW_${_variable} NAMES ${_name} HINTS "${FFTW_ROOT}" "$ENV{FFTWDIR}"
+                 PATH_SUFFIXES lib lib64 REQUIRED)
+    string(REPLACE "DOUBLE" "FLOAT" _float "${_variable}")
+    set(FFTW_${_float} "${FFTW_${_variable}}" CACHE FILEPATH
+        "The double-precision FFTW: the build makes no single-precision call" FORCE)
+  endforeach()
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_suffixes}")
 endif()
