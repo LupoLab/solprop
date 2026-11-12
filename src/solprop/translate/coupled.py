@@ -173,6 +173,9 @@ def _owned(
 def _degree_axis(array: np.ndarray, name: str) -> None:
     """Refuse a coefficient block that declares no degree at all.
 
+    A block of ``n_deg = 0`` evaluates to nothing at every position, so it is refused
+    here rather than read as a zero.
+
     - ``array``: a coefficient array whose second axis is the Chebyshev degree along z.
     """
     if not array.shape[1]:
@@ -1501,6 +1504,7 @@ def _checked_wall_pair(
     compared, because the dense generator's diagonal also carries the transverse
     term, which the pair does not describe.
 
+    - ``wall_vectors``: the dimensionless rank-one vector.
     - ``wall_weights``: its weight in 1/m, shape ``(n_omega,)``.
     - Returns: the pair in the leaf's own layout -- ``(1, n_modes, n_omega)`` and ``(1,
       1, n_omega)`` -- or ``None`` when none was supplied.

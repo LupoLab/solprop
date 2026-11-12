@@ -1908,6 +1908,7 @@ def _gas_responses(
     """Resolve a region's gas fill under the run's electronic policy.
 
     - ``omega_reference``: the run's carrier in rad/s.
+    - ``form``: the cubic's form; ``"real"`` keeps the full cubic.
     - Returns: per population, its electronic response, labelled
       ``"<region>:<population>"``, and its number density in m^-3.
     """

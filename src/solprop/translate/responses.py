@@ -2190,6 +2190,9 @@ def _prefactor_at(  # noqa: PLR0917 - called positionally
     ``mode_average_prefactor(mode, grid, 0.0) * crop_scale``, which is what
     ``prefactor_constant`` and every backend's fast path expect.
 
+    - ``mode_averaged``: fold the effective-area conversion in (the one-node case).
+    - ``shock``: keep the ``omega`` dependence of the numerator.
+    - ``index``: replace the effective index by this constant; the GNLSE passes 1.0.
     - Returns: ``z -> p`` of shape ``(n_modes, n_pol, n_omega)``.
     """
     areas = [sqrtw_to_vm(one.aeff(0.0)) if mode_averaged else 1.0 for one in modes]

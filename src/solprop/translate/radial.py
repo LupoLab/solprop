@@ -584,6 +584,7 @@ def _linear_roundoff_target(
     - ``sampled``: return the shaped operator and prefactor for a model and position.
     - ``span``: extended propagation interval in m.
     - ``requested``: requested dimensionless expansion tolerance, positive.
+    - Returns: the request raised to the derived arithmetic floor.
     """
     # For s=sqrt(k^2-kperp^2), a relative perturbation in k^2 gives absolute
     # error |k^2|*epsilon/(2|s|). The following gamma(64) envelope covers both

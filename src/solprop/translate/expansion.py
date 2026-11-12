@@ -954,6 +954,7 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
         """Return the tensor product of the basis polynomials at each position.
 
         - ``z``: positions in m, shape ``(n_z,)``.
+        - Returns: shape ``(n_z, n_terms)``, the multi-index flattened in C order.
         """
         columns = [
             chebyshev_basis.chebvander(

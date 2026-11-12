@@ -949,7 +949,8 @@ def _split_segments(
 
     - ``edges``: mandatory edges in increasing order, m.
     - ``min_width``: narrowest interval allowed, m.
-    - Returns: True when the budget was exceeded.
+    - Returns: the resolved intervals, in increasing z, and True when the budget was
+      exceeded.
     """
     pieces: list[_Piece] = []
     exceeded = False
@@ -1050,7 +1051,8 @@ def _split(
 
     - ``lo``, ``hi``: ends of the segment, m.
     - ``min_width``: narrowest interval allowed, m.
-    - Returns: True when the budget was exceeded.
+    - Returns: the resolved intervals, in increasing z, and True when the budget was
+      exceeded.
     """
     # An explicit stack, never recursion: a square-root entrance refines geometrically
     # and would otherwise risk the recursion limit. Pushing the right half first and
@@ -1286,7 +1288,7 @@ def _resolve(
     """Raise the degree on ``[lo, hi]`` until the coefficient tail is negligible.
 
     - ``lo``, ``hi``: ends of the interval, m.
-    - Returns: chebyshev coefficients on ``[lo, hi]``, shape ``(n_deg, *value_shape)``.
+    - Returns: Chebyshev coefficients on ``[lo, hi]``, shape ``(n_deg, *value_shape)``.
     - Returns: True when the interval is resolved to ``tol``.
     """
     degree = min(INITIAL_DEGREE, n_max)

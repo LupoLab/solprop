@@ -2668,6 +2668,7 @@ def _crossing_clamped(
 
     - ``dz_max``: the requested largest step, m.
     - ``dz_init``: the requested first step, m.
+    - ``single``: whether the state is binary32, whose range is smaller.
     - Returns: the largest step and the first step, m.
     """
     if design is None:
@@ -2937,6 +2938,8 @@ def _general_flow(
     the method. A guide that varies along z needs the transform maps to move with
     it and is built by :func:`_moving_flow` instead.
 
+    - ``route``: its gauge identity is carried by the flow, so that a resume comparing
+      the flow compares the basis it was built in.
     - ``coupled``: the block relative to the reference channel in 1/m, shape ``(n_modes,
       n_modes, n_omega)``.
     - ``grid``: the run's grid, whose coarse axis the leaf is tabulated on.
@@ -3754,7 +3757,8 @@ def _taper_generator_at(
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
     - ``z``: position in m.
-    - Returns: the generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
+    - Returns: the generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``,
+      exactly zero off the grid's active band.
     """
     band = grid.omega[grid.active_mask]
     reference = np.asarray(block[0].neff_minus_one(band, z))
@@ -3850,6 +3854,8 @@ def _wall_generator_at(
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
     - ``z``: position in m.
+    - ``sampled``: collects the limits of every position sampled, for the admission
+      that follows.
     - ``impedance``: which block to sample, ``"mean"`` or ``"te_tm"``.
     - Returns: the generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``,
       exactly zero off the active band.
@@ -3887,7 +3893,8 @@ def _channel_normalisation_at(
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
     - ``z``: position in m.
-    - Returns: the rate in 1/m, shape ``(n_modes, n_omega)``.
+    - Returns: the rate in 1/m, shape ``(n_modes, n_omega)``, exactly zero off the
+      grid's active band.
     """
     band = grid.omega[grid.active_mask]
     logarithmic = np.stack(
@@ -4481,7 +4488,10 @@ def _general_prefactor(
 def _check_scalar_domain(
     table: PiecewiseChebyshev, name: str, *, upper: float = math.inf
 ) -> None:
-    """Check a scalar polynomial at endpoints and every real stationary point."""
+    """Check a scalar polynomial at endpoints and every real stationary point.
+
+    ``upper`` is inclusive, in the table's value units.
+    """
     if table.value_shape != ():
         raise TranslationError(f"{name} must be a scalar table")
     for row, degree in zip(table.coefficients, table.degrees, strict=True):
@@ -4609,6 +4619,10 @@ def _state(
     n_omega: int,
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Bring an initial field to the canonical single-trajectory layout.
+
+    The shape is checked here rather than by an annotation, so that a wrong rank is
+    reported by name in production too. A group of trajectories is a sequence of
+    problems (SEP 47 section 6.7), never a stacked field.
 
     - Returns: the state, complex128, the problem's own: copied once here as
       :class:`Initial` holds it, so that it is not copied again there, and taken as it
@@ -5541,6 +5555,8 @@ def _power_initial(
     entrance was measured at 3e-15 of the launch.
 
     - ``initial``: fresh true-power launch and noise in canonical shape.
+    - ``linear``: its modal power-weight row is the entrance weight; its absence marks
+      spatial geometry, which carries no modal conversion.
     - ``index``: constant index override, or None for the physical effective index.
     - ``reused``: previously scaled launch retained only when its arrays match.
     - Returns: internal vacuum-normalised launch and noise.

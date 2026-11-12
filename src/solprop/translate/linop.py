@@ -1117,6 +1117,8 @@ def _dispersion_phi(
     mode whose parameters do not resolve; the only approximation anywhere in ``Phi`` is
     the interpolation of ``D`` (``docs/guide/numerics/linear-operator.md``).
 
+    - ``mode``: only ``neff``, ``dneff_domega``, the declared ``core_radius`` and
+      ``density`` paths and, for the expansion, ``at_parameters`` are used.
     - ``grid``: the grid; supplies the frequency axis, the active band and the layout.
     - ``z_max``: length the run covers, m, positive and finite.
     - ``n_pol``: polarisation components, 1 or 2. ``D`` is the same for both components
@@ -1124,12 +1126,15 @@ def _dispersion_phi(
       layout.
     - ``absorber_rate``: spectral absorber rate in 1/m, shape ``(n_omega,)``, folded
       into ``D`` before the integration so the collar is exact as a rate.
+    - ``loss``: applied to ``D`` before ``Phi`` is integrated, never to an accumulated
+      exponent afterwards.
     - ``tol``: target bound on the uniform error of the table relative to the value
       scale. The request is raised to :data:`ROUNDOFF_SAFETY` times the measured
       round-off floor of ``D`` when that is larger, because no interpolant can resolve a
       function below the noise of its own evaluation, and relaxed further, by decades up
       to :data:`MAX_TOL`, if the interval budget is exhausted anyway
       (``docs/dev/stepper.md`` section 4, step 4). Both are logged.
+    - ``max_intervals``: exceeding it sets the fallback flag and logs a warning.
     - ``representation``: which representation to build. ``"auto"``, the default,
       prefers the expansion; ``"table"`` forces the z table, which is what an
       equivalence test between the two needs; ``"expansion"`` refuses to fall back. A
@@ -1966,6 +1971,9 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
 
     - ``modes``: the mode set, in order; each must implement
       :class:`solprop.modes.protocol.ParameterisedMode`.
+    - ``frame``: its ``beta_0`` and ``beta_1`` follow the frozen reference mode, so the
+      frame subtraction is a function of the same parameters and needs no dimension
+      of its own.
     - ``absorber_rate``: the spectral absorber rate, or ``None``.
     - Returns: ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """

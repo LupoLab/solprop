@@ -535,7 +535,7 @@ def _stacked(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Stack the knots' E, H and generator of several snapshots, position first.
 
-    - Returns: e and H of shape ``(n_positions, n_knots, n_nodes, 3, n_modes)`` and the
+    - Returns: E and H of shape ``(n_positions, n_knots, n_nodes, 3, n_modes)`` and the
       generator of shape ``(n_positions, n_knots, n_modes, n_modes)``.
     """
     return tuple(  # type: ignore[return-value]

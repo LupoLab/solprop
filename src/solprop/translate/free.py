@@ -40,7 +40,7 @@ def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
 def _warn_grazing(space: FreeGrid, grid: TimeGrid, data: SeparableOperator) -> None:
     """Report the first active cutoff inside the split-square uncertainty bound.
 
-    - ``space``: cartesian shape for the reported column coordinates.
+    - ``space``: Cartesian shape for the reported column coordinates.
     - ``grid``: frequency bins in rad/s and their active mask.
     - ``data``: validated square high/low parts in m^-2.
     """

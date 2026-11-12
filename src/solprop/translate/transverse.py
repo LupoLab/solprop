@@ -87,7 +87,10 @@ def _axes(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Axis, ...]:
 
 
 def _nodes_window(space: RadialGrid | FreeGrid | PlanarGrid) -> np.ndarray:
-    """Return the grid's window on the nodes the collar's rate is applied at."""
+    """Return the grid's window on the nodes the collar's rate is applied at.
+
+    One inside the requested size, falling to zero at the outer size.
+    """
     if isinstance(space, PlanarGrid):
         return np.repeat(space.window_y, int(space.x.size))
     return np.asarray(space.window)
@@ -155,6 +158,7 @@ def _column_power(
     """Return each spectral column's launch energy over the requested band.
 
     - ``field0``: the noise-free launch, canonical layout.
+    - Returns: energy per column in the field's own units.
     """
     density = np.empty(field0.shape[1])
 

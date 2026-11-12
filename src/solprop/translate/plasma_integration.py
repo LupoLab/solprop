@@ -207,6 +207,7 @@ def _design(dt: float, band_edge: float) -> RunningIntegral:
 
     - ``dt``: fine sample spacing, s.
     - ``band_edge``: upper edge of the apodised window, rad/s.
+    - Returns: the band rule with the smallest admitted ``K``.
     """
     theta_b = band_edge * dt
     if not 0.0 < theta_b < math.pi:
@@ -261,8 +262,8 @@ def _fit(half: int, theta_b: float) -> tuple[Float[np.ndarray, " n_taps"], float
     which leaves a ``K``-unknown linear least-squares problem. Its columns are scaled to
     unit norm before the SVD-based solve.
 
-    - Returns ``condition``: the scaled design matrix's condition number; one when ``K
-      <= 1``.
+    - Returns: the taps ``(c_0, ..., c_K)``, with ``c_0 = 1 - 2 sum c_k``, and the
+      scaled design matrix's condition number, one when ``K <= 1``.
     """
     if half == 0:
         return np.ones(1), 1.0
@@ -281,7 +282,10 @@ def _fit(half: int, theta_b: float) -> tuple[Float[np.ndarray, " n_taps"], float
 def _composite(
     taps: Float[np.ndarray, " n_taps"], theta: Float[np.ndarray, " n"]
 ) -> Float[np.ndarray, " n"]:
-    """Return ``H = C rho``, the filtered trapezoid's multiplier."""
+    """Return ``H = C rho``, the filtered trapezoid's multiplier.
+
+    ``theta`` is ``omega dt``; ``H`` is relative to the exact integral.
+    """
     theta = np.asarray(theta, dtype=np.float64)
     response = np.full_like(theta, taps[0])
     for k in range(1, taps.size):

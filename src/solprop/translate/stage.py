@@ -767,6 +767,8 @@ def _prefactor_weights(
     """Return the prefactor's weights at a position, or ``None`` for the z table.
 
     - ``z``: position, m.
+    - Returns: exactly ``[1.0]`` for a constant, so that combining returns the stored
+      array's own values.
     """
     if responses.prefactor_constant is not None or responses.separable is not None:
         low, high = responses.prefactor_span

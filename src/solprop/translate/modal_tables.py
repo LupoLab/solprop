@@ -1212,6 +1212,15 @@ def _channel_index_table(
     """Read one channel's dispersion out of a tracked dense table.
 
     - ``channel``: channel index on the mode axis.
+    - ``include_area``: sample :func:`channel_area` at every frequency knot.
+    - ``coupled``: admit a generator that couples its channels and read ``i G_cc``,
+      the channel's **mean** propagation constant, off its diagonal; false refuses
+      one by name. Not a tuning knob: a coupled basis has no per-channel propagation
+      constant, because its channels beat, and a run that declares one propagates
+      the whole block through ``linear.coupled_flow``. The table is still built for
+      what the flow does not do -- the surrogate effective area, the dimension
+      limits, the labels and the cumulative ``Phi`` of the one reference channel --
+      by a caller that has said which of the two it is asking for.
     """
     modes = table.samples[0][0].electric.shape[2]
     if not 0 <= channel < modes:
