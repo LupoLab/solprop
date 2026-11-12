@@ -21,7 +21,7 @@ import pytest
 from driver.test_resume import N_SAVE, CrashError
 from driver.test_resume_history import RTOL, assert_accurate_run, soliton, tight_run
 from march_bounds import TIGHTER
-from solprop._interrupts import committing, handled
+from solprop._interrupts import committing, handled, raise_held
 from solprop.exceptions import RunTerminated
 from solprop.log import NullReporter
 from solprop.output.hdf5 import open_file, resume
@@ -143,6 +143,21 @@ def test_a_signal_inside_a_commit_waits_for_its_end():
             signal.raise_signal(signal.SIGTERM)
     assert events == ["the commit finished", "raised after it"]
     assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+
+@needs_default_sigterm
+def test_a_wait_inside_a_commit_takes_the_held_signal_at_once():
+    """A host source's wait inside native's commit raises the signal (SEP 49, 6.7)."""
+    events = []
+    with handled():
+        raise_held()  # nothing is held outside a commit
+        with pytest.raises(RunTerminated), committing():
+            signal.raise_signal(signal.SIGTERM)
+            events.append("held")
+            raise_held()
+            events.append("not reached")
+        events.append("nothing left to deliver")
+    assert events == ["held", "nothing left to deliver"]
 
 
 def test_an_application_s_own_handler_is_kept():

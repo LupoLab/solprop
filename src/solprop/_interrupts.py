@@ -29,6 +29,7 @@ __all__ = [
     "deferred_handlers",
     "handled",
     "poll",
+    "raise_held",
 ]
 
 
@@ -84,6 +85,20 @@ class committing:  # noqa: N801 - used as a function, ``with committing():``
         pending, _GUARD.pending = _GUARD.pending, None
         if self._deliver and kind is None:
             raise pending
+
+
+def raise_held() -> None:
+    """Raise, now, a signal the enclosing commit is holding.
+
+    For a wait inside a commit that is not itself one: a native ``advance`` runs inside
+    :class:`committing`, and a host source it calls may wait minutes for an atomic call
+    (SEP 49 section 6.7). Its wait loop calls this between polls, so that a Ctrl-C or
+    SIGTERM stops it there, before the trial commits, rather than when the call ends.
+    Outside a commit nothing is ever held, and this does nothing.
+    """
+    pending, _GUARD.pending = _GUARD.pending, None
+    if pending is not None:
+        raise pending
 
 
 def _handle(signal_number: int, frame: FrameType | None) -> None:
