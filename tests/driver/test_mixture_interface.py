@@ -75,11 +75,33 @@ def construct(mixture, grid, **options):
     )
 
 
-@pytest.mark.parametrize("pressure", [1.0, (1.0, 0.0), Constant(1.0)])
-def test_mixture_refuses_every_explicit_pressure(material_grid, pressure):
+# Each row is a keyword `construct` refuses for a mixture: the keywords, the exception
+# class (or classes) and the exact match.
+CONSTRUCT_REFUSALS = [
+    *(
+        ({"pressure": pressure}, DriverError, r"Mixture.*pressure")
+        for pressure in (1.0, (1.0, 0.0), Constant(1.0))
+    ),
+    ({"pressure_floor": 0.0}, DriverError, "pressure_floor"),
+    *(
+        ({option: {"misspelled": False}}, (DriverError, MaterialError), "misspelled")
+        for option in ("plasma", "raman", "preionisation")
+    ),
+    *(
+        ({"preionisation": fraction}, MaterialError, "preionisation")
+        for fraction in (-0.1, 1.1, np.nan)
+    ),
+    ({"modes": 0}, DriverError, "at least one mode"),
+]
+
+
+@pytest.mark.parametrize(("options", "error", "message"), CONSTRUCT_REFUSALS)
+def test_a_mixture_construction_refuses_a_bad_keyword(
+    material_grid, options, error, message
+):
     mixture, grid = material_grid
-    with pytest.raises(DriverError, match=r"Mixture.*pressure"):
-        construct(mixture, grid, pressure=pressure)
+    with pytest.raises(error, match=message):
+        construct(mixture, grid, **options)
 
 
 @pytest.mark.parametrize("fractions", [False, True])
@@ -181,12 +203,6 @@ def test_analytic_plasma_with_temporal_collar_matches_the_reference(material_gri
     )
 
 
-def test_mixture_refuses_pressure_floor(material_grid):
-    mixture, grid = material_grid
-    with pytest.raises(DriverError, match="pressure_floor"):
-        construct(mixture, grid, pressure_floor=0.0)
-
-
 def test_pressure_floor_beside_a_constant_pressure_is_refused():
     # The constructors route pressure_floor through the fill's pressure path, which
     # refuses a floor that a constant pressure has no end to apply to.
@@ -203,13 +219,6 @@ def test_pressure_floor_beside_a_constant_pressure_is_refused():
             plasma=False,
             noise=None,
         )
-
-
-@pytest.mark.parametrize("option", ["plasma", "raman", "preionisation"])
-def test_unknown_component_selection_fails_by_name(material_grid, option):
-    mixture, grid = material_grid
-    with pytest.raises((DriverError, MaterialError), match="misspelled"):
-        construct(mixture, grid, **{option: {"misspelled": False}})
 
 
 def test_preionisation_preserves_omitted_components(material_grid):
@@ -245,13 +254,6 @@ def test_a_preionisation_no_plasma_channel_carries_is_refused_by_label(material_
     with pytest.raises(DriverError, match="declared for 'population-1', which has no"):
         construct(zeroed, grid, preionisation={zeroed.labels[1]: 0.2})
     assert construct(zeroed, grid).modes
-
-
-@pytest.mark.parametrize("fraction", [-0.1, 1.1, np.nan])
-def test_invalid_initial_fraction_is_refused(material_grid, fraction):
-    mixture, grid = material_grid
-    with pytest.raises(MaterialError, match="preionisation"):
-        construct(mixture, grid, preionisation=fraction)
 
 
 def test_per_label_rates_and_inactive_species_retain_order(material_grid):
@@ -400,12 +402,6 @@ def test_changed_temperature_rebuilds_rotational_populations(material_grid, capl
         updated.translate().responses.raman_terms[0].undamped is not original.undamped
     )
     assert "undamped Raman model" in caplog.text
-
-
-def test_zero_supplied_mode_count_is_refused(material_grid):
-    material, grid = material_grid
-    with pytest.raises(DriverError, match="at least one mode"):
-        construct(material, grid, modes=0)
 
 
 def test_multimode_update_keeps_the_shared_material_and_transform(material_grid):

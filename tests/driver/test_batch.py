@@ -76,9 +76,24 @@ def test_batch_groups_do_not_build_past_a_full_group():
     assert [point.index for point in next(groups)] == [4]
 
 
-def test_batch_groups_reject_negative_global_index():
-    with pytest.raises(DriverError, match="nonnegative global indices"):
-        list(compatible_groups([member(-1)], 2))
+# Each row is a set of members (built when the test runs) and a group size that
+# `compatible_groups` refuses, with the exact match.
+GROUP_REFUSALS = [
+    (lambda: [member(-1)], 2, "nonnegative global indices"),
+    (
+        lambda: [member(0, backend="numpy_ref"), member(1, backend="native")],
+        2,
+        "mixed backends",
+    ),
+    (lambda: [member(0, fixed=False)], 2, "explicit fixed schedule"),
+    *((lambda: [], size, "positive integer") for size in (0, -1, True)),
+]
+
+
+@pytest.mark.parametrize(("members", "size", "message"), GROUP_REFUSALS)
+def test_batch_groups_refuse_an_unbatchable_request(members, size, message):
+    with pytest.raises(DriverError, match=message):
+        list(compatible_groups(members(), size))
 
 
 def test_batch_different_schedule_starts_a_separate_group():
@@ -137,17 +152,6 @@ def test_batch_prepares_each_backend_without_changing_selection(backend):
     assert all(point.simulation.settings.backend == backend for point in points)
 
 
-def test_batch_refuses_mixed_backend_scan():
-    points = [member(0, backend="numpy_ref"), member(1, backend="native")]
-    with pytest.raises(DriverError, match="mixed backends"):
-        list(compatible_groups(points, 2))
-
-
-def test_batch_refuses_implicit_adaptive_execution():
-    with pytest.raises(DriverError, match="explicit fixed schedule"):
-        list(compatible_groups([member(0, fixed=False)], 2))
-
-
 def test_batch_refuses_spatial_geometry_before_selecting_a_backend():
     base = member(0, backend="numpy_ref").simulation
     simulation = Simulation.from_free(
@@ -184,12 +188,6 @@ def test_a_native_batch_groups_z_table_members():
     assert [
         [one.index for one in group] for group in compatible_groups([point], 2)
     ] == [[0]]
-
-
-@pytest.mark.parametrize("size", [0, -1, True])
-def test_batch_refuses_invalid_size(size):
-    with pytest.raises(DriverError, match="positive integer"):
-        list(compatible_groups([], size))
 
 
 @requires_typecheck

@@ -583,21 +583,17 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
     assert handler["z"].tolist() == [0.0, 0.005, 0.01]
 
 
-def test_the_settings_refuse_save_planes_that_are_not_increasing():
-    with pytest.raises(DriverError, match="positive and increasing"):
+@pytest.mark.parametrize(
+    ("save_planes", "message"),
+    [([1.0, 0.5], "positive and increasing"), ([0.0, 0.5], "saved anyway")],
+)
+def test_the_settings_refuse_save_planes_out_of_order_or_at_the_entrance(
+    save_planes, message
+):
+    with pytest.raises(DriverError, match=message):
         SimulationSettings(
             controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[1.0, 0.5],
-            dz_max=0.1,
-            dz_init=1e-3,
-        )
-
-
-def test_the_settings_refuse_a_plane_at_the_entrance():
-    with pytest.raises(DriverError, match="saved anyway"):
-        SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[0.0, 0.5],
+            save_planes=save_planes,
             dz_max=0.1,
             dz_init=1e-3,
         )
