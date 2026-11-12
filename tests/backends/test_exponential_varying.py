@@ -345,15 +345,28 @@ def test_an_interior_hard_kink_restarts_the_history():
     assert error < 1e-5, error
 
 
-def test_the_modified_noise_along_a_gradient_with_the_same_draw():
-    # The compensation acts on the propagated state, never on the draw (SEP 16
-    # section 4.4); the draw's phase is each sample's own position's.
+@pytest.mark.parametrize(
+    "integrator",
+    [Multistep(formulation="interaction"), EXPONENTIAL],
+    ids=["interaction", "exponential"],
+)
+def test_the_modified_noise_along_a_gradient_with_the_same_draw(integrator):
+    # One draw for the run, conditional on which the source is deterministic in z: both
+    # Adams formulations converge to the Runge-Kutta solution with the same draw. The
+    # compensation acts on the propagated state, never on the draw (SEP 16 section
+    # 4.4); the draw's phase is each sample's own position's.
     reference, _, _ = march(
         gradient(integrator=RungeKutta(), rtol=1e-11, noise="modified", seed=3)
     )
-    field, _, _ = march(gradient(noise="modified", seed=3))
+    field, adams, _ = march(gradient(integrator=integrator, noise="modified", seed=3))
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-5, error
+    # A different draw moves the field far more than the error does, so the draw is
+    # really in the Adams source: measured 4.4e-8 of the field against 1.1e-9.
+    other, _, _ = march(gradient(integrator=integrator, noise="modified", seed=4))
+    assert np.linalg.norm(other - field) > 10 * np.linalg.norm(field - reference)
+    assert adams is not None
+    assert adams.ledger.rejected_steps < adams.ledger.accepted_steps
 
 
 def test_an_adiabatic_taper():
