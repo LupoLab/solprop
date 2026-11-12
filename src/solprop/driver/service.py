@@ -306,6 +306,8 @@ class _Chunks:
         at the cadence of the session's yields rather than from inside its march.
 
         - ``rows``: its periodic rows, without a batch axis.
+        - ``report``: ``False`` for the attempts no event delivered, which a failure's
+          checkpoint holds and no reporter call may lose.
         """
         self._chunks.append((history, rows))
         if report and history is not None:

@@ -943,7 +943,11 @@ unknown, never as a reason (``retention_at``).
 def _method_history(
     request: RunRequest,
 ) -> Literal["adams", "rk", "low_storage"]:
-    """Return which kind of method history a run's march keeps."""
+    """Return which kind of method history a run's march keeps.
+
+    An Adams history a resume can continue; Runge-Kutta controller memory (the proposal
+    and the norm memory), which a resume resets; or none at all.
+    """
     integrator = request.integration.method
     if isinstance(integrator, Multistep):
         return "adams"
@@ -991,6 +995,9 @@ class _MarchKeeper:
     execution record carries the latest decision (:meth:`record`).
 
     - ``output``: the run's handler; only one with ``save_march`` keeps a snapshot.
+    - ``retention``: the decision already recorded at the position the run starts
+      from, carried into this execution's record until it persists a position of its
+      own.
     """
 
     def __init__(
@@ -1040,6 +1047,9 @@ class _MarchKeeper:
         """Keep the march's state if it stands at `z`, the position just saved.
 
         - ``z``: the saved plane's or the checkpoint's position, m.
+        - ``required``: an immutable snapshot needs the full Adams state, so the
+          automatic retention-size cutoff is ignored and a history that cannot be
+          persisted here is refused.
         """
         if required and self._kept_z == z:
             return

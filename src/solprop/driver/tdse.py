@@ -278,6 +278,7 @@ def _hacc_fields(  # noqa: PLR0917 - called positionally
     - ``basis``: ``hacc.Basis``: radial axis, irECS and angular limit, SI.
     - ``gauge``: ``hacc.MixedGauge`` or ``hacc.VelocityGauge``.
     - ``cut_energy``: spectral cut in J.
+    - ``max_step_au``: RK4 step ceiling in atomic units of time.
     - Returns: every ``HaccBasis`` field but ``source`` and ``preset``.
     """
     if isinstance(atom, hacc.Argon):
@@ -904,6 +905,9 @@ class _HaccModel:
     The model is entered into the caller's stack first, so it closes after every
     plan built on it (SEP 20, C1). A preset is checked against the installed
     provider's identity and fields; a custom basis is admitted as unqualified.
+
+    - ``archive``: ``"full"`` builds every plan with the provider's full record for a
+      full archive; the source still reads the same total and order-one currents.
     """
 
     def __init__(

@@ -3722,6 +3722,8 @@ class Simulation(Displayed):
           a method history.
         - ``state``: what a file the run is continuing holds, or ``None`` to start at
           the entrance.
+        - ``kept``: the backend was built for another input, so this one's noise has to
+          be handed to it.
         """
         if state is None:
             return Start.entrance(
@@ -8099,7 +8101,10 @@ def _open_output(
 
 
 def _check_resume_choice(resume: object) -> None:
-    """Refuse a ``resume`` value that is not one of its three."""
+    """Refuse a ``resume`` value that is not one of its three.
+
+    A mistyped word would otherwise read as ``True``.
+    """
     if resume is True or resume is False or resume == "interpolated":
         return
     msg = f"resume must be False, True or 'interpolated', got {resume!r}"
@@ -8107,7 +8112,12 @@ def _check_resume_choice(resume: object) -> None:
 
 
 def _work_left(request: RunRequest, state: ResumeState, next_plane: int) -> bool:
-    """Return whether a file has anything left to compute, by position."""
+    """Return whether a file has anything left to compute, by position.
+
+    Decided by position, not status: a file killed after its last plane has no work
+    left, though its status reads ``running``; a terminal checkpoint still owes its
+    plane.
+    """
     return (
         state.checkpoint is not None
         or next_plane < request.observation.save_planes.size
@@ -10361,6 +10371,9 @@ def _bound_rates(
 
     - ``peak``: the input's peak field in V/m and its circular share there.
     - ``field_range``: the field amplitudes in V/m the run tabulates its rates over.
+    - Warns once per run when the peak exceeds a rate's maximum field, or the input is
+      not linearly polarised at a Keldysh parameter above one
+      (:meth:`solprop.nonlinear.optmat_rates.OptmatRate.check_input`).
     """
     field, circular = peak
     bound = list(bind_reference_field(responses, field, field_range))
@@ -10462,6 +10475,9 @@ def _check_selection_carrier(
     wavelength: float | None = None,
 ) -> None:
     """Refuse a carrier that is not the run's: one carrier sets the Kerr coefficient.
+
+    The electronic coefficient, the Raman response and the rate are all evaluated at
+    the carrier.
 
     - ``reference``: the grid's reference wavelength in m, the run's carrier.
     - ``wavelength``: the driver's `wavelength` in m, at which the responses are built.
