@@ -185,6 +185,28 @@ def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
     )
 
 
+def test_a_resuming_march_that_cannot_carry_a_history_warns_once_and_resets(
+    build_simulation, tmp_path, monkeypatch
+):
+    # The file keeps a history, and the resuming engine says before installing it that
+    # its march cannot carry one (the protocol's `march_export_refusal`): the history
+    # restarts, once, with a warning that gives the engine's reason.
+    build = soliton(build_simulation, "numpy_ref")
+    path = tmp_path / "run.h5"
+    interrupted(build, path)
+    assert restart(path)["retention"]["state"] == "retained"
+    monkeypatch.setattr(
+        HostDriver, "march_export_refusal", lambda self: "refused by the test"
+    )
+    caught = resumed(build, path)
+    assert [str(one.message) for one in caught] == [f"{AFRESH}: refused by the test"]
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == (
+        "reset",
+        "incompatible_representation",
+    )
+
+
 def test_a_runge_kutta_resume_records_its_reset_controller(build_simulation, tmp_path):
     build = soliton(build_simulation, "numpy_ref", integrator=RungeKutta())
     path = tmp_path / "run.h5"

@@ -414,12 +414,6 @@ _RULES: Final = (
         "The low-storage march lands on its schedule's edges and has no dense output.",
         _BOTH,
     ),
-    Rule(
-        "integrator-backends",
-        ("integrator", "backend"),
-        "The Multistep and low-storage integrators run on numpy_ref and native only.",
-        _BOTH,
-    ),
     # The gnlse route.
     Rule(
         "gnlse-envelope-grid",
