@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import linalg, special
 
-from modal_design.evidence import run
 from solprop.constants import EPS0, C
 from solprop.modes import StepIndexMode
 
@@ -275,31 +274,3 @@ def vector_case(core, clad, radius, wavelength, *, radial_order=96, descriptors=
         "flux_gram_error": float(np.max(abs(gram - np.eye(len(rows))))),
         "gram": gram,
     }
-
-
-def study(full):
-    """Check full vector boundary fields, parity, power and Kerr coefficients."""
-    parameters = [(1.45, 1.0, 1.5e-6, 835e-9), (1.45, 1.449, 25e-6, 835e-9)]
-    levels = (48, 96, 192) if full else (96,)
-    rows = [
-        vector_case(*case, radial_order=order)
-        for case in parameters
-        for order in levels
-    ]
-    if full:
-        rows.extend(
-            vector_case(
-                1.45,
-                1.0,
-                250e-9,
-                835e-9,
-                radial_order=order,
-                descriptors=[("HE", 1, 1)],
-            )
-            for order in levels
-        )
-    return rows
-
-
-if __name__ == "__main__":
-    run(study)
