@@ -168,11 +168,12 @@ def test_check_reports_each_exceeded_cap():
 def test_check_refuses_stale_allow_entries():
     report = size_report._Report()
     report.module_lines = {"src/solprop/old.py": 300, "src/solprop/small.py": 8}
-    # The headroom of a 300-line module is max(5, 2 % of 300) = 6 lines.
-    assert size_report._check(report, _budget(old=306)) == []
-    failures = size_report._check(report, _budget(old=307, small=12, gone=20))
+    # The headroom of a 300-line module is max(5, 2 % of 300) = 6 lines; an entry goes
+    # stale more than three headrooms (18 lines) above the module's size.
+    assert size_report._check(report, _budget(old=318)) == []
+    failures = size_report._check(report, _budget(old=319, small=12, gone=20))
     assert failures == [
-        "src/solprop/old.py has 300 lines, so its allow entry 307 is stale: "
+        "src/solprop/old.py has 300 lines, so its allow entry 319 is stale: "
         "set it to 306",
         "src/solprop/small.py is under 10 lines: remove its allow entry",
         "src/solprop/gone.py is allowed 20 lines but no longer exists",
