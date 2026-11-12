@@ -99,7 +99,9 @@ independent of native's, and against which every native kernel is qualified.
   ([#246](https://github.com/LupoLab/solprop/issues/246),
   [#249](https://github.com/LupoLab/solprop/issues/249)). The provider's own cost and
   Pyroraptor's publication stay in [#247](https://github.com/LupoLab/solprop/issues/247)
-  and [#248](https://github.com/LupoLab/solprop/issues/248).
+  and [#248](https://github.com/LupoLab/solprop/issues/248). Changes to Pyroraptor that
+  §6.8 calls for (its runtime's initialisation, finalisation and threads) are in scope, as
+  companion changes in its repository.
 - **TDSE on device builds of native** (§12, Q2). Pyroraptor may still run its atomic
   calls on a device; it is solprop's optical side that stays on the CPU build.
 - **A compiled TDSE source assembly**, or a C++ link to the provider (§10.3).
@@ -200,6 +202,13 @@ Manufactured bindings, which return analytic histories with no provider, drive t
 tests in CI (`tests/backends/test_tdse_march.py`, `tests/edge_source_cases.py`); a real
 provider is not installable from a public release yet
 ([#248](https://github.com/LupoLab/solprop/issues/248)).
+
+**The provider.** Pyroraptor is solprop's sibling package, written and maintained by the
+same maintainer and not yet published. Its interface, initialisation, thread handling,
+exit-time clean-up and packaging can therefore change in step with this SEP, as companion
+changes in its own repository. It is built on Kokkos and OpenMP, like solprop-native, and
+the binding imports it into solprop's process. Only the atomic calculation needs to be
+fast: everything on solprop's side of an evaluation is below $10^{-3}$ of a call (§6.5).
 
 #### 3.3 What native would have to do
 
@@ -427,7 +436,8 @@ The registry passes `tdse_binding` to native's factory, which today refuses it.
 **Threads.** While the hook runs, native's threads are idle and sleep at once (ADR-056), so
 the provider's threads take the cores; the process's thread budget (ADR-052) is handed to
 both. Pyroraptor is itself built on Kokkos: loading it beside solprop-native in one
-process has never been qualified (§9.4, R1), and phase 0 does it.
+process has never been qualified (§9.4, R1). Where the provider runs, in solprop's process
+or in a worker process behind the same hook, is decided by phase 0 (§6.8).
 
 #### 6.3 Options for evaluating the TDSE source on native
 
@@ -435,7 +445,7 @@ process has never been qualified (§9.4, R1), and phase 0 does it.
 |---|---|---|---|
 | **A. Host callback per evaluation** (recommended) | the hook of §6.2 | the TDSE path stays one Python implementation; about 0.3k C++ and 0.4k adapter lines; native's march, history, monitors and statistics serve TDSE unchanged | an exception to "no Python call in a trial step"; CPU builds only |
 | B. Suspend the march at each evaluation | the march returns to the session with a "source needed" event mid-trial and resumes after the host fills the buffer | no Python call inside a trial | splits the hottest native code (the exponential Adams trial) into a resumable state machine at each evaluation, a path every non-TDSE run then carries, for a feature whose overhead does not matter |
-| C. Link Pyroraptor into solprop-native | C++ calls into the provider, zero-copy, device to device | no host crossing; could run on a device | an optional, unpublished dependency in the distributed wheel's build; one Kokkos version and ABI for both; the binding's budget, chunks, archive and consistency logic (3.2k lines) and the source assembly and diagnostics (1k lines) transcribed to C++ or still called from Python; no measurable gain (§6.5) |
+| C. Link Pyroraptor into solprop-native | C++ calls into the provider, zero-copy, device to device | no host crossing; could run on a device | Pyroraptor is in-house and could be adapted, but the distributed wheel's build would carry it, and both would need one Kokkos version, configuration and ABI; the binding's budget, chunks, archive and consistency logic (3.2k lines) and the source assembly and diagnostics (1k lines) transcribed to C++ or still called from Python; no measurable gain (§6.5) |
 | D. Precompute the response | tabulate the TDSE response and evaluate it natively | none | impossible: the response depends on the whole field waveform at each node |
 | E. Keep the reference's executor for TDSE alone | `auto` keeps sending TDSE to `numpy_ref` | no native work | keeps `HostDriver`, `HostAdamsMarch`, the host engine and `HostSession`, most of the 24k lines, so phase 2 cannot happen |
 
@@ -537,6 +547,42 @@ Two forms of the step-by-step comparison, both class R:
 The tests keep to about ten steps (`AGENTS.md`), so native exports its state at every step
 of a test run through a test-only session option; both forms run on the ladder's cases.
 
+#### 6.8 Where the provider runs
+
+The hook of §6.2 calls `binding.evaluate`; it does not know where the atomic calculation
+runs. Since only that calculation must be fast (§3.2, §6.5), the provider's placement is
+chosen for robustness, and it lives entirely in the binding (`solprop.driver.tdse`). The C++
+hook, its nanobind wrapper and the adapter are the same in both forms.
+
+- **In process** (the default, if phase 0 passes). The binding imports Pyroraptor into
+  solprop's process, as the reference's runs do today, and two Kokkos runtimes share it.
+  This works when:
+  - both import, initialise and run in either order;
+  - each finalises only its own runtime, and the exit-time FFTW clean-up of either does not
+    free plans the other still holds;
+  - their OpenMP threads never compete. Native's threads sleep while the hook runs
+    (ADR-056), and Pyroraptor takes the process's thread budget (ADR-052), and one OpenMP
+    runtime serves both or the two never run at once;
+  - each extension keeps its Kokkos symbols private, so neither resolves to the other's.
+
+  A failure is fixed on Pyroraptor's side first: hiding its symbols, taking the budget
+  from solprop, not finalising a runtime it did not initialise.
+- **Worker process** (the fallback, and the form for a Pyroraptor device build beside the
+  native CPU wheel). The binding starts one long-lived worker per run that imports
+  Pyroraptor and nothing of solprop-native. Each `evaluate` sends the node fields
+  (`n_nodes × n_to` float64, a few MB) and receives the histories (`TDSEResult`) through
+  shared memory. The reservation, the ledgers, the archive and the consistency checks stay
+  in the parent binding; only the atomic call crosses. A worker that dies maps to the
+  provider-failure path of §6.2. Its costs are one process start per run and a copy each
+  way per evaluation, milliseconds beside minutes. About 0.3k lines in `solprop.driver.tdse`
+  and its tests. No two runtimes ever share an address space, so R1 cannot occur.
+
+**Decision rule.** Phase 0 runs R1's checks on the CPU builds of Linux and macOS (and
+Windows, if Pyroraptor builds there), with a real provider, by hand. If they pass, possibly
+after Pyroraptor changes, the in-process form is the default and the worker is not built.
+If a check still fails at the end of phase 0, phase 1 ships the worker form. A Pyroraptor
+device build is only ever paired with the native CPU wheel through the worker.
+
 ### 7. Verification and validation
 
 #### 7.1 Phase 1: TDSE on native
@@ -560,9 +606,12 @@ bindings in CI:
    native with their tolerances unchanged.
 5. **Refusals**: a device build and every route outside §3.2, by name.
 6. **With a real provider, by hand** (not in CI, #248): one short segment of at most three
-   atomic calls on the smallest preset, native against the reference (class T), with the
-   process's co-residence of the two Kokkos runtimes checked (R1); recorded in the phase
-   report.
+   atomic calls on the smallest preset, native against the reference (class T), in the
+   provider placement phase 0 chose (§6.8); recorded in the phase report.
+7. **The worker form, if built** (§6.8): the call-sequence and one-evaluation tests of items
+   1–2 with the manufactured binding behind the worker, bit for bit against in process; a
+   worker that dies or hangs mid-trial ends as a provider failure with the state at the
+   last accepted step.
 
 #### 7.2 Phase 2: the slim reference
 
@@ -634,10 +683,12 @@ Linux wheel needs glibc 2.35 and a system FFTW (#570), and a source build needs 
 #### 9.4 Risks
 
 - **R1. Two Kokkos runtimes in one process.** Pyroraptor and solprop-native both embed
-  Kokkos and OpenMP; nothing has loaded them together. Mitigation: phase 0 qualifies the
-  pair on CPU builds (import order, initialisation and finalisation, the thread budget, the
-  existing exit-time FFTW clean-up) and records whether a Pyroraptor device build loads
-  beside the native CPU wheel; until it does, that pairing is refused by name.
+  Kokkos and OpenMP; nothing has loaded them together. Mitigation (§6.8): phase 0 checks the
+  pair on CPU builds (import order, initialisation and finalisation, symbol visibility, the
+  thread budget, the exit-time FFTW clean-up), and fixes failures in Pyroraptor, which is
+  in-house. If a failure remains, the provider runs in a worker process behind the same
+  hook, which removes the risk at a negligible cost. A Pyroraptor device build is only
+  paired with the native CPU wheel through the worker.
 - **R2. A full-run oracle is lost.** The replay checks the steps native took, not its
   choice of steps. A controller defect that computes every step correctly is caught only by
   the decision traces, so their coverage must be complete before deletion (#270, and every
@@ -692,7 +743,7 @@ milestone pull request per phase as for SEP 47 (Q9).
 
 | phase | deliverables | verifies |
 |---|---|---|
-| **0. Prerequisites and baseline** | ADR-077's change merged; #270 resolved; `poe size` baseline; the optical side's share of a TDSE run on the reference and the host assembly's time, with a manufactured binding on the short TDSE test window (#247); R1's co-residence check | the baseline numbers recorded in the phase report |
+| **0. Prerequisites and baseline** | ADR-077's change merged; #270 resolved; `poe size` baseline; the optical side's share of a TDSE run on the reference and the host assembly's time, with a manufactured binding on the short TDSE test window (#247); R1's checks with a real provider, and the provider placement they decide (§6.8), with any Pyroraptor changes they need | the baseline numbers and the placement decision recorded in the phase report |
 | **1. TDSE on native** | the host TDSE source moved out of `numpy_ref` (a pure move); the C++ hook, its binding and the adapter's hook object; session wiring, metadata, memory rows, resume; `auto` sends TDSE to native; device builds refuse; the ADR; the manual and design pages of §8 for TDSE | §7.1 |
 | **2a. The slim reference beside the executor** | the API of §5.2, `StepTrace` and the session's test-only state export, the ladder, the decision-trace re-basing; the comparison of the library's replay with the old executor's | §7.2 items 1–3 |
 | **2b. Delete the executor** | the deletions of §6.4; the ~78 re-pointed modules; session bookkeeping tests on native; `backend="numpy_ref"` refused; the registry, GUI and recipes; the ADR, SEP 0, the design and manual pages of §8 | §7.2 items 4–5; the size report against §6.5 |
@@ -723,9 +774,16 @@ milestone pull request per phase as for SEP 47 (Q9).
    decided the end state) or needs its own Process SEP.
 9. **Q9. Delivery.** One pull request for the SEP, or a milestone pull request per phase
    (phase 1 is useful alone and smaller to review), under an exception like SEP 47's.
-10. **Q10. A real provider in CI.** Until Pyroraptor is published (#248), the real-provider
-    check is by hand (§7.1 item 6). Whether phase 1 can be `Final`-qualified on manufactured
-    bindings alone, with the hand check recorded, is the maintainers' call.
+10. **Q10. A real provider in CI.** Pyroraptor is in-house, so CI could install it before
+    it is published (#248), from a private wheel or a deploy key on its repository, and run
+    §7.1 item 6 on the smallest preset in a scheduled job. Recommended: do so once phase 0
+    has a placement; until then the check is by hand, and phase 1 is `Final`-qualified on
+    manufactured bindings with the hand check recorded.
+11. **Q11. The provider's placement** (§6.8). Recommended: in process if phase 0's checks
+    pass, possibly after Pyroraptor changes, otherwise a worker process; never both as
+    supported options. The alternative is to build the worker from the start and skip the
+    in-process qualification: simpler to reason about, at about 0.3k lines and a few
+    milliseconds per evaluation.
 
 ### 13. References
 
@@ -744,3 +802,6 @@ milestone pull request per phase as for SEP 47 (Q9).
 
 - 2026-11-12: Drafted.
 - 2026-11-12: Tracking issue [#764](https://github.com/LupoLab/solprop/issues/764).
+- 2026-11-12: The provider's placement (§6.8, Q11) added after the maintainer noted that
+  Pyroraptor is in-house and unpublished, so it can change with solprop, and that only the
+  atomic calculation needs to be fast; R1, option C, phase 0, §7.1 and Q10 revised to match.
