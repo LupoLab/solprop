@@ -390,8 +390,9 @@ TEST(DispersiveResponse, AUnitFilterIsTheConstantCubicOfOneNode) {
   EXPECT_EQ(ledger.at("dispersive_product_spectra"), 0U);
   EXPECT_EQ(ledger.at("dispersive_node_fields"), 0U);
   EXPECT_GT(ledger.at("dispersive_multipliers"), 0U);
+  // Closing destroys the workspace: a closed state holds nothing and reads nothing.
   state.close();
-  EXPECT_EQ(state.memory_ledger().at("dispersive_multipliers"), 0U);
+  EXPECT_THROW(static_cast<void>(state.memory_ledger()), std::logic_error);
 }
 
 TEST(DispersiveResponse, ATrialNeedsEachStageSDensities) {
