@@ -864,6 +864,8 @@ def test_the_formatter_handles_the_awkward_numbers():
     assert _display.engineering(1e30, "W") == "1e+12 EW"
     assert _display.engineering(1e-30, "s") == "1e-12 as"
     assert _display.engineering(float("inf"), "m") == "inf"
+    assert _display.engineering(float("nan"), "s") == "nan"
+    assert _display.engineering(None, "s") == "none"
     assert _display.engineering(12.3456) == "12.35"
     assert _display.summarise(np.array([])) == "<0 values>"
     assert _display.summarise(3.0) == "<scalar values>"
