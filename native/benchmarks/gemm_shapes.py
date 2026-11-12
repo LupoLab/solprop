@@ -81,7 +81,7 @@ def radial(nodes: int, trange: float) -> Simulation:
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 100e-6
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1e-3, nodes),
         SpatialMedium("Ar", 1.0),
