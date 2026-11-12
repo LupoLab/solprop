@@ -178,7 +178,8 @@ void apply_generator(const ExecutionSpace& space, const std::size_t n,
 #endif
 }
 
-template <class... Ts> KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&...) {}
+template <class... Ts>
+KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&... /*unused*/) {}
 
 // Net process allocator growth includes opaque vendor FFT plan/workspace
 // allocations. It is measured separately from Kokkos Views and is not a peak bound.
