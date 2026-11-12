@@ -236,13 +236,8 @@ def test_tracked_definitions_change_only_with_a_new_revision():
     assert set(revisions.values()) == {1}
 
 
-def test_a_single_precision_variant_is_noiseless_and_a_pow2_grid_a_power_of_two():
-    values = {**configuration("he_rdw_averaged"), "precision": "single"}
-    single = build(values)
-    assert single.settings.precision == "single"
-    assert single.noise is None or single.noise.model is None
+def test_a_noiseless_variant_is_noiseless_and_a_pow2_grid_a_power_of_two():
     quiet = build({**configuration("he_rdw_averaged"), "noise": "none"})
-    assert quiet.settings.precision == "double"
     assert quiet.noise is None or quiet.noise.model is None
     pow2 = build({**configuration("he_rdw_averaged"), "fft_size": "pow2"})
     n_t = pow2.grid.n_t
@@ -252,7 +247,7 @@ def test_a_single_precision_variant_is_noiseless_and_a_pow2_grid_a_power_of_two(
     assert spatial.grid.n_t & (spatial.grid.n_t - 1) == 0
 
 
-def test_every_configuration_runs_in_double_precision():
+def test_every_configuration_runs_on_the_backend_asked_for():
     from benchmarks.runner import plan_rows  # noqa: PLC0415
     from benchmarks.track import BACKENDS  # noqa: PLC0415
 
@@ -267,7 +262,7 @@ def test_every_configuration_runs_in_double_precision():
         fft_size="pow2",
     )
     assert "he_rdw_averaged.multistep-interaction.t1" in [row["id"] for row in rows]
-    assert all(row["configuration"]["precision"] == "double" for row in rows)
+    assert all(row["configuration"]["backend"] == "numpy_ref" for row in rows)
     assert all(row["configuration"]["fft_size"] == "pow2" for row in rows)
     assert all("fixed-step case" in reason for reason in skipped)
 

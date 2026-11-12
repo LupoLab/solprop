@@ -84,7 +84,6 @@ from solprop.driver.defaults import (
     FREE_RTOL,
     INTERIOR_LAUNCH_NOISE,
     PLANAR_NOISE,
-    SINGLE_PRECISION_NOISE,
     SLAB_NOISE,
     SPATIAL_ATOL,
     SPATIAL_RTOL,
@@ -328,12 +327,6 @@ from solprop.translate.plasma_integration import (
     integration_record,
 )
 from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
-from solprop.translate.precision import (
-    Precision,
-    PrecisionName,
-    admit_precision,
-    precision_named,
-)
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
     PropagationProblem,
@@ -379,7 +372,6 @@ __all__ = [
     "ORTHONORMALITY_TOLERANCE",
     "PLANAR_NOISE",
     "PLASMA_STATISTICS",
-    "SINGLE_PRECISION_NOISE",
     "SLAB_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
@@ -522,30 +514,6 @@ class _Defaulted(str):
     __slots__ = ()
 
 
-class _AutoBackend(str):
-    """A backend name ``"auto"`` resolved to, with the precision it resolved under.
-
-    A copy keeps the concrete name, so a scan worker runs on the backend its parent
-    chose even where its own packages differ; only a copy in the other precision
-    resolves ``"auto"`` again, since binary64 and binary32 admit different backends.
-    """
-
-    precision: str
-
-    def __new__(cls, name: str, precision: str) -> "_AutoBackend":
-        """Return the name, marked with the precision it was resolved under."""
-        marked = super().__new__(cls, name)
-        marked.precision = precision
-        return marked
-
-    def __reduce__(self) -> tuple[object, tuple[str, str]]:
-        """Pickle the name with its precision, for a scan worker.
-
-        - Returns: the class and its arguments.
-        """
-        return (_AutoBackend, (str(self), self.precision))
-
-
 if TYPE_CHECKING:
     from solprop.calibration.refine import RefinementReport
     from solprop.driver.estimate import RunEstimate
@@ -592,12 +560,9 @@ class SimulationSettings(Displayed):
         :data:`~solprop.driver.defaults.SPATIAL_ATOL` of :meth:`Simulation.from_radial`
         and :meth:`Simulation.from_planar`, the
         :data:`~solprop.driver.defaults.FREE_RTOL` and
-        :data:`~solprop.driver.defaults.FREE_ATOL` of :meth:`Simulation.from_free`;
-        under single precision the tolerance is at least
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` and at most
-        :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`. An explicit controller
-        always wins, and a default copied into the other precision takes that
-        precision's default. The other fields are keyword-only.
+        :data:`~solprop.driver.defaults.FREE_ATOL` of :meth:`Simulation.from_free`.
+        An explicit controller always wins, and a default copied into another route
+        takes that route's default. The other fields are keyword-only.
     save_planes : numpy.ndarray
         Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
         ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
@@ -634,13 +599,11 @@ class SimulationSettings(Displayed):
         saves the requested planes only. Not in scans.
     integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        ``None``, the default, takes ``Multistep()`` under double precision, or
-        ``RungeKutta()`` where the interface's builder sets it
-        (:meth:`Simulation.from_gnlse`, :meth:`Simulation.from_waveguide` and
-        :meth:`Simulation.from_free`; ``docs/guide/numerics/choosing-a-stepper.md``),
-        and ``RungeKutta()`` under single precision, which refuses the Adams method
-        until its single-precision survival is established (SEP 33, Q2); the stored
-        value is the resolved method. ``Multistep()`` is the low-call exponential Adams
+        ``None``, the default, takes ``Multistep()``, or ``RungeKutta()`` where the
+        interface's builder sets it (:meth:`Simulation.from_gnlse`,
+        :meth:`Simulation.from_waveguide` and :meth:`Simulation.from_free`;
+        ``docs/guide/numerics/choosing-a-stepper.md``); the stored value is the
+        resolved method. ``Multistep()`` is the low-call exponential Adams
         method, which
         ``numpy_ref`` and ``native`` execute for supported
         configurations;
@@ -714,22 +677,9 @@ class SimulationSettings(Displayed):
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
         resolves to ``"native"`` at settings construction, and refuses if it isn't
-        installed or this processor is below its baseline; under single precision it
-        is refused (`precision`).
+        installed or this processor is below its baseline.
         The stored name is concrete, including in scan workers. A backend's import or
         construction errors never trigger a fallback.
-    precision : {'double', 'single'}
-        The arithmetic the run is held in (SEP 33,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
-        binary64 throughout and changes nothing.
-        ``"single"`` holds the state, the stages, the transforms and the responses in
-        binary32, with the controller and every host scalar in binary64. It admits
-        ``backend="numpy_ref"`` (the single-precision oracle) only; refuses an
-        adaptive ``rtol`` below
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the Adams integrator
-        and an explicit noise model (a default noise resolves to none); and is
-        refused by ``native``. ``backend="auto"`` is refused: name ``"numpy_ref"``.
-        Part of the hashed configuration; outputs are binary64 either way.
     resume_history : bool or None
         Whether the output keeps the Adams march's state at every save plane and
         terminal checkpoint, so that a resume continues the history -- its samples, its
@@ -833,7 +783,6 @@ class SimulationSettings(Displayed):
     polarisation_taper: bool = False
     backend: str = "auto"
     integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
-    precision: PrecisionName = "double"
     resume_history: bool | None = None
     tdse_execution: TDSEExecution | None = None
     fields: FieldsChoice = "all"
@@ -851,8 +800,8 @@ class SimulationSettings(Displayed):
     _route: str | None = dataclasses.field(default=None, repr=False, compare=False)
     """The row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` the interface that
     built the settings reads, or ``None`` for settings built by hand. A copy made with
-    :func:`dataclasses.replace` carries it, so a copy in the other precision takes the
-    route's defaults again, and the route's choice never counts as named."""
+    :func:`dataclasses.replace` carries it, so a copy takes the route's defaults
+    again, and the route's choice never counts as named."""
     _default_controller: PIController | None = dataclasses.field(
         default=None, repr=False, compare=False
     )
@@ -966,18 +915,7 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
-        precision = _precision(self.precision)
-        self._resolve_defaults(precision)
-        # A backend "auto" chose is marked, so a copy in the other precision chooses
-        # again rather than keeping a binary64 name single precision refuses.
-        name = "single" if precision.single else "double"
-        auto = self.backend == "auto" or (
-            isinstance(self.backend, _AutoBackend) and self.backend.precision != name
-        )
-        if auto:
-            object.__setattr__(self, "backend", "auto")
-        if precision.single:
-            object.__setattr__(self, "backend", _single_backend(self.backend))
+        self._resolve_defaults()
         if self.fields == "planes" and self.step_planes:
             msg = (
                 "fields='planes' names saved planes by index, and step_planes saves "
@@ -990,7 +928,7 @@ class SimulationSettings(Displayed):
                 rule="fields-planes-step-planes",
             )
         if self.tdse_execution is not None:
-            _admit_tdse_execution(self, precision)
+            _admit_tdse_execution(self)
         # The annotation refuses another integrator first wherever the annotations are
         # checked at run time, as in the test suite.
         if not isinstance(
@@ -1008,22 +946,7 @@ class SimulationSettings(Displayed):
         # backend steps the exponential formulation on every route, and the
         # interaction one on every route but a coupled flow, which it refuses by name
         # (SEP 16 phases 3 and 5).
-        backend = resolve_name(self.backend)
-        if auto:
-            backend = _AutoBackend(backend, name)
-        object.__setattr__(self, "backend", backend)
-        # The precision's refusals come before the integrator's backend check, so a
-        # single-precision run is told what single precision refuses rather than
-        # what its backend does not step.
-        try:
-            admit_precision(
-                precision,
-                backend=self.backend,
-                rtol=getattr(self.controller, "rtol", None),
-                schedule=self.schedule is not None,
-            )
-        except TranslationError as error:
-            raise DriverError(str(error), parameter="precision") from error
+        object.__setattr__(self, "backend", resolve_name(self.backend))
         if isinstance(self.integrator, Multistep):
             _admit_integrator(self.integrator, self.backend)
             rtol = getattr(self.controller, "rtol", None)
@@ -1036,15 +959,14 @@ class SimulationSettings(Displayed):
                 )
                 warnings.warn(msg, SolpropWarning, stacklevel=3)
 
-    def _resolve_defaults(self, precision: Precision) -> None:
+    def _resolve_defaults(self) -> None:
         """Take the route's default for each of the stepping choices the caller left.
 
         The integrator, the controller and the collar scheme each come from
         :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` when not given. A default
-        carried by a copy is resolved again, so it follows the copy's precision,
-        route and planes; a value the caller gave is kept.
+        carried by a copy is resolved again, so it follows the copy's route and
+        planes; a value the caller gave is kept.
         """
-        name = "single" if precision.single else "double"
         carried = (
             self.integrator is not None and self.integrator is self._default_integrator
         )
@@ -1052,7 +974,7 @@ class SimulationSettings(Displayed):
             self, "integrator_named", self.integrator is not None and not carried
         )
         if not self.integrator_named:
-            default = default_integrator(self._route, name)
+            default = default_integrator(self._route)
             if carried and type(self.integrator) is type(default):
                 default = self.integrator
             object.__setattr__(self, "integrator", default)
@@ -1060,13 +982,13 @@ class SimulationSettings(Displayed):
         controller = self.controller
         defaulted = controller is not None and controller is self._default_controller
         if controller is None and self._route is not None:
-            controller = default_controller(self._route, name)
+            controller = default_controller(self._route)
             defaulted = True
         elif defaulted and controller is not None:
-            # A default copied into another precision or route takes that one's
-            # tolerance, keeping the absolute tolerance the route's builder chose.
+            # A default copied into another route takes that one's tolerance,
+            # keeping the absolute tolerance the route's builder chose.
             rtol = (
-                default_rtol(self._route, name)
+                default_rtol(self._route)
                 if self._route is not None
                 else controller.rtol
             )
@@ -1142,11 +1064,11 @@ class SimulationSettings(Displayed):
         return DefaultsResolution(self._route, defaulted)
 
 
-def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) -> None:
+def _admit_tdse_execution(settings: SimulationSettings) -> None:
     """Refuse TDSE execution resources beside settings a TDSE run cannot step with.
 
     Each refusal names the setting at fault, in the order a caller would fix them:
-    the precision, then the backend, then the integrator.
+    the backend, then the integrator.
     """
     if not isinstance(settings.tdse_execution, TDSEExecution):
         msg = (
@@ -1154,14 +1076,6 @@ def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) ->
             f"{type(settings.tdse_execution).__name__}"
         )
         raise DriverError(msg, parameter="tdse_execution")
-    if precision.single:
-        msg = (
-            "precision='single' refuses a TDSE response: no backend runs it in "
-            "binary32 (SEP 33 section 5.1); use precision='double'"
-        )
-        raise DriverError(
-            msg, parameter=("tdse_execution", "precision"), rule="tdse-double-precision"
-        )
     if settings.backend != "numpy_ref":
         msg = (
             f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
@@ -1190,7 +1104,7 @@ def _quiet_collar(settings: SimulationSettings) -> bool:
 
 
 def _keyword_controller(
-    route: str, rtol: float | None, atol: float, precision: PrecisionName
+    route: str, rtol: float | None, atol: float
 ) -> tuple[PIController, PIController | None]:
     """Return a keyword interface's controller, and it again if its rtol is default.
 
@@ -1199,39 +1113,12 @@ def _keyword_controller(
     - ``rtol``: the caller's relative tolerance, which is never raised silently;
       ``None`` takes the route's (:func:`~solprop.driver.defaults.default_rtol`).
     - Returns: the controller, and the same object where `rtol` was the route's default
-      so that the settings record the default and a copy in the other precision
-      re-resolves it, else ``None``.
+      so that the settings record the default, else ``None``.
     """
     if rtol is not None:
         return PIController(rtol=rtol, atol=atol), None
-    controller = PIController(rtol=default_rtol(route, precision), atol=atol)
+    controller = PIController(rtol=default_rtol(route), atol=atol)
     return controller, controller
-
-
-def _precision(name: PrecisionName) -> Precision:
-    """Return the record of a public precision value, refusing an unknown one."""
-    if name not in ("double", "single"):  # pragma: no cover - refused by its annotation
-        msg = f"precision must be 'double' or 'single', got {name!r}"
-        raise DriverError(msg, parameter="precision")
-    return precision_named(name)
-
-
-def _single_backend(backend: str) -> str:
-    """Refuse ``"auto"`` for a single-precision run (SEP 33, Q8; SEP 47).
-
-    No installed backend runs single precision quickly, so ``"auto"`` is refused: it
-    never resolves to a binary64 backend, and never to ``numpy_ref``, which runs single
-    precision when it is named. An explicit name passes through to
-    :func:`~solprop.translate.precision.admit_precision`.
-    """
-    if backend != "auto":
-        return backend
-    msg = (
-        "precision='single' runs on the reference only, and backend='auto' does not "
-        "choose it: pass backend='numpy_ref', which runs single precision unthreaded "
-        "and far slower, or use precision='double'"
-    )
-    raise DriverError(msg, parameter=("precision", "backend"))
 
 
 def _stepper_record(settings: StepperSettings) -> StepperRecord:
@@ -2307,7 +2194,6 @@ class Simulation(Displayed):
                         settings.spatial_absorber, self.spatial_grid
                     ),
                     adiabatic_accuracy=settings.adiabatic_accuracy,
-                    precision=precision_named(settings.precision),
                 )
         return self._problem
 
@@ -2909,9 +2795,8 @@ class Simulation(Displayed):
                 "absorber": self.settings.absorber,
                 "absorber_scheme": _scheme(self.settings),
                 "propagator_mode": self.settings.propagator_mode,
-                # Every run records its precision, double included (SEP 33
-                # section 5.3, ADR-051), so a resume in the other is refused.
-                "precision": self.settings.precision,
+                # Recorded until the hashed key is retired with its resume identity.
+                "precision": "double",
             }
         )
         if self.frame is not None:
@@ -4326,7 +4211,6 @@ class Simulation(Displayed):
             "radial" if isinstance(space, RadialGrid) else "free",
             noise,
             seed,
-            settings.precision,
         )
         simulation.noise_resolution = resolution
         if noise_model is not None:
@@ -4382,7 +4266,6 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         backend: str = "auto",
-        precision: PrecisionName = "double",
         materials: MaterialSelection | None = None,
     ) -> "Simulation":
         """Build a simulation of a GNLSE fibre from its coefficients.
@@ -4529,13 +4412,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
-            ``RungeKutta()``, carries no noise, and runs on ``numpy_ref``, the
-            reference, with ``backend="auto"`` refused
-            (:attr:`SimulationSettings.precision`).
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take fused silica's nonlinear response from optmat's silica bundle
             (:class:`~solprop.physdata.glasses.SilicaBundle`): with `raman` on, an
@@ -4602,7 +4478,7 @@ class Simulation(Displayed):
             pulses=pulses,
         )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
-        controller, default = _keyword_controller("gnlse", rtol, atol, precision)
+        controller, default = _keyword_controller("gnlse", rtol, atol)
         settings = SimulationSettings(
             controller=controller,
             _default_controller=default,
@@ -4626,9 +4502,8 @@ class Simulation(Displayed):
             boundary_check=boundary_check,
             polarisation_taper=polarisation_taper,
             backend=backend,
-            precision=precision,
         )
-        noise_model, resolution = resolve_noise("gnlse", noise, seed, precision)
+        noise_model, resolution = resolve_noise("gnlse", noise, seed)
         draw = functools.partial(_shot_noise, noise_model, working)
         simulation = cls(
             working,
@@ -4715,7 +4590,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
@@ -5012,13 +4886,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
-            ``RungeKutta()``, carries no noise, and runs on ``numpy_ref``, the
-            reference, with ``backend="auto"`` refused
-            (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -5129,7 +4996,6 @@ class Simulation(Displayed):
             polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
-            precision=precision,
             polarisation=polarisation,
             materials=MaterialSelection() if materials is None else materials,
             tdse=tdse,
@@ -5205,7 +5071,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
         materials: MaterialSelection | None = None,
@@ -5540,13 +5405,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which keeps ``rtol`` at
-            :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL` by default
-            (``docs/guide/performance/single-precision.md``), takes ``RungeKutta()``,
-            carries no noise, and runs on ``numpy_ref``, the reference, with
-            ``backend="auto"`` refused (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         taper_coupling : bool, optional
@@ -5636,7 +5494,6 @@ class Simulation(Displayed):
                 polarisation_taper=polarisation_taper,
                 node_budget=node_budget,
                 backend=backend,
-                precision=precision,
                 polarisation=polarisation,
                 taper_coupling=taper_coupling,
                 materials=MaterialSelection() if materials is None else materials,
@@ -5718,7 +5575,6 @@ class Simulation(Displayed):
             polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
-            precision=precision,
             polarisation=polarisation,
             taper_coupling=taper_coupling,
             materials=MaterialSelection() if materials is None else materials,
@@ -5762,7 +5618,6 @@ class Simulation(Displayed):
         n_save: int | None,
         stats: StatsSpec | None,
         backend: str,
-        precision: PrecisionName,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
         launch: ModalLaunch | None = None,
@@ -5913,7 +5768,7 @@ class Simulation(Displayed):
                 metric=metric_at(route.metric_tables, 0.0),
             )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
-        controller, default = _keyword_controller("waveguide", rtol, atol, precision)
+        controller, default = _keyword_controller("waveguide", rtol, atol)
         settings = SimulationSettings(
             controller=controller,
             _default_controller=default,
@@ -5936,9 +5791,8 @@ class Simulation(Displayed):
             stats=_general_stats() if stats is None else stats,
             polarisation_taper=polarisation_taper,
             backend=backend,
-            precision=precision,
         )
-        noise_model, resolution = resolve_noise("waveguide", noise, seed, precision)
+        noise_model, resolution = resolve_noise("waveguide", noise, seed)
         draw = functools.partial(_general_noise, noise_model, working, guide=provider)
         simulation = cls(
             working,
@@ -6036,7 +5890,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
@@ -6468,7 +6321,7 @@ class Simulation(Displayed):
             if atomic is not None
             else route
         )
-        controller, default = _keyword_controller(row, rtol, atol, precision)
+        controller, default = _keyword_controller(row, rtol, atol)
         settings = SimulationSettings(
             controller=controller,
             _default_controller=default,
@@ -6518,10 +6371,9 @@ class Simulation(Displayed):
             ),
             polarisation_taper=polarisation_taper,
             backend=backend,
-            precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
-        noise_model, resolution = resolve_noise(row, noise, seed, precision)
+        noise_model, resolution = resolve_noise(row, noise, seed)
         draw = functools.partial(
             _shot_noise, noise_model, working, n_modes=len(mode_set)
         )
@@ -8477,8 +8329,8 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     - Returns: `settings`, reading the route's row of
       :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` for whatever the caller left: the
       controller (:data:`~solprop.driver.defaults.SPATIAL_RTOL` for radial and planar
-      runs, :data:`~solprop.driver.defaults.FREE_RTOL` for Cartesian and line ones, in
-      the run's precision), the integrator (``RungeKutta()`` in free space, whose Adams
+      runs, :data:`~solprop.driver.defaults.FREE_RTOL` for Cartesian and line ones), the
+      integrator (``RungeKutta()`` in free space, whose Adams
       history would be too large) and the collar scheme (``"split_step"`` unless planes
       are interpolated). Settings that already belong to a route, this one or another
       (settings copied from a modal run, for a comparison), keep what that route

@@ -1318,8 +1318,8 @@ class NoiseResolution:
     resolved : {'input', 'modified'} or None
         The model the run carries, or ``None`` for a noiseless run.
     reason : str or None
-        Why a default resolved to no noise, for example that single precision carries
-        none; ``None`` otherwise.
+        Why a default resolved to no noise, for example that the hybrid planar grid
+        declares no photon measure; ``None`` otherwise.
 
     Examples
     --------

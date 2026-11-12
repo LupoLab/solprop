@@ -42,7 +42,6 @@ from solprop.backends.host.session import HostSession
 from solprop.backends.multistep import HostHistory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
-from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group, start_session
 from solprop.exceptions import BackendError
@@ -199,7 +198,7 @@ def test_importing_the_reference_loads_no_legacy_driver():
     code = (
         "import sys\n"
         "import solprop.backends.numpy_ref, solprop.backends.numpy_ref.batch\n"
-        "import solprop.backends.numpy_ref.single, solprop.backends.host.session\n"
+        "import solprop.backends.host.session\n"
         "import solprop.backends.host.adams, solprop.backends.host.group\n"
         "import solprop.backends.host.group_session\n"
         "import solprop.backends.sessions\n"
@@ -227,9 +226,7 @@ def test_a_reference_module_holds_no_legacy_control(name):
             assert not legacy, (name, key)
 
 
-@pytest.mark.parametrize(
-    "backend", [NumpyRefBackend, NumpySingleBackend, NumpyBatchBackend]
-)
+@pytest.mark.parametrize("backend", [NumpyRefBackend, NumpyBatchBackend])
 def test_a_reference_backend_inherits_only_the_host_driver(backend):
     assert issubclass(backend, HostDriver)
     assert not {one.__name__ for one in backend.__mro__} & LEGACY_CLASS_NAMES

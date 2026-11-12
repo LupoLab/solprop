@@ -6,10 +6,9 @@
 
 Every backend reads the edge on the host from its state, as ``numpy_ref`` does; the
 native Adams march holds its steps to the edge's next read and hands the state back
-there (section 5.3). ``numpy_ref``'s single-precision path is compared with its
-binary64 one. The same run on two backends must then stop at the same read, read the
-same number of times and keep the same record; a requested collar must remove the same
-energy.
+there (section 5.3). The same run on two backends must then stop at the same read,
+read the same number of times and keep the same record; a requested collar must remove
+the same energy.
 """
 
 import dataclasses
@@ -216,41 +215,3 @@ def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
     record = edge_record(output)
     assert record["transverse_status"] == "unwatched"
     assert record["reads"] == 0
-
-
-def single(simulation: Simulation, backend: str) -> Simulation:
-    """Return `simulation` on `backend` in binary32, under Runge-Kutta."""
-    simulation.settings = dataclasses.replace(
-        simulation.settings,
-        backend=backend,
-        precision="single",
-        integrator=RungeKutta(),
-        controller=PIController(rtol=1e-5, atol=0.0),
-    )
-    return simulation
-
-
-def test_numpy_ref_s_binary32_path_carries_the_radial_collar() -> None:
-    # Binary32 agrees with binary64 to the single-precision tolerance, and the edge
-    # reads alike.
-    outputs: list[PlaneStore] = []
-    for precision in ("double", "single"):
-        simulation = single(radial_collar("numpy_ref", RungeKutta()), "numpy_ref")
-        simulation.settings = dataclasses.replace(
-            simulation.settings, precision=precision
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            output = simulation.run(progress="none")
-        assert isinstance(output, PlaneStore)
-        outputs.append(output)
-    reference, found = outputs
-    expected = np.asarray(reference["field"][-1])
-    error = float(
-        np.linalg.norm(np.asarray(found["field"][-1]) - expected)
-        / np.linalg.norm(expected)
-    )
-    assert error < 1e-5
-    first, second = edge_record(reference), edge_record(found)
-    assert second["reads"] == first["reads"]
-    assert second["transverse_status"] == first["transverse_status"] == "clear"

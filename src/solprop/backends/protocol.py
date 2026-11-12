@@ -388,11 +388,11 @@ class Observation:
         attempt, these are every ``period``-th accepted step.
     field_owned : bool
         Whether the backend made `field` for this observation alone and keeps no
-        reference to it: a copy from a device or a widened single-precision state,
-        made fresh at each call. ``False`` where the field may be the backend's own
-        state array, frozen and left behind by the next step, and always ``False``
-        without a field. The session that observed it, its only holder, converts an
-        owned field to output units where it is, rather than into a new array
+        reference to it: a copy from a device, made fresh at each call. ``False``
+        where the field may be the backend's own state array, frozen and left behind
+        by the next step, and always ``False`` without a field. The session that
+        observed it, its only holder, converts an owned field to output units where it
+        is, rather than into a new array
         (:meth:`solprop.backends.host.session.HostSession.export`); for any other
         field that conversion is what detaches it from the backend (SEP 47
         section 5.4).

@@ -301,7 +301,6 @@ def substitute():
             grid_kind=base.grid_kind,
             shape=base.shape,
             flags=derived,
-            precision=base.precision,
             split_crossing=base.split_crossing,
             **parts,
         )

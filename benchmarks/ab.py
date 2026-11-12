@@ -106,8 +106,8 @@ def arm_environment(settings: list[str]) -> dict[str, str]:
 
 
 def arm_configuration(configuration: Record, backend: str) -> Record:
-    """Return one arm's configuration: its backend, in double precision."""
-    return {**configuration, "backend": backend, "precision": "double"}
+    """Return one arm's configuration: its backend."""
+    return {**configuration, "backend": backend}
 
 
 def arm_order(round_index: int) -> tuple[str, ...]:

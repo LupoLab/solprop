@@ -82,7 +82,7 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         "--backend",
         choices=BACKENDS,
         default="native",
-        help="every backend runs in double precision",
+        help="the backend every case runs on",
     )
     parser.add_argument(
         "--noise",

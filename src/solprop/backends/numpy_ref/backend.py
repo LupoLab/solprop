@@ -36,7 +36,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.numpy_ref import passes, transforms
+from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.admission import (
     refuse_general_route,
 )
@@ -276,8 +276,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None] | None
         ) = None
         self._kind: GridKind = problem.grid_kind
-        # The tables a source evaluation reads, as the problem holds them; the
-        # single-precision path narrows them on upload (SEP 33).
         self._tables = SourceTables.of(problem)
         self._carrier = _harmonic_carrier(problem)
         self._embedded = _embedded_projection(problem)
@@ -349,16 +347,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 "replayed" if self._stepper.schedule is not None else "adaptive",
             )
 
-    def _propagator(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Return the stage propagator ``exp(dPhi)`` of a binary64 exponent.
-
-        The single-precision path rounds the binary64 exponential once (SEP 33
-        section 4.2); here it is the exponential itself.
-        """
-        return np.exp(exponent)
-
     def _envelope_sources(
         self, field_t: Complex[np.ndarray, "n_nodes n_pol n_to"], bundle: StageScalars
     ) -> tuple[
@@ -408,15 +396,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._problem.grids.norm_mask,
             self._stepper.controller,
         )
-
-    def _rounded(
-        self, values: Inexact[np.ndarray, "*shape"]
-    ) -> Inexact[np.ndarray, "*shape"]:
-        """Return a binary64 array a pass multiplies by, in the run's precision.
-
-        The identity here; the single-precision path rounds it once (SEP 33).
-        """
-        return values
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
@@ -703,7 +682,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if channels:
             if transform.geometry is not None and transform.geometry.kind == "free":
                 nx, ny = transform.geometry.shape
-                physical = transforms.ifft2(
+                physical = np.fft.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
                 nodes = passes.to_time(
@@ -804,7 +783,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         physical = (
             slab_synthesis(self._problem.transform, field) / grids.pad_scale
             if geometry.kind == "slab"
-            else transforms.ifft2(
+            else np.fft.ifft2(
                 field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
             ).reshape(field.shape)
         )
@@ -852,7 +831,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 slab_synthesis(self._problem.transform, field)
                 / self._problem.grids.pad_scale
                 if geometry.kind == "slab"
-                else transforms.ifft2(
+                else np.fft.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
             )
@@ -1180,7 +1159,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             bundle, propagator = held[2], held[3]
         else:
             bundle = self._stage_scalars(anchor, position)
-            propagator = self._propagator(self._delta_phi(bundle))
+            propagator = np.exp(self._delta_phi(bundle))
         self._adams_held = None
         noise = self._noise_at(bundle)
         field_in = lab if noise is None else lab + noise
@@ -1265,7 +1244,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         - ``anchor``, ``position``: the step's anchor and its end, m.
         """
         bundle = self._stage_scalars(anchor, position)
-        propagator = self._propagator(self._delta_phi(bundle))
+        propagator = np.exp(self._delta_phi(bundle))
         if self._adams is not None:
             self._adams_held = (anchor, position, bundle, propagator)
         return propagator
@@ -1338,10 +1317,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 self._channels(state, forward),
                 self._channels(combination, forward),
                 dz,
-                self._propagator(exponent),
+                np.exp(exponent),
                 self._noise_at(bundle),
             )
-            back = self._propagator(-exponent)
+            back = np.exp(-exponent)
             self._rk_source_evaluations += 1
             drive = self._nonlinear(lab, bundle, back)
             residual = self._residual(lab, step.flow_section, bundle)
@@ -1355,7 +1334,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             error = passes.accumulate(error, stage, float(tableau.error_weights[index]))
         # Kept for the continuous extension of an accepted step (SEP 14 phase 3).
         self._last_stages = stages
-        propagator = self._propagator(exponents(1.0, step))
+        propagator = np.exp(exponents(1.0, step))
         whole = actions(1.0)[0]
         advanced = passes.accept_step(
             self._channels(state, whole),
@@ -1548,9 +1527,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return masked
         if (monitor := self._split_monitor) is not None:
             # The time factor acts alike on every column of any transverse basis, so
-            # the stored state's power is what the split takes of, wherever it acts;
-            # read as the physical state, which a single-precision state is scaled
-            # from. What it finds is what the occupancies are judged on.
+            # the stored state's power is what the split takes of, wherever it acts.
+            # What it finds is what the occupancies are judged on.
             sums = monitor.split_sums(self._observed_field(masked), dz)
             self._split_removed += float(sums[0])
             self._split_found = sums[1:]
@@ -1570,7 +1548,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if geometry is not None and geometry.kind == "free":
             nx, ny = geometry.shape
             shape = (ny, nx, *masked.shape[2:])
-            physical = transforms.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
+            physical = np.fft.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
                 masked.shape[1:]
             )
             chunk = self.node_chunk
@@ -1579,7 +1557,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 physical[rows] = passes.apply_temporal_rate(
                     physical[rows][None], rate, dz, kind=self._kind
                 )[0]
-            result = transforms.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
+            result = np.fft.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
                 masked.shape
             )
             return self._apply_mask(result)
@@ -1732,10 +1710,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 assert self._last_envelope is not None
                 drive, loss, _, _ = self._last_envelope
                 factors = responses.envelope_plasma.factors
-                spectrum += self._rounded(factors.drude) * passes.to_frequency(
+                spectrum += factors.drude * passes.to_frequency(
                     drive, grids.crop_index, kind=self._kind
                 )
-                spectrum += self._rounded(factors.loss) * passes.to_frequency(
+                spectrum += factors.loss * passes.to_frequency(
                     loss, grids.crop_index, kind=self._kind
                 )
         return passes.stage_output(
@@ -1911,8 +1889,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Transform three nodal streams, combine, then project once in frequency."""
         problem = self._problem
         transform, grids = problem.transform, problem.grids
-        # The field's own precision: complex128, or complex64 under SEP 33.
-        spectrum = np.zeros(problem.shape, dtype=np.result_type(modal_t, np.complex64))
+        spectrum = np.zeros(problem.shape, dtype=np.complex128)
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         for first in range(0, transform.n_nodes, self.node_chunk):
             rows = slice(
@@ -1965,8 +1942,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return result
         scratch = np.empty_like(lab[0])
         if len(responses.response_order) > 1:
-            transforms.ifft2(
-                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            scratch.reshape(shape)[...] = np.fft.ifft2(
+                lab[0].reshape(shape), axes=(0, 1)
             )
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             for first in range(0, transform.n_nodes, self.node_chunk):
@@ -1984,33 +1961,31 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 if responses.envelope_plasma is not None:
                     drive, loss = self._envelope_sources(field_t, bundle)
                     factors = responses.envelope_plasma.factors
-                    scratch[rows] += self._rounded(factors.drude) * passes.to_frequency(
+                    scratch[rows] += factors.drude * passes.to_frequency(
                         drive, grids.crop_index, kind=self._kind
                     )
-                    scratch[rows] += self._rounded(factors.loss) * passes.to_frequency(
+                    scratch[rows] += factors.loss * passes.to_frequency(
                         loss, grids.crop_index, kind=self._kind
                     )
             view = scratch.reshape(shape)
-            transforms.fft2(view, axes=(0, 1), out=view)
+            view[...] = np.fft.fft2(view, axes=(0, 1))
             data = problem.linear.separable
             assert data is not None
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
-                result[0, rows] = (
-                    self._rounded(prefactor) * self._tables.omega_window * scratch[rows]
-                )
+                result[0, rows] = prefactor * self._tables.omega_window * scratch[rows]
         if self._in_stage_absorber:
             # The rate is additive to the normalised material term. Reusing the
             # transverse scratch avoids a second retained physical spectral volume.
-            transforms.ifft2(
-                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            scratch.reshape(shape)[...] = np.fft.ifft2(
+                lab[0].reshape(shape), axes=(0, 1)
             )
             temporal = self._tables.temporal_rate
             timed = temporal is not None and responses.absorber_scheme == "nonlinear"
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
-                rate = self._rounded(geometry.absorber_rate[rows, None, None])
+                rate = geometry.absorber_rate[rows, None, None]
                 if not timed:
                     # A rate of the node alone commutes with the temporal transforms:
                     # a spatial-only pass needs no temporal pair (SEP 40 section 4.7).
@@ -2025,7 +2000,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     kind=self._kind,
                 )
             view = scratch.reshape(shape)
-            transforms.fft2(view, axes=(0, 1), out=view)
+            view[...] = np.fft.fft2(view, axes=(0, 1))
             result[0] += grids.active_mask * scratch
         return result * inverse_propagator
 
@@ -2413,8 +2388,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 class SourceTables:
     """The problem's tables a source evaluation multiplies by.
 
-    Read through this record rather than off the problem so that the single-precision
-    path can hold them narrowed (SEP 33 section 4.2) while the passes stay the same.
+    The arrays the passes read, gathered once from the problem.
 
     Attributes
     ----------

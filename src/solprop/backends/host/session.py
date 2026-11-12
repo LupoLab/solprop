@@ -5,7 +5,7 @@
 """The NumPy reference's run session (SEP 47 sections 5 and 6.6).
 
 :class:`HostSession` is the :class:`~solprop.backends.session.RunSession` that serves
-every ``numpy_ref`` run, in both precisions: the launch-before-monitor order, the plane
+every ``numpy_ref`` run: the launch-before-monitor order, the plane
 schedule, the snapshot latch, bounded yields, chunked attempts, exports and the terminal
 outcome with its checkpoint eligibility, over the reference's own driver
 (:class:`solprop.backends.host.driver.HostDriver`), through its halt and yield hooks

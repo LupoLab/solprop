@@ -27,8 +27,7 @@ from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
-from solprop.backends.numpy_ref.single import NumpySingleBackend
-from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.protocol import stepping as host_stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
@@ -42,7 +41,6 @@ from solprop.output.schema import PlaneStore, SavedPlane, _adopted
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import PropagationProblem
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 """The state as the session holds it."""
@@ -77,11 +75,6 @@ def _single_mode(backend: str) -> Simulation:
     """Return a short soliton, whose single mode has unit power weights."""
     simulation = _integrated(low_storage(), RungeKutta())
     simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
-    return simulation
-
-
-def _single(simulation: Simulation) -> Simulation:
-    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
     return simulation
 
 
@@ -138,19 +131,6 @@ def test_a_kept_plane_never_changes(backend, case):
     simulation.run(output=handler, progress="none")
     assert handler.n_saved > 1
     assert len(handler.kept) >= handler.n_saved
-    for held, as_it_arrived in handler.kept:
-        assert np.array_equal(held, as_it_arrived)
-
-
-@pytest.mark.parametrize(
-    "case", ["runge-kutta replayed", "runge-kutta modal", "runge-kutta single-mode"]
-)
-def test_a_kept_single_precision_plane_never_changes(case):
-    """The widened state is the observation's own (SEP 47 section 5.4)."""
-    simulation = _single(CASES[case]("numpy_ref"))
-    handler = _Keeping()
-    simulation.run(output=handler, progress="none")
-    assert handler.n_saved > 1
     for held, as_it_arrived in handler.kept:
         assert np.array_equal(held, as_it_arrived)
 
@@ -273,18 +253,13 @@ def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
 
 @pytest.mark.parametrize("handler", ["memory", "hdf5"])
 @pytest.mark.parametrize(
-    ("backend", "case", "precision"),
-    [
-        *((backend, case, "double") for backend in available() for case in STORED),
-        *(("numpy_ref", case, "single") for case in STORED),
-    ],
+    ("backend", "case"),
+    [(backend, case) for backend in available() for case in STORED],
 )
 def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
-    backend, case, precision, handler, tmp_path, monkeypatch
+    backend, case, handler, tmp_path, monkeypatch
 ):
     simulation = STORED[case](backend)
-    if precision == "single":
-        simulation = _single(simulation)
     problem = simulation.translate()
     copies = _copied_observations(monkeypatch)
     path = tmp_path / "run.h5"
@@ -308,34 +283,16 @@ def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
         assert expected.tobytes() == stored[index].tobytes()
 
 
-def _observed_at_its_first_plane(
-    name: str, simulation: Simulation
-) -> tuple[PropagationProblem, Backend, Observation]:
-    """Return a loaded backend stepped to the first save plane, and its observation."""
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    backend = select(name, problem, run_request, grid=simulation.grid)
-    host_stepping(backend).set_initial(problem.initial.field0, None)
-    host_stepping(backend).propagate_to(float(run_request.stepper.save_planes[0]))
-    return problem, backend, host_stepping(backend).observe()
-
-
-@pytest.mark.parametrize("precision", ["double", "single"])
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
-def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
-    precision, case
-):
-    """The session converts an owned field where it is; a borrowed one is detached.
+def test_a_borrowed_observed_field_is_detached(case):
+    """The session detaches a borrowed field rather than converting it where it is.
 
-    The reference session's own conversion of its driver's observation: the widened
-    single-precision state is a fresh, owned array, the binary64 state the driver's
-    own. The native session exports from its resident state instead
+    The reference session's own conversion of its driver's observation, the driver's
+    own binary64 state. The native session exports from its resident state instead
     (``tests/sessions/test_destination_export.py``).
     """
     backend = "numpy_ref"
     simulation = STORED[case](backend)
-    if precision == "single":
-        simulation = _single(simulation)
     problem = simulation.translate()
     run_request = simulation._run_request()
     stepping = select(
@@ -373,35 +330,16 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
                 break
             session.acknowledge(batch.receipt)
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
-        owned = precision == "single"
-        assert seen[-1].field_owned is owned
+        assert not seen[-1].field_owned
         expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))
         assert held.tobytes() == expected.tobytes()
         # The observation's own array stays frozen; a fresh export is the caller's.
-        assert held.flags.writeable is not owned
-        # Converted where it is when owned: the observation's own array then holds it.
-        assert np.shares_memory(held, seen[-1].field) is owned
-        if not owned:
-            state = cast("HostDriver[np.ndarray]", stepping)._state
-            assert not np.shares_memory(held, state)
+        assert held.flags.writeable
+        assert not np.shares_memory(held, seen[-1].field)
+        state = cast("HostDriver[np.ndarray]", stepping)._state
+        assert not np.shares_memory(held, state)
     finally:
         session.close()
-
-
-def test_the_widened_single_precision_state_is_owned_and_has_the_same_bits():
-    _, stepping, observation = _observed_at_its_first_plane(
-        "numpy_ref", _single(cartesian("numpy_ref"))
-    )
-    try:
-        assert isinstance(stepping, NumpySingleBackend)
-        state, scale = stepping._state, stepping._scale
-        assert isinstance(state, np.ndarray) and state.dtype == np.complex64
-        assert observation.field_owned
-        field = observation.require_field()
-        assert field.tobytes() == (state.astype(np.complex128) * scale).tobytes()
-        assert not np.shares_memory(field, state)
-    finally:
-        stepping.close()
 
 
 def test_an_observation_without_a_field_owns_none():

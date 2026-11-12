@@ -56,7 +56,6 @@ from solprop.stepper import PIController, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import Precision
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -322,20 +321,6 @@ def test_the_planes_row_names_per_step_and_interpolated_saving():
     )
     planes = dict(summary.rows)["save planes"]
     assert planes.endswith(", and every 3 accepted steps, interpolated")
-
-
-def test_precision_is_the_state_s():
-    simulation = gnlse()
-    problem = simulation.translate()
-    summary = run_summary(
-        dataclasses.replace(problem, precision=Precision("single", "single")),
-        simulation._run_request(),
-        simulation.metadata(),
-        backend="numpy_ref",
-        execution={},
-        output=MemoryOutput(),
-    )
-    assert dict(summary.rows)["precision"] == "single"
 
 
 def test_threads_come_from_the_backend_s_record():

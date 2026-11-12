@@ -169,8 +169,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="699.0" font-size="12" class="dim">flux · coupling · responses</text>
 <text x="317.0" y="714.5" font-size="12" class="dim">ionisation · plasma_integration</text>
 <text x="317.0" y="730.0" font-size="12" class="dim">plasma_source · envelope_plasma</text>
-<text x="317.0" y="745.5" font-size="12" class="dim">raman · masks · precision · tdse</text>
-<text x="317.0" y="761.0" font-size="12" class="dim">tdse_source · run_request</text>
+<text x="317.0" y="745.5" font-size="12" class="dim">raman · masks · tdse · tdse_source</text>
+<text x="317.0" y="761.0" font-size="12" class="dim">run_request</text>
 <rect x="32" y="833.0" width="1010.0" height="154.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="893.0" width="34" height="34" rx="7" ry="7" class="fill-b" />
 <text x="63" y="916.0" font-size="19" class="bold mid ink-b">B</text>
@@ -190,12 +190,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="578.0" y="883.5" font-size="12" class="dim">driver · adams · general</text>
 <text x="578.0" y="899.0" font-size="12" class="dim">low_storage · group · session</text>
 <text x="578.0" y="914.5" font-size="12" class="dim">group_session</text>
-<rect x="789.4" y="846.0" width="224.60000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
+<rect x="789.4" y="846.0" width="198.20000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
 <text x="799.4" y="868.0" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
 <text x="799.4" y="883.5" font-size="12" class="dim">backend · batch · passes</text>
-<text x="799.4" y="899.0" font-size="12" class="dim">transforms · single · admission</text>
-<text x="799.4" y="914.5" font-size="12" class="dim">envelope_plasma · general_modal</text>
-<text x="799.4" y="930.0" font-size="12" class="dim">tdse</text>
+<text x="799.4" y="899.0" font-size="12" class="dim">admission · envelope_plasma</text>
+<text x="799.4" y="914.5" font-size="12" class="dim">general_modal · tdse</text>
 <rect x="32" y="1033.0" width="1010.0" height="352.5" rx="7" ry="7" class="plain" />
 <rect x="46" y="1192.25" width="34" height="34" rx="7" ry="7" class="fill-d" />
 <text x="63" y="1215.25" font-size="19" class="bold mid ink-d">D</text>

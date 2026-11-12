@@ -1952,15 +1952,9 @@ class HostHistory:
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
-            # In the state's precision: complex64 on SEP 33's single-precision path.
-            self._store = np.zeros(
-                (self.n_slots, *value.shape),
-                dtype=np.result_type(value, np.complex64),
-            )
+            self._store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
             if self.compensated:
                 self._states = np.zeros_like(self._store)
-                # The operator's rates are binary64 host data, differenced against
-                # the step's exponent, so they stay binary64 under SEP 33 too.
                 self._rates = np.zeros(self._store.shape, dtype=np.complex128)
         self._store[0] = value
         if self.compensated:
@@ -2191,14 +2185,9 @@ class HostHistory:
                 )
                 raise BackendError(msg)
         self.reset()
-        # In the state's precision: binary32 on SEP 33's single-precision path, as the
-        # store was kept; the operator's rates stay binary64 there too.
-        dtype = (
-            np.complex64 if self._backend._problem.precision.single else np.complex128
-        )
-        self._store = np.array(rows["store"], dtype=dtype, copy=True)
+        self._store = np.array(rows["store"], dtype=np.complex128, copy=True)
         if self.compensated:
-            self._states = np.array(rows["states"], dtype=dtype, copy=True)
+            self._states = np.array(rows["states"], dtype=np.complex128, copy=True)
             self._rates = np.array(rows["rates"], dtype=np.complex128, copy=True)
         self._weights = [
             None
@@ -2272,11 +2261,6 @@ class HostHistory:
         if block is not None:
             kernels = kernels.coupled()
         moments, flow = _trial_propagators(kernels, exponent, width, block, dz, shift)
-        if state.dtype == np.complex64:
-            # SEP 33: the flow and its moments are evaluated in binary64, like every
-            # propagator, and rounded once to the state's binary32.
-            moments = np.asarray(moments).astype(np.complex64)
-            flow = np.asarray(flow).astype(np.complex64)
         rows_read = slots[: width - 1]
         factors = (
             None if shift is None else _carrier_factors(nodes, len(rows_read), shift)
@@ -2300,10 +2284,6 @@ class HostHistory:
             if shift is not None:
                 compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
-            if state.dtype == np.complex64:
-                # SEP 33: the compensation is formed in binary64 from the binary32
-                # history and the prediction rounded once.
-                lab = lab.astype(np.complex64)
         source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
         corrector = _exponential_corrector(nodes, order, width, helpers=backend.helpers)
         rows = kernels.defect_rows(nodes, orders, width)
@@ -2335,8 +2315,6 @@ class HostHistory:
             extra,
             **({} if factors is None else {"factors": factors}),
         )
-        if state.dtype == np.complex64:
-            advanced = np.asarray(advanced).astype(np.complex64)
         self._exponential_trial = _ExponentialTrial(
             z=z,
             dz=dz,
@@ -2638,7 +2616,7 @@ def _divisor(
     - Returns: the scale of every bin, shape ``(n_omega,)``.
     """
     mask = backend._problem.grids.norm_mask
-    controller = backend._norm_controller
+    controller = backend._stepper.controller
     magnitude = float(np.linalg.norm(state[..., mask]))
     scale = controller.scale(magnitude, magnitude)
     return (

@@ -5,11 +5,11 @@
 """The NumPy reference's group session (SEP 47 section 6.7).
 
 :class:`HostGroupSession` is the :class:`~solprop.backends.session.GroupSession` that
-serves every ``numpy_ref`` group, in both precisions, and :class:`HostPreparedGroup` is
+serves every ``numpy_ref`` group, and :class:`HostPreparedGroup` is
 the prepared group a reference backend returns from ``prepare_group``. The group loads
 each member from its start and hands the loaded members to the reference's group runner
 (:class:`~solprop.backends.host.group.HostGroup`, or its member-axis arithmetic
-:class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend` in binary64, the choice the
+:class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, the choice the
 reference's registry row makes through :func:`solprop.backends.registry.select_batch`),
 which advances every member through each step of the common fixed schedule in turn.
 The session presents that march through the group protocol: one window per save plane,
@@ -20,21 +20,18 @@ SEP 47 section 6.7.
 **per member.** The native group composes one native session per member
 (``solprop_native.group.NativeGroupSession``), each advancing a whole window before the
 next. The reference group keeps its runner because what it must preserve is the
-runner's, and composed member sessions would change all three:
+runner's, and composed member sessions would change both:
 
-- *Its arithmetic.* A binary64 group evaluates its stages on arrays with a leading
+- *Its arithmetic.* A group evaluates its stages on arrays with a leading
   member axis (``NumpyBatchBackend``), whose reductions are ordered differently from a
   lone run's: a member and its lone run agree to rounding, not bitwise
   (``tests/backends/test_batch_lockstep.py``). Member sessions would run the lone path
-  and change every binary64 group's result.
+  and change every group's result.
 - *Its failure positions.* Members take each common step in turn, so a failure in one
   member ends the group with the members ahead of it in flight at that step's end
   (poisoned) and those behind it at the step's start (SEP 47 section 6.7). Member
   sessions advancing whole windows in turn would leave the members ahead committed at
   the window's end instead.
-- *Its precision rule.* The runner refuses a group of mixed precisions and runs
-  single-precision members each on its own binary32 trial (``HostGroup``,
-  ``lockstep_runner``).
 
 Each member's boundary monitor is still its own: a stop ends that member alone while
 the others go on (:attr:`~solprop.backends.host.group.HostGroup.member_stops`).
@@ -125,7 +122,7 @@ class HostGroupSession:
         entrance.
     solprop.exceptions.BackendError
         If the runner refuses the members (``select_batch``): another backend, or
-        another schedule, planes, precision or periodic statistics.
+        another schedule, planes or periodic statistics.
     """
 
     def __init__(

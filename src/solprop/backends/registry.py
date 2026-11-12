@@ -44,7 +44,6 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import RunRequest
@@ -156,8 +155,8 @@ REMOVED_BACKENDS: Mapping[str, str] = {
     ),
     "mlx": (
         "the experimental mlx backend was retired in SEP 47: use backend='native', "
-        "the solprop-native package, or, for precision='single', backend='numpy_ref', "
-        "the reference. Output that records mlx still opens"
+        "the solprop-native package, or backend='numpy_ref', the reference. Output "
+        "that records mlx still opens"
     ),
 }
 """What to say about a backend that no longer exists, by the name it had."""
@@ -211,8 +210,7 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
     entry = BACKENDS.get(name)
-    # numpy_ref, whose row declares nothing, forms every far-field statistic, in
-    # binary64; single precision refuses them in validation (SEP 33).
+    # numpy_ref, whose row declares nothing, forms every far-field statistic.
     if not asked or entry is None or entry.far_field is None:
         return None
     formed = _plugin_far_field(name)
@@ -247,20 +245,13 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     return frozenset(cast(Collection[str], declared))
 
 
-def available(precision: str = "double") -> tuple[str, ...]:
-    """Return the names of the backends that can run a precision here and now.
+def available() -> tuple[str, ...]:
+    """Return the names of the backends that can run here and now.
 
     Detection is by :func:`importlib.util.find_spec`, so nothing is imported and nothing
     is cached: a backend whose optional dependency is installed while the process runs
     becomes available without a restart, and initializing a native runtime is never a
     side effect of asking.
-
-    Parameters
-    ----------
-    precision : {'double', 'single'}, optional
-        The arithmetic asked for (SEP 33). ``"double"``, the default, lists every
-        backend; ``"single"`` lists those that admit single precision
-        (:data:`solprop.translate.precision.SINGLE_PRECISION_BACKENDS`).
 
     Returns
     -------
@@ -273,8 +264,7 @@ def available(precision: str = "double") -> tuple[str, ...]:
     >>> "numpy_ref" in available()
     True
     """
-    names = SINGLE_PRECISION_BACKENDS if precision == "single" else tuple(BACKENDS)
-    return tuple(name for name in names if _satisfied(BACKENDS[name]))
+    return tuple(name for name in BACKENDS if _satisfied(BACKENDS[name]))
 
 
 def resolve_name(name: str = "auto") -> str:

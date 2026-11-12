@@ -224,7 +224,6 @@ def test_build_info_is_frozen_and_complete() -> None:
     else:
         pytest.fail(f"unknown device backend {info.device_backend!r}")
     assert info.fft_planner.startswith("Kokkos-FFT persistent Plan")
-    assert info.precision == "complex128"
     assert info.layout == "LayoutRight"
     assert info.fast_math_enabled is False
 

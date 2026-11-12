@@ -210,22 +210,13 @@ CAPILLARY = {
 }
 
 
-@pytest.mark.parametrize("precision", ["double", "single"])
-def test_the_resolvers_say_what_the_build_resolves(precision):
-    gnlse = Simulation.from_gnlse(
-        0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE, precision=precision
-    )
-    capillary = Simulation.from_capillary(
-        125e-6, 0.1, "He", 1.0, **CAPILLARY, precision=precision
-    )
+def test_the_resolvers_say_what_the_build_resolves():
+    gnlse = Simulation.from_gnlse(0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE)
+    capillary = Simulation.from_capillary(125e-6, 0.1, "He", 1.0, **CAPILLARY)
     hollow = [MarcatiliMode(125e-6)]
-    waveguide = Simulation.from_waveguide(
-        hollow, 0.1, "He", 1.0, **CAPILLARY, precision=precision
-    )
+    waveguide = Simulation.from_waveguide(hollow, 0.1, "He", 1.0, **CAPILLARY)
     slab = ModeCollection.slab(50e-6, (1,))
-    planar = Simulation.from_waveguide(
-        slab, 0.1, "Ar", 1.0, **CAPILLARY, precision=precision
-    )
+    planar = Simulation.from_waveguide(slab, 0.1, "Ar", 1.0, **CAPILLARY)
     for route, simulation, modes in (
         ("gnlse", gnlse, None),
         ("capillary", capillary, None),
@@ -233,7 +224,7 @@ def test_the_resolvers_say_what_the_build_resolves(precision):
         ("waveguide", planar, slab),
     ):
         table = metadata.parameters(route)
-        values = {"precision": precision, "modes": modes}
+        values = {"modes": modes}
         settings = simulation.settings
         controller = settings.controller
         assert controller is not None
@@ -260,7 +251,7 @@ def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
 def test_a_capillary_beside_a_tdse_reads_its_own_defaults_row():
     table = metadata.parameters("capillary")
     resolution = _resolve(table, "rtol", {"tdse": object()})
-    assert resolution.value == default_rtol("capillary tdse", "double")
+    assert resolution.value == default_rtol("capillary tdse")
     assert "the capillary tdse route's default" in resolution.rule
     assert "the capillary route's default" in _resolve(table, "rtol", {}).rule
 

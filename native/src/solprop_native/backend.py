@@ -3042,11 +3042,6 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_reference_only(stepper)
     _refuse_omitted_stages(problem.responses)
-    if problem.precision.single:
-        raise BackendError(
-            "solprop-native computes in binary64 only and refuses precision='single' "
-            "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
-        )
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before
     # anything is allocated: every route of the union but the modal route's TDSE
     # extension, which is the reference's alone.

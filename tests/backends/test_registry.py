@@ -221,7 +221,6 @@ def test_the_removed_backend_is_only_a_tombstone(name):
     assert name in REMOVED_BACKENDS
     assert name not in BACKENDS
     assert name not in available()
-    assert name not in available("single")
     assert not set(REMOVED_BACKENDS) & set(BACKENDS)
 
 
@@ -246,9 +245,8 @@ def test_selecting_the_removed_backend_names_the_replacements(
     assert_names_the_replacements(refused, name)
 
 
-@pytest.mark.parametrize("precision", ["double", "single"])
 @pytest.mark.parametrize("name", sorted(REMOVED))
-def test_settings_naming_the_removed_backend_name_the_replacements(name, precision):
+def test_settings_naming_the_removed_backend_name_the_replacements(name):
     with pytest.raises(BackendError) as refused:
         SimulationSettings(
             controller=PIController(rtol=1e-5, atol=1e-14),
@@ -256,7 +254,6 @@ def test_settings_naming_the_removed_backend_name_the_replacements(name, precisi
             dz_max=1e-3,
             dz_init=1e-3,
             backend=name,
-            precision=precision,
             integrator=RungeKutta(),
         )
     assert_names_the_replacements(refused, name)

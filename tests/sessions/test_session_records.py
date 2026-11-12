@@ -18,18 +18,15 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
-    EXECUTORS,
     PLANES,
     STORED,
     ScriptedError,
-    entrance,
     soliton,
     spy_monitor,
 )
 from solprop.backends.events import ObservationKind, ObservationReady, Outcome
 from solprop.backends.session import RunSession
 from solprop.stepper import Multistep
-from solprop.translate.precision import SINGLE
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -69,17 +66,6 @@ def test_a_second_recipe_after_an_in_place_conversion_leaves_the_first_alone(sta
     conversion under the store's feet.
     """
     _second_recipe_leaves_the_first_alone(start(soliton()).session)
-
-
-def test_an_owned_single_precision_field_is_converted_once_and_left_alone():
-    """The same, where the driver owns the observed field: the reference's widened
-    single-precision state (SEP 33), which its session converts in place."""
-    problem, request = soliton(precision=SINGLE)
-    started = EXECUTORS["reference"].start(problem, request, entrance(problem))
-    try:
-        _second_recipe_leaves_the_first_alone(started.session)
-    finally:
-        started.session.close()
 
 
 def _second_recipe_leaves_the_first_alone(session: RunSession) -> None:

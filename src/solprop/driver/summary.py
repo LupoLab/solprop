@@ -184,7 +184,6 @@ def run_summary(
         ("machine", _machine(machine())),
         ("backend", backend),
         ("threads", _threads(backend, execution)),
-        ("precision", _precision(problem)),
         ("grid", _grid(metadata)),
         ("representation", _representation(problem, metadata)),
         ("medium", _medium(configuration)),
@@ -347,15 +346,6 @@ def _threads(backend: str, execution: Mapping[str, object]) -> str:
         # The reference steps in NumPy on one thread, whatever the budget allows.
         return f"1 (NumPy reference); {limit}"
     return limit
-
-
-def _precision(problem: PropagationProblem) -> str:
-    """Describe the floating-point precision of the run.
-
-    - Returns: ``"double"`` or ``"single"``.
-    """
-    # Translation admits no mixed precision, so the state's name is the run's.
-    return problem.precision.state
 
 
 def _grid(metadata: RunMetadata) -> str:
@@ -556,7 +546,7 @@ def _noise(metadata: RunMetadata) -> str:
     gives its reason (SEP 37), so that a noiseless run is never silently noiseless.
 
     - Returns: for example ``"input model (default), seed 3"``, ``"off"``, or ``"off
-      (default: single precision carries no noise: ...)"``.
+      (default: the hybrid planar grid carries no noise: ...)"``.
     """
     noise = metadata.noise
     resolution = metadata.noise_resolution

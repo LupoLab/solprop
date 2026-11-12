@@ -80,21 +80,18 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 
 
 def variant(configuration: Record) -> Record:
-    """Return the keywords that turn a case into its backend, precision, noise and grid.
+    """Return the keywords that turn a case into its backend, noise and grid.
 
-    ``precision`` is ``"double"`` unless the configuration names it. A single-precision
-    run, or one asked for ``noise="none"``,
-    is noiseless: no seed and no noise model, so that a cross-backend A/B compares
-    one workload. ``fft_size="pow2"`` rebuilds the case's time grid at the next power
-    of two; the transverse grids are kept, as their sizes set the physics.
+    A run asked for ``noise="none"`` is noiseless: no seed and no noise model, so that
+    a cross-backend A/B compares one workload. ``fft_size="pow2"`` rebuilds the case's
+    time grid at the next power of two; the transverse grids are kept, as their sizes
+    set the physics.
     """
-    precision = configuration.get("precision") or "double"
-    noiseless = precision == "single" or configuration.get("noise") == "none"
+    noiseless = configuration.get("noise") == "none"
     fft_size = configuration.get("fft_size") or "case"
     if fft_size not in ("case", "pow2"):
         raise SuiteError(f"unknown fft_size {fft_size}")
     return {
-        "precision": precision,
         "noiseless": noiseless,
         "fft_size": fft_size,
         "backend": configuration["backend"],
@@ -151,7 +148,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
             mode_average=averaged,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 1.5, 800e-9, (90e-9, 4e-6), 400e-15),
             **_launch(options),
@@ -167,7 +163,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             energy=10e-6,
             modes=3,
             loss=0.0,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 0.13, 515e-9, (220e-9, 4e-6), 2e-12),
             **_launch(options),
@@ -187,7 +182,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=1 if name == "ctc_reduced" else 2,
             raman=True,
             temperature=294.0,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 0.1, 515e-9, (250e-9, 2e-6), 2e-12),
             **_launch(options),
@@ -205,7 +199,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=1,
             envelope=name == "argon_blueshift_envelope",
             mode_average=averaged,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(
                 options,
@@ -230,7 +223,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             plasma=False,
             modes=1,
             mode_average=True,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 0.4, 1030e-9, (200e-9, 4e-6), 800e-15),
             **_launch(options),
@@ -249,7 +241,6 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             raman=True,
             modes=1,
             mode_average=averaged,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 2.0, 1030e-9, (400e-9, 4e-6), 6e-12),
             **_launch(options),
@@ -286,7 +277,6 @@ def soliton(length: float, options: Record, **keywords: Any) -> Simulation:
         # and a seed would make it a different workload (SEP 37 measured 65 times
         # the steps with one).
         noise=None,
-        precision=options["precision"],
         backend=options["backend"],
         **_limits(options, length, 835e-9, (500e-9, 2e-6), 4e-12, envelope=True),
         **keywords,
@@ -332,7 +322,6 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
             peak_power=10e3,
             raman=True,
             shock=True,
-            precision=options["precision"],
             backend=options["backend"],
             **_limits(options, 0.15, 835e-9, (400e-9, 2e-6), 12.5e-12, envelope=True),
             **_launch(options),
@@ -591,7 +580,6 @@ def build(configuration: Record) -> Simulation:
     options = variant(configuration)
     if case.builder in ("kerr", "spatial"):
         settings = SimulationSettings(
-            precision=options["precision"],
             save_planes=itinerary,
             dz_max=case.length,
             dz_init=case.length * 1e-4,

@@ -1931,8 +1931,6 @@ def _facts_text(facts: Mapping[str, Any]) -> str:
     lines = []
     if facts.get("backend"):
         lines.append(f"Backend: {facts['backend']}")
-    if facts.get("precision"):
-        lines.append(f"Precision: {facts['precision']}")
     if facts.get("threads"):
         lines.append(f"Threads: {facts['threads']}")
     if facts.get("wall_time") is not None:
