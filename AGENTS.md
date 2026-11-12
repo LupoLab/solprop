@@ -67,7 +67,9 @@ change both in the same commit. Coverage is 100 % of statements and branches; a
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
 `pytest -m gpu` on a device. **No test, lane or timing runs a full-length propagation**
 (a 0.2 m capillary, a metre of fibre): use about ten steps or a fibre that finishes in
-seconds. Only the galleries run real problems at full length.
+seconds. Only the galleries run real problems at full length. The release tracking set
+(`python -m benchmarks track`) times complete runs by design; it runs by hand on a quiet
+machine when the history is recorded, never as part of a change's qualification.
 
 Never declare work finished while a required check fails, and never suppress a check to
 make the gate green: say what failed and why. New functionality is done when it is
