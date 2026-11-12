@@ -21,15 +21,13 @@ import numpy as np
 
 from solprop.exceptions import TranslationError
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
-from solprop.translate.general import MAX_DENSE_METRIC_DEPARTURE, metric_departure
+from solprop.translate.general import (
+    MAX_DENSE_METRIC_DEPARTURE,
+    check_regional_responses,
+    metric_departure,
+)
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
-from solprop.translate.responses import (
-    DELAYED_MODEL_ID,
-    KERR_MODEL_FORMS,
-    MODEL_ID_SEPARATOR,
-    RegionalResponseTables,
-)
 
 if TYPE_CHECKING:
     from solprop.translate.problem import PropagationProblem
@@ -304,7 +302,7 @@ def _check_modal_route(problem: "PropagationProblem") -> None:
         )
         raise TranslationError(msg)
     _check_legacy_responses(problem)
-    _check_regional_responses(problem.responses.regional_responses)
+    check_regional_responses(problem.responses.regional_responses)
 
 
 def _check_dense_metric(
@@ -402,52 +400,5 @@ def _check_legacy_responses(problem: "PropagationProblem") -> None:
             f"also carries responses.{', responses.'.join(legacy)}: the general "
             "route's source replaces the node pipeline that would read them, so they "
             "would be recorded and not propagated"
-        )
-        raise TranslationError(msg)
-
-
-def _check_regional_responses(regional: RegionalResponseTables | None) -> None:
-    """Refuse a per-region response the route does not execute.
-
-    Its component count is the reference's (``PropagationProblem.validate``); here are
-    its model, its constant susceptibility and its delayed terms.
-    """
-    if regional is None:
-        return
-    if regional.chi3.shape[0] != 1 or regional.chi3.shape[1] != 1:
-        msg = (
-            "solprop executes a general modal guide of constant geometry, and "
-            f"responses.regional_responses.chi3 carries {regional.chi3.shape[0]} "
-            f"interval(s) of degree {regional.chi3.shape[1] - 1} along z; a varying "
-            "susceptibility is not supported on this route"
-        )
-        raise TranslationError(msg)
-    tags = regional.model_id.split(MODEL_ID_SEPARATOR)
-    unknown = [one for one in tags[1:] if one != DELAYED_MODEL_ID]
-    if tags[0] not in KERR_MODEL_FORMS or unknown:
-        msg = (
-            f"responses.regional_responses declares model_id "
-            f"{regional.model_id!r} and solprop executes the instantaneous "
-            f"isotropic cubic in its two declared forms, "
-            f"{sorted(KERR_MODEL_FORMS)}, optionally beside "
-            f"{DELAYED_MODEL_ID!r}; a model this package does not know must "
-            "not be evaluated as one it does"
-        )
-        raise TranslationError(msg)
-    if (DELAYED_MODEL_ID in tags) != bool(regional.n_terms):
-        msg = (
-            f"responses.regional_responses declares model_id "
-            f"{regional.model_id!r} and {regional.n_terms} delayed term(s): a "
-            "record's model identity and its term axis must agree, or the run "
-            "would execute a model its own file does not name"
-        )
-        raise TranslationError(msg)
-    weight = regional.temporal_weight
-    if regional.n_terms and not np.all(weight == weight[0]):
-        msg = (
-            "responses.regional_responses.temporal_weight is not uniform, and a "
-            "delayed response is evaluated as a transform product on the doubled "
-            "fine axis, which is a convolution only against a uniform quadrature "
-            "weight; a non-uniform temporal grid needs a different evaluation"
         )
         raise TranslationError(msg)

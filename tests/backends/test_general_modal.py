@@ -945,15 +945,23 @@ def test_the_reference_refuses_a_regional_response_it_cannot_execute(
     # And the problem refuses it alone, with no request.
     with pytest.raises(TranslationError, match=message):
         problem.validate()
+    if "Cartesian" not in message:
+        # The public derivation refuses the same record, by the same rule, before it
+        # builds anything; the component count is the problem's structure.
+        with pytest.raises(TranslationError, match=message):
+            node_kerr_tensor(strand.route.tables, spoiled_response(strand, name, value))
 
 
-def test_the_cubic_form_is_read_from_the_model_identity(strand):
-    """The instantaneous form travels in `model_id`, not in a leaf field of its own.
+def test_an_unknown_model_identity_is_not_executed_as_one_the_backend_knows(strand):
+    """A model this package does not know is refused, not read as its neighbour.
 
-    A field would move a contract row; the price is that an identity outside the
-    declared vocabulary is refused by the problem's validation (the ``model_id`` row
-    of the test above) instead of defaulting.
+    The instantaneous form travels in `model_id` rather than in a leaf field of its
+    own, because a field would move a contract row; the price is that an identity
+    outside the declared vocabulary must be refused instead of defaulting.
     """
+    spoiled = spoiled_response(strand, "model_id", "isotropic-quartic")
+    with pytest.raises(TranslationError, match="isotropic-quartic"):
+        node_kerr_form(spoiled)
     assert node_kerr_form(None) == "analytic"
     assert node_kerr_form(strand.route.responses) == "real"
 
@@ -1896,6 +1904,8 @@ def test_a_delayed_record_whose_identity_disagrees_with_it_is_refused(strand):
         )
         with pytest.raises(TranslationError, match="must agree"):
             problem.validate()
+        with pytest.raises(TranslationError, match="must agree"):
+            node_delayed_maps(strand.route.tables, spoiled)
 
 
 def test_a_delayed_response_refuses_a_non_uniform_temporal_weight(strand):
@@ -1917,6 +1927,8 @@ def test_a_delayed_response_refuses_a_non_uniform_temporal_weight(strand):
     )
     with pytest.raises(TranslationError, match="not uniform"):
         problem.validate()
+    with pytest.raises(TranslationError, match="not uniform"):
+        node_delayed_maps(strand.route.tables, regional)
 
 
 def test_a_record_with_more_delayed_terms_than_the_model_has_is_refused(strand):
