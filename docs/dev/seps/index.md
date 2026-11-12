@@ -33,7 +33,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
-| [48](sep-0048-julia-backend.md) | A Julia backend: one engine for CPUs and GPUs, in both precisions | Accepted | Feature |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -84,6 +83,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [45](archive/sep-0045-native-rk-march.md) | A native Runge–Kutta march, and boundary checks inside the compiled marches | Final | Change |
 | [46](archive/sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Final | Change |
 | [47](archive/sep-0047-run-ownership.md) | Backend-owned execution sessions | Final | Change |
+| [48](archive/sep-0048-julia-backend.md) | A Julia backend: one engine for CPUs and GPUs, in both precisions | Withdrawn | Feature |
 
 ```{toctree}
 :hidden:
@@ -100,7 +100,6 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
-sep-0048-julia-backend
 template
 archive/index
 ```

@@ -418,7 +418,7 @@ class PlaneGeometry:
         value = np.cross(np.asarray(self.normal), np.asarray(self.x_axis))
         return (float(value[0]), float(value[1]), float(value[2]))
 
-    def oriented_as(self, other: "PlaneGeometry") -> bool:  # noqa: UP037 - beartype evaluates the class body
+    def oriented_as(self, other: "PlaneGeometry") -> bool:
         """Return whether two planes share their normal, axes and origin.
 
         Parameters
@@ -504,7 +504,7 @@ class PlaneReference:
         """
         return np.exp(1j * (self.phase + np.asarray(omega, dtype=float) * self.delay))
 
-    def minus(self, other: "PlaneReference") -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def minus(self, other: "PlaneReference") -> "PlaneReference":
         """Return this reference measured from another.
 
         Parameters
@@ -524,7 +524,7 @@ class PlaneReference:
             tuple(name for name in self.calibrated if name in other.calibrated),
         )
 
-    def plus(self, other: "PlaneReference") -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def plus(self, other: "PlaneReference") -> "PlaneReference":
         """Return the sum of two references, calibrated where both are.
 
         Parameters
@@ -558,7 +558,7 @@ class PlaneReference:
         }
 
     @classmethod
-    def from_record(cls, record: Mapping[str, object]) -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def from_record(cls, record: Mapping[str, object]) -> "PlaneReference":
         """Return the reference a record describes.
 
         Parameters
@@ -756,7 +756,7 @@ class PlaneMetric:
                 object.__setattr__(self, name, _frozen(value, dtype, name))
 
     @classmethod
-    def from_flux(cls, flux: SpatialFlux) -> "PlaneMetric":  # noqa: UP037 - beartype evaluates the class body
+    def from_flux(cls, flux: SpatialFlux) -> "PlaneMetric":
         """Return the admittance metric of a resolved spatial measure.
 
         Parameters
@@ -783,7 +783,7 @@ class PlaneMetric:
         space: RadialGrid | FreeGrid,
         index: Float[np.ndarray, " n_omega"],
         grid: TimeGrid,
-    ) -> "PlaneMetric":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "PlaneMetric":
         r"""Return the axial admittance metric of a lossless medium given by its index.
 
         Each column's admittance is :math:`ck_z/\omega = \sqrt{n^2 -
@@ -917,7 +917,7 @@ class PlaneBasis:
         object.__setattr__(self, "labels", tuple(self.labels))
 
     @classmethod
-    def of_space(cls, space: RadialGrid | FreeGrid) -> "PlaneBasis":  # noqa: UP037 - beartype evaluates the class body
+    def of_space(cls, space: RadialGrid | FreeGrid) -> "PlaneBasis":
         """Return the basis of a spatial grid.
 
         Parameters
@@ -997,7 +997,7 @@ class PlaneProvenance:
     lineage: tuple[str, ...] = ()
     history: tuple[str, ...] = ()
 
-    def then(self, step: str) -> "PlaneProvenance":  # noqa: UP037 - beartype evaluates the class body
+    def then(self, step: str) -> "PlaneProvenance":
         """Return the provenance with one more preparation step.
 
         Parameters
@@ -1256,7 +1256,7 @@ class FieldPlane:
 
     @classmethod
     @host_blas()
-    def from_pulse(  # noqa: PLR0913 - the beam, its grids and the plane's medium
+    def from_pulse(
         cls,
         pulse: object,
         grid: TimeGrid,
@@ -1266,7 +1266,7 @@ class FieldPlane:
         medium: SpatialMedium | None = None,
         index: Float[np.ndarray, " n_omega"] | None = None,
         reference: PlaneReference | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         r"""Build a spatial plane from the package's beam builder.
 
         No second Gaussian is written: the beam is the
@@ -1374,11 +1374,11 @@ class FieldPlane:
         )
 
     @classmethod
-    def from_analytic(  # noqa: PLR0913 - the field, its grids and its declarations
+    def from_analytic(
         cls,
         grid: TimeGrid,
         geometry: PlaneGeometry,
-        field: "AnalyticField",  # noqa: UP037 - defined below this class
+        field: "AnalyticField",
         *,
         space: RadialGrid | FreeGrid,
         medium: SpatialMedium | None = None,
@@ -1386,7 +1386,7 @@ class FieldPlane:
         support: float | None = None,
         exterior: Exterior = "zero",
         reference: PlaneReference | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         r"""Sample a physical analytic field on a transverse grid (SEP 31, section 5.1).
 
         `field` is called with the grid's node positions and the absolute angular
@@ -1527,7 +1527,7 @@ class FieldPlane:
         )
 
     @classmethod
-    def from_samples(  # noqa: PLR0913 - the arrays and every declaration they need
+    def from_samples(
         cls,
         samples: Complex[np.ndarray, "n_nodes n_pol n_omega"],
         grid: TimeGrid,
@@ -1540,7 +1540,7 @@ class FieldPlane:
         metric: PlaneMetric | None = None,
         reference: PlaneReference | None = None,
         profiles: ScalarModeBasis | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         """Bind physical arrays to explicit axes, units, domain, medium and reference.
 
         Two forms. With `space` and `medium`, `samples` is the electric field at the

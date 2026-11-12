@@ -119,7 +119,7 @@ def assert_compiled(
     return departure(got, expected)
 
 
-def assert_parity(  # noqa: PLR0913 - the backend, the run and the bound's terms
+def assert_parity(
     backend_class,
     problem,
     run_request,

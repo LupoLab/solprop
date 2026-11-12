@@ -170,7 +170,7 @@ class PlaneScalars:
     wall_time: float
 
     @classmethod
-    def of(cls, summary: PlaneSummary) -> "PlaneScalars":  # noqa: UP037 - runtime hook evaluates the class body
+    def of(cls, summary: PlaneSummary) -> "PlaneScalars":
         """Copy the scalars a reporter reads from a plane's summary.
 
         Parameters

@@ -40,7 +40,7 @@ def _grid() -> EnvelopeGrid:
     )
 
 
-def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
+def _run(
     backend: str,
     medium: SpatialMedium,
     initial: SpatialPulse | np.ndarray,

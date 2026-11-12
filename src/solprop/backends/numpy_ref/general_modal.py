@@ -266,7 +266,7 @@ class GeneralMaps:
         """
         return self.synthesis_terms is not None
 
-    def at(self, weights: Float[np.ndarray, " n_map_weights"] | None) -> "GeneralMaps":  # noqa: UP037 - the hook resolves the class while its body runs
+    def at(self, weights: Float[np.ndarray, " n_map_weights"] | None) -> "GeneralMaps":
         """Return the maps a stage evaluates at, from its ``transform_weights``.
 
         A constant guide's maps are returned as they are, whatever `weights` says,
@@ -1056,7 +1056,7 @@ def general_memory(
     }
 
 
-def general_source(  # noqa: PLR0913 - a state, its maps and the stage's scalars
+def general_source(
     state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     maps: GeneralMaps,
     crop_index: np.ndarray,

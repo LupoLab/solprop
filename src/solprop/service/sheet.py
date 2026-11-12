@@ -197,7 +197,7 @@ def _as_numbers(params: SolitonParams) -> dict[str, float]:
     }
 
 
-def _shortest_wave(  # noqa: PLR0913 - what the tool reads
+def _shortest_wave(
     mode: object,
     wavelength: float,
     *,

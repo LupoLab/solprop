@@ -1581,7 +1581,7 @@ class SpecifiedMode:
         """
         return self.dispersion_is_constant
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    def at_parameters(self, values: Mapping[str, float]) -> "SpecifiedMode":
         """Return the same fibre with its area frozen at a value.
 
         Parameters
@@ -1628,7 +1628,7 @@ class SpecifiedMode:
         aeff: float | ZProfile = 1.0,
         # Quoted so that beartype, which resolves the annotation while the class body
         # is still executing, does not look up a name that is not yet bound.
-    ) -> "SpecifiedMode":  # noqa: UP037
+    ) -> "SpecifiedMode":
         """Build a mode from Taylor coefficients of ``beta`` about a frequency.
 
         ``beta(omega) = sum_n betas[n] (omega - omega_ref)**n / n!``. There is no
@@ -1683,7 +1683,7 @@ class SpecifiedMode:
         *,
         aeff: Float[np.ndarray, " n_positions"] | Sequence[float] | ZProfile,
         loss: float | LossFunction | DispersionPath = 0.0,
-    ) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a fibre whose Taylor dispersion and area are declared along z.
 
         One expansion set and one effective area per declared position, both
@@ -1765,7 +1765,7 @@ class SpecifiedMode:
         positions: Float[np.ndarray, " n_positions"] | Sequence[float],
         *,
         aeff: Float[np.ndarray, " n_positions"] | Sequence[float] | ZProfile,
-    ) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a fibre from an ``n_eff(omega, z)`` table and its area path.
 
         The table's real part is the propagation constant ``beta = omega Re n_eff / c``
@@ -1850,7 +1850,7 @@ class SpecifiedMode:
         *,
         loss: float | LossFunction = 0.0,
         aeff: float | ZProfile = 1.0,
-    ) -> "SpecifiedMode":  # noqa: UP037
+    ) -> "SpecifiedMode":
         """Build a mode from a tabulated propagation constant.
 
         The table is interpolated by a cubic spline and differentiated exactly in the
@@ -1900,7 +1900,7 @@ class SpecifiedMode:
     @classmethod
     def from_index_table(
         cls, table: IndexTable, *, aeff: float | ZProfile = 1.0
-    ) -> "SpecifiedMode":  # noqa: UP037 - type hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a dispersion-specified mode from a complex-index table.
 
         Parameters
@@ -1936,7 +1936,7 @@ class SpecifiedMode:
         *,
         aeff: float | ZProfile | None = None,
         wavelength: float | None = None,
-    ) -> "SpecifiedMode":  # noqa: UP037 - resolved during class construction
+    ) -> "SpecifiedMode":
         """Use a mode's dispersion, loss and area for a GNLSE fibre.
 
         Its fill contributes to the supplied dispersion and loss, but is ignored
@@ -2468,7 +2468,7 @@ class GnlseProblem:
         return (self.kerr,) if self.raman is None else (self.kerr, self.raman)
 
 
-def problem_from(  # noqa: PLR0913 - the GNLSE's parameters, each named in ADR-026
+def problem_from(
     betas: Float[np.ndarray, " n_deg"] | list[float],
     *,
     omega_ref: float,

@@ -218,7 +218,7 @@ class ChannelLabel(Displayed):
             )
 
     @classmethod
-    def from_mapping(cls, mapping: Mapping[str, object]) -> "ChannelLabel":  # noqa: UP037 - the runtime hook resolves this while the class body runs
+    def from_mapping(cls, mapping: Mapping[str, object]) -> "ChannelLabel":
         """Rebuild a label from the mapping :meth:`as_mapping` produced.
 
         The round trip a provider's ``identity["channels"]`` and the run record
@@ -543,7 +543,7 @@ class ParameterisedMode(Mode, Protocol):
         """
         ...
 
-    def at_parameters(self, values: Mapping[str, float]) -> "Mode":  # noqa: UP037 - beartype evaluates the annotation eagerly
+    def at_parameters(self, values: Mapping[str, float]) -> "Mode":
         """Return the same mode with the named paths frozen at the given values.
 
         Parameters

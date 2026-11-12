@@ -232,7 +232,7 @@ class Job:
     threads: int | None = None
 
     @classmethod
-    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> "Job":  # noqa: UP037 - the runtime type hook resolves it in the class body
+    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> "Job":
         """Return the record of a run starting in this process.
 
         Parameters

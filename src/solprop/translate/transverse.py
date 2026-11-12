@@ -226,7 +226,7 @@ def _ramp_profile(
     return 0.5 * (1.0 - np.cos(np.pi * inside))
 
 
-def _intermediate_return(  # noqa: PLR0913, PLR0917 - the design and its weights
+def _intermediate_return(  # noqa: PLR0917 - the design and its weights
     axes: tuple[_Axis, ...],
     kappa_p: list[np.ndarray],
     widths: tuple[float, ...],

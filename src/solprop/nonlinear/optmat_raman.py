@@ -137,7 +137,7 @@ class GroupDephasing(Dephasing):
     )
 
     @classmethod
-    def of(cls, group: _optmat.Untyped, response: _optmat.Untyped) -> "GroupDephasing":  # noqa: UP037 - the hook resolves class names eagerly
+    def of(cls, group: _optmat.Untyped, response: _optmat.Untyped) -> "GroupDephasing":
         """Return the dephasing of one group of an optmat response.
 
         Parameters
@@ -462,7 +462,7 @@ class OptmatRamanResponse(RamanResponse):
         default=None, compare=False, repr=False, metadata={"record": False}
     )
 
-    def __init__(  # noqa: PLR0913 - the base class's fields and this class's three
+    def __init__(
         self,
         models: tuple[object, ...] | None = None,
         fraction: float | None = None,
@@ -1519,7 +1519,7 @@ def _requested_temperature(options: Sequence[MolecularOptions]) -> float | None:
     return named.pop() if named else None
 
 
-def mixture_raman(  # noqa: PLR0913 - the mixture, its selection and the response's switches
+def mixture_raman(
     mixture: Mixture,
     raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions],
     *,

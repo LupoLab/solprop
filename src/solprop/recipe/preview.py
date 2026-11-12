@@ -181,7 +181,7 @@ class InputPreview:
     axes: tuple[Float[np.ndarray, " _axis"], ...] = ()
 
 
-def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:  # noqa: UP037 - run time
+def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     """Return the mode set a guided recipe builds, without building its run.
 
     Its cost is the mode solve: on a guide route, the dense tables.
@@ -276,7 +276,7 @@ _C = 299_792_458.0
 
 def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     keywords: Mapping[str, object],
-    soliton: "Mode | None",  # noqa: UP037 - TYPE_CHECKING only
+    soliton: "Mode | None",
     z: float = 0.0,
 ) -> tuple[float | None, dict[str, object]]:
     """Return the pump wavelength and the soliton's nonlinear numbers, where given.
@@ -354,9 +354,9 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     return pump, pulse
 
 
-def _phase_matching(  # noqa: PLR0913 - a mode pair, the band, the pump and its pulse
-    mode: "Mode",  # noqa: UP037 - TYPE_CHECKING only
-    soliton: "Mode",  # noqa: UP037 - TYPE_CHECKING only
+def _phase_matching(
+    mode: "Mode",
+    soliton: "Mode",
     omega: Float[np.ndarray, " n_omega"],
     *,
     z: float,
@@ -408,7 +408,7 @@ def _phase_matching(  # noqa: PLR0913 - a mode pair, the band, the pump and its 
 
 
 def _gamma(
-    mode: "Mode",  # noqa: UP037 - TYPE_CHECKING only
+    mode: "Mode",
     omega: Float[np.ndarray, " n_omega"],
     area: float,
     carrier: float,
@@ -447,7 +447,7 @@ def _gamma(
     return np.asarray(n2 * omega / (_C * area))
 
 
-def preview_input(recipe: "Recipe") -> InputPreview:  # noqa: UP037 - run time
+def preview_input(recipe: "Recipe") -> InputPreview:
     """Return the input pulse on the run's grid, as the launch sets it, without noise.
 
     The recipe is built without its noise (its seed with it) and translated, which
@@ -541,7 +541,7 @@ class _Beam:
 
 
 def _beam(
-    simulation: "Simulation",  # noqa: UP037 - run time
+    simulation: "Simulation",
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     z: float,
 ) -> _Beam:

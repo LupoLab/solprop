@@ -102,7 +102,7 @@ def evaluation_rounding(
     return rounding
 
 
-def march_bound(  # noqa: PLR0913 - the problem, its request and the budget
+def march_bound(
     problem,
     run_request,
     steps: int | None = None,

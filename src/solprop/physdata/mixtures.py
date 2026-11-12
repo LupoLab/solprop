@@ -217,7 +217,7 @@ def _warn_dilute_scaling(checks: Sequence[DiluteScalingCheck]) -> None:
             )
 
 
-def _pressure_path(  # noqa: PLR0913 - the fill vocabulary and what the flow needs
+def _pressure_path(
     value: Pressure,
     length: float | None,
     floor: float | None,
@@ -326,7 +326,7 @@ def _pressure_path(  # noqa: PLR0913 - the fill vocabulary and what the flow nee
     )
 
 
-def _endless_path(
+def _endless_path(  # noqa: PLR0917 - called positionally
     value: float | ZProfile,
     length: float | None,
     vacuum_end: str | None,
@@ -826,7 +826,7 @@ class Mixture(Displayed):
             )
 
     @classmethod
-    def fill[SpeciesKey: Gas | str | Species](  # noqa: PLR0913 - the fill vocabulary
+    def fill[SpeciesKey: Gas | str | Species](
         cls,
         fractions: Mapping[SpeciesKey, float],
         pressure: Pressure,
@@ -837,7 +837,7 @@ class Mixture(Displayed):
         radius: float | ZProfile | None = None,
         vacuum_end: str | None = None,
         selection: MaterialSelection | None = None,
-    ) -> "Mixture":  # noqa: UP037 - runtime annotations are evaluated during class creation
+    ) -> "Mixture":
         """Construct a fill using each species' partial-pressure equation of state.
 
         Parameters
@@ -916,7 +916,7 @@ class Mixture(Displayed):
         *,
         temperature: float | ZProfile = ROOM_TEMPERATURE,
         selection: MaterialSelection | None = None,
-    ) -> "Mixture":  # noqa: UP037 - see fill
+    ) -> "Mixture":
         """Construct populations from independent partial pressures.
 
         Parameters
@@ -965,7 +965,7 @@ class Mixture(Displayed):
     @classmethod
     def of(
         cls, *components: Component, temperature: float | ZProfile = ROOM_TEMPERATURE
-    ) -> "Mixture":  # noqa: UP037 - see fill
+    ) -> "Mixture":
         """Construct a mixture from labelled density populations.
 
         Parameters
@@ -985,7 +985,7 @@ class Mixture(Displayed):
         return cls(components, temperature)
 
     @classmethod
-    def air(  # noqa: PLR0913 - the fill vocabulary of fill, with air's composition
+    def air(
         cls,
         pressure: Pressure,
         *,
@@ -997,7 +997,7 @@ class Mixture(Displayed):
         radius: float | ZProfile | None = None,
         vacuum_end: str | None = None,
         selection: MaterialSelection | None = None,
-    ) -> "Mixture":  # noqa: UP037 - see fill
+    ) -> "Mixture":
         """Construct dry air from nitrogen, oxygen and argon; omit carbon dioxide.
 
         Parameters
@@ -1281,7 +1281,7 @@ class Mixture(Displayed):
             paths.append(Scaled(component.density, coefficient))
         return Sum(tuple(paths))
 
-    def with_densities(self, mapping: Mapping[str, float | ZProfile]) -> "Mixture":  # noqa: UP037 - see fill
+    def with_densities(self, mapping: Mapping[str, float | ZProfile]) -> "Mixture":
         """Replace labelled density paths while preserving component order and data.
 
         Parameters
@@ -1320,7 +1320,7 @@ class Mixture(Displayed):
         floor: float | None = None,
         radius: float | ZProfile | None = None,
         vacuum_end: str | None = None,
-    ) -> "Mixture":  # noqa: UP037 - see fill
+    ) -> "Mixture":
         """Replace fill fractions or pressure without replacing species or labels.
 
         Parameters
@@ -1414,7 +1414,7 @@ class Mixture(Displayed):
         )
         return Mixture(components, self.temperature, path, weights)
 
-    def at_parameters(self, values: Mapping[str, float]) -> "Mixture":  # noqa: UP037 - see fill
+    def at_parameters(self, values: Mapping[str, float]) -> "Mixture":
         """Sample pressure or labelled densities without changing material data.
 
         Parameters

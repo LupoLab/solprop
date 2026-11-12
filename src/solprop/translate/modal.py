@@ -581,7 +581,7 @@ def mode_averaged_transform(
     )
 
 
-def multimode_transform(  # noqa: PLR0913 - the documented signature takes every option
+def multimode_transform(
     modes: Sequence[Mode],
     quadrature: TransverseQuadrature,
     grid: TimeGrid,

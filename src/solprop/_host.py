@@ -235,7 +235,7 @@ class RunClock:
     observer: ObserverSpend = dataclasses.field(default_factory=ObserverSpend)
 
     @classmethod
-    def start(cls) -> "RunClock":  # noqa: UP037 - bound after the class body
+    def start(cls) -> "RunClock":
         """Return the clock of a run starting now.
 
         Returns

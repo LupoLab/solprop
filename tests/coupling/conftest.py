@@ -46,7 +46,7 @@ def centre(grid: EnvelopeGrid) -> int:
 def beam(grid: EnvelopeGrid, air: SpatialMedium) -> BeamFactory:
     """Return a factory of Gaussian or super-Gaussian beam planes."""
 
-    def make(  # noqa: PLR0913 - the beam's independent parameters
+    def make(
         space: RadialGrid | FreeGrid,
         waist: float,
         *,

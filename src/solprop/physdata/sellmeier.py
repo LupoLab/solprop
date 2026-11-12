@@ -686,7 +686,7 @@ class OptmatSusceptibility(GasSusceptibility):
     @classmethod
     def resolve(
         cls, gas: Gas | str, model: ModelChoice = "recommended"
-    ) -> "OptmatSusceptibility":  # noqa: UP037 - the hook resolves class names eagerly
+    ) -> "OptmatSusceptibility":
         """Resolve a gas's optmat dispersion model and adapt it.
 
         Parameters
@@ -969,7 +969,7 @@ class OptmatSusceptibility(GasSusceptibility):
 
 
 @functools.cache
-def _default_law(gas: Gas) -> "OptmatSusceptibility":  # noqa: UP037 - defined above
+def _default_law(gas: Gas) -> "OptmatSusceptibility":
     """Return optmat's recommended law of a gas, one adapter per gas.
 
     Parameters

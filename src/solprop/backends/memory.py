@@ -29,7 +29,7 @@ __all__ = [
 ]
 
 
-def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own sizes
+def reference_base_memory(
     problem: PropagationProblem,
     stepper: StepperSettings,
     *,

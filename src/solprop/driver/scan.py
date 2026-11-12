@@ -19,7 +19,7 @@ from solprop.processing.scans import Reduction, ScanOutput
 __all__ = ["Scan", "ScanPoint", "run_scan"]
 
 
-def run_scan(  # noqa: PLR0913 - the public scan controls
+def run_scan(
     scan: Scan,
     build: Callable[[ScanPoint], Simulation],
     *,

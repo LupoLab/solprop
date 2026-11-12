@@ -814,7 +814,7 @@ def _rule(integral: RunningIntegral | None) -> RunningIntegral:
     return RunningIntegral.trapezoid() if integral is None else integral
 
 
-def plasma_current(  # noqa: PLR0913 - the oracle's own inputs, three of them per node
+def plasma_current(
     field_t: Float[np.ndarray, "n_nodes_chunk n_pol n_to"],
     rate: Float[np.ndarray, "n_nodes_chunk n_to"],
     fraction: Float[np.ndarray, "n_nodes_chunk n_to"],
@@ -1078,6 +1078,7 @@ def plasma_channels_polarisation(
     densities: tuple[float, ...],
     preionisation: tuple[float, ...],
     dt: float,
+    *,
     integral: RunningIntegral | None = None,
 ) -> Float[np.ndarray, "n_nodes_chunk n_pol n_to"]:
     r"""Sum channel weights before the two shared current integrals.
@@ -1120,7 +1121,7 @@ def plasma_channels_polarisation(
     )
 
 
-def _plasma_channels_current(
+def _plasma_channels_current(  # noqa: PLR0917 - called through a reference
     field_t: Float[np.ndarray, "n_nodes_chunk n_pol n_to"],
     channels: tuple[PlasmaChannel, ...],
     densities: tuple[float, ...],
@@ -1286,7 +1287,7 @@ def tensor_raman_spectrum(
     return transforms.rfft(total, axis=-1) * dt
 
 
-def nonlinear_polarisation(  # noqa: PLR0913 - the fused pass takes what the responses need
+def nonlinear_polarisation(
     field_t: Num[np.ndarray, "n_nodes_chunk n_pol n_to"],
     responses: CompiledResponses,
     t_window_fine: Float[np.ndarray, " n_to_window"],
@@ -1414,7 +1415,7 @@ class NonlinearSources:
     current: Float[np.ndarray, "n_nodes_chunk n_pol n_to"] | None
 
 
-def nonlinear_sources(  # noqa: PLR0913 - the fused pass takes what the responses need
+def nonlinear_sources(
     field_t: Num[np.ndarray, "n_nodes_chunk n_pol n_to"],
     responses: CompiledResponses,
     t_window_fine: Float[np.ndarray, " n_to_window"],

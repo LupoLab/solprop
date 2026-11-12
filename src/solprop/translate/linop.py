@@ -811,7 +811,7 @@ def _zero_edges(
     return pinned
 
 
-def constant_phi(  # noqa: PLR0913 - the response kinks join the frame record
+def constant_phi(
     operator: Complex[np.ndarray, "*value n_omega"],
     z_max: float,
     *,
@@ -972,7 +972,7 @@ def _as_modes(mode: Mode | Sequence[Mode]) -> tuple[Mode, ...]:
     return modes
 
 
-def build_phi(  # noqa: PLR0913 - the documented builder takes every input by name
+def build_phi(
     mode: Mode | Sequence[Mode],
     grid: TimeGrid,
     frame: Frame,
@@ -1123,7 +1123,7 @@ def build_phi(  # noqa: PLR0913 - the documented builder takes every input by na
     return _power_phi(linear, _as_modes(mode), grid, index)
 
 
-def _dispersion_phi(  # noqa: PLR0913 - the dispersion builder shares the public controls
+def _dispersion_phi(
     mode: Mode | Sequence[Mode],
     grid: TimeGrid,
     frame: Frame,
@@ -1924,7 +1924,7 @@ def _checked_representation(representation: str) -> None:
         raise TranslationError(msg)
 
 
-def _phi_expansion(  # noqa: PLR0913 - the sampler's inputs plus the build's knobs
+def _phi_expansion(  # noqa: PLR0917 - called positionally
     modes: Sequence[Mode],
     grid: TimeGrid,
     frame: Frame,
@@ -2067,7 +2067,7 @@ def _expansion_operator(
     return table
 
 
-def _z_table_operator(  # noqa: PLR0913 - the fallback build's knobs, as `build` has them
+def _z_table_operator(
     operator_at: _OperatorAt,
     paths: Sequence[ZProfile],
     span: float,
@@ -2191,7 +2191,7 @@ def _z_table_operator(  # noqa: PLR0913 - the fallback build's knobs, as `build`
     return table
 
 
-def _operator_sampler(
+def _operator_sampler(  # noqa: PLR0917 - called positionally
     modes: Sequence[Mode],
     grid: TimeGrid,
     frame: Frame,
@@ -2247,7 +2247,7 @@ def _operator_sampler(
     return operator_at
 
 
-def _operator_of_parameters(
+def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     modes: Sequence[Mode],
     grid: TimeGrid,
     frame: Frame,

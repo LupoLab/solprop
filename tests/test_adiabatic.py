@@ -81,9 +81,7 @@ class Case:
         )
 
 
-def _case(  # noqa: PLR0913 - the profile and its declarations
-    rho, slope, start, end, *, base=1.0, jumps=(), kinks=(), turning=()
-):
+def _case(rho, slope, start, end, *, base=1.0, jumps=(), kinks=(), turning=()):
     """Build a smooth or jumping profile from ``rho`` and its derivative."""
 
     def q(z):

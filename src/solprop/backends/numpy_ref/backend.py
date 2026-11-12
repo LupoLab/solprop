@@ -240,7 +240,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     # not on a backend that takes both signs from one transcendental.
     propagator_default = "tabulate"
 
-    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
+    def __init__(
         self,
         problem: PropagationProblem,
         request: RunRequest,
@@ -2876,7 +2876,7 @@ class SourceTables:
     temporal_rate: Float[np.ndarray, " n_to"] | None
 
     @classmethod
-    def of(cls, problem: PropagationProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+    def of(cls, problem: PropagationProblem) -> "SourceTables":
         """Return the problem's own tables.
 
         Parameters

@@ -151,7 +151,7 @@ PARTIAL = ExecutionOptions(node_chunk=3)
 """Three-node chunks, which every multinode case's members and solo runs take."""
 
 
-def compare(  # noqa: PLR0913 - the run, the backend and what is compared
+def compare(
     problem,
     run_request,
     grid,

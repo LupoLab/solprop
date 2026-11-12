@@ -1868,7 +1868,7 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
     return 2.0 * np.pi * C / high, 2.0 * np.pi * C / low
 
 
-def _check_common(
+def _check_common(  # noqa: PLR0917 - called positionally
     length: float,
     reference_wavelength: float,
     trange: float,
@@ -2002,11 +2002,8 @@ class FieldGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "field"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
-    def from_limits(  # noqa: PLR0913
+    def from_limits(
         cls,
         length: float,
         reference_wavelength: float,
@@ -2020,7 +2017,7 @@ class FieldGrid(TimeGrid):
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
-    ) -> "FieldGrid":  # noqa: UP037
+    ) -> "FieldGrid":
         """Build a field grid from the wavelength limits and the requested time window.
 
         The fine grid is sampled at ``ffac`` times the highest frequency of the window,
@@ -2179,11 +2176,8 @@ class EnvelopeGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "envelope"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
-    def from_limits(  # noqa: PLR0913
+    def from_limits(
         cls,
         length: float,
         reference_wavelength: float,
@@ -2198,7 +2192,7 @@ class EnvelopeGrid(TimeGrid):
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
-    ) -> "EnvelopeGrid":  # noqa: UP037
+    ) -> "EnvelopeGrid":
         """Build an envelope grid from the wavelength limits and the time window.
 
         Without third harmonic the grid is sampled at twice the widest relative

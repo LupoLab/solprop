@@ -452,7 +452,7 @@ def _check_frequency(v: float) -> None:
         )
 
 
-def _refined_roots(
+def _refined_roots(  # noqa: PLR0917 - called positionally
     nodes: Float[np.ndarray, " n_nodes"],
     values: Float[np.ndarray, " n_nodes"],
     v: float,
@@ -1104,7 +1104,7 @@ class StepIndexMode(Displayed):
                 raise ModeError("material indices must be positive and finite")
 
     @classmethod
-    def from_numerical_aperture(  # noqa: PLR0913 - the constructor mirrors the class's keyword surface
+    def from_numerical_aperture(
         cls,
         radius: float | ZProfile,
         numerical_aperture: float,
@@ -1116,7 +1116,7 @@ class StepIndexMode(Displayed):
         parity: Literal["even", "odd"] = "even",
         profile_wavelength: float,
         loss: float | _Loss = 0.0,
-    ) -> "StepIndexMode":  # noqa: UP037 - the test hook resolves the class while its body runs
+    ) -> "StepIndexMode":
         """Construct a fibre with the core index n_co = n_cl + NA^2/(2 n_cl).
 
         Parameters
@@ -1525,7 +1525,7 @@ class StepIndexMode(Displayed):
         del z
 
     @property
-    def orthogonal_polarisation(self) -> "StepIndexMode | None":  # noqa: UP037 - runtime test hook
+    def orthogonal_polarisation(self) -> "StepIndexMode | None":
         """Return the other hybrid parity, or None for TE and TM.
 
         Returns
@@ -1548,7 +1548,7 @@ class StepIndexMode(Displayed):
         """
         return MappingProxyType({"core_radius": self.core_radius})
 
-    def at_parameters(self, values: Mapping[str, float]) -> "StepIndexMode":  # noqa: UP037 - runtime test hook
+    def at_parameters(self, values: Mapping[str, float]) -> "StepIndexMode":
         """Freeze the supplied geometry parameter.
 
         Parameters

@@ -619,7 +619,7 @@ class MarchPolicy:
                 raise StepperError(msg)
 
 
-def march_policy(  # noqa: PLR0913 - one record of a run's settings, by name
+def march_policy(
     method: Multistep,
     *,
     dz_min: float,

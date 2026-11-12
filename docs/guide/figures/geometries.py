@@ -485,7 +485,7 @@ def _circle(
     drawing.append(drawsvg.Circle(_q(x), _q(y), _q(radius), class_=klass))
 
 
-def _annulus(
+def _annulus(  # noqa: PLR0917 - called positionally
     drawing: drawsvg.Drawing,
     x: float,
     y: float,

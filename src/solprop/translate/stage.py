@@ -713,7 +713,7 @@ def scalars_at(
     )
 
 
-def _phi_rows(
+def _phi_rows(  # noqa: PLR0917 - called positionally
     linear: LinearOperator,
     z0: float,
     where: list[float],

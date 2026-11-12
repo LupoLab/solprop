@@ -313,7 +313,7 @@ class SessionFacts:
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
-def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
+def run_problem(
     problem: PropagationProblem,
     backend: Backend,
     output: Output,
@@ -606,7 +606,7 @@ def _restored(
     return {**restoration, "state": "reset", "reason": "incompatible_representation"}
 
 
-def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
+def _announce(  # noqa: PLR0917 - called positionally
     problem: PropagationProblem,
     metadata: RunMetadata,
     backend: Backend | SessionFacts,
@@ -1400,7 +1400,7 @@ class _Status:
     message: str = ""
 
 
-def _record_execution(  # noqa: PLR0913 - the record's parts
+def _record_execution(
     output: CheckpointOutput | None,
     backend: Backend | SessionFacts,
     binding: TDSEBinding | None,

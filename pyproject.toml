@@ -199,7 +199,7 @@ select = [
     "ARG",         # unused arguments
     "PGH",         # PGH004 bans blanket `# noqa`
     "NPY",         # NumPy-specific: NPY002 catches legacy np.random.seed
-    "PL",          # pylint subset; PLR0913 = too many arguments
+    "PL",          # pylint subset; PLR0917 = too many positional arguments
     "RUF",         # ruff-specific; RUF100 catches stale noqa
 ]
 ignore = [
@@ -210,6 +210,14 @@ ignore = [
     # forward annotations. jaxtyping's own documentation requires this ignore; without
     # it the annotation style AGENTS.md mandates cannot be written at all.
     "F722",        # forward-annotation-syntax-error: jaxtyping shape strings
+    # The count that hurts a reader is the positional one (PLR0917, below): a signature
+    # with many keyword-only parameters reads well at every call site.
+    "PLR0913",     # too-many-arguments
+    # A quoted annotation is required wherever the jaxtyping/beartype import hook
+    # evaluates it before the name exists: a method returning its own class, a parameter
+    # typed by a class defined later, a name imported under TYPE_CHECKING
+    # (docs/dev/tooling.md, "jaxtyping + beartype"). Unquoting it breaks the test session.
+    "UP037",       # quoted-annotation
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -222,10 +230,12 @@ ban-relative-imports = "all"
 known-first-party = ["solprop"]
 
 [tool.ruff.lint.pylint]
-max-args = 6                      # forces a config dataclass past this
+max-positional-args = 5           # past this, parameters are keyword-only
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
+# Dummies implement protocols with unused arguments; pytest passes fixtures and parameters
+# by name, so a test's positional count says nothing.
+"tests/**"          = ["D", "ANN", "PLR2004", "ARG", "PLR0917"]
 "benchmarks/**"     = ["D", "ANN", "T20"]
 "tools/setup_light.py" = ["T20"]                     # it tells a contributor what to do
 # Independent oracles that tests compare against: research code, held to the benchmark
@@ -304,7 +314,10 @@ exclude_also = [
 [tool.numpydoc_validation]
 checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]   # "all" minus these: extended summary,
 # see-also and examples are optional; GL01/GL02 (quote placement) conflict with ruff's numpy style
-exclude = ['\.__init__$', '^test_']
+# Private names are left out: a dotted name with a single-underscore component (a private
+# module, class or function, or anything inside one) carries a short docstring, not the
+# public API's numpydoc sections (AGENTS.md, "Docstrings and comments").
+exclude = ['\.__init__$', '^test_', '(^|\.)_[^_]']
 
 # ----------------------------------------------------------------------------- codespell
 [tool.codespell]
@@ -333,6 +346,8 @@ reuse      = "reuse lint"
 changelog-check = "python -m tools.release_notes check"
 changelog-preview = "python -m tools.release_notes preview"
 changelog-collect = "python -m tools.release_notes collect"
+size       = "python -m tools.size_report"           # where the lines go, per package
+size-check = "python -m tools.size_report --check"   # the ratchets of tools/size_budget.toml
 test-medium = "pytest -m medium --durations=0"   # the tier timed against its 60 s budget
 docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
 # Python rather than `rm -rf`, so the task also runs on Windows.
@@ -434,7 +449,7 @@ args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", h
 help = "Execute the stale gallery scripts and refresh their committed output (slow)."
 
 [tool.poe.tasks.check]
-sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "changelog-check", "test", "docs"]
+sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "changelog-check", "size-check", "test", "docs"]
 help = "The definition-of-done gate, in order."
 
 # The native package's gate: its lint and strict types, C++ format, clang-tidy, the

@@ -200,7 +200,7 @@ def summarise(
     return summary
 
 
-def _living_state(
+def _living_state(  # noqa: PLR0917 - called positionally
     folder: Path,
     job: Any,
     submitted: Mapping[str, Any],

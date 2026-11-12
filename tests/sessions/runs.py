@@ -122,7 +122,7 @@ def to_planes(request: RunRequest, planes: Sequence[float]) -> RunRequest:
     return request.with_stepper(stepper)
 
 
-def run(  # noqa: PLR0913 - the session's context and the drive's options
+def run(
     backend: Any,
     problem: PropagationProblem,
     request: RunRequest | None = None,
@@ -212,7 +212,7 @@ def run(  # noqa: PLR0913 - the session's context and the drive's options
     return result
 
 
-def final_field(  # noqa: PLR0913 - the run and the checks of where it ended
+def final_field(
     backend: Any,
     problem: PropagationProblem,
     request: RunRequest | None = None,
@@ -339,7 +339,7 @@ def _launch_observation(session: RunSession) -> ObservationReady:
 
 
 @contextmanager
-def launched(  # noqa: PLR0913 - the start and the statistics it is observed with
+def launched(
     backend: Any,
     problem: PropagationProblem,
     request: RunRequest | None = None,
@@ -394,7 +394,7 @@ def launched(  # noqa: PLR0913 - the start and the statistics it is observed wit
         session.close()
 
 
-def launch(  # noqa: PLR0913 - the start and the statistics it is observed with
+def launch(
     backend: Any,
     problem: PropagationProblem,
     request: RunRequest | None = None,
@@ -432,7 +432,7 @@ def launch(  # noqa: PLR0913 - the start and the statistics it is observed with
         return Plane(observation, held, observation.history, observation.step_stats)
 
 
-def launch_statistics(  # noqa: PLR0913 - the start and the statistics it is observed with
+def launch_statistics(
     backend: Any,
     problem: PropagationProblem,
     request: RunRequest | None = None,

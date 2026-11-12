@@ -312,7 +312,7 @@ def _check_gauge(
         )
 
 
-def path_snapshot(  # noqa: PLR0913 - a provider, a band, a point, a rule and three declarations
+def path_snapshot(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     z: float,
@@ -639,7 +639,7 @@ def _held_out(
     return error, departure
 
 
-def sample_modal_path(  # noqa: PLR0913 - a provider, a band, a rule, the sections and five declarations
+def sample_modal_path(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     rule: ModalNodeRule,
@@ -1045,7 +1045,7 @@ def path_transform_tables(
     )
 
 
-def path_connections(  # noqa: PLR0913 - a path, a provider and four declarations
+def path_connections(
     path: ModalPathTable,
     provider: ModalProvider,
     *,

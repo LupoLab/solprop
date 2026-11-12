@@ -382,7 +382,7 @@ class MarcatiliMode(GasFillMixin):
     _gain_warned: bool = field(init=False, default=False, repr=False)
     # The mode a frozen copy was taken from, when the copy's frequency-only terms are
     # the origin's (:meth:`at_parameters`); shared by :meth:`sampled_terms` in a scope.
-    _terms_origin: ClassVar["MarcatiliMode | None"] = None  # noqa: UP037 - the hook resolves class names eagerly
+    _terms_origin: ClassVar["MarcatiliMode | None"] = None
 
     def _check_arguments(self) -> None:
         """Check the constructor arguments against each other.
@@ -637,7 +637,7 @@ class MarcatiliMode(GasFillMixin):
             return "y"
         return None
 
-    def rotated(self, phi: float) -> "MarcatiliMode":  # noqa: UP037 - bound after the class body
+    def rotated(self, phi: float) -> "MarcatiliMode":
         """Return the same mode turned about the axis.
 
         Parameters
@@ -662,7 +662,7 @@ class MarcatiliMode(GasFillMixin):
         return replace(self, phi=phi)
 
     @property
-    def orthogonal_polarisation(self) -> "MarcatiliMode | None":  # noqa: UP037 - as above
+    def orthogonal_polarisation(self) -> "MarcatiliMode | None":
         """Return the degenerate partner of a hybrid mode, or ``None``.
 
         Returns
@@ -718,7 +718,7 @@ class MarcatiliMode(GasFillMixin):
         values: Mapping[str, float],
         # Quoted because beartype resolves the annotation while the class body is
         # still executing, when the bare class name is not yet bound.
-    ) -> "MarcatiliMode":  # noqa: UP037
+    ) -> "MarcatiliMode":
         """Return the same mode with the named paths frozen at the given values.
 
         The effective index reaches ``z`` only through the two paths, so replacing
@@ -3474,7 +3474,7 @@ def _bessel_connection(
     return link
 
 
-def worst_wall_limits(  # noqa: PLR0913 - the block's own arguments and the scan
+def worst_wall_limits(
     modes: Sequence[Mode],
     omega: Float[np.ndarray, " n_omega"],
     *,

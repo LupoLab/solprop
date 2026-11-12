@@ -157,7 +157,7 @@ def port_metric(problem: PropagationProblem, grid: TimeGrid, z: float) -> PlaneM
     return PlaneMetric("dense", matrix=np.conj(matrix))
 
 
-def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it does not hold
+def input_port(
     problem: PropagationProblem,
     grid: TimeGrid,
     *,

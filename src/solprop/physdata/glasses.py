@@ -662,7 +662,7 @@ class OptmatGlass(GlassIndex):
         *,
         transparent: bool = False,
         absorption_bound: float = TRANSPARENT_ABSORPTION_BOUND,
-    ) -> "OptmatGlass":  # noqa: UP037 - the hook resolves class names eagerly
+    ) -> "OptmatGlass":
         """Adapt any optmat solid model, taken as it is.
 
         Parameters
@@ -703,7 +703,7 @@ class OptmatGlass(GlassIndex):
 
     def as_transparent(
         self, absorption_bound: float = TRANSPARENT_ABSORPTION_BOUND
-    ) -> "OptmatGlass":  # noqa: UP037 - see from_model
+    ) -> "OptmatGlass":
         """Return the same model with its index taken as real, a recorded approximation.
 
         Parameters
@@ -1573,7 +1573,7 @@ class SilicaBundle:
     @classmethod
     def resolve(
         cls, choice: ModelChoice = "recommended", *, tensor: bool = False
-    ) -> "SilicaBundle":  # noqa: UP037 - the hook resolves class names eagerly
+    ) -> "SilicaBundle":
         """Resolve a silica bundle by selection name, optmat name or object.
 
         Parameters

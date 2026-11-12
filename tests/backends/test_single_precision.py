@@ -82,7 +82,7 @@ from vector_raman_cases import vector_translation
 U32 = UNIT_ROUNDOFF_32
 
 
-def gnlse(  # noqa: PLR0913 - the case's own knobs
+def gnlse(
     precision: str,
     *,
     length: float = 0.05,

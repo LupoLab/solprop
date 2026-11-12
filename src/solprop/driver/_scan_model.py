@@ -271,7 +271,7 @@ class Scan(Displayed):
         for index in range(self.size) if self._indices is None else self._indices:
             yield self.point(index)
 
-    def subset(self, indices: Sequence[int]) -> "Scan":  # noqa: UP037 - runtime hook evaluates the class body
+    def subset(self, indices: Sequence[int]) -> "Scan":
         """Select unique global indices without changing the Cartesian axes.
 
         Parameters
@@ -300,7 +300,7 @@ class Scan(Displayed):
         result._indices = selected
         return result
 
-    def chunk(self, k: int, n: int) -> "Scan":  # noqa: UP037 - runtime hook evaluates the class body
+    def chunk(self, k: int, n: int) -> "Scan":
         """Select one round-robin chunk by the global index modulo its count.
 
         Parameters

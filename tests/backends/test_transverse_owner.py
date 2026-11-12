@@ -378,7 +378,7 @@ def _run(pair: Pair, steps: list, z: float = 0.0) -> tuple[float, bool]:
     schedule=st.one_of(st.none(), st.floats(1e-5, 2e-3)),
     declared=st.booleans(),
 )
-def test_the_owner_decides_and_records_as_solprop_does(  # noqa: PLR0913 - one draw each
+def test_the_owner_decides_and_records_as_solprop_does(
     *, geometry, design, budget, launch, steps, schedule, declared
 ):
     if geometry == "radial" and design == "collar":

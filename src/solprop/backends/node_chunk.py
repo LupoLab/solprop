@@ -449,7 +449,7 @@ def _envelope_chunk(
     return min(chunk, budget // per_node)
 
 
-def _held_current_chunk(
+def _held_current_chunk(  # noqa: PLR0917 - called positionally
     chunk: int,
     transform: Transform,
     responses: CompiledResponses,
@@ -544,7 +544,7 @@ def _held_current_chunk(
     return min(max(1, chunk // row_nodes), budget // per_row) * row_nodes
 
 
-def _raman_chunk(
+def _raman_chunk(  # noqa: PLR0917 - called positionally
     chunk: int,
     transform: Transform,
     responses: CompiledResponses,
@@ -646,7 +646,7 @@ def dispersive_node_buffers(responses: CompiledResponses, *, spatial: bool) -> i
     return nodes + 2 * products
 
 
-def _dispersive_chunk(
+def _dispersive_chunk(  # noqa: PLR0917 - called positionally
     chunk: int,
     transform: Transform,
     responses: CompiledResponses,

@@ -1077,7 +1077,7 @@ def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
     return retained
 
 
-def _jobs(
+def _jobs(  # noqa: PLR0917 - called positionally
     scan: Scan,
     writer: ScanWriter,
     retry: bool,
@@ -1143,7 +1143,7 @@ def _release(writer: ScanWriter, index: int, claim: tuple[str, float]) -> None:
     writer.file.flush()
 
 
-def execute_scan(  # noqa: PLR0913 - delegated public controls
+def execute_scan(
     scan: Scan,
     build: Callable[[ScanPoint], Simulation],
     *,

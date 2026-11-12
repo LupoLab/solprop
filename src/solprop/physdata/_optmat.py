@@ -621,7 +621,7 @@ class EvaluationCache:
         """
         return f"EvaluationCache({len(self)} of {self.size})"
 
-    def __reduce__(self) -> tuple[type["EvaluationCache"], tuple[int]]:  # noqa: UP037 - the hook resolves class names eagerly
+    def __reduce__(self) -> tuple[type["EvaluationCache"], tuple[int]]:
         """Pickle and copy as an empty cache of the same size.
 
         Returns

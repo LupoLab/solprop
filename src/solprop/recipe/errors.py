@@ -50,7 +50,7 @@ class RecipeError(SolpropError, ValueError):
 
     def __reduce__(
         self,
-    ) -> "tuple[functools.partial[RecipeError], tuple[str]]":  # noqa: UP037
+    ) -> "tuple[functools.partial[RecipeError], tuple[str]]":
         """Pickle the error with its path.
 
         The path is keyword-only, which the default exception pickling (the class
