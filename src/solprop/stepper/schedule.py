@@ -331,51 +331,36 @@ class FixedSchedule:  # numpydoc ignore=PR02
 
     @property
     def n_steps(self) -> int:  # numpydoc ignore=RT01
-        """Number of steps.
-
-        Number of steps.
-        """
+        """Number of steps."""
         return int(self.steps.size)
 
     @property
     def edges(self) -> Float[np.ndarray, " n_edges"]:  # numpydoc ignore=RT01
-        """The positions the steps start and end at.
+        """The positions the steps start and end at, m.
 
-        Positions of shape ``(n_steps + 1,)``, m, accumulated in step order so
-        that they match what a driver marching the schedule would reach.
+        Shape ``(n_steps + 1,)``, accumulated in step order so that they match what a
+        driver marching the schedule would reach.
         """
         return self.z_start + np.concatenate(([0.0], np.cumsum(self.steps)))
 
     @property
     def z_end(self) -> float:  # numpydoc ignore=RT01
-        """Position the last step ends at.
-
-        Final position, m.
-        """
+        """Position the last step ends at, m."""
         return float(self.edges[-1])
 
     @property
     def total_length(self) -> float:  # numpydoc ignore=RT01
-        """Propagation length the schedule covers.
-
-        Length, m.
-        """
+        """Propagation length the schedule covers, m."""
         return self.z_end - self.z_start
 
     @property
     def max_step(self) -> float:  # numpydoc ignore=RT01
-        """Longest step.
-
-        Length, m.
-        """
+        """Longest step, m."""
         return float(self.steps.max())
 
     @property
     def min_step(self) -> float:  # numpydoc ignore=RT01
-        """Shortest step.
-
-        Length, m.
-        """
+        """Shortest step, m."""
         return float(self.steps.min())
 
     def refined(self, factor: int) -> "FixedSchedule":

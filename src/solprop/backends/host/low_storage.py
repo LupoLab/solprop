@@ -74,10 +74,7 @@ class HostLowStorageMarch:
 
     @property
     def engine(self) -> HostLowStorage:  # numpydoc ignore=RT01
-        """Engine that holds the registers.
-
-        The host engine.
-        """
+        """Engine that holds the registers."""
         return self._engine
 
     def reset(self) -> None:

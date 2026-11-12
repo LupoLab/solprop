@@ -73,18 +73,12 @@ class ControlledWork(Protocol):
 
     @property
     def stop(self) -> StopFlag | None:  # numpydoc ignore=RT01
-        """The caller's stop flag, read in the controlling process.
-
-        The flag; ``None`` never stops.
-        """
+        """The caller's stop flag, read in the controlling process, or ``None``."""
         ...
 
     @property
     def watched(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a worker sends its point's progress to the controller.
-
-        True when the controller has a reporter for points.
-        """
+        """Whether a worker sends its point's progress to the controller."""
         ...
 
     def run_point(

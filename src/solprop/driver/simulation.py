@@ -6744,18 +6744,12 @@ class SimulationRunner(Displayed):
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the runner, and its backend, are closed.
-
-        True once :meth:`close` has run.
-        """
+        """Whether the runner, and its backend, are closed."""
         return self._closed
 
     @property
     def backend(self) -> Backend:  # numpydoc ignore=RT01
-        """Backend every run is stepped on.
-
-        The one backend the runner constructed.
-        """
+        """Backend every run is stepped on."""
         return self._backend
 
     def close(self) -> None:

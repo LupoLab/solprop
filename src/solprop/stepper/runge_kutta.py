@@ -60,8 +60,5 @@ class RungeKutta:
 
     @property
     def name(self) -> str:  # numpydoc ignore=RT01
-        """The tableau's name, the method's record name.
-
-        The tableau's name.
-        """
+        """The tableau's name, the method's record name."""
         return self.tableau.name

@@ -2248,10 +2248,7 @@ class ApertureSet:
 
     @property
     def n_apertures(self) -> int:  # numpydoc ignore=RT01
-        """How many apertures the set holds.
-
-        The number of apertures.
-        """
+        """How many apertures the set holds."""
         return int(np.asarray(self.diameters).size)
 
     def same_as(self, other: "ApertureSet | None") -> bool:
@@ -2456,10 +2453,7 @@ class StatsSpec:
 
     @property
     def n_windows(self) -> int:  # numpydoc ignore=RT01
-        """How many spectral windows the spec carries.
-
-        The number of windows.
-        """
+        """How many spectral windows the spec carries."""
         return int(self.energy_windows.shape[0])
 
 

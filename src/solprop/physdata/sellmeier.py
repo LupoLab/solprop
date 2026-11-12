@@ -185,10 +185,7 @@ class GasSusceptibility(ABC):
 
     @property
     def reference_density(self) -> float:  # numpydoc ignore=RT01
-        """Number density at the reference state of the source.
-
-        Number density in m^-3.
-        """
+        """Number density at the reference state of the source, m^-3."""
         return _reference_density(self.gas, self.reference_state)
 
     @property
@@ -644,10 +641,7 @@ class OptmatSusceptibility(GasSusceptibility):
 
     @property
     def reference_density(self) -> float:  # numpydoc ignore=RT01
-        """Density of the reference state, the dilute limit.
-
-        0.0 m^-3.
-        """
+        """Density of the reference state, the dilute limit: 0.0 m^-3."""
         return 0.0
 
     @property
@@ -660,10 +654,7 @@ class OptmatSusceptibility(GasSusceptibility):
 
     @property
     def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
-        """Record of the optmat model, for a run's manifest.
-
-        The dispersion model's identity.
-        """
+        """Record of the optmat model, for a run's manifest."""
         return (_optmat.record(self.model),)
 
     def _evaluate(

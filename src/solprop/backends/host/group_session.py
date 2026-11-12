@@ -180,10 +180,7 @@ class HostGroupSession:
 
     @property
     def n_members(self) -> int:  # numpydoc ignore=RT01
-        """Number of members.
-
-        The members.
-        """
+        """Number of members."""
         return len(self._members)
 
     @property
@@ -196,10 +193,7 @@ class HostGroupSession:
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the group was closed.
-
-        True once closed.
-        """
+        """Whether the group was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def advance(self) -> GroupBatch:

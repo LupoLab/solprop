@@ -239,9 +239,9 @@ class CouplingModel:
 
     @property
     def cone(self) -> float:  # numpydoc ignore=RT01
-        """Admitted cone half-angle of the budget.
+        """Admitted cone half-angle of the budget, rad.
 
-        :func:`cone_angle` of `model_error`, rad.
+        :func:`cone_angle` of `model_error`.
 
         Raises
         ------
@@ -532,10 +532,7 @@ class ScalarModeBasis:
 
     @property
     def n_modes(self) -> int:  # numpydoc ignore=RT01
-        """Number of channels.
-
-        ``len(labels)``.
-        """
+        """Number of channels."""
         return len(self.labels)
 
     def _square_integrals(self) -> Float[np.ndarray, " n_modes"]:

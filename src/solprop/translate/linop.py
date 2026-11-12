@@ -531,9 +531,7 @@ class LinearOperator:
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Range of z the table covers.
-
-        ``(first breakpoint, last breakpoint)`` in m.
+        """Range ``(first breakpoint, last breakpoint)`` of z the table covers, m.
 
         Examples
         --------
@@ -561,11 +559,11 @@ class LinearOperator:
 
     @property
     def nbytes(self) -> int:  # numpydoc ignore=RT01
-        """Memory the representation occupies.
+        """Memory the representation occupies, bytes.
 
-        Bytes: the coefficient array for a z table, the expansion's terms and
-        scalar tables together for an expansion. This is the number
-        ``docs/dev/kernel-contract.md`` section 3 quotes.
+        The coefficient array for a z table, the expansion's terms and scalar tables
+        together for an expansion. This is the number ``docs/dev/kernel-contract.md``
+        section 3 quotes.
 
         Examples
         --------

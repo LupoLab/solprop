@@ -268,33 +268,24 @@ class CouplingReport(Displayed):
 
     @property
     def incident_energy(self) -> float:  # numpydoc ignore=RT01
-        """Whole incident energy.
-
-        J.
-        """
+        """Whole incident energy, J."""
         return float(np.sum(self.incident))
 
     @property
     def launched_energy(self) -> float:  # numpydoc ignore=RT01
-        """Energy the launch carries into the target.
-
-        J.
-        """
+        """Energy the launch carries into the target, J."""
         return float(np.sum(self.launched))
 
     @property
     def captured_energy(self) -> float | None:  # numpydoc ignore=RT01
-        """Captured energy in the common metric.
-
-        J; None where it is not defined.
-        """
+        """Captured energy in the common metric, J, or ``None`` where undefined."""
         return None if self.captured is None else float(np.sum(self.captured))
 
     @property
     def uncaptured_energy(self) -> float | None:  # numpydoc ignore=RT01
-        """Uncaptured energy in the common metric, not clipped.
+        """Uncaptured energy in the common metric, J, not clipped.
 
-        J; None where it is not defined.
+        ``None`` where it is not defined.
         """
         uncaptured = self.uncaptured
         return None if uncaptured is None else float(np.sum(uncaptured))
@@ -303,7 +294,7 @@ class CouplingReport(Displayed):
     def efficiency(self) -> float | None:  # numpydoc ignore=RT01
         """Launched energy as a share of the incident energy.
 
-        Dimensionless; None when nothing is incident, where it is undefined.
+        ``None`` when nothing is incident, where it is undefined.
         """
         incident = self.incident_energy
         return None if incident == 0.0 else self.launched_energy / incident
@@ -312,7 +303,7 @@ class CouplingReport(Displayed):
     def budget(self) -> float:  # numpydoc ignore=RT01
         """Sum of the counted admission items.
 
-        Dimensionless; at most `model_error` for an admitted coupling.
+        At most `model_error` for an admitted coupling.
         """
         return float(
             sum(item.value for item in self.items if item.counted and item.value)

@@ -233,8 +233,6 @@ class Grids:
     def n_omega(self) -> int:  # numpydoc ignore=RT01
         """Number of coarse spectral bins.
 
-        The length of ``omega``.
-
         Examples
         --------
         >>> from solprop.grid import EnvelopeGrid

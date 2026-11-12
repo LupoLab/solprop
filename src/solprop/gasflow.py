@@ -1032,26 +1032,17 @@ class FlowReport(Displayed):
 
     @property
     def peak_reynolds(self) -> float:  # numpydoc ignore=RT01
-        """Largest Reynolds number of the fill.
-
-        The maximum over the stages.
-        """
+        """Largest Reynolds number of the fill."""
         return max(stage.peak_reynolds for stage in self.stages)
 
     @property
     def peak_reynolds_position(self) -> float:  # numpydoc ignore=RT01
-        """Where the largest Reynolds number is.
-
-        The position in m.
-        """
+        """Where the largest Reynolds number is, m."""
         return max(self.stages, key=lambda s: s.peak_reynolds).peak_reynolds_position
 
     @property
     def peak_knudsen(self) -> float:  # numpydoc ignore=RT01
-        """Largest Knudsen number of the fill.
-
-        The maximum over the stages.
-        """
+        """Largest Knudsen number of the fill."""
         return max(stage.peak_knudsen for stage in self.stages)
 
     def __repr__(self) -> str:

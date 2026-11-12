@@ -151,10 +151,7 @@ class KernelClient:
 
     @property
     def alive(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the kernel process is running.
-
-        True while it is.
-        """
+        """Whether the kernel process is running."""
         return self._process.is_alive()
 
     def request(

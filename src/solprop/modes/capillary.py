@@ -1987,10 +1987,7 @@ class WallOperator(Displayed):
 
     @property
     def n_modes(self) -> int:  # numpydoc ignore=RT01
-        """How many channels the block couples.
-
-        The length of the trace vector.
-        """
+        """How many channels the block couples."""
         return len(self.trace_vector)
 
     def __repr__(self) -> str:

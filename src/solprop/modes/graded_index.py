@@ -183,18 +183,12 @@ class PowerLawPermittivity:
 
     @property
     def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Centre material's frequency interval in rad/s.
-
-        Lower and upper angular frequency in rad/s.
-        """
+        """Centre material's frequency interval ``(lower, upper)``, rad/s."""
         return self.centre.omega_domain
 
     @property
     def material(self) -> PermittivityLaw:  # numpydoc ignore=RT01
-        """Material owning core responses.
-
-        Material law owning the core response declarations.
-        """
+        """Material owning core responses."""
         return self.centre
 
     @property
@@ -366,11 +360,7 @@ class GradedIndexProvider(Displayed):
 
     @property
     def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
-        """Declared core-radius path in m.
-
-        The core_radius path in m, named as every other
-        :class:`~solprop.modes.protocol.ParameterisedMode` names it.
-        """
+        """Declared core-radius path in m."""
         return {"core_radius": as_profile(self.radius)}
 
     def at_parameters(self, values: Mapping[str, float]) -> "GradedIndexProvider":
@@ -399,10 +389,7 @@ class GradedIndexProvider(Displayed):
 
     @property
     def regions(self) -> tuple[MaterialRegion, ...]:  # numpydoc ignore=RT01
-        """Radial-core ownership and the homogeneous exterior.
-
-        Ordered core and unbounded exterior ownership.
-        """
+        """Radial-core ownership and the homogeneous exterior."""
         # The radial law owns the core material values, not a fictitious bulk index.
         return (
             MaterialRegion(
@@ -417,28 +404,19 @@ class GradedIndexProvider(Displayed):
 
     @property
     def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Common material frequency interval in rad/s.
-
-        Lower and upper angular frequency in rad/s.
-        """
+        """Common material frequency interval ``(lower, upper)``, rad/s."""
         return max(
             self.permittivity.omega_domain[0], self.exterior.omega_domain[0]
         ), min(self.permittivity.omega_domain[1], self.exterior.omega_domain[1])
 
     @property
     def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Radius-path interval in m.
-
-        Lower and upper position in m.
-        """
+        """Radius-path interval ``(lower, upper)``, m."""
         return as_profile(self.radius).z_span
 
     @property
     def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
-        """Physical radius-path breakpoints in m.
-
-        Positions of physical path kinks in m.
-        """
+        """Physical radius-path breakpoints (path kinks), m."""
         return tuple(float(v) for v in as_profile(self.radius).breakpoints)
 
     @property

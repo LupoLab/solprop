@@ -826,10 +826,7 @@ class HDF5Output(PlaneStore):
 
     @property
     def path(self) -> Path:  # numpydoc ignore=RT01
-        """Where the file is written.
-
-        The path given to the constructor.
-        """
+        """Where the file is written."""
         return self._path
 
     def _state_text(self) -> str:

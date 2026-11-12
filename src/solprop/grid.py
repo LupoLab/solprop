@@ -431,50 +431,44 @@ class RadialGrid(Displayed):
 
     @property
     def outer_radius(self) -> float:  # numpydoc ignore=RT01
-        """Dirichlet boundary: the aperture with its collar's room.
+        """Dirichlet boundary: the aperture with its collar's room, m.
 
-        ``radius * (1 + collar_fraction)``, m.
+        ``radius * (1 + collar_fraction)``.
         """
         return self.radius * (1.0 + self.collar_fraction)
 
     @property
     def r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
-        """Positive interior radial samples.
+        """Positive interior radial samples, m.
 
-        Radii in m, shape ``(n_r,)``; zero and the outer boundary are excluded.
+        Shape ``(n_r,)``; zero and the outer boundary are excluded.
         """
         return self.hankel.r
 
     @property
     def k_r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
-        """Transverse spectral samples.
-
-        Positive angular frequencies in rad/m, shape ``(n_r,)``.
-        """
+        """Positive transverse spectral samples, rad/m, shape ``(n_r,)``."""
         return self.hankel.k_r
 
     @property
     def radial_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
-        """Quadrature weights of the transverse area integral.
+        """Quadrature weights of the transverse area integral, m^2.
 
-        Weights of ``2*pi*r*dr``, in m^2, shape ``(n_r,)``.
+        Weights of ``2*pi*r*dr``, shape ``(n_r,)``.
         """
         return self.hankel.radial_weights
 
     @property
     def spectral_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
-        """Quadrature weights of the transverse spectral integral.
+        """Quadrature weights of the transverse spectral integral, m^-2.
 
-        Weights of ``2*pi*k_r*dk_r``, in m^-2, shape ``(n_r,)``.
+        Weights of ``2*pi*k_r*dk_r``, shape ``(n_r,)``.
         """
         return self.hankel.spectral_weights
 
     @property
     def n_columns(self) -> int:  # numpydoc ignore=RT01
-        """Number of transverse spectral columns.
-
-        The radial sample count.
-        """
+        """Number of transverse spectral columns."""
         return self.n_r
 
     def validate(self) -> None:
@@ -1289,34 +1283,22 @@ class TimeGrid(Displayed):
 
     @property
     def n_t(self) -> int:  # numpydoc ignore=RT01
-        """Number of coarse time samples.
-
-        The length of ``t``.
-        """
+        """Number of coarse time samples."""
         return self.t.size
 
     @property
     def n_to(self) -> int:  # numpydoc ignore=RT01
-        """Number of fine time samples.
-
-        The length of ``t_fine``.
-        """
+        """Number of fine time samples."""
         return self.t_fine.size
 
     @property
     def n_omega(self) -> int:  # numpydoc ignore=RT01
-        """Number of coarse spectral bins.
-
-        The length of ``omega``.
-        """
+        """Number of coarse spectral bins."""
         return self.omega.size
 
     @property
     def n_omega_fine(self) -> int:  # numpydoc ignore=RT01
-        """Number of fine spectral bins.
-
-        The length of ``omega_fine``.
-        """
+        """Number of fine spectral bins."""
         return self.omega_fine.size
 
     # --- frequencies ---------------------------------------------------------------

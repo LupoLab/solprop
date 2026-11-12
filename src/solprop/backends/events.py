@@ -386,10 +386,7 @@ class EventBatch:
 
     @property
     def terminal(self) -> Terminal | None:  # numpydoc ignore=RT01
-        """The batch's terminal event, if it ended the session.
-
-        The last event when it is terminal; ``None`` otherwise.
-        """
+        """The batch's terminal event, or ``None`` if it did not end the session."""
         if self.events and isinstance(self.events[-1], Terminal):
             return self.events[-1]
         return None

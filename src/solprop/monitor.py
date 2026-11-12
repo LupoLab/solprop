@@ -912,8 +912,6 @@ class BoundaryMonitor:
         """Split collar's crossing limit the last reading gave, m.
 
         The steps until the next check are held to it; ``inf`` without one.
-
-        The cap, m.
         """
         return self._cap
 
@@ -1141,8 +1139,6 @@ class BoundaryMonitor:
         True only when the run opted in (:attr:`BoundaryCheck.quiet_collar`) and the
         collar held less than :data:`QUIET` of the field's energy, floor included, at
         the last :data:`QUIET_CHECKS` checks.
-
-        The flag.
         """
         return self._quiet
 

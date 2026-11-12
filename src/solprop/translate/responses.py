@@ -2047,9 +2047,9 @@ class CompiledResponses:
 
     @property
     def prefactor_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Range of z the prefactor covers.
+        """Range ``(first breakpoint, last breakpoint)`` the prefactor covers, m.
 
-        ``(first breakpoint, last breakpoint)`` in m, the same as ``Phi``'s.
+        The same as ``Phi``'s.
         """
         if self.separable is not None:
             return self.separable.z_span

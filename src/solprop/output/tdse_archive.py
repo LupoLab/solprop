@@ -814,18 +814,12 @@ class TDSEArchiveWriter:
 
     @property
     def path(self) -> Path:  # numpydoc ignore=RT01
-        """The archive's path.
-
-        As requested.
-        """
+        """The archive's path."""
         return self._archive.path
 
     @property
     def outputs(self) -> ArchiveOutputs:  # numpydoc ignore=RT01
-        """Output selection.
-
-        The request's selection.
-        """
+        """Output selection."""
         return self._archive.outputs
 
     @property
@@ -1636,10 +1630,7 @@ class TDSEArchiveReader:
 
     @property
     def run_uuid(self) -> str:  # numpydoc ignore=RT01
-        """The run's identity, shared with its optical file.
-
-        The UUID.
-        """
+        """The run's identity, shared with its optical file."""
         return str(_attr(self._file, "run_uuid"))
 
     def _sessions(self) -> list[h5py.Group]:
@@ -1705,10 +1696,7 @@ class TDSEArchiveReader:
 
     @property
     def truncated(self) -> bool:  # numpydoc ignore=RT01
-        """Whether any evaluation group is incomplete.
-
-        True when a crash or a failed write left a group incomplete.
-        """
+        """Whether any evaluation group is incomplete."""
         return any(not item.complete for item in self.evaluations())
 
     def _evaluation_group(self, evaluation: ArchivedEvaluation) -> h5py.Group:

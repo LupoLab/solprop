@@ -788,9 +788,9 @@ class DispersiveKerrResponse:
 
     @property
     def coefficient(self) -> float:  # numpydoc ignore=RT01
-        """``eps0 gamma3_0``, the static coefficient per unit density.
+        """``eps0 gamma3_0``, the static coefficient per unit density, C m^2/V^3.
 
-        In C m^2/V^3 (m^5/V^2 times eps0), multiplying the number density.
+        That is m^5/V^2 times eps0; it multiplies the number density.
         """
         return EPS0 * self.model.gamma3_static
 
@@ -1112,9 +1112,7 @@ class PlasmaResponse:
 
     @property
     def potential(self) -> float:  # numpydoc ignore=RT01
-        """Ionisation potential without inventing custom species data.
-
-        First ionisation potential in J.
+        """First ionisation potential, J, without inventing custom species data.
 
         Raises
         ------

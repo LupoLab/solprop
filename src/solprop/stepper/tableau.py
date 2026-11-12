@@ -257,10 +257,7 @@ class Tableau:  # numpydoc ignore=PR02
 
     @property
     def n_stages(self) -> int:  # numpydoc ignore=RT01
-        """Number of stages, counting the reused FSAL stage.
-
-        Number of stages.
-        """
+        """Number of stages, counting the reused FSAL stage."""
         return int(self.nodes.size)
 
     @property

@@ -424,10 +424,7 @@ class RectMode(_WallPairFill):
 
     @property
     def z_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether every geometry and material path is constant.
-
-        True if all declared paths are constant.
-        """
+        """Whether every geometry and material path is constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property

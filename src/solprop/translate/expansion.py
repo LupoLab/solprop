@@ -276,10 +276,7 @@ class ParameterExpansion:
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Range of z the weights cover.
-
-        ``(first breakpoint, last breakpoint)`` in m.
-        """
+        """Range ``(first breakpoint, last breakpoint)`` of z the weights cover, m."""
         return self.weights.z_span
 
     @property
@@ -293,9 +290,9 @@ class ParameterExpansion:
 
     @property
     def nbytes(self) -> int:  # numpydoc ignore=RT01
-        """Memory the expansion occupies.
+        """Memory the expansion occupies, bytes.
 
-        Bytes of the terms and of the scalar tables together.
+        The terms and the scalar tables together.
 
         Examples
         --------

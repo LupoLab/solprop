@@ -165,8 +165,6 @@ class BackendHistory:
     def n_steps(self) -> int:  # numpydoc ignore=RT01
         """Number of steps recorded, accepted and rejected together.
 
-        The length of ``z``.
-
         Examples
         --------
         >>> import numpy as np
@@ -180,8 +178,6 @@ class BackendHistory:
     @property
     def n_rejected(self) -> int:  # numpydoc ignore=RT01
         """Number of rejected steps.
-
-        How many entries of ``accepted`` are false.
 
         Examples
         --------
@@ -299,18 +295,12 @@ class StepStats:
 
     @property
     def n_rows(self) -> int:  # numpydoc ignore=RT01
-        """How many rows were taken since the previous observation.
-
-        The row count.
-        """
+        """How many rows were taken since the previous observation."""
         return int(self.z.size)
 
     @property
     def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
-        """The statistics the channel carries, sorted.
-
-        The catalogue names.
-        """
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -816,10 +806,7 @@ class Backend(Protocol):
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend has released its buffers, as a failure may.
-
-        ``True`` when it can run no other input.
-        """
+        """Whether the backend has released its buffers, as a failure may."""
         ...
 
 
@@ -1088,8 +1075,6 @@ class BatchBackend(HostStepping, Protocol):
         """What stopped each member's watch, ``None`` where nothing did.
 
         A stop, or a warning raised as an error under an ``"error"`` filter.
-
-        One entry per member, in member order.
         """
         ...
 
@@ -1097,10 +1082,7 @@ class BatchBackend(HostStepping, Protocol):
     def member_records(
         self,
     ) -> tuple[Mapping[str, object] | None, ...]:  # numpydoc ignore=RT01
-        """Each member's monitor record as it closed, ``None`` if unwatched.
-
-        One entry per member, in member order.
-        """
+        """Each member's monitor record as it closed, ``None`` if unwatched."""
         ...
 
     def finish_monitors(self) -> None:

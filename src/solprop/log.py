@@ -299,18 +299,12 @@ class PlaneSummary(Protocol):
 
     @property
     def n_steps(self) -> int:  # numpydoc ignore=RT01
-        """The steps taken to reach the plane, accepted and rejected together.
-
-        The attempted steps.
-        """
+        """The steps taken to reach the plane, accepted and rejected together."""
         ...
 
     @property
     def n_rejected(self) -> int:  # numpydoc ignore=RT01
-        """Rejected steps among them.
-
-        The rejected steps.
-        """
+        """Rejected steps among them."""
         ...
 
     @property
@@ -323,10 +317,7 @@ class PlaneSummary(Protocol):
 
     @property
     def wall_time(self) -> float:  # numpydoc ignore=RT01
-        """The seconds the plane took.
-
-        Wall time, s.
-        """
+        """Wall time the plane took, s."""
         ...
 
 
@@ -1359,7 +1350,7 @@ class BarReporter(LogReporter):
 
     @property
     def bar(self) -> Any:  # numpydoc ignore=RT01
-        """Tqdm instance while the bar is up, else ``None``.
+        """The ``tqdm`` bar while it is up, else ``None``.
 
         The bar, for a parent placing its own beside it.
         """

@@ -695,9 +695,9 @@ class OptmatGlass(GlassIndex):
 
     @property
     def largest_dropped_absorption(self) -> float:  # numpydoc ignore=RT01
-        """Largest absorption coefficient a transparent index has dropped.
+        """Largest absorption coefficient a transparent index has dropped, 1/m.
 
-        ``max 4 pi k / lambda`` over every band evaluated so far, in 1/m.
+        ``max 4 pi k / lambda`` over every band evaluated so far.
         """
         return self._dropped.absorption
 
@@ -764,10 +764,7 @@ class OptmatGlass(GlassIndex):
 
     @property
     def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
-        """Record of the optmat model, for a run's manifest.
-
-        The solid model's identity.
-        """
+        """Record of the optmat model, for a run's manifest."""
         return (_optmat.record(self.model),)
 
     def _check_range(self, omega: Float[np.ndarray, "*shape"]) -> None:

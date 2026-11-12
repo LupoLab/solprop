@@ -78,26 +78,17 @@ class Reduction(Protocol):
 
     @property
     def name(self) -> str:  # numpydoc ignore=RT01
-        """Unique result name.
-
-        Result of the declared operation.
-        """
+        """Unique result name."""
         ...
 
     @property
     def dtype(self) -> np.dtype:  # numpydoc ignore=RT01
-        """Exact result dtype.
-
-        Result of the declared operation.
-        """
+        """Exact result dtype."""
         ...
 
     @property
     def units(self) -> str:  # numpydoc ignore=RT01
-        """Physical units.
-
-        Result of the declared operation.
-        """
+        """Physical units."""
         ...
 
     def shape(self, metadata: RunMetadata) -> tuple[int, ...]:
@@ -660,18 +651,15 @@ class ScanOutput(Displayed):
 
     @property
     def shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
-        """Cartesian axis lengths.
-
-        Complete scan shape.
-        """
+        """Cartesian axis lengths."""
         with read_scan(self.path) as file:
             return tuple(int(i) for i in _dataset(file, "scan/shape")[...])
 
     @property
     def status(self) -> np.ndarray:  # numpydoc ignore=RT01
-        """Point statuses in global-index order.
+        """Point statuses in global-index order, shape ``(n_points,)``.
 
-        Strings todo, running, done or failed, shape (n_points,).
+        Each one ``"todo"``, ``"running"``, ``"done"`` or ``"failed"``.
         """
         with read_scan(self.path) as file:
             return np.asarray(_dataset(file, "points/status").asstr()[...])

@@ -259,18 +259,12 @@ class ExecutionOptions:
 
     @property
     def budget(self) -> int | None:  # numpydoc ignore=RT01
-        """Explicit node budget as an ``int``, or ``None``.
-
-        :attr:`node_budget`, which construction already made an ``int``.
-        """
+        """Explicit node budget as an ``int``, or ``None``."""
         return None if self.node_budget is None else operator.index(self.node_budget)
 
     @property
     def chunk(self) -> int | None:  # numpydoc ignore=RT01
-        """Exact node chunk as an ``int``, or ``None``.
-
-        :attr:`node_chunk`, which construction already made an ``int``.
-        """
+        """Exact node chunk as an ``int``, or ``None``."""
         return None if self.node_chunk is None else operator.index(self.node_chunk)
 
 
@@ -1248,16 +1242,10 @@ class SessionLedger:
 
     @property
     def pending(self) -> Receipt | None:  # numpydoc ignore=RT01
-        """Pending batch's receipt.
-
-        The receipt, or ``None`` when nothing is pending.
-        """
+        """Pending batch's receipt, or ``None``."""
         return self._pending
 
     @property
     def finished(self) -> bool:  # numpydoc ignore=RT01
-        """Whether a terminal batch was issued.
-
-        True once the session yielded its terminal event.
-        """
+        """Whether a terminal batch was issued."""
         return self.outcome is not None

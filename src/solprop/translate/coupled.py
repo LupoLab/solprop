@@ -301,10 +301,7 @@ class ModalMetricTables(Displayed):
 
     @property
     def n_omega(self) -> int:  # numpydoc ignore=RT01
-        """How many coarse frequencies the metric is tabulated on.
-
-        The length of ``omega``.
-        """
+        """How many coarse frequencies the metric is tabulated on."""
         return len(self.omega)
 
     def __repr__(self) -> str:
@@ -635,10 +632,7 @@ class CoupledFlowTables(Displayed):
 
     @property
     def n_modes(self) -> int:  # numpydoc ignore=RT01
-        """How many channels the flow couples.
-
-        The channel count of the stored representation.
-        """
+        """How many channels the flow couples."""
         terms = self.generator if self.generator is not None else self.fixed_terms
         assert terms is not None
         return int(terms.shape[-2])

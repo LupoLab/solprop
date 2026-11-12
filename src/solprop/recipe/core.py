@@ -401,10 +401,7 @@ class Recipe:
 
     @property
     def title(self) -> str | None:  # numpydoc ignore=RT01
-        """The recipe's title.
-
-        The ``[recipe]`` table's title, or ``None``.
-        """
+        """The ``[recipe]`` table's title, or ``None``."""
         title = self._document["recipe"].get("title")
         return None if title is None else str(title)
 

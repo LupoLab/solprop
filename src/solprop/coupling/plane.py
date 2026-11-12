@@ -370,10 +370,7 @@ class PlaneGeometry:
 
     @property
     def y_axis(self) -> tuple[float, float, float]:  # numpydoc ignore=RT01
-        """Local y axis, ``normal`` cross ``x_axis``.
-
-        The unit vector completing the right-handed frame.
-        """
+        """Local y axis, ``normal`` cross ``x_axis``."""
         value = np.cross(np.asarray(self.normal), np.asarray(self.x_axis))
         return (float(value[0]), float(value[1]), float(value[2]))
 
@@ -1120,9 +1117,9 @@ class FieldPlane:
 
     @property
     def omega(self) -> Float[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
-        """Absolute angular frequency of each stored bin.
+        """Absolute angular frequency of each stored bin, rad/s.
 
-        Angular frequencies in rad/s, shape ``(n_omega,)``, in storage order.
+        Shape ``(n_omega,)``, in storage order.
         """
         return self.grid.omega
 

@@ -797,10 +797,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     @property
     def chunk_plan(self) -> NodeChunkPlan:  # numpydoc ignore=RT01
-        """Node-chunk plan and what chose it.
-
-        The plan made at construction.
-        """
+        """Node-chunk plan and what chose it."""
         return self._chunk_plan
 
     def available_device_memory(self) -> int | None:
@@ -2519,10 +2516,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the backend has released its buffers, as a failure may.
-
-        ``True`` when it can run no other input.
-        """
+        """Whether the backend has released its buffers, as a failure may."""
         return self._closed
 
     def _check_open(self) -> None:

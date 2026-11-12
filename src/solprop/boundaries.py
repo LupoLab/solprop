@@ -365,9 +365,9 @@ class Absorber:
 
     @property
     def in_stage_length(self) -> float:  # numpydoc ignore=RT01
-        """Length that sets the in-stage collars' strength.
+        """Length that sets the in-stage collars' strength, m.
 
-        `collar_length`, or `reference_length` when it is ``None``, m.
+        `collar_length`, or `reference_length` when it is ``None``.
 
         Examples
         --------

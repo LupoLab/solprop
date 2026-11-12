@@ -1336,8 +1336,6 @@ class TransverseEdge:
 
         A backend that marches without the host, as the native Adams march does,
         holds its steps to it as :meth:`ceiling` does and hands the state back there.
-
-        The position, m.
         """
         return self._next
 

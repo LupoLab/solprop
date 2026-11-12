@@ -1693,10 +1693,7 @@ class SilicaTensorResponse(Displayed):
 
     @property
     def instantaneous_share(self) -> float:  # numpydoc ignore=RT01
-        """``1 - f_R``, the share the instantaneous Kerr term keeps.
-
-        A dimensionless share in ``[0, 1)``.
-        """
+        """``1 - f_R``, the share in ``[0, 1)`` the instantaneous Kerr term keeps."""
         return 1.0 - self.fraction
 
     @property
@@ -2190,10 +2187,7 @@ class SampledShape:
 
     @property
     def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
-        """Density-dependent dephasing, which for a glass is none.
-
-        A dephasing whose factor is one everywhere.
-        """
+        """Density-dependent dephasing, which for a glass is none."""
         return undamped_dephasing()
 
     def shape(self, t: Float[np.ndarray, " n_to"]) -> Float[np.ndarray, " n_to"]:

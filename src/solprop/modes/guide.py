@@ -369,10 +369,7 @@ class ChannelBasis(Displayed):
 
     @property
     def unitary_defect(self) -> float:  # numpydoc ignore=RT01
-        """``norm(U.H U - I, 2)``, how far the declaration is from unitary.
-
-        Non-negative, dimensionless.
-        """
+        """``norm(U.H U - I, 2)``, how far the declaration is from unitary."""
         matrix = self.transform
         product = matrix.conj().T @ matrix
         return float(np.linalg.norm(product - np.eye(len(matrix)), ord=2))
@@ -658,25 +655,19 @@ class StepIndexProvider(Displayed):
 
     @property
     def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
-        """Radius-path breakpoints in m.
-
-        Positions of physical path kinks in m.
-        """
+        """Radius-path breakpoints (physical path kinks), m."""
         return tuple(float(x) for x in self.modes[0].core_radius.breakpoints)
 
     @property
     def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Radius-path interval in m.
-
-        Lower and upper position in m.
-        """
+        """Radius-path interval ``(lower, upper)``, m."""
         return self.modes[0].core_radius.z_span
 
     @property
     def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Material frequency support; solve checks each mode cutoff.
+        """Material frequency support ``(lower, upper)``, rad/s.
 
-        Lower and upper angular frequency in rad/s.
+        :meth:`solve` checks each mode's cutoff.
         """
         return max(r.material.omega_domain[0] for r in self.regions), min(
             r.material.omega_domain[1] for r in self.regions
@@ -994,20 +985,17 @@ class ModalPath(Displayed):
 
     @property
     def n_intervals(self) -> int:  # numpydoc ignore=RT01
-        """How many sections the path is cut into.
-
-        The section count.
-        """
+        """How many sections the path is cut into."""
         return int(self.z_edges.size - 1)
 
     @property
     def positions(
         self,
     ) -> Float[np.ndarray, "n_intervals_path n_deg_path"]:  # numpydoc ignore=RT01
-        """Every sampled position, section by section.
+        """Every sampled position, section by section, m.
 
-        Positions in m, shape ``(n_intervals, degree + 1)``, increasing inside a
-        section, so a position on an interior edge appears twice.
+        Shape ``(n_intervals, degree + 1)``, increasing inside a section, so a position
+        on an interior edge appears twice.
         """
         # Imported here: solprop.translate imports solprop.modes. The positions are
         # the translation layer's own Chebyshev-Lobatto points, bit for bit, because
@@ -1347,14 +1335,14 @@ class ProviderChannelMode(Displayed):
 
     @property
     def area_path(self) -> ZProfile | None:  # numpydoc ignore=RT01
-        """Surrogate area along a moving guide's path, or ``None``.
+        """Surrogate area along a moving guide's path, m².
 
         Declared under the cross-section name a moving mode declares its area by
         (:data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES`), so that the tables of
         a run split on the path's section edges, where the interpolant's slope may
         jump.
 
-        The area in m² along z, or ``None`` for a snapshot.
+        ``None`` for a snapshot.
         """
         path = self.path
         if path is None:
@@ -1386,10 +1374,7 @@ class ProviderChannelMode(Displayed):
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
-        """The label's azimuthal order, or zero where it has none.
-
-        Azimuthal order, dimensionless.
-        """
+        """The label's azimuthal order, or zero where it has none."""
         return self.label.azimuthal_order or 0
 
     @property
@@ -1814,10 +1799,7 @@ class ModalSampling(Displayed):
 
     @property
     def omega_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Band the guide was solved over.
-
-        Lowest and highest knot in rad/s.
-        """
+        """Band the guide was solved over: lowest and highest knot, rad/s."""
         return float(self.omega[0]), float(self.omega[-1])
 
     @property
@@ -2464,26 +2446,17 @@ class ModalGuide(Displayed):
 
     @property
     def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Provider frequency interval in rad/s.
-
-        Lower and upper angular frequency in rad/s.
-        """
+        """Provider frequency interval ``(lower, upper)``, rad/s."""
         return self.field_provider.omega_domain
 
     @property
     def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Provider longitudinal interval in m.
-
-        Lower and upper position in m.
-        """
+        """Provider longitudinal interval ``(lower, upper)``, m."""
         return self.field_provider.z_domain
 
     @property
     def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
-        """Provider physical breakpoints in m.
-
-        Positions of physical path kinks in m.
-        """
+        """Provider physical breakpoints (path kinks), m."""
         return self.field_provider.z_breakpoints
 
     @property

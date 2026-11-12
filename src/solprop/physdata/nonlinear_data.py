@@ -467,10 +467,7 @@ class OptmatKerr:
 
     @property
     def key(self) -> Gas:  # numpydoc ignore=RT01
-        """The species as a registry member.
-
-        The gas.
-        """
+        """The species as a registry member."""
         return as_gas(self.gas)
 
     @functools.cached_property
@@ -501,10 +498,7 @@ class OptmatKerr:
 
     @property
     def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
-        """Record of the hyperpolarizability model.
-
-        One record.
-        """
+        """Record of the hyperpolarizability model."""
         return (_optmat.record(self.model),)
 
     def gamma3(self, wavelength: float) -> float:

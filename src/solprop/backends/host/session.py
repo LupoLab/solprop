@@ -190,26 +190,17 @@ class HostSession:
 
     @property
     def driver(self) -> HostStepping:  # numpydoc ignore=RT01
-        """Reference backend, whose facts the service loop records.
-
-        The backend, through the host stepping seam.
-        """
+        """Reference backend, whose facts the service loop records."""
         return self._driver
 
     @property
     def finished(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the session yielded its terminal event.
-
-        True once finished.
-        """
+        """Whether the session yielded its terminal event."""
         return self._ledger.finished
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the session was closed.
-
-        True once closed.
-        """
+        """Whether the session was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def status(self) -> SessionStatus:
@@ -773,10 +764,7 @@ class HostPrepared:
 
     @property
     def backend(self) -> str:  # numpydoc ignore=RT01
-        """Registered name of the backend that prepared it.
-
-        The backend's registered name.
-        """
+        """Registered name of the backend that prepared it."""
         return self._driver.name
 
     def start(

@@ -1756,7 +1756,7 @@ class PrismPair(Displayed):
 
     @property
     def apex_distance(self) -> float:  # numpydoc ignore=RT01
-        """Physical tip-to-tip distance in metres.
+        """Physical tip-to-tip distance, m.
 
         ``norm(R*u0 + (0, -H))``, which changes when either stage moves.
         """

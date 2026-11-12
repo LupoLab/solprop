@@ -993,10 +993,7 @@ class Mixture(Displayed):
 
     @property
     def labels(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
-        """The labels in mixture order.
-
-        Unique population labels.
-        """
+        """The unique population labels, in mixture order."""
         return tuple(c.label for c in self.components)
 
     def __getitem__(self, label: str) -> Component:

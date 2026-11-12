@@ -188,10 +188,7 @@ class OptmatGas:
 
     @property
     def key(self) -> Gas:  # numpydoc ignore=RT01
-        """The species as a registry member.
-
-        The gas.
-        """
+        """The species as a registry member."""
         return as_gas(self.gas)
 
     @functools.cached_property
@@ -351,10 +348,9 @@ class OptmatGas:
 
     @property
     def temperature_range(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """The temperatures over which every transport property is defined.
+        """The temperatures over which every transport property is defined, K.
 
-        The lowest and highest temperature in K, over every constituent's
-        viscosity and heat capacity.
+        The lowest and highest, over every constituent's viscosity and heat capacity.
         """
         lows, highs = [], []
         for model, _ in self._transport:
@@ -383,15 +379,13 @@ class OptmatGas:
 
     @property
     def molar_mass(self) -> float:  # numpydoc ignore=RT01
-        """Molar mass of the fluid whose equation of state gives the density.
+        """Molar mass of the fluid whose equation of state gives the density, kg mol^-1.
 
         optmat's equation of state's own (``EquationOfState.molar_mass``), so that a
         mass density formed from :meth:`density` is the equation's: for a pure gas
         it equals the transport model's, and for ``Gas.Air`` it is CoolProp's
         pseudo-pure dry air's, 0.02896546 kg/mol, not the mean of the N2/O2/Ar
         constituents (0.0289597), which enters only Wilke's viscosity rule.
-
-        Molar mass in kg mol^-1.
         """
         return float(self._equation.molar_mass)
 
@@ -612,10 +606,7 @@ class TabulatedSusceptibility:
 
     @property
     def source(self) -> str:  # numpydoc ignore=RT01
-        """Source name used in material diagnostics.
-
-        The explicit tabulated-data source name.
-        """
+        """Source name used in material diagnostics."""
         return "tabulated"
 
     def susceptibility(self, omega: ArrayLike | float) -> Complex[np.ndarray, "*shape"]:

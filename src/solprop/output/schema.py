@@ -1726,10 +1726,7 @@ class StepHistory(Displayed):
 
     @property
     def n_rejected(self) -> int:  # numpydoc ignore=RT01
-        """Number of rejected attempts.
-
-        How many attempts the controller threw away.
-        """
+        """Number of rejected attempts."""
         return int(np.count_nonzero(~self.accepted))
 
 
@@ -1832,18 +1829,12 @@ class StepStats(Displayed):
 
     @property
     def n_rows(self) -> int:  # numpydoc ignore=RT01
-        """How many rows belong to this plane.
-
-        The row count.
-        """
+        """How many rows belong to this plane."""
         return int(self.z.size)
 
     @property
     def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
-        """The statistics the channel carries, sorted.
-
-        The catalogue names.
-        """
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -3757,18 +3748,12 @@ class Output(Protocol):
 
     @property
     def n_saved(self) -> int:  # numpydoc ignore=RT01
-        """How many planes have been stored.
-
-        The number of planes.
-        """
+        """How many planes have been stored."""
         ...
 
     @property
     def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
-        """Record of the run, or ``None`` before it is opened.
-
-        What produced the stored data.
-        """
+        """Record of the run, or ``None`` before it is opened."""
         ...
 
     @property
@@ -3857,18 +3842,12 @@ class CheckpointOutput(Protocol):
 
     @property
     def outcome(self) -> RunOutcome | None:  # numpydoc ignore=RT01
-        """Recorded status, or None when no outcome was recorded.
-
-        Last persisted execution outcome.
-        """
+        """Recorded status, or None when no outcome was recorded."""
         ...
 
     @property
     def terminal_checkpoint(self) -> TerminalCheckpoint | None:  # numpydoc ignore=RT01
-        """Latest accepted terminal field outside regular observations.
-
-        The checkpoint, if one has been recorded.
-        """
+        """Latest accepted terminal field outside regular observations."""
         ...
 
 
@@ -3974,18 +3953,12 @@ class RecipeRecord:
 
     @property
     def authored_sha256(self) -> str:  # numpydoc ignore=RT01
-        """SHA-256 of the authored text.
-
-        The digest, in hexadecimal.
-        """
+        """SHA-256 of the authored text, in hexadecimal."""
         return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
 
     @property
     def resolved_sha256(self) -> str:  # numpydoc ignore=RT01
-        """SHA-256 of the resolved text.
-
-        The digest, in hexadecimal.
-        """
+        """SHA-256 of the resolved text, in hexadecimal."""
         return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
 
 
@@ -4171,10 +4144,7 @@ class PlaneStore(Displayed, ABC):
 
     @property
     def recipe(self) -> RecipeRecord | None:  # numpydoc ignore=RT01
-        """The recipe the run was built from, or ``None`` for a run from a script.
-
-        The record.
-        """
+        """The recipe the run was built from, or ``None`` for a run from a script."""
         return self._recipe
 
     def record_outcome(
@@ -4338,26 +4308,17 @@ class PlaneStore(Displayed, ABC):
 
     @property
     def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
-        """Record of the run, or ``None`` before it is opened.
-
-        What produced the stored data.
-        """
+        """Record of the run, or ``None`` before it is opened."""
         return self._metadata
 
     @property
     def n_saved(self) -> int:  # numpydoc ignore=RT01
-        """How many planes have been stored.
-
-        The number of planes.
-        """
+        """How many planes have been stored."""
         return self._n_saved
 
     @property
     def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the handler has been closed.
-
-        True once :meth:`close` has run.
-        """
+        """Whether the handler has been closed."""
         return self._closed
 
     @property

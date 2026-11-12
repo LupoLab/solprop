@@ -240,9 +240,9 @@ class RateTable:
 
     @property
     def field(self) -> Float[np.ndarray, " n_table"]:  # numpydoc ignore=RT01
-        """Knot positions as field amplitudes.
+        """Knot positions as field amplitudes, V/m.
 
-        Geometrically spaced field amplitudes in V/m, shape ``(n_table,)``.
+        Geometrically spaced, shape ``(n_table,)``.
         """
         return np.exp(self.log_field)
 

@@ -205,10 +205,7 @@ class IndexMaterial:
 
     @property
     def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Validity interval in rad/s.
-
-        Lower and upper angular frequency in rad/s.
-        """
+        """Validity interval ``(lower, upper)``, rad/s."""
         if isinstance(self.index, GlassIndex):
             low, high = self.index.wavelength_range
             return 2 * np.pi * C / high, 2 * np.pi * C / low
@@ -669,10 +666,7 @@ class MaterialRegion(Displayed):
 
     @property
     def raman(self) -> SilicaTensorResponse | None:  # numpydoc ignore=RT01
-        """The region's declared delayed response, or ``None``.
-
-        The one declared delayed response, or ``None``.
-        """
+        """The region's declared delayed response, or ``None``."""
         declared = [
             one for one in self.responses if isinstance(one, SilicaTensorResponse)
         ]
@@ -680,19 +674,13 @@ class MaterialRegion(Displayed):
 
     @property
     def kerr(self) -> MaterialKerr | None:  # numpydoc ignore=RT01
-        """The region's declared Kerr response, or ``None`` if it is linear.
-
-        The one declared instantaneous response, or ``None``.
-        """
+        """The region's declared Kerr response, or ``None`` if it is linear."""
         declared = [one for one in self.responses if isinstance(one, MaterialKerr)]
         return declared[0] if declared else None
 
     @property
     def gas(self) -> GasKerr | None:  # numpydoc ignore=RT01
-        """The region's gas fill response, or ``None``.
-
-        The one declared gas fill, or ``None``.
-        """
+        """The region's gas fill response, or ``None``."""
         declared = [one for one in self.responses if isinstance(one, GasKerr)]
         return declared[0] if declared else None
 

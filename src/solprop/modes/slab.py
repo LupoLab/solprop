@@ -311,10 +311,7 @@ class SlabMode(_WallPairFill):
 
     @property
     def z_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the gap and every material path are constant.
-
-        True if all declared paths are constant.
-        """
+        """Whether the gap and every material path are constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
@@ -1028,10 +1025,7 @@ class PlanarGrid(Displayed):
 
     @property
     def n_p(self) -> int:  # numpydoc ignore=RT01
-        """Number of slab channels.
-
-        ``len(modes)``.
-        """
+        """Number of slab channels."""
         return len(self.modes)
 
     @property
@@ -1052,18 +1046,12 @@ class PlanarGrid(Displayed):
 
     @property
     def dy(self) -> float:  # numpydoc ignore=RT01
-        """Y spacing.
-
-        In m.
-        """
+        """Y spacing, m."""
         return float(self.y[1] - self.y[0])
 
     @property
     def half_gap(self) -> float:  # numpydoc ignore=RT01
-        """Plates' half separation.
-
-        ``a`` in m.
-        """
+        """Plates' half separation ``a``, m."""
         return float(self.modes[0].dimlimits(0.0)[2][0])
 
     @property
@@ -1087,9 +1075,9 @@ class PlanarGrid(Displayed):
 
     @property
     def kperp_sq(self) -> Float[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
-        """Each column's ``k_y**2``.
+        """Each column's ``k_y**2``, m^-2.
 
-        In m^-2, shape ``(n_columns,)``, the mode index fastest.
+        Shape ``(n_columns,)``, the mode index fastest.
         """
         return np.repeat(self.k_y**2, self.n_p)
 

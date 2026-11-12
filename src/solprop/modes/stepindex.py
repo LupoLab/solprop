@@ -1145,25 +1145,19 @@ class StepIndexMode(Displayed):
 
     @property
     def z_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the radius path is constant.
-
-        True if the radius path is constant.
-        """
+        """Whether the radius path is constant."""
         return self.core_radius.is_constant
 
     @property
     def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the transverse geometry is constant along z.
-
-        True if the geometry is fixed along z.
-        """
+        """Whether the transverse geometry is constant along z."""
         return self.core_radius.is_constant
 
     @property
     def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
-        """False because changing the radius changes the normalised frequency.
+        """Whether the profile scales exactly with the core radius.
 
-        False, since V changes with core radius.
+        Always ``False``: changing the radius changes the normalised frequency V.
         """
         return False
 
@@ -1194,10 +1188,7 @@ class StepIndexMode(Displayed):
 
     @property
     def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
-        """Azimuthal mode index n.
-
-        The mode index n, dimensionless.
-        """
+        """Azimuthal mode index n."""
         return self.n
 
     def principal_component(self, z: float = 0.0) -> None:
@@ -1217,20 +1208,14 @@ class StepIndexMode(Displayed):
 
     @property
     def orthogonal_polarisation(self) -> "StepIndexMode | None":  # numpydoc ignore=RT01
-        """Other hybrid parity, or None for TE and TM.
-
-        Opposite hybrid parity; None for TE and TM.
-        """
+        """Other hybrid parity, or None for TE and TM."""
         if self.n == 0:
             return None
         return replace(self, parity="odd" if self.parity == "even" else "even")
 
     @property
     def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
-        """The core-radius path carrying the entire z dependence.
-
-        The core_radius path in m.
-        """
+        """The core-radius path, m, carrying the entire z dependence."""
         return MappingProxyType({"core_radius": self.core_radius})
 
     def at_parameters(self, values: Mapping[str, float]) -> "StepIndexMode":

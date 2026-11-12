@@ -2665,10 +2665,10 @@ class ApertureTables:
     def inverse_widths(
         self,
     ) -> Float[np.ndarray, " n_apertures"]:  # numpydoc ignore=RT01
-        """Reciprocal edge widths a compiled pass multiplies by.
+        """Reciprocal edge widths a compiled pass multiplies by, 1/m.
 
-        ``1/w`` in 1/m on ``tanh`` and ``rcos`` rows, zeros otherwise, shape
-        ``(n_apertures,)``: the factor :func:`edge_profile` forms itself.
+        On ``tanh`` and ``rcos`` rows, zeros otherwise, shape ``(n_apertures,)``: the
+        factor :func:`edge_profile` forms itself.
         """
         assert self.profiles is not None  # filled in at construction
         smooth = np.array(

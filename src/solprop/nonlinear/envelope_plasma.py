@@ -583,9 +583,7 @@ class EnvelopePlasmaResponse:
 
     @property
     def potential(self) -> float:  # numpydoc ignore=RT01
-        """Species' first ionisation potential.
-
-        Binding energy in J.
+        """Species' first ionisation potential (binding energy), J.
 
         Raises
         ------
@@ -600,7 +598,7 @@ class EnvelopePlasmaResponse:
 
     @property
     def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
-        """Declare temporal memory, envelope support and isotropic vector behaviour.
+        """Traits: temporal memory, envelope support and isotropic vector behaviour.
 
         Density and pre-ionisation profiles, optionally labelled per component.
         The compiled response also carries a distinct spectral assembly.

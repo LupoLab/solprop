@@ -172,9 +172,9 @@ class AtomicWindowRecord:
 
     @property
     def atomic_duration(self) -> float:  # numpydoc ignore=RT01
-        """Realised atomic duration ``t_e - t_s``.
+        """Realised atomic duration ``t_e - t_s``, s.
 
-        Duration in s, compared with a preset's tested window.
+        Compared with a preset's tested window.
         """
         return self.t_e - self.t_s
 

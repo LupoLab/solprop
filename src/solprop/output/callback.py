@@ -200,18 +200,12 @@ class CallbackOutput:
 
     @property
     def n_saved(self) -> int:  # numpydoc ignore=RT01
-        """How many planes the callable has taken.
-
-        The number of planes.
-        """
+        """How many planes the callable has taken."""
         return self._n_saved
 
     @property
     def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
-        """Record of the run, or ``None`` before it is opened.
-
-        What produced the planes.
-        """
+        """Record of the run, or ``None`` before it is opened."""
         return self._metadata
 
     @property
@@ -224,10 +218,7 @@ class CallbackOutput:
 
     @property
     def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
-        """The statistics stored between planes: none.
-
-        Empty.
-        """
+        """The statistics stored between planes: none."""
         return ()
 
     def __getitem__(self, key: str) -> np.ndarray:

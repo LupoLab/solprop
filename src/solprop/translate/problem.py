@@ -731,9 +731,7 @@ class StepperSettings:
 
     @property
     def z_end(self) -> float:  # numpydoc ignore=RT01
-        """Last save plane, where the run stops.
-
-        The largest save plane, m.
+        """Last save plane, where the run stops, m.
 
         Examples
         --------

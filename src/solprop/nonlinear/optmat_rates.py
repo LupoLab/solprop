@@ -418,7 +418,7 @@ class OptmatRate:
 
     @property
     def optmat_model(self) -> _optmat.Untyped:  # numpydoc ignore=RT01
-        """Optmat rate model the adapter evaluates.
+        """The optmat rate model the adapter evaluates.
 
         The model, for direct comparison with its own methods. Typed loosely, as
         the bridge types every optmat object (``solprop.physdata._optmat``).
@@ -593,10 +593,9 @@ class OptmatRate:
 
     @property
     def threshold(self) -> float:  # numpydoc ignore=RT01
-        """Field amplitude below which the rate is exactly zero.
+        """Field amplitude below which the rate is exactly zero, V/m.
 
-        Field in V/m at which optmat's rate reaches `negligible_rate`, to a
-        relative 1e-12 from above.
+        Where optmat's rate reaches `negligible_rate`, to a relative 1e-12 from above.
         """
         return self._threshold
 
@@ -661,18 +660,18 @@ class OptmatRate:
 
     @property
     def ionisation_potential(self) -> float:  # numpydoc ignore=RT01
-        """Constant energy per ionisation event the plasma loss pays.
+        """Constant energy per ionisation event the plasma loss pays, J.
 
-        The rate-weighted energy at the reference field, in J, or the
-        weak-field limit without one.
+        The rate-weighted energy at the reference field, or the weak-field limit without
+        one.
         """
         return self._energy
 
     @property
     def plasma_energy(self) -> float:  # numpydoc ignore=RT01
-        """Energy per event a plasma response pays, the same constant.
+        """Energy per event a plasma response pays, J: the same constant.
 
-        :attr:`ionisation_potential`, J; declaring it is what makes a response
+        Equal to :attr:`ionisation_potential`; declaring it is what makes a response
         take it (:func:`solprop.nonlinear.ionisation.bind_rate_energy`).
         """
         return self._energy
@@ -688,17 +687,14 @@ class OptmatRate:
 
     @property
     def energy_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """The fields the bound is taken over.
-
-        Lowest and highest field in V/m.
-        """
+        """The fields the bound is taken over: the lowest and highest, V/m."""
         return self._span
 
     @property
     def effective_reference_field(self) -> float | None:  # numpydoc ignore=RT01
-        """Field the constant energy is taken at, after clipping.
+        """Field the constant energy is taken at, after clipping, V/m.
 
-        Field in V/m, or ``None`` for the weak-field limit.
+        ``None`` for the weak-field limit.
         """
         return self._reference
 
@@ -721,10 +717,7 @@ class OptmatRate:
 
     @property
     def maximum_field(self) -> float:  # numpydoc ignore=RT01
-        """Largest field at which optmat gives the rate without a warning.
-
-        Field in V/m.
-        """
+        """Largest field at which optmat gives the rate without a warning, V/m."""
         return float(self._model().maximum_field)
 
     @property
@@ -737,10 +730,7 @@ class OptmatRate:
 
     @property
     def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
-        """Record of the optmat model.
-
-        One record.
-        """
+        """Record of the optmat model."""
         return (cast("MaterialRecord", self._record),)
 
     def keldysh(self, field_amplitude: float) -> float:

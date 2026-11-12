@@ -1885,10 +1885,7 @@ class HostHistory:
 
     @property
     def n_slots(self) -> int:  # numpydoc ignore=RT01
-        """The history store's rows: the method's order and two more.
-
-        ``order + 2``.
-        """
+        """The history store's rows: the method's order and two more."""
         return self._method.order + 2
 
     # --- the accepted state, held across a dense observation --------------------------

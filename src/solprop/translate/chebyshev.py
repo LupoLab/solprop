@@ -305,18 +305,12 @@ class PiecewiseChebyshev:
 
     @property
     def value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
-        """Shape of one value.
-
-        Shape of one value; ``()`` for a scalar-valued function.
-        """
+        """Shape of one value; ``()`` for a scalar-valued function."""
         return self.coefficients.shape[2:]
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """The ends of the represented span.
-
-        First and last breakpoint, m.
-        """
+        """The ends of the represented span: first and last breakpoint, m."""
         return float(self.breakpoints[0]), float(self.breakpoints[-1])
 
     def __call__(

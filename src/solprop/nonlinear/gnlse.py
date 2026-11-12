@@ -191,10 +191,7 @@ class ConstantDispersion:
 
     @property
     def is_constant(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the path varies along z.
-
-        Always ``True``.
-        """
+        """Whether the path is constant along z: always ``True``."""
         return True
 
     def __call__(
@@ -324,18 +321,15 @@ class InterpolatedDispersion:
     def breakpoints(
         self,
     ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
-        """Declared positions, every one of which is a kink.
+        """Declared positions, every one of which is a kink, m.
 
-        The positions in m, shape ``(n_positions,)``.
+        Shape ``(n_positions,)``.
         """
         return np.asarray(self.positions, dtype=float)
 
     @property
     def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
-        """Interval the declared sets cover.
-
-        ``(first position, last position)`` in m.
-        """
+        """Interval ``(first position, last position)`` the declared sets cover, m."""
         nodes = np.asarray(self.positions, dtype=float)
         return float(nodes[0]), float(nodes[-1])
 
@@ -1181,7 +1175,7 @@ class SpecifiedMode:
 
     @property
     def area_path(self) -> ZProfile:  # numpydoc ignore=RT01
-        """Declared effective-area path in m^2.
+        """Declared effective-area path in m^2, m^2.
 
         The path, a :class:`~solprop.profiles.Constant` when the area is a
         number. It is the path the transform's kink walk and
@@ -1240,7 +1234,7 @@ class SpecifiedMode:
 
     @property
     def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
-        """Name this channel: a dispersion, not an eigenmode of a guide.
+        """Channel label: a dispersion, not an eigenmode of a guide.
 
         Family ``specified``, with no azimuthal or radial order, no parity and
         no handedness: a mode given by ``beta(omega)`` has no quantum numbers.
