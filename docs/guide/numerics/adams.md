@@ -292,7 +292,7 @@ a multiple of the identity in the channel axis, so a step's reference is
 $B = (\Delta\Phi/h)\,I + G_s$, with $G_s$ the frozen block of the section the step is
 anchored in, and the two commute. On the bins that carry a block the step's flow and
 moments are matrix functions of $hB$ in the channel axis
-(`backends.multistep.coupled_moments`, from the exponential of an augmented matrix
+(`backends.numpy_ref.multistep.coupled_moments`, from the exponential of an augmented matrix
 carried back by the block's Schur vectors), applied to each sample's channel vector; off
 them they are the diagonal ones. A frozen-residual section's residual $R_s(z)u$ is
 linear in the state and joins the transported compensation above: each sample keeps its

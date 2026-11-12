@@ -18,8 +18,8 @@ contract and its conventions; where both apply, follow the stricter rule.
   requires this package at that same version: it is a required dependency, with no
   extra.
 - The public names are those in `solprop_native.__all__` (the backend, the build record
-  and its checks, and the contract tuples `*_FIELDS`). The compiled `_core` module and
-  the C++ API are private.
+  and its checks, and `available_device_memory`). The compiled `_core` module and the
+  C++ API are private.
 - solprop has two backends, this one and its NumPy reference, and computes in IEEE
   binary64 only (solprop's ADR-077): every field, stage and statistic here is double
   precision, with no single or mixed mode. This backend runs every feature except the
@@ -31,11 +31,13 @@ contract and its conventions; where both apply, follow the stricter rule.
   the Runge-Kutta march's controller and the boundary monitor's checks (SEP 45) -- with
   every parameter handed over by solprop and solprop's implementation as the reference,
   and it never chooses or defaults a parameter itself.
-- solprop imports this package only lazily, through its backend registry. The wheel
-  does not depend on solprop at run time; the contract is solprop's kernel contract and
-  the members named by the tuples above, which `check_build()` looks up. In an editable
-  checkout it also compares the extension with the sources by digest, so mismatched
-  halves (a stale extension beside newer sources) are refused, naming `uv sync`.
+- solprop imports this package only lazily, through its backend registry; this package
+  imports solprop (its thread-budget reader at import, `solprop._process`, and the
+  adapter's translation types). The contract is solprop's kernel contract, whose fields
+  the frozen tables of solprop's `tests/backends/test_driver.py` hold. In an editable
+  checkout `check_build()` compares the extension with the sources by digest, so
+  mismatched halves (a stale extension beside newer sources) are refused, naming
+  `uv sync`.
 - Kokkos runtime ownership is process-wide and locked. Initialise at most once, destroy
   plans and views before an owned finalisation, and never call Python during native
   teardown.
@@ -63,9 +65,13 @@ by name.
 The backend executes the problems solprop hands it through the seam and refuses every
 other problem by name, before allocating anything. When solprop adds a problem class,
 the backend either executes it with tests against solprop's reference backend or
-refuses it explicitly. Admission of the general modal route and the coupled flow is
-solprop's shared list (`solprop.backends.numpy_ref.admission`), run under the name
-`native`. Never claim accelerator support from a successful configuration or host
+refuses it explicitly. What the general modal route and the coupled flow execute is
+checked once, in solprop's problem validation (`solprop.translate.admission`), which
+the adapter runs where it is built; the route's derivations (`solprop.translate.general`),
+its node chunk (`solprop.backends.node_chunk`), the coupled flow's Schur factors
+(`solprop.translate.coupled.coupled_flow_factors`) and the Adams call ledger
+(`solprop.backends.ledger`) are solprop's, shared with the reference. The adapter imports
+nothing from `solprop.backends.numpy_ref`. Never claim accelerator support from a successful configuration or host
 compilation alone; a device path is supported once its tests pass on that device.
 
 ## The gate
@@ -161,15 +167,14 @@ the gate.
 
 ## Python and nanobind seam
 
-- The contract with solprop is its kernel contract plus the descriptor and bundle
-  fields listed in the contract tuples. The backend inherits no solprop driver: a run is
-  its native session (`session.py`), and the load, the Adams record and the timing probe
-  are its own (`_load.py`, `backend.py`, `_probe.py`). `check_build()` refuses a missing member
-  by name and, in an editable checkout, an extension built from other sources than
-  `native/` (`build_info().source_digest`; `cmake/SourceDigest.cmake` and
-  `_source_digest` compute it, and stay in step). It records solprop's version without
-  comparing it. Add a name to the tuples whenever the adapter starts reading another
-  member; never pin solprop's version.
+- The contract with solprop is its kernel contract, whose fields solprop's frozen
+  tables hold. The backend inherits no solprop driver: a run is its native session
+  (`session.py`), and the load, the Adams record and the timing probe are its own
+  (`_load.py`, `backend.py`, `_probe.py`). `check_build()` refuses, in an editable
+  checkout, an extension built from other sources than `native/`
+  (`build_info().source_digest`; `cmake/SourceDigest.cmake` and `_source_digest`
+  compute it, and stay in step). It records solprop's version without comparing it;
+  never pin solprop's version.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse
   hidden O(n) conversions. Read-only input is valid. Returned host arrays own their
   memory.

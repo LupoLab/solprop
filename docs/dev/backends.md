@@ -213,7 +213,7 @@ checks; `native` takes its own
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
 filled them. A record may add a third operation, an exponential Adams trial's
 coefficient tables in one call (`Helpers.tables`, the composition of
-`backends.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
+`backends.numpy_ref.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
 the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
 table of a trial in one call rather than a dozen; `PLAIN` composes them. Translation runs
 before any backend exists and needs nothing compiled:
@@ -405,7 +405,11 @@ unitary change of basis, the tables' own execution maps (at one interval of degr
 for a constant guide; any sections and degree for a moving one, below), `n_pol = 1`, the
 constant unit `power_weight` and each region's declared responses — the instantaneous
 cubic in either form, and a delayed silica tensor Raman term beside it — over the
-reference's three components — and refuses every other by name, before it allocates. The
+reference's three components. Every other combination is refused by name once, in the
+problem's own validation (`translate/admission.py`, `check_general_route`), which both
+backends run before they allocate; the per-node tensor, the form and the delayed maps are
+`translate/general.py`'s (`node_kerr_tensor`, `node_kerr_form`, `node_delayed_maps`) and
+the node chunk `backends/node_chunk.py`'s (`general_planned_chunk`), shared with `native`. The
 real cubic is evaluated by its **symmetric contraction**, `symmetric_cubic`: the tensor
 summed once per node and evaluation over the orderings of each monomial
 `(E_j E_k) E_l`, `j <= k <= l`, and ten monomials a sample in place of the dense 81
@@ -422,8 +426,9 @@ radial families of one azimuthal order), the declared unitary basis of a *split*
 the general modal route, and the connection of a moving solid guide. All take the same path
 through this backend. Each section's method is one of two:
 
-- **`"constant_schur"`.** The backend decomposes the leaf's frozen generator once per
-  section, in its own constructor, and applies a Schur matrix-function action over the
+- **`"constant_schur"`.** The leaf's frozen generator is decomposed once per section,
+  in the backend's constructor, by the factors both backends read
+  (`translate/coupled.py`, `coupled_flow_factors`), and the backend applies a Schur matrix-function action over the
   channel axis inside `_trial_step`, taking the inverse the interaction picture needs as
   the matrix function of the negated exponent rather than as a solve and measuring
   `norm(U) norm(U^-1)` of the whole step against the leaf's declared bound. The Schur
@@ -968,10 +973,9 @@ the low-storage march holds flows (§8).
 ### 3.8 The general modal route
 
 `native` executes the general modal route — `transform.modal_tables`, `linear.modal_metric`
-and `responses.regional_responses` — in the combinations `numpy_ref` admits, and refuses the
-rest with the reference's own words: its admission runs the shared list
-`solprop.backends.numpy_ref.admission.refuse_general_route` under its own name, so a new
-refusal there is a refusal here. It adds one limit of its own: a delayed response must be the
+and `responses.regional_responses` — in the combinations solprop's problem validation
+admits (`solprop.translate.admission.check_general_route`), which it runs where it is
+built, so a refusal there is a refusal on both backends, raised once. It adds one limit of its own: a delayed response must be the
 six channels of the silica tensor Raman model on three components (§4,
 `_refuse_native_route`). `linear.coupled_flow` is §3.9. The route is a **second execution
 path** (`src/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
@@ -1204,7 +1208,7 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   a symmetric response beside others, none alone, two for the polynomial; a Cartesian or planar
   column adds its products and their spectra (`backends/node_chunk.py`, `_dispersive_chunk`). The
   general modal route's chunk counts two buffers per node and component for each filtered field and
-  each product of its workspace (`numpy_ref.general_modal.general_dispersive_buffers`,
+  each product of its workspace (`backends/node_chunk.py`, `general_dispersive_buffers`,
   `general_node_chunk`).
 - **Parity** (`tests/backends/test_native_dispersive_kerr.py`,
   `tests/backends/test_native_dispersive_routes.py`): one evaluation, one step and ten replayed
@@ -1417,14 +1421,11 @@ version it was built at without comparing it, so an editable build stays valid a
 commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
 
-**Every backend refuses what it cannot execute.** The general modal route's optional
-leaves (the coupled flow, the moving guide and the others) are part of the contract whether
-or not a backend executes them, and a backend that
-accepted a problem carrying one it ignores would silently run a different model. A backend
-therefore calls
-{py:func}`~solprop.backends.numpy_ref.admission.refuse_general_leaves` before it runs, naming in
-`admits` the leaves it executes, as `numpy_ref` does, or makes the same
-refusals itself, as `native` does in its own adapter. A third-party backend owes the same. A change that
+**What is executed is checked once.** The general modal route's optional leaves (the
+coupled flow, the moving guide and the others) are executed by both backends in the same
+combinations, and the problem's own validation refuses every other by name
+({py:func}`~solprop.translate.admission.check_general_route`), so neither backend repeats
+the list. A change that
 touches `native/` is complete only when the gates (`poe check-all`) and solprop's lanes
 are green with the current build installed.
 
@@ -1665,13 +1666,14 @@ the engine's existing code; the coarse channel spectra, times the pad scale and 
 analytic doubling, are written by the existing stage-combination kernel. Views, host-map
 release and plans happen at construction; the `general_*` rows join
 `memory_ledger()`. The adapter derives the per-node tensor, the form, the chunk and the
-delayed maps with `solprop.backends.numpy_ref.general_modal`'s public functions, so the
+delayed maps with solprop's shared derivations (`solprop.translate.general`,
+`solprop.backends.node_chunk`), so the
 arrays are the reference's own, and refuses every combination the reference refuses by
 name before allocating. A general modal run's statistics are solprop's `collect` on the
 observed channel field with the basis metric.
 
-**Moving maps.** The adapter admits moving maps through the shared list
-(`moving_maps=True`) and packs each stage's `transform_weights`; the engine uploads every
+**Moving maps.** The problem's validation admits moving maps beside their connection's
+flow, and the adapter packs each stage's `transform_weights`; the engine uploads every
 Chebyshev coefficient of both maps once, finds each stage's section on the host when a
 trial's weights are loaded, and before each stage's source combines that section's `n_deg`
 terms in a named team kernel (one team per map row, the row's bins its vector lanes, the
@@ -1815,9 +1817,8 @@ and a CPU target may contract multiply-adds, so the builds' answers agree to rou
 bitwise, and every build is held to the same parity bounds against `numpy_ref` and the same
 rounding bounds between repeats and thread counts. No build carries numerical pins
 ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)): `REFERENCE` keeps its name for
-its tidy and sanitizer role only. The native adapter's contract tuples `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`
-and `COUPLED_FLOW_FIELDS` name the general leaves' members its adapter reads, so a rename
-is refused by `check_build`.
+its tidy and sanitizer role only. A rename of a seam member the adapter reads is caught by
+solprop's frozen tables (`tests/backends/test_driver.py`), which move with the seam.
 
 ## 4a. `mlx`: retired
 

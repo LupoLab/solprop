@@ -180,14 +180,11 @@ singleton run.
 `transform.modal_tables` (§4) and `responses.regional_responses` (§5) are optional. Each
 defaults to `None`, and a problem with all four `None` carries no field-sized or dense
 buffer for them. The leaves carry `int32` region and support indices beside float64,
-complex128, bool and intp. **A backend refuses by name each leaf it does not execute**,
-through `solprop.backends.numpy_ref.admission.refuse_general_leaves(..., admits=...)`, or its own
-equivalent check in a compiled backend's adapter (as `native`'s does), because the version check alone cannot fire
-for a backend compiled against the same constant. The combinations a backend executes
-are one shared list, `solprop.backends.numpy_ref.admission.refuse_general_route`, run
-under the caller's name with the section methods it executes and whether it evaluates
-moving maps (`moving_maps=False` by default), so every backend refuses the same problems
-in the same words. On the general route `response_order` is `(accumulate,)` alone — the
+complex128, bool and intp. Both backends execute the same combinations of them, and
+**the problem's own validation refuses every other by name**, once
+(`solprop.translate.admission.check_general_route`, run by
+`PropagationProblem.validate` and so by `validate_run` where a backend is built). On the
+general route `response_order` is `(accumulate,)` alone — the
 response is the regional leaf and not a fused-pass stage — and the prefactor row is the
 real crop scale. What a backend reads across the seam on that route is the leaves' arrays,
 `grids.crop_index`, `grids.pad_scale`, `n_to` and the prefactor row.
@@ -241,28 +238,14 @@ which is natural and not required. **No one-sided rule** is needed for it, unlik
 geometry, where only their slope jumps, so a position on an edge takes the section
 starting there (within 1e-10 of the span) and the value differs from the other side's by
 the representation error alone. A problem whose maps do not move — no modal tables, or
-maps of one coefficient — reports `None`. A backend that does not evaluate moving maps
-refuses such a problem by name through the shared admission list.
+maps of one coefficient — reports `None`. Moving maps are admitted only beside the
+`"frozen_residual"` flow that carries their connection.
 
-**The frozen literals and the contract tuples.** `tests/backends/test_driver.py` freezes
+**The frozen literals.** `tests/backends/test_driver.py` freezes
 `LINEAR_OPERATOR_FIELDS` (`dataclasses.fields(LinearOperator)`), the descriptor's and the
-request's fields,
-`STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS` and `SEPARABLE_OPERATOR_FIELDS`; a change to
-the seam rewrites the literal it changes. `solprop-native` exports
-its own tuples of the names it relies on — `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`,
-`RESPONSE_FIELDS`, `STAGE_SCALARS_FIELDS`, and `MODAL_TABLES_FIELDS` (`electric`,
-`omega_fine`, `projection`, `region_index`, `source_frequency_factor`, `synthesis`),
-`REGIONAL_RESPONSE_FIELDS` (`n_terms`) and `COUPLED_FLOW_FIELDS` (`connection`,
-`generator`, `inverse_condition_bound`, `n_deg`, `n_modes`, `section_methods`) for the
-members of `ModalTransformTables`, `RegionalResponseTables` and `CoupledFlowTables` its
-adapter reads itself — and its `check_build()` refuses a solprop without one (a dataclass
-field, or a property for the derived counts), so a renamed leaf or member fails there with
-a message naming it rather than as a missing attribute inside the adapter. The two sets are
-separate objects that this document keeps in step. Members read only inside solprop's own
-derivations the adapter calls (`node_kerr_tensor`, `node_delayed_maps`, `metric_at`,
-`frozen_generator`, `schur_blocks`) are solprop's to keep consistent and are not listed;
-for that reason `ModalMetricTables` has no tuple, the adapter handing the leaf to
-`metric_at` whole.
+request's fields, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
+`SEPARABLE_OPERATOR_FIELDS` and `MARCH_POLICY_FIELDS`; a change to the seam rewrites the
+literal it changes, and `native` and solprop are changed together in the same commit.
 
 The dataclass tree is exactly `PropagationProblem` and the five array groups `grids`,
 `linear`, `transform`, `responses` and `initial`, and beside it the run request's
@@ -1219,9 +1202,7 @@ both distributions, never through an untyped optional field
 
 Every addition updates the rows of this document (which
 `tests/translate/test_problem.py` checks against the dataclasses in both directions),
-the frozen descriptor tables in `tests/backends/test_driver.py`, `native`'s
-`_check_seam` manifest (`PROBLEM_FIELDS`, `REQUEST_FIELDS`, `ROUTE_FIELDS` and the
-leaves' tuples) when the native adapter reads it, the capability and refusal
+the frozen descriptor tables in `tests/backends/test_driver.py`, the capability and refusal
 tests, the memory ledger ([architecture.md §8](architecture.md)), the manual and the
 source and error-budget evidence, and adds a release-note fragment. It lands on
 `numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
@@ -1293,7 +1274,7 @@ position and a kink restart together. Only then is the next proposal tested agai
 floor. A floor so found is raised after the attempt is recorded.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
-interval changes (`MARCH_POLICY_FIELDS`, exactly the record's fields), with a replay's
+interval changes (`MarchPolicy`, every field of the record), with a replay's
 schedule (its steps and edges); the state above, with a replay's cursor (the driver's
 schedule index); and its bounds: the target; for a replay, the edges' slack
 (`replay_tolerance`); whether the collar rests; the accepted steps after which the
@@ -1321,11 +1302,11 @@ one attempt, of seven and of none to one set of bits.
 **The boundary checks inside the march** ([SEP 45](seps/archive/sep-0045-native-rk-march.md)
 §4.8, normative since its phase 1). Unless the run's monitor reads a transverse edge, a
 call also takes the monitor's checks: the bounds carry the monitor's watch policy
-(`BoundaryMonitor.watch_policy`, exactly `WATCH_POLICY_FIELDS`: the scaled floor
+(`BoundaryMonitor.watch_policy`: the scaled floor
 regions, the launch floor, the activity, warning and stop thresholds, the quiet
 collar's share, count and opt-in, the cadence, the interval, the crossing share and
 each bucket's step limit) and the most readings one call buffers; the state carries the
-monitor's watch state (`WATCH_STATE_FIELDS`). After each accepted step that reaches its
+monitor's watch state (`BoundaryMonitor.watch_state`). After each accepted step that reaches its
 statistics the march applies `due`, and on a due step takes the reading, buffers it
 against the attempt's row and predicts `BoundaryMonitor.step`: the split cap, which
 then caps the next step, the cadence, the quiet verdict, a first warning or a stop. It
