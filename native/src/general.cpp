@@ -3412,15 +3412,16 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
     return false;
   if (problem_.n_pol_state != 1)
     return false;
-  if (problem_.family == FieldFamily::envelope) {
 #if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
     !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
     !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
+  // Without a vendor BLAS an envelope keeps the custom kernels.
+  if (problem_.family == FieldFamily::envelope)
     return false;
 #endif
-  } else if (problem_.family != FieldFamily::field_real) {
+  if (problem_.family != FieldFamily::envelope &&
+      problem_.family != FieldFamily::field_real)
     return false;
-  }
 #if defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) || defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
   // Spatial envelope matrices can be large even with a short temporal grid.
   if (!problem_.spatial_spectral_weights.empty() &&
@@ -3463,13 +3464,13 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
     return false;
   if (problem_.n_pol_state != 1)
     return false;
-  if (problem_.family == FieldFamily::envelope) {
 #if !defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) &&                                      \
     !defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) &&                                        \
     !defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
+  // Without a vendor BLAS an envelope keeps the custom kernels.
+  if (problem_.family == FieldFamily::envelope)
     return false;
 #endif
-  }
 #if defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) || defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
   // Spatial envelope matrices can be large even with a short temporal grid.
   if (!problem_.spatial_spectral_weights.empty() &&
