@@ -23,7 +23,7 @@ import pytest
 from backends.conftest import EQUIVALENCE_BACKENDS
 from sessions.runs import run as session_run
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill

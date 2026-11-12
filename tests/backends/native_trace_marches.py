@@ -27,10 +27,7 @@ import pytest
 
 from solprop._interrupts import committing
 from solprop.backends import rk_core
-from solprop.backends.multistep import (
-    _Derivative,  # pyright: ignore[reportPrivateUsage]
-    budget_error,
-)
+from solprop.backends.ledger import Derivative, budget_error
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.stepper.multistep import Multistep
@@ -397,7 +394,7 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         self._last_rejected = bool(state["last_rejected"])
         self._collar_was_quiet = bool(state["collar_was_quiet"])
         self._history = [
-            _Derivative(
+            Derivative(
                 float(z), None, "predicted" if predicted else "accepted", int(slot)
             )
             for z, predicted, slot in state["history"]

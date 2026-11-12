@@ -29,17 +29,13 @@ from solprop.backends.exponential import (
     refuse_carrier_frame,
     refuse_formulation,
 )
+from solprop.backends.ledger import CallLedger, Derivative, source_absent
 from solprop.backends.low_storage import schedule_key, table_steps
 from solprop.backends.memory import (
     LOCAL_FLUX_STATISTICS,
     low_storage_flows,
     low_storage_stage_register,
     z_table_slots,
-)
-from solprop.backends.multistep import (
-    CallLedger,
-    _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
-    source_absent,
 )
 from solprop.backends.node_chunk import (
     NodeChunkPlan,
@@ -1675,12 +1671,13 @@ type _TrialArrays = tuple[
 class _ResidentAdams:
     """solprop's Adams history kept in the native state (solprop SEP 16 phase 3b).
 
-    The native Adams march's engine (``solprop.backends.multistep.AdamsEngine``):
-    the history's rows, a trial's predictor, its source, the corrected field and the
-    defect norms, the adoption and transport of an accepted step and dense observation
-    run in the engine, with only the trial's scalars, coefficient tables and norms
-    crossing. solprop's host engine (``HostHistory``) is its reference. The backend
-    hands it the native state and three of its own operations.
+    The native Adams march's engine (the reference's ``AdamsEngine``, in
+    ``solprop.backends.numpy_ref.multistep``): the history's rows, a trial's predictor,
+    its source, the corrected field and the defect norms, the adoption and transport of
+    an accepted step and dense observation run in the engine, with only the trial's
+    scalars, coefficient tables and norms crossing. solprop's host engine
+    (``HostHistory``) is its reference. The backend hands it the native state and three
+    of its own operations.
     """
 
     native: _core.State
@@ -2364,7 +2361,7 @@ class _NativeAdamsMarch:
     natively, from one policy record (:func:`~solprop.stepper.multistep.march_policy`).
     This record is what the run starts from: the policy, the history's entries
     (position, identity and engine row), the order, the rejection flags and the
-    :class:`~solprop.backends.multistep.CallLedger`, each fresh at a load
+    :class:`~solprop.backends.numpy_ref.multistep.CallLedger`, each fresh at a load
     (:meth:`reset`, :meth:`begin_run`) or restored from a resume's snapshot and ledger
     (:meth:`resume`, :meth:`restore_ledger`). A native session hands it to the native
     state once (:meth:`start_state`, :meth:`_configure`) and holds the march's state
@@ -2389,7 +2386,7 @@ class _NativeAdamsMarch:
         self._engine: Any = (
             backend._adams_engine(method, "transported") if engine is None else engine
         )
-        self._history: list[_Derivative] = []
+        self._history: list[Derivative] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
@@ -2487,7 +2484,7 @@ class _NativeAdamsMarch:
         except BackendError as error:
             return str(error)
         self._history = [
-            _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
                 snapshot.positions, snapshot.identities, snapshot.slots, strict=True
             )

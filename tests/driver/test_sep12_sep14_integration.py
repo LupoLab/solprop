@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.driver import tdse as runtime_module

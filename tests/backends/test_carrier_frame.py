@@ -46,14 +46,14 @@ from solprop.backends.exponential import (
     refuse_carrier_frame,
 )
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.multistep import (
-    CallLedger,
+from solprop.backends.ledger import CallLedger
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
     CoupledBlock,
     ExponentialKernels,
     HostHistory,
     coupled_moments,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError

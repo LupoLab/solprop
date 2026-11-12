@@ -9,11 +9,11 @@ reference's own since SEP 47 phase 2 (the shared march it was copied from is del
 with the native backend's step driver, phase 5). The state-sized arithmetic is the
 shared stateless code (:mod:`solprop.backends.host`): the march hands every operation
 of its fused and exponential paths to the host engine
-(:class:`solprop.backends.multistep.HostHistory`). The decisions are
+(:class:`solprop.backends.numpy_ref.multistep.HostHistory`). The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of
-:mod:`solprop.backends.multistep`'s module documentation.
+:mod:`solprop.backends.numpy_ref.multistep`'s module documentation.
 """
 
 import math
@@ -25,13 +25,12 @@ from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.exponential import CarrierReference
 from solprop.backends.host.driver import HostDriver, reached, replay_tolerance
-from solprop.backends.multistep import (
+from solprop.backends.ledger import CallLedger, Derivative
+from solprop.backends.numpy_ref.multistep import (
     AdamsEngine,
     AdamsKernels,
-    CallLedger,
     ExponentialKernels,
     HostHistory,
-    _Derivative,
     _State,
 )
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
@@ -60,9 +59,9 @@ class HostAdamsMarch:
         ``"transported"``, the delivered treatment, or ``"untransported"``, kept as a
         test witness only.
     engine : object, optional
-        An :class:`~solprop.backends.multistep.AdamsEngine`; ``None``, the default,
-        takes the host
-        engine (:class:`~solprop.backends.multistep.HostHistory`) over the backend's
+        An :class:`~solprop.backends.numpy_ref.multistep.AdamsEngine`; ``None``, the
+        default, takes the host engine
+        (:class:`~solprop.backends.numpy_ref.multistep.HostHistory`) over the backend's
         hooks. A scripted engine drives the controller alone, for the decision traces
         of SEP 39 section 7.1. Typed ``object`` because the engine protocol is
         structural and not checkable at run time; the members the path calls are
@@ -102,7 +101,7 @@ class HostAdamsMarch:
             self._engine = HostHistory(
                 backend, method, self._kernels, self._exponential, compensation
             )
-        self._history: list[_Derivative] = []
+        self._history: list[Derivative] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
@@ -246,7 +245,7 @@ class HostAdamsMarch:
             return str(error)
         backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
         self._history = [
-            _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
                 snapshot.positions, snapshot.identities, snapshot.slots, strict=True
             )
@@ -511,7 +510,7 @@ class HostAdamsMarch:
         z = backend._z
         self.ledger.startup += 1
         value = self._engine.start(z)
-        self._history = [_Derivative(z, value, "accepted", 0)]
+        self._history = [Derivative(z, value, "accepted", 0)]
         self._order = 1 if self._policy.variable_order else self._policy.order
 
     def _capped(self, proposal: float) -> float:
@@ -659,7 +658,7 @@ class HostAdamsMarch:
                 engine.exponential_accept(rows, free, interpolate=self._interpolate)
             self._history = [
                 *keep,
-                _Derivative(z + dz, engine.value(free), "predicted", free),
+                Derivative(z + dz, engine.value(free), "predicted", free),
             ]
             self.ledger.accepted_steps += 1
             self._rejections = 0

@@ -1169,10 +1169,13 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         - ``z``: where the step starts, m.
         - ``dz``: the step, m.
-        - Returns: the step's :class:`~solprop.backends.multistep.CoupledBlock`, or
-          ``None`` without a coupled flow.
+        - Returns: the step's
+          :class:`~solprop.backends.numpy_ref.multistep.CoupledBlock`, or ``None``
+          without a coupled flow.
         """
-        from solprop.backends.multistep import CoupledBlock  # noqa: PLC0415 - cycle
+        from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415 - cycle
+            CoupledBlock,
+        )
 
         flow = self._flow
         if flow is None:

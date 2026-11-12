@@ -4,11 +4,11 @@
 
 """SEP 14 phase 2: the Adams march on the compiled backends, against the reference.
 
-The march is shared (``solprop.backends.multistep``); only the one source evaluation
-and the propagator differ: Kokkos evaluates through its general engine's stage pipeline.
-Parity is the reference's
-trajectory to round-off: the same steps, orders and calls, and fields that agree to
-the accumulated rounding of the evaluation orders.
+The march is shared (``solprop.backends.numpy_ref.multistep``); only the one source
+evaluation and the propagator differ: Kokkos evaluates through its general engine's
+stage pipeline. Parity is the reference's trajectory to round-off: the same steps,
+orders and calls, and fields that agree to the accumulated rounding of the evaluation
+orders.
 """
 
 import dataclasses

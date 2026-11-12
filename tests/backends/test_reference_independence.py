@@ -32,14 +32,14 @@ import pytest
 
 import solprop.backends.host
 import solprop.backends.numpy_ref
-from solprop.backends import low_storage, multistep
+from solprop.backends import low_storage
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.host.group_session import HostGroupSession
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref import NumpyRefBackend, multistep
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_group, start_session
@@ -59,7 +59,7 @@ runner deleted in SEP 47 phase 5, which held nothing else: none may come back in
 reference."""
 
 LEGACY_NAMES = {
-    "solprop.backends.multistep": {"AdamsMarch"},
+    "solprop.backends.numpy_ref.multistep": {"AdamsMarch"},
     "solprop.backends.low_storage": {"LowStorageMarch"},
 }
 """The bridge's classes in modules whose other contents are shared numerical code."""

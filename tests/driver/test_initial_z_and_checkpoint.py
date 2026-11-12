@@ -13,7 +13,7 @@ from tests.backends.test_tdse_march import ManufacturedBinding
 from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import stepping
 from solprop.backends.registry import select

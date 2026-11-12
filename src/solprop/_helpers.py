@@ -23,7 +23,7 @@ reassociation; SEP 25 section 4.2), so they agree to the last bit wherever their
 arithmetic is IEEE.
 A record may also form a whole exponential Adams trial's coefficient tables in one
 call (:attr:`Helpers.tables`), the composition of
-:func:`solprop.backends.multistep.trial_tables` over its own basis, which its
+:func:`solprop.backends.numpy_ref.multistep.trial_tables` over its own basis, which its
 resident engine reads every trial; a record without it composes them from the basis.
 
 Translation is not a backend's: it runs before any backend exists and builds the
@@ -86,10 +86,10 @@ TablesFunction = Callable[
 ]
 """``tables(nodes, order, orders, compensated) -> tables``: a trial's tables at once.
 
-The contract of :func:`solprop.backends.multistep.trial_tables`, whose composition over
-the record's own basis it performs in one call, with the same operations in the same
-order: ``nodes`` float64 ``(n,)`` and C-contiguous, newest first; the result is that
-function's seven arrays.
+The contract of :func:`solprop.backends.numpy_ref.multistep.trial_tables`, whose
+composition over the record's own basis it performs in one call, with the same
+operations in the same order: ``nodes`` float64 ``(n,)`` and C-contiguous, newest first;
+the result is that function's seven arrays.
 """
 
 

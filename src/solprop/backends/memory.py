@@ -390,7 +390,7 @@ def adams_memory(
     >>> rows == {"adams_store": 6 * 16 * grid.n_omega}
     True
     """
-    from solprop.backends.multistep import source_absent  # noqa: PLC0415 - import cycle
+    from solprop.backends.ledger import source_absent  # noqa: PLC0415 - import cycle
     from solprop.stepper.multistep import Multistep  # noqa: PLC0415
 
     method = stepper.integrator

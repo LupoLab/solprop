@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from runtime_types import unchecked
-from solprop.backends.multistep import CallLedger
+from solprop.backends.ledger import CallLedger
 from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse

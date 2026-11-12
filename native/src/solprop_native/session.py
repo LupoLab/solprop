@@ -93,7 +93,7 @@ from solprop.backends.events import (
     Terminal,
 )
 from solprop.backends.export import destination_refusal
-from solprop.backends.multistep import CallLedger, budget_error
+from solprop.backends.ledger import CallLedger, budget_error
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
@@ -1779,8 +1779,8 @@ class NativeSession:
         """Return the error of a trial the call budget could not pay for.
 
         Formed from the session's own ledger, position and committed field, as the
-        backend's march forms it from its own (:func:`~solprop.backends.multistep.
-        budget_error`).
+        backend's march forms it from its own
+        (:func:`~solprop.backends.ledger.budget_error`).
         """
         calls = self._sync_calls()
         assert calls is not None

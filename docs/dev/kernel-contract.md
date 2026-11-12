@@ -313,7 +313,7 @@ rather than stepping it with another method. `Multistep.formulation` is
 `HostAdamsMarch` keeps the controller -- orders, slots, rejection,
 restarts, the call budget and the ledger -- and hands every state-sized operation of
 its fused and exponential paths to an engine
-(`solprop.backends.multistep.AdamsEngine`): the startup sample, a trial's predictor,
+(`solprop.backends.numpy_ref.multistep.AdamsEngine`): the startup sample, a trial's predictor,
 source, corrector and scored defect norms, the adoption and transport of an accepted
 step, holding and restoring the accepted state around a dense observation, and the
 observation itself. Only scalars, the coefficient tables and the norms cross the

@@ -303,7 +303,7 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 
 ### Low-call Adams methods
 
-`stepper/multistep.py` and `backends/multistep.py` hold the Adams integrator, the default
+`stepper/multistep.py` and `backends/numpy_ref/multistep.py` hold the Adams integrator, the default
 of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-037, ADR-045, ADR-055;
 `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
 `prop_gnlse`, `prop_waveguide` and `prop_free`).
@@ -316,7 +316,7 @@ picture, transporting the history, on request
 - a corrector one order higher than its predictor;
 - variable order up to five by default.
 
-The march (`backends/multistep.py`) is shared: a backend supplies the step driver's two
+The march (`backends/numpy_ref/multistep.py`) is shared: a backend supplies the step driver's two
 hooks `_adams_source`, one source evaluation at a lab-frame field returned in the step's
 anchor frame, and `_adams_propagator`, and takes the march as its `_march_to` when the
 problem carries an integrator. `numpy_ref` evaluates through its reference passes. `native` keeps

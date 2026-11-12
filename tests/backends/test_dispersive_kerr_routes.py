@@ -39,8 +39,8 @@ from backends.matched import dispersive_response_bound
 from bounds import assert_within
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
-from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends import node_chunk
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.numpy_ref import NumpyRefBackend, general_modal, passes
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import Absorber

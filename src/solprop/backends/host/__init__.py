@@ -13,7 +13,7 @@ low-storage march (:mod:`~solprop.backends.host.low_storage`), the fixed-schedul
 (:mod:`~solprop.backends.host.group_session`). The reference shares only stateless
 numerical modules with the native backend -- the controller cores, tableaux, stage
 tables, the exponential coefficients, the Adams and low-storage host engines
-(:class:`~solprop.backends.multistep.HostHistory`,
+(:class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
 :class:`~solprop.backends.low_storage.HostLowStorage`) and the call ledger -- and the
 parts every Python session composes (:mod:`solprop.backends.session_core`), as the
 maintainer decided at SEP 47's acceptance; the native backend runs in its own session

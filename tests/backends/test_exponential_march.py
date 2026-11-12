@@ -4,11 +4,12 @@
 
 """SEP 16 phase 2: the exponential Adams formulation on the reference backend.
 
-The formulation shares the Adams march's lifecycle (``solprop.backends.multistep``):
-these tests check what is its own -- the record, exactness on the linear flow, order,
-agreement with the Runge-Kutta march and the transported formulation, dense
-observation, the call ledger and budget -- and the two capabilities SEP 16 phase 2
-adds to both formulations: the ``modified`` noise and prescribed schedules.
+The formulation shares the Adams march's lifecycle
+(``solprop.backends.numpy_ref.multistep``): these tests check what is its own -- the
+record, exactness on the linear flow, order, agreement with the Runge-Kutta march and
+the transported formulation, dense observation, the call ledger and budget -- and the
+two capabilities SEP 16 phase 2 adds to both formulations: the ``modified`` noise and
+prescribed schedules.
 """
 
 import dataclasses
@@ -27,13 +28,13 @@ from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
-from solprop.backends.multistep import (
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import (
     compensation_tables,
     exponential_tables,
     fused_tables,
     trial_tables,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
