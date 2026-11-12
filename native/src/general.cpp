@@ -17828,6 +17828,7 @@ template <class Function, class... Arguments>
 decltype(auto) GeneralState::with_team(Function function,
                                        Arguments&&... arguments) const {
   const CpuTeamScope team(workspace_->cpu_team());
+  // NOLINTNEXTLINE(readability-avoid-return-with-void-value): returns what the member returns, void included
   return std::invoke(function, *workspace_, std::forward<Arguments>(arguments)...);
 }
 
@@ -17925,9 +17926,7 @@ std::vector<Complex> GeneralState::adams_rows_to_host(const std::string& name) c
 void GeneralState::adams_rows_to_host(const std::string& name,
                                       std::complex<double>* destination,
                                       const std::size_t size) const {
-  with_team([&](GeneralWorkspace& workspace) {
-    return workspace.adams_rows_to_host(name, destination, size);
-  });
+  with_team([&](GeneralWorkspace& workspace) { workspace.adams_rows_to_host(name, destination, size); });
 }
 void GeneralState::adams_rows_from_host(const std::string& name,
                                         const std::vector<Complex>& values) {
@@ -18109,9 +18108,7 @@ void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
     workspace_->set_crossing_workers(workers);
 }
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
-  with_team([&](GeneralWorkspace& workspace) {
-    return workspace.field_to_host(destination);
-  });
+  with_team([&](GeneralWorkspace& workspace) { workspace.field_to_host(destination); });
 }
 const Complex* GeneralState::host_field() const {
   return with_team(&GeneralWorkspace::host_field);
@@ -18121,9 +18118,7 @@ void GeneralState::count_to_host(const std::size_t bytes) const noexcept {
 }
 void GeneralState::stage_to_host(const std::size_t stage,
                                  const std::span<Complex> destination) const {
-  with_team([&](GeneralWorkspace& workspace) {
-    return workspace.stage_to_host(stage, destination);
-  });
+  with_team([&](GeneralWorkspace& workspace) { workspace.stage_to_host(stage, destination); });
 }
 std::vector<Complex> GeneralState::stage_to_host(const std::size_t stage) const {
   return with_team(
