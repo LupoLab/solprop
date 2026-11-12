@@ -55,6 +55,11 @@ the default one.
 | **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | 60 s for the tier |
 | **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | 4 min for the lane |
 
+The benchmark harness's own tests (`tests/test_benchmark_*.py`) follow the same rule:
+its logic — plans, records, history, case definitions, builders, and the worker and
+command line on the purpose-built `smoke` case — is fast or medium; a test that
+propagates a registered benchmark case, however short its window, is slow.
+
 Two further markers select **lanes** rather than tiers, and a test may carry one of them
 instead of a tier marker:
 
