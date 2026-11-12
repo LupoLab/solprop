@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._ownership import frozen_copy
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter, StopFlag
@@ -41,7 +42,6 @@ from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
-from solprop.translate.chebyshev import _frozen_copy
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
@@ -130,7 +130,7 @@ class BackendHistory:
             ("accepted", np.bool_),
             ("wall_time", np.float64),
         ):
-            values = _frozen_copy(getattr(self, name), dtype)
+            values = frozen_copy(getattr(self, name), dtype)
             object.__setattr__(self, name, values)
             # The rank is fixed by the annotations, which the test session enforces;
             # what a caller can still get wrong is the number of entries.
@@ -255,8 +255,8 @@ class StepStats:
         BackendError
             Naming the offending column or statistic.
         """
-        positions = _frozen_copy(self.z, np.float64)
-        indices = _frozen_copy(self.step, np.int64)
+        positions = frozen_copy(self.z, np.float64)
+        indices = frozen_copy(self.step, np.int64)
         object.__setattr__(self, "z", positions)
         object.__setattr__(self, "step", indices)
         if indices.shape != positions.shape:
@@ -278,7 +278,7 @@ class StepStats:
         for name, values in self.values.items():
             # A copy, unless solprop already holds the rows; it keeps a scalar
             # zero-dimensional, so a scalar cannot pass as a single row.
-            row = _frozen_copy(values)
+            row = frozen_copy(values)
             if row.ndim == 0 or row.shape[0] != positions.size:
                 msg = (
                     f"the {name!r} rows have leading axis {row.shape}, expected "

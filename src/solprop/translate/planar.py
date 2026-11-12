@@ -32,6 +32,7 @@ from typing import cast
 import numpy as np
 from jaxtyping import Complex, Float
 
+from solprop._ownership import hold
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
@@ -41,7 +42,6 @@ from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.physdata import Gas, Mixture, as_gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.spatial import SpatialDispersion, SpatialMedium
-from solprop.translate.chebyshev import _hold
 from solprop.translate.linop import DEFAULT_MARGIN, LinearOperator, tabulate
 from solprop.translate.modal import Transform
 from solprop.translate.spatial import SeparableOperator, SpatialGeometry
@@ -160,7 +160,7 @@ def planar_transform(
     return Transform(
         # The product is this transform's own; the projections are the grid's, and
         # the transform copies them.
-        synthesis=_hold(space.synthesis * time.pad_scale),
+        synthesis=hold(space.synthesis * time.pad_scale),
         projection=space.projection,
         projection_coarse=space.projection_coarse,
         taper_scale=None,

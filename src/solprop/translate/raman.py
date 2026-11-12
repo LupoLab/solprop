@@ -48,11 +48,11 @@ from typing import Final
 import numpy as np
 from jaxtyping import Complex, Float, Num
 
+from solprop._ownership import hold
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid, planck_taper
 from solprop.nonlinear.raman import Dephasing, RamanModel, RamanResponse
 from solprop.profiles import FromCallable, ZProfile
-from solprop.translate.chebyshev import _hold
 
 __all__ = [
     "MAX_DECAY_EXPONENT",
@@ -623,7 +623,7 @@ class RamanKernels:
         # propagation at constant density notes it once rather than once per stage.
         kernel = _damped(self.response, self.undamped, self.grid, density, check=True)
         spectrum = kernel_spectrum(kernel, self.grid.dt_fine)
-        _hold(spectrum)
+        hold(spectrum)
         self._memo.density = density
         self._memo.spectrum = spectrum
         self._memo.transforms += 1

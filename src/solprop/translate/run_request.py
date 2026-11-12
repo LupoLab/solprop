@@ -42,6 +42,7 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Float
 
+from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import FieldRetention
@@ -51,7 +52,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import Tableau
-from solprop.translate.chebyshev import _frozen_copy
 from solprop.translate.problem import PropagatorMode, StepperSettings
 
 __all__ = [
@@ -520,7 +520,7 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
     ('runge_kutta', [1.0])
     """
     settings = stepper
-    planes = _frozen_copy(settings.save_planes, np.float64)
+    planes = frozen_copy(settings.save_planes, np.float64)
     if not 0 <= start_plane <= planes.size:
         msg = f"start_plane {start_plane} is not a plane of a run with {planes.size}"
         raise TranslationError(msg)

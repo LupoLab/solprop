@@ -64,6 +64,7 @@ from jaxtyping import Bool, Complex, Float, Int32
 
 from solprop._display import Displayed, line
 from solprop._helpers import Helpers
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import Absorber
 from solprop.constants import CHARGE_MASS_RATIO, EPS0
 from solprop.exceptions import TranslationError
@@ -90,9 +91,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_MAX_INTERVALS,
     DEFAULT_TOL,
     PiecewiseChebyshev,
-    _frozen_copy,
     _held_table,
-    _hold,
     build_from_paths,
 )
 from solprop.translate.envelope_plasma import (
@@ -718,16 +717,16 @@ def dispersive_terms(
         carrier=envelope and first.thg,
         labels=tuple(labels),
         coefficients=tuple(float(one.coefficient) for one in responses),
-        positive=_frozen_copy(sampled[0].positive),
-        filters=_hold(np.stack([one.filter for one in sampled])),
-        outputs=_hold(np.stack([cast("np.ndarray", one.output) for one in sampled]))
+        positive=frozen_copy(sampled[0].positive),
+        filters=hold(np.stack([one.filter for one in sampled])),
+        outputs=hold(np.stack([cast("np.ndarray", one.output) for one in sampled]))
         if polynomial
         else None,
-        products=_hold(np.array([one.products for one in sampled], dtype=float))
+        products=hold(np.array([one.products for one in sampled], dtype=float))
         if polynomial
         else None,
         densities=tuple(densities),
-        regions=None if regions is None else _frozen_copy(regions, np.int32),
+        regions=None if regions is None else frozen_copy(regions, np.int32),
     )
 
 
@@ -1139,7 +1138,7 @@ class RamanCoefficients:
         TranslationError
             Naming the offending field.
         """
-        rows = _frozen_copy(self.undamped, np.float64)
+        rows = frozen_copy(self.undamped, np.float64)
         object.__setattr__(self, "undamped", rows)
         object.__setattr__(self, "decay_rates", tuple(self.decay_rates))
         if rows.ndim != 2 or rows.shape[0] < 1:
@@ -1157,7 +1156,7 @@ class RamanCoefficients:
             raise TranslationError(msg)
         if not np.all(np.isfinite(rows)):
             raise TranslationError("undamped Raman kernels must be finite")
-        weights = _frozen_copy(self.tensor_weights, np.float64)
+        weights = frozen_copy(self.tensor_weights, np.float64)
         if weights.shape != (rows.shape[0], 2):
             raise TranslationError("tensor_weights must have shape (n_terms, 2)")
         if not np.all(
@@ -1361,7 +1360,7 @@ class RegionalResponseTables(Displayed):
         if not (self.model_id and self.policy_id):
             msg = "regional_responses: model_id and policy_id must be non-empty"
             raise TranslationError(msg)
-        regions = _frozen_copy(self.response_region, np.int32)
+        regions = frozen_copy(self.response_region, np.int32)
         if regions.ndim != 1 or not regions.size or np.any(regions < 0):
             msg = (
                 "regional_responses.response_region must be a non-empty vector of "
@@ -1388,7 +1387,7 @@ class RegionalResponseTables(Displayed):
         )
 
         responses = self.n_responses
-        instant = _frozen_copy(self.instantaneous_tensor, np.float64)
+        instant = frozen_copy(self.instantaneous_tensor, np.float64)
         admitted = tuple(range(1, MAX_N_COMPONENTS + 1))
         if (
             instant.ndim != 5
@@ -1407,7 +1406,7 @@ class RegionalResponseTables(Displayed):
             raise TranslationError(msg)
         object.__setattr__(self, "instantaneous_tensor", instant)
         components = int(instant.shape[1])
-        delayed = _frozen_copy(self.delayed_tensor, np.float64)
+        delayed = frozen_copy(self.delayed_tensor, np.float64)
         if (
             delayed.ndim != 6
             or delayed.shape[0] != responses
@@ -1431,7 +1430,7 @@ class RegionalResponseTables(Displayed):
         """
         responses = self.n_responses
         terms = int(self.delayed_tensor.shape[1])
-        chi3 = _frozen_copy(self.chi3, np.float64)
+        chi3 = frozen_copy(self.chi3, np.float64)
         if chi3.ndim != 3 or not chi3.shape[0] or chi3.shape[2] != responses:
             msg = (
                 "regional_responses.chi3 must have shape (n_intervals, n_deg, "
@@ -1450,7 +1449,7 @@ class RegionalResponseTables(Displayed):
             msg = "regional_responses.chi3 must be finite"
             raise TranslationError(msg)
         object.__setattr__(self, "chi3", chi3)
-        weight = _frozen_copy(self.temporal_weight, np.float64)
+        weight = frozen_copy(self.temporal_weight, np.float64)
         if weight.ndim != 1 or not weight.size or np.any(weight < 0):
             msg = (
                 "regional_responses.temporal_weight must be a non-empty vector of "
@@ -1458,7 +1457,7 @@ class RegionalResponseTables(Displayed):
             )
             raise TranslationError(msg)
         object.__setattr__(self, "temporal_weight", weight)
-        kernel = _frozen_copy(self.delayed_kernel, np.float64)
+        kernel = frozen_copy(self.delayed_kernel, np.float64)
         expected = (chi3.shape[0], chi3.shape[1], responses, terms, 2 * weight.size)
         if kernel.shape != expected:
             msg = (
@@ -1467,7 +1466,7 @@ class RegionalResponseTables(Displayed):
             )
             raise TranslationError(msg)
         object.__setattr__(self, "delayed_kernel", kernel)
-        support = _frozen_copy(self.kernel_valid_samples, np.int32)
+        support = frozen_copy(self.kernel_valid_samples, np.int32)
         if support.shape != (responses, terms) or np.any(support < 0):
             msg = (
                 "regional_responses.kernel_valid_samples must have shape "
@@ -1948,7 +1947,7 @@ class CompiledResponses:
         if not self.species_densities:
             object.__setattr__(self, "species_densities", (self.density,))
         if self.prefactor_constant is not None:
-            constant = _frozen_copy(self.prefactor_constant, np.complex128)
+            constant = frozen_copy(self.prefactor_constant, np.complex128)
             object.__setattr__(self, "prefactor_constant", constant)
             if constant.shape != self.prefactor_value_shape:
                 msg = (
@@ -2551,7 +2550,7 @@ def _translated_prefactor(
         table=supplied,
         # The table's own read-only value at its start, which only the table refers
         # to: held where it stands, so a complex128 value is not copied.
-        constant=_frozen_copy(_hold(supplied(supplied.z_span[0])), np.complex128)
+        constant=frozen_copy(hold(supplied(supplied.z_span[0])), np.complex128)
         if constant
         else None,
     )
@@ -3395,7 +3394,7 @@ def compile_responses(  # noqa: PLR0913 - the contract's section 5 has this many
         prefactor_constant=(
             supplied.constant
             if supplied is not None
-            else _hold(prefactor_at(0.0))
+            else hold(prefactor_at(0.0))
             if constant and prefactor_at is not None
             else None
         ),
@@ -3761,7 +3760,7 @@ def raman_coefficients(  # noqa: PLR0913 - the leaf needs the grid, the path and
     # Sampled here, the rows are the leaf's alone and are held without a copy; rows
     # handed in are copied by the leaf unless solprop already holds them.
     samples = (
-        _hold(build_raman_kernels(raman, grid).undamped)
+        hold(build_raman_kernels(raman, grid).undamped)
         if undamped is None
         else undamped
     )

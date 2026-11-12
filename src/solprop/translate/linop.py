@@ -56,6 +56,7 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.integrate import quad_vec
 
 from solprop._helpers import Helpers
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import split_rate_buckets
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
@@ -76,9 +77,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
-    _frozen_copy,
     _held_table,
-    _hold,
     build,
     build_from_paths,
     clenshaw,
@@ -336,17 +335,17 @@ class LinearOperator:
             ("phi_degrees", np.intp),
             ("hard_kinks", np.float64),
         ):
-            object.__setattr__(self, name, _frozen_copy(getattr(self, name), dtype))
+            object.__setattr__(self, name, frozen_copy(getattr(self, name), dtype))
         for name in ("phi_coefficients", "phi_constant"):
             optional = getattr(self, name)
             if optional is None:
                 continue
-            object.__setattr__(self, name, _frozen_copy(optional, np.complex128))
+            object.__setattr__(self, name, frozen_copy(optional, np.complex128))
         if self.power_weight_constant is not None:
             object.__setattr__(
                 self,
                 "power_weight_constant",
-                _frozen_copy(self.power_weight_constant, np.float64),
+                frozen_copy(self.power_weight_constant, np.float64),
             )
         self._check_representation()
         n_intervals = self.phi_degrees.size
@@ -757,7 +756,7 @@ def profile_table(
             row[:] = _zero_edges(row, bool(vacuum[index]), bool(vacuum[index + 1]), tol)
     if np.array_equal(coefficients, table.coefficients):
         return table
-    return replace(table, coefficients=_hold(coefficients))
+    return replace(table, coefficients=hold(coefficients))
 
 
 def _zero_edges(
@@ -878,7 +877,7 @@ def constant_phi(  # noqa: PLR0913 - the response kinks join the frame record
     span = _checked_span(z_max, margin)
     # The caller's operator, or a view of it: copied once; the tables below are built
     # here and held in place.
-    values = _frozen_copy(_value_shape(operator, n_pol), np.complex128)
+    values = frozen_copy(_value_shape(operator, n_pol), np.complex128)
     if not np.all(np.isfinite(values)):
         msg = (
             f"the operator must be finite; {int(np.sum(~np.isfinite(values)))} of "
@@ -906,10 +905,10 @@ def constant_phi(  # noqa: PLR0913 - the response kinks join the frame record
         )
     return LinearOperator(
         phi_representation="constant",
-        phi_breakpoints=_hold(edges),
-        phi_coefficients=_hold(coefficients),
-        phi_degrees=_hold(np.ones(edges.size - 1, dtype=np.intp)),
-        hard_kinks=_hold(interior),
+        phi_breakpoints=hold(edges),
+        phi_coefficients=hold(coefficients),
+        phi_degrees=hold(np.ones(edges.size - 1, dtype=np.intp)),
+        hard_kinks=hold(interior),
         phi_constant=values,
         beta0=beta0,
         beta1=beta1,
@@ -1251,7 +1250,7 @@ def _dispersion_phi(  # noqa: PLR0913 - the dispersion builder shares the public
     constant = all(one.z_constant for one in modes)
     if constant and reuse is None:
         table = constant_phi(
-            _hold(operator_at(0.0)),
+            hold(operator_at(0.0)),
             z_max,
             margin=margin,
             beta0=beta0,
@@ -1296,7 +1295,7 @@ def _dispersion_phi(  # noqa: PLR0913 - the dispersion builder shares the public
                 )
         if constant:
             return constant_phi(
-                _hold(operator_at(0.0)),
+                hold(operator_at(0.0)),
                 z_max,
                 margin=margin,
                 beta0=beta0,
@@ -1413,12 +1412,12 @@ def with_power_weight(
     n_pol = linear.value_shape[2]
     sample = _weight_sampler(modes, grid, n_pol, index)
     if index is not None or all(mode.z_constant for mode in modes):
-        constant = _hold(sample(0.0))
+        constant = hold(sample(0.0))
         table = PiecewiseChebyshev(
             constant[None, None],
-            _hold(np.array(linear.z_span)),
-            _hold(np.array([0], dtype=np.intp)),
-            _hold(np.array([])),
+            hold(np.array(linear.z_span)),
+            hold(np.array([0], dtype=np.intp)),
+            hold(np.array([])),
         )
         return replace(
             linear,

@@ -11,6 +11,7 @@ from dataclasses import replace
 import numpy as np
 from jaxtyping import Complex, Float
 
+from solprop._ownership import hold
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import RadialGrid, TimeGrid
@@ -21,7 +22,6 @@ from solprop.translate.chebyshev import (
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
     _held_table,
-    _hold,
     build,
 )
 from solprop.translate.expansion import (
@@ -86,8 +86,8 @@ def radial_transform(
     diagonal = hankel.j1[:, None] / hankel.j1[None, :]
     # Built here and referred to by nothing else: held in place, so the transform
     # takes them without a copy (and both projections are the one array).
-    synthesis = _hold(hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale)
-    projection = _hold(hankel.forward_scale * diagonal * hankel.matrix)
+    synthesis = hold(hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale)
+    projection = hold(hankel.forward_scale * diagonal * hankel.matrix)
     rate = np.zeros(space.n_r) if collar_rate is None else collar_rate
     geometry = SpatialGeometry(
         kind="radial",
@@ -275,10 +275,10 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         degrees = np.zeros(1, dtype=np.intp)
         kinks = np.empty(0)
         for values in (coefficients, edges, degrees, kinks):
-            _hold(values)
+            hold(values)
         return (
             constant_phi(
-                _hold(operator), z_max, margin=margin, beta0=beta0, beta1=beta1
+                hold(operator), z_max, margin=margin, beta0=beta0, beta1=beta1
             ),
             PiecewiseChebyshev(coefficients, edges, degrees, kinks),
         )

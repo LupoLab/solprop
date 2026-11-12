@@ -36,6 +36,7 @@ from jaxtyping import Bool, Complex, Float
 
 from solprop import fourier
 from solprop._display import Displayed, line
+from solprop._ownership import frozen_copy
 from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import (
@@ -60,7 +61,6 @@ from solprop.physdata.raman_types import LinAgrawalRaman
 from solprop.physdata.selection import MaterialSelection
 from solprop.profiles import Constant
 from solprop.stats import GENERAL_MODAL_ACCESSORS, WITHHELD_WITH_A_FLOW
-from solprop.translate.chebyshev import _frozen_copy
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
@@ -459,7 +459,7 @@ class GeneralModalRoute(Displayed):
             ("moving_generator", generator),
             ("moving_connection", link),
         ):
-            array = _frozen_copy(value, np.complex128)
+            array = frozen_copy(value, np.complex128)
             if array.shape != shape or not np.all(np.isfinite(array)):
                 msg = (
                     f"a general modal route's {name} is a finite expansion on the "
@@ -502,7 +502,7 @@ class GeneralModalRoute(Displayed):
                 raise TranslationError(msg)
             return
         modes, bins = self.n_modes, int(self.tables.omega.size)
-        values = _frozen_copy(block, np.complex128)
+        values = frozen_copy(block, np.complex128)
         if values.shape != (modes, modes, bins) or not np.all(np.isfinite(values)):
             msg = (
                 f"a general modal route's coupled_generator must be a finite "

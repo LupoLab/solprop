@@ -16,6 +16,7 @@ from scipy.integrate import quad, quad_vec
 from bounds import EPS
 from convergence_records import Column, Study, record
 from solprop import fourier
+from solprop._ownership import is_held
 from solprop.constants import C
 from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -38,7 +39,7 @@ from solprop.profiles import (
     PressureGradient,
 )
 from solprop.pulses import GaussianPulse
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev, _is_held
+from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     ROUNDOFF_SAFETY,
@@ -764,13 +765,13 @@ def test_the_tables_translation_builds_are_held_and_not_copied_again():
     table = constant_phi(np.zeros(4, dtype=complex), 1.0)
     assert table.phi_coefficients is not None
     assert table.phi_constant is not None
-    assert _is_held(table.phi_coefficients)
-    assert _is_held(table.phi_constant)
+    assert is_held(table.phi_coefficients)
+    assert is_held(table.phi_constant)
     again = dataclasses.replace(table)
     assert again.phi_coefficients is table.phi_coefficients
     assert again.phi_constant is table.phi_constant
     tabulated = profile_table(Linear(1.0, 3.0, 2.0), 0.0, 2.1)
-    assert _is_held(tabulated.coefficients) and _is_held(tabulated.breakpoints)
+    assert is_held(tabulated.coefficients) and is_held(tabulated.breakpoints)
 
 
 def test_the_group_refuses_a_breakpoint_count_that_does_not_match():

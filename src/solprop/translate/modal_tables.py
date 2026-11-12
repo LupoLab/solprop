@@ -17,13 +17,13 @@ from scipy.linalg import svd
 from scipy.optimize import linear_sum_assignment
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes.guide import BASIS_UNITARY_ATOL, ChannelBasis
 from solprop.modes.material import JsonValue, quantised_measurement
 from solprop.modes.tabulated import IndexTable, _SampledIndexTable
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample, flux_product
-from solprop.translate.chebyshev import _frozen_copy
 from solprop.translate.coupled import interval_count
 
 __all__ = [
@@ -628,7 +628,7 @@ class DenseModalTable(Displayed):
             If knots, samples, gauges or validity disagree.
         """
         for name in ("omega", "z"):
-            values = _frozen_copy(getattr(self, name), np.float64)
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -1799,7 +1799,7 @@ class ModalTransformTables(Displayed):
         # read-only, and a view the caller still holds could then rewrite the
         # record behind its back. Copy, as every other record here does.
         for name in ("omega", "omega_fine", "z_edges"):
-            values = _frozen_copy(getattr(self, name), np.float64)
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -1864,7 +1864,7 @@ class ModalTransformTables(Displayed):
             MAX_N_COMPONENTS,
         )
 
-        reference = _frozen_copy(self.electric, np.complex128)
+        reference = frozen_copy(self.electric, np.complex128)
         if reference.ndim != 5 or reference.shape[2] != MAX_N_COMPONENTS:
             raise ModeError(
                 f"electric must have shape (n_z, n_nodes, {MAX_N_COMPONENTS}, "
@@ -1922,7 +1922,7 @@ class ModalTransformTables(Displayed):
             value = reference if name == "electric" else getattr(self, name)
             if value is None:
                 continue
-            array = _frozen_copy(value, dtype)
+            array = frozen_copy(value, dtype)
             if array.shape != shape:
                 raise ModeError(f"{name} must have shape {shape}, got {array.shape}")
             if dtype is not np.bool_ and not np.all(np.isfinite(array)):

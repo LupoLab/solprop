@@ -39,6 +39,7 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.linalg import expm, schur
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.exceptions import SolpropWarning, TranslationError
 from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
@@ -47,7 +48,6 @@ from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,
     INITIAL_DEGREE,
     PiecewiseChebyshev,
-    _frozen_copy,
     lobatto_coefficients,
     lobatto_points,
 )
@@ -152,7 +152,7 @@ def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     TranslationError
         If the values are not a finite, non-empty, increasing vector.
     """
-    array = _frozen_copy(values, np.float64)
+    array = frozen_copy(values, np.float64)
     if (
         array.ndim != 1
         or not array.size
@@ -190,7 +190,7 @@ def _owned(
     TranslationError
         If the shape disagrees or a value is not finite.
     """
-    array = _frozen_copy(values, dtype)
+    array = frozen_copy(values, dtype)
     if array.shape != shape:
         msg = f"{name} must have shape {shape}, got {array.shape}"
         raise TranslationError(msg)
@@ -246,7 +246,7 @@ def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     TranslationError
         If the rank is wrong, the two channel axes disagree, or a value is not finite.
     """
-    array = _frozen_copy(values, np.complex128)
+    array = frozen_copy(values, np.complex128)
     if array.ndim != rank or array.shape[-3] != array.shape[-2] or not array.shape[-2]:
         msg = (
             f"{name} must have {rank} axes with equal and non-empty output and input "
@@ -474,7 +474,7 @@ class ModalMetricTables(Displayed):
             raise TranslationError(msg)
         intervals = interval_count(len(self.z_edges))
         if self.diagonal is not None:
-            weights = _frozen_copy(self.diagonal, np.float64)
+            weights = frozen_copy(self.diagonal, np.float64)
             if weights.ndim != 4 or weights.shape[0] != intervals:
                 msg = (
                     "modal_metric.diagonal must have shape (n_intervals, n_deg, "
@@ -853,7 +853,7 @@ class CoupledFlowTables(Displayed):
                 f"frequencies, got {terms.shape}"
             )
             raise TranslationError(msg)
-        weights = _frozen_copy(self.term_weights, np.complex128)
+        weights = frozen_copy(self.term_weights, np.complex128)
         if (
             weights.ndim != 3
             or weights.shape[0] != intervals
@@ -895,7 +895,7 @@ class CoupledFlowTables(Displayed):
                 np.complex128,
             )
             object.__setattr__(self, "wall_vectors", vectors)
-            weights = _frozen_copy(self.wall_weights, np.complex128)
+            weights = frozen_copy(self.wall_weights, np.complex128)
             if (
                 weights.ndim != 3
                 or weights.shape[0] != intervals

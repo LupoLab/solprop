@@ -46,6 +46,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._ownership import frozen_copy, hold
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
@@ -299,7 +300,6 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
-from solprop.translate.chebyshev import _frozen_copy, _hold
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     metric_at,
@@ -992,7 +992,7 @@ class SimulationSettings(Displayed):
         DriverError
             If the planes are empty, not increasing, or not positive.
         """
-        planes = _frozen_copy(np.reshape(self.save_planes, -1), np.float64)
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         if (
             planes.size == 0
             or not np.all(np.isfinite(planes))
@@ -7835,7 +7835,7 @@ def _borrowed_input(
         and initial.dtype == np.complex128
         and (stated or not _recorded_inline(initial))
     ):
-        return _hold(np.asarray(initial).view())
+        return hold(np.asarray(initial).view())
     return initial
 
 
@@ -7860,7 +7860,7 @@ def _without_input(problem: PropagationProblem) -> PropagationProblem:
         np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
     )
     return dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+        problem, initial=dataclasses.replace(problem.initial, field0=hold(placeholder))
     )
 
 
@@ -9100,7 +9100,7 @@ def _replaced_launch(
     converted = power_amplitude(
         field0, power_weight_at(original, launch_z), inverse=True
     )
-    return _hold(np.asarray(converted, dtype=np.complex128))
+    return hold(np.asarray(converted, dtype=np.complex128))
 
 
 def _check_input_identity(
@@ -9158,7 +9158,7 @@ def _given_input(
     """
     # The whole dtype, byte order included: the record serialises its exact string.
     source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
-    return _hold(source.view())
+    return hold(source.view())
 
 
 def _check_planar_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
@@ -9274,7 +9274,7 @@ def _built_state(
     build = getattr(type(pulse), "build", None)
     own = getattr(build, "__module__", None) == _PULSE_MODULE
     if own and spectrum.dtype == np.complex128:
-        return _hold(spectrum)
+        return hold(spectrum)
     return _held_state(spectrum)
 
 

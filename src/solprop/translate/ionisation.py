@@ -41,6 +41,7 @@ from jaxtyping import Float
 from numpy.typing import ArrayLike
 from scipy import interpolate
 
+from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import TranslationError
 from solprop.nonlinear.ionisation import (
     IonisationRate,
@@ -48,7 +49,6 @@ from solprop.nonlinear.ionisation import (
     rate_convention,
     rate_species,
 )
-from solprop.translate.chebyshev import _frozen_copy, _hold
 
 __all__ = [
     "DEFAULT_INTERVALS",
@@ -643,8 +643,8 @@ def build_rate_table(
             # Frozen once, here, before the memo can hand it out: every response
             # sharing the rate shares these arrays, and the seam takes them as they
             # stand rather than copying them for each problem.
-            _hold(table.log_rate)
-            _hold(table.coefficients)
+            hold(table.log_rate)
+            hold(table.coefficients)
             _log_summary(table, rate, time.perf_counter() - started)
             if use_cache:
                 _TABLES[key] = table
@@ -706,8 +706,8 @@ def _frozen_table(table: RateTable) -> RateTable:
     RateTable
         The same values, not writeable.
     """
-    log_rate = _frozen_copy(table.log_rate)
-    coefficients = _frozen_copy(table.coefficients)
+    log_rate = frozen_copy(table.log_rate)
+    coefficients = frozen_copy(table.coefficients)
     if log_rate is table.log_rate and coefficients is table.coefficients:
         return table
     return replace(table, log_rate=log_rate, coefficients=coefficients)

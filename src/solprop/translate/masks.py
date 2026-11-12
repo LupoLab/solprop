@@ -28,12 +28,12 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._ownership import frozen_copy
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.responses import thg_carrier
-from solprop.translate.chebyshev import _frozen_copy
 
 __all__ = [
     "DEFAULT_ABSORBER_SCHEME",
@@ -188,9 +188,9 @@ class Grids:
             ("t_window_fine", np.float64),
             ("t_window_fine_derivative", np.float64),
         ):
-            object.__setattr__(self, name, _frozen_copy(getattr(self, name), dtype))
+            object.__setattr__(self, name, frozen_copy(getattr(self, name), dtype))
         if self.carrier_2w0 is not None:
-            carrier = _frozen_copy(self.carrier_2w0, np.complex128)
+            carrier = frozen_copy(self.carrier_2w0, np.complex128)
             object.__setattr__(self, "carrier_2w0", carrier)
         n_omega = self.omega.size
         for name in (
@@ -416,8 +416,8 @@ def temporal_rates(
             scheme,
         )
         return None, None
-    coarse = _frozen_copy(absorber.temporal_rate, np.float64)
-    fine = _frozen_copy(absorber.temporal_rate_fine, np.float64)
+    coarse = frozen_copy(absorber.temporal_rate, np.float64)
+    fine = frozen_copy(absorber.temporal_rate_fine, np.float64)
     logger.debug(
         "temporal absorber (%s): peak rate %.6e 1/m over %d coarse and %d fine samples",
         scheme,
@@ -474,4 +474,4 @@ def noise_spectrum(
             f"state shape {shape}"
         )
         raise TranslationError(msg) from error
-    return _frozen_copy(values, np.complex128)
+    return frozen_copy(values, np.complex128)

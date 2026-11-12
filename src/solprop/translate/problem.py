@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Num
 
+from solprop._ownership import frozen_copy, hold, is_held
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
@@ -103,9 +104,6 @@ from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
 from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     PiecewiseChebyshev,
-    _frozen_copy,
-    _hold,
-    _is_held,
 )
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
@@ -468,7 +466,7 @@ class Initial:
       block's bytes rather than one state's;
     - an array the problem already holds, which a replaced or re-translated problem
       passes back, is taken as it is, and so is one solprop built for the problem
-      itself (``_hold``), so that neither is copied twice.
+      itself (``hold``), so that neither is copied twice.
 
     Attributes
     ----------
@@ -679,7 +677,7 @@ class StepperSettings:
         TranslationError
             Naming the offending field.
         """
-        planes = _frozen_copy(np.reshape(self.save_planes, -1), np.float64)
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         object.__setattr__(self, "save_planes", planes)
         if planes.size == 0 or not np.all(np.diff(planes) > 0.0):
             msg = f"save_planes must be non-empty and increasing, got {planes}"
@@ -806,9 +804,9 @@ def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.nda
     numpy.ndarray
         Read-only and the problem's own, of `dtype`.
     """
-    if _is_held(values) and values.dtype == dtype:
+    if is_held(values) and values.dtype == dtype:
         return values
-    return _hold(np.array(values, dtype=dtype, order="C"))
+    return hold(np.array(values, dtype=dtype, order="C"))
 
 
 def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
@@ -828,7 +826,7 @@ def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.nd
         dtype; for a broadcast view, a broadcast of a held copy of the block it
         repeats; otherwise a held C-contiguous copy.
     """
-    if _is_held(values) and values.dtype == dtype:
+    if is_held(values) and values.dtype == dtype:
         return values
     repeated = tuple(
         size > 1 and stride == 0
@@ -839,7 +837,7 @@ def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.nd
     block = _held_copy(
         values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)], dtype
     )
-    return _hold(np.broadcast_to(block, values.shape))
+    return hold(np.broadcast_to(block, values.shape))
 
 
 def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
@@ -5398,10 +5396,10 @@ def _general_prefactor(
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(
-        _hold(values),
-        _hold(np.array(linear.z_span, dtype=np.float64)),
-        _hold(np.zeros(1, dtype=np.intp)),
-        _hold(np.zeros(0)),
+        hold(values),
+        hold(np.array(linear.z_span, dtype=np.float64)),
+        hold(np.zeros(1, dtype=np.intp)),
+        hold(np.zeros(0)),
     )
 
 
@@ -6655,10 +6653,10 @@ def _power_initial(
         # The quotients are the problem's own, held without a second copy.
         initial = replace(
             initial,
-            field0=_hold(initial.field0 / root_weight),
+            field0=hold(initial.field0 / root_weight),
             noise0=None
             if initial.noise0 is None
-            else _hold(initial.noise0 / root_weight),
+            else hold(initial.noise0 / root_weight),
         )
     if (
         reused is not None

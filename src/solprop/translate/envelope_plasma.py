@@ -19,12 +19,13 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float
 from scipy import special
 
+from solprop._ownership import frozen_copy
 from solprop.constants import CHARGE_MASS_RATIO
 from solprop.exceptions import ConvergenceError, SolpropWarning, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IonisationRate
-from solprop.translate.chebyshev import PiecewiseChebyshev, _frozen_copy
+from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
 
 __all__ = [
@@ -80,8 +81,8 @@ class AngularRule:
             or abs(float(np.sum(self.weights)) - 2) > 32 * np.finfo(float).eps
         ):
             raise TranslationError("invalid envelope plasma angular rule")
-        object.__setattr__(self, "nodes", _frozen_copy(self.nodes))
-        object.__setattr__(self, "weights", _frozen_copy(self.weights))
+        object.__setattr__(self, "nodes", frozen_copy(self.nodes))
+        object.__setattr__(self, "weights", frozen_copy(self.weights))
 
 
 @dataclass(frozen=True, eq=False)
@@ -129,8 +130,8 @@ class CycleValidation:
             or self.format_version != _FORMAT_VERSION
         ):
             raise TranslationError("invalid envelope plasma cycle validation evidence")
-        object.__setattr__(self, "probes", _frozen_copy(self.probes))
-        object.__setattr__(self, "residuals", _frozen_copy(self.residuals))
+        object.__setattr__(self, "probes", frozen_copy(self.probes))
+        object.__setattr__(self, "residuals", frozen_copy(self.residuals))
 
 
 @dataclass(frozen=True, eq=False)
@@ -294,7 +295,7 @@ class EnvelopeSourceFactors:
         ):
             raise TranslationError("invalid envelope plasma source factors")
         for name in ("active", "drude", "loss"):
-            object.__setattr__(self, name, _frozen_copy(getattr(self, name)))
+            object.__setattr__(self, name, frozen_copy(getattr(self, name)))
 
 
 @dataclass(frozen=True, eq=False)
