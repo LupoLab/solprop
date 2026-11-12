@@ -179,7 +179,7 @@ class Recipe:
     ) -> None:
         """Adopt a checked document."""
         self._document: Document = validate_document(document)
-        build = self._document["build"]
+        build = self._document.get("build", {})
         for key in [key for key in build if retired("build", key, build[key], key)]:
             # A retired key whose value is what solprop does anyway is dropped.
             del build[key]
