@@ -944,7 +944,7 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   problem.field_min = 1e6;
   problem.field_max = 1e7;
   problem.log_field_min = std::log(problem.field_min);
-  problem.d_log_field = std::log(10.0);
+  problem.d_log_field = std::numbers::ln10;
   constexpr double population = 0.25;
   // The unit mode at bin one produces E_n = 2*synthesis/N*cos(n theta).
   // The exact finite trapezoid sum of cos is dt*cot(theta/2)*sin(n theta)/2.

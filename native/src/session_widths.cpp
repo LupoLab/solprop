@@ -214,7 +214,7 @@ std::array<double, 3> radial(const double* radius, const double* fluence,
     throw std::invalid_argument("radial fluence moments are not representable");
   if (energy <= 0.0)
     return undefined();
-  const double second = std::sqrt(2.0) * std::sqrt(moment / energy);
+  const double second = std::numbers::sqrt2 * std::sqrt(moment / energy);
   double largest = fluence[0];
   for (std::size_t index = 1; index < n; ++index)
     largest = std::max(largest, fluence[index]);

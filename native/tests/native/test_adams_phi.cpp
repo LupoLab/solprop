@@ -92,7 +92,7 @@ void add_threshold(std::vector<Complex>& out, const double t) {
   for (const double r : {std::nextafter(t, 0.0), t, std::nextafter(t, infinity)}) {
     out.emplace_back(r, 0.0);
     out.emplace_back(0.0, -r);
-    const double d = r / std::sqrt(2.0);
+    const double d = r / std::numbers::sqrt2;
     for (const double e : {std::nextafter(d, 0.0), d, std::nextafter(d, infinity)})
       out.emplace_back(-e, e);
   }
