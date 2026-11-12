@@ -19,6 +19,10 @@
 #include <utility>
 #include <vector>
 
+// The binding code is rewritten around bound structs next (nanobind's ndarray aliases
+// and dicts become const& or bound types there); its by-value parameters wait for it.
+// NOLINTBEGIN(performance-unnecessary-value-param): the bindings' rewrite takes these
+
 namespace solprop_native::bindings {
 namespace {
 
@@ -306,3 +310,5 @@ void bind_transverse(nb::module_& module_) {
 }
 
 } // namespace solprop_native::bindings
+
+// NOLINTEND(performance-unnecessary-value-param)
