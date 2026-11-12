@@ -2260,7 +2260,7 @@ public:
       return method;
     }
     throw std::invalid_argument(
-        "a session's march is \"adams\", \"runge_kutta\" or \"low_storage\"");
+        R"(a session's march is "adams", "runge_kutta" or "low_storage")");
   }
   // The state's field and statistics, as a session reads them.
   std::unique_ptr<native::session::Resident> session_resident() {
