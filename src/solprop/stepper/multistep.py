@@ -715,20 +715,8 @@ def _basis_rows(
     (``solprop._helpers``), each with these operations in this order, so the values are
     the same bit for bit.
 
-    Parameters
-    ----------
-    points : numpy.ndarray
-        The distinct nodes, float64.
-    upper : float
-        The integral's upper limit.
-    integrate : bool
-        Whether to return the integrals rather than the coefficients.
-
-    Returns
-    -------
-    tuple
-        The coefficients, shape ``(n, n)`` (zero when integrating), and the integrals,
-        shape ``(n,)`` (unset when not).
+    - Returns: the coefficients, shape ``(n, n)`` (zero when integrating), and the
+      integrals, shape ``(n,)`` (unset when not).
     """
     n = points.shape[0]
     rows = np.zeros((n, n))
@@ -960,18 +948,7 @@ def milne_factor(
 
 
 def _check_nodes(theta: Float[np.ndarray, " n_nodes"]) -> None:
-    """Refuse empty, non-finite or repeated nodes.
-
-    Parameters
-    ----------
-    theta : numpy.ndarray
-        The nodes.
-
-    Raises
-    ------
-    StepperError
-        If the nodes are empty, not finite or not distinct.
-    """
+    """Refuse empty, non-finite or repeated nodes."""
     if theta.size == 0 or not np.all(np.isfinite(theta)):
         msg = f"nodes must be non-empty and finite, got {theta}"
         raise StepperError(msg)

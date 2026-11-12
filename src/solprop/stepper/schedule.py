@@ -502,18 +502,10 @@ class FixedSchedule:  # numpydoc ignore=PR02
 def _interval_index(edges: Float[np.ndarray, " n_edges"], position: float) -> int:
     """Return the index of the interval of ``edges`` containing ``position``.
 
-    Parameters
-    ----------
-    edges : numpy.ndarray
-        Strictly increasing interval edges of shape ``(n + 1,)``, m.
-    position : float
-        Position to locate, m.
-
-    Returns
-    -------
-    int
-        Interval index, clamped to ``[0, n - 1]`` so that a position on either end of
-        the covered range belongs to the interval that touches it.
+    - ``edges``: strictly increasing interval edges of shape ``(n + 1,)``, m.
+    - ``position``: position to locate, m.
+    - Returns: interval index, clamped to ``[0, n - 1]`` so that a position on either
+      end of the covered range belongs to the interval that touches it.
     """
     index = int(np.searchsorted(edges, position, side="right")) - 1
     return min(max(index, 0), int(edges.size) - 2)
@@ -994,15 +986,8 @@ def _bound_order(
 ) -> tuple[float, int]:
     """Order a cap or a landing: shortest first, then the highest priority.
 
-    Parameters
-    ----------
-    bound : tuple
-        The step it allows, m, and what it is, then its position for a landing.
-
-    Returns
-    -------
-    tuple
-        The step and the negated priority.
+    - ``bound``: the step it allows, m, and what it is, then its position for a landing.
+    - Returns: the step and the negated priority.
     """
     return bound[0], -_LANDING_PRIORITY[bound[1]]
 

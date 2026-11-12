@@ -90,18 +90,7 @@ _ORDER_CONDITIONS: tuple[tuple[int, str, float], ...] = (
 
 
 def _readonly(values: Float[np.ndarray, "*shape"]) -> Float[np.ndarray, "*shape"]:
-    """Return a private float64 copy that cannot be written through.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Array of any shape, dimensionless.
-
-    Returns
-    -------
-    numpy.ndarray
-        A float64 copy with the write flag cleared.
-    """
+    """Return a private float64 copy that cannot be written through."""
     copy = np.array(values, dtype=np.float64)
     copy.setflags(write=False)
     return copy
@@ -297,16 +286,6 @@ def _dot(left: Float[np.ndarray, " n"], right: Float[np.ndarray, " n"]) -> float
     add error of its own: ``math.fsum`` is correctly rounded, whereas a BLAS dot product
     reassociates and costs ~1e-15 on the Tsit5 order-5 trees, enough to read a genuine
     order 5 as order 4.
-
-    Parameters
-    ----------
-    left, right : numpy.ndarray
-        Vectors of the same length, dimensionless.
-
-    Returns
-    -------
-    float
-        The inner product, rounded once.
     """
     return math.fsum(left * right)
 
@@ -314,20 +293,7 @@ def _dot(left: Float[np.ndarray, " n"], right: Float[np.ndarray, " n"]) -> float
 def _matvec(
     matrix: Float[np.ndarray, "n n"], vector: Float[np.ndarray, " n"]
 ) -> Float[np.ndarray, " n"]:
-    """Return ``matrix @ vector``, each row reduced with :func:`math.fsum`.
-
-    Parameters
-    ----------
-    matrix : numpy.ndarray
-        Square matrix, dimensionless.
-    vector : numpy.ndarray
-        Vector of matching length, dimensionless.
-
-    Returns
-    -------
-    numpy.ndarray
-        The product, of the same length as ``vector``.
-    """
+    """Return ``matrix @ vector``, each row reduced with :func:`math.fsum`."""
     return np.array([_dot(row, vector) for row in matrix])
 
 
@@ -338,19 +304,7 @@ def _elementary_weights(
 ) -> dict[str, float]:
     """Evaluate the 17 elementary weights of the trees through order 5.
 
-    Parameters
-    ----------
-    nodes : numpy.ndarray
-        Stage abscissae ``c`` of shape ``(n_stages,)``, dimensionless.
-    matrix : numpy.ndarray
-        Butcher matrix ``A`` of shape ``(n_stages, n_stages)``, dimensionless.
-    weights : numpy.ndarray
-        Weight vector of shape ``(n_stages,)``, dimensionless.
-
-    Returns
-    -------
-    dict
-        Elementary weight of every tree, keyed by tree label.
+    - Returns: elementary weight of every tree, keyed by tree label.
     """
     node = nodes
     node2 = node * node
@@ -386,19 +340,7 @@ def _residuals(
 ) -> Mapping[str, float]:
     """Return the absolute order-condition residuals, keyed by tree label.
 
-    Parameters
-    ----------
-    nodes : numpy.ndarray
-        Stage abscissae ``c`` of shape ``(n_stages,)``, dimensionless.
-    matrix : numpy.ndarray
-        Butcher matrix ``A`` of shape ``(n_stages, n_stages)``, dimensionless.
-    weights : numpy.ndarray
-        Weight vector of shape ``(n_stages,)``, dimensionless.
-
-    Returns
-    -------
-    collections.abc.Mapping
-        Absolute residual of every tree, keyed by tree label.
+    - Returns: absolute residual of every tree, keyed by tree label.
     """
     attained = _elementary_weights(nodes, matrix, weights)
     return MappingProxyType(
@@ -409,17 +351,8 @@ def _residuals(
 def _attained_order(residuals: Mapping[str, float], tolerance: float) -> int:
     """Return the highest order whose conditions all sit within ``tolerance``.
 
-    Parameters
-    ----------
-    residuals : collections.abc.Mapping
-        Absolute residuals keyed by tree label, dimensionless.
-    tolerance : float
-        Threshold below which a condition counts as satisfied, dimensionless.
-
-    Returns
-    -------
-    int
-        The attained order, 0 if even the first condition fails.
+    - ``residuals``: absolute residuals keyed by tree label, dimensionless.
+    - Returns: the attained order, 0 if even the first condition fails.
     """
     attained = 0
     for order in range(1, MAX_CHECKED_ORDER + 1):
@@ -437,17 +370,7 @@ def _attained_order(residuals: Mapping[str, float], tolerance: float) -> int:
 def _worst_residual(residuals: Mapping[str, float], up_to: int) -> float:
     """Return the largest residual among the conditions of order ``up_to`` and below.
 
-    Parameters
-    ----------
-    residuals : collections.abc.Mapping
-        Absolute residuals keyed by tree label, dimensionless.
-    up_to : int
-        Highest condition order to include.
-
-    Returns
-    -------
-    float
-        The largest residual in that set.
+    - ``residuals``: absolute residuals keyed by tree label, dimensionless.
     """
     return max(
         residuals[label] for order, label, _ in _ORDER_CONDITIONS if order <= up_to
