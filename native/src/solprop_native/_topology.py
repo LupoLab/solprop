@@ -20,8 +20,7 @@ they span. This module reads what that needs:
 
 Elsewhere, or when a source is unreadable, every CPU is its own core on one socket.
 
-It reads ``sysctl`` through solprop's own reader (``solprop._process``) and loads
-nothing of this package.
+This module is standard library only and loads nothing of the package.
 """
 
 from __future__ import annotations
@@ -32,8 +31,6 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from solprop._process import sysctl_int
 
 __all__ = ["Topology", "parse_cpu_list", "read_topology"]
 
@@ -127,7 +124,7 @@ def read_topology(
         if found is not None:
             return found
     elif system == "Darwin":
-        found = _macos(sysctl or sysctl_int)
+        found = _macos(sysctl or _sysctl_int)
         if found is not None:
             return found
     elif system == "Windows":  # pragma: no cover - Windows
@@ -285,6 +282,21 @@ def _macos_model() -> str:  # pragma: no cover - macOS
     if query(name, buffer, ctypes.byref(size), None, 0) != 0:
         return platform.processor()
     return buffer.value.decode(errors="replace")
+
+
+def _sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
+    """Read an integer ``sysctl`` value by name on macOS, or ``None``."""
+    import ctypes
+
+    value = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    try:
+        found = ctypes.CDLL(None).sysctlbyname(
+            name.encode(), ctypes.byref(value), ctypes.byref(size), None, 0
+        )
+    except AttributeError, OSError:
+        return None
+    return value.value if found == 0 else None
 
 
 def _model(system: str) -> str:

@@ -31,9 +31,11 @@ contract and its conventions; where both apply, follow the stricter rule.
   the Runge-Kutta march's controller and the boundary monitor's checks (SEP 45) -- with
   every parameter handed over by solprop and solprop's implementation as the reference,
   and it never chooses or defaults a parameter itself.
-- solprop imports this package only lazily, through its backend registry; this package
-  imports solprop (its thread-budget reader at import, `solprop._process`, and the
-  adapter's translation types). The contract is solprop's kernel contract, whose fields
+- solprop imports this package only lazily, through its backend registry. The wheel
+  imports without solprop: its thread-budget reader at import is a copy of solprop's
+  (`_budget.py`, held to it by solprop's `tests/test_process.py`), and only the adapter
+  (`backend.py` and what it loads) imports solprop. The contract is solprop's kernel
+  contract, whose fields
   the frozen tables of solprop's `tests/backends/test_driver.py` hold. In an editable
   checkout `check_build()` compares the extension with the sources by digest, so
   mismatched halves (a stale extension beside newer sources) are refused, naming

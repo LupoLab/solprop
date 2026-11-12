@@ -60,7 +60,7 @@ from solprop.translate.raman import (
     kernel_spectrum,
     kernel_taper,
 )
-from solprop.translate.responses import prefactor_at
+from solprop.translate.responses import ResponseStage, prefactor_at
 
 # The pass is the oracle's own arithmetic -- the same padded real transform pair, the
 # same product, the same final multiplication -- but need not keep its order (SEP 25):
@@ -938,8 +938,10 @@ def test_the_drive_form_comes_from_the_leaf_and_not_from_the_kerr_flag(
     assert leaf.thg == (not kerr.analytic_signal)
 
 
-def test_the_raman_stage_refuses_a_problem_with_no_leaf(raman_capillary):
+def test_the_raman_stage_runs_exactly_when_the_leaf_is_present(raman_capillary):
+    # response_order is derived from the compiled leaves, so the stage that reads
+    # raman_terms[0] cannot be reached without one (the old refusal is structural now).
     problem, _, _, _ = raman_capillary()
+    assert ResponseStage.RAMAN_DRIVE in problem.responses.response_order
     stripped = dataclasses.replace(problem.responses, raman_terms=())
-    with pytest.raises(BackendError, match=r"no responses\.raman_coefficients"):
-        passes._raman_thg(stripped)
+    assert ResponseStage.RAMAN_DRIVE not in stripped.response_order
