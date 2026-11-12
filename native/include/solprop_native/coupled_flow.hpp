@@ -46,7 +46,7 @@ public:
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
   using IndexView2 = Kokkos::View<std::size_t**, Layout, MemorySpace>;
 
-  CoupledFlowAction(const Problem& problem, const ExecutionSpace& kernels);
+  CoupledFlowAction(const Problem& problem, ExecutionSpace kernels);
   ~CoupledFlowAction();
   CoupledFlowAction(const CoupledFlowAction&) = delete;
   CoupledFlowAction& operator=(const CoupledFlowAction&) = delete;

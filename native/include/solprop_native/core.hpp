@@ -4,10 +4,10 @@
 
 #pragma once
 
+#include "solprop_native/launch.hpp"
+
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
-
-#include "solprop_native/launch.hpp"
 
 #include <algorithm>
 #include <array>
@@ -138,7 +138,7 @@ inline constexpr std::size_t occupancy_bucket_limit = 128;
 // checks only the first: a value that fills the block passes its check and the dispatch
 // then faults on an AMD Instinct MI325X ("Illegal opcode in command stream"). So a
 // reading there takes two passes, leaving half the block free.
-#if defined(KOKKOS_ENABLE_HIP)
+#ifdef KOKKOS_ENABLE_HIP
 inline constexpr std::size_t occupancy_reduction_slots = 64;
 #else
 inline constexpr std::size_t occupancy_reduction_slots = occupancy_bucket_limit;
@@ -151,7 +151,7 @@ struct OccupancySums {
     return *this;
   }
 };
-#if defined(KOKKOS_ENABLE_HIP)
+#ifdef KOKKOS_ENABLE_HIP
 static_assert((64 + 2) * sizeof(OccupancySums) <= 48 * 1024);
 #endif
 

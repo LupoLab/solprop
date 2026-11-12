@@ -4,14 +4,14 @@
 
 #pragma once
 
-#include <cstddef>
-#include <optional>
-#include <vector>
-
 #include "solprop_native/core.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/stage_tables.hpp"
+
+#include <cstddef>
+#include <optional>
+#include <vector>
 
 /*
  * The low-storage RK4IP replay in the native session (solprop SEP 24, SEP 47 section

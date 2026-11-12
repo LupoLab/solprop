@@ -4,6 +4,13 @@
 
 #pragma once
 
+#include "solprop_native/adams_march.hpp"
+#include "solprop_native/dense.hpp"
+#include "solprop_native/rk_march.hpp"
+#include "solprop_native/statistics_plan.hpp"
+#include "solprop_native/transverse.hpp"
+#include "solprop_native/watch.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -19,13 +26,6 @@
 #include <utility>
 #include <variant>
 #include <vector>
-
-#include "solprop_native/adams_march.hpp"
-#include "solprop_native/dense.hpp"
-#include "solprop_native/rk_march.hpp"
-#include "solprop_native/statistics_plan.hpp"
-#include "solprop_native/transverse.hpp"
-#include "solprop_native/watch.hpp"
 
 /*
  * The native execution session (solprop SEP 47 sections 5 and 6.1): the one mutable

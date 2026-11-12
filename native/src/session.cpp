@@ -4,6 +4,8 @@
 
 #include "solprop_native/session.hpp"
 
+#include "solprop_native/core.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -12,8 +14,6 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-
-#include "solprop_native/core.hpp"
 
 // As in adams_march.cpp (solprop #135): the scheduler's comparisons and the export's
 // recipe round as solprop's Python does, so this file takes no contraction (CMake) and
@@ -206,7 +206,7 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
           "a session interpolates its planes with the march's dense output");
     dense_ = runge_kutta.dense.get();
   }
-  if (!std::is_sorted(plan_.planes.begin(), plan_.planes.end()))
+  if (!std::ranges::is_sorted(plan_.planes))
     throw std::invalid_argument("a session's save planes increase");
   if (plan_.next_plane > plan_.planes.size())
     throw std::invalid_argument("a session's first plane is past its planes");
@@ -445,7 +445,7 @@ void Session::progress(Batch& batch) {
   event.kind = EventKind::progress;
   event.z = here();
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::snapshot(Batch& batch) {
@@ -459,7 +459,7 @@ void Session::snapshot(Batch& batch) {
   event.ticket = true;
   event.generation = generation_;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
@@ -473,7 +473,7 @@ void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   event.ticket = outcome != Outcome::completed && !poisoned();
   event.generation = generation_;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 Batch Session::issue(Batch batch, const Outcome outcome) {
@@ -515,7 +515,7 @@ void Session::warning(Batch& batch, const Notice& notice) {
   event.generation = generation_;
   event.notice = notice;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::monitor_stop(Batch& batch, const Notice& notice) {
@@ -581,7 +581,7 @@ bool Session::attach(Batch& batch) {
   // `DriverSession._attach_monitor` after the launch plane's commit: restore a resumed
   // record, then record and judge the launch (`attach_monitor`).
   attached_ = true;
-  const auto& plan = *plan_.monitor;
+  const auto& plan = plan_.monitor.value();
   if (plan.resume) {
     // `BoundaryMonitor.resume` continues the edge's record first.
     if (edge_)
@@ -691,15 +691,15 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
   if (state_.load() == State::finished)
     throw LifecycleError("the session has ended and cannot advance");
   const auto started = Clock::now();
-  const auto elapsed = [&started]() {
+  const auto elapsed = [&started] {
     return std::chrono::duration<double>(Clock::now() - started).count();
   };
   const std::size_t budget = std::max<std::size_t>(work_limit, 1);
   const std::uint64_t before = attempts_;
   Batch batch;
-  const auto made = [&]() { return static_cast<std::size_t>(attempts_ - before); };
+  const auto made = [&] { return static_cast<std::size_t>(attempts_ - before); };
   // Issue a filled batch, terminal or not.
-  const auto ready = [&]() {
+  const auto ready = [&] {
     const Outcome outcome =
         batch.event.kind == EventKind::terminal ? batch.event.outcome : Outcome::none;
     return issue(std::move(batch), outcome);
@@ -807,7 +807,7 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
                                                 target, landing_ulps_)
                              : 0.0;
     const std::size_t n_steps = schedule().steps.size();
-    const auto running = [&]() {
+    const auto running = [&] {
       // `replay_to`'s and `march_to`'s loops: to the edge within the slack, or
       // reached.
       const double z = position();
@@ -1057,11 +1057,11 @@ SnapshotReceipt Session::request_snapshot() {
   std::uint64_t value = latch_.load(std::memory_order_acquire);
   while (true) {
     if ((value & 1U) != 0)
-      return {value >> 1U, true};
+      return {.request = value >> 1U, .coalesced = true};
     const std::uint64_t next = (((value >> 1U) + 1) << 1U) | 1U;
     if (latch_.compare_exchange_weak(value, next, std::memory_order_acq_rel)) {
       halt_.store(true, std::memory_order_release);
-      return {next >> 1U, false};
+      return {.request = next >> 1U, .coalesced = false};
     }
   }
 }
@@ -1119,10 +1119,12 @@ bool Session::close() noexcept {
     runge_kutta->dense.reset();
   }
   resident_.reset();
-  history_ = {};
-  row_z_ = {};
-  row_step_ = {};
-  row_values_ = {};
+  // Move-assigning an empty vector releases the storage and cannot throw; assigning
+  // `{}` goes through the initializer-list assignment, which may.
+  history_ = std::vector<double>();
+  row_z_ = std::vector<double>();
+  row_step_ = std::vector<std::int64_t>();
+  row_values_ = std::vector<double>();
   return true;
 }
 

@@ -2,13 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "execution.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/general_modal.hpp"
 
-#include "execution.hpp"
-
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -123,6 +121,7 @@ native::Problem modal_problem(const bool real_form, const std::size_t chunk,
 
 std::vector<Complex> scaled_state(const native::Problem& problem) {
   std::vector<Complex> state;
+  state.reserve(kModes * problem.n_omega);
   for (std::size_t index = 0; index < kModes * problem.n_omega; ++index)
     state.emplace_back(fill(index + 17, 1.0), fill(index + 23, 1.0));
   return state;
@@ -494,8 +493,21 @@ TEST(GeneralModal, TheStateCarriesTheSourceAndItsLedger) {
   for (std::size_t index = 0; index < field.size(); ++index)
     field[index] = Complex(fill(index, 1.0), fill(index + 1, 1.0));
   state.set_initial(field, {});
-  const native::TrialScalars scalars{{0.0, 0.0}, {0.0}, {1.0}, {1.0}, {1.0}, {}, {}, {},
-                                     {},         {},    {},    0,     {},    {}, {}};
+  const native::TrialScalars scalars{.phi_delta = {0.0, 0.0},
+                                     .phi_at = {0.0},
+                                     .prefactor = {1.0},
+                                     .density = {1.0},
+                                     .taper = {1.0},
+                                     .preionisation = {},
+                                     .raman_rates = {},
+                                     .kerr_density = {},
+                                     .plasma_densities = {},
+                                     .plasma_preionisation = {},
+                                     .raman_densities = {},
+                                     .flow_section = 0,
+                                     .flow_weights = {},
+                                     .transform_weights = {},
+                                     .dispersive_densities = {}};
   const auto first = state.trial_step(0.01, scalars);
   const auto stage = state.stage_to_host(0);
   const double magnitude = std::accumulate(
@@ -667,12 +679,25 @@ TEST(GeneralModal, TheAdamsRowsNeedTheHistory) {
 
 TEST(GeneralModal, ALinearGuideLeavesTheStageZero) {
   auto problem = modal_problem(true, 2, false);
-  std::fill(problem.general_tensor.begin(), problem.general_tensor.end(), 0.0);
+  std::ranges::fill(problem.general_tensor, 0.0);
   native::GeneralState state(problem);
   std::vector<Complex> field(kModes * problem.n_omega, Complex(1.0, 0.5));
   state.set_initial(field, {});
-  const native::TrialScalars scalars{{0.0, 0.0}, {0.0}, {1.0}, {1.0}, {1.0}, {}, {}, {},
-                                     {},         {},    {},    0,     {},    {}, {}};
+  const native::TrialScalars scalars{.phi_delta = {0.0, 0.0},
+                                     .phi_at = {0.0},
+                                     .prefactor = {1.0},
+                                     .density = {1.0},
+                                     .taper = {1.0},
+                                     .preionisation = {},
+                                     .raman_rates = {},
+                                     .kerr_density = {},
+                                     .plasma_densities = {},
+                                     .plasma_preionisation = {},
+                                     .raman_densities = {},
+                                     .flow_section = 0,
+                                     .flow_weights = {},
+                                     .transform_weights = {},
+                                     .dispersive_densities = {}};
   static_cast<void>(state.trial_step(0.01, scalars));
   // Exact: a zero tensor contracts to exact zeros.
   for (const auto value : state.stage_to_host(0)) {
@@ -914,8 +939,21 @@ TEST(GeneralModal, TheStateCombinesAMovingGuideSMapsPerTrial) {
   for (std::size_t index = 0; index < field.size(); ++index)
     field[index] = Complex(fill(index, 1.0), fill(index + 1, 1.0));
   state.set_initial(field, {});
-  native::TrialScalars scalars{{0.0, 0.0}, {0.0}, {1.0}, {1.0}, {1.0}, {}, {}, {},
-                               {},         {},    {},    0,     {},    {}, {}};
+  native::TrialScalars scalars{.phi_delta = {0.0, 0.0},
+                               .phi_at = {0.0},
+                               .prefactor = {1.0},
+                               .density = {1.0},
+                               .taper = {1.0},
+                               .preionisation = {},
+                               .raman_rates = {},
+                               .kerr_density = {},
+                               .plasma_densities = {},
+                               .plasma_preionisation = {},
+                               .raman_densities = {},
+                               .flow_section = 0,
+                               .flow_weights = {},
+                               .transform_weights = {},
+                               .dispersive_densities = {}};
   EXPECT_THROW(static_cast<void>(state.trial_step(0.01, scalars)),
                std::invalid_argument);
   scalars.transform_weights.assign(kMapTerms, 0.0);

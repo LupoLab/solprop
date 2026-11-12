@@ -9,13 +9,13 @@
 
 #include "solprop_native/watch.hpp"
 
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace watch = solprop_native::watch;

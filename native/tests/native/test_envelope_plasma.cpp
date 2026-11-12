@@ -26,8 +26,8 @@ struct PolynomialRate {
 };
 
 std::array<RuleView, 2> polynomial_rules(const bool inconsistent = false) {
-  RuleView nodes("envelope_test.nodes", 4, 512),
-      weights("envelope_test.weights", 4, 512);
+  RuleView nodes("envelope_test.nodes", 4, 512);
+  RuleView weights("envelope_test.weights", 4, 512);
   auto host_nodes = Kokkos::create_mirror_view(nodes);
   auto host_weights = Kokkos::create_mirror_view(weights);
   for (std::size_t level = 0; level < 4; ++level) {
@@ -81,8 +81,10 @@ void polynomial_moments_and_directional_work() {
   // Two ordered sums of at most 128 terms, plus bounded elementary arithmetic.
   constexpr double tolerance = 1024 * std::numeric_limits<double>::epsilon();
   for (std::size_t index = 0; index < ratios.size(); ++index) {
-    const double ratio = ratios[index], square = ratio * ratio;
-    const double mc = 2.0 * (3.0 + square), ms = 2.0 * (1.0 + 3.0 * square);
+    const double ratio = ratios[index];
+    const double square = ratio * ratio;
+    const double mc = 2.0 * (3.0 + square);
+    const double ms = 2.0 * (1.0 + 3.0 * square);
     EXPECT_NEAR(actual(index, 0), 2.0, tolerance);
     EXPECT_NEAR(actual(index, 1), ratio, tolerance);
     EXPECT_NEAR(actual(index, 2), mc, tolerance * mc);
@@ -97,7 +99,8 @@ void polynomial_moments_and_directional_work() {
 }
 
 void phase_and_real_rotation() {
-  constexpr double phase = 0.37, angle = 0.61;
+  constexpr double phase = 0.37;
+  constexpr double angle = 0.61;
   const Complex common(std::cos(phase), std::sin(phase));
   const Complex first = common * Complex(2.0 * std::cos(angle), -0.7 * std::sin(angle));
   const Complex second = common * Complex(2.0 * std::sin(angle), 0.7 * std::cos(angle));
@@ -180,7 +183,8 @@ void scaled_magnitude_preserves_tiny_and_huge_components() {
       "envelope_test.scaled",
       Kokkos::RangePolicy<native::ExecutionSpace>(native::ExecutionSpace{}, 0, count),
       KOKKOS_LAMBDA(const std::size_t index) {
-        const double first = pairs(index, 0), second = pairs(index, 1);
+        const double first = pairs(index, 0);
+        const double second = pairs(index, 1);
         const auto one = native::envelope_axes(Complex(first, second), Complex{});
         const auto two =
             native::envelope_axes(Complex(first, 0.0), Complex(second, 0.0));

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/far_field.hpp"
+
 #include "solprop_native/launch.hpp"
 
 #include <Kokkos_Core.hpp>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <numbers>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace solprop_native {
@@ -71,8 +73,8 @@ std::size_t far_field_band_count(const std::size_t n_x, const std::size_t n_y,
   return std::max<std::size_t>(1, std::min(units, admitted));
 }
 
-FarFieldPass::FarFieldPass(const Problem& problem, const ExecutionSpace& execution)
-    : execution_(execution), n_x_(problem.n_x), n_y_(problem.n_y),
+FarFieldPass::FarFieldPass(const Problem& problem, ExecutionSpace execution)
+    : execution_(std::move(execution)), n_x_(problem.n_x), n_y_(problem.n_y),
       n_omega_(problem.n_omega), n_pol_(problem.n_pol_state), n_t_(problem.n_t),
       dt_(problem.dt), envelope_(problem.family == FieldFamily::envelope) {
   if (!problem.free_geometry() || problem.spatial_k_x.size() != n_x_ ||
@@ -224,7 +226,8 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   if (table_size != 0)
     Kokkos::deep_copy(execution_, tables_, host_tables_);
   accumulate(layout, n_bands, n_apertures, n_regions, exponent,
-             Sharing{shared, one_distance, circles}, field, inputs);
+             Sharing{.centre = shared, .distance = one_distance, .circles = circles},
+             field, inputs);
   finish(layout, n_bands, n_apertures, n_regions, intensity_factor, packed_size);
   Kokkos::deep_copy(execution_, host_packed_, packed_);
   execution_.fence("solprop_native far-field statistics boundary");
@@ -243,7 +246,8 @@ void FarFieldPass::axis_spectrum(const bool closed, const ComplexView2& spectrum
   launch::parallel_for(
       "solprop_native.far_field.axis_spectrum", Range2(execution_, {0, 0}, {n_pol_, n}),
       KOKKOS_LAMBDA(const std::size_t pol, const std::size_t bin) {
-        double real = 0.0, imag = 0.0;
+        double real = 0.0;
+        double imag = 0.0;
         for (std::size_t band = 0; band < n_bands; ++band) {
           real += partials((band * slots + first + 2 * pol) * n + bin);
           imag += partials((band * slots + first + 2 * pol + 1) * n + bin);
@@ -408,12 +412,14 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                     transmission = far_field_shaped_weight(
                         far_field_offset(reach, kx, centre_x),
                         far_field_offset(reach, ky, centre_y),
-                        FarFieldOutline{tables(constants + far_field_half_width),
-                                        tables(constants + far_field_half_height),
-                                        tables(constants + far_field_stretch_x),
-                                        tables(constants + far_field_stretch_y),
-                                        tables(constants + far_field_inverse_width),
-                                        tables(constants + far_field_edge)},
+                        FarFieldOutline{
+                            .half_width = tables(constants + far_field_half_width),
+                            .half_height = tables(constants + far_field_half_height),
+                            .stretch_x = tables(constants + far_field_stretch_x),
+                            .stretch_y = tables(constants + far_field_stretch_y),
+                            .inverse_width =
+                                tables(constants + far_field_inverse_width),
+                            .edge = tables(constants + far_field_edge)},
                         shape, code);
                   }
                   if (transmission == 0.0)
@@ -462,7 +468,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
   const double density = envelope ? dt_ * dt_ / (2.0 * std::numbers::pi)
                                   : 2.0 * (dt_ * dt_) / std::numbers::pi;
   const double energy = dt_ / static_cast<double>(n_t_);
-  const std::size_t leading = static_cast<std::size_t>(layout.beam >= 0);
+  const auto leading = static_cast<std::size_t>(layout.beam >= 0);
   const std::size_t absorbed = layout.absorbed >= 0 ? far_field_absorbed_channels : 0;
   const std::size_t spectral = (packed_size - absorbed) / n;
   const std::size_t regions = layout.regions >= 0 ? n_regions : 0;
@@ -482,6 +488,8 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
           std::size_t rest = row;
           long slot = -1;
           bool amplitude = false;
+          // Each test takes the previous range off the row before comparing.
+          // NOLINTBEGIN(bugprone-assignment-in-if-condition): a packed-row cascade
           if (rest < leading) {
             slot = layout.beam;
           } else if ((rest -= leading) < regions) {
@@ -497,6 +505,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
             slot = layout.axis;
             amplitude = true;
           }
+          // NOLINTEND(bugprone-assignment-in-if-condition)
           const auto first = static_cast<std::size_t>(slot);
           double value = 0.0;
           if (amplitude) {

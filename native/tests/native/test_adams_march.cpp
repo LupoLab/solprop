@@ -10,14 +10,14 @@
 
 #include "solprop_native/adams_march.hpp"
 
+#include <gtest/gtest.h>
+
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 namespace march = solprop_native::march;

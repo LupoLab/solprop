@@ -508,7 +508,7 @@ against 2.40 s), where it was 1.4 times.
 (smooth-size-cliffs)=
 ### Smooth grid sizes
 
-`native/benchmarks/size_cliffs.py` times the four-mode RDW capillary per source
+`python -m benchmarks.size_cliffs` times the four-mode RDW capillary per source
 evaluation (short and long capped Runge-Kutta windows, their difference) on 2-3-5-smooth
 and power-of-two grids, and flags a size whose cost per sample exceeds its nearest power
 of two's by more than 25 %. Two size boundaries made cliffs: the stage threshold (8192

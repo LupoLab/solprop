@@ -210,11 +210,11 @@ void Edge::resume(const Resumption& record) {
     return;
   resumed_ = true;
   launch_ = launch;
-  baseline_ = *record.edge_baseline;
+  baseline_ = record.edge_baseline.value();
   if (fits(record.edge_max))
-    peak_ = *record.edge_max;
+    peak_ = record.edge_max.value();
   if (fits(record.edge_max_raw))
-    peak_raw_ = *record.edge_max_raw;
+    peak_raw_ = record.edge_max_raw.value();
   allowance_ = record.noise_allowance.value_or(0.0);
   ramp_raw_ = record.raw_ramp_removed.value_or(0.0);
   ramp_noise_ = record.noise_ramp_removed.value_or(0.0);
@@ -340,8 +340,8 @@ Notice Edge::run_launch() {
   case Stage::launch_clip:
     while (face_ < n_faces_) {
       const std::size_t face = face_++;
-      baseline_[face] = (*held_.faces)[face] / launch_;
-      const double clipped = (*held_.clip)[face] / launch_;
+      baseline_[face] = held_.faces.value()[face] / launch_;
+      const double clipped = held_.clip.value()[face] / launch_;
       if (clipped > config_.warn) {
         Notice notice = notice_of(Notice::Kind::clip, clipped);
         notice.face = face;
@@ -463,7 +463,7 @@ Notice Edge::judge_faces(const Reading& reading, const double z) {
   // `max` of `(judged, name)` tuples, ties broken on the name.
   std::array<double, 4> judged{};
   for (std::size_t face = 0; face < n_faces_; ++face) {
-    const double share = (*reading.faces)[face] / launch_;
+    const double share = reading.faces.value()[face] / launch_;
     peak_raw_[face] = py_max(peak_raw_[face], share);
     judged[face] = share - baseline_[face] - allowance_;
     peak_[face] = py_max(peak_[face], judged[face]);

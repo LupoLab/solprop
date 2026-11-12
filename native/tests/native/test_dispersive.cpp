@@ -2,13 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "execution.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/dispersive.hpp"
 
-#include "execution.hpp"
-
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -53,7 +51,8 @@ TEST(DispersiveBodies, TheContractionIsTheIsotropicTensorSum) {
   const Complex z[2] = {{0.9, 0.1}, {-0.2, 0.8}};
   Complex expected[2];
   tensor_sum(x, y, z, expected);
-  Complex out0, out1;
+  Complex out0;
+  Complex out1;
   native::dispersive_isotropic(x[0], x[1], y[0], y[1], z[0], z[1], out0, out1);
   EXPECT_LT(distance(out0, expected[0]), 16 * kEpsilon);
   EXPECT_LT(distance(out1, expected[1]), 16 * kEpsilon);
@@ -71,7 +70,9 @@ TEST(DispersiveBodies, TheScalarClosedFormsAreTheGeneralGroups) {
   const Complex f{-1.2, 0.35};
   const Complex carrier{std::cos(0.7), std::sin(0.7)};
   const Complex zero{};
-  Complex general, unused, harmonic;
+  Complex general;
+  Complex unused;
+  Complex harmonic;
   native::dispersive_conserving(u, zero, u, zero, u, zero, general, unused);
   EXPECT_LT(distance(native::dispersive_conserving_self(u), general), 16 * kEpsilon);
   native::dispersive_conserving(u, zero, u, zero, f, zero, general, unused);
@@ -98,8 +99,10 @@ TEST(DispersiveBodies, TheScalarClosedFormsAreTheGeneralGroups) {
 TEST(DispersiveBodies, TheConservingGroupIsTheQuartetsWithTwoPositiveLegs) {
   // `|u|^2 u` contracted isotropically: `(u . u*) u` twice and `(u . u) u*` once, the
   // number-conserving group of `(u, u, u)` (SEP 6 Phase 0).
-  const Complex u0{0.4, 0.9}, u1{-0.7, 0.2};
-  Complex out0, out1;
+  const Complex u0{0.4, 0.9};
+  const Complex u1{-0.7, 0.2};
+  Complex out0;
+  Complex out1;
   native::dispersive_conserving(u0, u1, u0, u1, u0, u1, out0, out1);
   const Complex square = u0 * u0 + u1 * u1;
   const double modulus =
@@ -140,10 +143,13 @@ TEST(DispersiveBodies, TheThreeComponentContractionIsTheTensorSum) {
   native::dispersive_isotropic_n(x, y, z, out);
   for (int c = 0; c < 3; ++c)
     EXPECT_LT(distance(out[c], expected[c]), 32 * kEpsilon) << c;
-  const Complex x2[2] = {x[0], x[1]}, y2[2] = {y[0], y[1]}, z2[2] = {z[0], z[1]};
+  const Complex x2[2] = {x[0], x[1]};
+  const Complex y2[2] = {y[0], y[1]};
+  const Complex z2[2] = {z[0], z[1]};
   Complex two[2];
   native::dispersive_isotropic_n(x2, y2, z2, two);
-  Complex out0, out1;
+  Complex out0;
+  Complex out1;
   native::dispersive_isotropic(x[0], x[1], y[0], y[1], z[0], z[1], out0, out1);
   // Each body is within 16 eps of the tensor sum (the test above), so 32 eps of the
   // other.
@@ -171,13 +177,18 @@ TEST(DispersiveBodies, TheDistinctLegGroupsAreTheirTensorSums) {
   const Complex x[3] = {{0.3, -1.1}, {0.7, 0.2}, {-0.5, 0.4}};
   const Complex y[3] = {{-0.4, 0.5}, {1.3, -0.6}, {0.2, 0.9}};
   const Complex z[3] = {{0.9, 0.1}, {-0.2, 0.8}, {0.6, -0.3}};
-  Complex xc[3], yc[3], zc[3];
+  Complex xc[3];
+  Complex yc[3];
+  Complex zc[3];
   for (int c = 0; c < 3; ++c) {
     xc[c] = Kokkos::conj(x[c]);
     yc[c] = Kokkos::conj(y[c]);
     zc[c] = Kokkos::conj(z[c]);
   }
-  Complex a[3], b[3], d[3], out[3];
+  Complex a[3];
+  Complex b[3];
+  Complex d[3];
+  Complex out[3];
   tensor_sum3(x, y, zc, a);
   tensor_sum3(x, yc, z, b);
   tensor_sum3(xc, y, z, d);
@@ -185,10 +196,18 @@ TEST(DispersiveBodies, TheDistinctLegGroupsAreTheirTensorSums) {
   for (int c = 0; c < 3; ++c)
     EXPECT_LT(distance(out[c], a[c] + b[c] + d[c]), 3 * 32 * kEpsilon) << c;
 
-  const Complex x2[2] = {x[0], x[1]}, y2[2] = {y[0], y[1]}, z2[2] = {z[0], z[1]};
-  const Complex xc2[2] = {xc[0], xc[1]}, yc2[2] = {yc[0], yc[1]},
-                zc2[2] = {zc[0], zc[1]};
-  Complex p[2], q[2], r[2], u[2], out0, out1;
+  const Complex x2[2] = {x[0], x[1]};
+  const Complex y2[2] = {y[0], y[1]};
+  const Complex z2[2] = {z[0], z[1]};
+  const Complex xc2[2] = {xc[0], xc[1]};
+  const Complex yc2[2] = {yc[0], yc[1]};
+  const Complex zc2[2] = {zc[0], zc[1]};
+  Complex p[2];
+  Complex q[2];
+  Complex r[2];
+  Complex u[2];
+  Complex out0;
+  Complex out1;
   tensor_sum(x2, y2, zc2, p);
   tensor_sum(x2, yc2, z2, q);
   tensor_sum(xc2, y2, z2, r);
