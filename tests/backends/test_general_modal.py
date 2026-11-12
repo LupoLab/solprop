@@ -785,6 +785,47 @@ def test_the_reference_refuses_a_metric_or_a_response_with_no_tables(
             NumpyRefBackend(spoiled, disabled_run.request, grid=soliton_grid)
 
 
+def test_a_metric_on_the_problem_s_own_grid_with_no_tables_is_refused(strand):
+    """A metric consistent with the state, on a guide with no reference, is the route's.
+
+    The strand's own identity metric beside the plain modal problem on the same field
+    grid: every structural check passes, and the route's policy names the tables it
+    lacks.
+    """
+    _, state = continuous_wave(strand, [1.0])
+    metric = general_problem(strand, state).problem.linear.modal_metric
+    plain = general_problem(strand, state, general=None).problem
+    assert plain.transform.modal_tables is None
+    linear = dataclasses.replace(plain.linear)
+    object.__setattr__(linear, "modal_metric", metric)
+    spoiled = dataclasses.replace(plain, linear=linear)
+    with pytest.raises(
+        TranslationError,
+        match=r"^solprop executes linear\.modal_metric as part of the general modal "
+        r"route, and this problem carries no transform\.modal_tables",
+    ):
+        spoiled.validate()
+
+
+@pytest.mark.parametrize("leaf", ["coupled_flow", "modal_metric", "regional_responses"])
+def test_a_leaf_that_is_not_its_record_type_is_refused_by_type(strand, leaf):
+    """A hand-built problem holding something else in a leaf meets a named refusal."""
+    _, state = continuous_wave(strand, [1.0])
+    problem = general_problem(strand, state).problem
+    group = dataclasses.replace(getattr(problem, GROUP[leaf]))
+    object.__setattr__(group, leaf, object())
+    spoiled = dataclasses.replace(problem, **{GROUP[leaf]: group})
+    kind = {
+        "coupled_flow": "CoupledFlowTables",
+        "modal_metric": "ModalMetricTables",
+        "regional_responses": "RegionalResponseTables",
+    }[leaf]
+    with pytest.raises(
+        TranslationError, match=rf"^{GROUP[leaf]}\.{leaf} is a object, not a {kind}$"
+    ):
+        spoiled.validate()
+
+
 def test_the_reference_refuses_a_reference_with_no_execution_map(strand):
     """A table sampled over a path carries no map, and is refused."""
     tables = dataclasses.replace(strand.route.tables)

@@ -285,10 +285,10 @@ def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
 
 @pytest.mark.parametrize("case", ["modal", "single-mode"])
 def test_a_borrowed_observed_field_is_detached(case):
-    """The session detaches a borrowed field rather than converting it where it is.
+    """The session's export of its driver's own state is a new array, detached from it.
 
     The reference session's own conversion of its driver's observation, the driver's
-    own binary64 state. The native session exports from its resident state instead
+    own state. The native session exports from its resident state instead
     (``tests/sessions/test_destination_export.py``).
     """
     backend = "numpy_ref"
@@ -330,7 +330,6 @@ def test_a_borrowed_observed_field_is_detached(case):
                 break
             session.acknowledge(batch.receipt)
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
-        assert not seen[-1].field_owned
         expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))
         assert held.tobytes() == expected.tobytes()
         # The observation's own array stays frozen; a fresh export is the caller's.
@@ -340,17 +339,3 @@ def test_a_borrowed_observed_field_is_detached(case):
         assert not np.shares_memory(held, state)
     finally:
         session.close()
-
-
-def test_an_observation_without_a_field_owns_none():
-    empty = np.empty(0)
-    observation = Observation(
-        0.0,
-        None,
-        None,
-        BackendHistory(empty, empty, empty, np.empty(0, bool), empty),
-        0,
-        0,
-        field_owned=True,
-    )
-    assert not observation.field_owned

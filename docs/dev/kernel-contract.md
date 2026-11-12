@@ -1173,11 +1173,9 @@ embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_st
 keyed by statistic name, without a batch axis. Nothing writes to an observation's
 arrays again, the backend included: `run_problem` hands them to the output without a copy,
 and a handler may keep them. The array-backed state of a host backend is observed as it is
-and frozen, so its next step replaces it rather than accepting in place. `field_owned` says
-whether the backend made `field` for this observation alone and keeps no reference to it (the
-native backend's host copy; a backend's `observes_fresh_field`): the run's conversion to true-power amplitudes then works on it in
-place, where for any other field that conversion's new array is what detaches the plane from
-the backend's state (SEP 47 §5.4). It is `False` by default and without a field.
+and frozen, so its next step replaces it rather than accepting in place; the run's conversion
+to true-power amplitudes makes a new array, which is what detaches the plane from the
+backend's state (SEP 47 §5.4).
 
 `step_stats` is a `StepStats`: `z` `(n_rows,)` and `step` `(n_rows,)` — the index of the
 accepted step each row was taken after, into *this* observation's `step_history`, which

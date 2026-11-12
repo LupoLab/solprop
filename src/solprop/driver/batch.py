@@ -45,11 +45,6 @@ def _signature(member: BatchMember) -> str:
     """Hash the execution layout while keeping member parameter tables independent."""
     simulation = member.simulation
     backend = simulation.settings.backend
-    if backend not in {"numpy_ref", "native"}:
-        raise DriverError(
-            f"Batch does not support backend {simulation.settings.backend!r}; "
-            "use Local or Pool to preserve the selected backend"
-        )
     problem = simulation.translate()
     request = simulation._run_request()
     if problem.transform.geometry is not None:

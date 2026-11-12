@@ -28,7 +28,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -329,19 +329,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         stage tables' Clenshaw rows and the Adams basis -- which the driver, march and
         engines pass down rather than choosing one (SEP 29 section 6.6): ``PLAIN``, the
         uncompiled forms, for the NumPy reference.
-    observes_fresh_field : bool
-        Whether ``_observed_field`` makes a new array at every call and keeps no
-        reference to it, so that :meth:`observe` can say its field is owned
-        (:attr:`solprop.backends.protocol.Observation.field_owned`). ``False`` by
-        default: the array-backed state is observed as it is, frozen, and left
-        behind by the next step.
     """
 
     name: str = "driver"
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
-    observes_fresh_field: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -623,8 +616,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Array-backed CPU implementations use the identity. A device backend overrides
         this hook to synchronize and copy without teaching the shared march its state
-        representation, and sets :attr:`observes_fresh_field` when every call makes a
-        new array.
+        representation.
 
         - Returns: an owning host ``complex128`` field in canonical layout.
         """
@@ -1370,13 +1362,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         state = self._require_state()
         history = _history_record(self._history)
         whole = self._observed_field(state) if field else None
-        if whole is not None and not self.observes_fresh_field:
+        if whole is not None:
             # The state itself, frozen as an observed array always was so that the
             # next step replaces it rather than accepting in place, and held, so the
             # observation takes a view of it without a copy. A state that only views
             # memory the march owns is frozen but not held, and the observation copies
-            # it. A fresh export stays writeable beneath the observation, which copies
-            # it once: the session converts that copy in place (SEP 47 section 5.4).
+            # it.
             hold(whole)
         plane = Observation(
             z=self._z,
@@ -1386,7 +1377,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             n_steps=history.n_steps,
             n_rejected=history.n_rejected,
             step_stats=self._drain_step_stats(),
-            field_owned=field and self.observes_fresh_field,
         )
         self._history = []
         self._clock = time.perf_counter()

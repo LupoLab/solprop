@@ -31,14 +31,12 @@ from solprop.backends.numpy_ref.multistep import (
     AdamsKernels,
     ExponentialKernels,
     HostHistory,
-    _State,
 )
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
 from solprop.stepper.schedule import FixedSchedule, landing
-from solprop.translate.tdse import TDSEPurpose
 
 __all__ = ["HostAdamsMarch"]
 
@@ -301,23 +299,6 @@ class HostAdamsMarch:
             ),
         )
         return next((reason for failed, reason in checks if failed), None)
-
-    # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        - ``anchor``, ``position``: the frame's anchor and the evaluation position, m.
-        - Returns: ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 

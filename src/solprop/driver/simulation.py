@@ -560,8 +560,8 @@ class SimulationSettings(Displayed):
         and :meth:`Simulation.from_planar`, the
         :data:`~solprop.driver.defaults.FREE_RTOL` and
         :data:`~solprop.driver.defaults.FREE_ATOL` of :meth:`Simulation.from_free`.
-        An explicit controller always wins, and a default copied into another route
-        takes that route's default. The other fields are keyword-only.
+        An explicit controller always wins, and settings that already belong to a
+        route keep its default. The other fields are keyword-only.
     save_planes : numpy.ndarray
         Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
         ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
@@ -945,7 +945,6 @@ class SimulationSettings(Displayed):
         # (SEP 16 phases 3 and 5).
         object.__setattr__(self, "backend", resolve_name(self.backend))
         if isinstance(self.integrator, Multistep):
-            _admit_integrator(self.integrator, self.backend)
             rtol = getattr(self.controller, "rtol", None)
             if self.schedule is None and rtol is not None and rtol >= LOOSE_ADAMS_RTOL:
                 msg = (
@@ -981,16 +980,6 @@ class SimulationSettings(Displayed):
         if controller is None and self._route is not None:
             controller = default_controller(self._route)
             defaulted = True
-        elif defaulted and controller is not None:
-            # A default copied into another route takes that one's tolerance,
-            # keeping the absolute tolerance the route's builder chose.
-            rtol = (
-                default_rtol(self._route)
-                if self._route is not None
-                else controller.rtol
-            )
-            if rtol != controller.rtol:
-                controller = dataclasses.replace(controller, rtol=rtol)
         object.__setattr__(self, "controller", controller)
         object.__setattr__(self, "controller_defaulted", defaulted)
         if defaulted:
@@ -1176,25 +1165,6 @@ def _admit_low_storage(
             rule="low-storage-no-interpolation",
         )
     return backend
-
-
-def _admit_integrator(integrator: Multistep, backend: str) -> None:
-    """Refuse an Adams integrator on a backend that does not execute it.
-
-    Refused here, before translation, so that no backend -- in particular a
-    separately built one reading the contract by name -- can silently step the problem
-    with its Runge-Kutta march instead (SEP 13 section 6.1).
-    """
-    if backend not in ("auto", "numpy_ref", "native"):
-        msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref and native "
-            f"only, and backend {backend!r} would step the problem with its "
-            "Runge-Kutta march; pass one of those or 'auto', or "
-            "integrator=RungeKutta()"
-        )
-        raise DriverError(
-            msg, parameter=("integrator", "backend"), rule="integrator-backends"
-        )
 
 
 def metadata_for(
