@@ -28,10 +28,9 @@ from solprop.driver.routes.hollow import _capillary_grid
 from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.settings import (
     NoiseSetting,
-    SimulationSettings,
     _boundary,
-    _keyword_controller,
     _save_planes,
+    keyword_settings,
 )
 from solprop.exceptions import DriverError, TranslationError
 from solprop.grid import TimeGrid
@@ -260,15 +259,14 @@ def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulat
             metric=metric_at(route.metric_tables, 0.0),
         )
     boundary, scheme = _boundary(request.absorber, request.absorber_scheme, working)
-    controller, default = _keyword_controller("waveguide", request.rtol, request.atol)
-    settings = SimulationSettings(
-        controller=controller,
-        _default_controller=default,
-        _route="waveguide",
+    settings = keyword_settings(
+        "waveguide",
+        request.length,
+        rtol=request.rtol,
+        atol=request.atol,
+        dz_max=request.dz_max,
+        dz_init=request.dz_init,
         save_planes=planes,
-        dz_max=request.length / 2 if request.dz_max is None else request.dz_max,
-        dz_init=request.length * 1e-4 if request.dz_init is None else request.dz_init,
-        auto_init=request.dz_init is None,
         schedule=request.schedule,
         integrator=request.integrator,
         interpolate_planes=request.interpolate_planes,

@@ -13,7 +13,7 @@ import dataclasses
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal, SupportsIndex, cast
+from typing import Any, Literal, SupportsIndex, cast
 
 import numpy as np
 from jaxtyping import Float
@@ -29,6 +29,7 @@ from solprop.driver.defaults import (
     default_integrator,
     default_rtol,
     default_scheme,
+    default_step,
 )
 from solprop.exceptions import BackendError, DriverError, GridError, SolpropWarning
 from solprop.grid import TimeGrid
@@ -57,6 +58,7 @@ __all__ = [
     "NoiseSetting",
     "SimulationSettings",
     "default_collar",
+    "keyword_settings",
 ]
 
 LOOSE_ADAMS_RTOL = 5e-2
@@ -645,6 +647,114 @@ class SimulationSettings(Displayed):
         )
         return DefaultsResolution(self._route, defaulted)
 
+    def with_boundaries(
+        self,
+        grid: TimeGrid,
+        *,
+        absorber: Absorber | Literal[False] | None = None,
+        absorber_scheme: AbsorberScheme | None = None,
+        boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
+    ) -> "SimulationSettings":
+        """Return these settings with a spatial constructor's boundary keywords applied.
+
+        Each keyword may be given here or in the settings, not both (SEP 21 section 5,
+        SEP 40); its default leaves the settings' own.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            The run's time grid, which sizes a collar switched off.
+        absorber : solprop.boundaries.Absorber, False or None, optional
+            The temporal and spectral collar. ``False`` zeroes the rates of the
+            settings' absorber and keeps its lengths, or without one builds the hard
+            band mask alone.
+        absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+            How the temporal collar is applied.
+        boundary_check : solprop.monitor.BoundaryCheck or None, optional
+            How the run watches its time window's edges; ``None`` watches nothing.
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary.
+
+        Returns
+        -------
+        SimulationSettings
+            The settings, replaced where a keyword applies.
+
+        Raises
+        ------
+        DriverError
+            If a keyword is given beside settings that declare their own, or
+            ``absorber=False`` beside a scheme.
+
+        Examples
+        --------
+        >>> from solprop.driver import SimulationSettings
+        >>> from solprop.grid import EnvelopeGrid
+        >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
+        >>> settings = SimulationSettings(save_planes=[1.0], dz_max=0.1, dz_init=0.01)
+        >>> settings.with_boundaries(grid, boundary_check=None).boundary_check is None
+        True
+        """
+        changes: dict[str, object] = {}
+        if absorber is False:
+            if absorber_scheme is not None:
+                msg = (
+                    "absorber=False switches the temporal collar off, so there is "
+                    f"nothing for absorber_scheme={absorber_scheme!r} to apply; give "
+                    "one or the other"
+                )
+                raise DriverError(msg)
+            current = self.absorber
+            changes["absorber"] = (
+                no_absorber(grid)
+                if current is None
+                else dataclasses.replace(
+                    current,
+                    spectral_rate=np.zeros_like(current.spectral_rate),
+                    user_rate=None,
+                    temporal_rate=np.zeros(grid.n_t),
+                    temporal_rate_fine=np.zeros(grid.n_to),
+                    temporal=False,
+                )
+            )
+        elif absorber is not None:
+            if self.absorber is not None:
+                msg = (
+                    "the settings already declare an absorber; give it there or as "
+                    "the absorber keyword, not both"
+                )
+                raise DriverError(msg)
+            changes["absorber"] = absorber
+        if absorber_scheme is not None:
+            if self.absorber_scheme_named and self.absorber_scheme != absorber_scheme:
+                msg = (
+                    f"the settings already declare absorber_scheme="
+                    f"{self.absorber_scheme!r}; give it there or as the keyword"
+                )
+                raise DriverError(msg)
+            changes["absorber_scheme"] = absorber_scheme
+        if not (
+            boundary_check is DEFAULT_BOUNDARY_CHECK
+            or boundary_check == self.boundary_check
+        ):
+            if self.boundary_check != DEFAULT_BOUNDARY_CHECK:
+                msg = (
+                    "the settings already declare a boundary_check; give it there or "
+                    "as the boundary_check keyword, not both"
+                )
+                raise DriverError(msg)
+            changes["boundary_check"] = boundary_check
+        if spatial_absorber is not None and spatial_absorber != self.spatial_absorber:
+            if self.spatial_absorber is not None:
+                msg = (
+                    "the settings already declare a spatial_absorber; give it there or "
+                    "as the spatial_absorber keyword, not both"
+                )
+                raise DriverError(msg)
+            changes["spatial_absorber"] = spatial_absorber
+        return dataclasses.replace(self, **changes) if changes else self
+
 
 def _admit_tdse_execution(settings: SimulationSettings) -> None:
     """Refuse TDSE execution resources beside settings a TDSE run cannot step with.
@@ -685,22 +795,67 @@ def _quiet_collar(settings: SimulationSettings) -> bool:
     return check is not None and check.quiet_collar
 
 
-def _keyword_controller(
-    route: str, rtol: float | None, atol: float
-) -> tuple[PIController, PIController | None]:
-    """Return a keyword interface's controller, and it again if its rtol is default.
+def keyword_settings(
+    route: str,
+    length: float,
+    *,
+    rtol: float | None,
+    atol: float,
+    dz_max: float | None,
+    dz_init: float | None,
+    # The other settings fields, each typed on SimulationSettings itself.
+    **fields: Any,
+) -> SimulationSettings:
+    """Return the settings a keyword route builds: its controller and its steps.
 
-    - ``route``: the row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` the
-      interface reads.
-    - ``rtol``: the caller's relative tolerance, which is never raised silently;
-      ``None`` takes the route's (:func:`~solprop.driver.defaults.default_rtol`).
-    - Returns: the controller, and the same object where `rtol` was the route's default
-      so that the settings record the default, else ``None``.
+    Parameters
+    ----------
+    route : str
+        The row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` the route reads.
+    length : float
+        The guide's length, m, which the default steps are fractions of.
+    rtol : float or None
+        The caller's relative tolerance, which is never raised silently; ``None``
+        takes the route's (:func:`~solprop.driver.defaults.default_rtol`), and the
+        settings record that the controller is the default.
+    atol : float
+        The absolute tolerance, in the route's field unit.
+    dz_max, dz_init : float or None
+        The largest and the first step, m; ``None`` takes
+        :func:`~solprop.driver.defaults.default_step`, and a first step so chosen is
+        refined by the start-up rule.
+    **fields : Any
+        Every other field of :class:`SimulationSettings`.
+
+    Returns
+    -------
+    SimulationSettings
+        The settings.
+
+    Examples
+    --------
+    >>> from solprop.driver.settings import keyword_settings
+    >>> settings = keyword_settings(
+    ...     "gnlse", 0.4, rtol=None, atol=1e-14, dz_max=None, dz_init=None,
+    ...     save_planes=[0.4],
+    ... )
+    >>> settings.controller.rtol, settings.dz_max, settings.controller_defaulted
+    (1e-07, 0.2, True)
     """
-    if rtol is not None:
-        return PIController(rtol=rtol, atol=atol), None
-    controller = PIController(rtol=default_rtol(route), atol=atol)
-    return controller, controller
+    if rtol is None:
+        controller = PIController(rtol=default_rtol(route), atol=atol)
+        default = controller
+    else:
+        controller, default = PIController(rtol=rtol, atol=atol), None
+    return SimulationSettings(
+        controller=controller,
+        _default_controller=default,
+        _route=route,
+        dz_max=default_step("dz_max", length) if dz_max is None else dz_max,
+        dz_init=default_step("dz_init", length) if dz_init is None else dz_init,
+        auto_init=dz_init is None,
+        **fields,
+    )
 
 
 LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
@@ -832,94 +987,6 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     if settings._route is not None:
         return settings
     return dataclasses.replace(settings, _route=route)
-
-
-def _with_boundary(
-    settings: SimulationSettings,
-    grid: TimeGrid,
-    absorber: Absorber | Literal[False] | None,
-    scheme: AbsorberScheme | None,
-) -> SimulationSettings:
-    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
-
-    - ``absorber``: the collar given; ``False`` zeroes the temporal and spectral rates
-      of the settings' absorber and keeps its lengths (without one it builds the hard
-      mask alone); ``None`` leaves the settings' own. The transverse boundary is
-      ``spatial_absorber``'s (SEP 40).
-    - ``scheme``: the temporal scheme given; ``None`` leaves the settings' own.
-    """
-    changes: dict[str, object] = {}
-    if absorber is False:
-        if scheme is not None:
-            msg = (
-                "absorber=False switches the temporal collar off, so there is nothing "
-                f"for absorber_scheme={scheme!r} to apply; give one or the other"
-            )
-            raise DriverError(msg)
-        current = settings.absorber
-        changes["absorber"] = (
-            no_absorber(grid)
-            if current is None
-            else dataclasses.replace(
-                current,
-                spectral_rate=np.zeros_like(current.spectral_rate),
-                user_rate=None,
-                temporal_rate=np.zeros(grid.n_t),
-                temporal_rate_fine=np.zeros(grid.n_to),
-                temporal=False,
-            )
-        )
-    elif absorber is not None:
-        if settings.absorber is not None:
-            msg = (
-                "the settings already declare an absorber; give it there or as the "
-                "absorber keyword, not both"
-            )
-            raise DriverError(msg)
-        changes["absorber"] = absorber
-    if scheme is not None:
-        if settings.absorber_scheme_named and settings.absorber_scheme != scheme:
-            msg = (
-                f"the settings already declare absorber_scheme="
-                f"{settings.absorber_scheme!r}; give it there or as the keyword"
-            )
-            raise DriverError(msg)
-        changes["absorber_scheme"] = scheme
-    return dataclasses.replace(settings, **changes) if changes else settings
-
-
-def _watched(
-    settings: SimulationSettings, check: BoundaryCheck | None
-) -> SimulationSettings:
-    """Apply a spatial constructor's ``boundary_check`` keyword to its settings."""
-    if check is DEFAULT_BOUNDARY_CHECK or check == settings.boundary_check:
-        return settings
-    if settings.boundary_check != DEFAULT_BOUNDARY_CHECK:
-        msg = (
-            "the settings already declare a boundary_check; give it there or as the "
-            "boundary_check keyword, not both"
-        )
-        raise DriverError(msg)
-    return dataclasses.replace(settings, boundary_check=check)
-
-
-def _bounded(
-    settings: SimulationSettings,
-    spatial_absorber: SpatialAbsorber | Literal[False] | None,
-) -> SimulationSettings:
-    """Apply a spatial constructor's ``spatial_absorber`` keyword to its settings.
-
-    - ``spatial_absorber``: the keyword's value; ``None`` leaves the settings' own.
-    """
-    if spatial_absorber is None or spatial_absorber == settings.spatial_absorber:
-        return settings
-    if settings.spatial_absorber is not None:
-        msg = (
-            "the settings already declare a spatial_absorber; give it there or as "
-            "the spatial_absorber keyword, not both"
-        )
-        raise DriverError(msg)
-    return dataclasses.replace(settings, spatial_absorber=spatial_absorber)
 
 
 def _boundary(

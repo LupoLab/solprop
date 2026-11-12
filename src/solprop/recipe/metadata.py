@@ -25,10 +25,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal
 
 from solprop.driver.defaults import (
-    default_integrator,
-    default_rtol,
     default_scheme,
-    resolve_noise,
+    describe_default,
+    route_row,
 )
 from solprop.exceptions import DriverError
 from solprop.modes.slab import SlabMode
@@ -319,52 +318,31 @@ def _row(route: str, values: Mapping[str, object]) -> str:
     - Returns: ``"capillary tdse"`` for a capillary beside a TDSE response, and
       ``"waveguide slab"`` for a waveguide of slab modes; the route otherwise.
     """
-    if route == "capillary" and values.get("tdse") is not None:
-        return "capillary tdse"
-    if per_unit_width(route, values):
-        return "waveguide slab"
-    return route
+    return route_row(
+        route,
+        tdse=route == "capillary" and values.get("tdse") is not None,
+        slab=per_unit_width(route, values),
+    )
 
 
-def _rtol(route: str) -> Resolver:
-    """Return the resolver of a route's ``rtol``."""
+def _route_default(
+    route: str, keyword: Literal["rtol", "integrator", "noise", "dz_max", "dz_init"]
+) -> Resolver:
+    """Return the resolver of a keyword whose default is the route's own.
+
+    The value and the rule are :func:`solprop.driver.defaults.describe_default`'s, for
+    the defaults-table row the recipe's values select.
+    """
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default."""
-        row = _row(route, values)
-        return Resolution(
-            default_rtol(row),
-            f"the {row} route's default (solprop.driver.defaults.ROUTE_DEFAULTS)",
+        """Return the row's default for the keyword, and its rule."""
+        length = values.get("length")
+        value, rule = describe_default(
+            _row(route, values),
+            keyword,
+            length if isinstance(length, int | float) else None,
         )
-
-    return resolve
-
-
-def _integrator(route: str) -> Resolver:
-    """Return the resolver of a route's ``integrator``."""
-
-    def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default method."""
-        row = _row(route, values)
-        return Resolution(default_integrator(row), f"the {row} route's default")
-
-    return resolve
-
-
-def _noise(route: str) -> Resolver:
-    """Return the resolver of a route's ``noise="default"``."""
-
-    def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the model the default draws, and why.
-
-        - Returns: the model (``None`` for none) and the reason.
-        """
-        row = _row(route, values)
-        model, resolution = resolve_noise(row, "default", None)
-        per = "transverse column" if route in OBJECT_ROUTES else "mode"
-        return Resolution(
-            model, resolution.reason or f"one photon per {per} on the input"
-        )
+        return Resolution(value, rule)
 
     return resolve
 
@@ -437,24 +415,6 @@ def _pressure(values: Mapping[str, object]) -> Resolution:
     """
     del values
     return Resolution(1.0, "one bar when no pressure is given")
-
-
-def _length_fraction(fraction: float, text: str) -> Resolver:
-    """Return the resolver of a step length.
-
-    The step defaults to `fraction` of ``length``; `text` is the rule.
-    """
-
-    def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the fraction of the recipe's length.
-
-        - Returns: the step, m, or ``None`` without a length, and the rule.
-        """
-        length = values.get("length")
-        value = None if not isinstance(length, int | float) else fraction * length
-        return Resolution(value, text)
-
-    return resolve
 
 
 # ------------------------------------------------------------------- the forms
@@ -629,7 +589,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "Shot noise added to the input: a model, or none.",
             _NOISE_PAGE,
             none=True,
-            resolver=_noise(route),
+            resolver=_route_default(route, "noise"),
         ),
         Parameter(
             "seed",
@@ -647,7 +607,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "Relative tolerance of the adaptive step.",
             _STEPPER_PAGE,
             resolvable=True,
-            resolver=_rtol(route),
+            resolver=_route_default(route, "rtol"),
         ),
         Parameter(
             "atol",
@@ -667,7 +627,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             _PLANES_PAGE,
             display="mm",
             resolvable=True,
-            resolver=_length_fraction(0.5, "half the length"),
+            resolver=_route_default(route, "dz_max"),
         ),
         Parameter(
             "dz_init",
@@ -677,7 +637,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "First step; none takes it from the start-up rule.",
             _PLANES_PAGE,
             display="mm",
-            resolver=_length_fraction(1e-4, "a ten-thousandth of the length"),
+            resolver=_route_default(route, "dz_init"),
         ),
         Parameter(
             "schedule",
@@ -695,7 +655,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             "The method that steps the run.",
             _STEPPER_PAGE,
             resolvable=True,
-            resolver=_integrator(route),
+            resolver=_route_default(route, "integrator"),
         ),
         Parameter(
             "interpolate_planes",

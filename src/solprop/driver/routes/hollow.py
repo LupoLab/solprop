@@ -20,7 +20,7 @@ import numpy as np
 from scipy.special import j0, jn_zeros
 
 from solprop.boundaries import Absorber, warn_walkoff
-from solprop.driver.defaults import WAVEGUIDE_ATOL, resolve_noise
+from solprop.driver.defaults import WAVEGUIDE_ATOL, resolve_noise, route_row
 from solprop.driver.inputs import (
     ModalLaunch,
     _hollow_input,
@@ -46,10 +46,9 @@ from solprop.driver.routes.keywords import (
 from solprop.driver.routes.materials import _check_selection_carrier, _default_cladding
 from solprop.driver.settings import (
     NoiseSetting,
-    SimulationSettings,
     _boundary,
-    _keyword_controller,
     _save_planes,
+    keyword_settings,
 )
 from solprop.driver.tdse_run import _entry_overrides, _tdse_entry, _tdse_stats
 from solprop.exceptions import (
@@ -665,24 +664,19 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
         request.ionisation_field_range,
         _InputPeak(field0, mode_set, working, rule) if ionising else None,
     )
-    row = (
-        "waveguide slab"
-        if any(isinstance(mode, SlabMode) for mode in mode_set.modes)
-        else "capillary tdse"
-        if atomic is not None
-        else request.route
+    row = route_row(
+        request.route,
+        tdse=atomic is not None,
+        slab=any(isinstance(mode, SlabMode) for mode in mode_set.modes),
     )
-    controller, default = _keyword_controller(row, request.rtol, request.atol)
-    settings = SimulationSettings(
-        controller=controller,
-        _default_controller=default,
-        _route=row,
+    settings = keyword_settings(
+        row,
+        request.length,
+        rtol=request.rtol,
+        atol=request.atol,
+        dz_max=request.dz_max,
+        dz_init=request.dz_init,
         save_planes=_save_planes(request.length, request.save_planes, n_save),
-        # Relative defaults, so that the first step and the cap scale with the
-        # capillary.
-        dz_max=request.length / 2 if request.dz_max is None else request.dz_max,
-        dz_init=request.length * 1e-4 if request.dz_init is None else request.dz_init,
-        auto_init=request.dz_init is None,
         schedule=request.schedule,
         integrator=request.integrator,
         interpolate_planes=request.interpolate_planes,

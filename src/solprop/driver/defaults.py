@@ -47,6 +47,7 @@ __all__ = [
     "SLAB_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
+    "STEP_FRACTIONS",
     "TDSE_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
@@ -58,8 +59,11 @@ __all__ = [
     "default_integrator",
     "default_rtol",
     "default_scheme",
+    "default_step",
+    "describe_default",
     "resolve_noise",
     "route_defaults",
+    "route_row",
 ]
 
 DEFAULT_RTOL = 1e-7
@@ -275,6 +279,20 @@ protocol and are deliberately not aligned (SEP 41, Q3); the collar schemes are S
 """
 
 
+STEP_FRACTIONS: Mapping[str, tuple[float, str]] = MappingProxyType(
+    {
+        "dz_max": (0.5, "half the length"),
+        "dz_init": (1e-4, "a ten-thousandth of the length"),
+    }
+)
+"""The step lengths a keyword route takes when none is given, as fractions of length.
+
+Relative, so that the first step and the cap scale with the guide; each with its rule in
+words. The same on every keyword route (``from_gnlse``, ``from_capillary`` and
+``from_waveguide``); the object routes take their steps in their settings.
+"""
+
+
 def route_defaults(route: str) -> RouteDefaults:
     """Return a route's row of :data:`ROUTE_DEFAULTS`.
 
@@ -484,3 +502,105 @@ def resolve_noise(
         warnings.warn(SolpropWarning(msg, parameter="noise"), stacklevel=4)
     # An unknown model passes through to be refused where it is drawn.
     return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)
+
+
+def default_step(keyword: Literal["dz_max", "dz_init"], length: float) -> float:
+    """Return a keyword route's default step length.
+
+    Parameters
+    ----------
+    keyword : {'dz_max', 'dz_init'}
+        Which step: the cap or the first.
+    length : float
+        The guide's length, m.
+
+    Returns
+    -------
+    float
+        The step, m: :data:`STEP_FRACTIONS` of `length`.
+
+    Examples
+    --------
+    >>> from solprop.driver.defaults import default_step
+    >>> default_step("dz_max", 0.4), default_step("dz_init", 1.0)
+    (0.2, 0.0001)
+    """
+    return STEP_FRACTIONS[keyword][0] * length
+
+
+def route_row(route: str, *, tdse: bool = False, slab: bool = False) -> RouteName:
+    """Return the row of :data:`ROUTE_DEFAULTS` a route's run reads.
+
+    Parameters
+    ----------
+    route : str
+        The route: a :data:`RouteName` without its variant.
+    tdse : bool, optional
+        Whether a capillary run carries the TDSE response.
+    slab : bool, optional
+        Whether the mode set is a slab set, which carries no noise.
+
+    Returns
+    -------
+    str
+        ``"waveguide slab"`` for a slab set, ``"capillary tdse"`` beside a TDSE
+        response, and `route` otherwise.
+
+    Examples
+    --------
+    >>> from solprop.driver.defaults import route_row
+    >>> route_row("capillary", tdse=True), route_row("waveguide", slab=True)
+    ('capillary tdse', 'waveguide slab')
+    """
+    if slab:
+        return "waveguide slab"
+    if tdse:
+        return "capillary tdse"
+    return cast("RouteName", route)
+
+
+def describe_default(
+    row: str,
+    keyword: Literal["rtol", "integrator", "noise", "dz_max", "dz_init"],
+    length: float | None = None,
+) -> tuple[object, str]:
+    """Return what a route takes for a keyword it is not given, and the rule in words.
+
+    What a front end shows beside an unset keyword (SEP 41): the same table the
+    constructors resolve from.
+
+    Parameters
+    ----------
+    row : str
+        A :data:`RouteName` (:func:`route_row`).
+    keyword : {'rtol', 'integrator', 'noise', 'dz_max', 'dz_init'}
+        The keyword.
+    length : float or None, optional
+        The guide's length, m, which a step default is a fraction of; ``None`` when
+        it is not known, and the step's value is then ``None``.
+
+    Returns
+    -------
+    tuple
+        The value (a tolerance, an integrator, a noise model or ``None``, or a step in
+        m) and its rule.
+
+    Examples
+    --------
+    >>> from solprop.driver.defaults import describe_default
+    >>> describe_default("capillary", "rtol")
+    (1e-06, "the capillary route's default (solprop.driver.defaults.ROUTE_DEFAULTS)")
+    >>> describe_default("gnlse", "dz_max", 0.4)
+    (0.2, 'half the length')
+    """
+    if keyword == "rtol":
+        rule = f"the {row} route's default (solprop.driver.defaults.ROUTE_DEFAULTS)"
+        return default_rtol(row), rule
+    if keyword == "integrator":
+        return default_integrator(row), f"the {row} route's default"
+    if keyword == "noise":
+        model, resolution = resolve_noise(row, "default", None)
+        per = "transverse column" if row in ("radial", "free", "planar") else "mode"
+        return model, resolution.reason or f"one photon per {per} on the input"
+    fraction, rule = STEP_FRACTIONS[keyword]
+    return (None if length is None else fraction * length), rule

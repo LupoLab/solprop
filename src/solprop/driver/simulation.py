@@ -129,16 +129,13 @@ from solprop.driver.settings import (
     NoiseSetting,
     SimulationSettings,
     _boundary,
-    _bounded,
-    _keyword_controller,
     _quiet_collar,
     _same_setting,
     _save_planes,
     _scheme,
     _spatial_default,
     _spatial_settings,
-    _watched,
-    _with_boundary,
+    keyword_settings,
 )
 from solprop.driver.tdse_run import (
     _AtomicContext,
@@ -2096,12 +2093,12 @@ class Simulation(Displayed):
             _selected_medium(medium, materials),
             responses,
             initial,
-            settings=_bounded(
-                _watched(
-                    _with_boundary(settings, grid, absorber, absorber_scheme),
-                    boundary_check,
-                ),
-                spatial_absorber,
+            settings=settings.with_boundaries(
+                grid,
+                absorber=absorber,
+                absorber_scheme=absorber_scheme,
+                boundary_check=boundary_check,
+                spatial_absorber=spatial_absorber,
             ),
             frame=frame,
             noise=noise,
@@ -2216,12 +2213,12 @@ class Simulation(Displayed):
             medium,
             responses,
             initial,
-            settings=_bounded(
-                _watched(
-                    _with_boundary(settings, grid, absorber, absorber_scheme),
-                    boundary_check,
-                ),
-                spatial_absorber,
+            settings=settings.with_boundaries(
+                grid,
+                absorber=absorber,
+                absorber_scheme=absorber_scheme,
+                boundary_check=boundary_check,
+                spatial_absorber=spatial_absorber,
             ),
             frame=frame,
             noise=noise,
@@ -2339,12 +2336,12 @@ class Simulation(Displayed):
             # Refused before the simulation copies it.
             _check_planar_input(initial.shape, space.n_columns, grid.n_omega)
         settings = _spatial_default(
-            _bounded(
-                _watched(
-                    _with_boundary(settings, grid, absorber, absorber_scheme),
-                    boundary_check,
-                ),
-                spatial_absorber,
+            settings.with_boundaries(
+                grid,
+                absorber=absorber,
+                absorber_scheme=absorber_scheme,
+                boundary_check=boundary_check,
+                spatial_absorber=spatial_absorber,
             ),
             grid,
         )
@@ -2624,17 +2621,14 @@ class Simulation(Displayed):
             pulses=pulses,
         )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
-        controller, default = _keyword_controller("gnlse", rtol, atol)
-        settings = SimulationSettings(
-            controller=controller,
-            _default_controller=default,
-            _route="gnlse",
+        settings = keyword_settings(
+            "gnlse",
+            length,
+            rtol=rtol,
+            atol=atol,
+            dz_max=dz_max,
+            dz_init=dz_init,
             save_planes=_save_planes(length, save_planes, n_save),
-            # Relative defaults, so that the first step and the cap scale with the
-            # fibre.
-            dz_max=length / 2 if dz_max is None else dz_max,
-            dz_init=length * 1e-4 if dz_init is None else dz_init,
-            auto_init=dz_init is None,
             schedule=schedule,
             integrator=integrator,
             interpolate_planes=interpolate_planes,

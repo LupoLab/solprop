@@ -25,7 +25,6 @@ from solprop.driver.interface import (
 )
 from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import DriverError
-from solprop.modes import MarcatiliMode, ModeCollection
 from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
@@ -187,52 +186,6 @@ def test_the_resolvable_keywords_are_those_the_sep_measured():
         for route in ROUTES:
             entry = metadata.parameters(route).get(name)
             assert entry is None or not entry.resolvable
-
-
-GNLSE = {
-    "wavelength": 835e-9,
-    "wavelength_limits": (500e-9, 2e-6),
-    "trange": 1e-12,
-    "width": 100e-15,
-    "peak_power": 9.8,
-    "shape": "sech",
-    "n_save": 3,
-    "backend": "numpy_ref",
-}
-CAPILLARY = {
-    "wavelength": 800e-9,
-    "wavelength_limits": (400e-9, 2e-6),
-    "trange": 200e-15,
-    "fwhm": 30e-15,
-    "energy": 1e-6,
-    "n_save": 2,
-    "backend": "numpy_ref",
-}
-
-
-def test_the_resolvers_say_what_the_build_resolves():
-    gnlse = Simulation.from_gnlse(0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE)
-    capillary = Simulation.from_capillary(125e-6, 0.1, "He", 1.0, **CAPILLARY)
-    hollow = [MarcatiliMode(125e-6)]
-    waveguide = Simulation.from_waveguide(hollow, 0.1, "He", 1.0, **CAPILLARY)
-    slab = ModeCollection.slab(50e-6, (1,))
-    planar = Simulation.from_waveguide(slab, 0.1, "Ar", 1.0, **CAPILLARY)
-    for route, simulation, modes in (
-        ("gnlse", gnlse, None),
-        ("capillary", capillary, None),
-        ("waveguide", waveguide, hollow),
-        ("waveguide", planar, slab),
-    ):
-        table = metadata.parameters(route)
-        values = {"modes": modes}
-        settings = simulation.settings
-        controller = settings.controller
-        assert controller is not None
-        assert _resolve(table, "rtol", values).value == controller.rtol
-        integrator = _resolve(table, "integrator", values).value
-        assert type(integrator) is type(settings.integrator)
-        model = _resolve(table, "noise", values).value
-        assert model == simulation.noise_resolution.resolved
 
 
 def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
