@@ -606,7 +606,8 @@ def general_node_chunk(
     :data:`PAIR_BUFFERS_PER_GENERAL_NODE` per node and component squared, and SEP 6's
     dispersive response's own (:func:`general_dispersive_buffers`), over the longer of
     the fine time axis and the fine spectrum. The maps, the reference and the dual are
-    whole-problem allocations that no chunk shrinks (:func:`general_memory`).
+    whole-problem allocations that no chunk shrinks
+    (:func:`solprop.backends.numpy_ref.general_modal.general_memory`).
 
     Parameters
     ----------
