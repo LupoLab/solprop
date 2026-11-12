@@ -40,12 +40,14 @@ def check_general_route(problem: "PropagationProblem") -> None:
     """Refuse, by name, each general modal or coupled-flow problem solprop does not run.
 
     The coupled flow first: a metric or a table beside it is this route's refusal to
-    make, not the general route's. Then the general modal route: a field grid, the
-    tables' own execution maps, an identity metric or the dense metric of a declared
-    unitary change of basis of one, the constant unit power weight, no legacy response
-    beside the route's own, per-region responses of a known model, and moving maps only
-    beside the flow that carries their connection. A problem carrying none of the
-    general-modal leaves passes untouched.
+    make, not the general route's. Then the general modal route: the tables' own
+    execution maps, an identity metric or the dense metric of a declared unitary change
+    of basis of one, the constant unit power weight, no legacy response beside the
+    route's own, per-region responses of a known model, and moving maps only beside the
+    flow that carries their connection. Its field grid is the leaves' own structure's to
+    require: a leaf's increasing frequency axis is ``grids.omega``, which an envelope
+    grid's FFT-ordered axis is not. A problem carrying none of the general-modal leaves
+    passes untouched.
 
     Parameters
     ----------
@@ -272,7 +274,8 @@ def _mode_independent(linear: LinearOperator) -> bool:
 def _check_modal_route(problem: "PropagationProblem") -> None:
     """Refuse every general modal problem solprop does not execute.
 
-    The route is one combination: a field grid, the tables' own execution maps, an
+    The route is one combination: a field grid (which the leaves' frequency axes
+    already require), the tables' own execution maps, an
     **identity** metric -- the Poynting-normalised orthogonal basis the Gram gate
     certifies -- or the dense metric of a declared unitary change of basis of one, the
     constant unit power weight of a true-power amplitude, and the route's own
@@ -314,12 +317,6 @@ def _check_modal_route(problem: "PropagationProblem") -> None:
         )
         raise TranslationError(msg)
     _check_dense_metric(tables, metric)
-    if problem.grid_kind != "field":
-        msg = (
-            "solprop executes a general modal guide on a field grid, whose "
-            f"canonical axis is increasing, and this problem is {problem.grid_kind}"
-        )
-        raise TranslationError(msg)
     if tables.synthesis is None or tables.projection is None:
         msg = (
             "solprop executes a general modal guide through the synthesis and "

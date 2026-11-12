@@ -16,7 +16,7 @@ same preparation refusals:
 - :class:`SnapshotLatch` coalesces snapshot requests until one is serviced (section
   5.5);
 - :class:`ObservedField` observes a committed field once per ticket and shares it
-  among its exports, converting it in place where nothing else holds it (section 5.4);
+  among its exports (section 5.4);
 - :func:`merge_summaries`, :func:`bind` and :data:`EMPTY_SUMMARY` assemble events;
 - :func:`foreign_request` and :func:`check_preparation` are the refusals a
   preparation makes before any session starts (section 5.2).
@@ -314,9 +314,9 @@ class ObservedField:
     first asks for it; every export of that ticket reads the same observation. An
     observation's arrays are read-only and nothing writes to them again
     (:meth:`solprop.backends.protocol.HostStepping.observe`), so an export with nothing
-    to convert is that array; one the driver made for the session alone is converted in
-    place when it was not handed out unconverted. Attempts a field fetch drains are
-    kept for the next event's chunk.
+    to convert is that array on a spatial grid, and every other export a new array (or
+    the caller's destination). Attempts a field fetch drains are kept for the next
+    event's chunk.
 
     Parameters
     ----------
@@ -334,17 +334,12 @@ class ObservedField:
         self._drain = drain
         self._observed: Observation | None = None
         self._generation = -1
-        self._converted: ExportRecipe | None = None
-        # Whether the observation's own array was handed out unconverted (export).
-        self._lent = False
         # Attempts a field fetch drained that no event has delivered yet.
         self._undelivered: list[tuple[BackendHistory, StepStats]] = []
 
     def release(self) -> None:
         """Forget the observation: the next export of any ticket observes again."""
         self._observed = None
-        self._converted = None
-        self._lent = False
 
     def undelivered(self) -> list[tuple[BackendHistory, StepStats]]:
         """Return, once, the attempts field fetches drained since the last call.
@@ -381,40 +376,15 @@ class ObservedField:
         """
         spatial = self._problem.transform.geometry is not None
         recipe, weight = export_weight(self._problem, ticket.z, recipe)
-        observed = self.observation(ticket)
-        converted = self._converted
-        if converted is not None and (converted != recipe or out is not None):
-            # Converted in place for another recipe, and handed out so: observe the raw
-            # field again rather than write to an array a consumer holds.
-            self._observed = None
-            self._converted = None
-            observed = self.observation(ticket)
         # A view of its own, as every fetch has handed out: a destination a caller
         # passes back is then never taken for the source and is checked as one.
-        state = observed.require_field().view()
-        if self._converted is not None:
-            # Converted in place for this recipe already: the same detached result.
-            return state
+        state = self.observation(ticket).require_field().view()
         identity = not recipe.optics and (weight is None or bool(np.all(weight == 1.0)))
-        if identity and out is None and (observed.field_owned or spatial):
+        if identity and out is None and spatial:
             # An export with nothing to convert is the observation's array. A modal
             # field the backend may still hold is detached by a copy, as the
-            # true-power conversion always detached it. Once lent, the array is never
-            # converted in place.
-            self._lent = True
+            # true-power conversion always detached it.
             return state
-        if out is None and observed.field_owned and not self._lent:
-            # The driver made this array for this session alone, which hands out only
-            # the export: convert it where it is (SEP 47 section 5.4).
-            self._converted = recipe
-            # The flag is the observation's own array's, which `state` is.
-            whole = observed.require_field()
-            whole.setflags(write=True)
-            try:
-                apply_recipe(whole, recipe, weight=weight, out=whole)
-            finally:
-                whole.setflags(write=False)
-            return whole
         return apply_recipe(state, recipe, weight=weight, out=out)
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
@@ -453,8 +423,6 @@ class ObservedField:
                 self._undelivered.append((observed.step_history, observed.step_stats))
             self._observed = observed
             self._generation = ticket.generation
-            self._converted = None
-            self._lent = False
         return self._observed
 
 
