@@ -743,4 +743,4 @@ milestone pull request per phase as for SEP 47 (Q9).
 ## Part III — History
 
 - 2026-11-12: Drafted.
-- 2026-11-12: Tracking issue [#ISSUE](https://github.com/LupoLab/solprop/issues/ISSUE).
+- 2026-11-12: Tracking issue [#764](https://github.com/LupoLab/solprop/issues/764).
