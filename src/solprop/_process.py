@@ -514,7 +514,7 @@ def physical_cores(
     return None
 
 
-def _sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
+def sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
     """Read an integer ``sysctl`` value by name on macOS, or ``None``.
 
     - Returns: its value, or ``None`` if the kernel does not have it.
@@ -547,10 +547,10 @@ def top_tier_cores() -> int | None:
     """
     if sys.platform != "darwin":
         return None
-    levels = _sysctl_int("hw.nperflevels")
+    levels = sysctl_int("hw.nperflevels")
     if levels is None or levels < 2:
         return None
-    cores = _sysctl_int("hw.perflevel0.physicalcpu")
+    cores = sysctl_int("hw.perflevel0.physicalcpu")
     return cores if cores is not None and cores > 0 else None
 
 
