@@ -146,6 +146,21 @@ def test_cycle_data_are_validated_owned_readonly_and_cached(cycle):
         assert array.flags.c_contiguous
 
 
+def test_cycle_data_take_a_held_table_as_it_stands_and_copy_a_caller_s(cycle):
+    # A material update reuses the held table without a copy.
+    assert replace(cycle).rate is cycle.rate
+    mine = replace(
+        cycle.rate,
+        log_rate=np.array(cycle.rate.log_rate),
+        coefficients=np.array(cycle.rate.coefficients),
+    )
+    held = replace(cycle, rate=mine)
+    assert mine.log_rate.flags.writeable and mine.coefficients.flags.writeable
+    assert not held.rate.log_rate.flags.writeable
+    assert not np.shares_memory(held.rate.log_rate, mine.log_rate)
+    assert not np.shares_memory(held.rate.coefficients, mine.coefficients)
+
+
 @pytest.mark.parametrize("ratio", [0.0, 1e-8, 0.35, 1 - 1e-12, 1.0])
 def test_cycle_tables_match_direct_moments(cycle, ratio):
     amplitude = 3.713e10

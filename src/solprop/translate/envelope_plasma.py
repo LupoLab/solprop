@@ -25,7 +25,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IonisationRate
 from solprop.translate.chebyshev import PiecewiseChebyshev, _frozen_copy
-from solprop.translate.ionisation import RateTable, build_rate_table
+from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
 
 __all__ = [
     "AngularRule",
@@ -177,23 +177,9 @@ class CycleIntegralData:
             or np.max(self.validation.residuals) > self.moment_rtol
         ):
             raise TranslationError("unvalidated envelope plasma cycle representation")
-        # Reuse a previously compiled owning, read-only table during material
-        # updates. Borrowed views and mutable user tables still need owned copies.
-        if not all(
-            array.flags.owndata
-            and array.flags.c_contiguous
-            and not array.flags.writeable
-            for array in (self.rate.log_rate, self.rate.coefficients)
-        ):
-            object.__setattr__(
-                self,
-                "rate",
-                replace(
-                    self.rate,
-                    log_rate=_frozen_copy(self.rate.log_rate),
-                    coefficients=_frozen_copy(self.rate.coefficients),
-                ),
-            )
+        # A table solprop already holds, as a material update reuses, is taken as it
+        # stands; a caller's table is copied.
+        object.__setattr__(self, "rate", _frozen_table(self.rate))
 
 
 @dataclass(frozen=True, eq=False)

@@ -106,7 +106,7 @@ from solprop.translate.expansion import (
     build_expansion,
     reweight_expansion,
 )
-from solprop.translate.ionisation import RateTable, build_rate_table
+from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     PhiRepresentation,
@@ -3623,31 +3623,6 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
         The converged table, with read-only arrays.
     """
     return _frozen_table(build_rate_table(rate, field_range))
-
-
-def _frozen_table(table: RateTable) -> RateTable:
-    """Return the table with read-only arrays solprop holds.
-
-    The contract promises read-only arrays and ``validate`` checks it.
-    :func:`~solprop.translate.ionisation.build_rate_table` freezes its tables once,
-    before its memo hands them out, so a built table crosses as it stands; a table
-    made any other way crosses as a frozen copy.
-
-    Parameters
-    ----------
-    table : solprop.translate.ionisation.RateTable
-        The table to freeze.
-
-    Returns
-    -------
-    solprop.translate.ionisation.RateTable
-        The same values, not writeable.
-    """
-    log_rate = _frozen_copy(table.log_rate)
-    coefficients = _frozen_copy(table.coefficients)
-    if log_rate is table.log_rate and coefficients is table.coefficients:
-        return table
-    return replace(table, log_rate=log_rate, coefficients=coefficients)
 
 
 def _response_order(

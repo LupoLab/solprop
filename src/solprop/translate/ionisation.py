@@ -33,7 +33,7 @@ import hashlib
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 
 import numpy as np
@@ -48,7 +48,7 @@ from solprop.nonlinear.ionisation import (
     rate_convention,
     rate_species,
 )
-from solprop.translate.chebyshev import _hold
+from solprop.translate.chebyshev import _frozen_copy, _hold
 
 __all__ = [
     "DEFAULT_INTERVALS",
@@ -686,6 +686,31 @@ def _finalise(table: RateTable, error: float) -> RateTable:
         species_identity=table.species_identity,
         ionisation_potential=table.ionisation_potential,
     )
+
+
+def _frozen_table(table: RateTable) -> RateTable:
+    """Return the table with read-only arrays solprop holds.
+
+    The contract promises read-only arrays and ``validate`` checks it.
+    :func:`build_rate_table` freezes its tables once,
+    before its memo hands them out, so a built table crosses as it stands; a table
+    made any other way crosses as a frozen copy.
+
+    Parameters
+    ----------
+    table : RateTable
+        The table to freeze.
+
+    Returns
+    -------
+    RateTable
+        The same values, not writeable.
+    """
+    log_rate = _frozen_copy(table.log_rate)
+    coefficients = _frozen_copy(table.coefficients)
+    if log_rate is table.log_rate and coefficients is table.coefficients:
+        return table
+    return replace(table, log_rate=log_rate, coefficients=coefficients)
 
 
 def _digest(key: tuple[object, ...]) -> str:
