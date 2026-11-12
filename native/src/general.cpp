@@ -1437,7 +1437,7 @@ void require_general_problem(const Problem& problem) {
       throw std::invalid_argument("envelope plasma requires separate envelope currents "
                                   "without THG or field stashing");
     const auto rule_size =
-        checked_product(problem.n_channels, 4 * 512, "envelope rules");
+        checked_product(problem.n_channels, std::size_t{4} * 512, "envelope rules");
     require_extent(problem.envelope_rule_nodes.size(), rule_size,
                    "envelope_rule_nodes");
     require_extent(problem.envelope_rule_weights.size(), rule_size,
@@ -3270,7 +3270,8 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #else
   // Two packed work arrays add two complex-equivalent time columns to the
   // shared conservative twenty-column inventory. Decide before allocation.
-  constexpr std::size_t max_samples = 64 * 1024 * 1024 / (22 * sizeof(Complex));
+  constexpr std::size_t max_samples =
+      std::size_t{64} * 1024 * 1024 / (22 * sizeof(Complex));
   return !problem_.separable_geometry() && !problem_.spatial_spectral_weights.empty() &&
          problem_.n_modes == problem_.n_nodes &&
          problem_.node_chunk == problem_.n_nodes && problem_.n_pol_state == 1 &&
