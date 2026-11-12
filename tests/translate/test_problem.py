@@ -295,7 +295,6 @@ def test_the_soliton_problem_assembles(soliton, envelope_grid, soliton_request):
         scalar_pol=True,
         has_plasma=False,
         has_raman=False,
-        has_spectral_responses=False,
         has_noise=False,
         has_temporal_absorber=False,
         constant_linop=True,

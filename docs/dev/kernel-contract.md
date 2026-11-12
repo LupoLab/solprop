@@ -46,7 +46,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
 | `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7) |
-| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
+| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
@@ -734,7 +734,6 @@ sqrt(A_eff(0)/A_eff(z))`, which for a scale-invariant mode is the `a(0)/a(z)` of
 | `labels` | tuple of str | unique stable component labels, in species order |
 | `species_names` | tuple of str | chemical species names in the same order; names may repeat |
 | `species_densities` | tuple of scalar Chebyshev tables | one number density per label, including zero and non-ionising populations |
-| `spectral_responses` | tuple of `EnvelopePlasmaAssembly` | explicit post-transform source assembly, empty or the same object as `envelope_plasma` |
 | `envelope_plasma` | `EnvelopePlasmaAssembly` or None | labelled envelope channels with validated instantaneous rate/cycle rules and coarse-axis Drude/loss multipliers; ordinary polarisation remains a separate stream until spectral assembly |
 | `prefactor_representation` | `"constant" \| "expansion" \| "table" \| "separable"` | which representation carries the prefactor, following §3 |
 | `prefactor` | `(n_intervals, n_deg, n_modes, n_pol, n_omega) complex128` Chebyshev table or `None` | the UPPE/envelope prefactor `−iω/(2ε₀c Re n_eff)` (or its envelope form) times the crop scale — on the general modal route the **real crop scale alone**, the `−iω` being `transform.modal_tables.source_frequency_factor` and the reciprocal normalisation being inside Q — as a table along z over the same span and the same declared kinks as Φ (a `"constant"` prefactor stays one interval of degree 0 and does not carry a response path's kinks); the real part of the index only, the loss stays in `D`. Exactly zero outside the active mask at every position. Present for `"table"` and for `"constant"`, whose one interval of degree 0 is exact, and absent for `"expansion"` |

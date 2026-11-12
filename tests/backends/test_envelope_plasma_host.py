@@ -244,9 +244,7 @@ def test_problem_rejects_source_factors_from_another_grid(host_case):
         (replace(assembly.factors, drude=assembly.factors.drude * 1.1), "multipliers"),
     ):
         changed = replace(assembly, factors=factors)
-        responses = replace(
-            problem.responses, envelope_plasma=changed, spectral_responses=(changed,)
-        )
+        responses = replace(problem.responses, envelope_plasma=changed)
         with pytest.raises(TranslationError, match=message):
             replace(problem, responses=responses).validate()
 

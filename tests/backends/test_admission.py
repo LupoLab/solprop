@@ -58,9 +58,7 @@ def test_the_reference_admits_every_flow_method_it_executes(
     assert refuse_general_route(frozen_problem, backend="numpy_ref") is None
 
 
-@pytest.mark.parametrize(
-    "name", ["kerr_coefficients", "raman_terms", "spectral_responses"]
-)
+@pytest.mark.parametrize("name", ["kerr_coefficients", "raman_terms"])
 def test_a_legacy_response_beside_a_general_guide_is_refused_by_every_caller(
     split_problem, name
 ):

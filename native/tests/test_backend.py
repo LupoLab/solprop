@@ -576,22 +576,6 @@ def _leaf_value(problem: PropagationProblem, leaf: str) -> object:
 
 
 @pytest.mark.parametrize(
-    ("flags", "message"),
-    [
-        ({"has_spectral_responses": True}, "spectral responses other than envelope"),
-    ],
-)
-def test_unsupported_contracts_are_refused_by_name(
-    phase_a_case: PhaseACase, flags: dict[str, bool], message: str
-) -> None:
-    problem, run_request, grid = phase_a_case
-    changed = dataclasses.replace(problem.flags, **flags)
-    spoiled = dataclasses.replace(problem, flags=changed)
-    with pytest.raises(BackendError, match=message):
-        NativeBackend(spoiled, run_request, grid=grid)
-
-
-@pytest.mark.parametrize(
     ("evaluator", "path"),
     [
         ("symmetric", {"alone": True, "in_place": True, "borrowed": True}),

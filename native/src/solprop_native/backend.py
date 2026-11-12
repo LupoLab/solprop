@@ -3044,15 +3044,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
         raise BackendError(
             "vector Raman requires tensor-capable terms; found scalar_only"
         )
-    if (
-        flags.has_spectral_responses and problem.responses.envelope_plasma is None
-    ) or any(
-        response is not problem.responses.envelope_plasma
-        for response in problem.responses.spectral_responses
-    ):
-        raise BackendError(
-            "spectral responses other than envelope plasma are unsupported by Kokkos"
-        )
 
 
 def _refuse_native_route(problem: PropagationProblem) -> None:

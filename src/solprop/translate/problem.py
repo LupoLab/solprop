@@ -342,8 +342,6 @@ class Flags:
         A plasma response is compiled.
     has_raman : bool
         A Raman kernel is compiled.
-    has_spectral_responses : bool
-        Responses are evaluated after the forward transform.
     has_noise : bool
         A shot-noise realisation is carried and added at every stage.
     has_temporal_absorber : bool
@@ -360,7 +358,7 @@ class Flags:
     Examples
     --------
     >>> from solprop.translate.problem import Flags
-    >>> flags = Flags(True, True, False, False, False, False, False, True, True)
+    >>> flags = Flags(True, True, False, False, False, False, True, True)
     >>> flags.constant_linop, flags.has_raman
     (True, False)
     """
@@ -369,7 +367,6 @@ class Flags:
     scalar_pol: bool
     has_plasma: bool
     has_raman: bool
-    has_spectral_responses: bool
     has_noise: bool
     has_temporal_absorber: bool
     constant_linop: bool
@@ -433,7 +430,6 @@ class Flags:
             scalar_pol=shape[1] == 1,
             has_plasma=bool(responses.population_channels),
             has_raman=bool(responses.raman_terms),
-            has_spectral_responses=bool(responses.spectral_responses),
             has_noise=initial.noise0 is not None,
             has_temporal_absorber=responses.temporal_absorber is not None,
             constant_linop=linear.phi_representation in ("constant", "separable"),

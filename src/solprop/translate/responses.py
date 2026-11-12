@@ -1800,8 +1800,6 @@ class CompiledResponses:
     density : solprop.translate.chebyshev.PiecewiseChebyshev
         Number density along z, in m^-3 for a gas or dimensionless 1 for a medium whose
         ``chi3`` is already absolute, as a table.
-    spectral_responses : tuple of EnvelopePlasmaAssembly
-        Typed post-transform assembly; empty or the ``envelope_plasma`` record.
     envelope_plasma : EnvelopePlasmaAssembly or None
         Independent envelope populations, cycle data and spectral multipliers.
     prefactor_representation : {'constant', 'expansion', 'table'}
@@ -1877,7 +1875,6 @@ class CompiledResponses:
     plasma_channels: tuple[PlasmaChannel, ...]
     raman_terms: tuple[RamanCoefficients, ...]
     density: PiecewiseChebyshev
-    spectral_responses: tuple[EnvelopePlasmaAssembly, ...]
     prefactor_representation: PhiRepresentation
     prefactor: PiecewiseChebyshev | None
     prefactor_expansion: ParameterExpansion | None
@@ -1907,11 +1904,6 @@ class CompiledResponses:
             Naming the offending field.
         """
         self._check_prefactor_representation()
-        expected = () if self.envelope_plasma is None else (self.envelope_plasma,)
-        if self.spectral_responses != expected:
-            raise TranslationError(
-                "spectral_responses must name the envelope plasma assembly"
-            )
         if self.envelope_plasma is not None and self.plasma_channels:
             raise TranslationError("field and envelope plasma channels cannot coexist")
         if self.plasma_integral.policy != "trapezoid" and not self.plasma_channels:
@@ -3116,7 +3108,6 @@ def compile_responses(
         labels=material.labels,
         species_names=material.names,
         species_densities=density_tables,
-        spectral_responses=() if compiled_envelope is None else (compiled_envelope,),
         envelope_plasma=compiled_envelope,
         prefactor_representation=_prefactor_kind(constant, expansion is not None)
         if supplied is None

@@ -597,7 +597,6 @@ def _refuse_legacy_responses(problem: PropagationProblem, *, backend: str) -> No
             ("population_channels", bool(responses.population_channels)),
             ("raman_terms", bool(responses.raman_terms)),
             ("envelope_plasma", responses.envelope_plasma is not None),
-            ("spectral_responses", bool(responses.spectral_responses)),
         )
         if present
     ]

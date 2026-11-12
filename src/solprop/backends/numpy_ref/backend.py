@@ -2490,16 +2490,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # general modal route, each refusal naming this backend.
     refuse_general_route(problem, backend="numpy_ref", moving_maps=True)
     if (
-        problem.flags.has_spectral_responses
-        and problem.responses.envelope_plasma is None
-    ):
-        msg = (
-            "numpy_ref executes the Kerr, Raman and plasma terms and this problem "
-            "declares spectral responses; a term silently dropped would run, converge "
-            "and be wrong"
-        )
-        raise BackendError(msg)
-    if (
         problem.flags.has_raman
         and problem.transform.n_pol * problem.shape[1] > 1
         and (
