@@ -352,6 +352,8 @@ def test_figures_can_come_back_as_bytes(run: str, tmp_path: Path):
 
 def test_scan_axis_reads_quantities_in_their_unit_and_numbers_in_si():
     axis = results._scan_axis("pressure[0]", np.array(["0.8 bar", "1.2 bar"]))
-    assert axis["values"].tolist() == [0.8, 1.2]
+    values = axis["values"]
+    assert isinstance(values, np.ndarray)
+    assert values.tolist() == [0.8, 1.2]
     assert axis["unit"] == "bar"
     assert results._scan_axis("energy", np.array([1e-4]))["unit"] == ""
