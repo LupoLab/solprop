@@ -11,13 +11,16 @@ host march both keep, with no arithmetic of either.
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
-from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 from jaxtyping import Complex
 
 from solprop.exceptions import BackendError, ResponseBudgetError
 from solprop.translate.routes import tdse_descriptor
+
+if TYPE_CHECKING:
+    from solprop.translate.problem import PropagationProblem
 
 __all__ = ["CallLedger", "Derivative", "budget_error", "source_absent"]
 
@@ -244,19 +247,32 @@ def _decoded_orders(runs: object, steps: int) -> list[int]:
     return [order for order, count in runs for _ in range(count)]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Derivative:
-    """One history entry, in the current anchor's frame."""
+    """One entry of an Adams march's derivative history, in the current anchor's frame.
+
+    Attributes
+    ----------
+    z : float
+        Where the derivative was evaluated, m.
+    value : numpy.ndarray or None
+        The history store's row, complex128 of shape
+        ``(n_batch, n_modes, n_pol, n_omega)``, or ``None`` for an engine that keeps
+        its rows resident (the native state).
+    identity : str
+        Which field it was evaluated at: ``"accepted"``, or ``"predicted"`` for the
+        predicted field PEC stores in its place.
+    slot : int
+        Its row of the history store; ``-1`` before it has one.
+    """
 
     z: float
     value: _State | None
-    """The store's row, or ``None`` for an engine that keeps its rows resident."""
     identity: str
     slot: int = -1
-    """Its row of the history store."""
 
 
-def source_absent(problem: Any) -> bool:
+def source_absent(problem: "PropagationProblem") -> bool:
     """Return whether a problem's complete source is structurally zero.
 
     No response is compiled beyond the accumulation, and no in-stage absorber, no
