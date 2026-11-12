@@ -28,6 +28,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
@@ -187,12 +188,11 @@ class Grids:
             ("t_window_fine", np.float64),
             ("t_window_fine_derivative", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
+            # At least one-dimensional, as numpy.ascontiguousarray made them.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
             object.__setattr__(self, name, values)
         if self.carrier_2w0 is not None:
-            carrier = np.ascontiguousarray(self.carrier_2w0, dtype=np.complex128)
-            carrier.setflags(write=False)
+            carrier = frozen_copy(np.atleast_1d(self.carrier_2w0), np.complex128)
             object.__setattr__(self, "carrier_2w0", carrier)
         n_omega = self.omega.size
         for name in (
@@ -230,13 +230,8 @@ class Grids:
             raise TranslationError(msg)
 
     @property
-    def n_omega(self) -> int:
-        """Return the number of coarse spectral bins.
-
-        Returns
-        -------
-        int
-            The length of ``omega``.
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse spectral bins.
 
         Examples
         --------
@@ -305,10 +300,14 @@ def build_masks(
     >>> masks.carrier_2w0 is None
     True
     """
-    window = (
+    # The grid evaluates its masks and windows afresh at every access, so each is
+    # this group's own: held in place rather than copied again by the group. The
+    # frequency axis is the grid's, which it already holds.
+    window = hold(
         grid.omega_window if polarisation_taper else np.ones_like(grid.omega_window)
     )
-    carrier = thg_carrier(grid.omega0, grid.t_fine) if harmonic_carrier else None
+    carrier = hold(thg_carrier(grid.omega0, grid.t_fine)) if harmonic_carrier else None
+    active, inband = hold(grid.active_mask), hold(grid.inband_mask)
     masks = Grids(
         omega=grid.omega,
         omega0=grid.omega0,
@@ -317,15 +316,15 @@ def build_masks(
         n_t=grid.n_t,
         n_to=grid.n_to,
         ffac=grid.ffac,
-        crop_index=grid.crop_index,
+        crop_index=hold(grid.crop_index),
         pad_scale=grid.pad_scale,
         crop_scale=grid.crop_scale,
-        inband_mask=grid.inband_mask,
-        active_mask=grid.active_mask,
-        norm_mask=grid.active_mask if region == "active" else grid.inband_mask,
+        inband_mask=inband,
+        active_mask=active,
+        norm_mask=active if region == "active" else inband,
         omega_window=window,
-        t_window_fine=grid.t_window_fine,
-        t_window_fine_derivative=grid.t_collar.window_derivative(grid.t_fine),
+        t_window_fine=hold(grid.t_window_fine),
+        t_window_fine_derivative=hold(grid.t_collar.window_derivative(grid.t_fine)),
         carrier_2w0=carrier,
     )
     logger.debug(
@@ -418,10 +417,8 @@ def temporal_rates(
             scheme,
         )
         return None, None
-    coarse = np.ascontiguousarray(absorber.temporal_rate, dtype=np.float64)
-    fine = np.ascontiguousarray(absorber.temporal_rate_fine, dtype=np.float64)
-    coarse.setflags(write=False)
-    fine.setflags(write=False)
+    coarse = frozen_copy(absorber.temporal_rate, np.float64)
+    fine = frozen_copy(absorber.temporal_rate_fine, np.float64)
     logger.debug(
         "temporal absorber (%s): peak rate %.6e 1/m over %d coarse and %d fine samples",
         scheme,
@@ -478,6 +475,4 @@ def noise_spectrum(
             f"state shape {shape}"
         )
         raise TranslationError(msg) from error
-    spectrum = np.ascontiguousarray(values, dtype=np.complex128)
-    spectrum.setflags(write=False)
-    return spectrum
+    return frozen_copy(values, np.complex128)

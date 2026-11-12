@@ -97,8 +97,8 @@ class Dimension:
 
     def __mul__(
         self,
-        other: "Dimension",  # noqa: UP037 - the hook reads it in the class body
-    ) -> "Dimension":  # noqa: UP037
+        other: "Dimension",
+    ) -> "Dimension":
         """Return the dimension of a product.
 
         Parameters
@@ -119,7 +119,7 @@ class Dimension:
             self.angle + other.angle,
         )
 
-    def __pow__(self, exponent: int) -> "Dimension":  # noqa: UP037
+    def __pow__(self, exponent: int) -> "Dimension":
         """Return the dimension raised to an integer power.
 
         Parameters
@@ -258,47 +258,16 @@ _QUANTITY = re.compile(
 
 
 def _refuse_unit(text: str, reason: str, path: str | None) -> RecipeError:
-    """Return the error for a unit text that cannot be read.
-
-    Parameters
-    ----------
-    text : str
-        The unit text.
-    reason : str
-        Why it cannot be read.
-    path : str or None
-        The parameter path.
-
-    Returns
-    -------
-    RecipeError
-        The error, to raise.
-    """
+    """Return the error for a unit text that cannot be read."""
     return RecipeError(f"cannot read the unit {text!r}: {reason}", path=path)
 
 
 def _parse_symbol(body: str, text: str, path: str | None) -> tuple[Dimension, int]:
     """Split a factor's letters into an optional prefix and a symbol.
 
-    Parameters
-    ----------
-    body : str
-        The letters of one factor, such as ``"fs"``.
-    text : str
-        The whole unit text, for the error.
-    path : str or None
-        The parameter path, for the error.
-
-    Returns
-    -------
-    tuple of Dimension and int
-        The symbol's dimension and the decimal exponent of the prefixed symbol's
-        factor to the coherent SI unit.
-
-    Raises
-    ------
-    RecipeError
-        If ``body`` has no reading, or more than one.
+    - ``body``: the letters of one factor, such as ``"fs"``.
+    - Returns: the symbol's dimension and the decimal exponent of the prefixed symbol's
+      factor to the coherent SI unit.
     """
     readings: list[tuple[Dimension, int]] = []
     if body in _SYMBOLS:
@@ -325,25 +294,9 @@ def _parse_factors(
 ) -> tuple[Dimension, int, int]:
     """Read a product of factors joined by ``*``.
 
-    Parameters
-    ----------
-    product : str
-        The product, such as ``"fs^2"`` or ``"J*s"``.
-    text : str
-        The whole unit text, for the error.
-    path : str or None
-        The parameter path, for the error.
-
-    Returns
-    -------
-    tuple of Dimension, int and int
-        The product's dimension, the decimal exponent of its factor and the number
-        of factors.
-
-    Raises
-    ------
-    RecipeError
-        If a factor cannot be read, is a refused temperature unit or is ``deg``.
+    - ``product``: the product, such as ``"fs^2"`` or ``"J*s"``.
+    - Returns: the product's dimension, the decimal exponent of its factor and the
+      number of factors.
     """
     dimension = Dimension()
     exponent10 = 0
@@ -364,25 +317,7 @@ def _parse_factors(
 
 
 def _parse_unit(text: str, path: str | None = None) -> _Scale:
-    """Read a unit text into its dimension and factor (see the module docstring).
-
-    Parameters
-    ----------
-    text : str
-        The unit text.
-    path : str or None, optional
-        The parameter path, for the error.
-
-    Returns
-    -------
-    _Scale
-        The dimension and the factor to the coherent SI unit.
-
-    Raises
-    ------
-    RecipeError
-        If the text is empty, ambiguous or cannot be read.
-    """
+    """Read a unit text into its dimension and factor (see the module docstring)."""
     if text == _DEGREE_SYMBOL:
         return _Scale(Dimension(angle=1), 0, _DEGREE)
     compact = re.sub(r"\s*([*/()·⋅])\s*", r"\1", text.strip())
@@ -458,31 +393,17 @@ class Unit:
             )
 
     @property
-    def dimension(self) -> Dimension:
+    def dimension(self) -> Dimension:  # numpydoc ignore=RT01
         """The unit's dimension.
 
-        Returns
-        -------
-        Dimension
-            The exponents of the five base dimensions.
+        The exponents of the five base dimensions.
         """
         return _unit_scale(self.text).dimension
 
 
 @functools.cache
 def _unit_scale(text: str) -> _Scale:
-    """Read a keyword's unit text once (the texts are a small fixed set).
-
-    Parameters
-    ----------
-    text : str
-        The unit text.
-
-    Returns
-    -------
-    _Scale
-        As :func:`_parse_unit` returns it.
-    """
+    """Read a keyword's unit text once (the texts are a small fixed set)."""
     return _parse_unit(text)
 
 
@@ -562,16 +483,6 @@ def _exact_context(*operands: Decimal) -> decimal.Context:
     A product has at most as many digits as its factors together, and the exponent
     range is the largest :mod:`decimal` allows, so a rounding can only come from a
     bug; ``Inexact`` is trapped to make one loud.
-
-    Parameters
-    ----------
-    *operands : Decimal
-        The numbers to multiply or shift.
-
-    Returns
-    -------
-    decimal.Context
-        The context.
     """
     digits = sum(len(operand.as_tuple().digits) for operand in operands)
     return decimal.Context(
@@ -585,32 +496,7 @@ def _exact_context(*operands: Decimal) -> decimal.Context:
 def _to_double(
     number: str, scale: _Scale, unit: Unit, path: str | None, text: str
 ) -> float:
-    """Convert a decimal number from one unit to another exactly, then round once.
-
-    Parameters
-    ----------
-    number : str
-        The decimal number, in the unit ``scale`` describes.
-    scale : _Scale
-        The unit the number is in.
-    unit : Unit
-        The keyword's unit, of the same dimension.
-    path : str or None
-        The parameter path, for the error.
-    text : str
-        The quantity string, for the error.
-
-    Returns
-    -------
-    float
-        The double nearest the exact value in ``unit``.
-
-    Raises
-    ------
-    RecipeError
-        If the exponent is beyond :mod:`decimal`'s range, or the value overflows a
-        double or underflows one to zero.
-    """
+    """Convert a decimal number from one unit to another exactly, then round once."""
     shift = scale.exponent10 - _unit_scale(unit.text).exponent10
     try:
         mantissa = Decimal(number)
@@ -711,17 +597,9 @@ def parse_quantity(value: object, unit: Unit, *, path: str | None = None) -> flo
 def _decimal_text(number: Decimal) -> str:
     """Write a decimal as Python writes a float: plain or in e-notation.
 
-    Parameters
-    ----------
-    number : Decimal
-        The number.
-
-    Returns
-    -------
-    str
-        Plain digits for a decimal exponent from -4 to 15, as :func:`repr` writes a
-        float, and e-notation otherwise; no trailing zeros, and ``-0`` for a negative
-        zero.
+    - Returns: plain digits for a decimal exponent from -4 to 15, as :func:`repr` writes
+      a float, and e-notation otherwise; no trailing zeros, and ``-0`` for a negative
+      zero.
     """
     if number.is_zero():
         return "-0" if number.is_signed() else "0"
@@ -734,19 +612,7 @@ def _decimal_text(number: Decimal) -> str:
 def _reads_back(text: str, unit: Unit, value: float) -> bool:
     """Tell whether a quantity string reads back to exactly a value.
 
-    Parameters
-    ----------
-    text : str
-        The quantity string.
-    unit : Unit
-        The keyword's unit.
-    value : float
-        The value it should read back to.
-
-    Returns
-    -------
-    bool
-        Whether it does, the sign of a zero included.
+    - Returns: whether it does, the sign of a zero included.
     """
     try:
         parsed = parse_quantity(text, unit)

@@ -238,17 +238,8 @@ _GIT_TIMEOUT = 5.0
 def _tag_unreproducible(value: object, key: str) -> dict[str, JsonValue]:
     """Return the record of an object that cannot be rebuilt from the file.
 
-    Parameters
-    ----------
-    value : object
-        The object to describe.
-    key : str
-        Tag naming why it is irreducible, ``'__callable__'`` or ``'__repr__'``.
-
-    Returns
-    -------
-    dict
-        A record holding the object's ``repr`` and ``reproducible: False``.
+    - ``key``: tag naming why it is irreducible, ``'__callable__'`` or ``'__repr__'``.
+    - Returns: a record holding the object's ``repr`` and ``reproducible: False``.
     """
     logger.debug("configuration entry recorded by repr only: %s", key)
     return {key: repr(value), "reproducible": False}
@@ -266,15 +257,7 @@ def _serialise_dataclass(value: object) -> dict[str, JsonValue]:
     :class:`~solprop.modes.guide.ChannelSource` holds the provider object, whose
     identity the run records once beside its channels.
 
-    Parameters
-    ----------
-    value : object
-        A dataclass instance.
-
-    Returns
-    -------
-    dict
-        ``{'__class__': 'module.QualName', <field>: <serialised value>, ...}``.
+    - Returns: ``{'__class__': 'module.QualName', <field>: <serialised value>, ...}``.
     """
     kind = type(value)
     name = f"{kind.__module__}.{kind.__qualname__}"
@@ -295,15 +278,7 @@ def _serialise_enum(value: Enum) -> dict[str, JsonValue]:
     The class matters as much as the value: two enumerations may share a member value
     and mean different things, and the configuration hash has to tell them apart.
 
-    Parameters
-    ----------
-    value : enum.Enum
-        The member.
-
-    Returns
-    -------
-    dict
-        ``{'__enum__': 'module.QualName', 'value': <serialised value>}``.
+    - Returns: ``{'__enum__': 'module.QualName', 'value': <serialised value>}``.
     """
     kind = type(value)
     return {
@@ -318,11 +293,6 @@ class _ArrayReference(dict):
     A serialised record is JSON-ready, so a reference is a plain mapping to :mod:`json`,
     and the array travels with it until the record is stored
     (:meth:`RunMetadata.record_arrays`).
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array, kept by reference and not copied.
 
     Attributes
     ----------
@@ -350,15 +320,8 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
     complex number and a nested list of them would not survive a round trip. A numeric
     array of more than :data:`RECORD_ARRAY_LIMIT` elements is a reference instead.
 
-    Parameters
-    ----------
-    value : numpy.ndarray or numpy.generic
-        The array or the scalar.
-
-    Returns
-    -------
-    dict or bool or int or float or str
-        A ``__ndarray__`` record for an array, and the plain Python value of a scalar.
+    - Returns: a ``__ndarray__`` record for an array, and the plain Python value of a
+      scalar.
     """
     if isinstance(value, np.generic):
         return serialise(value.item())
@@ -370,15 +333,7 @@ def _serialise_numpy(value: np.ndarray | np.generic) -> JsonValue:
 def _inline_array(value: np.ndarray) -> dict[str, JsonValue]:
     """Return an array as a ``__ndarray__`` record, whatever its size.
 
-    Parameters
-    ----------
-    value : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    dict
-        Its dtype, its shape and its values.
+    - Returns: its dtype, its shape and its values.
     """
     record: dict[str, JsonValue] = {
         "dtype": str(value.dtype),
@@ -400,23 +355,6 @@ def _inlined(value: JsonValue) -> JsonValue:
     For text with no store beside it, which has to stand alone: only a run record keeps
     its arrays beside its text (:meth:`RunMetadata.record_arrays`). A reference already
     read back from text carries no array and stays as it is.
-
-    Parameters
-    ----------
-    value : NoneType or bool or int or float or str or list or dict
-        What :func:`serialise` returned.
-
-    Returns
-    -------
-    NoneType or bool or int or float or str or list or dict
-        The structure, with no array left to store.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.output.schema import _inlined, serialise
-    >>> sorted(_inlined(serialise({"axis": np.zeros(5000)}))["axis"])
-    ['__ndarray__', 'dtype', 'shape']
     """
     if isinstance(value, _ArrayReference):
         return _inline_array(value.array)
@@ -430,16 +368,8 @@ def _inlined(value: JsonValue) -> JsonValue:
 def _serialise_sequence(value: object) -> list[JsonValue]:
     """Return a sequence or a set as a list, ordering set members deterministically.
 
-    Parameters
-    ----------
-    value : object
-        A sequence, a set or a frozenset.
-
-    Returns
-    -------
-    list
-        The serialised members. A set's are sorted by their canonical JSON text, so
-        that the configuration hash does not depend on set iteration order.
+    A set's members are sorted by their canonical JSON text, so that the configuration
+    hash does not depend on set iteration order.
     """
     # `object` is not declared iterable; the caller has already checked that this is
     # a set or a sequence.
@@ -450,18 +380,7 @@ def _serialise_sequence(value: object) -> list[JsonValue]:
 
 
 def _serialise_object(value: object) -> JsonValue:
-    """Return a structured or opaque object as a JSON-safe structure.
-
-    Parameters
-    ----------
-    value : object
-        Anything that is not a primitive, an enumeration or a NumPy value.
-
-    Returns
-    -------
-    NoneType or bool or int or float or str or list or dict
-        A structure of JSON primitives.
-    """
+    """Return a structured or opaque object as a JSON-safe structure."""
     if isinstance(value, Path):
         return str(value)
     if type(value) is CubicSpline:
@@ -573,7 +492,7 @@ class ArrayDigest:
     shape: tuple[int, ...]
 
     @classmethod
-    def of(cls, values: np.ndarray) -> "ArrayDigest":  # noqa: UP037 - bound after the class body
+    def of(cls, values: np.ndarray) -> "ArrayDigest":
         """Return the digest of an array's contents.
 
         Parameters
@@ -621,23 +540,6 @@ def _array_name(digest: ArrayDigest) -> str:
     The layout is part of the name because the digest covers only the bytes: arrays of
     equal bytes and different dtypes or shapes are different arrays, and one must not
     take the other's place in the store.
-
-    Parameters
-    ----------
-    digest : ArrayDigest
-        The array's digest, dtype and shape.
-
-    Returns
-    -------
-    str
-        The three of them, joined.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.output.schema import ArrayDigest, _array_name
-    >>> _array_name(ArrayDigest.of(np.zeros((50, 100)))).split("-")[1:]
-    ['float64', '50x100']
     """
     shape = "x".join(str(size) for size in digest.shape)
     return f"{digest.sha256}-{digest.dtype}-{shape}"
@@ -677,7 +579,7 @@ class StatedInput:
     shape: tuple[int, ...]
 
     @classmethod
-    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":  # noqa: UP037 - bound after the class body
+    def of(cls, values: np.ndarray, identity: str) -> "StatedInput":
         """Return the record of an array input under a stated identity.
 
         Parameters
@@ -730,33 +632,13 @@ def recorded_input(value: object) -> object:
 def _recorded_inline(values: np.ndarray) -> bool:
     """Return whether a run record carries an array input itself, not its digest.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array input.
-
-    Returns
-    -------
-    bool
-        True for at most :data:`INLINE_ARRAY_LIMIT` elements.
+    - Returns: True for at most :data:`INLINE_ARRAY_LIMIT` elements.
     """
     return values.size <= INLINE_ARRAY_LIMIT
 
 
 def _canonical_json(value: JsonValue) -> str:
-    """Return the one textual form of a structure that a digest may be taken over.
-
-    Parameters
-    ----------
-    value : NoneType or bool or int or float or str or list or dict
-        A structure of JSON primitives.
-
-    Returns
-    -------
-    str
-        Compact JSON with sorted keys, so that two equal structures built in different
-        orders produce identical text.
-    """
+    """Return the one textual form of a structure that a digest may be taken over."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
@@ -767,15 +649,7 @@ def _decode_array(record: Mapping[str, object]) -> np.ndarray:
     only the dtype has to be restored, and the imaginary part rejoined when there is
     one.
 
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        A record produced by :func:`serialise` from a NumPy array.
-
-    Returns
-    -------
-    numpy.ndarray
-        The array, with its original dtype and shape.
+    - Returns: the array, with its original dtype and shape.
     """
     dtype = np.dtype(str(record["dtype"]))
     if "__imaginary__" in record:
@@ -798,15 +672,7 @@ def _decode(value: object) -> object:
     JSON, because the physics objects it describes are not reconstructible in general
     (a callable was recorded by ``repr``).
 
-    Parameters
-    ----------
-    value : object
-        A value produced by :func:`serialise`, or an array read from beside the record.
-
-    Returns
-    -------
-    object
-        The rebuilt value, or ``value`` itself when there is nothing to rebuild.
+    - Returns: the rebuilt value, or ``value`` itself when there is nothing to rebuild.
     """
     if isinstance(value, dict) and "__ndarray__" in value:
         return _decode_array(value)
@@ -818,28 +684,7 @@ def _resolved(
     arrays: Mapping[str, object],
     found: dict[str, np.ndarray],
 ) -> object:
-    """Return a stored document with each array reference replaced by its array.
-
-    Parameters
-    ----------
-    value : object
-        The document, as :func:`json.loads` read it.
-    arrays : collections.abc.Mapping
-        What holds the arrays, by name (:func:`_array_name`): an HDF5 group, or a
-        mapping of arrays.
-    found : dict
-        The arrays read, by name, which this fills.
-
-    Returns
-    -------
-    object
-        The document, with an array in place of each reference.
-
-    Raises
-    ------
-    OutputError
-        If an array is absent, or its bytes or its layout are not what name it.
-    """
+    """Return a stored document with each array reference replaced by its array."""
     if isinstance(value, list):
         return [_resolved(item, arrays, found) for item in value]
     if not isinstance(value, dict):
@@ -863,24 +708,7 @@ def _resolved(
 
 
 def _dotted(path: Sequence[str | int]) -> str:
-    """Return a path into a stored record as a refusal writes it.
-
-    Parameters
-    ----------
-    path : collections.abc.Sequence
-        Mapping keys and list indices.
-
-    Returns
-    -------
-    str
-        The keys joined by dots, with each index in brackets.
-
-    Examples
-    --------
-    >>> from solprop.output.schema import _dotted
-    >>> _dotted(("modes", 2, "label"))
-    'modes[2].label'
-    """
+    """Return a path into a stored record as a refusal writes it."""
     text = ""
     for part in path:
         text += f"[{part}]" if isinstance(part, int) else f".{part}" if text else part
@@ -895,31 +723,7 @@ def _stored_entry(
     default: object = None,
     required: bool = False,
 ) -> object:
-    """Return one entry of a stored record, reading an absent one as `default`.
-
-    Parameters
-    ----------
-    document : collections.abc.Mapping
-        The stored mapping.
-    name : str
-        The entry.
-    path : tuple of str
-        Where the mapping sits in the run record.
-    default : object, optional
-        What an absent entry reads as.
-    required : bool, optional
-        Whether an absent entry is refused.
-
-    Returns
-    -------
-    object
-        The entry, or `default`.
-
-    Raises
-    ------
-    OutputError
-        If a required entry is absent.
-    """
+    """Return one entry of a stored record, reading an absent one as `default`."""
     if name in document:
         return document[name]
     if required:
@@ -939,25 +743,6 @@ def _rebuild[T](
     wrote stays readable: a field the class no longer has is dropped, and an absent
     field takes the field's default. A resume never compares the rebuilt instance: it
     compares the stored text (:meth:`RunMetadata.configuration_hash`).
-
-    Parameters
-    ----------
-    build : type
-        The record dataclass to rebuild, called with the fields as keyword arguments.
-    record : collections.abc.Mapping
-        Its serialised form.
-    path : tuple, optional
-        Where the record sits in the run record, for a refusal.
-
-    Returns
-    -------
-    object
-        The rebuilt record.
-
-    Raises
-    ------
-    OutputError
-        If a field with no default is absent.
     """
     fields = {entry.name: entry for entry in dataclasses.fields(build) if entry.init}  # pyright: ignore[reportArgumentType] - a record dataclass
     arguments = {name: _decode(item) for name, item in record.items() if name in fields}
@@ -981,18 +766,8 @@ def _rebuild[T](
 def _run_git(arguments: Sequence[str], root: Path) -> str | None:
     """Return the output of one read-only git command, or ``None`` if it cannot run.
 
-    Parameters
-    ----------
-    arguments : collections.abc.Sequence
-        Arguments after ``git``. Passed as a list, never through a shell.
-    root : pathlib.Path
-        Directory to run in.
-
-    Returns
-    -------
-    str or None
-        The stripped standard output, or ``None`` when git is absent, the directory is
-        not a repository, or the command fails or times out.
+    - Returns: the stripped standard output, or ``None`` when git is absent, the
+      directory is not a repository, or the command fails or times out.
     """
     try:
         finished = subprocess.run(
@@ -1063,7 +838,7 @@ class BackendRecord:
         object.__setattr__(self, "settings", dict(self.settings))
 
     @classmethod
-    def from_metadata(cls, metadata: Mapping[str, object]) -> "BackendRecord":  # noqa: UP037 - bound after the class body
+    def from_metadata(cls, metadata: Mapping[str, object]) -> "BackendRecord":
         """Return the record a backend's ``metadata()`` describes.
 
         Parameters
@@ -1129,7 +904,7 @@ class GitProvenance:
     dirty: bool
 
     @classmethod
-    def detect(cls) -> "GitProvenance | None":  # noqa: UP037 - bound after the class body
+    def detect(cls) -> "GitProvenance | None":
         """Return the provenance of the running solprop checkout, if there is one.
 
         An installed release is not a checkout, git may be absent, and the package may
@@ -1188,15 +963,8 @@ class GitProvenance:
 def _tracks(path: Path) -> bool:
     """Return whether the git repository around `path` tracks it, asked once.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        A file of the package.
-
-    Returns
-    -------
-    bool
-        ``True`` when git runs, finds a repository and that repository tracks the file.
+    - Returns: ``True`` when git runs, finds a repository and that repository tracks the
+      file.
     """
     return _run_git(["ls-files", "--error-unmatch", path.name], path.parent) is not None
 
@@ -1204,15 +972,8 @@ def _tracks(path: Path) -> bool:
 def _version_of(name: str) -> str:
     """Return an installed distribution's version, or ``'unknown'``.
 
-    Parameters
-    ----------
-    name : str
-        Distribution name.
-
-    Returns
-    -------
-    str
-        The version string, or ``'unknown'`` when the distribution is not installed.
+    - Returns: the version string, or ``'unknown'`` when the distribution is not
+      installed.
     """
     try:
         return _package_version(name)
@@ -1251,10 +1012,7 @@ def _installed_versions() -> dict[str, str]:
     Every record asks, so every scan point did; what is installed does not change
     under a running process.
 
-    Returns
-    -------
-    dict
-        The versions; callers copy it.
+    - Returns: the versions; callers copy it.
     """
     return {
         "solprop": _version_of("solprop"),
@@ -1345,7 +1103,7 @@ class GridRecord:
     t_window_max: float
 
     @classmethod
-    def from_grid(cls, grid: TimeGrid) -> "GridRecord":  # noqa: UP037 - bound after the class body
+    def from_grid(cls, grid: TimeGrid) -> "GridRecord":
         """Return the record of a grid.
 
         Parameters
@@ -1426,7 +1184,7 @@ class ModeRecord:
     label: Mapping[str, JsonValue] | None = None
 
     @classmethod
-    def from_mode(cls, mode: Mode, z: float = 0.0) -> "ModeRecord":  # noqa: UP037 - bound after the class body
+    def from_mode(cls, mode: Mode, z: float = 0.0) -> "ModeRecord":
         """Return the record of a mode.
 
         Parameters
@@ -1515,7 +1273,7 @@ class NoiseRecord:
         object.__setattr__(self, "spectrum", frozen)
 
     @classmethod
-    def from_realisation(cls, realisation: NoiseRealisation) -> "NoiseRecord":  # noqa: UP037 - bound after the class body
+    def from_realisation(cls, realisation: NoiseRealisation) -> "NoiseRecord":
         """Return the record of a drawn realisation.
 
         Parameters
@@ -1611,8 +1369,7 @@ class DefaultsResolution:
 class StepLimits:
     """The caps a run put on the controller's step proposal.
 
-    Grouped into one record because they travel together and because a constructor
-    that took them one by one would need more arguments than the project allows.
+    Grouped into one record because they travel together.
 
     Attributes
     ----------
@@ -1720,7 +1477,7 @@ class StepperRecord:
         schedule: FixedSchedule | None = None,
         limits: StepLimits | None = None,
         method: str | None = None,
-    ) -> "StepperRecord":  # noqa: UP037 - bound after the class body
+    ) -> "StepperRecord":
         """Return the record of the objects a run stepped with.
 
         Parameters
@@ -1763,7 +1520,7 @@ class StepperRecord:
         )
 
     @classmethod
-    def from_record(cls, document: Mapping[str, JsonValue]) -> "StepperRecord":  # noqa: UP037 - bound after the class body
+    def from_record(cls, document: Mapping[str, JsonValue]) -> "StepperRecord":
         """Return the record a stored document describes.
 
         Parameters
@@ -1897,10 +1654,7 @@ class StepHistory(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         attempts = int(np.asarray(self.z).size)
         if not attempts:
@@ -1937,7 +1691,7 @@ class StepHistory(Displayed):
             raise OutputError(msg)
 
     @classmethod
-    def empty(cls) -> "StepHistory":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepHistory":
         """Return the history of a plane no step led to, such as the starting plane.
 
         Returns
@@ -1960,25 +1714,16 @@ class StepHistory(Displayed):
         )
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of attempts recorded.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of attempts recorded.
 
-        Returns
-        -------
-        int
-            Accepted and rejected attempts together.
+        Accepted and rejected attempts together.
         """
         return int(self.z.size)
 
     @property
-    def n_rejected(self) -> int:
-        """Return the number of rejected attempts.
-
-        Returns
-        -------
-        int
-            How many attempts the controller threw away.
-        """
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Number of rejected attempts."""
         return int(np.count_nonzero(~self.accepted))
 
 
@@ -2069,7 +1814,7 @@ class StepStats(Displayed):
             raise OutputError(msg)
 
     @classmethod
-    def empty(cls) -> "StepStats":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepStats":
         """Return the channel a run without a periodic subset carries.
 
         Returns
@@ -2080,25 +1825,13 @@ class StepStats(Displayed):
         return cls(z=np.empty(0), step=np.empty(0, dtype=np.int64), values={})
 
     @property
-    def n_rows(self) -> int:
-        """Return how many rows belong to this plane.
-
-        Returns
-        -------
-        int
-            The row count.
-        """
+    def n_rows(self) -> int:  # numpydoc ignore=RT01
+        """How many rows belong to this plane."""
         return int(self.z.size)
 
     @property
-    def names(self) -> tuple[str, ...]:
-        """Return the statistics the channel carries, sorted.
-
-        Returns
-        -------
-        tuple of str
-            The catalogue names.
-        """
+    def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -2114,15 +1847,7 @@ def _adopted(values: np.ndarray) -> np.ndarray:
     :meth:`solprop.backends.protocol.HostStepping.observe` promises, and never for a
     batch member, whose view would pin the whole batch.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array, of the type a plane holds.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only.
+    - Returns: the same array, read-only.
     """
     values.setflags(write=False)
     _ADOPTED[id(values)] = values
@@ -2134,17 +1859,7 @@ def _plane_array(
 ) -> np.ndarray:
     """Return an array as a :class:`SavedPlane` holds it: read-only, nobody else's.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array given to the plane, of any numeric dtype.
-    dtype : type
-        The element type the plane holds.
-
-    Returns
-    -------
-    numpy.ndarray
-        `values` itself when :func:`_adopted` marked it, a frozen copy otherwise.
+    - Returns: `values` itself when :func:`_adopted` marked it, a frozen copy otherwise.
     """
     if _ADOPTED.get(id(values)) is values:
         return values
@@ -2227,20 +1942,14 @@ class SavedPlane(Displayed):
     def _field_text(self) -> str:
         """Return the field summarised, or a note that the plane keeps none.
 
-        Returns
-        -------
-        str
-            The field's shape, or ``"no field"``.
+        - Returns: the field's shape, or ``"no field"``.
         """
         return "no field" if self.field is None else summarise(self.field)
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return f"SavedPlane at z = {engineering(self.z, 'm')}", [
             ("field", self._field_text()),
@@ -2280,13 +1989,10 @@ class SavedPlane(Displayed):
             object.__setattr__(self, "noise_phase", phase)
 
     @property
-    def shape(self) -> tuple[int, ...] | None:
-        """Return the field's shape, or ``None`` on a field-free plane.
+    def shape(self) -> tuple[int, ...] | None:  # numpydoc ignore=RT01
+        """The field's shape, or ``None`` on a field-free plane.
 
-        Returns
-        -------
-        tuple or None
-            ``(n_modes, n_pol, n_omega)``.
+        ``(n_modes, n_pol, n_omega)``.
         """
         return None if self.field is None else self.field.shape
 
@@ -2343,18 +2049,6 @@ def _with_phase(plane: SavedPlane, phase: np.ndarray) -> SavedPlane:
     The store's own view of a plane whose field it holds apart, in the stored form
     (:class:`StoredField`); it never leaves the store, whose hooks read the noise
     phase from the plane as from one that carries its field.
-
-    Parameters
-    ----------
-    plane : SavedPlane
-        The plane, without a field.
-    phase : numpy.ndarray
-        The field's noise phase.
-
-    Returns
-    -------
-    SavedPlane
-        A copy of `plane` with the phase.
     """
     held = dataclasses.replace(plane)
     object.__setattr__(held, "noise_phase", _plane_array(phase, np.float64))
@@ -2435,18 +2129,7 @@ class RunOutcome:
 
 
 def _json_failure(part: object) -> str | None:
-    """Return why a part of a run outcome is not finite JSON, or ``None`` if it is.
-
-    Parameters
-    ----------
-    part : object
-        The part.
-
-    Returns
-    -------
-    str or None
-        The encoder's reason.
-    """
+    """Return why a part of a run outcome is not finite JSON, or ``None`` if it is."""
     try:
         json.dumps(part, allow_nan=False)
     except (TypeError, ValueError) as error:
@@ -2460,16 +2143,6 @@ def _json_copy(value: object) -> object:
     Cheaper than another JSON round trip, and than :func:`copy.deepcopy`, because the
     value is known to hold only dicts, lists, strings, numbers, booleans and
     ``None``.
-
-    Parameters
-    ----------
-    value : object
-        The value.
-
-    Returns
-    -------
-    object
-        Its copy: new dicts and lists, the same immutable leaves.
     """
     if isinstance(value, dict):
         return {key: _json_copy(item) for key, item in value.items()}
@@ -2489,19 +2162,6 @@ def _amended_outcome(
     earlier closing records were validated when it took them, so a saved plane validates
     its record once. The caller hands over copies of them (:func:`_json_copy`), so that
     each outcome holds its own and a change to one read back reaches no other.
-
-    Parameters
-    ----------
-    outcome : RunOutcome
-        The validated outcome.
-    previous_executions : tuple of collections.abc.Mapping
-        The store's closing records of earlier executions.
-
-    Returns
-    -------
-    RunOutcome
-        The amended copy; its other parts are shared with `outcome`, which the store
-        holds alone.
     """
     amended = copy.copy(outcome)
     object.__setattr__(amended, "previous_executions", previous_executions)
@@ -2511,15 +2171,7 @@ def _amended_outcome(
 def _outcome_record(record: Mapping[str, object]) -> dict[str, object]:
     """Own finite JSON values so later provider mutations cannot change a snapshot.
 
-    Parameters
-    ----------
-    record : Mapping[str, object]
-        Execution facts composed of finite JSON values.
-
-    Returns
-    -------
-    dict
-        Independently owned nested values, detached from provider state.
+    - ``record``: execution facts composed of finite JSON values.
     """
     try:
         return cast(
@@ -2677,13 +2329,10 @@ class MarchSnapshot:  # numpydoc ignore=PR02
             raise OutputError("march snapshot positions and state must be finite")
 
     @property
-    def nbytes(self) -> int:
-        """Return the bytes the snapshot's arrays hold.
+    def nbytes(self) -> int:  # numpydoc ignore=RT01
+        """The bytes the snapshot's arrays hold.
 
-        Returns
-        -------
-        int
-            The state and every engine row.
+        The state and every engine row.
         """
         return int(self.state.nbytes + sum(row.nbytes for row in self.rows.values()))
 
@@ -2695,18 +2344,8 @@ def _holds_carried(plane: SavedPlane, carried: SavedPlane) -> bool:
     carried attempts, every column equal; a new one from the resumed march starts
     where the resume did, with attempts of its own and its own wall clock.
 
-    Parameters
-    ----------
-    plane : SavedPlane
-        The checkpoint's plane.
-    carried : SavedPlane
-        The resumed checkpoint's plane, whose attempts no regular plane holds yet.
-
-    Returns
-    -------
-    bool
-        True when `plane`'s history and rows start with `carried`'s, or `carried`
-        holds nothing to add.
+    - Returns: True when `plane`'s history and rows start with `carried`'s, or `carried`
+      holds nothing to add.
     """
     before, history = carried.step_history, plane.step_history
     if before.n_steps == 0:
@@ -2722,20 +2361,7 @@ def _holds_carried(plane: SavedPlane, carried: SavedPlane) -> bool:
 def _prepend_checkpoint_history(
     previous: SavedPlane, current: SavedPlane
 ) -> SavedPlane:
-    """Retain attempts and periodic rows preceding a fresh-start resume.
-
-    Parameters
-    ----------
-    previous : SavedPlane
-        Pending checkpoint carrying attempts before the restart.
-    current : SavedPlane
-        New accepted field and attempts after the restart.
-
-    Returns
-    -------
-    SavedPlane
-        Current field with both histories and adjusted periodic-row indices.
-    """
+    """Retain attempts and periodic rows preceding a fresh-start resume."""
     history = StepHistory(
         **{
             name: np.concatenate(
@@ -2768,19 +2394,7 @@ def _prepend_checkpoint_history(
 def _differences(
     left: JsonValue, right: JsonValue, path: str, found: list[str]
 ) -> None:
-    """Collect the dotted paths at which two serialised structures differ.
-
-    Parameters
-    ----------
-    left : NoneType or bool or int or float or str or list or dict
-        The first structure.
-    right : NoneType or bool or int or float or str or list or dict
-        The second.
-    path : str
-        Dotted path of the position being compared.
-    found : list
-        Accumulator the paths are appended to, in depth-first order.
-    """
+    """Collect the dotted paths at which two serialised structures differ."""
     if isinstance(left, dict) and isinstance(right, dict):
         if _RECORD_ARRAY in left and _RECORD_ARRAY in right:
             # One entry, whatever changed in it: the array has no text to walk.
@@ -2806,18 +2420,7 @@ def _differences(
 
 
 def _optional_text(value: JsonValue) -> str | None:
-    """Return a stored optional string, ``None`` when null.
-
-    Parameters
-    ----------
-    value : object
-        The stored value.
-
-    Returns
-    -------
-    str or None
-        The string, or ``None``.
-    """
+    """Return a stored optional string, ``None`` when null."""
     return None if value is None else str(value)
 
 
@@ -2827,16 +2430,6 @@ def _refuse_schema(declared: object) -> None:
     One rule for every other number: an earlier release wrote a lower output schema, a
     development version of solprop wrote schemas up to 28, and a later release may write
     a higher one, and this release reads none of them (ADR-058).
-
-    Parameters
-    ----------
-    declared : object
-        The ``schema_version`` the record declares.
-
-    Raises
-    ------
-    OutputError
-        If `declared` is not :data:`SCHEMA_VERSION`.
     """
     if type(declared) is int and declared == SCHEMA_VERSION:
         return
@@ -2876,16 +2469,6 @@ def _stored_hashed(document: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
     list (:func:`_hashed_modal`), and the material manifest's hashed part
     (:func:`solprop.physdata.selection.hashed_document`). An entry the document lacks
     stays absent, so the record digests to the stamp its writer computed.
-
-    Parameters
-    ----------
-    document : collections.abc.Mapping
-        A stored record, as :meth:`RunMetadata.to_json` wrote it.
-
-    Returns
-    -------
-    dict
-        Its hashed part.
     """
     hashed = {name: document[name] for name in _HASHED_KEYS if name in document}
     modal = hashed.get("modal")
@@ -2917,16 +2500,9 @@ def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
     the record for a reader, and the resume door checks it as a **subset** instead
     (:func:`solprop.output.hdf5.check_cache`).
 
-    Parameters
-    ----------
-    modal : collections.abc.Mapping or None
-        The identity, as :func:`solprop.translate.general.modal_identity` writes
-        it, or ``None`` for a run that is not a general modal one.
-
-    Returns
-    -------
-    object
-        The serialised identity without ``accessors``, or ``None``.
+    - ``modal``: the identity, as :func:`solprop.translate.general.modal_identity`
+      writes it, or ``None`` for a run that is not a general modal one.
+    - Returns: the serialised identity without ``accessors``, or ``None``.
     """
     if modal is None:
         return None
@@ -2936,17 +2512,8 @@ def _hashed_modal(modal: Mapping[str, object] | None) -> JsonValue:
 def _guide_text(guide: object) -> str:
     """Return the one printed line describing the guide a general run was built on.
 
-    Parameters
-    ----------
-    guide : object
-        The ``guide`` entry of a general modal identity, as
-        :func:`solprop.translate.general.guide_identity` writes it.
-
-    Returns
-    -------
-    str
-        The provider's model, its region count and the resolution its reference was
-        sampled at, or ``'none'`` when the entry is missing or malformed.
+    - Returns: the provider's model, its region count and the resolution its reference
+      was sampled at, or ``'none'`` when the entry is missing or malformed.
     """
     if not isinstance(guide, Mapping):
         return "none"
@@ -2975,18 +2542,8 @@ def _tables_text(tables: object) -> str:
     that two files can be compared by, which is what a digest is for. The full
     document is in ``metadata.modal['tables']['model_id']``.
 
-    Parameters
-    ----------
-    tables : object
-        The ``tables`` entry of a general modal identity, as
-        :attr:`solprop.translate.modal_tables.ModalTransformTables.identity`
-        writes it.
-
-    Returns
-    -------
-    str
-        A 12-hex digest of the model identity, the gauge and the policy, or
-        ``'none'`` when the entry is missing or malformed.
+    - Returns: a 12-hex digest of the model identity, the gauge and the policy, or
+      ``'none'`` when the entry is missing or malformed.
     """
     if not isinstance(tables, Mapping):
         return "none"
@@ -3007,17 +2564,10 @@ def _tables_text(tables: object) -> str:
 def _responses_text(responses: object) -> str:
     """Return the one printed line describing a general run's regional responses.
 
-    Parameters
-    ----------
-    responses : object
-        The ``responses`` entry of a general modal identity, or ``None`` for a
-        guide whose regions are all linear.
-
-    Returns
-    -------
-    str
-        The compiled model, the responding region count and each region's declared
-        susceptibility, or ``'none'`` when no region responds.
+    - ``responses``: the ``responses`` entry of a general modal identity, or ``None``
+      for a guide whose regions are all linear.
+    - Returns: the compiled model, the responding region count and each region's
+      declared susceptibility, or ``'none'`` when no region responds.
     """
     if not isinstance(responses, Mapping):
         return "none"
@@ -3034,26 +2584,7 @@ def _responses_text(responses: object) -> str:
 
 
 def _flow_text(flow: object) -> str:
-    """Return the printed summary of a coupled-flow entry, or that there is none.
-
-    Parameters
-    ----------
-    flow : object
-        The ``modal["flow"]`` entry, a mapping for a run carrying a coupled flow and
-        absent for the cumulative diagonal one every other route uses.
-
-    Returns
-    -------
-    str
-        For example ``mean impedance coherent wall, constant_schur, worst ratio
-        9.012e-03, conditioning 1.000e+00``.
-
-    Examples
-    --------
-    >>> from solprop.output.schema import _flow_text
-    >>> _flow_text(None)
-    'diagonal'
-    """
+    """Return the printed summary of a coupled-flow entry, or that there is none."""
     if not isinstance(flow, Mapping):
         return "diagonal"
     ratios = [
@@ -3081,15 +2612,7 @@ def _modal_rows(modal: Mapping[str, object] | None) -> list[tuple[str, object]]:
     so that a printed record says which guide, which table and which basis produced
     the file; the rows are absent altogether for a route that has no such identity.
 
-    Parameters
-    ----------
-    modal : collections.abc.Mapping or None
-        The identity, or ``None`` for a route that declares none.
-
-    Returns
-    -------
-    list
-        ``(key, value)`` rows for :meth:`RunMetadata._describe`.
+    - ``modal``: the identity, or ``None`` for a route that declares none.
     """
     if modal is None:
         return []
@@ -3148,18 +2671,7 @@ def _modal_rows(modal: Mapping[str, object] | None) -> list[tuple[str, object]]:
 
 
 def _material_rows(manifest: MaterialManifest) -> list[tuple[str, object]]:
-    """Return the printed row of a material manifest, or none for an empty one.
-
-    Parameters
-    ----------
-    manifest : solprop.physdata.selection.MaterialManifest
-        The run's manifest.
-
-    Returns
-    -------
-    list
-        One ``("materials", ...)`` row naming the optmat version and the models.
-    """
+    """Return the printed row of a material manifest, or none for an empty one."""
     if manifest.empty:
         return []
     names = ", ".join(sorted({record.name for record in manifest.records})) or "none"
@@ -3347,10 +2859,7 @@ class RunMetadata(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         grid = self.grid
         kinds = [mode.kind.rsplit(".", 1)[-1] for mode in self.modes]
@@ -3416,8 +2925,8 @@ class RunMetadata(Displayed):
             raise OutputError(msg)
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the run's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the run's transverse integrals measure.
 
         A run on modes uniform in y (:class:`solprop.modes.slab.SlabMode`) records
         ``configuration["transverse_measure"] = "per_unit_width"``: its powers are
@@ -3425,10 +2934,7 @@ class RunMetadata(Displayed):
         an area. The key sits in the free-form configuration and is written only
         where it is not the default.
 
-        Returns
-        -------
-        str
-            ``"area"`` or ``"per_unit_width"``.
+        ``"area"`` or ``"per_unit_width"``.
 
         Raises
         ------
@@ -3451,14 +2957,11 @@ class RunMetadata(Displayed):
         return cast("TransverseMeasure", value)
 
     @property
-    def power_convention(self) -> str:
-        """Return the amplitude label of the stored field.
+    def power_convention(self) -> str:  # numpydoc ignore=RT01
+        """Amplitude label of the stored field.
 
-        Returns
-        -------
-        str
-            Always ``"poynting"``: the interface modal amplitude, whose squared
-            modulus is the true power in watts (``docs/dev/conventions.md`` §4).
+        Always ``"poynting"``: the interface modal amplitude, whose squared
+        modulus is the true power in watts (``docs/dev/conventions.md`` §4).
         """
         return "poynting"
 
@@ -3497,12 +3000,6 @@ class RunMetadata(Displayed):
         once -- and serialising the configuration was most of an output's opening
         (SEP 25 section 6.3). The record is frozen, so the first answer stands;
         :meth:`hashed` hands out a shallow copy, which its callers extend.
-
-        Returns
-        -------
-        dict
-            The hashed part of the record, JSON-ready: as the file holds it for a
-            record read from one (:meth:`from_json`).
         """
         if self._stored is not None:
             return self._stored
@@ -3551,17 +3048,11 @@ class RunMetadata(Displayed):
 
     @functools.cached_property
     def _configuration_digest(self) -> str:
-        """The resume key, computed once per record (:meth:`configuration_hash`).
-
-        Returns
-        -------
-        str
-            The SHA-256 hex digest of the canonical JSON of the hashed part.
-        """
+        """The resume key, computed once per record (:meth:`configuration_hash`)."""
         text = _canonical_json(self._hashed_record)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def with_backend(self, backend: BackendRecord) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    def with_backend(self, backend: BackendRecord) -> "RunMetadata":
         """Return this record with a run's execution facts, its resume key kept.
 
         The backend record is outside the hash, so the hashed part and the resume key
@@ -3598,7 +3089,7 @@ class RunMetadata(Displayed):
                 replaced.__dict__[name] = self.__dict__[name]
         return replaced
 
-    def differences(self, other: "RunMetadata") -> tuple[str, ...]:  # noqa: UP037 - bound after the class body
+    def differences(self, other: "RunMetadata") -> tuple[str, ...]:
         """Return the dotted paths at which two records describe different runs.
 
         This is what a refused resume names, so that the reason is the field that
@@ -3630,7 +3121,7 @@ class RunMetadata(Displayed):
 
     def summarise_differences(
         self,
-        other: "RunMetadata",  # noqa: UP037 - bound after the class body
+        other: "RunMetadata",
         *,
         shown: int = _DIFFERENCES_SHOWN,
     ) -> str:
@@ -3728,24 +3219,18 @@ class RunMetadata(Displayed):
         """
         found = dict(self._stored_arrays or {})
 
-        def walk(value: object) -> None:
-            """Collect the arrays of a serialised structure.
-
-            Parameters
-            ----------
-            value : object
-                The structure.
-            """
+        def _walk(value: object) -> None:
+            """Collect the arrays of a serialised structure."""
             if isinstance(value, _ArrayReference):
                 found[str(value[_RECORD_ARRAY])] = value.array
             elif isinstance(value, dict):
                 for item in value.values():
-                    walk(item)
+                    _walk(item)
             elif isinstance(value, list):
                 for item in value:
-                    walk(item)
+                    _walk(item)
 
-        walk(self._document)
+        _walk(self._document)
         return found
 
     def to_json(self) -> str:
@@ -3776,10 +3261,7 @@ class RunMetadata(Displayed):
     def _document(self) -> dict[str, JsonValue]:
         """The whole serialised record, built once per record (:meth:`to_json`).
 
-        Returns
-        -------
-        dict
-            The hashed part and what is stored beside it, JSON-ready.
+        - Returns: the hashed part and what is stored beside it, JSON-ready.
         """
         document = self.hashed()
         # The whole identity, including the accessor list `hashed` leaves out: what a
@@ -3813,7 +3295,7 @@ class RunMetadata(Displayed):
         cls,
         text: str,
         arrays: Mapping[str, object] | None = None,
-    ) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+    ) -> "RunMetadata":
         """Return the record a JSON document describes.
 
         The configuration comes back as the plain structures :func:`serialise` made of
@@ -3927,11 +3409,6 @@ def _example_metadata() -> RunMetadata:
 
     A documentation and experimentation helper, not part of the public surface: build a
     real record with the :class:`RunMetadata` constructor, whose own example shows how.
-
-    Returns
-    -------
-    RunMetadata
-        A mode-averaged record on a small envelope grid with one configuration entry.
     """
     grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     return RunMetadata(
@@ -4102,7 +3579,7 @@ class FieldRetention:
             self, "field_planes", tuple(int(index) for index in self.field_planes)
         )
 
-    def resolved(self, n_planes: int) -> "FieldRetention":  # noqa: UP037 - bound after the class body
+    def resolved(self, n_planes: int) -> "FieldRetention":
         """Return the rule with its indices counted from the entrance, sorted, unique.
 
         Parameters
@@ -4261,46 +3738,28 @@ class Output(Protocol):
         ...
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes have been stored.
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes have been stored."""
+        ...
 
-        Returns
-        -------
-        int
-            The number of planes.
+    @property
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened."""
+        ...
+
+    @property
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The names of the statistics stored at every plane.
+
+        The names, sorted; empty before the first plane is saved.
         """
         ...
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored between planes, if any.
 
-        Returns
-        -------
-        RunMetadata or None
-            What produced the stored data.
-        """
-        ...
-
-    @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the names of the statistics stored at every plane.
-
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty before the first plane is saved.
-        """
-        ...
-
-    @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored between planes, if any.
-
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty when the run recorded no periodic subset.
+        The names, sorted; empty when the run recorded no periodic subset.
         """
         ...
 
@@ -4373,25 +3832,13 @@ class CheckpointOutput(Protocol):
         ...
 
     @property
-    def outcome(self) -> RunOutcome | None:
-        """Return recorded status, or None when no outcome was recorded.
-
-        Returns
-        -------
-        RunOutcome or None
-            Last persisted execution outcome.
-        """
+    def outcome(self) -> RunOutcome | None:  # numpydoc ignore=RT01
+        """Recorded status, or None when no outcome was recorded."""
         ...
 
     @property
-    def terminal_checkpoint(self) -> TerminalCheckpoint | None:
-        """Return the latest accepted terminal field outside regular observations.
-
-        Returns
-        -------
-        TerminalCheckpoint or None
-            The checkpoint, if one has been recorded.
-        """
+    def terminal_checkpoint(self) -> TerminalCheckpoint | None:  # numpydoc ignore=RT01
+        """Latest accepted terminal field outside regular observations."""
         ...
 
 
@@ -4496,25 +3943,13 @@ class RecipeRecord:
     files: Mapping[str, RecipeFile] = dataclasses.field(default_factory=dict)
 
     @property
-    def authored_sha256(self) -> str:
-        """Return the SHA-256 of the authored text.
-
-        Returns
-        -------
-        str
-            The digest, in hexadecimal.
-        """
+    def authored_sha256(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of the authored text, in hexadecimal."""
         return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
 
     @property
-    def resolved_sha256(self) -> str:
-        """Return the SHA-256 of the resolved text.
-
-        Returns
-        -------
-        str
-            The digest, in hexadecimal.
-        """
+    def resolved_sha256(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of the resolved text, in hexadecimal."""
         return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
 
 
@@ -4546,17 +3981,11 @@ def stored_spectrum(
     rows = field.reshape(-1, field.shape[-1])
     written = target.reshape(-1, field.shape[-1])
 
-    def convert(selected: slice) -> None:
-        """Convert the selected rows into their room.
-
-        Parameters
-        ----------
-        selected : slice
-            The rows.
-        """
+    def _convert(selected: slice) -> None:
+        """Convert the selected rows into their room."""
         fourier.spectrum_to_optics(rows[selected], kind=kind, out=written[selected])
 
-    parallel_rows(rows.shape[0], field.nbytes, convert)
+    parallel_rows(rows.shape[0], field.nbytes, _convert)
     return target
 
 
@@ -4575,16 +4004,6 @@ def _takes_exports_by_mro(cls: type) -> bool:
     or declare ``_takes_exports = True`` in its own body: a ``save`` or a field hook
     from a subclass or a mixin that does not vouch for the exported path keeps the
     class on ``save``, which is given every plane with its field.
-
-    Parameters
-    ----------
-    cls : type
-        A :class:`PlaneStore` subclass.
-
-    Returns
-    -------
-    bool
-        Whether the class takes exported fields.
     """
     mro = cls.__mro__
     declared = next((klass for klass in mro if "_takes_exports" in vars(klass)), None)
@@ -4677,24 +4096,18 @@ class PlaneStore(Displayed, ABC):
         self._resume_outcome_pending = False
 
     @property
-    def outcome(self) -> RunOutcome | None:
-        """Return the execution outcome, or None when none was recorded.
+    def outcome(self) -> RunOutcome | None:  # numpydoc ignore=RT01
+        """Execution outcome, or None when none was recorded.
 
-        Returns
-        -------
-        RunOutcome or None
-            The last recorded completion state and cumulative ledgers.
+        The last recorded completion state and cumulative ledgers.
         """
         return self._outcome
 
     @property
-    def terminal_checkpoint(self) -> TerminalCheckpoint | None:
-        """Return the terminal checkpoint without treating it as a saved plane.
+    def terminal_checkpoint(self) -> TerminalCheckpoint | None:  # numpydoc ignore=RT01
+        """Terminal checkpoint without treating it as a saved plane.
 
-        Returns
-        -------
-        TerminalCheckpoint or None
-            A field in the internal FFT convention and output amplitude units.
+        A field in the internal FFT convention and output amplitude units.
         """
         return self._terminal_checkpoint
 
@@ -4718,23 +4131,11 @@ class PlaneStore(Displayed, ABC):
         self._recipe = record
 
     def _write_recipe(self, record: RecipeRecord) -> None:
-        """Persist the recipe; a store that lives in memory has nothing to do.
-
-        Parameters
-        ----------
-        record : RecipeRecord
-            The recipe.
-        """
+        """Persist the recipe; a store that lives in memory has nothing to do."""
 
     @property
-    def recipe(self) -> RecipeRecord | None:
-        """The recipe the run was built from, or ``None`` for a run from a script.
-
-        Returns
-        -------
-        RecipeRecord or None
-            The record.
-        """
+    def recipe(self) -> RecipeRecord | None:  # numpydoc ignore=RT01
+        """The recipe the run was built from, or ``None`` for a run from a script."""
         return self._recipe
 
     def record_outcome(
@@ -4815,10 +4216,7 @@ class PlaneStore(Displayed, ABC):
     def _last_saved_z(self) -> float:
         """Return the position of the last regular saved plane.
 
-        Returns
-        -------
-        float
-            The position, m.
+        - Returns: the position, m.
         """
         return float(self["z"][-1])
 
@@ -4827,17 +4225,12 @@ class PlaneStore(Displayed, ABC):
     ) -> None:
         """Persist records; the memory store needs no additional storage hook.
 
-        Parameters
-        ----------
-        outcome : RunOutcome or None
-            Current execution outcome.
-        checkpoint : TerminalCheckpoint or None
-            Accepted checkpoint, or None to clear an older one.
+        - ``checkpoint``: accepted checkpoint, or None to clear an older one.
         """
 
     @property
-    def annotations(self) -> Mapping[str, JsonValue]:
-        """Return the post-run annotations the store holds, by name.
+    def annotations(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Post-run annotations the store holds, by name.
 
         An annotation is something learned only once the run has closed -- the
         material manifest's peak-field report (:data:`PEAK_FIELDS_ANNOTATION`) is
@@ -4845,10 +4238,7 @@ class PlaneStore(Displayed, ABC):
         resume and a scan's reuse never see it. A store without any, a file written
         before annotations existed included, answers with an empty mapping.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Each annotation's plain JSON values, by name; a copy.
+        Each annotation's plain JSON values, by name; a copy.
 
         Examples
         --------
@@ -4905,95 +4295,54 @@ class PlaneStore(Displayed, ABC):
         self._annotations[name] = cast("JsonValue", json.loads(text))
 
     def _write_annotation(self, name: str, text: str) -> None:
-        """Persist one annotation; a store that lives in memory has nothing to do.
-
-        Parameters
-        ----------
-        name : str
-            The annotation's name.
-        text : str
-            Its JSON document.
-        """
+        """Persist one annotation; a store that lives in memory has nothing to do."""
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
-
-        Returns
-        -------
-        RunMetadata or None
-            What produced the stored data.
-        """
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened."""
         return self._metadata
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes have been stored.
-
-        Returns
-        -------
-        int
-            The number of planes.
-        """
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes have been stored."""
         return self._n_saved
 
     @property
-    def closed(self) -> bool:
-        """Return whether the handler has been closed.
-
-        Returns
-        -------
-        bool
-            True once :meth:`close` has run.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the handler has been closed."""
         return self._closed
 
     @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the names of the statistics stored at every plane.
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The names of the statistics stored at every plane.
 
         Read off the layout the first plane fixed, so that the two handlers answer
         alike, and a file continued or opened for reading answers from what it holds.
 
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty before the first plane is saved.
+        The names, sorted; empty before the first plane is saved.
         """
         return () if self._layout is None else self._layout.stat_names
 
     @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics the between-planes channel carries.
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the between-planes channel carries.
 
         Empty for a run that asked for no periodic subset, which is how a reader
         tells whether the channel is there to prefer over the planes.
 
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty when the run has no channel.
+        The names, sorted; empty when the run has no channel.
         """
         return () if self._layout is None else self._layout.step_stat_names
 
     def _state_text(self) -> str:
         """Return whether the store is open, for printing.
 
-        Returns
-        -------
-        str
-            ``"open"`` or ``"closed"``.
+        - Returns: ``"open"`` or ``"closed"``.
         """
         return "closed" if self._closed else "open"
 
     def _span_text(self) -> str:
-        """Return the positions the saved planes span, for printing.
-
-        Returns
-        -------
-        str
-            The first and last position, or a note that they cannot be read now.
-        """
+        """Return the positions the saved planes span, for printing."""
         if not self._n_saved:
             return "no plane saved yet"
         try:
@@ -5019,10 +4368,7 @@ class PlaneStore(Displayed, ABC):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             ("state", self._state_text()),
@@ -5038,7 +4384,7 @@ class PlaneStore(Displayed, ABC):
             rows.append(("run", repr(self._metadata)))
         return type(self).__name__, rows
 
-    def __enter__(self) -> "PlaneStore":  # noqa: UP037 - bound after the class body
+    def __enter__(self) -> "PlaneStore":
         """Return the handler, so that a ``with`` block closes it on the way out.
 
         Returns
@@ -5102,8 +4448,8 @@ class PlaneStore(Displayed, ABC):
         self._store(plane, None)
 
     @property
-    def takes_exports(self) -> bool:
-        """Return whether a run hands this store its kept fields already stored.
+    def takes_exports(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a run hands this store its kept fields already stored.
 
         A store that takes them is given each kept plane through
         :meth:`save_exported`, its field exported by the run's session straight into
@@ -5114,10 +4460,7 @@ class PlaneStore(Displayed, ABC):
         plane, and its field, through ``save`` as before. A class vouches with
         ``_takes_exports = True`` in its own body, and opts out with ``False``.
 
-        Returns
-        -------
-        bool
-            Whether :meth:`save_exported` is how the run stores kept fields here.
+        Whether :meth:`save_exported` is how the run stores kept fields here.
 
         Examples
         --------
@@ -5197,19 +4540,7 @@ class PlaneStore(Displayed, ABC):
     def _check_destination(self, plane: SavedPlane, shape: tuple[int, ...]) -> None:
         """Refuse to give room for a plane that cannot be stored with a field.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane about to be stored.
-        shape : tuple of int
-            The field's shape.
-
-        Raises
-        ------
-        OutputError
-            If the handler is closed or was never opened, the plane carries a field
-            already, the run keeps no field at the next plane, or `shape` is not the
-            field shape the store holds or was told (:meth:`retain`).
+        - ``shape``: the field's shape.
         """
         self._check_usable()
         self._require_metadata()
@@ -5238,13 +4569,8 @@ class PlaneStore(Displayed, ABC):
     def _store(self, plane: SavedPlane, exported: StoredField | None) -> None:
         """Store one plane, its field taken from the plane or already exported.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane.
-        exported : StoredField or None
-            Its field in the stored form (:meth:`save_exported`), or ``None`` to
-            convert the plane's own field.
+        - ``exported``: its field in the stored form (:meth:`save_exported`), or
+          ``None`` to convert the plane's own field.
         """
         self._check_usable()
         metadata = self._require_metadata()
@@ -5279,18 +4605,6 @@ class PlaneStore(Displayed, ABC):
 
         A store that keeps fields in a room of its own copies a field exported
         elsewhere into it (`MemoryOutput`).
-
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane, without a field.
-        exported : numpy.ndarray
-            Its field in the stored form.
-
-        Returns
-        -------
-        numpy.ndarray
-            The field to append.
         """
         del plane
         return exported
@@ -5371,24 +4685,18 @@ class PlaneStore(Displayed, ABC):
         self._field_shape = tuple(int(size) for size in field_shape)
 
     @property
-    def retention(self) -> FieldRetention:
-        """Return which planes of the run keep their field.
+    def retention(self) -> FieldRetention:  # numpydoc ignore=RT01
+        """Which planes of the run keep their field.
 
-        Returns
-        -------
-        FieldRetention
-            The rule the run declared (:meth:`retain`), every plane by default.
+        The rule the run declared (:meth:`retain`), every plane by default.
         """
         return self._retention
 
     @property
-    def field_shape(self) -> tuple[int, ...]:
-        """Return the shape of one plane's field, stored or not.
+    def field_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of one plane's field, stored or not.
 
-        Returns
-        -------
-        tuple of int
-            ``(n_modes, n_pol, n_omega)``; empty before anything has said it.
+        ``(n_modes, n_pol, n_omega)``; empty before anything has said it.
         """
         if self._layout is not None and self._layout.field_shape:
             return self._layout.field_shape
@@ -5469,13 +4777,7 @@ class PlaneStore(Displayed, ABC):
         return self._read(group, name)
 
     def _field_planes(self) -> Int[np.ndarray, " n_kept"]:
-        """Return the indices of the saved planes that keep their field.
-
-        Returns
-        -------
-        numpy.ndarray
-            The indices, int64 and increasing; every saved plane of an ``"all"`` run.
-        """
+        """Return the indices of the saved planes that keep their field."""
         indices = range(self._n_saved)
         return np.array(
             [index for index in indices if self._retention.keeps(index)], dtype=np.int64
@@ -5484,15 +4786,7 @@ class PlaneStore(Displayed, ABC):
     def _refuse_partial_fields(self, name: str) -> None:
         """Refuse a whole-run field read on a run that kept fields on some planes only.
 
-        Parameters
-        ----------
-        name : str
-            ``'field'`` or ``'noise_phase'``.
-
-        Raises
-        ------
-        OutputError
-            Naming the run's ``fields``.
+        - ``name``: ``'field'`` or ``'noise_phase'``.
         """
         if self._retention.fields == "all":
             return
@@ -5572,16 +4866,9 @@ class PlaneStore(Displayed, ABC):
     def _read_field(self, slot: int) -> np.ndarray:
         """Return one stored field by its row in the field storage.
 
-        Parameters
-        ----------
-        slot : int
-            The row: the plane's index in an ``"all"`` run, its position among the
-            kept planes otherwise.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stored field, optics convention.
+        - ``slot``: the row: the plane's index in an ``"all"`` run, its position among
+          the kept planes otherwise.
+        - Returns: the stored field, optics convention.
         """
         return self._read("", "field")[slot]
 
@@ -5620,17 +4907,7 @@ class PlaneStore(Displayed, ABC):
 
         A handler with room for it already converts it there (`MemoryOutput`).
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane, which carries a field.
-        kind : {'field', 'envelope'}
-            The grid's spectral layout.
-
-        Returns
-        -------
-        numpy.ndarray
-            The converted field.
+        - ``kind``: the grid's spectral layout.
         """
         assert plane.field is not None
         return stored_spectrum(plane.field, kind)
@@ -5642,21 +4919,8 @@ class PlaneStore(Displayed, ABC):
     ) -> None:
         """Adopt the layout from the first plane, and refuse a later one that differs.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane being appended.
-        stored : numpy.ndarray or None
-            Its field, in any convention, as only its shape is read; ``None`` on a
-            field-free plane.
-
-        Raises
-        ------
-        OutputError
-            If the plane carries a field where the run keeps none or none where it
-            keeps one, naming the run's ``fields``, or the field's shape, the
-            statistic names or the presence of a noise phase differ from the layout
-            already fixed.
+        - ``stored``: its field, in any convention, as only its shape is read; ``None``
+          on a field-free plane.
         """
         index = self._n_saved
         retention = self._retention
@@ -5725,42 +4989,19 @@ class PlaneStore(Displayed, ABC):
             raise OutputError(msg)
 
     def _fields_stored(self) -> int:
-        """Return how many of the planes saved so far kept their field.
-
-        Returns
-        -------
-        int
-            The rows the field storage holds, which is also the next field's row.
-        """
+        """Return how many of the planes saved so far kept their field."""
         if self._retention.fields == "all":
             return self._n_saved
         return sum(1 for index in self._retention.field_planes if index < self._n_saved)
 
     def _check_usable(self) -> None:
-        """Refuse to write to a closed handler.
-
-        Raises
-        ------
-        OutputError
-            If :meth:`close` has already run.
-        """
+        """Refuse to write to a closed handler."""
         if self._closed:
             msg = "this output handler is closed; open a new one to store another run"
             raise OutputError(msg)
 
     def _require_metadata(self) -> RunMetadata:
-        """Return the run's metadata, refusing to work without it.
-
-        Returns
-        -------
-        RunMetadata
-            The record given to :meth:`open`.
-
-        Raises
-        ------
-        OutputError
-            If :meth:`open` has not been called.
-        """
+        """Return the run's metadata, refusing to work without it."""
         if self._metadata is None:
             msg = "call open(metadata) before saving or reading a plane"
             raise OutputError(msg)
@@ -5768,13 +5009,7 @@ class PlaneStore(Displayed, ABC):
 
     @abstractmethod
     def _write_metadata(self, metadata: RunMetadata) -> None:
-        """Commit the run's metadata to the backing store.
-
-        Parameters
-        ----------
-        metadata : RunMetadata
-            The record to store.
-        """
+        """Commit the run's metadata to the backing store."""
         ...
 
     @abstractmethod
@@ -5785,17 +5020,13 @@ class PlaneStore(Displayed, ABC):
     ) -> None:
         """Append one plane to the backing store.
 
-        Parameters
-        ----------
-        plane : SavedPlane
-            The plane: its field in the internal convention, or ``None`` where the
-            field was exported straight into the stored form
-            (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored`
-            alone holds it. A subclass whose own ``_append`` reads the plane's field
-            does not take exports (``PlaneStore.takes_exports``).
-        stored : numpy.ndarray or None
-            That field converted to the optics convention, which is what to store;
-            ``None`` on a field-free plane, which stores no field.
+        - ``plane``: the plane: its field in the internal convention, or ``None`` where
+          the field was exported straight into the stored form
+          (:meth:`~solprop.output.schema.PlaneStore.save_exported`) and `stored` alone
+          holds it. A subclass whose own ``_append`` reads the plane's field does not
+          take exports (``PlaneStore.takes_exports``).
+        - ``stored``: that field converted to the optics convention, which is what to
+          store; ``None`` on a field-free plane, which stores no field.
         """
         ...
 
@@ -5803,17 +5034,8 @@ class PlaneStore(Displayed, ABC):
     def _read(self, group: str, name: str) -> np.ndarray:
         """Return one stored array.
 
-        Parameters
-        ----------
-        group : str
-            ``''`` for a top-level array, else ``'stats'`` or ``'step_history'``.
-        name : str
-            Name within the group.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stored array.
+        - ``group``: ``''`` for a top-level array, else ``'stats'`` or
+          ``'step_history'``.
         """
         ...
 
@@ -5826,21 +5048,9 @@ class PlaneStore(Displayed, ABC):
 def _split_key(key: str) -> tuple[str, str]:
     """Split an accessor key into its group and its name.
 
-    Parameters
-    ----------
-    key : str
-        ``'field'``, ``'z'``, ``'noise_phase'``, ``'field_planes'``, ``'stats/<name>'``,
-        ``'step_history/<name>'`` or ``'step_stats/<name>'``.
-
-    Returns
-    -------
-    tuple of str
-        ``(group, name)``, the group empty for a top-level array.
-
-    Raises
-    ------
-    OutputError
-        If the key has none of those forms.
+    - ``key``: ``'field'``, ``'z'``, ``'noise_phase'``, ``'field_planes'``,
+      ``'stats/<name>'``, ``'step_history/<name>'`` or ``'step_stats/<name>'``.
+    - Returns: ``(group, name)``, the group empty for a top-level array.
     """
     if key in ("field", "z", "noise_phase", "field_planes"):
         return ("", key)

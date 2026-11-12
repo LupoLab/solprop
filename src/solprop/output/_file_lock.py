@@ -24,19 +24,7 @@ _RETRY_SECONDS = 0.05
 def lock(descriptor: int, *, shared: bool = False, blocking: bool = True) -> None:
     """Acquire the advisory lock on an open descriptor.
 
-    Parameters
-    ----------
-    descriptor : int
-        Open file descriptor of the lock file.
-    shared : bool
-        Whether a shared (reader) lock suffices; exclusive on Windows regardless.
-    blocking : bool
-        Whether to wait for the lock rather than fail at once.
-
-    Raises
-    ------
-    BlockingIOError
-        If ``blocking`` is false and another process holds a conflicting lock.
+    - ``shared``: a reader lock suffices; Windows takes an exclusive one regardless.
     """
     if sys.platform == "win32":
         _windows_lock(descriptor, blocking=blocking)
@@ -48,13 +36,7 @@ def lock(descriptor: int, *, shared: bool = False, blocking: bool = True) -> Non
 
 
 def unlock(descriptor: int) -> None:
-    """Release the advisory lock taken by :func:`lock`.
-
-    Parameters
-    ----------
-    descriptor : int
-        Open file descriptor of the lock file.
-    """
+    """Release the advisory lock taken by :func:`lock`."""
     if sys.platform == "win32":
         import msvcrt  # noqa: PLC0415 - Windows only
 
@@ -67,20 +49,7 @@ def unlock(descriptor: int) -> None:
 
 
 def _windows_lock(descriptor: int, *, blocking: bool) -> None:
-    """Lock the first byte exclusively, retrying until it is free when blocking.
-
-    Parameters
-    ----------
-    descriptor : int
-        Open file descriptor of the lock file.
-    blocking : bool
-        Whether to wait for the lock rather than fail at once.
-
-    Raises
-    ------
-    BlockingIOError
-        If ``blocking`` is false and another process holds the lock.
-    """
+    """Lock the first byte exclusively, retrying until it is free when blocking."""
     import msvcrt  # noqa: PLC0415 - Windows only
 
     while True:

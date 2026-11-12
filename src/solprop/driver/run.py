@@ -132,28 +132,6 @@ def _history_of(history: BackendHistory) -> StepHistory:
     row. The conversion is made here: the start is the end less the length, to
     round-off, and the per-attempt times are the differences of the clock, the first
     from zero.
-
-    Parameters
-    ----------
-    history : solprop.backends.protocol.BackendHistory
-        What the stepper did since the previous observation.
-
-    Returns
-    -------
-    solprop.output.schema.StepHistory
-        The same attempts, in the columns the output layer stores.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.backends.protocol import BackendHistory
-    >>> from solprop.driver.run import _history_of
-    >>> history = BackendHistory(np.array([0.5, 1.0]), np.array([0.5, 0.5]),
-    ...                           np.array([0.4, 0.5]), np.array([True, True]),
-    ...                           np.array([0.25, 0.75]))
-    >>> stored = _history_of(history)
-    >>> stored.z.tolist(), stored.wall_time.tolist()
-    ([0.0, 0.5], [0.25, 0.5])
     """
     return StepHistory(
         z=history.z - history.dz,
@@ -249,13 +227,10 @@ class SessionFacts:
         )
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the in-place step a failure left in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """In-place step a failure left in flight, or ``None``.
 
-        Returns
-        -------
-        tuple or None
-            Where the step started and its length, m, as the session reports it.
+        Where the step started and its length, m, as the session reports it.
         """
         return getattr(self._session, "in_flight", None)
 
@@ -313,7 +288,7 @@ class SessionFacts:
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
-def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
+def run_problem(
     problem: PropagationProblem,
     backend: Backend,
     output: Output,
@@ -577,19 +552,7 @@ def _restored(
     (another engine's rows, another build's shapes) starts afresh, which is warned
     about once and recorded as a reset (SEP 47 section 5.5).
 
-    Parameters
-    ----------
-    march : solprop.output.schema.MarchSnapshot
-        The history the start carried.
-    restoration : collections.abc.Mapping
-        The record of its restoration, as the caller expects it.
-    refusal : str or None
-        Why the session could not install it, or ``None`` when it did.
-
-    Returns
-    -------
-    collections.abc.Mapping
-        The record of what happened.
+    - ``refusal``: why the session could not install it, or ``None`` when it did.
     """
     if refusal is None:
         logger.info(
@@ -606,7 +569,7 @@ def _restored(
     return {**restoration, "state": "reset", "reason": "incompatible_representation"}
 
 
-def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
+def _announce(  # noqa: PLR0917 - called positionally
     problem: PropagationProblem,
     metadata: RunMetadata,
     backend: Backend | SessionFacts,
@@ -619,26 +582,10 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 ) -> None:
     """Show the run's summary through the reporter and record it on a plane store.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-    backend : solprop.backends.protocol.Backend
-        The backend about to step it.
-    output : solprop.output.schema.Output
-        The open handler.
-    reporter : solprop.log.ProgressReporter
-        Where progress goes; only a :class:`solprop.log.SummarisingReporter` is shown
-        the summary.
-    start : tuple of int and float
-        The first save plane beyond the loaded state, and the position the run starts
-        from, m.
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-    boundary_check : solprop.monitor.BoundaryCheck or None, optional
-        The thresholds the window's edges are watched with, or ``None``.
+    - ``reporter``: where progress goes; only a :class:`solprop.log.SummarisingReporter`
+      is shown the summary.
+    - ``start``: the first save plane beyond the loaded state, and the position the run
+      starts from, m.
     """
     start_plane, z_start = start
     summary = run_summary(
@@ -784,34 +731,17 @@ def _retain(
     Called once the output is open, so that a file being continued compares the rule
     with the one it holds.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's handler.
-    retention : solprop.output.schema.FieldRetention
-        The run's resolved rule.
-    field_shape : tuple of int
-        ``(n_modes, n_pol, n_omega)`` of the run's state.
+    - ``field_shape``: ``(n_modes, n_pol, n_omega)`` of the run's state.
     """
     if isinstance(output, RetainingOutput):
         output.retain(retention, field_shape)
 
 
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
-    """Refuse a field-free rule for an output that cannot hold one, before opening it.
+    """Refuse a field-free rule for an output that cannot hold one.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's handler.
-    retention : solprop.output.schema.FieldRetention
-        The run's resolved rule.
-
-    Raises
-    ------
-    DriverError
-        If the rule keeps fewer than every field and the output has no ``retain``
-        (:class:`~solprop.output.schema.RetainingOutput`).
+    Checked before the output is opened. An output can hold one when it has ``retain``
+    (:class:`~solprop.output.schema.RetainingOutput`).
     """
     if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (
@@ -831,22 +761,12 @@ def _resume_position(
 ) -> tuple[float, bool]:
     """Resolve the actual checkpoint position and any scheduled observation owed.
 
-    Parameters
-    ----------
-    output : Output
-        Open handler containing the regular saved observations.
-    checkpoint_output : CheckpointOutput or None
-        Checkpoint-capable handler, if available, holding any terminal state.
-    problem : PropagationProblem
-        Translated problem with the absolute launch position, m.
-    request : solprop.translate.run_request.RunRequest
-        The run's request, with the scheduled save positions, m.
-
-    Returns
-    -------
-    tuple of float and bool
-        Actual restart position in m and whether its scheduled observation still
-        needs saving because failure occurred before the regular save completed.
+    - ``checkpoint_output``: Checkpoint-capable handler, if available, holding any
+      terminal state.
+    - ``problem``: translated problem with the absolute launch position, m.
+    - ``request``: the run's request, with the scheduled save positions, m.
+    - Returns: actual restart position in m and whether its scheduled observation still
+      needs saving because failure occurred before the regular save completed.
     """
     reached = float(output["z"][-1]) if output.n_saved else problem.initial.z
     if (
@@ -872,18 +792,6 @@ def _refuse_unread_collar(
     transverse edge reads; a backend that does not read it refuses the collar by name
     before the first step (SEP 40 section 6). Its in-stage rate is not the reason:
     the backends compute it alike.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The run's problem.
-    backend : solprop.backends.protocol.Backend
-        The selected backend.
-
-    Raises
-    ------
-    BackendError
-        If the problem has a requested collar and the backend does not read the edge.
     """
     design = transverse_of(problem.route)
     if design is None or not design.has_collar:
@@ -903,23 +811,12 @@ def _earlier_execution(
 ) -> tuple[bool, Mapping[str, object] | None, tuple[tuple[float, float], ...]]:
     """Return whether this execution resumes another, and the monitor record to go on.
 
-    Parameters
-    ----------
-    output : Output
-        Open handler, before this execution saves or records anything.
-    checkpoint_output : CheckpointOutput or None
-        Checkpoint-capable handler, if available, holding the earlier outcome.
-
-    Returns
-    -------
-    resumed : bool
-        Whether the handler holds an earlier execution's planes or outcome.
-    record : collections.abc.Mapping or None
-        The latest earlier execution's boundary-monitor record, searching back past
-        executions that kept none, or ``None`` when none did.
-    unwatched : tuple of tuple of float
-        The stretches, ``(start, end)`` in m, that executions after that record ran
-        without a monitor; from the launch when no execution kept one.
+    - ``checkpoint_output``: Checkpoint-capable handler, if available, holding the
+      earlier outcome.
+    - Returns ``record``: the latest earlier execution's boundary-monitor record,
+      searching back past executions that kept none, or ``None`` when none did.
+    - Returns ``unwatched``: the stretches, ``(start, end)`` in m, that executions after
+      that record ran without a monitor; from the launch when no execution kept one.
     """
     outcome = None if checkpoint_output is None else checkpoint_output.outcome
     resumed = output.n_saved > 0 or outcome is not None
@@ -968,21 +865,8 @@ def _open_run(
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
 
-    Parameters
-    ----------
-    output : Output
-        Handler to open without changing its scientific identity.
-    metadata : RunMetadata
-        Scientific description of this run.
-    backend : Backend
-        Prepared optical backend supplying actual execution facts.
-    binding : TDSEBinding or None
-        Optional atomic service supplying execution provenance.
-
-    Returns
-    -------
-    CheckpointOutput or None
-        The handler's checkpoint interface, or ``None`` for a handler without one.
+    - Returns: the handler's checkpoint interface, or ``None`` for a handler without
+      one.
     """
     # A session that holds its monitor from the start (the native session) reports
     # the launch's zeros here. The execution record carries the monitor instead
@@ -1056,16 +940,8 @@ def _method_history(
 ) -> Literal["adams", "rk", "low_storage"]:
     """Return which kind of method history a run's march keeps.
 
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-
-    Returns
-    -------
-    {'adams', 'rk', 'low_storage'}
-        An Adams history a resume can continue; Runge-Kutta controller memory (the
-        proposal and the norm memory), which a resume resets; or no history at all.
+    An Adams history a resume can continue; Runge-Kutta controller memory (the proposal
+    and the norm memory), which a resume resets; or none at all.
     """
     integrator = request.integration.method
     if isinstance(integrator, Multistep):
@@ -1113,20 +989,10 @@ class _MarchKeeper:
     retained, omitted or is not applicable, and why (SEP 47 section 5.5); the run's
     execution record carries the latest decision (:meth:`record`).
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's handler; only one with ``save_march`` keeps a snapshot.
-    backend : solprop.backends.protocol.HostStepping or SessionFacts
-        The reference's driver, or a session's facts, whose march has a snapshot to
-        keep or none.
-    policy : bool or None
-        The run's ``resume_history``.
-    method : {'adams', 'rk', 'low_storage'}, optional
-        The march's history (:func:`_method_history`).
-    retention : collections.abc.Mapping or None, optional
-        The decision already recorded at the position the run starts from, carried
-        into this execution's record until it persists a position of its own.
+    - ``output``: the run's handler; only one with ``save_march`` keeps a snapshot.
+    - ``retention``: the decision already recorded at the position the run starts
+      from, carried into this execution's record until it persists a position of its
+      own.
     """
 
     def __init__(
@@ -1156,47 +1022,29 @@ class _MarchKeeper:
     def record(self) -> dict[str, object] | None:
         """Return the latest retention decision, for the execution record.
 
-        Returns
-        -------
-        dict or None
-            ``"state"`` (``"retained"``, ``"omitted"`` or ``"not_applicable"``),
-            ``"reason"`` and ``"z"``, m, with ``"nbytes"`` where the size was measured;
-            ``None`` before anything was persisted.
+        - Returns: ``"state"`` (``"retained"``, ``"omitted"`` or ``"not_applicable"``),
+          ``"reason"`` and ``"z"``, m, with ``"nbytes"`` where the size was measured;
+          ``None`` before anything was persisted.
         """
         return None if self._decision is None else dict(self._decision)
 
     def _decide(self, z: float, state: str, reason: str, **sizes: int) -> None:
         """Record a retention decision at `z`.
 
-        Parameters
-        ----------
-        z : float
-            The persisted position, m.
-        state : str
-            ``"retained"``, ``"omitted"`` or ``"not_applicable"``.
-        reason : str
-            Why.
-        **sizes : int
-            ``nbytes``, the history's size where it was measured, and ``limit``, the
-            automatic limit it was held to, bytes.
+        - ``z``: the persisted position, m.
+        - ``state``: ``"retained"``, ``"omitted"`` or ``"not_applicable"``.
+        - ``**sizes``: ``nbytes``, the history's size where it was measured, and
+          ``limit``, the automatic limit it was held to, bytes.
         """
         self._decision = {"state": state, "reason": reason, "z": z, **sizes}
 
     def keep(self, z: float, *, required: bool = False) -> None:  # noqa: PLR0911, PLR0912 - one return per decision
         """Keep the march's state if it stands at `z`, the position just saved.
 
-        Parameters
-        ----------
-        z : float
-            The saved plane's or the checkpoint's position, m.
-        required : bool, optional
-            Require the full Adams state for an immutable snapshot, ignoring the
-            automatic retention-size cutoff.
-
-        Raises
-        ------
-        OutputError
-            If required history cannot be persisted at this endpoint.
+        - ``z``: the saved plane's or the checkpoint's position, m.
+        - ``required``: an immutable snapshot needs the full Adams state, so the
+          automatic retention-size cutoff is ignored and a history that cannot be
+          persisted here is refused.
         """
         if required and self._kept_z == z:
             return
@@ -1275,10 +1123,7 @@ class _MarchKeeper:
     def _omit_unavailable(self, z: float) -> None:
         """Record history that could not be had at `z`, naming an engine's refusal.
 
-        Parameters
-        ----------
-        z : float
-            The persisted position, m.
+        - ``z``: the persisted position, m.
         """
         refused = self._refusal() is not None
         self._decide(
@@ -1308,25 +1153,9 @@ def _record_abandoned_step(
     plane: a resume continues from one that kept its field, to rounding, with
     ``step_planes`` bounding what is lost, and refuses one that did not.
 
-    Parameters
-    ----------
-    backend : Backend or SessionFacts
-        The backend, refusing its state, or a poisoned session's facts.
-    output : CheckpointOutput
-        Handler recording the outcome.
-    binding : TDSEBinding or None
-        Optional atomic runtime, for the execution record.
-    failure : _FailedObservation
-        The original exception and the last saved position.
-    step : tuple of float
-        Where the abandoned step started and its length, m.
-    restart : collections.abc.Mapping or None, optional
-        The execution's restart record (:func:`_record_execution`).
-
-    Returns
-    -------
-    float or None
-        The position of the checkpoint fallen back to, m, or ``None`` without one.
+    - ``step``: where the abandoned step started and its length, m.
+    - Returns: the position of the checkpoint fallen back to, m, or ``None`` without
+      one.
     """
     z, dz = step
     fallback = output.terminal_checkpoint
@@ -1400,7 +1229,7 @@ class _Status:
     message: str = ""
 
 
-def _record_execution(  # noqa: PLR0913 - the record's parts
+def _record_execution(
     output: CheckpointOutput | None,
     backend: Backend | SessionFacts,
     binding: TDSEBinding | None,
@@ -1416,23 +1245,9 @@ def _record_execution(  # noqa: PLR0913 - the record's parts
     has spent so far (:func:`solprop._host.usage`): written at every save plane, it
     keeps the wall time and peak memory of a run that is killed between them.
 
-    Parameters
-    ----------
-    output : CheckpointOutput or None
-        Optional handler for completion and failure records.
-    backend : Backend
-        Optical backend supplying cumulative logical calls and execution facts.
-    binding : TDSEBinding or None
-        Optional atomic runtime supplying attempted native calls.
-    status : _Status
-        Requested status, absolute position in m and any error message.
-    clock : solprop._host.RunClock
-        When the run started.
-    checkpoint : TerminalCheckpoint or None, optional
-        Accepted field to preserve separately from scheduled observations.
-    restart : collections.abc.Mapping or None, optional
-        The execution's restart record (:data:`RESTART_RECORD`); ``None`` or an empty
-        one records none.
+    - ``status``: requested status, absolute position in m and any error message.
+    - ``restart``: the execution's restart record (:data:`RESTART_RECORD`); ``None`` or
+      an empty one records none.
     """
     if output is None:
         return
@@ -1481,17 +1296,9 @@ def _replayed_steps(request: RunRequest, start_plane: int) -> int | None:
     this loop, and a total that is wrong by the steps already taken is worse than
     falling back to the rate of z.
 
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The run's request, whose ``replay`` is the schedule if there is one.
-    start_plane : int
-        Index of the first save plane to propagate to; above zero the run is a resume.
-
-    Returns
-    -------
-    int or None
-        The schedule's whole step count, or ``None`` for an adaptive or resumed run.
+    - ``request``: the run's request, whose ``replay`` is the schedule if there is one.
+    - Returns: the schedule's whole step count, or ``None`` for an adaptive or resumed
+      run.
     """
     if request.replay is None or start_plane > 0:
         return None
@@ -1519,18 +1326,6 @@ def _refuse_a_record_that_misnames_the_basis(
     ``HE_1m`` set the run always had, it builds no ``transform.modal_tables``, and the
     ordinary modal accessors stay admitted on it. Keying on the identity's presence
     alone would refuse that run here, for a basis disagreement that does not exist.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem about to be run.
-    metadata : solprop.output.schema.RunMetadata
-        The record about to be written.
-
-    Raises
-    ------
-    DriverError
-        Naming which of the two says what.
     """
     general = problem.transform.modal_tables is not None
     if general == (capability_of(metadata) == "general_modal"):
@@ -1564,33 +1359,13 @@ def _refuse_unrunnable(
 ) -> None:
     """Refuse, by name, every run this loop cannot execute.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem about to be run.
-    request : solprop.translate.run_request.RunRequest
-        The request the backend was built for.
-    spec : solprop.stats.StatsSpec
-        The statistics asked for. A ``periodic`` subset is accepted -- the seam carries
-        it, and a name no backend can evaluate between planes was refused by
-        :class:`~solprop.stats.StatsSpec` when the spec was built -- but it must agree
-        with the request's own, because the channel is armed when the backend is built
-        and reads the request's spec, not this one.
-    start_plane : int
-        Index of the first save plane to propagate to.
-    n_planes : int
-        How many save planes the problem has.
-    metadata : solprop.output.schema.RunMetadata
-        The record about to be written, which must say the same thing about the
-        basis as the problem does.
-
-    Raises
-    ------
-    DriverError
-        Naming what cannot be done.
-    BackendError
-        Naming statistics the problem does not carry
-        (:func:`solprop.backends.session.statistics_unavailable`).
+    - ``spec``: the statistics asked for. A ``periodic`` subset is accepted -- the seam
+      carries it, and a name no backend can evaluate between planes was refused by
+      :class:`~solprop.stats.StatsSpec` when the spec was built -- but it must agree
+      with the request's own, because the channel is armed when the backend is built and
+      reads the request's spec, not this one.
+    - ``metadata``: the record about to be written, which must say the same thing about
+      the basis as the problem does.
     """
     _refuse_a_record_that_misnames_the_basis(problem, metadata)
     channel = request.observation.stats

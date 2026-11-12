@@ -7,7 +7,7 @@ from `native/`), the threading model, the memory ledger and admission, which bac
 what, and what each backend is for and where new features land (§10). Which
 backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
-ADR-013, ADR-020, ADR-023, ADR-061, ADR-064.
+ADR-013, ADR-020, ADR-023, ADR-064, ADR-068, ADR-077.
 
 ## 1. The seam
 
@@ -114,10 +114,9 @@ before each construction (SEP 46's first-use calibration), `device`, the build
 description that `SOLPROP_REQUIRE_DEVICE` reads (a row without one is refused a required
 device by name), and `far_field`, the far-field statistics the installed build declares
 (`statistics_refusal`). `auto` is `registry.AUTO`, `native`, with no fallback. Nothing
-is imported until selection needs it, and only after `requires` is found. A new
-backend (Tier 3, ADR-061) in another distribution registers with one row, and runs and groups through its
-own `prepare` and `prepare_group` (**Selection** below); there is no entry-point
-discovery, so the row is added to `BACKENDS` in this repository.
+is imported until selection needs it, and only after `requires` is found. There are
+exactly two backends, and no other will be added, in this repository or as a plugin from
+another distribution (ADR-077); there is no entry-point discovery.
 
 **Periodic-statistics storage hooks.** The seam carries three storage hooks for the
 periodic statistics — `_reset_step_stats`, `_record_step_stats`, `_drain_step_stats` — so
@@ -804,13 +803,13 @@ mask and the in-stage absorber preserve it, and the measured saving are
   `nsz`, approximate functions and reciprocals, and flush-to-zero forbidden). On `native`,
   as `native/AGENTS.md` and `native/CMakeLists.txt` set it:
   - **Contraction.** A CPU build compiles with `-ffp-contract=fast` under GCC and
-    `-ffp-contract=fast-honor-pragmas` under Clang and `icpx` (plain `fast` makes Clang
+    `-ffp-contract=fast-honor-pragmas` under Clang (plain `fast` makes Clang
     ignore the pragmas), so the compiler may fuse any multiply and add into one rounding.
     Its one hazard is exact cancellation (`x*y - y*x` need not be zero).
     `build_info().optimization_policy` records the flag.
   - **Strict blocks.** A protected function or lambda carries
     `SOLPROP_NATIVE_STRICT_FUNCTION` and starts its body with `SOLPROP_NATIVE_STRICT_BLOCK`
-    (`include/solprop_native/fp.hpp`): under Clang and `icpx` a `#pragma clang fp
+    (`include/solprop_native/fp.hpp`): under Clang a `#pragma clang fp
     contract(off)`, which survives inlining; under GCC, which ignores the pragma,
     `optimize("fp-contract=off")` on the function, so a protected helper is a call there.
     Both settings are lexical, and `Kokkos::complex`'s operators keep their header's
@@ -2058,10 +2057,11 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 ## 10. What each backend is for
 
-These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
-`numba_cpu` and superseded the statement that the documentation build installs no native
-backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
-`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
+solprop has exactly two backends (ADR-077, which replaced ADR-061's tiers), and no other,
+in this repository or as a plugin, will be implemented. ADR-068 makes `native` the primary
+backend, and ADR-064 retired `numba_cpu`. ADR-077 also settles binary64 as the only
+arithmetic: the single-precision path that still runs on `numpy_ref` is being removed. A
+feature lands on `native` and `numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
 reference, and refuses the rest by name.
 
 | backend | role | new features |
@@ -2071,7 +2071,7 @@ reference, and refuses the rest by name.
 
 A SEP is final when its feature runs on both `numpy_ref` and `native` with parity tests
 ([SEP 0](seps/sep-0000-process.md)), or an accepted exception adds it to the list. A backend's
-role changes by a new decision record, and a new backend starts as experimental. `backend="auto"`
+role changes by a new decision record. `backend="auto"`
 is `native`, and refuses where the native package is missing or the processor is below its
 wheel's baseline (§1). The CI `docs` lane installs the native wheel, so a lesson or tutorial may
 use anything `native` runs; Read the Docs executes no gallery script, because all gallery

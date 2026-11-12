@@ -134,17 +134,7 @@ def _frequency_nodes(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return the band bins at equal-energy quantiles of the launch, and their shares.
 
-    Parameters
-    ----------
-    power : numpy.ndarray
-        The launch's energy per requested-band bin.
-    count : int
-        How many nodes.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Indices into the band, unique, and the share each stands for.
+    - Returns: indices into the band, unique, and the share each stands for.
     """
     total = float(np.sum(power))
     # A launch with nothing in the band is stood for by the band's first bin, which
@@ -169,19 +159,8 @@ def _reach(
     ``kappa_q / max(k_z(kappa_q), 0.44 k)``, with ``kappa_q`` the wavenumber above which
     the launch holds no more than :data:`WARNING_SHARE` of its energy (section 5.3).
 
-    Parameters
-    ----------
-    kappa : numpy.ndarray
-        Each column's ``|kappa|``, rad/m.
-    power : numpy.ndarray
-        Each column's energy at this frequency.
-    k : float
-        The medium's wavenumber, rad/m.
-
-    Returns
-    -------
-    float
-        ``dx/dz`` of the fastest significant content.
+    - ``kappa``: each column's ``|kappa|``, rad/m.
+    - ``k``: the medium's wavenumber, rad/m.
     """
     order = np.argsort(kappa)
     tail = np.cumsum(power[order][::-1])[::-1] / max(float(np.sum(power)), 1e-300)
@@ -196,17 +175,8 @@ def _extent(
 ) -> float:
     """Return the launch's extent: the radius holding all but the warning share.
 
-    Parameters
-    ----------
-    position : numpy.ndarray
-        Each node's distance from the axis or centre, m.
-    density : numpy.ndarray
-        Each node's weighted energy.
-
-    Returns
-    -------
-    float
-        The extent, m.
+    - ``position``: each node's distance from the axis or centre, m.
+    - Returns: the extent, m.
     """
     order = np.argsort(position)
     tail = np.cumsum(density[order][::-1])[::-1] / max(float(np.sum(density)), 1e-300)
@@ -214,7 +184,7 @@ def _extent(
     return float(position[order][above[-1]]) if above.size else 0.0
 
 
-def _radial_return(
+def _radial_return(  # noqa: PLR0917 - called positionally
     space: RadialGrid,
     rate: Float[np.ndarray, " n_r"],
     launch: Complex[np.ndarray, " n_r"],
@@ -224,25 +194,11 @@ def _radial_return(
 ) -> tuple[np.ndarray, float]:
     """Return one frequency's aperture difference energy at each plane, radially.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid
-        The design's grid.
-    rate : numpy.ndarray
-        The collar's power rate on its nodes, 1/m; zeros for a bare wall.
-    launch : numpy.ndarray
-        The launch's spectral columns at this frequency.
-    k : float
-        The medium's wavenumber, rad/m.
-    planes : numpy.ndarray
-        Positions, m.
-    half_size : float
-        The bare grid's outer radius, m.
-
-    Returns
-    -------
-    tuple
-        The difference energy per plane, and the launch energy, in one unit.
+    - ``rate``: the collar's power rate on its nodes, 1/m; zeros for a bare wall.
+    - ``k``: the medium's wavenumber, rad/m.
+    - ``planes``: positions, m.
+    - ``half_size``: the bare grid's outer radius, m.
+    - Returns: the difference energy per plane, and the launch energy, in one unit.
     """
     hankel = space.hankel
     diagonal = hankel.j1[:, None] / hankel.j1[None, :]
@@ -283,7 +239,7 @@ def _radial_return(
     return differences, energy
 
 
-def _periodic_return(  # noqa: PLR0913, PLR0917 - one frequency's comparison
+def _periodic_return(  # noqa: PLR0917 - one frequency's comparison
     axes: tuple[np.ndarray, ...],
     sizes: tuple[float, ...],
     rate: Float[np.ndarray, " n_nodes"],
@@ -298,29 +254,15 @@ def _periodic_return(  # noqa: PLR0913, PLR0917 - one frequency's comparison
     A Strang march on the design's own periodic grid, one or two axes, x fastest;
     the bare grid is the same spacing over `half_sizes`, exact in the wavenumber.
 
-    Parameters
-    ----------
-    axes : tuple of numpy.ndarray
-        The design's centred axes, m, x first.
-    sizes : tuple of float
-        The requested half-sizes, m.
-    rate : numpy.ndarray
-        The collar's power rate on the nodes, 1/m.
-    launch : numpy.ndarray
-        The launch's spectral columns (unshifted FFT order, x fastest).
-    k : float
-        The wavenumber, rad/m (``beta_p`` for a slab mode).
-    planes : numpy.ndarray
-        Positions, m.
-    step : float
-        The march's longest step, m.
-    half_sizes : tuple of float
-        The bare grid's half-sizes, m.
-
-    Returns
-    -------
-    tuple
-        The difference energy per plane, and the launch energy, in one unit.
+    - ``axes``: the design's centred axes, m, x first.
+    - ``sizes``: the requested half-sizes, m.
+    - ``rate``: the collar's power rate on the nodes, 1/m.
+    - ``launch``: the launch's spectral columns (unshifted FFT order, x fastest).
+    - ``k``: the wavenumber, rad/m (``beta_p`` for a slab mode).
+    - ``planes``: positions, m.
+    - ``step``: the march's longest step, m.
+    - ``half_sizes``: the bare grid's half-sizes, m.
+    - Returns: the difference energy per plane, and the launch energy, in one unit.
     """
     shape = tuple(axis.size for axis in reversed(axes))
     spacing = tuple(float(axis[1] - axis[0]) for axis in axes)
@@ -375,7 +317,7 @@ def _periodic_return(  # noqa: PLR0913, PLR0917 - one frequency's comparison
     return differences, energy
 
 
-def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
+def _estimate(  # noqa: PLR0915, PLR0917 - one estimate at one resolution; called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
     launch: Complex[np.ndarray, "n_columns n_pol n_omega"],
@@ -389,29 +331,10 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
 ) -> tuple[float, tuple[float, ...], int, bool]:
     """Return ``U_ret`` at one resolution of the check.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The design's grid.
-    rate : numpy.ndarray
-        The collar's rate on the nodes, 1/m (zeros for the bare wall).
-    launch : numpy.ndarray
-        The noise-free launch's spectral columns, ``(n_columns, n_pol, n_omega)``.
-    dispersion : solprop.spatial.SpatialDispersion
-        The medium and the temporal grid.
-    z_max : float
-        The run's length, m.
-    width : float
-        The collar's narrowest width, m.
-    nodes, planes : int
-        Frequency nodes and the most planes.
-    enlarge : float
-        The bare grid's size as a multiple of its least.
-
-    Returns
-    -------
-    tuple
-        ``U_ret``, the nodes in rad/s and the planes compared.
+    - ``rate``: the collar's rate on the nodes, 1/m (zeros for the bare wall).
+    - ``z_max``: the run's length, m.
+    - ``width``: the collar's narrowest width, m.
+    - Returns: ``U_ret``, the nodes in rad/s and the planes compared.
     """
     grid = dispersion.grid
     band = np.nonzero(grid.inband_mask & grid.active_mask)[0]
@@ -556,22 +479,14 @@ def _estimate(  # noqa: PLR0913, PLR0915 - one estimate at one resolution
 def _step(positions: np.ndarray, z_max: float) -> float:
     """Return the Strang march's longest step: the plane spacing.
 
-    Parameters
-    ----------
-    positions : numpy.ndarray
-        The planes, m.
-    z_max : float
-        The run's length, m.
-
-    Returns
-    -------
-    float
-        The step, m.
+    - ``positions``: the planes, m.
+    - ``z_max``: the run's length, m.
+    - Returns: the step, m.
     """
     return z_max / positions.size
 
 
-def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
+def _half(  # noqa: PLR0917 - called positionally
     axis: np.ndarray,
     size: float,
     field: np.ndarray,
@@ -586,27 +501,12 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
     ``S >= (R + x_q + v_q L) / 2``, at least the design's own half-size, at most
     :data:`_LARGEST` times it, times `enlarge`.
 
-    Parameters
-    ----------
-    axis : numpy.ndarray
-        The centred axis, m.
-    size : float
-        The requested half-size, m.
-    field : numpy.ndarray
-        The launch's physical field, axes reversed (y, x).
-    reach : float
-        The launch's reach, ``dx/dz``.
-    z_max : float
-        The run's length, m.
-    enlarge : float
-        Multiplier of the least half-size.
-    along : int, optional
-        The array axis of `field` this coordinate runs along.
-
-    Returns
-    -------
-    tuple
-        The half-size, m, and whether the bare grid needed more than its cap.
+    - ``axis``: the centred axis, m.
+    - ``size``: the requested half-size, m.
+    - ``field``: the launch's physical field, axes reversed (y, x).
+    - ``z_max``: the run's length, m.
+    - ``along``: the array axis of `field` this coordinate runs along.
+    - Returns: the half-size, m, and whether the bare grid needed more than its cap.
     """
     profile = np.sum(
         np.abs(field) ** 2, axis=tuple(i for i in range(field.ndim) if i != along)
@@ -617,7 +517,7 @@ def _half(  # noqa: PLR0913 - the bare grid's half-size along one axis
     return min(half, _LARGEST * outer), half > _LARGEST * outer
 
 
-def design_check(
+def design_check(  # noqa: PLR0917 - called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
     launch: Complex[np.ndarray, "n_batch n_columns n_pol n_omega"],

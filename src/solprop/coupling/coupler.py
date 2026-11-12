@@ -173,13 +173,10 @@ class AdmissionItem:
     note: str = ""
 
     @property
-    def passed(self) -> bool:
-        """Return whether the item is within its own cap.
+    def passed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the item is within its own cap.
 
-        Returns
-        -------
-        bool
-            True when it has no value or no cap, or its value is at most the cap.
+        True when it has no value or no cap, or its value is at most the cap.
         """
         return (
             self.value is None or self.allowance is None or self.value <= self.allowance
@@ -258,83 +255,55 @@ class CouplingReport(Displayed):
         object.__setattr__(self, "source", MappingProxyType(dict(self.source)))
 
     @property
-    def uncaptured(self) -> Float[np.ndarray, " n_omega"] | None:
-        """Return the incident energy each bin leaves outside the target, not clipped.
+    def uncaptured(
+        self,
+    ) -> Float[np.ndarray, " n_omega"] | None:  # numpydoc ignore=RT01
+        """Incident energy each bin leaves outside the target, not clipped.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            ``incident - captured``, J, in the common positive metric where the
-            orthogonal-residual identity makes it a nonnegative physical share;
-            None where `captured` is None.
+        ``incident - captured``, J, in the common positive metric where the
+        orthogonal-residual identity makes it a nonnegative physical share;
+        None where `captured` is None.
         """
         return None if self.captured is None else self.incident - self.captured
 
     @property
-    def incident_energy(self) -> float:
-        """Return the whole incident energy.
-
-        Returns
-        -------
-        float
-            J.
-        """
+    def incident_energy(self) -> float:  # numpydoc ignore=RT01
+        """Whole incident energy, J."""
         return float(np.sum(self.incident))
 
     @property
-    def launched_energy(self) -> float:
-        """Return the energy the launch carries into the target.
-
-        Returns
-        -------
-        float
-            J.
-        """
+    def launched_energy(self) -> float:  # numpydoc ignore=RT01
+        """Energy the launch carries into the target, J."""
         return float(np.sum(self.launched))
 
     @property
-    def captured_energy(self) -> float | None:
-        """Return the captured energy in the common metric.
-
-        Returns
-        -------
-        float or None
-            J; None where it is not defined.
-        """
+    def captured_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Captured energy in the common metric, J, or ``None`` where undefined."""
         return None if self.captured is None else float(np.sum(self.captured))
 
     @property
-    def uncaptured_energy(self) -> float | None:
-        """Return the uncaptured energy in the common metric, not clipped.
+    def uncaptured_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Uncaptured energy in the common metric, J, not clipped.
 
-        Returns
-        -------
-        float or None
-            J; None where it is not defined.
+        ``None`` where it is not defined.
         """
         uncaptured = self.uncaptured
         return None if uncaptured is None else float(np.sum(uncaptured))
 
     @property
-    def efficiency(self) -> float | None:
-        """Return the launched energy as a share of the incident energy.
+    def efficiency(self) -> float | None:  # numpydoc ignore=RT01
+        """Launched energy as a share of the incident energy.
 
-        Returns
-        -------
-        float or None
-            Dimensionless; None when nothing is incident, where it is undefined.
+        ``None`` when nothing is incident, where it is undefined.
         """
         incident = self.incident_energy
         return None if incident == 0.0 else self.launched_energy / incident
 
     @property
-    def budget(self) -> float:
-        """Return the sum of the counted admission items.
+    def budget(self) -> float:  # numpydoc ignore=RT01
+        """Sum of the counted admission items.
 
-        Returns
-        -------
-        float
-            Dimensionless; at most `model_error` for an admitted coupling.
+        At most `model_error` for an admitted coupling.
         """
         return float(
             sum(item.value for item in self.items if item.counted and item.value)
@@ -361,10 +330,7 @@ class CouplingReport(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         efficiency = self.efficiency
         rows: list[tuple[str, object]] = [
@@ -491,20 +457,7 @@ def couple(
 
 
 def _check_common(plane: FieldPlane, port: InputPort) -> None:
-    """Refuse a plane on another lattice, orientation or outside the port's band.
-
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    port : solprop.coupling.port.InputPort
-        The receiving port.
-
-    Raises
-    ------
-    CouplingError
-        Naming the disagreement.
-    """
+    """Refuse a plane on another lattice, orientation or outside the port's band."""
     if lattice_identity(plane.grid) != port.lattice or not np.array_equal(
         plane.grid.omega, port.grid.omega
     ):
@@ -524,7 +477,7 @@ def _check_common(plane: FieldPlane, port: InputPort) -> None:
         raise CouplingError(msg)
 
 
-def _report(  # noqa: PLR0913 - the account's terms, each named at the call
+def _report(
     plane: FieldPlane,
     port: InputPort,
     model: CouplingModel,
@@ -538,34 +491,9 @@ def _report(  # noqa: PLR0913 - the account's terms, each named at the call
 ) -> CouplingReport:
     """Assemble a report, refusing a coupling whose budget is exceeded.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    port : solprop.coupling.port.InputPort
-        The receiving port.
-    model : solprop.coupling.models.CouplingModel
-        The model.
-    index : numpy.ndarray
-        The common measure's reference index per bin.
-    incident, launched : numpy.ndarray
-        Per-bin energies, J.
-    captured : numpy.ndarray or None
-        Per-bin captured energy in the common metric, J.
-    captured_reason : str, optional
-        Why `captured` is None.
-    items : tuple of AdmissionItem, optional
-        The admission terms.
-
-    Returns
-    -------
-    CouplingReport
-        The report.
-
-    Raises
-    ------
-    CouplingError
-        If an item exceeds its own cap or the counted items exceed `model_error`.
+    - ``incident``, ``launched``: Per-bin energies, J.
+    - ``captured``: Per-bin captured energy in the common metric, J.
+    - ``captured_reason``: why `captured` is None.
     """
     report = CouplingReport(
         model.kind,
@@ -607,15 +535,7 @@ def _report(  # noqa: PLR0913 - the account's terms, each named at the call
 def _bin_weights(port: InputPort) -> Float[np.ndarray, " n_omega"]:
     """Return the energy weight of each stored bin of the port's lattice.
 
-    Parameters
-    ----------
-    port : solprop.coupling.port.InputPort
-        The port.
-
-    Returns
-    -------
-    numpy.ndarray
-        :func:`solprop.fourier.energy_weights`, s per bin.
+    - Returns: :func:`solprop.fourier.energy_weights`, s per bin.
     """
     grid = port.grid
     return fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -624,15 +544,7 @@ def _bin_weights(port: InputPort) -> Float[np.ndarray, " n_omega"]:
 def _occupied(energy: Float[np.ndarray, " n_omega"]) -> np.ndarray:
     """Return the bins that carry energy above rounding of the peak.
 
-    Parameters
-    ----------
-    energy : numpy.ndarray
-        Per-bin energy, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask, shape ``(n_omega,)``.
+    - Returns: boolean mask, shape ``(n_omega,)``.
     """
     peak = float(np.max(energy)) if energy.size else 0.0
     return energy > _OCCUPIED * peak if peak > 0.0 else np.zeros(energy.shape, bool)
@@ -641,20 +553,7 @@ def _occupied(energy: Float[np.ndarray, " n_omega"]) -> np.ndarray:
 def _weighted(
     defect: Float[np.ndarray, " n_omega"], energy: Float[np.ndarray, " n_omega"]
 ) -> float:
-    """Return a per-bin relative defect weighted by energy: a bound on the total.
-
-    Parameters
-    ----------
-    defect : numpy.ndarray
-        Relative defect per bin.
-    energy : numpy.ndarray
-        Energy per bin.
-
-    Returns
-    -------
-    float
-        ``sum(defect energy) / sum(energy)``; zero for a zero field.
-    """
+    """Return a per-bin relative defect weighted by energy: a bound on the total."""
     total = float(np.sum(energy))
     return 0.0 if total == 0.0 else float(np.sum(np.abs(defect) * energy) / total)
 
@@ -664,24 +563,8 @@ def _metric_matrices(
 ) -> Complex[np.ndarray, "n_omega n_modes n_modes"]:
     """Return a modal metric as one Hermitian matrix per bin.
 
-    Parameters
-    ----------
-    metric : solprop.coupling.plane.PlaneMetric
-        An ``identity`` or ``dense`` metric.
-    n_modes : int
-        The number of columns.
-    n_omega : int
-        The number of bins.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_omega, n_modes, n_modes)``, optics convention.
-
-    Raises
-    ------
-    CouplingError
-        For a spatial or unknown metric.
+    - ``metric``: an ``identity`` or ``dense`` metric.
+    - Returns: shape ``(n_omega, n_modes, n_modes)``, optics convention.
     """
     if metric.kind == "identity":
         return np.broadcast_to(
@@ -698,22 +581,9 @@ def _whitened_extremes(
 ) -> tuple[float, float]:
     """Return the extreme generalised eigenvalues of ``form`` against ``metric``.
 
-    Parameters
-    ----------
-    form : numpy.ndarray
-        Hermitian quadratic form.
-    metric : numpy.ndarray
-        Hermitian positive-definite metric.
-
-    Returns
-    -------
-    tuple of float
-        The smallest and largest eigenvalue of ``metric^{-1/2} form metric^{-1/2}``.
-
-    Raises
-    ------
-    CouplingError
-        If the metric is not positive definite.
+    - ``metric``: Hermitian positive-definite metric.
+    - Returns: the smallest and largest eigenvalue of ``metric^{-1/2} form
+      metric^{-1/2}``.
     """
     try:
         factor = np.linalg.cholesky(0.5 * (metric + metric.conj().T))
@@ -734,26 +604,7 @@ def _same_basis(
 ) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], CouplingReport]:
     """Recover a plane's coordinates exactly in the port's basis.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    port : solprop.coupling.port.InputPort
-        The receiving port.
-    model : solprop.coupling.models.CouplingModel
-        The ``same_basis`` model, with its optional basis change.
-
-    Returns
-    -------
-    tuple
-        The target samples and the report.
-
-    Raises
-    ------
-    CouplingError
-        If the bases differ with no declared change and no common E/H nodes, or a
-        declared change does not preserve energy, or the recovered field is not in
-        the port's span.
+    - Returns: the target samples and the report.
     """
     incident = plane.spectral_energy()
     recovery: tuple[AdmissionItem, ...] = ()
@@ -799,28 +650,7 @@ def _same_basis(
 def _declared_change(
     plane: FieldPlane, port: InputPort, model: CouplingModel
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Apply a declared basis change after checking it preserves energy.
-
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane, modal.
-    port : solprop.coupling.port.InputPort
-        The receiving port, modal.
-    model : solprop.coupling.models.CouplingModel
-        The model carrying the change.
-
-    Returns
-    -------
-    numpy.ndarray
-        The target samples, shape ``port.shape``.
-
-    Raises
-    ------
-    CouplingError
-        If the change names other bases, has the wrong shape, or does not map the
-        plane's metric onto the port's.
-    """
+    """Apply a declared basis change after checking it preserves energy."""
     change = model.basis_change
     assert change is not None
     if change.source != plane.basis.identity or change.target != port.basis.identity:
@@ -870,23 +700,8 @@ def _flux_recovery(
     field is refused as outside the span. Both defects are reported (not counted:
     ``same_basis`` has no budget).
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        A general modal plane read with its source simulation (``nodal`` E and H).
-    port : solprop.coupling.port.InputPort
-        A general modal port carrying E/H at fixed nodes.
-
-    Returns
-    -------
-    tuple
-        The target samples, shape ``port.shape``, and the ``target metric`` and
-        ``source metric`` items.
-
-    Raises
-    ------
-    CouplingError
-        If either side lacks E/H, the nodes differ, or the field is not in the span.
+    - Returns: the target samples, shape ``port.shape``, and the ``target metric`` and
+      ``source metric`` items.
     """
     nodal = plane.nodal
     if nodal is None or nodal.magnetic is None:
@@ -972,17 +787,9 @@ def _flux_matrix(
     (\mathbf e_m^*\times\mathbf h_n)]_z`; conjugating every field (optics against
     internal convention) conjugates F, so the formula holds in either.
 
-    Parameters
-    ----------
-    electric, magnetic : numpy.ndarray
-        Basis E and H per √W, shape ``(n_nodes, 3, n_modes, n_omega)``.
-    weights : numpy.ndarray
-        Node area weights, m^2.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_omega, n_modes, n_modes)``, dimensionless.
+    - ``electric``, ``magnetic``: basis E and H per √W, shape ``(n_nodes, 3, n_modes,
+      n_omega)``.
+    - ``weights``: node area weights, m^2.
     """
     ex, ey = electric[:, 0], electric[:, 1]
     hx, hy = magnetic[:, 0], magnetic[:, 1]
@@ -1007,20 +814,12 @@ def _pairing(
     :math:`B_m = \frac14\sum_q w_q[\mathbf E\times\mathbf h_m^* +
     \mathbf e_m^*\times\mathbf H]_z`.
 
-    Parameters
-    ----------
-    field_e, field_h : numpy.ndarray
-        The field's E (V/m) and H (A/m) spectra at the nodes, shape
-        ``(n_nodes, 3, n_omega)``.
-    electric, magnetic : numpy.ndarray
-        Basis E and H per √W, shape ``(n_nodes, 3, n_modes, n_omega)``.
-    weights : numpy.ndarray
-        Node area weights, m^2.
-
-    Returns
-    -------
-    numpy.ndarray
-        In √W, shape ``(n_modes, n_omega)``.
+    - ``field_e``, ``field_h``: the field's E (V/m) and H (A/m) spectra at the nodes,
+      shape ``(n_nodes, 3, n_omega)``.
+    - ``electric``, ``magnetic``: basis E and H per √W, shape ``(n_nodes, 3, n_modes,
+      n_omega)``.
+    - ``weights``: node area weights, m^2.
+    - Returns: in √W, shape ``(n_modes, n_omega)``.
     """
     first = np.einsum("q,qw,qmw->mw", weights, field_e[:, 0], magnetic[:, 1].conj())
     first -= np.einsum("q,qw,qmw->mw", weights, field_e[:, 1], magnetic[:, 0].conj())
@@ -1076,17 +875,8 @@ def _channels(
 ) -> tuple[Float[np.ndarray, "n_channels 2"], Int[np.ndarray, " n_channels"]]:
     """Return each channel's Jones vector and mode index, channel order m-major.
 
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The profiles.
-    n_pol : int
-        1: each mode with its own polarisation; 2: each mode in x and in y.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Jones vectors, shape ``(n_channels, 2)``, and the mode of each channel.
+    - ``n_pol``: 1, each mode with its own polarisation; 2, each mode in x and in y.
+    - Returns: Jones vectors, shape ``(n_channels, 2)``, and the mode of each channel.
     """
     if n_pol == 1:
         return np.asarray(profiles.jones), np.arange(profiles.n_modes)
@@ -1125,24 +915,7 @@ def _scalar_paraxial(
 ) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], CouplingReport]:
     """Fit a scalar field onto a port's scalar profiles in the common measure.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    port : solprop.coupling.port.InputPort
-        The receiving port, carrying scalar profiles and a reference index.
-    model : solprop.coupling.models.CouplingModel
-        The model and its budget.
-
-    Returns
-    -------
-    tuple
-        The target samples and the report.
-
-    Raises
-    ------
-    CouplingError
-        For an unqualified pair or an exceeded budget.
+    - Returns: the target samples and the report.
     """
     profiles = port.profiles
     if profiles is None or port.reference_index is None:
@@ -1252,26 +1025,15 @@ def _kappa_star(
     :math:`\kappa_* = n_{\rm ref}(\omega/c)\sin\theta_*`, with
     :math:`1 - \cos\theta_* = \epsilon_m/8`.
 
-    Parameters
-    ----------
-    index : numpy.ndarray
-        Reference index per bin.
-    omega : numpy.ndarray
-        Angular frequency per bin, rad/s.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    numpy.ndarray
-        Transverse wavenumber in rad/m, zero where the index or the frequency is
-        not positive.
+    - ``omega``: angular frequency per bin, rad/s.
+    - Returns: transverse wavenumber in rad/m, zero where the index or the frequency is
+      not positive.
     """
     sine = math.sin(math.acos(1.0 - epsilon / 8.0))
     return np.where((index > 0) & (omega > 0), index * omega / C * sine, 0.0)
 
 
-def _spatial_fit(
+def _spatial_fit(  # noqa: PLR0917 - called positionally
     plane: FieldPlane,
     profiles: ScalarModeBasis,
     jones: Float[np.ndarray, "n_channels 2"],
@@ -1281,32 +1043,8 @@ def _spatial_fit(
 ) -> tuple[_Fit, Float[np.ndarray, " n_omega"], dict[str, float]]:
     """Return the scalar fit of a spatial plane onto a port's scalar profiles.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        A radial or Cartesian plane.
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target profiles.
-    jones : numpy.ndarray
-        Each target channel's Jones vector.
-    mode_of : numpy.ndarray
-        Each target channel's mode.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    tuple
-        The fit, the plane's native energy per bin (J) and the envelope's range
-        parameters.
-
-    Raises
-    ------
-    CouplingError
-        If the plane occupies nonpropagating columns, or its metric is not an
-        admittance.
+    - Returns: the fit, the plane's native energy per bin (J) and the envelope's range
+      parameters.
     """
     space = cast("RadialGrid | FreeGrid", plane.basis.space)
     metric = plane.metric
@@ -1381,18 +1119,8 @@ def _spectral_edge_share(
 ) -> float:
     """Return a spatial field's energy share in the outer fifth of its spectral window.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-    column_energy : numpy.ndarray
-        Each column's weighted squared samples per bin.
-
-    Returns
-    -------
-    float
-        Dimensionless; columns with a transverse wavenumber above 0.8 of the
-        window's largest along an axis.
+    - Returns: dimensionless; columns with a transverse wavenumber above 0.8 of the
+      window's largest along an axis.
     """
     if isinstance(space, RadialGrid):
         k_r = np.asarray(space.k_r)
@@ -1406,23 +1134,12 @@ def _spectral_edge_share(
 
 
 def _bin_like(plane: FieldPlane) -> Float[np.ndarray, " n_omega"]:
-    """Return the plane's bin energy weights.
-
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The plane.
-
-    Returns
-    -------
-    numpy.ndarray
-        :func:`solprop.fourier.energy_weights` of its grid.
-    """
+    """Return the plane's bin energy weights."""
     grid = plane.grid
     return fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
 
 
-def _modal_fit(  # noqa: PLR0913 - the plane, both profile sets and the measure
+def _modal_fit(
     plane: FieldPlane,
     source: ScalarModeBasis,
     profiles: ScalarModeBasis,
@@ -1434,28 +1151,8 @@ def _modal_fit(  # noqa: PLR0913 - the plane, both profile sets and the measure
 ) -> tuple[_Fit, Float[np.ndarray, " n_omega"], dict[str, float]]:
     """Return the scalar fit of a modal plane's synthesised field onto target profiles.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        An ordinary modal plane with its profiles.
-    source : solprop.coupling.models.ScalarModeBasis
-        Its profiles.
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target profiles.
-    jones : numpy.ndarray
-        Each target channel's Jones vector.
-    mode_of : numpy.ndarray
-        Each target channel's mode.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    tuple
-        The fit, the plane's native energy per bin (J) and the envelope's range
-        parameters.
+    - Returns: the fit, the plane's native energy per bin (J) and the envelope's range
+      parameters.
     """
     source_jones, source_mode = _channels(source, plane.samples.shape[1])
     overlap_matrix, gram_source, _, error = _profile_overlaps(source, profiles)
@@ -1541,15 +1238,7 @@ def _profile_overlaps(
     quadrature error, together with each Gram's departure from the identity the
     profiles' closed-form normalisation fixes.
 
-    Parameters
-    ----------
-    source, target : solprop.coupling.models.ScalarModeBasis
-        The two profile sets.
-
-    Returns
-    -------
-    tuple
-        The target-by-source overlaps, both Grams and the error estimate.
+    - Returns: the target-by-source overlaps, both Grams and the error estimate.
     """
     radii = (source.radius, target.radius)
     outer = max(source.outer(), target.outer())
@@ -1561,15 +1250,8 @@ def _profile_overlaps(
     def overlaps(step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return the three overlap matrices on a rule of the given panel length.
 
-        Parameters
-        ----------
-        step : float
-            Largest panel length, m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Target-by-source overlaps and the two Grams.
+        - ``step``: largest panel length, m.
+        - Returns: Target-by-source overlaps and the two Grams.
         """
         r, w = radial_rule(radii, outer, panel=step)
         vs = source.values(r)
@@ -1595,16 +1277,8 @@ def _step_index_parameters(
 ) -> dict[str, float]:
     """Return a step-index pair's envelope parameters at each profile wavelength.
 
-    Parameters
-    ----------
-    source, target : solprop.coupling.models.ScalarModeBasis
-        The two LP sets.
-
-    Returns
-    -------
-    dict
-        ``v_source`` and ``v_target``: each fibre's V at its profile wavelength,
-        from its LP01 U and W.
+    - Returns: ``v_source`` and ``v_target``: each fibre's V at its profile wavelength,
+      from its LP01 U and W.
     """
     return {
         "v_source": float(math.hypot(source.u[0], source.w[0])),
@@ -1615,16 +1289,8 @@ def _step_index_parameters(
 def _beam_step_index_parameters(profiles: ScalarModeBasis) -> dict[str, float]:
     """Return a beam-into-fibre pair's envelope parameters at the profile wavelength.
 
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target fibre's LP set.
-
-    Returns
-    -------
-    dict
-        ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the number of
-        distinct LP0m profiles (two polarisations of one profile count once).
+    - Returns: ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the number
+      of distinct LP0m profiles (two polarisations of one profile count once).
     """
     return {
         "v_target": float(math.hypot(profiles.u[0], profiles.w[0])),
@@ -1644,24 +1310,6 @@ def _target_metric(
     The profiles are orthonormal, so in true-power coordinates
     :math:`G = \operatorname{diag}(n_{\rm ref}/\operatorname{Re}n_{\rm eff})` and
     ``Q`` is the identity: the whitened eigenvalues are the ratios.
-
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target profiles.
-    mode_of : numpy.ndarray
-        Each channel's mode.
-    index : numpy.ndarray
-        Reference index per bin.
-    occupied : numpy.ndarray
-        Occupied bins.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``target metric``, capped at ``epsilon / 8``.
     """
     effective = profiles.effective_index[mode_of][:, occupied]
     if effective.size == 0:
@@ -1678,7 +1326,7 @@ def _target_metric(
     )
 
 
-def _target_angular_scalar(
+def _target_angular_scalar(  # noqa: PLR0917 - called positionally
     profiles: ScalarModeBasis,
     channels: tuple[np.ndarray, np.ndarray],
     index: Float[np.ndarray, " n_omega"],
@@ -1688,27 +1336,10 @@ def _target_angular_scalar(
 ) -> AdmissionItem:
     """Return the retained target subspace's angular defect, its worst unit field.
 
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target profiles.
-    channels : tuple of numpy.ndarray
-        Each channel's Jones vector and mode (:func:`_channels`).
-    index : numpy.ndarray
-        Reference index per bin.
-    port : solprop.coupling.port.InputPort
-        The port.
-    occupied : numpy.ndarray
-        Occupied bins.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``angular`` of the target subspace: the largest eigenvalue of
-        ``(1 - cos theta*) K + (1 - (1 - cos theta*)) T`` against the channel Gram
-        ``K``, with T the tail Gram.
+    - ``channels``: each channel's Jones vector and mode (:func:`_channels`).
+    - Returns: ``angular`` of the target subspace: the largest eigenvalue of ``(1 - cos
+      theta*) K + (1 - (1 - cos theta*)) T`` against the channel Gram ``K``, with T the
+      tail Gram.
     """
     jones, mode_of = channels
     polarisation = jones @ jones.T
@@ -1738,19 +1369,8 @@ def _source_metric_item(
 ) -> AdmissionItem:
     """Return the relative defect between the common measure and the source's own.
 
-    Parameters
-    ----------
-    incident : numpy.ndarray
-        The incident energy per bin in the common measure, J.
-    native : numpy.ndarray
-        The plane's energy per bin in its native metric, J.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``source metric``: ``sum |M_0 - Q_A| / sum Q_A``, capped at ``epsilon/8``.
+    - ``incident``: the incident energy per bin in the common measure, J.
+    - ``native``: the plane's energy per bin in its native metric, J.
     """
     total = float(np.sum(native))
     value = 0.0 if total == 0.0 else float(np.sum(np.abs(incident - native)) / total)
@@ -1779,19 +1399,8 @@ def _leaky_parameters(
     bins beyond the range, which the envelope does not bound and the item counts
     in full.
 
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target's capillary profiles.
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    incident : numpy.ndarray
-        Incident energy per bin, J.
-
-    Returns
-    -------
-    dict
-        ``leaky`` and ``uncovered``, dimensionless.
+    - ``incident``: incident energy per bin, J.
+    - Returns: ``leaky`` and ``uncovered``, dimensionless.
     """
     omega = plane.grid.omega
     delta = cast("np.ndarray", profiles.leaky(omega))
@@ -1819,22 +1428,10 @@ def _uncovered_v_share(
     each bin. A bin where any fibre's V is outside the range is not bounded by
     the envelope, so its share of the incident energy is counted in full.
 
-    Parameters
-    ----------
-    fibres : collections.abc.Mapping
-        Each fibre's LP set, with its core and cladding indices, by the name of
-        its V range in `envelope` (``v_source``, ``v_target``).
-    envelope : solprop.coupling.envelopes.PairEnvelope
-        The pair's envelope.
-    omega : numpy.ndarray
-        Absolute angular frequency of each bin, rad/s.
-    incident : numpy.ndarray
-        Incident energy per bin, J.
-
-    Returns
-    -------
-    float
-        Dimensionless.
+    - ``fibres``: each fibre's LP set, with its core and cladding indices, by the name
+      of its V range in `envelope` (``v_source``, ``v_target``).
+    - ``omega``: absolute angular frequency of each bin, rad/s.
+    - ``incident``: incident energy per bin, J.
     """
     beyond = np.zeros(omega.shape, bool)
     for name, basis in fibres.items():
@@ -1847,7 +1444,7 @@ def _uncovered_v_share(
     return _weighted(beyond.astype(float), incident)
 
 
-def _contrast_items(
+def _contrast_items(  # noqa: PLR0917 - called positionally
     profiles: ScalarModeBasis,
     plane: FieldPlane,
     index: Float[np.ndarray, " n_omega"],
@@ -1863,32 +1460,6 @@ def _contrast_items(
     for an incident beam), unless its recorded envelope covers it. Every pair needs
     its envelope to cover it: the capillary one, the fibre-pair one, or for a beam
     into a fibre :data:`~solprop.coupling.envelopes.STEP_INDEX_BEAM_ENVELOPE`.
-
-    Parameters
-    ----------
-    profiles : solprop.coupling.models.ScalarModeBasis
-        The target profiles.
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane; for a step-index target, a spatial plane or a modal plane
-        with its profiles.
-    index : numpy.ndarray
-        Reference index per bin.
-    occupied : numpy.ndarray
-        Occupied bins.
-    epsilon : float
-        The model budget.
-    parameters : dict
-        The pair's envelope parameters.
-
-    Returns
-    -------
-    list of AdmissionItem
-        ``contrast`` and ``envelope``.
-
-    Raises
-    ------
-    CouplingError
-        If no recorded envelope covers the pair.
     """
     envelope: PairEnvelope = CAPILLARY_ENVELOPE
     if profiles.family == "step_index":
@@ -1964,17 +1535,7 @@ def _scalar_gain(fit: _Fit, occupied: np.ndarray) -> float:
     source's native coordinates to the target's, ``C Q_A^-1 C^H`` against ``Q_B``
     (the identity), minus one.
 
-    Parameters
-    ----------
-    fit : _Fit
-        The fit, with its ``gain_form``.
-    occupied : numpy.ndarray
-        Occupied bins.
-
-    Returns
-    -------
-    float
-        Dimensionless; negative for a strictly contracting map.
+    - Returns: dimensionless; negative for a strictly contracting map.
     """
     form = cast("np.ndarray", fit.gain_form)
     gain = -1.0
@@ -2025,24 +1586,7 @@ def _vector_paraxial(
     in the internal convention, where the port's tables live, and the launch is
     converted to the optics convention at the end.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    port : solprop.coupling.port.InputPort
-        A general modal port carrying E/H at fixed nodes and its contrast.
-    model : solprop.coupling.models.CouplingModel
-        The model and its budget.
-
-    Returns
-    -------
-    tuple
-        The target samples and the report.
-
-    Raises
-    ------
-    CouplingError
-        For an unqualified pair or an exceeded budget.
+    - Returns: the target samples and the report.
     """
     if (
         port.route != "general_modal"
@@ -2130,22 +1674,7 @@ def _vector_envelope_item(
     a value: its omitted facet reflection is bounded only by the contrast screen
     and the closure.
 
-    Parameters
-    ----------
-    port : solprop.coupling.port.InputPort
-        The general modal port.
-    incident : numpy.ndarray
-        Incident energy per bin, J.
-
-    Returns
-    -------
-    AdmissionItem
-        ``envelope``.
-
-    Raises
-    ------
-    CouplingError
-        If the weighted parameters lie outside the envelope's range.
+    - ``incident``: incident energy per bin, J.
     """
     if port.normalised_frequency is None:
         return AdmissionItem(
@@ -2210,22 +1739,8 @@ def _vector_coordinates(
     of ``C = F^-1 L`` (``L`` the pairing per unit source coordinate) against the
     native metrics.
 
-    Parameters
-    ----------
-    source : _Source
-        The source's field map.
-    port : solprop.coupling.port.InputPort
-        The general modal port.
-    admittance : numpy.ndarray
-        :math:`Y_0` per bin, A/V.
-    occupied : numpy.ndarray
-        Occupied bins.
-
-    Returns
-    -------
-    tuple
-        Internal-convention amplitudes, shape ``(n_modes, n_omega)``; the largest
-        apparent gain; the largest whitened defect of F against the native Q.
+    - Returns: Internal-convention amplitudes, shape ``(n_modes, n_omega)``; the largest
+      apparent gain; the largest whitened defect of F against the native Q.
     """
     weights = np.asarray(port.node_weights)
     electric = np.conj(cast("np.ndarray", port.electric))
@@ -2276,26 +1791,6 @@ def _gain_item(
     Its excess over one is rounding below :data:`PASSIVITY_ROUNDING`, a model
     defect within the model's own metric, angular and closure items, and refused
     beyond them. It is never rescaled or clipped.
-
-    Parameters
-    ----------
-    gain : float
-        The largest whitened squared singular value minus one.
-    items : list of AdmissionItem
-        The items already measured.
-    scope : {'map', 'field'}, optional
-        Whether the certificate covers the whole map or the coordinates this field
-        occupies.
-
-    Returns
-    -------
-    AdmissionItem
-        ``passivity``.
-
-    Raises
-    ------
-    CouplingError
-        If the gain exceeds the model's own defects.
     """
     allowance = sum(
         item.value
@@ -2327,29 +1822,7 @@ def _vector_source(
     index: Float[np.ndarray, " n_omega"],
     epsilon: float,
 ) -> _Source:
-    """Return how a plane's coordinates make a field at a port's nodes.
-
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        A radial or Cartesian plane, or an ordinary modal plane with profiles.
-    port : solprop.coupling.port.InputPort
-        The general modal port.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    _Source
-        The field map, coordinates, native weights, incident norm and items.
-
-    Raises
-    ------
-    CouplingError
-        For an unsupported plane.
-    """
+    """Return how a plane's coordinates make a field at a port's nodes."""
     nodes = cast("np.ndarray", port.nodes)
     if plane.kind in ("radial", "cartesian"):
         return _spatial_source(plane, nodes, index, epsilon)
@@ -2369,24 +1842,7 @@ def _spatial_angular(
     index: Float[np.ndarray, " n_omega"],
     epsilon: float,
 ) -> AdmissionItem:
-    """Return a spatial plane's angular defect, energy-weighted (section 4.6).
-
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        A radial or Cartesian plane.
-    column_energy : numpy.ndarray
-        Each column's weighted squared samples per bin.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``angular`` of the incident field.
-    """
+    """Return a spatial plane's angular defect, energy-weighted (section 4.6)."""
     space = cast("RadialGrid | FreeGrid", plane.basis.space)
     kappa = np.sqrt(
         np.asarray(space.k_r) ** 2
@@ -2415,22 +1871,7 @@ def _refuse_nonpropagating(
     admittance: Float[np.ndarray, "n_columns n_omega"],
     occupied: np.ndarray,
 ) -> None:
-    """Refuse a plane with more than rounding in nonpropagating columns.
-
-    Parameters
-    ----------
-    column_energy : numpy.ndarray
-        Each column's weighted squared samples per bin.
-    admittance : numpy.ndarray
-        Each column's real admittance per bin.
-    occupied : numpy.ndarray
-        Occupied bins.
-
-    Raises
-    ------
-    CouplingError
-        If the nonpropagating share exceeds 1e-12.
-    """
+    """Refuse a plane with more than rounding in nonpropagating columns."""
     dead = (admittance <= 0.0) & occupied[None, :]
     total = float(np.sum(column_energy[:, occupied]))
     share = 0.0 if total == 0.0 else float(np.sum(column_energy[dead])) / total
@@ -2450,27 +1891,7 @@ def _spatial_source(
 ) -> _Source:
     """Return a radial or Cartesian plane's field map at a guide's nodes.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        A radial or Cartesian plane.
-    nodes : numpy.ndarray
-        The guide's nodes, m.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    _Source
-        The field map and its items.
-
-    Raises
-    ------
-    CouplingError
-        If the nodes reach beyond a window whose exterior is unknown, or the plane
-        occupies nonpropagating columns.
+    - ``nodes``: the guide's nodes, m.
     """
     grid = plane.grid
     space = cast("RadialGrid | FreeGrid", plane.basis.space)
@@ -2525,21 +1946,7 @@ def _modal_source(
 ) -> _Source:
     """Return an ordinary modal plane's synthesised field map at a guide's nodes.
 
-    Parameters
-    ----------
-    plane : solprop.coupling.plane.FieldPlane
-        An ordinary modal plane with its profiles.
-    nodes : numpy.ndarray
-        The guide's nodes, m.
-    index : numpy.ndarray
-        Reference index per bin.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    _Source
-        The field map and its items.
+    - ``nodes``: the guide's nodes, m.
     """
     grid = plane.grid
     source = cast("ScalarModeBasis", plane.profiles)
@@ -2554,15 +1961,7 @@ def _modal_source(
     def transfer(k: int) -> np.ndarray:
         """Return the field at the nodes per unit true-power coefficient.
 
-        Parameters
-        ----------
-        k : int
-            The bin.
-
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_nodes, 2, n_channels)``, V/m per √W.
+        - Returns: shape ``(n_nodes, 2, n_channels)``, V/m per √W.
         """
         scale = np.sqrt(2.0 / (EPS0 * C)) / root[:, k]
         return values.T[:, None, :] * (jones.T * scale[None, :])[None, :, :]
@@ -2586,7 +1985,7 @@ def _modal_source(
     return _Source(transfer, coordinates, np.ones(coordinates.shape), norm, items)
 
 
-def _modal_angular(  # noqa: PLR0913 - the source set, its field and the measure
+def _modal_angular(
     source: ScalarModeBasis,
     *,
     jones: Float[np.ndarray, "n_channels 2"],
@@ -2599,29 +1998,7 @@ def _modal_angular(  # noqa: PLR0913 - the source set, its field and the measure
 ) -> AdmissionItem:
     """Return a modal source field's angular defect, energy-weighted.
 
-    Parameters
-    ----------
-    source : solprop.coupling.models.ScalarModeBasis
-        The source profiles.
-    jones : numpy.ndarray
-        Each source channel's Jones vector.
-    mode_of : numpy.ndarray
-        Each source channel's mode.
-    scaled : numpy.ndarray
-        The vacuum-normalised source amplitudes ``b / sqrt(Re n_eff)``.
-    norm : numpy.ndarray
-        The incident norm in the common measure per bin.
-    index : numpy.ndarray
-        Reference index per bin.
-    plane : solprop.coupling.plane.FieldPlane
-        The source plane.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``angular`` of the incident field.
+    - ``scaled``: the vacuum-normalised source amplitudes ``b / sqrt(Re n_eff)``.
     """
     star = _kappa_star(index, plane.grid.omega, epsilon)
     defect = np.zeros(plane.grid.n_omega)
@@ -2645,18 +2022,7 @@ def _modal_angular(  # noqa: PLR0913 - the source set, its field and the measure
 
 
 def _window(space: RadialGrid | FreeGrid) -> float:
-    """Return the radius inside which a spatial plane's interpolant is its field, m.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    float
-        The radial window, or the smaller Cartesian half-width.
-    """
+    """Return the radius inside which a spatial plane's interpolant is its field, m."""
     if isinstance(space, RadialGrid):
         return float(space.hankel.radius)
     return float(min(np.max(np.abs(space.x)), np.max(np.abs(space.y))))
@@ -2674,19 +2040,7 @@ def _column_functions(
     DFT's trigonometric interpolant ``f(x) = sum_j S_j exp(i k_j (x - x0)) / N``.
     Zero at nodes outside the window.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-    nodes : numpy.ndarray
-        Node positions ``(x, y)``, m, shape ``(n_nodes, 2)``.
-    inside : numpy.ndarray
-        Nodes inside the window.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_nodes, n_columns)``.
+    - ``nodes``: node positions ``(x, y)``, m, shape ``(n_nodes, 2)``.
     """
     if isinstance(space, RadialGrid):
         radius = np.hypot(nodes[:, 0], nodes[:, 1])
@@ -2719,19 +2073,7 @@ def _window_edge_share(
     share in the outer tenth of its window, which bounds the tail the zero
     exterior discards to leading order.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-    samples : numpy.ndarray
-        Internal-convention columns.
-    inside : numpy.ndarray
-        Port nodes inside the window.
-
-    Returns
-    -------
-    float
-        Dimensionless.
+    - ``samples``: Internal-convention columns.
     """
     if np.all(inside):
         return 0.0
@@ -2755,17 +2097,7 @@ def _probe_bins(
 ) -> np.ndarray:
     """Return up to :data:`_TARGET_BINS` occupied bins spanning the band.
 
-    Parameters
-    ----------
-    occupied : numpy.ndarray
-        Occupied bins.
-    norm : numpy.ndarray
-        Incident norm per bin.
-
-    Returns
-    -------
-    numpy.ndarray
-        Bin indices: the edges, the peak and points between.
+    - Returns: bin indices: the edges, the peak and points between.
     """
     live = np.flatnonzero(occupied)
     if live.size == 0:
@@ -2778,7 +2110,7 @@ def _probe_bins(
     return np.array(sorted(picks))[: max(_TARGET_BINS, 3)]
 
 
-def _closure_item(
+def _closure_item(  # noqa: PLR0917 - called positionally
     electric: np.ndarray,
     magnetic: np.ndarray,
     weights: Float[np.ndarray, " n_nodes"],
@@ -2793,23 +2125,7 @@ def _closure_item(
     :math:`Y_0\hat z\times\mathbf e_t`; the energy discrepancy is
     :math:`2\delta + \delta^2` (section 4.7).
 
-    Parameters
-    ----------
-    electric, magnetic : numpy.ndarray
-        Basis E and H at the nodes, internal convention.
-    weights : numpy.ndarray
-        Node area weights.
-    admittance : numpy.ndarray
-        :math:`Y_0` per bin, A/V.
-    probes : numpy.ndarray
-        The bins evaluated.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``closure``, capped at ``epsilon / 8``.
+    - ``electric``, ``magnetic``: basis E and H at the nodes, internal convention.
     """
     worst = 0.0
     for k in probes:
@@ -2835,7 +2151,7 @@ def _closure_item(
     )
 
 
-def _target_angular_vector(
+def _target_angular_vector(  # noqa: PLR0917 - called positionally
     electric: np.ndarray,
     weights: Float[np.ndarray, " n_nodes"],
     port: InputPort,
@@ -2848,25 +2164,7 @@ def _target_angular_vector(
     The transverse E of each channel is Fourier transformed by its node quadrature
     on a polar rule inside the cone; the tail is the node Gram minus the cone.
 
-    Parameters
-    ----------
-    electric : numpy.ndarray
-        Basis E at the nodes, internal convention.
-    weights : numpy.ndarray
-        Node area weights.
-    port : solprop.coupling.port.InputPort
-        The port.
-    index : numpy.ndarray
-        Reference index per bin.
-    probes : numpy.ndarray
-        The bins evaluated.
-    epsilon : float
-        The model budget.
-
-    Returns
-    -------
-    AdmissionItem
-        ``angular`` of the target subspace.
+    - ``electric``: basis E at the nodes, internal convention.
     """
     nodes = cast("np.ndarray", port.nodes)
     extent = float(np.max(np.hypot(nodes[:, 0], nodes[:, 1])))

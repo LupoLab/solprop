@@ -1,0 +1,9 @@
+# Generated and archival trees that searches (ripgrep, fd) skip by default; git still
+# tracks them. Search one explicitly with a path, or with `rg --no-ignore`.
+docs/_build/
+docs/auto_tutorials/
+docs/auto_examples/
+docs/introduction/lessons/
+docs/api/generated/
+docs/dev/seps/archive/
+tests/data/*.json

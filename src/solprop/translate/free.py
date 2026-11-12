@@ -23,19 +23,9 @@ __all__ = ["free_operators", "free_transform"]
 def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
     """Validate spatial polarisation and finite positive translation extent.
 
-    Parameters
-    ----------
-    n_pol : int
-        One or two independent Cartesian components.
-    z_max : float
-        Run length in m.
-    margin : float
-        Fractional nonnegative extension.
-
-    Returns
-    -------
-    float
-        Extended positive span in m.
+    - ``z_max``: run length in m.
+    - ``margin``: fractional nonnegative extension.
+    - Returns: extended positive span in m.
     """
     if isinstance(n_pol, bool) or n_pol not in (1, 2):
         msg = "Cartesian polarisation count must be one or two"
@@ -50,14 +40,9 @@ def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
 def _warn_grazing(space: FreeGrid, grid: TimeGrid, data: SeparableOperator) -> None:
     """Report the first active cutoff inside the split-square uncertainty bound.
 
-    Parameters
-    ----------
-    space : solprop.grid.FreeGrid
-        Cartesian shape for the reported column coordinates.
-    grid : solprop.grid.TimeGrid
-        Frequency bins in rad/s and their active mask.
-    data : solprop.translate.spatial.SeparableOperator
-        Validated square high/low parts in m^-2.
+    - ``space``: Cartesian shape for the reported column coordinates.
+    - ``grid``: frequency bins in rad/s and their active mask.
+    - ``data``: validated square high/low parts in m^-2.
     """
     order = np.argsort(data.kperp_sq, kind="stable")
     transverse = data.kperp_sq[order]
@@ -166,7 +151,7 @@ def free_transform(
     )
 
 
-def free_operators(  # noqa: PLR0913 - geometry, operator settings and controls
+def free_operators(
     space: FreeGrid,
     dispersion: SpatialDispersion,
     *,

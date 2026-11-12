@@ -94,25 +94,7 @@ _LARGEST: Final = 1 << 34
 
 
 def _plain(value: object, arrays: list[np.ndarray]) -> object:
-    """Return a value's JSON form, collecting its arrays.
-
-    Parameters
-    ----------
-    value : object
-        Plain data with arrays.
-    arrays : list of numpy.ndarray
-        Where the arrays go, in order.
-
-    Returns
-    -------
-    object
-        The value with each array, and each float JSON cannot write, as a marker.
-
-    Raises
-    ------
-    solprop.service.messages.ServiceError
-        For a value that is not plain data.
-    """
+    """Return a value's JSON form, collecting its arrays."""
     if value is None or isinstance(value, bool | int | str):
         return value
     if isinstance(value, float):
@@ -185,20 +167,7 @@ def encode(value: object) -> bytes:
 
 
 def _restore(value: object, arrays: list[np.ndarray]) -> object:
-    """Return a header's value with its markers replaced.
-
-    Parameters
-    ----------
-    value : object
-        The JSON value.
-    arrays : list of numpy.ndarray
-        The frame's arrays.
-
-    Returns
-    -------
-    object
-        The value as it was encoded.
-    """
+    """Return a header's value with its markers replaced."""
     if isinstance(value, dict):
         if _ARRAY in value and len(value) == 1:  # pyright: ignore[reportUnknownArgumentType]
             return arrays[int(value[_ARRAY])]  # pyright: ignore[reportUnknownArgumentType]
@@ -213,20 +182,8 @@ def _restore(value: object, arrays: list[np.ndarray]) -> object:
 def _lengths(preamble: bytes) -> tuple[int, int]:
     """Return a frame's header and body lengths from its preamble.
 
-    Parameters
-    ----------
-    preamble : bytes
-        The frame's first bytes, at least the preamble's size.
-
-    Returns
-    -------
-    tuple of int
-        The header's and the body's lengths, bytes.
-
-    Raises
-    ------
-    solprop.service.messages.ServiceError
-        If the bytes are not a frame's preamble.
+    - ``preamble``: the frame's first bytes, at least the preamble's size.
+    - Returns: the header's and the body's lengths, bytes.
     """
     magic, header, body = _PREAMBLE.unpack_from(preamble)
     if magic != MAGIC:
@@ -241,17 +198,7 @@ def _lengths(preamble: bytes) -> tuple[int, int]:
 def _value(header: bytes, body: bytes) -> object:
     """Return the value a frame's header and body hold.
 
-    Parameters
-    ----------
-    header : bytes
-        The JSON header.
-    body : bytes
-        The arrays' bytes.
-
-    Returns
-    -------
-    object
-        The value.
+    - ``body``: the arrays' bytes.
     """
     content: dict[str, Any] = json.loads(header.decode("utf-8"))
     arrays: list[np.ndarray] = []
@@ -340,22 +287,8 @@ def split_frames(data: bytes) -> tuple[list[object], int]:
 def _read_exactly(stream: Readable, size: int) -> bytes | None:
     """Return the next bytes of a stream, or ``None`` at its end.
 
-    Parameters
-    ----------
-    stream : Readable
-        The stream.
-    size : int
-        How many bytes.
-
-    Returns
-    -------
-    bytes or None
-        Exactly that many; ``None`` when the stream ended before the first.
-
-    Raises
-    ------
-    solprop.service.messages.ServiceError
-        If the stream ends part of the way.
+    - ``size``: how many bytes.
+    - Returns: exactly that many; ``None`` when the stream ended before the first.
     """
     chunks: list[bytes] = []
     left = size

@@ -100,19 +100,9 @@ class _Session:
     ) -> Callable[[], object]:
         """Return the trial step of problem `name` under `record`, built once.
 
-        Parameters
-        ----------
-        name : str
-            A prepared problem.
-        record : Mapping[str, object] or None
-            A native execution record, or ``None`` for the process's own.
-        planning : Mapping[str, object] or None, optional
-            An FFT planning (``fft_planning``), or ``None`` for the plan policy.
-
-        Returns
-        -------
-        collections.abc.Callable
-            One trial step from the problem's initial state.
+        - ``record``: a native execution record, or ``None`` for the process's own.
+        - ``planning``: an FFT planning (``fft_planning``), or ``None`` for the plan
+          policy.
         """
         key = self._key(name, record, planning)
         if key not in self.backends:
@@ -152,33 +142,15 @@ class _Session:
     ) -> tuple[str, str]:
         """Return the cache key of problem `name`'s backend under a setup.
 
-        Parameters
-        ----------
-        name : str
-            A prepared problem.
-        record, planning : Mapping[str, object] or None
-            The setup.
-
-        Returns
-        -------
-        tuple of str
-            The problem and its setup as JSON.
+        - Returns: the problem and its setup as JSON.
         """
         return name, json.dumps([record, planning], sort_keys=True)
 
     def prepare(self, problems: Mapping[str, float]) -> dict[str, object]:
         """Build each problem at its scale and time one step of each.
 
-        Parameters
-        ----------
-        problems : Mapping[str, float]
-            Each calibration problem's scale.
-
-        Returns
-        -------
-        dict
-            Each problem's fastest step and shape, the process settings in force, its
-            CPUs, and its execution and built-in records.
+        - Returns: each problem's fastest step and shape, the process settings in force,
+          its CPUs, and its execution and built-in records.
         """
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
@@ -219,21 +191,9 @@ class _Session:
         Two untimed steps first bring the problem's arrays back into the caches,
         which another child's window has just used.
 
-        Parameters
-        ----------
-        name : str
-            A prepared problem.
-        repeats : int
-            The trial steps timed.
-        record : Mapping[str, object] or None
-            A native execution record, or ``None`` for the process's own.
-        planning : Mapping[str, object] or None, optional
-            An FFT planning, or ``None`` for the plan policy.
-
-        Returns
-        -------
-        float
-            Seconds per step.
+        - ``record``: a native execution record, or ``None`` for the process's own.
+        - ``planning``: an FFT planning, or ``None`` for the plan policy.
+        - Returns: seconds per step.
         """
         step = self.backend(name, record, planning)
         for _ in range(2):
@@ -258,26 +218,15 @@ class _Session:
         share what is left of it, at most `limit` each, and the problems it leaves no
         time for are skipped and listed.
 
-        Parameters
-        ----------
-        effort : str
-            ``"measure"`` or ``"patient"``.
-        limit : float
-            FFTW's planning time limit per transform, in seconds.
-        record : Mapping[str, object] or None
-            The execution record the problems run under, whose widths the plans'
-            threads follow.
-        budget : float or None, optional
-            The seconds the whole capture may take; none bounds it but `limit`.
-
-        Returns
-        -------
-        dict
-            ``wisdom`` by plan key, each key's ``groups`` and the problems
-            containing it (``problems``), the problems skipped for want of time
-            (``skipped``), the seconds spent (``seconds``), and each plan's execution
-            alone (``alone``: the seconds of the captured plan and of the same
-            transform at estimate, ``_core.time_fft_plan``; solprop issue #595).
+        - ``effort``: ``"measure"`` or ``"patient"``.
+        - ``limit``: FFTW's planning time limit per transform, in seconds.
+        - ``budget``: the seconds the whole capture may take; none bounds it but
+          `limit`.
+        - Returns: ``wisdom`` by plan key, each key's ``groups`` and the problems
+          containing it (``problems``), the problems skipped for want of time
+          (``skipped``), the seconds spent (``seconds``), and each plan's execution
+          alone (``alone``: the seconds of the captured plan and of the same transform
+          at estimate, ``_core.time_fft_plan``; solprop issue #595).
         """
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             _core,  # pyright: ignore[reportUnknownVariableType]
@@ -347,15 +296,8 @@ class _Session:
     def sizing(self, record: Mapping[str, object] | None) -> dict[str, object]:
         """Return each problem's operations as its workspace sizes them.
 
-        Parameters
-        ----------
-        record : Mapping[str, object] or None
-            A native execution record, or ``None`` for the process's own.
-
-        Returns
-        -------
-        dict
-            Each problem's ``execution_sizing``: work and width by operation.
+        - ``record``: a native execution record, or ``None`` for the process's own.
+        - Returns: each problem's ``execution_sizing``: work and width by operation.
         """
         found: dict[str, object] = {}
         for name in self.problems:
@@ -378,17 +320,7 @@ def _regions(elements: int, repeats: int) -> dict[str, float]:
     kernels' execution space (``reference_stream_copies``), and of single-element
     copies, whose cost is the region's own.
 
-    Parameters
-    ----------
-    elements : int
-        The complex values of each copy.
-    repeats : int
-        The timed copies of each size.
-
-    Returns
-    -------
-    dict of str to float
-        ``copy`` and ``empty``: the median seconds of each.
+    - Returns: ``copy`` and ``empty``: the median seconds of each.
     """
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _core,

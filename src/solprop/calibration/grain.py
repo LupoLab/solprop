@@ -243,24 +243,7 @@ class Candidate:
 def _class_moves(
     kind: str, sizes: list[int], record: Record, *, fulls: bool
 ) -> list[Candidate]:
-    """Return a class's one-step moves past its nearest work sizes.
-
-    Parameters
-    ----------
-    kind : str
-        The operation class.
-    sizes : list of int
-        Its work sizes in the problems, ascending.
-    record : Mapping[str, int or bool]
-        The base record.
-    fulls : bool
-        Whether to move its full size as well as its threshold.
-
-    Returns
-    -------
-    list of Candidate
-        At most four.
-    """
+    """Return a class's one-step moves past its nearest work sizes."""
     threshold = int(record[f"{kind}_threshold"])
     full = int(record[f"{kind}_full"])
     serial = [size for size in sizes if size < threshold]
@@ -378,15 +361,8 @@ def proposals(
 def _shape_moves(record: Record) -> list[Candidate]:
     """Return the transforms' shape settings halved and doubled.
 
-    Parameters
-    ----------
-    record : Mapping[str, int or bool]
-        The base record.
-
-    Returns
-    -------
-    list of Candidate
-        Two at most, smallest first: a grain of one thread per sample is not halved.
+    - Returns: two at most, smallest first: a grain of one thread per sample is not
+      halved.
     """
     (name,) = SHAPE_MOVES
     value = int(record[name])

@@ -35,13 +35,12 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 48 — A Julia backend](seps/sep-0048-julia-backend.md): an optional
-  `backend="julia"` at Tier 3, one Julia engine for CPUs and NVIDIA, AMD and Apple GPUs
-  in binary64 and binary32 (input noise in binary64 only), owning SEP 47's whole execution session. `pip install
-  solprop` is unchanged; the `julia` extra adds only `juliacall`, and `solprop julia
-  setup` installs a pinned Julia and environment, refused until run. The general modal
-  route, planar kind, coupled flows, TDSE, vector and tensor responses and dispersive
-  Kerr stay refused; a system image and a trimmed library are later work.
+- [SEP 49 — The TDSE response on native](seps/sep-0049-tdse-on-native.md):
+  the TDSE response on the native CPU build through a host source hook, the one Python
+  call admitted inside a native trial (device builds refuse it), with the host source
+  assembly shared by both backends and the atomic provider in a worker process of its
+  own, which `numpy_ref`'s TDSE runs use too. `numpy_ref` stays a complete backend.
+  TDSE physics, a compiled TDSE source and device TDSE runs remain out of scope.
 
 ## Draft enhancement proposals
 
@@ -93,9 +92,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 49 — The TDSE response on native](seps/sep-0049-tdse-on-native.md):
-  the TDSE response on the native CPU build through a host source hook, the one Python
-  call admitted inside a native trial (device builds refuse it), with the host source
-  assembly shared by both backends and the atomic provider in a worker process of its
-  own, which `numpy_ref`'s TDSE runs use too. `numpy_ref` stays a complete backend.
-  TDSE physics, a compiled TDSE source and device TDSE runs remain out of scope.

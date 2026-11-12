@@ -29,7 +29,7 @@ __all__ = [
 ]
 
 
-def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own sizes
+def reference_base_memory(
     problem: PropagationProblem,
     stepper: StepperSettings,
     *,
@@ -198,22 +198,8 @@ def _stepping_rows(
 ) -> dict[str, int]:
     """Return the march's own field-sized rows: stages, accumulators, registers, flows.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section (``RunRequest.stepper``), whose method decides the
-        rows.
-    field_bytes : int
-        One state's bytes.
-    tabulating : bool
-        Whether the propagators are tabulated.
-
-    Returns
-    -------
-    dict
-        Buffer name to bytes, every row named even when it is zero.
+    - ``field_bytes``: one state's bytes.
+    - Returns: buffer name to bytes, every row named even when it is zero.
     """
     if isinstance(stepper.integrator, LowStorageRungeKutta):
         return _low_storage_rows(problem, stepper, field_bytes)
@@ -238,20 +224,8 @@ def _low_storage_rows(
     ``exp(h D / 2)`` on a constant operator, a varying one's ``P`` and ``Q`` formed
     once per step, nothing when recomputing.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section (``RunRequest.stepper``), whose method decides the
-        rows.
-    field_bytes : int
-        One state's bytes.
-
-    Returns
-    -------
-    dict
-        Buffer name to bytes, every row of :func:`_stepping_rows` named.
+    - ``field_bytes``: one state's bytes.
+    - Returns: buffer name to bytes, every row of :func:`_stepping_rows` named.
     """
     return {
         "stages": 0,
@@ -505,14 +479,6 @@ def z_table_slots(stepper: StepperSettings) -> int:
 def _distinct_fractions(stepper: StepperSettings) -> int:
     """Return the tableau's distinct stage fractions, the step's end included.
 
-    Parameters
-    ----------
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section.
-
-    Returns
-    -------
-    int
-        The count, positive.
+    - Returns: the count, positive.
     """
     return int(np.unique(np.append(stepper.tableau.nodes, 1.0)).size)

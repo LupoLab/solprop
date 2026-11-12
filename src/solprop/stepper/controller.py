@@ -392,7 +392,7 @@ class PIController:  # numpydoc ignore=PR02
     @classmethod
     def for_estimator_order(
         cls, estimator_order: int, rtol: float, atol: float
-    ) -> "PIController":  # noqa: UP037 - bound after the class body
+    ) -> "PIController":
         """Build a controller whose PI gains match an error estimate of order ``q``.
 
         The Lund gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
@@ -706,7 +706,7 @@ class ControlRecord:
         controller: PIController,
         accepted_norms: Sequence[float],
         n_rejected: int = 0,
-    ) -> "ControlRecord":  # noqa: UP037 - bound after the class body
+    ) -> "ControlRecord":
         """Summarise a run from the scaled norms of its accepted steps.
 
         Parameters
@@ -743,8 +743,8 @@ class ControlRecord:
         )
 
     @property
-    def met_tolerance(self) -> bool:
-        """Return whether every accepted step sat within the requested tolerance.
+    def met_tolerance(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every accepted step sat within the requested tolerance.
 
         A fixed schedule is replayed without control, so this is the check that a
         fixed run was not too coarse: the embedded estimate is computed regardless, and
@@ -752,33 +752,24 @@ class ControlRecord:
         by. An adaptive run in the rejecting mode meets it by construction; a
         reject-free run may not, by design.
 
-        Returns
-        -------
-        bool
-            True if the largest scaled norm is at most 1.
+        True if the largest scaled norm is at most 1.
         """
         return self.max_norm <= 1.0
 
     @property
-    def rejection_rate(self) -> float:
-        """Return the fraction of attempts that were rejected.
+    def rejection_rate(self) -> float:  # numpydoc ignore=RT01
+        """Fraction of attempts that were rejected.
 
-        Returns
-        -------
-        float
-            Between 0 and 1; 0 for a run with no attempts.
+        Between 0 and 1; 0 for a run with no attempts.
         """
         attempts = self.n_accepted + self.n_rejected
         return self.n_rejected / attempts if attempts else 0.0
 
     @property
-    def tolerance_ratio(self) -> float:
-        """Return the achieved local error as a multiple of the requested tolerance.
+    def tolerance_ratio(self) -> float:  # numpydoc ignore=RT01
+        """Achieved local error as a multiple of the requested tolerance.
 
-        Returns
-        -------
-        float
-            The largest scaled norm over the accepted steps. Below 1 the run stayed
-            inside its local tolerance everywhere.
+        The largest scaled norm over the accepted steps. Below 1 the run stayed
+        inside its local tolerance everywhere.
         """
         return self.max_norm

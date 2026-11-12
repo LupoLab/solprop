@@ -179,25 +179,10 @@ def _check_evaluate(
     reason given in :func:`solprop.fourier._check_kind`: this is the run-time guard, and
     the test session's ``beartype`` hook would otherwise reject a bad value first.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The samples passed as ``field_t``.
-    kind : str
-        Layout name to check.
-    carrier : numpy.ndarray or None
-        The carrier passed by the caller, if any.
-    needs_carrier : bool
-        Whether this response and layout require one.
-    max_pol : int, optional
-        The most field components the response takes: two for a transverse field, three
-        for the general modal route's full vector field. Default :data:`MAX_N_POL`.
-
-    Raises
-    ------
-    GridError
-        If the layout is unknown, the array shape or dtype does not match the layout,
-        or the carrier is missing, unwanted or the wrong length.
+    - ``carrier``: the carrier passed by the caller, if any.
+    - ``needs_carrier``: whether this response and layout require one.
+    - ``max_pol``: the most field components the response takes: two for a transverse
+      field, three for the general modal route's full vector field.
     """
     if kind not in ("field", "envelope"):
         msg = f"kind must be 'field' or 'envelope', got {kind!r}"
@@ -277,13 +262,10 @@ class KerrResponse:
     species: str | None = None
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the Kerr response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the Kerr response.
 
-        Returns
-        -------
-        ResponseTraits
-            Pointwise, both grids, vector-isotropic, consuming the density path.
+        Pointwise, both grids, vector-isotropic, consuming the density path.
 
         Examples
         --------
@@ -427,15 +409,8 @@ def _isotropic(
     contracted over the polarisation axis without conjugation; ``x y z`` for one
     component and ``(E . E) E`` when the three coincide (SEP 6, Phase 0, decision Q3).
 
-    Parameters
-    ----------
-    x, y, z : numpy.ndarray
-        Three fields of one shape, the polarisation axis second to last.
-
-    Returns
-    -------
-    numpy.ndarray
-        The contraction, of the same shape.
+    - ``x``, ``y``, ``z``: three fields of one shape, the polarisation axis second to
+      last.
     """
     if x.shape[-2] == 1:
         return x * y * z
@@ -452,19 +427,8 @@ def _filtered(
 ) -> Num[np.ndarray, "*nodes n_pol n_to"]:
     """Apply a spectral multiplier to a field on the fine time grid.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        A real field (field grid) or a complex envelope (envelope grid).
-    multiplier : numpy.ndarray
-        Its multiplier on the transform's spectral layout.
-    kind : {'field', 'envelope'}
-        The layout.
-
-    Returns
-    -------
-    numpy.ndarray
-        The filtered field, of the input's dtype.
+    - ``multiplier``: its multiplier on the transform's spectral layout.
+    - ``kind``: the layout.
     """
     n_to = values.shape[-1]
     if kind == "field":
@@ -478,17 +442,7 @@ def _analytic(
 ) -> Complex[np.ndarray, "*nodes n_pol n_to"]:
     """Return the analytic signal of a real field: ``Pi_+`` doubled, DC and Nyquist out.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        A real field on the fine time grid.
-    positive : numpy.ndarray
-        The one-sided bins of strictly positive frequency.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``u`` with ``Re u = E`` wherever the field has no DC or Nyquist content.
+    - ``positive``: the one-sided bins of strictly positive frequency.
     """
     n_to = values.shape[-1]
     spectrum = np.zeros((*values.shape[:-1], n_to), dtype=np.complex128)
@@ -496,7 +450,7 @@ def _analytic(
     return np.fft.ifft(spectrum, axis=-1)
 
 
-def _product_spectrum(  # noqa: PLR0913 - the three fields of a product and its context
+def _product_spectrum(
     x: Num[np.ndarray, "*nodes n_pol n_to"],
     y: Num[np.ndarray, "*nodes n_pol n_to"],
     z: Num[np.ndarray, "*nodes n_pol n_to"],
@@ -518,29 +472,16 @@ def _product_spectrum(  # noqa: PLR0913 - the three fields of a product and its 
     carries ``exp(+2 i omega0 t)`` and the third ``exp(-2 i omega0 t)``, and ``Pi_+``
     acts on absolute frequency.
 
-    Parameters
-    ----------
-    x, y, z : numpy.ndarray
-        The three fields on the fine time grid: real on a field grid, envelopes on an
-        envelope grid.
-    positive : numpy.ndarray
-        ``Pi_+`` on the transform's spectral layout.
-    kind : {'field', 'envelope'}
-        The layout.
-    sector : {'full', 'conserving'}
-        Which quartets are kept.
-    carrier : numpy.ndarray or None
-        ``exp(2 i omega0 t)``, required for the full sector on an envelope grid.
-    window : numpy.ndarray or None, optional
-        The temporal collar, multiplying the product in time before its transform,
-        ahead of ``Pi_+`` and every output multiplier; ``None`` is a unit collar.
-
-    Returns
-    -------
-    numpy.ndarray
-        The product's spectrum on the transform's layout: the one-sided spectrum of
-        the real polarisation on a field grid, the envelope of the analytic
-        polarisation on an envelope grid.
+    - ``positive``: ``Pi_+`` on the transform's spectral layout.
+    - ``kind``: the layout.
+    - ``carrier``: ``exp(2 i omega0 t)``, required for the full sector on an envelope
+      grid.
+    - ``window``: the temporal collar, multiplying the product in time before its
+      transform, ahead of ``Pi_+`` and every output multiplier; ``None`` is a unit
+      collar.
+    - Returns: the product's spectrum on the transform's layout: the one-sided spectrum
+      of the real polarisation on a field grid, the envelope of the analytic
+      polarisation on an envelope grid.
     """
     collar = 1.0 if window is None else window
     if kind == "field" and sector == "full":
@@ -635,37 +576,26 @@ def dispersive_cubic(
     n_to = values.shape[-1]
     positive = weights.positive
 
-    def product(
+    def _product(
         x: np.ndarray, y: np.ndarray, z: np.ndarray
     ) -> Complex[np.ndarray, "*nodes n_pol n_omega_fine"]:
-        """Return one product's spectrum in this call's sector and layout.
-
-        Parameters
-        ----------
-        x, y, z : numpy.ndarray
-            The three fields of the product.
-
-        Returns
-        -------
-        numpy.ndarray
-            Its spectrum (:func:`_product_spectrum`).
-        """
+        """Return one product's spectrum in this call's sector and layout."""
         return _product_spectrum(
             x, y, z, positive, kind=kind, sector=sector, carrier=carrier, window=window
         )
 
     if weights.evaluator == "symmetric":
         filtered = _filtered(values, weights.filter, kind)
-        spectrum = product(filtered, filtered, filtered) * weights.filter
+        spectrum = _product(filtered, filtered, filtered) * weights.filter
     else:
         assert weights.output is not None
         first = _filtered(values, weights.filter, kind)
         second = _filtered(first, weights.filter, kind)
         spectrum = (
-            product(values, values, values) * weights.output[0]
-            + product(values, values, first) * weights.output[1]
-            + weights.products[0] * product(values, values, second)
-            + weights.products[1] * product(values, first, first)
+            _product(values, values, values) * weights.output[0]
+            + _product(values, values, first) * weights.output[1]
+            + weights.products[0] * _product(values, values, second)
+            + weights.products[1] * _product(values, first, first)
         )
     if kind == "field":
         return np.fft.irfft(spectrum, n=n_to, axis=-1)
@@ -832,25 +762,19 @@ class DispersiveKerrResponse:
             raise MaterialError(msg)
 
     @property
-    def sector(self) -> Sector:
-        """Return which quartets the response keeps.
+    def sector(self) -> Sector:  # numpydoc ignore=RT01
+        """Which quartets the response keeps.
 
-        Returns
-        -------
-        {'full', 'conserving'}
-            ``"full"`` with ``thg``, ``"conserving"`` without.
+        ``"full"`` with ``thg``, ``"conserving"`` without.
         """
         return "full" if self.thg else "conserving"
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution in time (spectral multipliers on the inputs and the output),
-            both grids, vector-isotropic, consuming the density path.
+        A convolution in time (spectral multipliers on the inputs and the output),
+        both grids, vector-isotropic, consuming the density path.
         """
         return ResponseTraits(
             domain="convolution",
@@ -862,13 +786,10 @@ class DispersiveKerrResponse:
         )
 
     @property
-    def coefficient(self) -> float:
-        """Return ``eps0 gamma3_0``, the static coefficient per unit density.
+    def coefficient(self) -> float:  # numpydoc ignore=RT01
+        """``eps0 gamma3_0``, the static coefficient per unit density, C m^2/V^3.
 
-        Returns
-        -------
-        float
-            In C m^2/V^3 (m^5/V^2 times eps0), multiplying the number density.
+        That is m^5/V^2 times eps0; it multiplies the number density.
         """
         return EPS0 * self.model.gamma3_static
 
@@ -1010,18 +931,7 @@ class DispersiveKerrResponse:
 
 
 def _frozen(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous read-only copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    numpy.ndarray
-        Its values, not writeable.
-    """
+    """Return a C-contiguous read-only copy of an array."""
     frozen = np.array(values, order="C")
     frozen.setflags(write=False)
     return frozen
@@ -1035,20 +945,7 @@ def _check_plasma(values: np.ndarray, kind: str, dt: float) -> None:
     being real. What follows is the shape and dtype half of :func:`_check_evaluate`,
     reused rather than repeated; its carrier arguments never apply here.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The samples passed as ``field_t``.
-    kind : str
-        Layout name to check.
-    dt : float
-        Sample spacing of the fine time grid, s.
-
-    Raises
-    ------
-    GridError
-        If the layout is not ``'field'``, the array shape or dtype does not match it, or
-        the time step is not positive and finite.
+    - ``dt``: sample spacing of the fine time grid, s.
     """
     if kind != "field":
         msg = (
@@ -1213,13 +1110,8 @@ class PlasmaResponse:
             raise MaterialError(msg)
 
     @property
-    def potential(self) -> float:
-        """Return the ionisation potential without inventing custom species data.
-
-        Returns
-        -------
-        float
-            First ionisation potential in J.
+    def potential(self) -> float:  # numpydoc ignore=RT01
+        """First ionisation potential, J, without inventing custom species data.
 
         Raises
         ------
@@ -1233,14 +1125,11 @@ class PlasmaResponse:
         return float(ionisation_potential(self.gas))
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the plasma response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the plasma response.
 
-        Returns
-        -------
-        ResponseTraits
-            With memory, field grid only, vector-isotropic, consuming the density and
-            pre-ionisation paths.
+        With memory, field grid only, vector-isotropic, consuming the density and
+        pre-ionisation paths.
 
         Examples
         --------
@@ -1403,23 +1292,8 @@ class PlasmaResponse:
         The response never designs taps itself and never looks at the field's spectrum:
         the band rule's taps belong to the grid, and a direct call is handed them.
 
-        Parameters
-        ----------
-        integral : RunningIntegral or None
-            The rule passed to the call.
-        dt : float
-            The call's sample spacing, s.
-
-        Returns
-        -------
-        RunningIntegral
-            `integral`, or the trapezoid when it is omitted under that rule.
-
-        Raises
-        ------
-        GridError
-            If the band rule has no `integral`, `integral` is another rule than
-            ``integration``, or it was designed for another ``dt``.
+        - ``dt``: the call's sample spacing, s.
+        - Returns: `integral`, or the trapezoid when it is omitted under that rule.
         """
         if integral is None:
             if self.integration == "band":
@@ -1450,15 +1324,7 @@ class PlasmaResponse:
         unit in the last place of ``|E|`` into a relative difference of 1e-13 in the
         rate, and the stored reference data are built with ``hypot`` too.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            The real field, shape ``(n_pol, n_to)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``|E|`` in V/m, shape ``(n_to,)``.
+        - Returns: ``|E|`` in V/m, shape ``(n_to,)``.
         """
         if values.shape[0] == 1:
             return np.abs(values[0])
@@ -1476,28 +1342,9 @@ class PlasmaResponse:
     ]:
         """Return the field magnitude, the rate and the fraction ionised.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            The real field, shape ``(n_pol, n_to)``.
-        dt : float
-            Sample spacing of the fine time grid, s.
-        rule : RunningIntegral
-            The running-integral rule of the exposure.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``|E|`` in V/m, the rate in s^-1 and the fraction ionised, each shape
-            ``(n_to,)``.
-
-        Raises
-        ------
-        GridError
-            If the rate returns the wrong shape, or a value that is not finite and
-            non-negative.
-        MaterialError
-            If the preionisation is a path along z rather than one plane's value.
+        - ``dt``: sample spacing of the fine time grid, s.
+        - Returns: ``|E|`` in V/m, the rate in s^-1 and the fraction ionised, each shape
+          ``(n_to,)``.
         """
         if isinstance(self.preionisation, ZProfile):
             raise MaterialError(_PREIONISATION_PATH)
@@ -1535,21 +1382,7 @@ class PlasmaResponse:
         where the field vanishes -- the whole point of the rate being identically zero
         below threshold, and the reason a clipped-but-non-zero table would be unusable.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            The real field, shape ``(n_pol, n_to)``.
-        magnitude : numpy.ndarray
-            ``|E|``, shape ``(n_to,)``.
-        rate : numpy.ndarray
-            The ionisation rate in s^-1, shape ``(n_to,)``.
-        fraction : numpy.ndarray
-            The fraction ionised, shape ``(n_to,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The loss current per unit density, shape ``(n_pol, n_to)``.
+        - ``rate``: the ionisation rate in s^-1, shape ``(n_to,)``.
         """
         # The divisor rather than the field itself: |E| squared underflows to zero
         # below about 1e-162 V/m, and this is the condition the division needs.
@@ -1571,16 +1404,6 @@ def _sum_of_squares(
 
     Squares, not squared moduli: this is the combination that produces the third
     harmonic, and for a single component it is simply ``a**2``.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Samples, shape ``(n_pol, n_to)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``sum_q values_q**2``, shape ``(1, n_to)``, broadcasting against the input.
     """
     return np.sum(values**2, axis=0, keepdims=True)
 
@@ -1595,16 +1418,6 @@ def _fundamental_cubic(
     collapses to ``(3/4)|a|^2 a`` and for two it expands to
     ``(3/4)[(|a_x|^2 + (2/3)|a_y|^2) a_x + (1/3) conj(a_x) a_y^2]``; the algebra is in
     ``docs/guide/media/nonlinear.md``.
-
-    Parameters
-    ----------
-    analytic : numpy.ndarray
-        Analytic signal or envelope, complex, shape ``(n_pol, n_to)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The cubic, complex, shape ``(n_pol, n_to)``.
     """
     sum_abs = np.sum(np.abs(analytic) ** 2, axis=0, keepdims=True)
     conjugate_term = 0.25 * _sum_of_squares(analytic) * np.conj(analytic)

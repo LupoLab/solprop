@@ -84,7 +84,7 @@ def spm_field_problem(field_grid):
     return build_problem
 
 
-def run(  # noqa: PLR0913 - the run and its context
+def run(
     backend_class,
     problem,
     run_request,

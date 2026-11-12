@@ -7,3 +7,25 @@ ColumnLimit: 88
 DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: CaseSensitive
+InsertNewlineAtEOF: true
+# A NOLINT comment is never reflowed: its reason must stay on the suppressing line.
+CommentPragmas: '^ (IWYU pragma:|NOLINT)'
+# No RemoveSemicolon: clang-format parses `const auto f = KOKKOS_LAMBDA(...) {...};` as a
+# function definition and removes the semicolon the declaration needs. Declaring the
+# macro (`Macros:`) fixes that but makes formatting general.cpp minutes slower.
+# Include blocks: this package's and the directory's own headers ("..."), then the
+# third-party libraries, then the standard library, then platform headers (the operating
+# system, the compiler and the device runtimes). An include under #if stays in its own
+# block, where it is.
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"'
+    Priority: 1
+  - Regex: '^<(Kokkos|impl/Kokkos|nanobind/|fftw3\.h|sleef\.h|gtest/)'
+    Priority: 2
+    CaseSensitive: true
+  - Regex: '^<[a-z_]+>$'
+    Priority: 3
+    CaseSensitive: true
+  - Regex: '^<'
+    Priority: 4

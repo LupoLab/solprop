@@ -101,17 +101,7 @@ class ReferenceState:
 def _reference_density(gas: Gas, state: ReferenceState) -> float:
     """Return the number density at a model's reference state (cached).
 
-    Parameters
-    ----------
-    gas : Gas
-        The species.
-    state : ReferenceState
-        The state the source reports its refractivity at.
-
-    Returns
-    -------
-    float
-        Number density in m^-3, from optmat's equation of state.
+    - Returns: number density in m^-3, from optmat's equation of state.
     """
     return density(gas, state.pressure_bar, state.temperature)
 
@@ -119,20 +109,8 @@ def _reference_density(gas: Gas, state: ReferenceState) -> float:
 def _as_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
     """Validate an angular-frequency argument and return it as a float array.
 
-    Parameters
-    ----------
-    omega : array_like
-        Angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an array.
-
-    Returns
-    -------
-    ndarray
-        The same values as a float array, 0-d for scalar input.
-
-    Raises
-    ------
-    MaterialError
-        If the values are not real, or any of them is negative or not finite.
+    - ``omega``: angular frequency in rad/s, >= 0 and finite. A scalar, a sequence or an
+      array.
     """
     # numpy casts a complex argument to float with a warning rather than an error, so
     # it is rejected here before the conversion.
@@ -155,16 +133,9 @@ def _as_omega(omega: ArrayLike | float | int) -> Float[np.ndarray, "*shape"]:
 def _wavelength_extremes(omega: Float[np.ndarray, "*shape"]) -> tuple[float, float]:
     """Return the shortest and longest wavelength of a set of angular frequencies.
 
-    Parameters
-    ----------
-    omega : ndarray
-        Angular frequencies in rad/s, >= 0.
-
-    Returns
-    -------
-    tuple of float
-        Shortest and longest wavelength in m; the longest is infinite if any
-        frequency is zero.
+    - ``omega``: angular frequencies in rad/s, >= 0.
+    - Returns: shortest and longest wavelength in m; the longest is infinite if any
+      frequency is zero.
     """
     highest, lowest = float(np.max(omega)), float(np.min(omega))
     shortest = 2.0 * math.pi * C / highest if highest > 0.0 else math.inf
@@ -208,51 +179,27 @@ class GasSusceptibility(ABC):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return the susceptibility at the reference state and its derivative in `u`.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``chi(u)`` at the reference state (dimensionless) and ``dchi/du``.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: ``chi(u)`` at the reference state (dimensionless) and ``dchi/du``.
         """
 
     @property
-    def reference_density(self) -> float:
-        """Return the number density at the reference state of the source.
-
-        Returns
-        -------
-        float
-            Number density in m^-3.
-        """
+    def reference_density(self) -> float:  # numpydoc ignore=RT01
+        """Number density at the reference state of the source, m^-3."""
         return _reference_density(self.gas, self.reference_state)
 
     @property
-    def absorbing(self) -> bool:
-        """Return whether the model has an imaginary part anywhere.
+    def absorbing(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the model has an imaginary part anywhere.
 
-        Returns
-        -------
-        bool
-            False: a refractivity fit is real by construction.
+        False: a refractivity fit is real by construction.
         """
         return False
 
     def _check_range(self, omega: Float[np.ndarray, "*shape"]) -> None:
         """Warn if any frequency lies outside the validity range of the source.
 
-        Parameters
-        ----------
-        omega : ndarray
-            Angular frequencies in rad/s.
-
-        Warns
-        -----
-        MaterialRangeWarning
-            If any requested wavelength lies outside ``wavelength_range``.
+        - ``omega``: angular frequencies in rad/s.
         """
         shortest_valid, longest_valid = self.wavelength_range
         shortest, longest = _wavelength_extremes(omega)
@@ -374,15 +321,8 @@ class PoleSumSusceptibility(GasSusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return ``sum b_i / (1 - c_i u)`` and its derivative in `u`.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            The susceptibility at the reference state and its derivative.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: the susceptibility at the reference state and its derivative.
         """
         chi = np.zeros_like(u)
         dchi_du = np.zeros_like(u)
@@ -409,15 +349,8 @@ class RefractivitySusceptibility(GasSusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return ``n - 1`` at the reference state and its derivative in `u`.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            The refractivity and its derivative with respect to `u`.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: the refractivity and its derivative with respect to `u`.
         """
 
     def _chi_and_derivative(
@@ -425,15 +358,8 @@ class RefractivitySusceptibility(GasSusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return the susceptibility and its derivative from the refractivity.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            ``(1 + dn)^2 - 1`` and its derivative with respect to `u`.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: ``(1 + dn)^2 - 1`` and its derivative with respect to `u`.
         """
         refractivity, drefractivity_du = self._refractivity_and_derivative(u)
         # (1 + dn)^2 - 1 written as dn(2 + dn): no cancellation for dn ~ 1e-4.
@@ -470,15 +396,8 @@ class InversePoleIndex(RefractivitySusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return ``offset + sum b_i / (c_i - u)`` and its derivative in `u`.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            The refractivity and its derivative with respect to `u`.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: the refractivity and its derivative with respect to `u`.
         """
         refractivity = np.full_like(u, self.offset)
         derivative = np.zeros_like(u)
@@ -516,15 +435,8 @@ class WavenumberPoleIndex(RefractivitySusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Return ``n - 1`` and its derivative in `u` for the wavenumber form.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            The refractivity and its derivative with respect to `u`.
+        - ``u``: inverse squared wavelength in um^-2.
+        - Returns: the refractivity and its derivative with respect to `u`.
         """
         # nu[cm^-1] = 1e4 / lambda[um], so nu^2 = 1e8 u; the 1e-8 of the published
         # form and the 1e8 of the chain rule cancel in the derivative.
@@ -538,16 +450,7 @@ class WavenumberPoleIndex(RefractivitySusceptibility):
 def _model_absorbs(model: object) -> bool:
     """Return whether an optmat gas model, or an air model's constituents, absorb.
 
-    Parameters
-    ----------
-    model : OptmatModel
-        A gas dispersion model (with ``absorbing``) or an air model (with
-        ``models``, its constituents').
-
-    Returns
-    -------
-    bool
-        True if any part of the model carries an imaginary polarizability.
+    - Returns: True if any part of the model carries an imaginary polarizability.
     """
     constituents = getattr(model, "models", None)
     if constituents is not None:
@@ -558,23 +461,9 @@ def _model_absorbs(model: object) -> bool:
 def _optmat_gas_model(gas: Gas, choice: ModelChoice) -> _optmat.Untyped:
     """Resolve an optmat dispersion model of a gas from a name or an object.
 
-    Parameters
-    ----------
-    gas : Gas
-        The species the model must describe.
-    choice : str or OptmatModel
-        ``"recommended"``, an optmat model name (for air, a composition name), or a
-        model object.
-
-    Returns
-    -------
-    OptmatModel
-        The model, checked to describe `gas`.
-
-    Raises
-    ------
-    MaterialError
-        If optmat has no such model, or the model describes another gas.
+    - ``gas``: the species the model must describe.
+    - ``choice``: ``"recommended"``, an optmat model name (for air, a composition
+      name), or a model object.
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.air import AIR_COMPOSITIONS, DEFAULT_AIR, air_model  # noqa: PLC0415
@@ -686,7 +575,7 @@ class OptmatSusceptibility(GasSusceptibility):
     @classmethod
     def resolve(
         cls, gas: Gas | str, model: ModelChoice = "recommended"
-    ) -> "OptmatSusceptibility":  # noqa: UP037 - the hook resolves class names eagerly
+    ) -> "OptmatSusceptibility":
         """Resolve a gas's optmat dispersion model and adapt it.
 
         Parameters
@@ -742,20 +631,7 @@ class OptmatSusceptibility(GasSusceptibility):
     ) -> tuple[Float[np.ndarray, "*shape"], Float[np.ndarray, "*shape"]]:
         """Refuse a reference-state susceptibility, which a polarizability has not.
 
-        Parameters
-        ----------
-        u : ndarray
-            Inverse squared wavelength in um^-2.
-
-        Returns
-        -------
-        tuple of ndarray
-            Never returns.
-
-        Raises
-        ------
-        MaterialError
-            Always: use :meth:`susceptibility`, which divides by no density.
+        - ``u``: inverse squared wavelength in um^-2.
         """
         msg = (
             f"{self.gas.value} {self.source}: an optmat polarizability is per particle "
@@ -764,36 +640,21 @@ class OptmatSusceptibility(GasSusceptibility):
         raise MaterialError(msg)
 
     @property
-    def reference_density(self) -> float:
-        """Return the density of the reference state, the dilute limit.
-
-        Returns
-        -------
-        float
-            0.0 m^-3.
-        """
+    def reference_density(self) -> float:  # numpydoc ignore=RT01
+        """Density of the reference state, the dilute limit: 0.0 m^-3."""
         return 0.0
 
     @property
-    def absorbing(self) -> bool:
-        """Return whether the optmat model carries an imaginary polarizability.
+    def absorbing(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the optmat model carries an imaginary polarizability.
 
-        Returns
-        -------
-        bool
-            The model's own ``absorbing``, or any constituent's for an air model.
+        The model's own ``absorbing``, or any constituent's for an air model.
         """
         return _model_absorbs(self.model)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the optmat model, for a run's manifest.
-
-        Returns
-        -------
-        tuple of MaterialRecord
-            The dispersion model's identity.
-        """
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the optmat model, for a run's manifest."""
         return (_optmat.record(self.model),)
 
     def _evaluate(
@@ -801,19 +662,8 @@ class OptmatSusceptibility(GasSusceptibility):
     ) -> Inexact[np.ndarray, "*shape"]:
         """Evaluate one optmat method at angular frequencies, divided by eps0.
 
-        Parameters
-        ----------
-        omega : array_like
-            Angular frequency in rad/s, >= 0; zero is the static limit.
-        method : str
-            ``"complex_polarizability"`` or ``"dpolarizability_domega"``.
-        quantity : str
-            What is evaluated, for messages.
-
-        Returns
-        -------
-        ndarray
-            The method's value over eps0, real for a transparent model.
+        - ``omega``: angular frequency in rad/s, >= 0; zero is the static limit.
+        - ``method``: ``"complex_polarizability"`` or ``"dpolarizability_domega"``.
         """
         values = _as_omega(omega)
         wavelength = _optmat.omega_to_wavelength(values)
@@ -969,19 +819,8 @@ class OptmatSusceptibility(GasSusceptibility):
 
 
 @functools.cache
-def _default_law(gas: Gas) -> "OptmatSusceptibility":  # noqa: UP037 - defined above
-    """Return optmat's recommended law of a gas, one adapter per gas.
-
-    Parameters
-    ----------
-    gas : Gas
-        The species.
-
-    Returns
-    -------
-    OptmatSusceptibility
-        The adapter, which keeps its own evaluations.
-    """
+def _default_law(gas: Gas) -> "OptmatSusceptibility":
+    """Return optmat's recommended law of a gas, one adapter per gas."""
     return OptmatSusceptibility.resolve(gas)
 
 
@@ -1113,27 +952,11 @@ def _one_plus_chi(
 ) -> Float[np.ndarray, "*shape"]:
     """Return ``1 + chi1``, checked to be positive so that the square root is real.
 
-    Parameters
-    ----------
-    gas : Gas or str
-        The species.
-    omega : array_like
-        Angular frequency in rad/s.
-    pressure : float
-        Absolute pressure in bar.
-    temperature : float
-        Temperature in K.
-
-    Returns
-    -------
-    ndarray
-        ``1 + chi1``.
-
-    Raises
-    ------
-    MaterialError
-        If the susceptibility is at or below -1, which happens only when a model is
-        extrapolated onto a pole.
+    - ``omega``: angular frequency in rad/s.
+    - ``pressure``: absolute pressure in bar.
+    - ``temperature``: temperature in K.
+    - Raises :class:`MaterialError` at or below -1 for ``chi1``, which happens only
+      when a model is extrapolated onto a pole.
     """
     values = np.asarray(
         1.0 + chi1(gas, omega, pressure=pressure, temperature=temperature)

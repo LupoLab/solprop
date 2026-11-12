@@ -6,12 +6,12 @@
 | **Title** | A Julia backend: one engine for CPUs and GPUs, in both precisions |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5; GPT-6 (acceptance revisions, 2026-11-10) |
-| **Status** | Accepted |
+| **Status** | Withdrawn |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-11-10 |
-| **Resolution** | Accepted by John Travers on 2026-11-10, including the implementation-plan revisions; acceptance and merge delegated in [PR #609](https://github.com/LupoLab/solprop/pull/609) |
+| **Resolution** | Accepted by John Travers on 2026-11-10, including the implementation-plan revisions; acceptance and merge delegated in [PR #609](https://github.com/LupoLab/solprop/pull/609). Withdrawn by John Travers on 2026-11-11 before implementation: C++ and Kokkos stay solprop's engine, and solprop computes in binary64 on two backends, `native` and `numpy_ref` (ADR-077) |
 | **Requires** | SEPs 25, 33, 46 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -60,7 +60,7 @@ Native's CPU push in #576 then moved the Apple M5 Max comparison from 0.82 to ab
 1.05 (Julia time over native time). The comparison had paid for itself.
 
 **GPUs without compiling.** Native's device builds are built from source, with a CUDA or
-ROCm toolkit ([building native](../../guide/performance/building-native.md)). Julia
+ROCm toolkit ([building native](../../../guide/performance/building-native.md)). Julia
 compiles its kernels at run time, so nothing is built from source. What each vendor
 still needs differs:
 
@@ -135,7 +135,7 @@ owner of a run:
 - **Settled rules.** SEP 47 rules out any host loop driving compiled kernels, and
   retires `mlx`.
 
-[backends.md](../backends.md) §§9–11 list what native and `numpy_ref` run today.
+[backends.md](../../backends.md) §§9–11 list what native and `numpy_ref` run today.
 ADR-061 sets the tiers: a new backend starts at Tier 3, and is kept runnable and correct
 for what it runs. ADR-064 and ADR-068 make `native` the primary backend and Tier 2
 empty.
@@ -243,7 +243,7 @@ agrees depends on what is compared, in three classes (§7.1 gives the tests):
   choice on it (a fixed-order method, a Runge–Kutta tableau, the low-storage replay),
   matched startup and restart history, and matched save-plane handling. Fields and
   statistics then agree to rounding. The budget follows
-  [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) §§4.3–4.4: the operation
+  [SEP 25](sep-0025-rounding-level-reproducibility.md) §§4.3–4.4: the operation
   counts, together with the conditioning of what is computed and the sensitivity that the
   steps propagate.
   - A replay of `Multistep` is not class M. `FixedSchedule` records step lengths only,
@@ -264,7 +264,7 @@ fast-math, approximations beyond a function's stated accuracy, and flush-to-zero
 forbidden. The error-free transformations below are exempt from contraction (see their
 hypotheses).
 
-**Binary32** follows [SEP 33](archive/sep-0033-single-precision-mlx.md) §§4.1–4.4
+**Binary32** follows [SEP 33](sep-0033-single-precision-mlx.md) §§4.1–4.4
 exactly:
 
 - **The state.** It is held as $a/s$, with $s$ a power of two fixed at launch.
@@ -529,7 +529,7 @@ Refused by name at merge, each naming `native` or `numpy_ref`:
 
 - the general modal route, the planar kind and coupled flows, which include a multimode
   taper's default coupling (`taper_coupling=True`, the
-  [taper guide](../../guide/waveguides/taper-coupling.md));
+  [taper guide](../../../guide/waveguides/taper-coupling.md));
 - TDSE responses;
 - vector polarisation and tensor Raman;
 - the dispersive electronic response;
@@ -909,7 +909,7 @@ the Julia ecosystem's tools, and nothing more.
   `BackendError` or `ConvergenceError`, keeping the cause.
 - **Dependencies.**
   - Each has a `[compat]` bound.
-  - Adding one is a design decision, recorded in [dependencies.md](../dependencies.md).
+  - Adding one is a design decision, recorded in [dependencies.md](../../dependencies.md).
   - GPU packages are weak dependencies with package extensions.
   - The manifests are committed, a deliberate difference from a Julia library's
     practice, because setup instantiates exactly them (§6.5).
@@ -976,7 +976,7 @@ classes, and its tolerance comes from that class.
   save-plane handling (§4). Fields and every
   statistic agree within SEP 25's rounding budget: the operation counts, with the
   conditioning and propagated sensitivity of what is compared (SEP 25 §§4.3–4.4 and
-  [testing.md](../testing.md)). Each budget is derived in a comment beside its test. The
+  [testing.md](../../testing.md)). Each budget is derived in a comment beside its test. The
   experiment's windows agreed to $10^{-13}$ or better; that is a record, not a bound.
 - **Class A, independent adaptive runs and variable-order replay:** `Multistep` and
   the adaptive Runge–Kutta tableaux, each run as in production, and `Multistep` replayed
@@ -1111,7 +1111,7 @@ No sanitizer lane is required at Tier 3.
 
 #### 7.5 Performance and start-up records
 
-These are rows in the ledger of [benchmarks.md](../benchmarks.md). Some must exist before
+These are rows in the ledger of [benchmarks.md](../../benchmarks.md). Some must exist before
 merge (§7.6), but none is a gate: no ratio has to reach a threshold.
 
 - **Mandatory windows.** `python -m benchmarks ab` with `julia` (and `julia32`) arms
@@ -1154,7 +1154,7 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
 
 **Kept current for a later tier decision:**
 
-- a coverage table against native's [backends.md](../backends.md) §9;
+- a coverage table against native's [backends.md](../../backends.md) §9;
 - the performance ratios per machine;
 - the first-run costs.
 
@@ -1173,10 +1173,10 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
   It ends with a link to this SEP. The backends page's choice table and the installation
   page's extras gain `julia`.
 - **Design pages:**
-  - [backends.md](../backends.md) gains a `julia` section (layout, session, device layer,
+  - [backends.md](../../backends.md) gains a `julia` section (layout, session, device layer,
     precision), and rows in §§9–11;
-  - [dependencies.md](../dependencies.md) gains the Julia dependencies;
-  - [tooling.md](../tooling.md) gains the Julia job.
+  - [dependencies.md](../../dependencies.md) gains the Julia dependencies;
+  - [tooling.md](../../tooling.md) gains the Julia job.
 - **`julia/AGENTS.md`,** and a pointer from the root `AGENTS.md`.
 - **Records:**
   - an ADR at Final: `julia` enters Tier 3, distributed by explicit setup with a
@@ -1410,6 +1410,10 @@ records each decision where it applies:
 - 2026-11-10: The automated review's findings on PR #609 were answered (Part III).
   §§4 and 7.1 place variable-order replay in class A, §6.6 compares the helpers within
   rounding bounds, and §7.5 takes whole runs out of the qualification.
+- 2026-11-11: Withdrawn by John Travers before implementation began. C++ and Kokkos
+  stay solprop's engine for CPUs and GPUs, solprop computes in binary64 only, and it has
+  two backends, `native` and `numpy_ref`, with no other planned
+  ([ADR-077](../../decisions.md)). Moved to the archive; the tracking issue closes.
 
 ### AI review — 2026-11-10
 
@@ -1431,9 +1435,9 @@ records a maintainer decision.
    (§§4, 7.1).** Section 4 promises agreement to rounding without limiting that promise
    to matched discrete histories; §7.1 then requires independent adaptive runs to take
    the same accepted steps and bounds every field and statistic by summation counts.
-   [SEP 47 §4.3](archive/sep-0047-run-ownership.md)
+   [SEP 47 §4.3](sep-0047-run-ownership.md)
    explicitly permits different accepted counts when numerical readings differ.
-   [SEP 25 §§4.3–4.4](archive/sep-0025-rounding-level-reproducibility.md)
+   [SEP 25 §§4.3–4.4](sep-0025-rounding-level-reproducibility.md)
    also requires conditioning and propagated sensitivity in rounding budgets, and a
    tighter or converged reference for independent adaptive runs and ordinary replay.
 
@@ -1557,7 +1561,7 @@ records a maintainer decision.
 9. **R9 — Medium: qualify the capability table and restart promises (§§5.3, 7.1–7.4).**
    “Tapers” and “multimode” appear admitted while coupled flows are refused. A varying
    multimode capillary normally carries the coupling by default
-   ([taper guide](../../guide/waveguides/taper-coupling.md)); only its explicit
+   ([taper guide](../../../guide/waveguides/taper-coupling.md)); only its explicit
    `taper_coupling=False` alternative fits this backend. Similarly, “snapshots and
    resume” must preserve SEP 47's distinction between field restart and portable
    Adams history, including the existing RK continuation deferral, rather than imply

@@ -173,18 +173,8 @@ def _convert_rows(
     conjugate and the product with ``(-1)**k`` (``fourier.spectrum_to_optics``). Rows
     are independent, so slices may run in threads.
 
-    Parameters
-    ----------
-    state : numpy.ndarray
-        The field's rows.
-    out : numpy.ndarray
-        The destination's rows; may be `state` itself.
-    weight : numpy.ndarray or None
-        The weight's rows, or ``None`` for no amplitude conversion.
-    selected : slice
-        The rows to convert.
-    optics : bool
-        Whether to convert to the optics convention.
+    - ``weight``: the weight's rows, or ``None`` for no amplitude conversion.
+    - ``optics``: whether to convert to the optics convention.
     """
     source = state[selected]
     target = out[selected]
@@ -205,20 +195,7 @@ def _check_destination(
     state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     out: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> None:
-    """Refuse a destination that cannot hold an export of `state`.
-
-    Parameters
-    ----------
-    state : numpy.ndarray
-        The field being exported.
-    out : numpy.ndarray
-        The proposed destination; `state` itself for a conversion in place.
-
-    Raises
-    ------
-    BackendError
-        Naming the mismatch.
-    """
+    """Refuse a destination that cannot hold an export of `state`."""
     refusal = destination_refusal(out, state.shape)
     if refusal is not None:
         raise BackendError(refusal)

@@ -42,6 +42,7 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Float
 
+from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import FieldRetention
@@ -113,17 +114,14 @@ class IntegrationSpec:
     propagator_mode: PropagatorMode
 
     @property
-    def reference_only(self) -> bool:
-        """Return whether only the NumPy reference runs this method.
+    def reference_only(self) -> bool:  # numpydoc ignore=RT01
+        """Whether only the NumPy reference runs this method.
 
-        Returns
-        -------
-        bool
-            True for the benchmark-only comparison family, ``ComparisonMultistep``
-            (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
-            pairs, which native refuses;
-            :class:`~solprop.stepper.multistep.Multistep` is the selected method every
-            backend runs.
+        True for the benchmark-only comparison family, ``ComparisonMultistep``
+        (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
+        pairs, which native refuses;
+        :class:`~solprop.stepper.multistep.Multistep` is the selected method every
+        backend runs.
         """
         return isinstance(self.method, ComparisonMultistep)
 
@@ -296,8 +294,8 @@ class RunRequest:
     snapshots: bool = False
 
     @functools.cached_property
-    def stepper(self) -> StepperSettings:
-        """Return the stepping policy as the one record translation resolved.
+    def stepper(self) -> StepperSettings:  # numpydoc ignore=RT01
+        """Stepping policy as the one record translation resolved.
 
         The method, the error control, the itinerary and the planes, gathered back
         into :class:`~solprop.translate.problem.StepperSettings` for the code that
@@ -305,10 +303,7 @@ class RunRequest:
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
         record, whose hash they enter exactly as before.
 
-        Returns
-        -------
-        solprop.translate.problem.StepperSettings
-            The record, built once per request.
+        The record, built once per request.
 
         Examples
         --------
@@ -457,7 +452,7 @@ class RunRequest:
         )
 
 
-def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
+def describe_run(
     stepper: StepperSettings,
     *,
     stats: StatsSpec | None = None,
@@ -519,8 +514,7 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
     ('runge_kutta', [1.0])
     """
     settings = stepper
-    planes = np.array(settings.save_planes, dtype=np.float64)
-    planes.setflags(write=False)
+    planes = frozen_copy(settings.save_planes, np.float64)
     if not 0 <= start_plane <= planes.size:
         msg = f"start_plane {start_plane} is not a plane of a run with {planes.size}"
         raise TranslationError(msg)

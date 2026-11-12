@@ -734,3 +734,8 @@ def test_a_folder_held_open_is_removed_once_let_go(
     )
     with pytest.raises(PermissionError):
         agent._remove_tree(tmp_path / "b", tries=3)
+
+
+def test_a_development_version_is_a_dev_release_or_has_a_local_part():
+    assert not machines._development("0.2.0")
+    assert machines._development("0.2.1.dev17+g8077f26c3.d20261107")

@@ -6,6 +6,7 @@
 
 import importlib.util
 import os
+import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -650,3 +651,65 @@ def test_a_spawn_environment_is_the_child_s_and_the_parent_s_comes_back(monkeypa
     with pytest.raises(RuntimeError), _process.spawn_environment({"ADDED": "child"}):
         raise RuntimeError
     assert dict(os.environ) == before
+
+
+# --------------------------------------------------------------------- process start
+
+
+def test_a_linux_stamp_counts_fields_past_a_name_with_parentheses(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "stat"
+    path.write_text(
+        "123 (command (with) brackets) " + " ".join(str(i) for i in range(30)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(_process, "Path", lambda name: path)
+    assert _process._proc_stamp(123) == "19"
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError, ProcessLookupError])
+def test_a_process_that_exits_while_its_stamp_is_read_has_none(monkeypatch, error):
+    """The process is gone by the time `/proc/<pid>/stat` is read."""
+
+    class Vanishing:
+        def read_text(self, encoding):
+            raise error(2, "No such file or directory")
+
+    monkeypatch.setattr(_process, "Path", lambda name: Vanishing())
+    assert _process._proc_stamp(123) is None
+
+
+def test_a_stamp_read_that_fails_otherwise_raises(monkeypatch):
+    # Only a vanished process means no identity; a refused read is an error.
+    class Refused:
+        def read_text(self, encoding):
+            raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(_process, "Path", lambda name: Refused())
+    with pytest.raises(PermissionError):
+        _process._proc_stamp(123)
+
+
+@pytest.mark.parametrize(
+    ("printed", "stamp"),
+    [("Tue Sep 23 13:44:28 2026\n", "Tue Sep 23 13:44:28 2026"), ("", None)],
+)
+def test_a_stamp_without_proc_is_ps_s_start_time(monkeypatch, printed, stamp):
+    """Off Linux (macOS) the stamp is `ps`'s start time, or None if it has none."""
+    calls = []
+
+    def ps(arguments, **options):
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, stdout=printed, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", ps)
+    assert _process._ps_stamp(123) == stamp
+    assert calls == [["ps", "-p", "123", "-o", "lstart="]]
+
+
+def test_this_process_has_a_stamp_and_one_that_has_exited_has_none():
+    assert _process.process_stamp(os.getpid())
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    assert _process.process_stamp(child.pid) is None

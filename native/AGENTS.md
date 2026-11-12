@@ -17,15 +17,15 @@ contract and its conventions; where both apply, follow the stricter rule.
 - Both distributions take one version from the repository's git tags, and solprop
   requires this package at that same version: it is a required dependency, with no
   extra.
-- The public names are `NativeBackend`, the frozen `BuildInfo`,
-  `build_info`, `check_build`, `__version__`, and the contract tuples
-  `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
-  `SEPARABLE_OPERATOR_FIELDS`, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
-  `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`, `COUPLED_FLOW_FIELDS`,
-  `DISPERSIVE_KERR_FIELDS`, `MARCH_POLICY_FIELDS`, `PROBLEM_FIELDS`, `REQUEST_FIELDS`,
-  `REQUEST_SECTION_FIELDS`, `ROUTE_FIELDS`, `WATCH_POLICY_FIELDS` and
-  `WATCH_STATE_FIELDS`. The
-  compiled `_core` module and the C++ API are private.
+- The public names are those in `solprop_native.__all__` (the backend, the build record
+  and its checks, and the contract tuples `*_FIELDS`). The compiled `_core` module and
+  the C++ API are private.
+- solprop has two backends, this one and its NumPy reference, and settles on IEEE
+  binary64 (solprop's ADR-077). This backend computes in double precision only and
+  refuses single precision, which runs on the reference alone until it is removed. It
+  runs every feature except the TDSE response and the reference-only methods ADR-077
+  retires (CF4 sections, `ComparisonMultistep`, `PIController` overrides), on CPUs and
+  GPUs.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
@@ -53,10 +53,10 @@ solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,
-[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented here and on `numpy_ref`
-in either order (solprop's ADR-068). A phase that touches both halves is one branch named
-for the SEP (`feature/sep-NNNN-…`) and one pull request, whose commits cite the SEP
-number; its phase report — deviations, decisions, verification, open questions — is
+[`docs/dev/seps/`](../docs/dev/seps/), SEP 0). A SEP is implemented here and on
+`numpy_ref` in either order (solprop's ADR-068 and ADR-077). A phase that touches both
+halves is one branch named for the SEP (`feature/sep-NNNN-…`) and one pull request, whose
+commits cite the SEP number; its phase report — deviations, decisions, verification, open questions — is
 appended to the SEP. Until a backend has its phase, that backend refuses the new problem
 by name.
 
@@ -77,6 +77,8 @@ The native gate runs from the repository root:
 ```console
 uv run poe check-native   # native/scripts/check.sh
 uv run poe check-all      # solprop's gate (poe check), then the native gate
+uv run poe fmt-native     # clang-format every tracked C++ file in place
+uv run poe tidy-native    # clang-tidy the C++ files changed from main (or those named)
 ```
 
 `check-native` covers this package's Python format, lint and strict typing, C++ format,
@@ -94,8 +96,16 @@ wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop
 default lane runs on it on macOS and Windows with the native backend selected, and in
 the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
 `native/`, with no device. Running on one stays by hand
-(`.github/workflows/cuda.yml` on a self-hosted runner, or `pytest -m gpu` on a machine
-with a device).
+(`.github/workflows/cuda.yml` on a self-hosted runner, with compute-sanitizer's four
+tools, or `pytest -m gpu` on a machine with a device). `.github/workflows/native-deep.yml`
+runs weekly and reports without gating: source coverage over the native tests, the
+extension under ASan and UBSan through the native pytest suite, and
+`misc-include-cleaner`. The tools adopted, scheduled and rejected are in
+`docs/dev/tooling.md`, "Native C++ tooling".
+
+Formatting and clang-tidy are pinned in the `dev` group (LLVM 23.1); `.clang-tidy`
+enables whole check families with each exclusion stated. A `NOLINT` names its check
+and gives its reason on the same line.
 
 New behaviour needs a test; a bug fix needs a regression test. Never disable a test,
 widen a tolerance after seeing a failure, lower warnings or hide a diagnostic to pass
@@ -127,8 +137,8 @@ the gate.
   contracts (lossless copies, integer accounting, identity metadata, hard-mask zeros,
   explicit no-ops) stay exact.
 - Kernels may reorder, vectorise, thread and contract. Contraction is on by default
-  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang and
-  `icpx`: plain `fast` makes Clang ignore the pragmas). A protected block (a stable
+  (`-ffp-contract=fast` for GCC, `-ffp-contract=fast-honor-pragmas` for Clang: plain
+  `fast` makes Clang ignore the pragmas). A protected block (a stable
   increment, a small-argument function, a defect or a compensated sum) stays strict
   with `SOLPROP_NATIVE_STRICT_FUNCTION` and `SOLPROP_NATIVE_STRICT_BLOCK`
   (`include/solprop_native/fp.hpp`; GCC ignores `#pragma STDC FP_CONTRACT`) and spells

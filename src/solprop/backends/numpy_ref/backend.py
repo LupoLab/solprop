@@ -240,7 +240,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     # not on a backend that takes both signs from one transcendental.
     propagator_default = "tabulate"
 
-    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
+    def __init__(
         self,
         problem: PropagationProblem,
         request: RunRequest,
@@ -356,16 +356,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         The single-precision path rounds the binary64 exponential once (SEP 33
         section 4.2); here it is the exponential itself.
-
-        Parameters
-        ----------
-        exponent : numpy.ndarray
-            ``dPhi`` or its negative, complex128.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``exp(exponent)``.
         """
         return np.exp(exponent)
 
@@ -377,17 +367,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ]:
         """Return the envelope-grid plasma's windowed drive and loss at some nodes.
 
-        Parameters
-        ----------
-        field_t : numpy.ndarray
-            The field at the nodes, V/m.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            :func:`solprop.backends.numpy_ref.envelope_plasma.envelope_sources`.
+        - ``field_t``: the field at the nodes, V/m.
         """
         envelope = self._problem.responses.envelope_plasma
         assert envelope is not None
@@ -406,17 +386,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> tuple[np.ndarray, np.ndarray]:
         """Return each envelope channel's final fraction and peak rate at the nodes.
 
-        Parameters
-        ----------
-        nodes : numpy.ndarray
-            The physical envelope at the nodes, V/m.
-        initials : tuple of float
-            The channels' pre-ionised fractions here.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            :func:`solprop.backends.numpy_ref.envelope_plasma.envelope_populations`.
+        - ``nodes``: the physical envelope at the nodes, V/m.
         """
         envelope = self._problem.responses.envelope_plasma
         assert envelope is not None
@@ -430,22 +400,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
         advanced: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
     ) -> float:
-        """Return the controller's scaled norm of a trial step's embedded difference.
-
-        Parameters
-        ----------
-        error : numpy.ndarray
-            The embedded difference carried to the end of the step.
-        state : numpy.ndarray
-            The state at the anchor.
-        advanced : numpy.ndarray
-            The trial state at the end of the step.
-
-        Returns
-        -------
-        float
-            :func:`solprop.backends.numpy_ref.passes.error_norm` of the three.
-        """
+        """Return the controller's scaled norm of a trial step's embedded difference."""
         return passes.error_norm(
             error,
             state,
@@ -460,16 +415,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Return a binary64 array a pass multiplies by, in the run's precision.
 
         The identity here; the single-precision path rounds it once (SEP 33).
-
-        Parameters
-        ----------
-        values : numpy.ndarray
-            A binary64 coefficient array evaluated on the host.
-
-        Returns
-        -------
-        numpy.ndarray
-            `values`.
         """
         return values
 
@@ -505,21 +450,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         ionisation rate, the on-axis intensity, the quadrature error -- and are formed
         here from the backend's own buffers.
 
-        Parameters
-        ----------
-        spec : solprop.stats.StatsSpec
-            Which statistics and which windows.
-
-        Returns
-        -------
-        dict
-            Small host arrays keyed by statistic name, each with a leading axis of one.
-
-        Raises
-        ------
-        BackendError
-            If the backend is closed, no initial state was loaded, no grid was given at
-            construction, or a backend statistic needs something this run does not have.
+        - Returns: small host arrays keyed by statistic name, each with a leading axis
+          of one.
         """
         state = self._require_state()
         grid = self._require_grid()
@@ -658,17 +590,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> dict[str, np.ndarray]:
         """Share each fresh envelope population scan among the requested statistics.
 
-        Parameters
-        ----------
-        names : tuple of str
-            Backend-owned statistic names.
-        state : numpy.ndarray
-            Accepted state at this plane with its leading axis of one.
-
-        Returns
-        -------
-        dict
-            Requested values with a leading axis of one and no retained field cache.
+        - ``state``: accepted state at this plane with its leading axis of one.
+        - Returns: requested values with a leading axis of one and no retained field
+          cache.
         """
         population_names = (
             tuple(
@@ -741,17 +665,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> np.ndarray:
         """Compute one backend-owned statistic over the batch.
 
-        Parameters
-        ----------
-        name : str
-            The catalogue name.
-        state : numpy.ndarray
-            The state at this plane.
-
-        Returns
-        -------
-        numpy.ndarray
-            The value with a leading axis of one.
+        - Returns: the value with a leading axis of one.
         """
         if name == "quadrature_error":
             return np.full(state.shape[0], self._alarm)
@@ -779,20 +693,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> dict[str, np.ndarray]:
         """Evaluate independent populations on the actual nonlinear nodes.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member at this plane, shape (n_modes, n_pol, n_omega).
-        scans : dict or None, optional
-            Where to leave this observation's channel fractions and peak rates at
-            every node, keyed by `member`, for the on-axis statistics to reuse.
-        member : int, optional
-            The batch member, the key into `scans`.
-
-        Returns
-        -------
-        dict
-            The five species statistics and the two total plasma statistics.
+        - ``scans``: where to leave this observation's channel fractions and peak rates
+          at every node, keyed by `member`, for the on-axis statistics to reuse.
+        - Returns: the five species statistics and the two total plasma statistics.
         """
         responses = self._problem.responses
         transform, grids = self._problem.transform, self._problem.grids
@@ -851,20 +754,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         node and field plasma channel
         (:data:`solprop.stats.PLASMA_INTEGRATION_STATISTICS`).
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member's state, shape ``(n_modes, n_pol, n_omega)``.
-
-        Returns
-        -------
-        dict
-            The three statistics, each zero-dimensional and dimensionless.
-
-        Raises
-        ------
-        BackendError
-            If the problem carries no field plasma channel.
+        - Returns: the three statistics, each zero-dimensional and dimensionless.
         """
         responses = self._problem.responses
         channels = responses.plasma_channels
@@ -902,15 +792,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         The same synthesis as :meth:`_ionisation`: the physical nodes of a separable
         geometry, chunk by chunk, or the modal quadrature nodes at once.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member's state, shape ``(n_modes, n_pol, n_omega)``.
-
-        Yields
-        ------
-        numpy.ndarray
-            Node fields on the fine time grid, V/m.
+        - Yields: node fields on the fine time grid, V/m.
         """
         grids = self._problem.grids
         if self._problem.linear.separable is None:
@@ -950,21 +832,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         The electron density is ``density(z)`` times the fraction at the **end** of the
         window: what the pulse leaves behind, not what it reaches in passing.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member's state, shape ``(n_modes, n_pol, n_omega)``.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The electron density in m^-3 and the peak rate in s^-1, both
-            zero-dimensional.
-
-        Raises
-        ------
-        BackendError
-            If the problem declares no plasma, so there is no rate to integrate.
+        - Returns: the electron density in m^-3 and the peak rate in s^-1, both
+          zero-dimensional.
         """
         responses = self._problem.responses
         plasma = responses.plasma_coefficients
@@ -1044,21 +913,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         that factor. The on-axis matrix is built once and rescaled with the taper
         (:meth:`_on_axis_synthesis`), which is what makes this statistic cheap enough
         for the between-planes channel.
-
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member's state, shape ``(n_modes, n_pol, n_omega)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The peak intensity, zero-dimensional.
-
-        Raises
-        ------
-        BackendError
-            If the backend was built without the mode set the axis needs.
         """
         if self._modes is None:
             msg = (
@@ -1080,17 +934,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> Num[np.ndarray, "n_nodes n_components n_to"]:
         """Return the physical field at every quadrature node on the fine time grid.
 
-        Parameters
-        ----------
-        field : numpy.ndarray
-            One batch member's state, shape ``(n_modes, n_pol, n_omega)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The field in V/m, shape ``(n_nodes, n_components, n_to)``. Here
-            ``n_components = transform.n_pol * n_pol`` counts physical components,
-            independently of the state's polarisation axis.
+        - Returns: the field in V/m, shape ``(n_nodes, n_components, n_to)``. Here
+          ``n_components = transform.n_pol * n_pol`` counts physical components,
+          independently of the state's polarisation axis.
         """
         grids, transform = self._problem.grids, self._problem.transform
         taper = (
@@ -1282,10 +1128,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _march_to(self, target: float) -> None:
         """Step to `target` with the Adams method when one is set, else Runge-Kutta.
 
-        Parameters
-        ----------
-        target : float
-            Position to reach, m.
+        - ``target``: position to reach, m.
         """
         if self._adams is None:
             super()._march_to(target)
@@ -1293,13 +1136,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._adams.march_to(target)
 
     def _reserve_source_calls(self, count: int) -> None:
-        """Reserve every atomic chunk required by one complete Adams trial.
-
-        Parameters
-        ----------
-        count : int
-            Number of logical source evaluations required by the trial.
-        """
+        """Reserve every atomic chunk required by one complete Adams trial."""
         binding = self._tdse_binding
         if binding is None:
             return
@@ -1333,19 +1170,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ]:
         """Evaluate the source once through the reference passes.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The step's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic-call accounting label; ignored when no atomic service is bound.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
+        - ``anchor``, ``position``: the step's anchor and the evaluation position, m.
+        - ``purpose``: Atomic-call accounting label; ignored when no atomic service is
+          bound.
+        - Returns: ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
         """
         held = self._adams_held
         if held is not None and held[0] == anchor and held[1] == position:
@@ -1366,28 +1194,17 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _dense_stages(self) -> list[np.ndarray]:
         """Return the last trial's stage derivatives, in its anchor's frame.
 
-        Returns
-        -------
-        list of numpy.ndarray
-            One per tableau stage, in the canonical layout.
+        - Returns: one per tableau stage, in the canonical layout.
         """
         return list(self._last_stages)
 
     def _adams_block(self, z: float, dz: float) -> object:
         """Return the frozen block of the section a step from `z` is anchored in.
 
-        Parameters
-        ----------
-        z : float
-            Where the step starts, m.
-        dz : float
-            The step, m.
-
-        Returns
-        -------
-        object
-            The step's :class:`~solprop.backends.multistep.CoupledBlock`, or ``None``
-            without a coupled flow.
+        - ``z``: where the step starts, m.
+        - ``dz``: the step, m.
+        - Returns: the step's :class:`~solprop.backends.multistep.CoupledBlock`, or
+          ``None`` without a coupled flow.
         """
         from solprop.backends.multistep import CoupledBlock  # noqa: PLC0415 - cycle
 
@@ -1425,19 +1242,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         lab-frame source bit for bit, and every route's evaluation stays the one the
         Runge-Kutta march uses.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        position : float
-            The evaluation position, m.
-        purpose : str, optional
-            Atomic-call accounting label; ignored when no atomic service is bound.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``F(lab, position)`` in the lab frame.
+        - ``position``: the evaluation position, m.
+        - ``purpose``: Atomic-call accounting label; ignored when no atomic service is
+          bound.
         """
         bundle = self._stage_scalars(position, position)
         noise = self._noise_at(bundle)
@@ -1455,15 +1262,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         run holds it: the low-storage march applies its flows at once, and a held one
         would be a volume its ledger does not name.
 
-        Parameters
-        ----------
-        anchor, position : float
-            The step's anchor and its end, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``exp(Phi(position) - Phi(anchor))``.
+        - ``anchor``, ``position``: the step's anchor and its end, m.
         """
         bundle = self._stage_scalars(anchor, position)
         propagator = self._propagator(self._delta_phi(bundle))
@@ -1506,17 +1305,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         response alone and the flow's own error is outside what the embedded pair
         measures: a known limitation of the controller on a CF4 section.
 
-        Parameters
-        ----------
-        z : float
-            Position at the start of the step, m.
-        dz : float
-            Length of the trial step, m, positive.
-
-        Returns
-        -------
-        tuple
-            The scaled error norm and the state at the end of the step.
+        - ``z``: position at the start of the step, m.
+        - ``dz``: length of the trial step, m, positive.
+        - Returns: the scaled error norm and the state at the end of the step.
         """
         state = self._require_state()
         self._hoist(z)
@@ -1587,18 +1378,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Mix the channel axis by one coupled-flow action, or return the values.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            Any array of the state's layout.
-        action : numpy.ndarray or None
-            The action on the active bins, or ``None`` for a problem with no coupled
-            flow, which is every route but the coherent wall.
-
-        Returns
-        -------
-        numpy.ndarray
-            The values, mixed or untouched.
+        - ``values``: any array of the state's layout.
+        - ``action``: the action on the active bins, or ``None`` for a problem with no
+          coupled flow, which is every route but the coherent wall.
         """
         if self._flow is None or action is None:
             return values
@@ -1618,19 +1400,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         anchored in a ``"cf4"`` section has none either, its whole generator being in
         the exponential.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame stage input.
-        section : int
-            The step's section, from the step bundle's ``flow_section``.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's own bundle, whose ``flow_weights`` the terms are combined over.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            ``R_s(z_1) u`` in the state's layout, or ``None``.
+        - Returns: ``R_s(z_1) u`` in the state's layout, or ``None``.
         """
         flow = self._flow
         if flow is None or flow.residual_terms is None or flow.cf4[section]:
@@ -1680,20 +1450,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         is checked against the section's declared pair bound, factor by factor
         (:func:`_check_cf4_growth`).
 
-        Parameters
-        ----------
-        z : float
-            Where the step starts, m.
-        section : int
-            Which section the step is anchored in, from the stage bundle's
-            ``flow_section``.
-        dz : float
-            Length of the trial step, m.
-
-        Returns
-        -------
-        callable
-            ``fraction -> (U, U^-1)``, each ``None`` when no coupled flow is carried.
+        - ``z``: where the step starts, m.
+        - ``dz``: length of the trial step, m.
+        - Returns: ``fraction -> (U, U^-1)``, each ``None`` when no coupled flow is
+          carried.
         """
         flow = self._flow
         if flow is None:
@@ -1711,16 +1471,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         ) -> tuple[np.ndarray | None, np.ndarray | None]:
             """Return the pair at a stage fraction, computing it at most once.
 
-            Parameters
-            ----------
-            fraction : float
-                The tableau node ``c_i``, dimensionless, in ``[0, 1]``.
-
-            Returns
-            -------
-            tuple
-                The forward and inverse actions, or ``(None, None)`` at fraction zero,
-                where both are the identity.
+            - ``fraction``: the tableau node ``c_i``, dimensionless, in ``[0, 1]``.
+            - Returns: the forward and inverse actions, or ``(None, None)`` at fraction
+              zero, where both are the identity.
             """
             if fraction == 0.0:
                 return None, None
@@ -1745,15 +1498,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Zero the state outside the active band.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The state in the canonical layout.
-
-        Returns
-        -------
-        numpy.ndarray
-            The masked state.
+        - ``state``: the state in the canonical layout.
         """
         return passes.apply_hard_mask(state, self._problem.grids.active_mask)
 
@@ -1775,16 +1520,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         replayed step is recorded after its reservation is released; it is still
         the latest trial. Nothing about the step or its accounting changes.
 
-        Parameters
-        ----------
-        z : float
-            Position at the end of the step, m.
-        dz : float
-            Length of the step, m.
-        norm : float
-            The scaled error norm the attempt scored.
-        accepted : bool
-            Whether the step was kept.
+        - ``z``: position at the end of the step, m.
+        - ``dz``: length of the step, m.
         """
         super()._record(z, dz, norm, accepted)
         if self._tdse_binding is not None:
@@ -1797,19 +1534,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Apply the once-per-accepted-step boundary treatments to a kept step.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            The state at the end of the step.
-        dz : float
-            Length of the step, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The state with the hard band mask and, when one is present, the temporal
-            absorber applied. The ``"split_step"`` absorber is followed by the mask, so
-            the accepted state never holds content outside the active band.
+        - ``dz``: length of the step, m.
+        - Returns: the state with the hard band mask and, when one is present, the
+          temporal absorber applied. The ``"split_step"`` absorber is followed by the
+          mask, so the accepted state never holds content outside the active band.
         """
         masked = self._apply_mask(state)
         responses = self._problem.responses
@@ -1949,24 +1677,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         the projection GEMM accumulated over the chunks, then one batched forward
         transform, the crop and the prefactor. Mode-averaged propagation is the
         one-node, one-column case of exactly this code.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame stage input from
-            :func:`solprop.backends.numpy_ref.passes.stage_input`.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars: the prefactor's weights and every scalar path the
-            responses read, all at the stage's own position.
-        inverse_propagator : numpy.ndarray
-            ``exp(-dPhi_i)``.
-        purpose : str, optional
-            Source-evaluation label for atomic accounting and diagnostics.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stage derivative in the interaction variable.
         """
         responses = self._problem.responses
         grids = self._problem.grids
@@ -2043,24 +1753,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         inverse_propagator: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
         purpose: TDSEPurpose,
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Evaluate the declared atomic binding and combine independent P/J sources.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            Lab-frame modal input, shape ``(n_batch, n_modes, n_pol, n_omega)``.
-        bundle : StageScalars
-            Stage density, modal weights and absolute position.
-        inverse_propagator : numpy.ndarray
-            Inverse linear propagation from this stage to its anchor.
-        purpose : str
-            Evaluation label used by the atomic call ledger.
-
-        Returns
-        -------
-        numpy.ndarray
-            Modal derivative in the anchor frame, with the in-stage collar.
-        """
+        """Evaluate the declared atomic binding and combine independent P/J sources."""
         problem = self._problem
         grids, transform = problem.grids, problem.transform
         binding = self._tdse_binding
@@ -2117,20 +1810,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         A guide with no responding region is short-circuited, as the legacy path
         short-circuits a problem whose `response_order` is the accumulation alone.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame stage input.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
-        inverse_propagator : numpy.ndarray
-            ``exp(-dPhi_i)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            The stage derivative in the interaction variable.
         """
         assert self._general is not None
         grids = self._problem.grids
@@ -2174,19 +1853,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> passes.NonlinearSources:
         """Evaluate one column; the historical integral is benchmark-only.
 
-        Parameters
-        ----------
-        field_t : numpy.ndarray
-            Physical node fields in V/m, with time last.
-        bundle : StageScalars
-            Densities, populations and other response scalars at this position.
-        raman : numpy.ndarray or None
-            Damped Raman convolution spectrum, when required by the response.
-
-        Returns
-        -------
-        NonlinearSources
-            Collared local polarisation in C/m² and ungated current in A/m².
+        - ``field_t``: physical node fields in V/m, with time last.
+        - ``raman``: damped Raman convolution spectrum, when required by the response.
+        - Returns: the collared local polarisation in C/m² and the ungated current in
+          A/m².
         """
         responses, grids = self._problem.responses, self._problem.grids
         sources = passes.nonlinear_sources(
@@ -2213,15 +1883,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _held_streams(self, gated: np.ndarray, edge: np.ndarray) -> np.ndarray:
         """Transform and combine the current products in polarisation units.
 
-        Parameters
-        ----------
-        gated, edge : numpy.ndarray
-            Fine-time gJ and g'J rows, optionally projected before this call.
-
-        Returns
-        -------
-        numpy.ndarray
-            Cropped raw-DFT polarisation-equivalent source, zero on inactive bins.
+        - ``gated``, ``edge``: fine-time ``gJ`` and ``g'J`` rows, optionally projected
+          before this call.
+        - Returns: cropped raw-DFT polarisation-equivalent source, zero on inactive
+          bins.
         """
         grids = self._problem.grids
         return passes.held_plasma_spectrum(
@@ -2231,15 +1896,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def _held_current(self, current: np.ndarray) -> np.ndarray:
         """Form and transform the two collared products of a nodal current.
 
-        Parameters
-        ----------
-        current : numpy.ndarray
-            Ungated nodal current in A/m², with fine time last.
-
-        Returns
-        -------
-        numpy.ndarray
-            Cropped raw-DFT polarisation-equivalent source at the nodes.
+        - ``current``: the ungated nodal current in A/m², fine time last.
+        - Returns: cropped raw-DFT polarisation-equivalent source at the nodes.
         """
         return self._held_streams(
             self._tables.t_window * current, self._tables.t_window_derivative * current
@@ -2250,20 +1908,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         modal_t: np.ndarray,
         bundle: StageScalars,
     ) -> np.ndarray:
-        """Transform three nodal streams, combine, then project once in frequency.
-
-        Parameters
-        ----------
-        modal_t : numpy.ndarray
-            Radial spectral-column fields on the fine time grid.
-        bundle : StageScalars
-            Densities, modal weights and other stage response scalars.
-
-        Returns
-        -------
-        numpy.ndarray
-            Combined projected non-plasma and held-current source spectrum.
-        """
+        """Transform three nodal streams, combine, then project once in frequency."""
         problem = self._problem
         transform, grids = problem.transform, problem.grids
         # The field's own precision: complex128, or complex64 under SEP 33.
@@ -2302,19 +1947,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> np.ndarray:
         """Apply transverse FFTs before bounded temporal response transforms.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            Lab-frame stage spectrum, with the state's leading axis of one.
-        bundle : solprop.translate.stage.StageScalars
-            Response scalars at the stage position.
-        inverse_propagator : numpy.ndarray
-            Interaction-picture inverse factor.
-
-        Returns
-        -------
-        numpy.ndarray
-            Stage derivative in the interaction picture.
+        - ``lab``: Lab-frame stage spectrum, with the state's leading axis of one.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -2415,19 +2048,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         (kernel schema 15). The y collar's in-stage rate depends on y alone, so it
         acts on the rows directly.
 
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            Lab-frame stage spectrum, with the state's leading axis of one.
-        bundle : solprop.translate.stage.StageScalars
-            Response scalars at the stage position.
-        inverse_propagator : numpy.ndarray
-            Interaction-picture inverse factor.
-
-        Returns
-        -------
-        numpy.ndarray
-            Stage derivative in the interaction picture.
+        - ``lab``: Lab-frame stage spectrum, with the state's leading axis of one.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -2530,17 +2151,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         no temporal rate in-stage it commutes with the temporal transforms, and the
         pass needs no temporal pair (SEP 40 section 4.7).
 
-        Parameters
-        ----------
-        rows_f : numpy.ndarray
-            The stage's rows in frequency.
-        rows_t : numpy.ndarray or None
-            The same rows in time; required when a temporal rate applies in-stage.
-
-        Returns
-        -------
-        numpy.ndarray
-            The term, masked to the active band.
+        - ``rows_t``: the same rows in time; required when a temporal rate applies
+          in-stage.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -2578,19 +2190,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         :data:`solprop.monitor.QUIET`, and its transform is the stage's largest cost
         after the response's.
 
-        Parameters
-        ----------
-        modal_t : numpy.ndarray
-            The lab-frame modal field on the fine time grid.
-        may_quiet : bool, optional
-            Whether this stage honours the monitor's quiet collar.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The absorber's term on the coarse grid, or ``None`` when the
-            ``"split_step"`` scheme is active and the rate is applied to the state
-            after the step instead.
+        - Returns: the absorber's term on the coarse grid, or ``None`` when the
+          ``"split_step"`` scheme is active and the rate is applied to the state after
+          the step instead.
         """
         rate = self._tables.temporal_rate
         if not self._in_stage_absorber:
@@ -2627,21 +2229,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         what makes the quadrature alarm free: the two rules share every node the coarse
         one has.
 
-        Parameters
-        ----------
-        modal_t : numpy.ndarray
-            The modal field on the fine time grid, shape ``(n_modes, n_pol, n_to)``.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
-
-        Returns
-        -------
-        projected : numpy.ndarray
-            The modal polarisation on the fine time grid, shape
-            ``(n_modes, n_pol, n_to)``.
-        coarse : numpy.ndarray or None
-            The same under the embedded coarse rule, or ``None`` when the quadrature
-            has no embedded pair and the estimate would be identically zero.
+        - Returns: the modal polarisation on the fine time grid, and the same under the
+          embedded coarse rule, or ``None`` when the quadrature has no embedded pair
+          and the estimate would be identically zero.
         """
         responses, grids = self._problem.responses, self._problem.grids
         transform = self._problem.transform
@@ -2741,21 +2331,13 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         most recent set is kept, which is the right choice here -- a growing cache would
         hold thousands of spectra and hit none.
 
-        Parameters
-        ----------
-        rates : tuple of float
-            The decay rate of each term at the stage's position, s^-1, off the bundle.
-
-        densities : tuple of float, optional
-            Component amplitude densities in m^-3, in Raman-component order. Multiple
-            components include every amplitude in the cache key; one keeps density
-            outside the convolution and retains the original arithmetic.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The spectrum of shape ``(n_to + 1,)``, or ``None`` when no Raman kernel was
-            compiled.
+        - ``rates``: the decay rate of each term at the stage's position, s^-1, off the
+          bundle.
+        - ``densities``: component amplitude densities in m^-3, in Raman-component
+          order. Multiple components include every amplitude in the cache key; one keeps
+          density outside the convolution and retains the original arithmetic.
+        - Returns: the spectrum of shape ``(n_to + 1,)``, or ``None`` when no Raman
+          kernel was compiled.
         """
         components = self._problem.responses.raman_terms
         if not components:
@@ -2804,17 +2386,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         itself is one linear combination of the terms over the bundle's weights,
         whatever the representation (:mod:`solprop.translate.stage`).
 
-        Parameters
-        ----------
-        z : float
-            Position at the start of the step, m.
-        dz : float
-            Length of the step, m.
-
-        Returns
-        -------
-        callable
-            ``(fraction, bundle) -> dPhi``, of the state's broadcast shape.
+        - ``z``: position at the start of the step, m.
+        - ``dz``: length of the step, m.
+        - Returns: ``(fraction, bundle) -> dPhi``, of the state's broadcast shape.
         """
         del z, dz
         if self._propagator_mode == "recompute":
@@ -2826,17 +2400,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
             """Return ``dPhi`` at a stage fraction, computing it at most once.
 
-            Parameters
-            ----------
-            fraction : float
-                The tableau node ``c_i``, dimensionless, in ``[0, 1]``.
-            bundle : solprop.translate.stage.StageScalars
-                The stage's host scalars, whose weights the terms are combined over.
-
-            Returns
-            -------
-            numpy.ndarray
-                ``Phi(z + c_i h) - Phi(z)``, dimensionless.
+            - ``fraction``: the tableau node ``c_i``, dimensionless, in ``[0, 1]``.
             """
             if fraction not in cache:
                 cache[fraction] = self._delta_phi(bundle)
@@ -2876,7 +2440,7 @@ class SourceTables:
     temporal_rate: Float[np.ndarray, " n_to"] | None
 
     @classmethod
-    def of(cls, problem: PropagationProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+    def of(cls, problem: PropagationProblem) -> "SourceTables":
         """Return the problem's own tables.
 
         Parameters
@@ -2915,18 +2479,6 @@ def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None
     the state only inside the collar, where its first-order splitting error already
     lies (``docs/dev/stepper.md`` section 6), and it removes the collar's stability
     limit, which binds the Adams methods long before Runge-Kutta's (SEP 13 phase 2).
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem to check.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section, whose method is checked.
-
-    Raises
-    ------
-    BackendError
-        Naming what is unsupported.
     """
     integrator = stepper.integrator
     if not isinstance(integrator, Multistep):
@@ -2949,20 +2501,7 @@ def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    """Refuse, by name, every problem this backend does not execute.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem to check.
-    stepper : solprop.translate.problem.StepperSettings
-        The run's stepper section, whose method is checked.
-
-    Raises
-    ------
-    BackendError
-        Naming what is unsupported.
-    """
+    """Refuse, by name, every problem this backend does not execute."""
     # The route first, by its variant (SEP 47 section 6.2): the reference executes
     # every route of the union and the modal route's TDSE extension.
     match problem.route:
@@ -3051,18 +2590,6 @@ def _refuse_inadmissible(problem: PropagationProblem, spec: StatsSpec) -> None:
     statistics directly, and a general guide's static synthesis matrix is a checked
     **zero** placeholder, so an on-axis intensity taken from one would be zero
     rather than obviously wrong.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem this backend was built from.
-    spec : solprop.stats.StatsSpec
-        The statistics asked for.
-
-    Raises
-    ------
-    BackendError
-        Naming the statistic and the basis, with the replacement to use.
     """
     refusal = refusal_for(
         declared_capability(
@@ -3092,17 +2619,8 @@ def _general_maps(
     nothing to evaluate per stage. The chunk is the backend's own memory strategy
     within the plan's budget, or the plan's exact chunk when one was forced.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        A validated problem this backend has already admitted.
-    plan : solprop.backends.node_chunk.NodeChunkPlan or None, optional
-        The backend's node-chunk plan; ``None`` plans the automatic one.
-
-    Returns
-    -------
-    GeneralMaps or None
-        The derived maps, or ``None`` when the problem carries no modal tables.
+    - ``plan``: the backend's node-chunk plan; ``None`` plans the automatic one.
+    - Returns: the derived maps, or ``None`` when the problem carries no modal tables.
     """
     tables = problem.transform.modal_tables
     if tables is None:
@@ -3240,23 +2758,9 @@ translation layer measured.
 def _flow_squarings(largest: float, *, backend: str = "numpy_ref") -> int:
     """Return how many squarings an exponent of this row-sum norm needs, or refuse.
 
-    Parameters
-    ----------
-    largest : float
-        The largest row-sum norm of the exponent over the stack, dimensionless.
-    backend : str, optional
-        The executing backend's registry name, used in the refusal: the compiled
-        backends refuse a step on this rule too, whichever route forms their actions.
-
-    Returns
-    -------
-    int
-        The number of squarings that brings the norm below :data:`_TAYLOR_SCALE`.
-
-    Raises
-    ------
-    BackendError
-        If it exceeds :data:`_MAX_FLOW_SQUARINGS`.
+    The count brings the norm below :data:`_TAYLOR_SCALE`; past
+    :data:`_MAX_FLOW_SQUARINGS` the step is refused, as the compiled backends refuse it
+    whichever route forms their actions.
     """
     squarings = 0
     if largest > _TAYLOR_SCALE:
@@ -3278,22 +2782,7 @@ def _triangular_exponential(
 ) -> Complex[np.ndarray, "n_active_x n_modes_x_out n_modes_x_in"]:
     """Return ``exp(A)`` for a stack of blocks, by scaling, a series and squaring.
 
-    Parameters
-    ----------
-    blocks : numpy.ndarray
-        The stack to exponentiate, shape ``(n_active, n_modes, n_modes)``.
-    backend : str, optional
-        The executing backend's registry name, used in the refusal.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``exp(A)`` in the same layout.
-
-    Raises
-    ------
-    BackendError
-        If a block needs more than :data:`_MAX_FLOW_SQUARINGS` squarings.
+    - Returns: ``exp(A)`` in the same layout.
     """
     largest = float(np.max(np.sum(abs(blocks), axis=-1), initial=0.0))
     squarings = _flow_squarings(largest, backend=backend)
@@ -3323,21 +2812,7 @@ def _flow_action(
     not inherit the conditioning of a solve (``docs/dev/stepper.md`` section 4: no
     unbounded inverse propagation).
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held Schur factors.
-    section : int
-        Which section's frozen block the step is anchored in.
-    length : float
-        Distance in m, positive for the forward action.
-    backend : str, optional
-        The executing backend's registry name, used in a refusal.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The two actions, shape ``(n_active, n_modes, n_modes)``.
+    - ``length``: distance in m, positive for the forward action.
     """
     vectors = flow.vectors[section]
     exponent = float(length) * flow.triangular[section]
@@ -3370,23 +2845,11 @@ def _cf4_action(
     step's section, combined over the held terms. Every node lies strictly inside the
     step, so no edge rule is ever exercised by it.
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held terms and the leaf.
-    z : float
-        Where the step starts, m.
-    length : float
-        The stage's own length ``c_i h``, m, positive.
-    section : int
-        The step's section.
-
-    Returns
-    -------
-    tuple
-        The two actions, shape ``(n_active, n_modes, n_modes)``, and the product of
-        the four factors' spectral norms per active bin -- the quantity the CF4
-        factor-norm guard is declared on.
+    - ``z``: where the step starts, m.
+    - ``length``: the stage's own length ``c_i h``, m, positive.
+    - Returns: the two actions, shape ``(n_active, n_modes, n_modes)``, and the product
+      of the four factors' spectral norms per active bin -- the quantity the CF4
+      factor-norm guard is declared on.
     """
     assert flow.residual_terms is not None
     early, late = (
@@ -3428,21 +2891,7 @@ def _check_cf4_growth(
     than trusted. It bounds the forward product's excess over the exact action and the
     inverse action the source is carried back by, together.
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held declaration.
-    section : int
-        The step's section.
-    growth : numpy.ndarray
-        The measured product per active bin, dimensionless.
-    length : float
-        The stage length it was formed over, m, used in the refusal.
-
-    Raises
-    ------
-    BackendError
-        If the measured product exceeds the declared bound at any bin.
+    - ``length``: the stage length it was formed over, m, used in the refusal.
     """
     declared = flow.condition_bound[section]
     # The same allowance as the frozen check: the bound is on the exact factors, and
@@ -3474,19 +2923,7 @@ def _residual_action(
     is the step's, because the exponential the interaction picture is built on is, and
     freezing is a rearrangement of the same equation whichever block it names.
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held terms and frozen blocks.
-    section : int
-        The step's section, from the stage bundle's ``flow_section``.
-    weights : numpy.ndarray
-        The stage's flow weights, float64, shape ``(n_intervals * n_deg,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The residual in 1/m, shape ``(n_active, n_modes, n_modes)``.
+    - Returns: the residual in 1/m, shape ``(n_active, n_modes, n_modes)``.
     """
     assert flow.residual_terms is not None
     return combine(weights, flow.residual_terms) - flow.frozen[section]
@@ -3572,22 +3009,8 @@ def _residual_drive(
     it; only the nonlinear source couples them in, at the size of the collar's
     content.
 
-    Parameters
-    ----------
-    lab : numpy.ndarray
-        The lab-frame stage input.
-    action : numpy.ndarray
-        ``R_s(z_1)`` on the active bins, 1/m.
-    active : numpy.ndarray
-        Which bins those are, bool, shape ``(n_omega,)``.
-    scored : numpy.ndarray
-        Which bins the residual is applied at, bool, shape ``(n_omega,)``: the active
-        bins inside the error norm's band.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``R_s(z_1) u`` in the state's layout, zero off the scored active bins.
+    - ``action``: ``R_s(z_1)`` on the active bins, 1/m.
+    - Returns: ``R_s(z_1) u`` in the state's layout, zero off the scored active bins.
     """
     drive = np.zeros_like(lab)
     drive[:, :, :, scored] = np.einsum(
@@ -3603,21 +3026,12 @@ def _apply_flow(
 ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
     """Apply a per-frequency channel action to the canonical state.
 
-    Parameters
-    ----------
-    state : numpy.ndarray
-        The state, or any array of its layout.
-    action : numpy.ndarray
-        The action on the active bins. The identity case is the caller's: a problem
-        with no coupled flow, or the zero stage fraction, never reaches here.
-    active : numpy.ndarray
-        Which bins the action covers, bool, shape ``(n_omega,)``.
+    The identity case is the caller's: a problem with no coupled flow, or the zero
+    stage fraction, never reaches here.
 
-    Returns
-    -------
-    numpy.ndarray
-        The state with its channel axis mixed on the active bins and untouched off
-        them, where the block is zero and the action is the identity.
+    - ``state``: the state, or any array of its layout.
+    - Returns: the state with its channel axis mixed on the active bins and untouched
+      off them, where the block is zero and the action is the identity.
     """
     carried = state.copy()
     carried[:, :, :, active] = np.einsum(
@@ -3652,23 +3066,8 @@ def _check_flow_conditioning(
     bounded at all: the picture is re-anchored at every accepted step, so no inverse
     action is ever taken over more than one of them.
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held factors and the declared row.
-    section : int
-        Which section the step is anchored in.
-    pair : tuple of numpy.ndarray
-        The forward and inverse actions over the whole step.
-    dz : float
-        Length of the step, m, used in the refusal.
-    backend : str, optional
-        The executing backend's registry name, used in the refusal.
-
-    Raises
-    ------
-    BackendError
-        If the measured conditioning exceeds the declared bound at any bin.
+    - ``pair``: the forward and inverse actions over the whole step.
+    - ``dz``: length of the step, m, used in the refusal.
     """
     forward, inverse = pair
     if not forward.size:
@@ -3695,23 +3094,7 @@ def _refuse_flow_conditioning(
     compares them with the declared row by the same allowance and refuses in the same
     words.
 
-    Parameters
-    ----------
-    flow : _CoupledFlow
-        The held factors and the declared row.
-    section : int
-        Which section the step is anchored in.
-    measured : numpy.ndarray
-        ``norm(U)_2 norm(U^-1)_2`` of the whole step's actions per active bin.
-    dz : float
-        Length of the step, m, used in the refusal.
-    backend : str, optional
-        The executing backend's registry name, used in the refusal.
-
-    Raises
-    ------
-    BackendError
-        If the measured conditioning exceeds the declared bound at any bin.
+    - ``dz``: length of the step, m, used in the refusal.
     """
     declared = flow.condition_bound[section]
     # A bin whose block is normal has a bound of exactly one and a measured product
@@ -3740,17 +3123,8 @@ def _refuse_flow_conditioning(
 def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     """Decompose the coupled flow this backend will execute, once.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, already admitted by
-        :func:`solprop.backends.numpy_ref.admission.refuse_coupled_flow`.
-
-    Returns
-    -------
-    _CoupledFlow or None
-        The Schur factors and the certificate, or ``None`` for a problem carrying no
-        coupled flow.
+    - Returns: the Schur factors and the certificate, or ``None`` for a problem carrying
+      no coupled flow.
     """
     flow = problem.linear.coupled_flow
     if flow is None:
@@ -3809,16 +3183,8 @@ def _source_record(problem: PropagationProblem) -> dict[str, object]:
     The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
     translation. It is run metadata, never part of the descriptor or any identity.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        A TDSE problem.
-
-    Returns
-    -------
-    dict
-        ``gated``, and for a gated source the certificate, its limit
-        and the taper breakpoints in s.
+    - Returns: ``gated``, and for a gated source the certificate, its limit and the
+      taper breakpoints in s.
     """
     descriptor = tdse_descriptor(problem.route)
     assert descriptor is not None
@@ -3844,23 +3210,11 @@ def _harmonic_carrier(
     axis and a backend built it from ``omega0``, ``n_to`` and ``dt_fine`` -- one piece
     of physics inside a backend, against ``docs/dev/architecture.md`` section 3, which
     is why it now arrives as ``grids.carrier_2w0``. The sign is the FFT convention's
-    (``docs/guide/media/nonlinear.md``).
+    (``docs/guide/media/nonlinear.md``). ``validate`` refuses a harmonic term without
+    the carrier, so only a hand-built problem reaches the refusal here.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, whose compiled Kerr term says whether the harmonic is wanted.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        The carrier of shape ``(n_to,)``, or ``None`` when no harmonic term is present.
-
-    Raises
-    ------
-    BackendError
-        If a harmonic term is compiled and the contract carries no carrier for it.
-        ``validate`` refuses that pairing, so only a hand-built problem reaches here.
+    - Returns: the carrier of shape ``(n_to,)``, or ``None`` when no harmonic term is
+      present.
     """
     if not problem.responses.harmonic_carrier:
         return None
@@ -3885,15 +3239,7 @@ def _embedded_projection(
     (:class:`solprop.modes.quadrature.ModeMatrices`). The alarm reports ``nan`` there
     instead, and the second projection is not computed at all.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, whose transform carries both projections.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        The coarse projection, or ``None`` when it is the fine one.
+    - Returns: the coarse projection, or ``None`` when it is the fine one.
     """
     transform = problem.transform
     if np.array_equal(transform.projection, transform.projection_coarse):

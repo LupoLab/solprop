@@ -108,15 +108,7 @@ class LiveObserver(NullReporter):
             self.space = (grid, space, simulation.medium)  # pyright: ignore[reportAttributeAccessIssue]
 
     def _put(self, kind: str, **data: object) -> None:
-        """Hand one event to the record.
-
-        Parameters
-        ----------
-        kind : str
-            Its kind.
-        **data : object
-            Its content.
-        """
+        """Hand one event to the record."""
         self.emit(Event(self.run_id, kind, data))
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
@@ -354,18 +346,8 @@ class EventHandler(logging.Handler):
 def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     """Return the terminal event of a run that returned.
 
-    Parameters
-    ----------
-    output : pathlib.Path
-        Its results file.
-    stopped : bool
-        Whether its stop flag was set.
-
-    Returns
-    -------
-    tuple
-        The kind (``"stopped"``, ``"finished"`` or ``"failed"``) and its data: the
-        outcome's ``status``, ``z`` and ``message``, and the file's ``path``.
+    - Returns: the kind (``"stopped"``, ``"finished"`` or ``"failed"``) and its data:
+      the outcome's ``status``, ``z`` and ``message``, and the file's ``path``.
     """
     with open_file(output) as handler:
         outcome = handler.outcome
@@ -386,20 +368,7 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
 def _plain(value: object) -> float | str:
     """Return a point's value as an event carries it.
 
-    Parameters
-    ----------
-    value : object
-        A number, or a quantity as a recipe writes it (``"0.8 bar"``).
-
-    Returns
-    -------
-    float or str
-        The number, or the text.
-
-    Examples
-    --------
-    >>> _plain(np.float64(0.5)), _plain("0.8 bar")
-    (0.5, '0.8 bar')
+    - ``value``: a number, or a quantity as a recipe writes it (``"0.8 bar"``).
     """
     try:
         return float(value)  # pyright: ignore[reportArgumentType]
@@ -410,18 +379,7 @@ def _plain(value: object) -> float | str:
 def _written(recipe: Recipe, variables: Mapping[str, object]) -> list[list[str]]:
     """Return each scan variable's values as the recipe's ``[scan]`` table writes them.
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe.
-    variables : Mapping
-        The scan's variables and their values, in its axis order.
-
-    Returns
-    -------
-    list of list of str
-        A list given as quantities keeps its units; a range's values are numbers in
-        its keyword's unit.
+    - ``variables``: the scan's variables and their values, in its axis order.
     """
     table: Mapping[str, object] = recipe.to_dict().get("scan", {})
     written: list[list[str]] = []
@@ -447,25 +405,8 @@ def _scan(
     the CPUs and memory the run was given: this computer's, a machine's or a Slurm
     allocation's (design 13.4).
 
-    Parameters
-    ----------
-    recipe : solprop.recipe.Recipe
-        The recipe, with its ``[scan]`` table.
-    folder : pathlib.Path
-        The scan's folder.
-    spec : solprop.service.worker.RunSpec
-        The run: its identity for its events, and what it records at each point
-        beyond its statistics.
-    emit : Callable
-        Where its events go: its record.
-    stop : solprop.backends.session.StopToken
-        Its stop token: the points not yet started are not run.
-
-    Returns
-    -------
-    tuple
-        The terminal event: ``"stopped"`` or ``"finished"``, with the scan file's
-        ``path`` and the number of points ``failed``.
+    - Returns: the terminal event: ``"stopped"`` or ``"finished"``, with the scan file's
+      ``path`` and the number of points ``failed``.
     """
     scan = recipe.scan()
     output = folder / SCAN_OUTPUT
@@ -491,18 +432,8 @@ def _scan(
 def _display(spec: RunSpec, output: Path) -> Display:
     """Return the display bins of a run: the spec's, in the recipe's window.
 
-    Parameters
-    ----------
-    spec : solprop.service.worker.RunSpec
-        The run.
-    output : pathlib.Path
-        Its results file, whose recipe a continued run reads.
-
-    Returns
-    -------
-    solprop.service.reduce.Display
-        The display; the spec's own where the recipe gives no wavelength window or
-        cannot be read.
+    - Returns: the display; the spec's own where the recipe gives no wavelength window
+      or cannot be read.
     """
     try:
         if spec.recipe is not None:
@@ -573,22 +504,7 @@ def execute(spec: RunSpec) -> None:
 def _attach_log(
     folder: Path, run_id: str, emit: Callable[[Event], None]
 ) -> Callable[[], None]:
-    """Send solprop's log to the run's ``run.log``, and its warnings as events.
-
-    Parameters
-    ----------
-    folder : pathlib.Path
-        The run's folder.
-    run_id : str
-        The run.
-    emit : Callable
-        Where its events go: its record.
-
-    Returns
-    -------
-    Callable
-        What takes the handlers off again and closes the log.
-    """
+    """Send solprop's log to the run's ``run.log``, and its warnings as events."""
     log_file = logging.FileHandler(folder / LOG, encoding="utf-8")
     log_file.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -629,28 +545,7 @@ def _march(
 ) -> tuple[str, dict[str, object]]:
     """Run, continue or scan, and return the terminal event.
 
-    Parameters
-    ----------
-    spec : solprop.service.worker.RunSpec
-        The run.
-    folder : pathlib.Path
-        Its folder.
-    emit : Callable
-        Where a scan's events go: its record.
-    observer : LiveObserver
-        The run's reporter.
-    stop : solprop.backends.session.StopToken
-        Its stop token.
-
-    Returns
-    -------
-    tuple
-        The terminal event's kind and data.
-
-    Raises
-    ------
-    ValueError
-        For a new run without its recipe.
+    - Returns: the terminal event's kind and data.
     """
     output = folder / OUTPUT
     if spec.resume is None:

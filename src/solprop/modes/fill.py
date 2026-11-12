@@ -77,18 +77,8 @@ def _sqrt1p_minus_one(
     ``expm1(log1p(x)/2)`` is not equivalent for a complex argument: NumPy's complex
     ``log1p`` forms ``1 + x`` and rounds there (1.3e-12 relative at ``1e-4 + 1e-7j``
     on NumPy 2.5).
-    Every gas-filled guide forms its refractivity here.
-
-    Parameters
-    ----------
-    argument : numpy.ndarray
-        ``n_eff**2 - 1``, real or complex, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``sqrt(1 + argument) - 1``, complex, shape ``(n_omega,)``, on the principal
-        branch.
+    Every gas-filled guide forms its refractivity here. The result is complex, on the
+    principal branch.
     """
     value = np.asarray(argument, dtype=complex)
     return np.asarray(value / (np.sqrt(1.0 + value) + 1.0))
@@ -118,23 +108,14 @@ class GasFillMixin(Displayed):
     _gain_warned: bool
 
     def _loss_text(self) -> object:
-        """Return the loss specification for printing.
-
-        Returns
-        -------
-        object
-            The flag or the factor as it was given, or ``"callable"`` for a loss curve.
-        """
+        """Return the loss specification for printing."""
         return self.loss if isinstance(self.loss, (bool, int, float)) else "callable"
 
     def _fill_text(self) -> str:
         """Return the fill as a person would say it, for printing.
 
-        Returns
-        -------
-        str
-            ``"evacuated"``, ``"He 1 bar"`` or, for a mixture, its labels and its
-            shared pressure; a gradient is quoted at ``z = 0``.
+        - Returns: ``"evacuated"``, ``"He 1 bar"`` or, for a mixture, its labels and its
+          shared pressure; a gradient is quoted at ``z = 0``.
         """
         entrance = np.array([0.0])
         if self.mixture is not None:
@@ -148,13 +129,7 @@ class GasFillMixin(Displayed):
         return f"{self.gas} {float(as_profile(self.pressure)(entrance)[0]):g} bar"
 
     def _check_fill_arguments(self) -> None:
-        """Check the fill declaration and loss specification.
-
-        Raises
-        ------
-        ModeError
-            If temperature, loss or a competing mixture declaration is invalid.
-        """
+        """Check the fill declaration and loss specification."""
         if self.temperature is None:
             # Not given: room temperature for a gas, the mixture's own beside one.
             temperature = (
@@ -319,13 +294,9 @@ class GasFillMixin(Displayed):
     def _fill_paths(self) -> Mapping[str, ZProfile]:
         """Return the fill's scalar paths, including constant declarations.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Density, shared pressure or independently labelled density paths. A
-            shared fill whose temperature varies along z is declared by its labelled
-            densities: one pressure does not fix them, so it takes
-            one parameter per population.
+        A shared fill whose temperature varies along z is declared by its labelled
+        densities: one pressure does not fix them, so it takes one parameter per
+        population.
         """
         paths: dict[str, ZProfile] = {}
         if self.mixture is None or len(self.mixture.components) == 1:
@@ -340,23 +311,11 @@ class GasFillMixin(Displayed):
             )
         return MappingProxyType(paths)
 
-    def _frozen_fill(self, values: Mapping[str, float]) -> "GasFillMixin":  # noqa: UP037 - the hook resolves class names eagerly
+    def _frozen_fill(self, values: Mapping[str, float]) -> "GasFillMixin":
         """Copy the mode with its named material paths frozen.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            Fill parameter values in SI density or shared pressure in bar.
-
-        Returns
-        -------
-        GasFillMixin
-            A shallow copy sharing the frequency-only model quantities.
-
-        Raises
-        ------
-        ModeError
-            If a supplied density is negative.
+        - ``values``: fill parameter values in SI density or shared pressure in bar.
+        - Returns: a shallow copy sharing the frequency-only model quantities.
         """
         frozen = copy.copy(self)
         if "density" in values:
@@ -389,22 +348,12 @@ class GasFillMixin(Displayed):
     ) -> tuple[Inexact[np.ndarray, "*shape"], Inexact[np.ndarray, "*shape"]]:
         """Sample the material susceptibility and its frequency derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive angular frequencies in rad/s, already checked by the mode.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Susceptibility in m³ and its derivative in m³ s/rad, one spectral row
-            for a legacy gas and one row per population for an explicit mixture.
-
-        Warns
-        -----
-        DiluteScalingWarning
-            Once per gas, where an optmat-selected population's linear density
-            scaling departs from optmat's finite-density law beyond its bound.
+        - ``omega``: positive angular frequencies in rad/s, already checked by the mode.
+        - Returns: susceptibility in m³ and its derivative in m³ s/rad, one spectral row
+          for a legacy gas and one row per population for an explicit mixture.
+        - Warns :class:`DiluteScalingWarning` once per gas where an optmat-selected
+          population's linear density scaling departs from optmat's finite-density law
+          beyond its bound.
         """
         # One evaluation context: each material's range warning is raised once for
         # the susceptibility and its derivative together.
@@ -418,16 +367,9 @@ class GasFillMixin(Displayed):
     ) -> tuple[DiluteScalingCheck, ...]:
         """Measure the dilute-scaling error of the fill's optmat-selected gases.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive angular frequencies in rad/s of the sampled band.
-
-        Returns
-        -------
-        tuple of DiluteScalingCheck
-            One per optmat population (or the optmat law of a single gas) with a
-            non-zero density, at its largest density along the fill.
+        - ``omega``: positive angular frequencies in rad/s of the sampled band.
+        - Returns: one per optmat population (or the optmat law of a single gas) with a
+          non-zero density, at its largest density along the fill.
         """
         if self.mixture is not None:
             return self.mixture.dilute_scaling_checks(omega)
@@ -444,15 +386,12 @@ class GasFillMixin(Displayed):
         )
 
     @property
-    def fill_species(self) -> Species | None:
-        """Return the single species a fill without a mixture carries.
+    def fill_species(self) -> Species | None:  # numpydoc ignore=RT01
+        """Single species a fill without a mixture carries.
 
-        Returns
-        -------
-        Species or None
-            The species of the density path, whose equation of state gives the
-            density and, for an optmat law, whose susceptibility is the fill's;
-            ``None`` for vacuum or a mixture.
+        The species of the density path, whose equation of state gives the
+        density and, for an optmat law, whose susceptibility is the fill's;
+        ``None`` for vacuum or a mixture.
         """
         if self.mixture is not None or not isinstance(self.density, DensityPath):
             return None
@@ -464,15 +403,7 @@ class GasFillMixin(Displayed):
     ) -> tuple[Inexact[np.ndarray, "*shape"], Inexact[np.ndarray, "*shape"]]:
         """Sample the fill's susceptibility rows and their derivatives.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive angular frequencies in rad/s, already checked by the mode.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            As :meth:`_sampled_susceptibility`.
+        - ``omega``: positive angular frequencies in rad/s, already checked by the mode.
         """
         values = omega
         if self.mixture is not None:
@@ -506,14 +437,7 @@ class GasFillMixin(Displayed):
         return susceptibility, dsusceptibility
 
     def _absent_components(self) -> tuple[bool, ...]:
-        """Return which mixture populations are identically absent.
-
-        Returns
-        -------
-        tuple of bool
-            Per component of the mixture, whether its density is the constant zero.
-            Only a fill with a mixture asks.
-        """
+        """Return which mixture populations are identically absent."""
         assert self.mixture is not None
         return tuple(
             c.density.is_constant and float(c.density(np.array([0.0]))[0]) == 0.0
@@ -526,11 +450,8 @@ class GasFillMixin(Displayed):
         Two fills with equal results here sample the same rows: the same models, in the
         same order, with the same populations replaced by zeros (:meth:`_sample_fill`).
 
-        Returns
-        -------
-        tuple
-            The susceptibility model of a fill without a mixture; otherwise each
-            component's model and whether it is absent.
+        - Returns: the susceptibility model of a fill without a mixture; otherwise each
+          component's model and whether it is absent.
         """
         if self.mixture is None:
             return (self.susceptibility,)
@@ -550,19 +471,8 @@ class GasFillMixin(Displayed):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Apply the loss specification to a model refractivity and its derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-        refractivity : numpy.ndarray
-            ``n_eff - 1`` with the model's own loss.
-        derivative : numpy.ndarray
-            ``dn_eff/domega`` with the model's own loss.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The refractivity and derivative with the requested loss.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: the refractivity and derivative with the requested loss.
         """
         specification = self.loss
         if isinstance(specification, bool):
@@ -603,17 +513,7 @@ class GasFillMixin(Displayed):
         It is clamped here on every path, the derivative is zeroed where the clamp
         binds, and the mode logs the fact once.
 
-        Parameters
-        ----------
-        refractivity : numpy.ndarray
-            ``n_eff - 1`` with the model's loss.
-        derivative : numpy.ndarray
-            ``dn_eff/domega`` with the model's loss.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The same, with a non-negative imaginary part.
+        - Returns: the same, with a non-negative imaginary part.
         """
         gain = np.imag(refractivity) < 0.0
         if not np.any(gain):
@@ -640,19 +540,11 @@ class GasFillMixin(Displayed):
     ) -> Float[np.ndarray, " n_omega"]:
         """Return the frequency derivative of a loss curve supplied as a callable.
 
-        Parameters
-        ----------
-        curve : callable
-            The loss curve ``alpha(omega)`` in 1/m.
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``d(alpha)/d(omega)`` in 1/(m rad/s), analytic when the callable carries a
-            ``derivative`` attribute and otherwise a Richardson-extrapolated central
-            difference with a relative floor near 1e-10.
+        - ``curve``: the loss curve ``alpha(omega)`` in 1/m.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: ``d(alpha)/d(omega)`` in 1/(m rad/s), analytic when the callable
+          carries a ``derivative`` attribute and otherwise a Richardson-extrapolated
+          central difference with a relative floor near 1e-10.
         """
         analytic = getattr(curve, "derivative", None)
         if callable(analytic):
@@ -674,18 +566,8 @@ class GasFillMixin(Displayed):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Apply the full model's evanescent floor to a refractivity and derivative.
 
-        Parameters
-        ----------
-        refractivity : numpy.ndarray
-            ``n_eff - 1``.
-        derivative : numpy.ndarray
-            ``dn_eff/domega``.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            The same, with ``Re n_eff`` floored at :data:`EVANESCENT_INDEX_FLOOR` and
-            the derivative set to zero where the floor binds.
+        - Returns: the same, with ``Re n_eff`` floored at :data:`EVANESCENT_INDEX_FLOOR`
+          and the derivative set to zero where the floor binds.
         """
         if self.model != "full":
             return refractivity, derivative
@@ -702,7 +584,7 @@ class GasFillMixin(Displayed):
             np.asarray(np.where(binds, 0.0, derivative), dtype=complex),
         )
 
-    def with_mixture(self, mixture: Mixture) -> "GasFillMixin":  # noqa: UP037 - the hook resolves class names eagerly
+    def with_mixture(self, mixture: Mixture) -> "GasFillMixin":
         """Return the same mode geometry with the supplied ordered gas mixture.
 
         Parameters

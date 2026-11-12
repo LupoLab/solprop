@@ -76,7 +76,7 @@ __all__ = [
 ]
 
 
-def construct(  # noqa: PLR0913 - the problem, its request and the host context
+def construct(
     problem: PropagationProblem,
     request: RunRequest,
     *,

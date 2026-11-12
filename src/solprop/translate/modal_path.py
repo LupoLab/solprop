@@ -60,6 +60,7 @@ from numpy.typing import ArrayLike
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.exceptions import ModeError
 from solprop.modes.connection import ModalConnection, band_connection
 from solprop.modes.guide import ChannelBasis
@@ -272,24 +273,7 @@ def path_rule(provider: ModalProvider, rule: ModalNodeRule, z: float) -> ModalNo
 def _check_gauge(
     reference: ModalSample, sample: ModalSample, nodes: ModalNodeRule, where: str
 ) -> None:
-    """Refuse a provider whose own gauge is not continuous between two samples.
-
-    Parameters
-    ----------
-    reference : solprop.modes.vector.ModalSample
-        The neighbouring sample already accepted.
-    sample : solprop.modes.vector.ModalSample
-        The new one, on a rule of the same structure.
-    nodes : solprop.modes.vector.ModalNodeRule
-        The new sample's rule, whose weights the overlap is taken with.
-    where : str
-        What separates the two, for the message.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If a channel's own overlap is not the dominant, positive, real one.
-    """
+    """Refuse a provider whose own gauge is not continuous between two samples."""
     overlap = _overlap(reference, sample, nodes)
     diagonal = np.diag(overlap)
     size = np.abs(overlap)
@@ -311,7 +295,7 @@ def _check_gauge(
         )
 
 
-def path_snapshot(  # noqa: PLR0913 - a provider, a band, a point, a rule and three declarations
+def path_snapshot(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     z: float,
@@ -428,7 +412,7 @@ class ModalPathTable(Displayed):
         solprop.exceptions.ModeError
             Naming what is inconsistent.
         """
-        edges = np.array(self.z_edges, dtype=np.float64, copy=True).reshape(-1)
+        edges = frozen_copy(np.reshape(self.z_edges, -1), np.float64)
         if (
             edges.size < 2
             or not np.all(np.isfinite(edges))
@@ -437,7 +421,6 @@ class ModalPathTable(Displayed):
             raise ModeError(
                 "a path's section edges are at least two finite increasing positions"
             )
-        edges.setflags(write=False)
         object.__setattr__(self, "z_edges", edges)
         if (
             isinstance(self.degree, bool)
@@ -466,24 +449,19 @@ class ModalPathTable(Displayed):
                 )
 
     @property
-    def n_intervals(self) -> int:
-        """Return how many sections the path is cut into.
-
-        Returns
-        -------
-        int
-            The section count.
-        """
+    def n_intervals(self) -> int:  # numpydoc ignore=RT01
+        """How many sections the path is cut into."""
         return int(self.z_edges.size - 1)
 
     @property
-    def positions(self) -> Float[np.ndarray, "n_intervals_positions n_deg_positions"]:
-        """Return every sampled position, section by section.
+    def positions(
+        self,
+    ) -> Float[
+        np.ndarray, "n_intervals_positions n_deg_positions"
+    ]:  # numpydoc ignore=RT01
+        """Every sampled position, section by section, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m, shape ``(n_intervals, degree + 1)``.
+        Shape ``(n_intervals, degree + 1)``.
         """
         return np.stack(
             [
@@ -531,10 +509,7 @@ class ModalPathTable(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ModalPathTable: a moving guide's snapshots along z", [
             ("sections", self.n_intervals),
@@ -555,16 +530,8 @@ def _stacked(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Stack the knots' E, H and generator of several snapshots, position first.
 
-    Parameters
-    ----------
-    tables : sequence of solprop.translate.modal_tables.DenseModalTable
-        Snapshots on rules of one structure and one band.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        E and H of shape ``(n_positions, n_knots, n_nodes, 3, n_modes)`` and the
-        generator of shape ``(n_positions, n_knots, n_modes, n_modes)``.
+    - Returns: E and H of shape ``(n_positions, n_knots, n_nodes, 3, n_modes)`` and the
+      generator of shape ``(n_positions, n_knots, n_modes, n_modes)``.
     """
     return tuple(  # type: ignore[return-value]
         np.array(
@@ -577,17 +544,7 @@ def _stacked(
 def _relative(interpolated: np.ndarray, fresh: np.ndarray) -> float:
     """Return the relative maximum-norm departure of an interpolant from a solve.
 
-    Parameters
-    ----------
-    interpolated : numpy.ndarray
-        The expansion's value.
-    fresh : numpy.ndarray
-        The fresh solve's, of the same shape and not identically zero.
-
-    Returns
-    -------
-    float
-        ``max|interpolated - fresh| / max|fresh|``, dimensionless.
+    - ``fresh``: the fresh solve's, of the same shape and not identically zero.
     """
     return float(np.max(np.abs(interpolated - fresh)) / np.max(np.abs(fresh)))
 
@@ -600,20 +557,9 @@ def _held_out(
 ) -> tuple[float, float]:
     """Measure a section's expansion against fresh solves at the held-out points.
 
-    Parameters
-    ----------
-    section : sequence of solprop.translate.modal_tables.DenseModalTable
-        The section's snapshots at the Lobatto points of its degree.
-    fresh : sequence of solprop.translate.modal_tables.DenseModalTable
-        Fresh snapshots at the points a doubling adds.
-    lo, hi : float
-        The section's ends, m.
-
-    Returns
-    -------
-    tuple of float
-        The largest relative departure of E, H and the generator, and the largest
-        ``norm(W - I, 2)`` of the expanded basis on the held-out rule.
+    - ``lo``, ``hi``: the section's ends, m.
+    - Returns: the largest relative departure of E, H and the generator, and the largest
+      ``norm(W - I, 2)`` of the expanded basis on the held-out rule.
     """
     degree = len(section) - 1
     coefficients = [lobatto_coefficients(one) for one in _stacked(section)]
@@ -639,7 +585,7 @@ def _held_out(
     return error, departure
 
 
-def sample_modal_path(  # noqa: PLR0913 - a provider, a band, a rule, the sections and five declarations
+def sample_modal_path(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     rule: ModalNodeRule,
@@ -716,18 +662,10 @@ def sample_modal_path(  # noqa: PLR0913 - a provider, a band, a rule, the sectio
     edges = np.asarray(z_edges, dtype=np.float64)
     memo: dict[float, DenseModalTable] = dict(known or {})
 
-    def at(position: float) -> DenseModalTable:
+    def _at(position: float) -> DenseModalTable:
         """Return the snapshot at one position, solving it at most once.
 
-        Parameters
-        ----------
-        position : float
-            Position in m.
-
-        Returns
-        -------
-        solprop.translate.modal_tables.DenseModalTable
-            The snapshot there.
+        - ``position``: position in m.
         """
         if position not in memo:
             memo[position] = path_snapshot(
@@ -749,8 +687,8 @@ def sample_modal_path(  # noqa: PLR0913 - a provider, a band, a rule, the sectio
         while True:
             error = departure = 0.0
             for lo, hi in sections:
-                section = [at(float(one)) for one in lobatto_points(chosen, lo, hi)]
-                fresh = [at(float(one)) for one in refinement_points(chosen, lo, hi)]
+                section = [_at(float(one)) for one in lobatto_points(chosen, lo, hi)]
+                fresh = [_at(float(one)) for one in refinement_points(chosen, lo, hi)]
                 measured_error, measured_departure = _held_out(section, fresh, lo, hi)
                 error = max(error, measured_error)
                 departure = max(departure, measured_departure)
@@ -775,7 +713,7 @@ def sample_modal_path(  # noqa: PLR0913 - a provider, a band, a rule, the sectio
                 )
             chosen *= 2
     tables = tuple(
-        at(float(one))
+        _at(float(one))
         for lo, hi in sections
         for one in lobatto_points(chosen, float(lo), float(hi))
     )
@@ -1045,7 +983,7 @@ def path_transform_tables(
     )
 
 
-def path_connections(  # noqa: PLR0913 - a path, a provider and four declarations
+def path_connections(
     path: ModalPathTable,
     provider: ModalProvider,
     *,

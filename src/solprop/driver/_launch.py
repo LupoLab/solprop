@@ -72,15 +72,7 @@ class LaunchedMode:
 def _number(value: object) -> float | None:
     """Return a real number as a float, or ``None`` for anything else.
 
-    Parameters
-    ----------
-    value : object
-        The value.
-
-    Returns
-    -------
-    float or None
-        The value, for an int or float that is not a bool; ``None`` otherwise.
+    - Returns: the value, for an int or float that is not a bool; ``None`` otherwise.
     """
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return None
@@ -90,23 +82,7 @@ def _number(value: object) -> float | None:
 def _entry(value: object, where: str) -> tuple[float, float]:
     """Return one mode's share and phase from its entry.
 
-    Parameters
-    ----------
-    value : object
-        A share, or a mapping with ``"share"`` and, optionally, ``"phase"``.
-    where : str
-        The entry's path, for a refusal.
-
-    Returns
-    -------
-    tuple of float
-        The share as given, and the phase, rad.
-
-    Raises
-    ------
-    DriverError
-        If the entry is neither, names another key, or holds a share that is
-        negative or not finite, or a phase that is not finite.
+    - Returns: the share as given, and the phase, rad.
     """
     if isinstance(value, Mapping):
         unknown = sorted(str(key) for key in value if key not in _ENTRY_KEYS)
@@ -136,26 +112,6 @@ def _resolve(key: object, labels: Sequence[str], where: str) -> int:
     A display label names its row; an index names that row. A label without its
     parity or handedness suffix (``"HE1,1"`` for ``"HE1,1:even"``) names the one row
     that completes it, and is refused where both partners are present.
-
-    Parameters
-    ----------
-    key : object
-        The key: a display label, a label without its suffix, or an index.
-    labels : sequence of str
-        The mode set's display labels, in row order.
-    where : str
-        The key's path, for a refusal.
-
-    Returns
-    -------
-    int
-        The row.
-
-    Raises
-    ------
-    DriverError
-        If the key is not a string or an integer, names no row, or leaves a parity
-        open between two rows.
     """
     if isinstance(key, str):
         if key in labels:
@@ -184,28 +140,7 @@ def _resolve(key: object, labels: Sequence[str], where: str) -> int:
 def _one_pulse(
     launch: object, labels: Sequence[str], where: str
 ) -> tuple[LaunchedMode, ...]:
-    """Resolve and normalise one pulse's launch.
-
-    Parameters
-    ----------
-    launch : object
-        The mapping from mode to entry.
-    labels : sequence of str
-        The mode set's display labels, in row order.
-    where : str
-        The mapping's path, for a refusal.
-
-    Returns
-    -------
-    tuple of LaunchedMode
-        The modes in row order, their shares summing to one.
-
-    Raises
-    ------
-    DriverError
-        If the mapping is empty or not a mapping, names a mode twice, or has no
-        positive share.
-    """
+    """Resolve and normalise one pulse's launch."""
     if not isinstance(launch, Mapping) or not launch:
         msg = (
             f"{where} maps mode labels to shares, as {{'HE1,1': 0.9, 'HE1,2': "
@@ -233,27 +168,7 @@ def _one_pulse(
 def _resolve_launch(
     launch: object, labels: Sequence[str], n_pulses: int
 ) -> tuple[tuple[LaunchedMode, ...], ...]:
-    """Return each pulse's launch: one mapping for every pulse, or one each.
-
-    Parameters
-    ----------
-    launch : object
-        The ``launch`` keyword.
-    labels : sequence of str
-        The mode set's display labels, in row order.
-    n_pulses : int
-        How many pulses the input holds.
-
-    Returns
-    -------
-    tuple of tuple of LaunchedMode
-        One launch per pulse.
-
-    Raises
-    ------
-    DriverError
-        If a list does not hold one mapping per pulse, or a mapping is refused.
-    """
+    """Return each pulse's launch: one mapping for every pulse, or one each."""
     if isinstance(launch, Mapping):
         one = _one_pulse(launch, labels, "launch")
         return (one,) * n_pulses
@@ -281,22 +196,7 @@ def refuse_beside(
     incident: object = None,
     coupling: object = None,
 ) -> None:
-    """Refuse a launch beside another way of saying what is launched.
-
-    Parameters
-    ----------
-    launch : object
-        The ``launch`` keyword.
-    channel : int or str or None, optional
-        The named channel, which a launch generalises.
-    incident, coupling : object, optional
-        An incident beam and its coupling model, which compute a launch of their own.
-
-    Raises
-    ------
-    DriverError
-        If `launch` is given beside any of them.
-    """
+    """Refuse a launch beside another way of saying what is launched."""
     if launch is None:
         return
     if channel is not None:
@@ -326,20 +226,8 @@ def _placed(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Place one pulse in its modes, each at its share and phase.
 
-    Parameters
-    ----------
-    built : numpy.ndarray
-        The pulse, shape ``(1, n_pol, n_omega)``, internal convention, in the square
-        root of watts.
-    modes : tuple of LaunchedMode
-        Its modes.
-    n_modes : int
-        How many modes the set carries.
-
-    Returns
-    -------
-    numpy.ndarray
-        The pulse's part of the state, shape ``(n_modes, n_pol, n_omega)``.
+    - ``built``: the pulse, shape ``(1, n_pol, n_omega)``, internal convention, in the
+      square root of watts.
     """
     part = np.zeros((n_modes, *built.shape[1:]), dtype=np.complex128)
     for mode in modes:
@@ -360,39 +248,14 @@ def launch_pulse(
 ) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], dict[str, object]]:
     """Launch an input's pulses into chosen modes, and return the state and its record.
 
-    Parameters
-    ----------
-    pulse : solprop.pulses.Pulse
-        The input: a pulse, or a
-        :class:`~solprop.pulses.PulseSum` whose members are launched one by one.
-    launch : object
-        The ``launch`` keyword: a mapping from mode label or index to a share, or to
-        ``{"share": ..., "phase": ...}`` with the phase in radians; or a list of such
-        mappings, one per pulse.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    labels : sequence of solprop.modes.protocol.ChannelLabel
-        The mode set's labels, in row order.
-    metric : numpy.ndarray or None, optional
-        The basis flux metric ``W(omega)`` at the launch plane, shape
-        ``(n_modes, n_modes, n_omega)``; ``None``, the default, is the identity, on
-        which the shares are energy fractions.
-
-    Returns
-    -------
-    numpy.ndarray
-        The state, shape ``(n_modes, n_pol, n_omega)``, internal convention, in the
-        square root of watts.
-    dict
-        The record, ``configuration["modal_launch"]``: the ``split`` (``"energy"`` or
-        ``"coordinate"``) and, per pulse, its modes' labels, normalised shares and
-        phases in rad.
-
-    Raises
-    ------
-    DriverError
-        If a label, share or phase is refused, a list does not hold one mapping per
-        pulse, or a pulse builds into more than one mode.
+    - ``metric``: the basis flux metric ``W(omega)`` at the launch plane, shape
+      ``(n_modes, n_modes, n_omega)``; ``None``, the default, is the identity, on which
+      the shares are energy fractions.
+    - Returns: the state, shape ``(n_modes, n_pol, n_omega)``, internal convention, in
+      the square root of watts.
+    - Returns: the record, ``configuration["modal_launch"]``: the ``split``
+      (``"energy"`` or ``"coordinate"``) and, per pulse, its modes' labels, normalised
+      shares and phases in rad.
     """
     members: tuple[Pulse, ...] = (
         pulse.pulses if isinstance(pulse, PulseSum) else (pulse,)

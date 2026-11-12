@@ -427,22 +427,7 @@ def reading_refusal(
 
 
 def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
-    """Return a spatial file's refusal of a column reader, with its route's advice.
-
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The spatial record.
-    name : str
-        A name of :data:`COLUMN_READINGS`.
-    recorded : collections.abc.Sequence
-        The statistics the file holds.
-
-    Returns
-    -------
-    str
-        The refusal.
-    """
+    """Return a spatial file's refusal of a column reader, with its route's advice."""
     kind = metadata.simulation_kind
     if kind == "free":
         # A line grid runs as the free transform with one y sample, and is the only

@@ -221,19 +221,8 @@ def _modal_fluence(
 ) -> np.ndarray:
     """Reconstruct physical electric and magnetic fields from true-power spectra.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        Saved planes in true-power units with reconstruction metadata.
-    record : collections.abc.Mapping
-        Saved per-plane power weights, physical synthesis and taper.
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-
-    Returns
-    -------
-    numpy.ndarray
-        Integrated Poynting flux, shape (n_z, n_nodes), in J/m^2.
+    - ``record``: saved per-plane power weights, physical synthesis and taper.
+    - Returns: integrated Poynting flux, shape (n_z, n_nodes), in J/m^2.
     """
     weights = get_power_weight(output)
     indices = _plane_indices(output, record)
@@ -267,17 +256,7 @@ def _modal_fluence(
 def _statistic(output: Output, name: str) -> np.ndarray:
     """Require an explicitly recorded statistic, keeping every population axis.
 
-    Parameters
-    ----------
-    output : Output
-        Opened saved run.
-    name : str
-        Statistic name whose units and dimensions follow the catalogue.
-
-    Returns
-    -------
-    numpy.ndarray
-        Recorded values, including all population and node axes.
+    - Returns: recorded values, including all population and node axes.
     """
     if name not in output.stat_names:
         raise ProcessingError(f"the run did not record {name}")
@@ -285,18 +264,7 @@ def _statistic(output: Output, name: str) -> np.ndarray:
 
 
 def _record(output: Output) -> Mapping[str, object]:
-    """Return the run's mixture reconstruction data, refusing a run without it.
-
-    Parameters
-    ----------
-    output : Output
-        Opened saved run.
-
-    Returns
-    -------
-    Mapping
-        Material processing data in the units the record declares.
-    """
+    """Return the run's mixture reconstruction data, refusing a run without it."""
     metadata = output.metadata
     record = (
         None if metadata is None else metadata.configuration.get("mixture_processing")
@@ -309,17 +277,8 @@ def _record(output: Output) -> Mapping[str, object]:
 def _array(record: Mapping[str, object], key: str) -> np.ndarray:
     """Read either a live array or its JSON representation from a reloaded file.
 
-    Parameters
-    ----------
-    record : Mapping
-        Material processing metadata.
-    key : str
-        Array name, including units where applicable.
-
-    Returns
-    -------
-    numpy.ndarray
-        Float64 values with their recorded shape.
+    - ``key``: array name, including units where applicable.
+    - Returns: Float64 values with their recorded shape.
     """
     value = record[key]
     if isinstance(value, Mapping):
@@ -330,17 +289,8 @@ def _array(record: Mapping[str, object], key: str) -> np.ndarray:
 def _plane_indices(output: Output, record: Mapping[str, object]) -> np.ndarray:
     """Locate exact saved planes without interpolating data from another position.
 
-    Parameters
-    ----------
-    output : Output
-        Opened saved run with z in m.
-    record : Mapping
-        Material processing data with the requested save positions in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Integer indices into the recorded material positions.
+    - ``output``: opened saved run with z in m.
+    - ``record``: material processing data with the requested save positions in m.
     """
     recorded = _array(record, "z_m")
     positions = np.asarray(output["z"])

@@ -6,12 +6,12 @@
 | **Title** | The TDSE response on native |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-12 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-12 by John Travers, in [#765](https://github.com/LupoLab/solprop/pull/765) |
 | **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -853,6 +853,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 - 2026-11-12: Reviewed by John Travers (human): P6–P10 accepted, so every open question
   and point is decided or deferred. Review status `Reviewed` (GPT-6 (AI), John Travers
   (human)); the status stays `Draft` until accepted.
+- 2026-11-12: Accepted by John Travers (#765); implementation to start once ADR-077's
+  change (#767) is merged, in one implementation pull request (§11).
 
 ### AI review — 2026-11-12
 

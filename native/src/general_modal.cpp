@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/general_modal.hpp"
+
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/launch.hpp"
 
@@ -30,7 +31,7 @@ constexpr std::size_t max_components = 3;
 // before its vectoriser runs, and its early complete unrolling leaves such a nest alone
 // unless asked: the loop then ran a sample at a time, packing pairs through the stack
 // (a failed store-to-load forward per sample), at about 60 % of a general modal run.
-// Clang and icpx unroll the nest themselves and device builds keep their own unrolling,
+// Clang unrolls the nest itself and device builds keep their own unrolling,
 // so the macro is empty there. Unrolling moves no rounding.
 #if defined(__CUDACC__) || defined(__HIPCC__) || defined(__clang__)
 #define SOLPROP_NATIVE_UNROLL
@@ -285,9 +286,8 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   // A gas region's dispersive channels respond where every regional tensor may be
   // zero; with no regional tensor and no delayed response the contraction is
   // identically zero, and it and its transform are skipped.
-  const bool tensor =
-      std::any_of(problem.general_tensor.begin(), problem.general_tensor.end(),
-                  [](const double value) { return value != 0.0; });
+  const bool tensor = std::ranges::any_of(
+      problem.general_tensor, [](const double value) { return value != 0.0; });
   regional_ = tensor || terms_ != 0;
   responds_ = tensor || problem.dispersive;
   const auto chunk_rows = chunk_ * components_;
@@ -358,7 +358,8 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   if (problem.dispersive)
     dispersive_ = std::make_unique<GeneralDispersive>(
         problem, kernel_pool_,
-        GeneralDispersive::StageViews{node_spectrum_, node_field_, node_source_});
+        GeneralDispersive::StageViews{
+            .spectrum = node_spectrum_, .field = node_field_, .source = node_source_});
   kernels_.fence("solprop_native general modal upload");
 }
 
@@ -500,8 +501,9 @@ void GeneralModalSource::evaluate() {
       else
         graph::execute(*forward_plan_, node_polarisation_, node_source_,
                        KokkosFFT::Normalization::none);
-    } else if (!live)
+    } else if (!live) {
       graph::deep_copy(kernels_, node_source_, Complex{});
+    }
     // The products' spectra join the regional polarisation's, or are the chunk's.
     if (live)
       dispersive_->combine(!regional_);
@@ -743,12 +745,13 @@ void GeneralModalSource::respond(const std::size_t first, const std::size_t coun
       respond_components<2, true>(first, count);
     else
       respond_components<1, true>(first, count);
-  } else if (components_ == 3)
+  } else if (components_ == 3) {
     respond_components<3, false>(first, count);
-  else if (components_ == 2)
+  } else if (components_ == 2) {
     respond_components<2, false>(first, count);
-  else
+  } else {
     respond_components<1, false>(first, count);
+  }
 }
 
 template <std::size_t Components, bool RealSignal>
@@ -834,7 +837,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
                 for (std::size_t i = 0; i < components; ++i)
                   polarisation(row + i, time) = epsilon0 * values[i];
               });
-        } else
+        } else {
           for (std::size_t i = 0; i < components; ++i) {
             Kokkos::parallel_for(
                 Kokkos::ThreadVectorRange(team, samples), [=](const int sample) {
@@ -860,6 +863,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
                   polarisation(row + i, time) = (epsilon0 * value).real();
                 });
           }
+        }
         if (!delayed)
           return;
         // The delayed response's pair drive: the real field's `E_k E_l`, or the

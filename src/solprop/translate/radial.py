@@ -11,6 +11,7 @@ from dataclasses import replace
 import numpy as np
 from jaxtyping import Complex, Float
 
+from solprop._ownership import hold
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import RadialGrid, TimeGrid
@@ -20,6 +21,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
+    _held_table,
     build,
 )
 from solprop.translate.expansion import (
@@ -82,8 +84,10 @@ def radial_transform(
     space.validate()
     hankel = space.hankel
     diagonal = hankel.j1[:, None] / hankel.j1[None, :]
-    synthesis = hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale
-    projection = hankel.forward_scale * diagonal * hankel.matrix
+    # Built here and referred to by nothing else: held in place, so the transform
+    # takes them without a copy (and both projections are the one array).
+    synthesis = hold(hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale)
+    projection = hold(hankel.forward_scale * diagonal * hankel.matrix)
     rate = np.zeros(space.n_r) if collar_rate is None else collar_rate
     geometry = SpatialGeometry(
         kind="radial",
@@ -114,7 +118,7 @@ def radial_transform(
     )
 
 
-def radial_operators(  # noqa: PLR0913 - material and the shared translation controls
+def radial_operators(
     space: RadialGrid,
     dispersion: SpatialDispersion,
     *,
@@ -174,20 +178,10 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
     grid = dispersion.grid
     rate = np.zeros(grid.n_omega) if absorber is None else absorber.spectral_rate
 
-    def material(model: SpatialDispersion, z: float = 0.0) -> SeparableOperator:
+    def _material(model: SpatialDispersion, z: float = 0.0) -> SeparableOperator:
         """Assemble the radial coefficients of one material sample.
 
-        Parameters
-        ----------
-        model : solprop.spatial.SpatialDispersion
-            Bulk material and frame at the sampled density.
-        z : float, optional
-            Position in m at which to evaluate the material.
-
-        Returns
-        -------
-        solprop.translate.spatial.SeparableOperator
-            Shared material vectors over the radial columns.
+        - ``z``: position in m at which to evaluate the material.
         """
         square, frame, numerator, clamped = model.shared_values(z)
         return SeparableOperator(
@@ -206,24 +200,15 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
             kperp_rate=transverse_rate,
         )
 
-    def sampled(
+    def _sampled(
         model: SpatialDispersion, z: float = 0.0
     ) -> tuple[np.ndarray, np.ndarray]:
         """Materialise radial coefficients with the complete seam shape.
 
-        Parameters
-        ----------
-        model : solprop.spatial.SpatialDispersion
-            Bulk material and frame at the sampled density.
-        z : float, optional
-            Position in m at which to evaluate the material.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Linear rate and cropped nonlinear prefactor, shared by polarisation.
+        - ``z``: position in m at which to evaluate the material.
+        - Returns: linear rate and cropped nonlinear prefactor, shared by polarisation.
         """
-        return separable_values(material(model, z))
+        return separable_values(_material(model, z))
 
     paths = {
         name: path
@@ -248,39 +233,34 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         kinks=kinks,
     )
 
-    def at_parameters(values: Mapping[str, float]) -> tuple[np.ndarray, np.ndarray]:
+    def _at_parameters(values: Mapping[str, float]) -> tuple[np.ndarray, np.ndarray]:
         """Evaluate a frozen density sample for the parameter expansion.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            Density sample in m^-3 under the name ``density``.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Linear rate and nonlinear prefactor at that density.
+        - ``values``: density sample in m^-3 under the name ``density``.
+        - Returns: linear rate and nonlinear prefactor at that density.
         """
         medium = dispersion.medium.at_parameters(values)
-        return sampled(replace(dispersion, medium=medium))
+        return _sampled(replace(dispersion, medium=medium))
 
     if not paths and reuse_linear is None and reuse_prefactor is None:
-        operator, prefactor = sampled(dispersion)
-        coefficients = np.ascontiguousarray(prefactor[None, None])
+        operator, prefactor = _sampled(dispersion)
+        # A copy that owns its memory, so that it can be held: the prefactor is a
+        # broadcast view of an array the sampling made.
+        coefficients = np.array(prefactor[None, None], order="C")
         edges = np.array([0.0, span])
         degrees = np.zeros(1, dtype=np.intp)
         kinks = np.empty(0)
         for values in (coefficients, edges, degrees, kinks):
-            values.setflags(write=False)
+            hold(values)
         return (
             constant_phi(operator, z_max, margin=margin, beta0=beta0, beta1=beta1),
             PiecewiseChebyshev(coefficients, edges, degrees, kinks),
         )
 
-    working = _linear_roundoff_target(dispersion, space, sampled, span, tol)
+    working = _linear_roundoff_target(dispersion, space, _sampled, span, tol)
     adiabatic = _AdiabaticAmplitude(
         dispersion,
-        lambda model, z: longitudinal_root(material(model, z))[:2],
+        lambda model, z: longitudinal_root(_material(model, z))[:2],
         paths,
         kinks,
         span,
@@ -289,7 +269,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
     if len(paths) > MAX_PARAMETERS:
         linear_table = build(
             lambda positions: np.stack(
-                [sampled(dispersion, float(z))[0] for z in positions]
+                [_sampled(dispersion, float(z))[0] for z in positions]
             ),
             0.0,
             span,
@@ -298,7 +278,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         )
         prefactor_table = build(
             lambda positions: np.stack(
-                [sampled(dispersion, float(z))[1] for z in positions]
+                [_sampled(dispersion, float(z))[1] for z in positions]
             ),
             0.0,
             span,
@@ -311,14 +291,8 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
             )
         # Frozen, as every array crossing the seam is: the problem's validation
         # refuses a writeable table.
-        for values in (
-            prefactor_table.coefficients,
-            prefactor_table.breakpoints,
-            prefactor_table.degrees,
-            prefactor_table.hard_kinks,
-        ):
-            values.setflags(write=False)
-        phi = linear_table.integral()
+        _held_table(prefactor_table)
+        phi = _held_table(linear_table.integral())
         return adiabatic.add(
             LinearOperator(
                 phi_representation="table",
@@ -357,7 +331,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         )
     if linear is None:
         linear = build_expansion(
-            lambda values: at_parameters(values)[0],
+            lambda values: _at_parameters(values)[0],
             paths,
             0.0,
             span,
@@ -367,7 +341,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         )
     if prefactor is None:
         prefactor = build_expansion(
-            lambda values: at_parameters(values)[1],
+            lambda values: _at_parameters(values)[1],
             paths,
             0.0,
             span,
@@ -492,30 +466,14 @@ class _AdiabaticAmplitude:
     entrance root, which vanishes there and is an endpoint quantity, so it is never
     obtained by differentiating a table (:func:`solprop.translate.linop.endpoint_phi`).
 
-    Parameters
-    ----------
-    dispersion : solprop.spatial.SpatialDispersion
-        Material along the run path.
-    roots : callable
-        ``(model, z) -> (k_z, propagating)``, each ``(n_r, n_omega)``, from the one
-        root evaluation the operator uses
-        (:func:`solprop.translate.spatial.longitudinal_root`).
-    paths : collections.abc.Mapping
-        The medium's varying parameter paths, by name.
-    kinks : numpy.ndarray
-        Breakpoints of those paths, m.
-    span : float
-        End of the tabulated range, m.
-    n_pol : int
-        State polarisation components, 1 or 2.
-
-    Raises
-    ------
-    TranslationError
-        If a column's propagating status changes along the sampled path.
+    - ``roots``: ``(model, z) -> (k_z, propagating)``, each ``(n_r, n_omega)``, from the
+      one root evaluation the operator uses
+      (:func:`solprop.translate.spatial.longitudinal_root`).
+    - ``kinks``: breakpoints of those paths, m.
+    - ``span``: end of the tabulated range, m.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0917 - called positionally
         self,
         dispersion: SpatialDispersion,
         roots: Callable[[SpatialDispersion, float], tuple[np.ndarray, np.ndarray]],
@@ -538,22 +496,9 @@ class _AdiabaticAmplitude:
     def _admitted(self, model: SpatialDispersion, z: float) -> np.ndarray:
         """Return ``Re k_z`` where the term applies, refusing a cutoff crossing.
 
-        Parameters
-        ----------
-        model : solprop.spatial.SpatialDispersion
-            Material sample.
-        z : float
-            Position in m at which to evaluate it.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``Re k_z`` in m^-1, shape ``(n_r, n_omega)``; one where the term is zero.
-
-        Raises
-        ------
-        TranslationError
-            If the propagating set differs from the entrance's.
+        - ``z``: position in m at which to evaluate it.
+        - Returns: ``Re k_z`` in m^-1, shape ``(n_r, n_omega)``; one where the term is
+          zero.
         """
         root, propagating = self._roots(model, z)
         changed = (propagating & self._dispersion.grid.active_mask[None, :]) != (
@@ -575,17 +520,7 @@ class _AdiabaticAmplitude:
     ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
         """Return ``-1/2 ln(Re k_z / Re k_z(0))`` in the canonical layout.
 
-        Parameters
-        ----------
-        model : solprop.spatial.SpatialDispersion
-            Material sample.
-        z : float
-            Position in m at which to evaluate it.
-
-        Returns
-        -------
-        numpy.ndarray
-            Dimensionless, complex with zero imaginary part.
+        - ``z``: position in m at which to evaluate it.
         """
         wave = self._admitted(model, z)
         reference = self._reference
@@ -605,15 +540,8 @@ class _AdiabaticAmplitude:
     def sample(self, z: float) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
         """Evaluate the term's endpoint function along the run path.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Dimensionless endpoint function, canonical layout.
+        - ``z``: position in m.
+        - Returns: dimensionless endpoint function, canonical layout.
         """
         return self._log_ratio(self._dispersion, z)
 
@@ -622,15 +550,7 @@ class _AdiabaticAmplitude:
     ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
         """Evaluate the endpoint function at one point of the parameter box.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            Parameter values by name, inside the expansion's box.
-
-        Returns
-        -------
-        numpy.ndarray
-            Dimensionless endpoint function, canonical layout.
+        - Returns: dimensionless endpoint function, canonical layout.
         """
         medium = self._dispersion.medium.at_parameters(values)
         return self._log_ratio(replace(self._dispersion, medium=medium), 0.0)
@@ -638,16 +558,8 @@ class _AdiabaticAmplitude:
     def add(self, linear: LinearOperator) -> LinearOperator:
         """Join the term to a z table or an expansion of ``Phi``.
 
-        Parameters
-        ----------
-        linear : solprop.translate.linop.LinearOperator
-            The cumulative dispersion operator.
-
-        Returns
-        -------
-        solprop.translate.linop.LinearOperator
-            The operator with the endpoint term; unchanged when no column propagates
-            or an expansion already carries it (batch reuse).
+        - Returns: the operator with the endpoint term; unchanged when no column
+          propagates or an expansion already carries it (batch reuse).
         """
         if not self._mask.any():
             return linear
@@ -669,23 +581,10 @@ def _linear_roundoff_target(
 ) -> float:
     """Budget sqrt conditioning and frame subtraction before expansion sampling.
 
-    Parameters
-    ----------
-    dispersion : solprop.spatial.SpatialDispersion
-        Material and temporal frame.
-    space : solprop.grid.RadialGrid
-        Transverse frequencies for the conditioning calculation.
-    sampled : callable
-        Return the shaped operator and prefactor for a model and position.
-    span : float
-        Extended propagation interval in m.
-    requested : float
-        Requested dimensionless expansion tolerance, positive.
-
-    Returns
-    -------
-    float
-        Relative expansion target including the derived arithmetic floor.
+    - ``sampled``: return the shaped operator and prefactor for a model and position.
+    - ``span``: extended propagation interval in m.
+    - ``requested``: requested dimensionless expansion tolerance, positive.
+    - Returns: the request raised to the derived arithmetic floor.
     """
     # For s=sqrt(k^2-kperp^2), a relative perturbation in k^2 gives absolute
     # error |k^2|*epsilon/(2|s|). The following gamma(64) envelope covers both

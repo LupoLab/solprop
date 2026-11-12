@@ -83,22 +83,7 @@ logger = logging.getLogger(__name__)
 def _require_general(output: Output, name: str) -> RunMetadata:
     """Return the record of a general modal run, refusing any other basis by name.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    name : str
-        The accessor being asked for, which the refusal names.
-
-    Returns
-    -------
-    solprop.output.schema.RunMetadata
-        The record, whose ``modal`` identity is not ``None``.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the handler holds no record, or its basis does not admit `name`.
+    - Returns: the record, whose ``modal`` identity is not ``None``.
     """
     metadata = output.metadata
     if metadata is None:
@@ -122,17 +107,7 @@ def _in_convention(
     optics convention by default, and this one does too, through the one sanctioned
     boundary (:func:`solprop.fourier.spectrum_to_optics`).
 
-    Parameters
-    ----------
-    signal : numpy.ndarray
-        The analytic signal in the internal convention.
-    convention : {'optics', 'fft'}
-        What the caller asked for.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same signal in that convention.
+    - Returns: the same signal in that convention.
     """
     return fourier.to_optics(signal) if convention == "optics" else signal
 
@@ -147,19 +122,7 @@ def _identity_leaves(value: object, prefix: str = "") -> Iterator[tuple[str, obj
     also what makes a stored block that is a subset of the expected one visible as
     the missing paths it is.
 
-    Parameters
-    ----------
-    value : object
-        A mapping, a sequence or a scalar, as
-        :func:`solprop.translate.general.modal_identity` writes them and JSON
-        reads them back.
-    prefix : str, optional
-        The path of `value` itself; empty at the root.
-
-    Yields
-    ------
-    tuple
-        The dotted path and the leaf value at it.
+    - ``prefix``: the path of `value` itself; empty at the root.
     """
     if isinstance(value, Mapping):
         for key, item in value.items():
@@ -189,19 +152,7 @@ def _identity_refusal(
     on the few it has: the file must say everything the rebuilt reference says, or
     what was not compared was not checked.
 
-    Parameters
-    ----------
-    block : {'tables', 'guide'}
-        Which entry of ``metadata.modal`` is being checked, for the message.
-    expected : collections.abc.Mapping
-        The identity of what the caller supplied, rebuilt now.
-    stored : object
-        The identity the file recorded, read back from JSON.
-
-    Returns
-    -------
-    str or None
-        The refusal, or ``None`` when the two agree path for path.
+    - Returns: the refusal, or ``None`` when the two agree path for path.
     """
     root = f"modal.{block}"
     if not isinstance(stored, Mapping):
@@ -260,27 +211,9 @@ def _checked_tables(
     identities are always checked**: the guide is required and the gate has no
     narrower mode.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The record of a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The reference the caller rebuilt from the guide.
-    guide : solprop.modes.guide.ModalGuide
-        The guide it was rebuilt from. It is **required**: a caller that rebuilt
-        the tables has the guide, because that is what they were rebuilt from, and
-        a check that closes the hole only when it is asked for is not a gate.
-
-    Returns
-    -------
-    solprop.translate.modal_tables.ModalTransformTables
-        The same tables.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        Naming the first identity path that disagrees, in the tables or in the
-        guide.
+    - ``guide``: the guide it was rebuilt from. It is **required**: a caller that
+      rebuilt the tables has the guide, because that is what they were rebuilt from, and
+      a check that closes the hole only when it is asked for is not a gate.
     """
     modal = metadata.modal
     assert modal is not None
@@ -306,24 +239,7 @@ def _amplitudes(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return one plane's channel amplitudes in the internal convention.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Plane index, negative from the end.
-    z : float or None
-        Plane position, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The amplitudes, shape ``(n_modes, n_pol, n_omega)``, square root of watts.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If neither a plane index nor a position selects exactly one plane.
+    - ``z``: plane position, m.
     """
     if plane is None and z is None:
         msg = (
@@ -337,20 +253,9 @@ def _amplitudes(
 def _plane_position(output: Output, plane: int | None, z: float | None) -> float:
     """Return the position of the one saved plane a selection names, in m.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Plane index, negative from the end.
-    z : float or None
-        Plane position, m; the nearest saved plane is the one meant, as
-        :func:`_amplitudes` reads it.
-
-    Returns
-    -------
-    float
-        The stored position of that plane, m.
+    - ``z``: plane position, m; the nearest saved plane is the one meant, as
+      :func:`_amplitudes` reads it.
+    - Returns: the stored position of that plane, m.
     """
     positions = output["z"]
     if z is not None:
@@ -381,15 +286,7 @@ class _PlaneReference:
 def _moves(tables: ModalTransformTables) -> bool:
     """Return whether a reference's maps are expanded along z (a moving guide).
 
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's reference.
-
-    Returns
-    -------
-    bool
-        True when the synthesis has more than one interval or coefficient in z.
+    - Returns: True when the synthesis has more than one interval or coefficient in z.
     """
     synthesis = tables.synthesis
     return synthesis is not None and synthesis.shape[0] * synthesis.shape[1] > 1
@@ -398,26 +295,9 @@ def _moves(tables: ModalTransformTables) -> bool:
 def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRule]:
     """Return a moving guide's rule at a plane, and the position it was built at.
 
-    Parameters
-    ----------
-    guide : solprop.modes.guide.ModalGuide
-        The moving guide the reference was rebuilt from.
-    position : float
-        The plane's own position, m.
-
-    Returns
-    -------
-    tuple
-        The position, snapped onto the path's end when within the edge slack, and
-        the provider's own rule there
-        (:func:`solprop.translate.modal_path.path_rule`).
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the guide records no path.
-    solprop.exceptions.ModeError
-        If the provider refuses the position; the caller says which plane.
+    - ``position``: the plane's own position, m.
+    - Returns: the position, snapped onto the path's end when within the edge slack, and
+      the provider's own rule there (:func:`solprop.translate.modal_path.path_rule`).
     """
     sampling = guide.sampling
     if sampling is None or sampling.path is None:
@@ -442,24 +322,8 @@ def _plane_rule(
 ) -> tuple[Float[np.ndarray, "n_nodes 2"], Float[np.ndarray, " n_nodes"]]:
     """Return the nodes and area weights a plane at `position` is reconstructed on.
 
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's reference, already checked against the file.
-    guide : solprop.modes.guide.ModalGuide
-        The guide it was rebuilt from.
-    position : float
-        The plane's own position, m.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        Node positions, shape ``(n_nodes, 2)`` in m, and weights in m^2.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If a moving guide records no path, or its provider refuses the position.
+    - ``position``: the plane's own position, m.
+    - Returns: node positions, shape ``(n_nodes, 2)`` in m, and weights in m^2.
     """
     if not _moves(tables):
         return tables.node_xy[0], tables.weights[0]
@@ -488,25 +352,7 @@ def _plane_reference(
     path's held-out accuracy, and H comes from the same solve; the expansion carries
     no H at all, which is why the solve is repeated rather than read.
 
-    Parameters
-    ----------
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's reference, already checked against the file.
-    guide : solprop.modes.guide.ModalGuide
-        The guide it was rebuilt from.
-    position : float
-        The plane's own position, m.
-
-    Returns
-    -------
-    _PlaneReference
-        The reference and weights at that plane.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the guide records no path to solve along, or the provider refuses the
-        position.
+    - ``position``: the plane's own position, m.
     """
     if not _moves(tables):
         return _PlaneReference(
@@ -544,7 +390,7 @@ def _plane_reference(
     return _PlaneReference(electric, magnetic, rule.weights)
 
 
-def _spectra(
+def _spectra(  # noqa: PLR0917 - called positionally
     output: Output,
     tables: ModalTransformTables,
     plane: int | None,
@@ -561,34 +407,9 @@ def _spectra(
     On a moving guide they are the plane's own modes at that plane's own nodes
     (:func:`_plane_reference`).
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler holding a general modal run.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The run's own reference.
-    plane : int or None
-        Plane index, negative from the end.
-    z : float or None
-        Plane position, m.
-    name : str
-        The accessor being asked for, which a refusal names.
-    guide : solprop.modes.guide.ModalGuide
-        The guide the reference was rebuilt from, whose identity is checked
-        against the file's own.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The electric and magnetic spectra, each ``(n_nodes, 3, n_omega)``, and the
-        area weights of the nodes they live on, m^2.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the basis, the tables, the guide or the plane selection is wrong, or
-        the stored spectrum and the reference do not live on the same frequency
-        axis.
+    - ``z``: plane position, m.
+    - Returns: the electric and magnetic spectra, each ``(n_nodes, 3, n_omega)``, and
+      the area weights of the nodes they live on, m^2.
     """
     metadata = _require_general(output, name)
     _checked_tables(metadata, tables, guide)
@@ -661,7 +482,7 @@ def channel_labels(output: Output) -> tuple[ChannelLabel, ...]:
     )
 
 
-def electric_field(  # noqa: PLR0913 - a plane, a representation, a convention, a guide
+def electric_field(
     output: Output,
     tables: ModalTransformTables,
     *,
@@ -721,7 +542,7 @@ def electric_field(  # noqa: PLR0913 - a plane, a representation, a convention, 
     return _in_convention(signal, convention) if analytic else np.real(signal)
 
 
-def magnetic_field(  # noqa: PLR0913 - a plane, a representation, a convention, a guide
+def magnetic_field(
     output: Output,
     tables: ModalTransformTables,
     *,
@@ -782,21 +603,8 @@ def _longitudinal(
 ) -> Float[np.ndarray, "n_nodes n_t"]:
     """Return the longitudinal Poynting flux density of one E/H pair, in W/m^2.
 
-    Parameters
-    ----------
-    electric : numpy.ndarray
-        The electric field or its analytic signal, shape ``(n_nodes, 3, n_t)``.
-    magnetic : numpy.ndarray
-        The magnetic field or its analytic signal, same shape.
-    cycle_averaged : bool
-        Whether to take ``Re(E x conj(H))/2``, which drops the sum-frequency term,
-        or the real product ``E x H``, which keeps it.
-
-    Returns
-    -------
-    numpy.ndarray
-        The flux density, shape ``(n_nodes, n_t)``, W/m^2. Negative values are
-        interference and are never clipped.
+    - Returns: the flux density, shape ``(n_nodes, n_t)``, W/m^2. Negative values are
+      interference and are never clipped.
     """
     if cycle_averaged:
         cross = electric[:, 0] * np.conj(magnetic[:, 1]) - electric[:, 1] * np.conj(
@@ -1160,16 +968,6 @@ def _require_identity_metric(metadata: RunMetadata) -> None:
     statistic carries the weighted value, and :func:`reconstructed_flux` here
     reconstructs the physical flux from the guide's stored reference, which needs no
     metric at all.
-
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The record of a general modal run.
-
-    Raises
-    ------
-    solprop.exceptions.OutputError
-        If the recorded basis metric is not the identity.
     """
     modal = metadata.modal
     metric = modal.get("metric") if isinstance(modal, dict) else None

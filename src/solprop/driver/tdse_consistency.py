@@ -182,33 +182,14 @@ class LinearReduction:
 
 
 def _invalid(reason: str) -> LinearReduction:
-    """Return an invalid reduction with its reason.
-
-    Parameters
-    ----------
-    reason : str
-        The failed validity condition.
-
-    Returns
-    -------
-    LinearReduction
-        Invalid record with no values.
-    """
+    """Return an invalid reduction with its reason."""
     return LinearReduction(False, reason)
 
 
 def _edge_ratio(values: Float[np.ndarray, " n_samples"]) -> float:
     """Return the largest endpoint magnitude relative to the peak.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        A finite record with a nonzero peak.
-
-    Returns
-    -------
-    float
-        ``max |x|`` over the first and last edge fraction, over ``max |x|``.
+    - ``values``: a finite record with a nonzero peak.
     """
     edge = max(1, round(_EDGE_FRACTION * values.size))
     ends = np.concatenate([values[:edge], values[-edge:]])
@@ -221,17 +202,10 @@ def _record_reason(
 ) -> str | None:
     """Return why the time records cannot be reduced, or None.
 
-    Parameters
-    ----------
-    drive : numpy.ndarray
-        Field in V/m.
-    first_order : numpy.ndarray
-        First-order current in C m/s.
-
-    Returns
-    -------
-    str or None
-        The failed condition: shape or finiteness, a zero record, endpoint leakage.
+    - ``drive``: field in V/m.
+    - ``first_order``: First-order current in C m/s.
+    - Returns: the failed condition: shape or finiteness, a zero record, endpoint
+      leakage.
     """
     if (
         drive.shape != first_order.shape
@@ -329,11 +303,8 @@ def _helium_reference() -> tuple[
 ]:
     """Return optmat helium's per-atom susceptibility, its support and identity.
 
-    Returns
-    -------
-    tuple
-        The susceptibility function of angular frequency, the supported angular
-        frequency interval in rad/s, and the material identity record.
+    - Returns: the susceptibility function of angular frequency, the supported angular
+      frequency interval in rad/s, and the material identity record.
     """
     helium = species("He")
     susceptibility = helium.susceptibility
@@ -357,15 +328,8 @@ def _helium_reference() -> tuple[
     ) -> Complex[np.ndarray, " n_band"]:
         """Evaluate optmat's per-atom susceptibility in m^3.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-
-        Returns
-        -------
-        numpy.ndarray
-            Complex susceptibility in the optics convention.
+        - ``omega``: angular frequencies in rad/s.
+        - Returns: complex susceptibility in the optics convention.
         """
         return np.asarray(susceptibility.susceptibility(omega), dtype=np.complex128)
 
@@ -391,18 +355,7 @@ def cache_directory() -> Path:
 
 
 def _key(inputs: Mapping[str, object]) -> str:
-    """Digest the cache key's canonical inputs.
-
-    Parameters
-    ----------
-    inputs : mapping
-        Basis identity, provider revision, material identity, wavelength, protocol.
-
-    Returns
-    -------
-    str
-        SHA-256 hex digest.
-    """
+    """Digest the cache key's canonical inputs."""
     encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
 
@@ -410,15 +363,7 @@ def _key(inputs: Mapping[str, object]) -> str:
 def _reduction_from(record: object) -> LinearReduction | None:
     """Rebuild a cached reduction, or None if malformed, non-finite or invalid.
 
-    Parameters
-    ----------
-    record : object
-        Parsed ``reduction`` record of a cache entry.
-
-    Returns
-    -------
-    LinearReduction or None
-        A valid reduction with matching finite arrays, else None.
+    - Returns: a valid reduction with matching finite arrays, else None.
     """
     # Explicit checks, not assertions: a cached entry is untrusted input, and
     # ``python -O`` would strip an assertion and admit a malformed entry.
@@ -443,15 +388,7 @@ def _reduction_from(record: object) -> LinearReduction | None:
 def _finite_floats(values: tuple[object, ...]) -> bool:
     """Return whether every value is a finite float.
 
-    Parameters
-    ----------
-    values : tuple
-        Candidate values.
-
-    Returns
-    -------
-    bool
-        True when each is a ``float`` and finite.
+    - Returns: True when each is a ``float`` and finite.
     """
     return all(isinstance(value, float) and math.isfinite(value) for value in values)
 
@@ -459,17 +396,9 @@ def _finite_floats(values: tuple[object, ...]) -> bool:
 def _cached_reduction_valid(reduction: LinearReduction) -> bool:
     """Check that a cached reduction is a complete, finite, self-consistent valid one.
 
-    Parameters
-    ----------
-    reduction : LinearReduction
-        A reduction rebuilt from a cache entry.
-
-    Returns
-    -------
-    bool
-        True only when it is marked valid without a reason, its three arrays are
-        nonempty, equally long and finite, and its summary (deviation, worst
-        wavelength and worst kappa) is finite and agrees with the arrays.
+    - Returns: True only when it is marked valid without a reason, its three arrays are
+      nonempty, equally long and finite, and its summary (deviation, worst wavelength
+      and worst kappa) is finite and agrees with the arrays.
     """
     size = len(reduction.wavelength)
     worst_kappa = reduction.worst_kappa
@@ -508,18 +437,9 @@ def _read_cache(
 ) -> tuple[LinearReduction, dict[str, object]] | None:
     """Return a cache entry whose inputs, values and validity check out.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        Entry file.
-    inputs : mapping
-        The key's inputs, which the entry must repeat exactly.
-
-    Returns
-    -------
-    tuple or None
-        The validated reduction and its computation record, or None when absent or
-        unusable (logged, never a pass).
+    - ``inputs``: the key's inputs, which the entry must repeat exactly.
+    - Returns: the validated reduction and its computation record, or None when absent
+      or unusable (logged, never a pass).
     """
     if not path.exists():
         return None
@@ -542,15 +462,7 @@ def _read_cache(
 
 
 def _write_cache(path: Path, entry: Mapping[str, object]) -> None:
-    """Write a cache entry atomically: a temporary file, then a rename.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Final entry path.
-    entry : mapping
-        JSON-compatible entry.
-    """
+    """Write a cache entry atomically: a temporary file, then a rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = tempfile.mkstemp(
         dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp"
@@ -678,13 +590,10 @@ class GateBinding(DiagnosticSource, Protocol):
         ...
 
     @property
-    def plans_built(self) -> bool:
-        """Return whether the propagation plans exist.
+    def plans_built(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the propagation plans exist.
 
-        Returns
-        -------
-        bool
-            False while a deferred binding awaits :meth:`build_plans`.
+        False while a deferred binding awaits :meth:`build_plans`.
         """
         ...
 
@@ -694,20 +603,7 @@ class GateBinding(DiagnosticSource, Protocol):
 
 
 def _decide(deviation: float, policy: TDSEConsistency) -> Outcome:
-    """Apply the bounds to a valid ``|kappa_1 - 1|`` (rules 2 to 4 of 5.4).
-
-    Parameters
-    ----------
-    deviation : float
-        Largest ``|kappa_1 - 1|``.
-    policy : TDSEConsistency
-        The bounds.
-
-    Returns
-    -------
-    {'passed', 'warned', 'refused'}
-        Passed at or below ``warn``, warned up to and including ``refuse``.
-    """
+    """Apply the bounds to a valid ``|kappa_1 - 1|`` (rules 2 to 4 of 5.4)."""
     if deviation <= policy.warn:
         return "passed"
     if deviation <= policy.refuse:
@@ -715,7 +611,7 @@ def _decide(deviation: float, policy: TDSEConsistency) -> Outcome:
     return "refused"
 
 
-def evaluate_consistency(  # noqa: PLR0913 - the check's complete context
+def evaluate_consistency(
     source: DiagnosticSource | None,
     basis: HaccBasis,
     policy: TDSEConsistency,
@@ -830,23 +726,7 @@ def evaluate_consistency(  # noqa: PLR0913 - the check's complete context
 
 
 def _deviation(value: float | None) -> float:
-    """Return a value known to be a float.
-
-    Parameters
-    ----------
-    value : float or None
-        A valid reduction's deviation.
-
-    Returns
-    -------
-    float
-        The same value.
-
-    Raises
-    ------
-    BackendError
-        If the value is missing, which a valid reduction never allows.
-    """
+    """Return a value known to be a float."""
     if value is None:
         raise BackendError("a valid kappa_1 reduction has no deviation")
     return value
@@ -1052,19 +932,7 @@ def _open_check_archive(
 ) -> TDSEArchiveWriter | None:
     """Open a new archive for a standalone check, before any atomic work.
 
-    Parameters
-    ----------
-    archive : TDSEArchive or None
-        The request.
-    basis : HaccBasis
-        The checked basis.
-    execution : TDSEExecution
-        The check's resources.
-
-    Returns
-    -------
-    TDSEArchiveWriter or None
-        The session, or None without a request.
+    - Returns: the session, or None without a request.
     """
     if archive is None:
         return None
@@ -1084,18 +952,7 @@ def _open_check_archive(
 
 
 def _fields_of(result: ConsistencyResult) -> dict[str, object]:
-    """Return a result's fields without converting nested records.
-
-    Parameters
-    ----------
-    result : ConsistencyResult
-        A result.
-
-    Returns
-    -------
-    dict
-        Field name to value.
-    """
+    """Return a result's fields without converting nested records."""
     return {name: getattr(result, name) for name in result.__dataclass_fields__}
 
 

@@ -661,7 +661,7 @@ def test_the_base_grid_has_no_layout_of_its_own():
     collar_fraction=st.floats(min_value=0.01, max_value=0.45),
 )
 @settings(max_examples=80, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-def test_every_grid_satisfies_its_invariants(  # noqa: PLR0913, PLR0917 - one parameter per hypothesis strategy
+def test_every_grid_satisfies_its_invariants(
     factory, wavelength_low, span, trange, ffac, fft_size, collar_fraction
 ):
     grid = factory.from_limits(

@@ -35,19 +35,19 @@
       "inherits": "cpu-debug",
       "binaryDir": "${sourceDir}/build/presets/cpu-sanitize",
       "cacheVariables": {
-        "SOLPROP_NATIVE_ENABLE_SANITIZERS": "ON"
+        "SOLPROP_NATIVE_ENABLE_SANITIZERS": "ON",
+        "Kokkos_ENABLE_DEBUG_BOUNDS_CHECK": "ON"
       }
     },
     {
       "name": "cpu-benchmark",
-      "displayName": "Local (vendor BLAS, machine-native) CPU benchmark build",
+      "displayName": "Local (vendor BLAS, machine-native) CPU Release build",
       "inherits": "cpu-debug",
       "binaryDir": "${sourceDir}/build/presets/cpu-benchmark",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "SOLPROP_NATIVE_ENABLE_IPO": "ON",
-        "SOLPROP_NATIVE_PROFILE": "LOCAL",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON"
+        "SOLPROP_NATIVE_PROFILE": "LOCAL"
       }
     },
     {
@@ -57,7 +57,6 @@
       "cacheVariables": {
         "BUILD_TESTING": "ON",
         "CMAKE_BUILD_TYPE": "Release",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
         "SOLPROP_NATIVE_ENABLE_CUDA": "ON",
         "SOLPROP_NATIVE_ENABLE_HIP": "OFF",
         "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
@@ -68,42 +67,11 @@
       }
     },
     {
-      "name": "cuda-custom",
-      "displayName": "NVIDIA CUDA custom-GEMM validation build",
-      "inherits": "cuda-base",
-      "binaryDir": "${sourceDir}/build/presets/cuda-custom",
-      "cacheVariables": {
-        "SOLPROP_NATIVE_GEMM_PROVIDER": "CUSTOM",
-        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "OFF"
-      }
-    },
-    {
-      "name": "cuda-native",
-      "displayName": "NVIDIA CUDA native KokkosBlas validation build",
-      "inherits": "cuda-base",
-      "binaryDir": "${sourceDir}/build/presets/cuda-native",
-      "cacheVariables": {
-        "SOLPROP_NATIVE_GEMM_PROVIDER": "KOKKOSBLAS_NATIVE",
-        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "OFF"
-      }
-    },
-    {
-      "name": "cuda-tpl",
-      "displayName": "NVIDIA CUDA cuBLAS validation build",
-      "inherits": "cuda-base",
-      "binaryDir": "${sourceDir}/build/presets/cuda-tpl",
-      "cacheVariables": {
-        "SOLPROP_NATIVE_GEMM_PROVIDER": "KOKKOSBLAS_TPL",
-        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON"
-      }
-    },
-    {
       "name": "cuda",
       "displayName": "NVIDIA CUDA hybrid production build",
       "inherits": "cuda-base",
       "binaryDir": "${sourceDir}/build/presets/cuda",
       "cacheVariables": {
-        "SOLPROP_NATIVE_GEMM_PROVIDER": "HYBRID",
         "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON"
       }
     },
@@ -115,12 +83,10 @@
       "cacheVariables": {
         "BUILD_TESTING": "ON",
         "CMAKE_BUILD_TYPE": "Release",
-        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
         "SOLPROP_NATIVE_ENABLE_CUDA": "OFF",
         "SOLPROP_NATIVE_ENABLE_HIP": "ON",
         "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
         "SOLPROP_NATIVE_HIP_ARCH": "AMD_GFX942",
-        "SOLPROP_NATIVE_GEMM_PROVIDER": "HYBRID",
         "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON",
         "SOLPROP_NATIVE_ENABLE_IPO": "OFF",
         "SOLPROP_NATIVE_HOST_ARCH": "OFF"
@@ -132,9 +98,6 @@
     {"name": "cpu-tidy", "configurePreset": "cpu-tidy"},
     {"name": "cpu-sanitize", "configurePreset": "cpu-sanitize"},
     {"name": "cpu-benchmark", "configurePreset": "cpu-benchmark"},
-    {"name": "cuda-custom", "configurePreset": "cuda-custom"},
-    {"name": "cuda-native", "configurePreset": "cuda-native"},
-    {"name": "cuda-tpl", "configurePreset": "cuda-tpl"},
     {"name": "cuda", "configurePreset": "cuda"},
     {"name": "hip", "configurePreset": "hip"}
   ]

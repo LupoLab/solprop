@@ -110,10 +110,8 @@ MIN_ROTATIONAL_LEVELS: Final = 3
 def _tensor_bundle() -> SilicaBundle:
     """Return optmat's recommended tensor bundle of fused silica, the default.
 
-    Returns
-    -------
-    SilicaBundle
-        ``SilicaBundle.resolve(tensor=True)``: Lin and Agrawal's shape (SEP 3, D11).
+    - Returns: ``SilicaBundle.resolve(tensor=True)``: Lin and Agrawal's shape (SEP 3,
+      D11).
     """
     return SilicaBundle.resolve(tensor=True)
 
@@ -150,7 +148,7 @@ class RamanModel(Protocol):
     """
 
     @property
-    def dephasing(self) -> Dephasing:
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
         """How this term's coherence decays with the local number density."""
         ...
 
@@ -508,13 +506,10 @@ class RotationalLines:
             object.__setattr__(self, name, array)
 
     @property
-    def n_lines(self) -> int:
-        """Return the number of ``J -> J + 2`` transitions.
+    def n_lines(self) -> int:  # numpydoc ignore=RT01
+        """Number of ``J -> J + 2`` transitions.
 
-        Returns
-        -------
-        int
-            Two fewer than the number of levels.
+        Two fewer than the number of levels.
         """
         return int(self.frequencies.size)
 
@@ -789,26 +784,20 @@ class IntermediateBroadening:
     amplitude: float = 1.0
 
     @property
-    def dephasing(self) -> Dephasing:
-        """Return the density-dependent dephasing, which for a glass is none.
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
+        """Density-dependent dephasing, which for a glass is none.
 
-        Returns
-        -------
-        Dephasing
-            A dephasing whose factor is one everywhere; the Lorentzian widths of
-            :attr:`lines` already carry the decay.
+        A dephasing whose factor is one everywhere; the Lorentzian widths of
+        :attr:`lines` already carry the decay.
         """
         return undamped_dephasing()
 
     @property
-    def raw_integral(self) -> float:
-        """Return the integral of the unnormalised line sum over the positive axis.
+    def raw_integral(self) -> float:  # numpydoc ignore=RT01
+        """Integral of the unnormalised line sum over the positive axis.
 
-        Returns
-        -------
-        float
-            ``sum_i A_i Im[(sqrt(pi)/Gamma_i) w((omega_i + i gamma_i)/Gamma_i)]``, in
-            the units of the tabulated amplitudes times seconds.
+        ``sum_i A_i Im[(sqrt(pi)/Gamma_i) w((omega_i + i gamma_i)/Gamma_i)]``, in
+        the units of the tabulated amplitudes times seconds.
 
         Examples
         --------
@@ -838,14 +827,11 @@ class IntermediateBroadening:
         return float(np.dot(amplitudes, per_line))
 
     @property
-    def scale(self) -> float:
-        """Return the factor the raw line sum is multiplied by.
+    def scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor the raw line sum is multiplied by.
 
-        Returns
-        -------
-        float
-            :attr:`amplitude` divided by :attr:`raw_integral`, so that the response
-            integrates to :attr:`amplitude`.
+        :attr:`amplitude` divided by :attr:`raw_integral`, so that the response
+        integrates to :attr:`amplitude`.
 
         Raises
         ------
@@ -919,24 +905,10 @@ def _check_evaluate(
     ``kind`` is a plain string rather than :data:`solprop.fourier.GridKind` for the
     reason given in :func:`solprop.nonlinear.responses._check_evaluate`.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The samples passed as ``field_t``.
-    kind : str
-        Layout name to check.
-    dt : float
-        Sample spacing of the fine grid, s.
-    max_components : int, optional
-        How many Cartesian components the caller carries: two for the legacy
-        routes, whose transverse state is at most two-component, and three for the
-        general modal guide's tensor responses.
-
-    Raises
-    ------
-    GridError
-        If the layout is unknown, the array shape or dtype does not match it, the
-        sample spacing is not positive, or samples are not finite numbers.
+    - ``dt``: sample spacing of the fine grid, s.
+    - ``max_components``: how many Cartesian components the caller carries: two for the
+      legacy routes, whose transverse state is at most two-component, and three for the
+      general modal guide's tensor responses.
     """
     if kind not in ("field", "envelope"):
         msg = f"kind must be 'field' or 'envelope', got {kind!r}"
@@ -1030,16 +1002,6 @@ def _half_modulus_squared(
 
     ``abs(z) ** 2`` rounds twice and can miss the exact answer for an integer-valued
     complex number; the sum of squares is both closer and cheaper.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Complex samples, shape ``(n_to,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Half the squared modulus, real, shape ``(n_to,)``.
     """
     return 0.5 * (np.real(values) ** 2 + np.imag(values) ** 2)
 
@@ -1080,10 +1042,7 @@ class RamanTensorTerm:
 def _check_density(density: float) -> None:
     """Reject a non-finite or negative molecular number density.
 
-    Parameters
-    ----------
-    density : float
-        Number density in m^-3.
+    - ``density``: number density in m^-3.
     """
     if not math.isfinite(density) or density < 0.0:
         raise MaterialError(
@@ -1095,15 +1054,7 @@ def _check_density(density: float) -> None:
 def _check_delays(t: Float[np.ndarray, " n_to"]) -> Float[np.ndarray, " n_to"]:
     """Validate finite real delays before evaluating molecular models.
 
-    Parameters
-    ----------
-    t : numpy.ndarray
-        Delays in s, shape ``(n_to,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite real delays as float64.
+    - ``t``: delays in s, shape ``(n_to,)``.
     """
     times = np.asarray(t)
     if times.ndim != 1 or not np.issubdtype(times.dtype, np.number):
@@ -1120,19 +1071,11 @@ def _causal_convolution(
 ) -> Float[np.ndarray, "... n_to"]:
     """Evaluate a causal convolution with doubled padding along the last axis.
 
-    Parameters
-    ----------
-    kernel : numpy.ndarray
-        Causal kernel in m^5 V^-2 s^-1, shape ``(n_to,)``.
-    drive : numpy.ndarray
-        Real quadratic drive in V^2/m^2, with ``n_to`` samples on its last axis.
-    dt : float
-        Positive temporal spacing in s.
-
-    Returns
-    -------
-    numpy.ndarray
-        Causal integral with the drive's shape, in m^3.
+    - ``kernel``: causal kernel in m^5 V^-2 s^-1, shape ``(n_to,)``.
+    - ``drive``: real quadratic drive in V^2/m^2, with ``n_to`` samples on its last
+      axis.
+    - ``dt``: positive temporal spacing in s.
+    - Returns: causal integral with the drive's shape, in m^3.
     """
     n_to = kernel.size
     spectrum = np.fft.rfft(kernel, n=2 * n_to) * dt
@@ -1148,19 +1091,10 @@ def _quadratic_tensor(
 ) -> Float[np.ndarray, "n_pol n_pol n_to"]:
     """Form the real molecular drive, retaining delayed off-diagonal coherence.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Local field in V/m, shape ``(n_pol, n_to)``.
-    kind : {'field', 'envelope'}
-        Temporal representation.
-    thg : bool
-        Keep the instantaneous real-field drive; ignored for envelopes.
-
-    Returns
-    -------
-    numpy.ndarray
-        Real symmetric quadratic tensor in V^2/m^2, shape ``(n_pol, n_pol, n_to)``.
+    - ``values``: local field in V/m, shape ``(n_pol, n_to)``.
+    - ``thg``: keep the instantaneous real-field drive; ignored for envelopes.
+    - Returns: real symmetric quadratic tensor in V^2/m^2, shape ``(n_pol, n_pol,
+      n_to)``.
     """
     if kind == "field" and thg:
         return np.real(values[:, None, :] * values[None, :, :])
@@ -1279,47 +1213,35 @@ class RamanResponse:
         object.__setattr__(self, "species", species)
 
     @property
-    def models(self) -> tuple[RamanModel, ...]:
-        """Return the scalar models in declaration order.
+    def models(self) -> tuple[RamanModel, ...]:  # numpydoc ignore=RT01
+        """Scalar models in declaration order.
 
-        Returns
-        -------
-        tuple of RamanModel
-            A derived compatibility view; replace ``tensor_terms`` to update models.
+        A derived compatibility view; replace ``tensor_terms`` to update models.
         """
         return tuple(term.model for term in self.tensor_terms)
 
     @property
-    def tensor_capable(self) -> bool:
-        """Return whether every term has an established vector contraction.
+    def tensor_capable(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every term has an established vector contraction.
 
-        Returns
-        -------
-        bool
-            False if any term is declared ``scalar_only``.
+        False if any term is declared ``scalar_only``.
         """
         return all(term.contraction != "scalar_only" for term in self.tensor_terms)
 
     @property
-    def scale(self) -> float:
-        """Return the overall multiplier the response carries.
+    def scale(self) -> float:  # numpydoc ignore=RT01
+        """Overall multiplier the response carries.
 
-        Returns
-        -------
-        float
-            :attr:`fraction`, or 1.0 when it is ``None``.
+        :attr:`fraction`, or 1.0 when it is ``None``.
         """
         return 1.0 if self.fraction is None else self.fraction
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the Raman response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the Raman response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution on both grids consuming the density path. Tensor-capable
-            declarations couple Cartesian components; other declarations are scalar.
+        A convolution on both grids consuming the density path. Tensor-capable
+        declarations couple Cartesian components; other declarations are scalar.
 
         Examples
         --------
@@ -1513,21 +1435,10 @@ class RamanResponse:
     ) -> Num[np.ndarray, "2 n_to"]:
         """Contract the molecular tensor directly, independently of backend layout.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            Local Cartesian field in V/m, shape ``(2, n_to)``.
-        density : float
-            Non-negative number density in m^-3.
-        kind : {'field', 'envelope'}
-            Temporal representation.
-        dt : float
-            Positive temporal spacing in s.
-
-        Returns
-        -------
-        numpy.ndarray
-            Cartesian polarisation in C/m^2, shape ``(2, n_to)``.
+        - ``values``: local Cartesian field in V/m, shape ``(2, n_to)``.
+        - ``density``: Non-negative number density in m^-3.
+        - ``dt``: positive temporal spacing in s.
+        - Returns: Cartesian polarisation in C/m^2, shape ``(2, n_to)``.
         """
         quadratic = _quadratic_tensor(values, kind=kind, thg=self.thg)
         trace = quadratic[0, 0] + quadratic[1, 1]
@@ -1722,10 +1633,7 @@ class SilicaTensorResponse(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         parameters = self.parameters
         if isinstance(parameters, SilicaBundle):
@@ -1772,14 +1680,11 @@ class SilicaTensorResponse(Displayed):
         ]
 
     @property
-    def fraction(self) -> float:
-        """Return the Raman fraction ``f_R`` the parameters declare.
+    def fraction(self) -> float:  # numpydoc ignore=RT01
+        """Raman fraction ``f_R`` the parameters declare.
 
-        Returns
-        -------
-        float
-            A share of the medium's third-order susceptibility, in ``(0, 1]``: an
-            optmat bundle's own ``f_R``.
+        A share of the medium's third-order susceptibility, in ``(0, 1]``: an
+        optmat bundle's own ``f_R``.
         """
         parameters = self.parameters
         if isinstance(parameters, SilicaBundle):
@@ -1787,26 +1692,17 @@ class SilicaTensorResponse(Displayed):
         return float(parameters.fraction)
 
     @property
-    def instantaneous_share(self) -> float:
-        """Return ``1 - f_R``, the share the instantaneous Kerr term keeps.
-
-        Returns
-        -------
-        float
-            A dimensionless share in ``[0, 1)``.
-        """
+    def instantaneous_share(self) -> float:  # numpydoc ignore=RT01
+        """``1 - f_R``, the share in ``[0, 1)`` the instantaneous Kerr term keeps."""
         return 1.0 - self.fraction
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of this response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of this response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution on a field grid, coupling Cartesian components, with no
-            density path at all: a glass has none, and the magnitude comes from
-            the region's own ``chi3``.
+        A convolution on a field grid, coupling Cartesian components, with no
+        density path at all: a glass has none, and the magnitude comes from
+        the region's own ``chi3``.
 
         Examples
         --------
@@ -1898,17 +1794,8 @@ class SilicaTensorResponse(Displayed):
     ]:
         """Weight Lin and Agrawal's two shapes into Hellwarth's ``a`` and ``b``.
 
-        Parameters
-        ----------
-        shape_a : numpy.ndarray
-            ``h_a``, in 1/s, or a one-element array of its one-sided limit.
-        shape_b : numpy.ndarray
-            ``h_b``, on the same samples.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            ``a = w_a h_a`` and ``b = w_b h_b + w_ab h_a``, in the inputs' units.
+        - ``shape_a``: ``h_a``, in 1/s, or a one-element array of its one-sided limit.
+        - Returns: ``a = w_a h_a`` and ``b = w_b h_b + w_ab h_a``, in the inputs' units.
         """
         parameters = cast("LinAgrawalRaman", self.parameters)
         isotropic = parameters.isotropic_weight * shape_a
@@ -1959,10 +1846,7 @@ class SilicaTensorResponse(Displayed):
     def _limits(self) -> Float[np.ndarray, "2 1"]:
         """Return the right-hand limits of ``a`` and ``b`` at zero delay.
 
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(2, 1)`` in 1/s.
+        - Returns: shape ``(2, 1)`` in 1/s.
         """
         parameters = self.parameters
         if isinstance(parameters, SilicaBundle):
@@ -1984,18 +1868,9 @@ class SilicaTensorResponse(Displayed):
     ) -> Float[np.ndarray, "2 n_channel_samples"]:
         """Combine Hellwarth's ``a`` and ``b`` into the trace and rank-two channels.
 
-        Parameters
-        ----------
-        hellwarth_a : numpy.ndarray
-            ``a``, in 1/s, or a one-element array of its one-sided limit.
-        hellwarth_b : numpy.ndarray
-            ``b``, on the same samples.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``a + b/3`` and ``2 b/3`` stacked along a leading axis, in the inputs'
-            units.
+        - ``hellwarth_a``: ``a``, in 1/s, or a one-element array of its one-sided limit.
+        - Returns: ``a + b/3`` and ``2 b/3`` stacked along a leading axis, in the
+          inputs' units.
         """
         return np.stack([hellwarth_a + hellwarth_b / 3.0, 2.0 * hellwarth_b / 3.0])
 
@@ -2173,7 +2048,7 @@ class SilicaTensorResponse(Displayed):
         return (EPS0 * chi3) * polarisation
 
 
-def _optmat_response(
+def _optmat_response(  # noqa: PLR0917 - called positionally
     gas: str,
     options: MolecularOptions | None,
     selection: MaterialSelection,
@@ -2183,30 +2058,7 @@ def _optmat_response(
 ) -> RamanResponse:
     """Build a gas's Raman response from optmat for :func:`response_for`.
 
-    Parameters
-    ----------
-    gas : str
-        The species' name.
-    options : MolecularOptions or None
-        Term flags and temperature.
-    selection : MaterialSelection
-        The selection.
-    fraction : float or None
-        Refused: the response is absolute.
-    thg : bool
-        Whether a field grid keeps the third harmonic.
-    density : float or None
-        The fill's constant density in m^-3.
-
-    Returns
-    -------
-    RamanResponse
-        The response from optmat, on solprop's terms.
-
-    Raises
-    ------
-    MaterialError
-        With a fraction, or as optmat's adapter refuses.
+    - ``density``: the fill's constant density in m^-3.
     """
     from solprop.nonlinear.optmat_raman import gas_raman  # noqa: PLC0415 - a cycle
 
@@ -2229,15 +2081,7 @@ def _right_limit(
     rounds alike), so it cancels to an exact zero, and a jump, the boson peak's
     ``2 / tau_b``, is the same at both and survives.
 
-    Parameters
-    ----------
-    function : callable
-        The response of a delay array in s, in 1/s.
-
-    Returns
-    -------
-    numpy.ndarray
-        The limit, shape ``(1,)``.
+    - ``function``: the response of a delay array in s, in 1/s.
     """
     tiny = np.finfo(float).tiny
     return 2.0 * function(np.full(1, tiny)) - function(np.full(1, 2.0 * tiny))
@@ -2326,36 +2170,24 @@ class SampledShape:
             raise MaterialError(msg)
 
     @property
-    def name(self) -> str:
-        """Return the term's name: the bundle's and the channel.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The term's name: the bundle's and the channel.
 
-        Returns
-        -------
-        str
-            For example ``"silica_bundle/default:parallel"``.
+        For example ``"silica_bundle/default:parallel"``.
         """
         return f"{self.bundle.name}:{self.channel}"
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the bundle the term samples.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the bundle the term samples.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The bundle's, its Kerr fit's and its shape's.
+        The bundle's, its Kerr fit's and its shape's.
         """
         return self.bundle.material_records
 
     @property
-    def dephasing(self) -> Dephasing:
-        """Return the density-dependent dephasing, which for a glass is none.
-
-        Returns
-        -------
-        Dephasing
-            A dephasing whose factor is one everywhere.
-        """
+    def dephasing(self) -> Dephasing:  # numpydoc ignore=RT01
+        """Density-dependent dephasing, which for a glass is none."""
         return undamped_dephasing()
 
     def shape(self, t: Float[np.ndarray, " n_to"]) -> Float[np.ndarray, " n_to"]:
@@ -2494,24 +2326,10 @@ def _molecular_models(
 ) -> tuple[RamanTensorTerm, ...]:
     """Build the requested terms of a molecular gas's Raman response.
 
-    Parameters
-    ----------
-    parameters : MolecularRaman
-        The species' available molecular data.
-    options : MolecularOptions
-        Which parts to build, and the thermodynamic state; a term flag of ``None``
-        takes the term when the species has it, ``True`` requires it.
-
-    Returns
-    -------
-    tuple of RamanTensorTerm
-        The rotational ladder first, then the vibrational mode; either may be absent.
-
-    Raises
-    ------
-    MaterialError
-        If a required term has no model, both parts are switched off, or neither
-        exists for this gas.
+    - ``options``: which parts to build, and the thermodynamic state; a term flag of
+      ``None`` takes the term when the species has it, ``True`` requires it.
+    - Returns: the rotational ladder first, then the vibrational mode; either may be
+      absent.
     """
     for selected, data, name in (
         (options.rotation, parameters.rotational, "rotational"),
@@ -2552,7 +2370,7 @@ def _molecular_models(
     return tuple(models)
 
 
-def response_for(  # noqa: PLR0913 - the material, its options and the response's switches
+def response_for(
     material: Gas | str | Species,
     options: MolecularOptions | None = None,
     *,
@@ -2648,7 +2466,7 @@ def response_for(  # noqa: PLR0913 - the material, its options and the response'
     )
 
 
-def _supplied_response(
+def _supplied_response(  # noqa: PLR0917 - called positionally
     material: Species,
     options: MolecularOptions | None,
     fraction: float | None,
@@ -2658,31 +2476,7 @@ def _supplied_response(
 ) -> RamanResponse:
     """Build a caller's species' Raman response from its own molecular constants.
 
-    Parameters
-    ----------
-    material : Species
-        A supplied species, never matched to a built-in gas by its name.
-    options : MolecularOptions or None
-        Term flags and temperature.
-    fraction : float or None
-        Refused: the response is absolute.
-    thg : bool
-        Whether a field grid keeps the third harmonic.
-    selection : MaterialSelection or None
-        Refused: a selection names optmat's models, not a caller's.
-    density : float or None
-        Refused: it belongs to an optmat response.
-
-    Returns
-    -------
-    RamanResponse
-        One term per part of the spectrum.
-
-    Raises
-    ------
-    MaterialError
-        If the species has no Raman constants, or a fraction, selection or density
-        is given.
+    A supplied species is never matched to a built-in gas by its name.
     """
     if selection is not None or density is not None:
         msg = (

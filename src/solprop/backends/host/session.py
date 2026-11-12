@@ -127,7 +127,7 @@ class HostSession:
         If `driver` is not a reference driver.
     """
 
-    def __init__(  # noqa: PLR0913 - the session context
+    def __init__(
         self,
         driver: Backend,
         problem: PropagationProblem,
@@ -189,36 +189,18 @@ class HostSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def driver(self) -> HostStepping:
-        """Return the reference backend, whose facts the service loop records.
-
-        Returns
-        -------
-        solprop.backends.protocol.HostStepping
-            The backend, through the host stepping seam.
-        """
+    def driver(self) -> HostStepping:  # numpydoc ignore=RT01
+        """Reference backend, whose facts the service loop records."""
         return self._driver
 
     @property
-    def finished(self) -> bool:
-        """Return whether the session yielded its terminal event.
-
-        Returns
-        -------
-        bool
-            True once finished.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session yielded its terminal event."""
         return self._ledger.finished
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def status(self) -> SessionStatus:
@@ -501,13 +483,10 @@ class HostSession:
         return self._driver.march_export_refusal()
 
     @property
-    def march_refusal(self) -> str | None:
-        """Return why the start's method history could not be installed.
+    def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
+        """Why the start's method history could not be installed.
 
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it was installed or the start carried none.
+        The reason, or ``None`` when it was installed or the start carried none.
         """
         return self._march_refusal
 
@@ -538,7 +517,7 @@ class HostSession:
             if self._owns:
                 self._driver.close()
 
-    def __enter__(self) -> "HostSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "HostSession":
         """Return the session.
 
         Returns
@@ -585,13 +564,7 @@ class HostSession:
         self._driver.attach_monitor(self._monitor)
 
     def _account(self, summary: StepSummary) -> None:
-        """Advance the committed position and the state generation.
-
-        Parameters
-        ----------
-        summary : solprop.backends.protocol.StepSummary
-            What the propagation did.
-        """
+        """Advance the committed position and the state generation."""
         self._stepped = self._stepped or summary.n_steps > summary.n_rejected
         self._z = float(summary.z)
         self._generation += 1
@@ -600,32 +573,11 @@ class HostSession:
         """Observe the driver, draining its attempts and rows since the last drain.
 
         Every attempt is drained exactly once, so the status counts them here.
-
-        Parameters
-        ----------
-        field : bool
-            Whether the field crosses too.
-
-        Returns
-        -------
-        solprop.backends.protocol.Observation
-            The observation.
         """
         return self._counted(self._driver.observe(field=field))
 
     def _counted(self, observed: Observation) -> Observation:
-        """Count a drained observation's attempts into the status.
-
-        Parameters
-        ----------
-        observed : solprop.backends.protocol.Observation
-            Attempts drained from the driver, once.
-
-        Returns
-        -------
-        solprop.backends.protocol.Observation
-            The same observation.
-        """
+        """Count a drained observation's attempts into the status."""
         self._attempts += observed.n_steps
         self._rejected += observed.n_rejected
         return observed
@@ -637,11 +589,8 @@ class HostSession:
         abandoned step are drained from the driver's record instead
         (:meth:`~solprop.backends.host.driver.HostDriver.drain_attempts`).
 
-        Returns
-        -------
-        tuple
-            The attempts and the rows (without a batch axis), delivered by exactly one
-            event (:mod:`solprop.backends.events`).
+        - Returns: the attempts and the rows (without a batch axis), delivered by
+          exactly one event (:mod:`solprop.backends.events`).
         """
         drained = (
             self._counted(self._host.drain_attempts())
@@ -655,10 +604,7 @@ class HostSession:
     def _at_endpoint(self) -> bool:
         """Return whether the driver stands at an accepted endpoint.
 
-        Returns
-        -------
-        bool
-            False while a dense observation holds the state between endpoints.
+        - Returns: False while a dense observation holds the state between endpoints.
         """
         # The starting position is no accepted endpoint of this session: an Adams
         # march holds no history there to snapshot.
@@ -669,17 +615,7 @@ class HostSession:
     ) -> EventBatch:
         """Issue a batch of events under a new receipt.
 
-        Parameters
-        ----------
-        events : list
-            The events; tickets are bound to the receipt here.
-        outcome : solprop.backends.events.Outcome or None, optional
-            The terminal outcome, when the batch ends the session.
-
-        Returns
-        -------
-        solprop.backends.events.EventBatch
-            The batch.
+        - ``outcome``: the terminal outcome, when the batch ends the session.
         """
         receipt = self._ledger.issue(outcome=outcome)
         return EventBatch(receipt, tuple(bind(event, receipt) for event in events))
@@ -687,32 +623,14 @@ class HostSession:
     def _ticket(self) -> ExportTicket:
         """Return an unbound ticket for the current committed state.
 
-        Returns
-        -------
-        solprop.backends.events.ExportTicket
-            The ticket, its receipt filled in when the batch is issued.
+        - Returns: the ticket, its receipt filled in when the batch is issued.
         """
         return ExportTicket(Receipt(self._ledger.session, 0), self._generation, self._z)
 
     def _observation(
         self, kind: ObservationKind, plane: int, summary: StepSummary
     ) -> EventBatch:
-        """Observe the driver field-free and report it.
-
-        Parameters
-        ----------
-        kind : solprop.backends.events.ObservationKind
-            Why it was observed.
-        plane : int
-            The save plane it answers.
-        summary : solprop.backends.protocol.StepSummary
-            The propagation that reached it.
-
-        Returns
-        -------
-        solprop.backends.events.EventBatch
-            One observation.
-        """
+        """Observe the driver field-free and report it."""
         history, rows = self._chunk()
         self._fields.release()
         try:
@@ -737,11 +655,6 @@ class HostSession:
         It delivers the attempts and rows since the previous event; the consumer joins
         them to those it holds since the previous observation for the running
         checkpoint, and keeps them for the next plane (SEP 47 section 5.5).
-
-        Returns
-        -------
-        solprop.backends.events.EventBatch
-            The snapshot request.
         """
         history, rows = self._chunk()
         self._host.clear_halt()
@@ -760,13 +673,7 @@ class HostSession:
         )
 
     def _complete(self) -> EventBatch:
-        """Run the final checks and report completion.
-
-        Returns
-        -------
-        solprop.backends.events.EventBatch
-            The terminal event.
-        """
+        """Run the final checks and report completion."""
         chunk = self._chunk()
         try:
             if self._monitor is not None and self._attached:
@@ -795,20 +702,9 @@ class HostSession:
     ) -> EventBatch:
         """Report a stop or failure at the last committed position.
 
-        Parameters
-        ----------
-        outcome : solprop.backends.events.Outcome
-            Stopped or failed.
-        error : BaseException
-            The primary failure or the stop request.
-        chunk : tuple or None, optional
-            The attempts and rows since the previous event, when already drained for
-            an event the failure replaced; drained here otherwise.
-
-        Returns
-        -------
-        solprop.backends.events.EventBatch
-            The terminal event, with a ticket when the state is valid.
+        - ``chunk``: the attempts and rows since the previous event, when already
+          drained for an event the failure replaced; drained here otherwise.
+        - Returns: the terminal event, with a ticket when the state is valid.
         """
         poisoned = self._host.in_flight is not None
         history, rows = self._chunk() if chunk is None else chunk
@@ -867,14 +763,8 @@ class HostPrepared:
         self._closed = False
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The backend's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         return self._driver.name
 
     def start(

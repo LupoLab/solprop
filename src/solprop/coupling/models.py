@@ -238,13 +238,10 @@ class CouplingModel:
             raise CouplingError(msg)
 
     @property
-    def cone(self) -> float:
-        """Return the admitted cone half-angle of the budget.
+    def cone(self) -> float:  # numpydoc ignore=RT01
+        """Admitted cone half-angle of the budget, rad.
 
-        Returns
-        -------
-        float
-            :func:`cone_angle` of `model_error`, rad.
+        :func:`cone_angle` of `model_error`.
 
         Raises
         ------
@@ -312,19 +309,8 @@ def _hankel_core(
     within 1e-4 of :math:`q = u`, where the quotient cancels, the integral is
     evaluated by quadrature instead.
 
-    Parameters
-    ----------
-    u : float
-        The profile's dimensionless transverse wavenumber.
-    q : numpy.ndarray
-        :math:`\kappa a`, dimensionless, shape ``(n_k,)``.
-    radius : float
-        The core radius a, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The integral in m^2, shape ``(n_k,)``.
+    - ``radius``: the core radius a, m.
+    - Returns: the integral in m^2, shape ``(n_k,)``.
     """
     q = np.asarray(q, dtype=np.float64)
     near = np.abs(q - u) < 1e-4 * max(u, 1.0)
@@ -354,19 +340,8 @@ def _hankel_cladding(
     /(\alpha^2 + \beta^2)` of :math:`xK_0(\alpha x)J_0(\beta x)`, which vanishes at
     infinity: :math:`a^2[wK_1(w)J_0(q) - qK_0(w)J_1(q)]/(w^2 + q^2)`.
 
-    Parameters
-    ----------
-    w : float
-        The profile's dimensionless cladding decay.
-    q : numpy.ndarray
-        :math:`\kappa a`, dimensionless, shape ``(n_k,)``.
-    radius : float
-        The core radius a, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The integral in m^2, shape ``(n_k,)``.
+    - ``radius``: the core radius a, m.
+    - Returns: the integral in m^2, shape ``(n_k,)``.
     """
     q = np.asarray(q, dtype=np.float64)
     return radius * radius * (w * k1(w) * j0(q) - q * k0(w) * j1(q)) / (w * w + q * q)
@@ -380,22 +355,8 @@ def _lp_parameter(v: float, m: int) -> tuple[float, float]:
     :math:`UJ_1(U)K_0(W) - WK_1(W)J_0(U) = 0` and bracketed between consecutive
     zeros of :math:`J_1`, where the :math:`m`-th root lies.
 
-    Parameters
-    ----------
-    v : float
-        The normalised frequency V.
-    m : int
-        Radial order, at least 1.
-
-    Returns
-    -------
-    tuple of float
-        U and W.
-
-    Raises
-    ------
-    CouplingError
-        If the mode is below its cutoff at this V.
+    - ``v``: the normalised frequency V.
+    - ``m``: radial order, at least 1.
     """
     lower = 0.0 if m == 1 else float(jn_zeros(1, m - 1)[-1])
     if v <= lower * (1.0 + 1e-9):
@@ -404,18 +365,7 @@ def _lp_parameter(v: float, m: int) -> tuple[float, float]:
     upper = min(float(jn_zeros(0, m)[-1]), v)
 
     def equation(u: float) -> float:
-        """Return the pole-free characteristic function at U.
-
-        Parameters
-        ----------
-        u : float
-            The core parameter U.
-
-        Returns
-        -------
-        float
-            The function's value, zero at an eigenvalue.
-        """
+        """Return the pole-free characteristic function at U."""
         w = math.sqrt(max(v * v - u * u, 0.0))
         # Exponentially scaled K keeps W large finite; the common factor exp(-W)
         # is positive and does not move the root.
@@ -429,16 +379,8 @@ def _lp_parameter(v: float, m: int) -> tuple[float, float]:
 def _waveguide_of(mode: Mode) -> Mode:
     """Return the waveguide mode a mode-averaged fibre was built from, or the mode.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        A run's mode.
-
-    Returns
-    -------
-    solprop.modes.protocol.Mode
-        The capillary or step-index mode its dispersion forwards to, when it has
-        one; otherwise `mode` itself.
+    - Returns: the capillary or step-index mode its dispersion forwards to, when it has
+      one; otherwise `mode` itself.
     """
     inner = getattr(getattr(mode, "dispersion", None), "mode", None)
     return inner if isinstance(inner, MarcatiliMode | StepIndexMode) else mode
@@ -589,25 +531,16 @@ class ScalarModeBasis:
         return values
 
     @property
-    def n_modes(self) -> int:
-        """Return the number of channels.
-
-        Returns
-        -------
-        int
-            ``len(labels)``.
-        """
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """Number of channels."""
         return len(self.labels)
 
     def _square_integrals(self) -> Float[np.ndarray, " n_modes"]:
         r"""Return :math:`\int|\hat v_m|^2dA` of each unnormalised profile, m^2.
 
-        Returns
-        -------
-        numpy.ndarray
-            Shape ``(n_modes,)``: :math:`\pi a^2J_1(u)^2` for a capillary profile,
-            :math:`\pi a^2[J_0^2 + J_1^2](U) + \pi a^2(J_0(U)/K_0(W))^2
-            [K_1^2 - K_0^2](W)` for an LP profile.
+        - Returns: shape ``(n_modes,)``: :math:`\pi a^2J_1(u)^2` for a capillary
+          profile, :math:`\pi a^2[J_0^2 + J_1^2](U) + \pi a^2(J_0(U)/K_0(W))^2 [K_1^2 -
+          K_0^2](W)` for an LP profile.
         """
         area = math.pi * self.radius**2
         core = area * (j0(self.u) ** 2 + j1(self.u) ** 2)
@@ -736,7 +669,7 @@ class ScalarModeBasis:
     @classmethod
     def from_modes(
         cls, modes: Sequence[Mode], grid: TimeGrid, z: float = 0.0
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the scalar profiles of an ordinary mode set at a plane.
 
         Admitted are a capillary's :math:`HE_{1m}` modes (Marcatili; the scalar
@@ -801,31 +734,10 @@ class ScalarModeBasis:
         index: Float[np.ndarray, "n_modes n_omega"],
         grid: TimeGrid,
         z: float,
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the J0 profiles of capillary HE1m modes.
 
-        Parameters
-        ----------
-        modes : sequence of MarcatiliMode
-            The modes.
-        labels : tuple of str
-            Their labels.
-        index : numpy.ndarray
-            Their real effective indices, shape ``(n_modes, n_omega)``.
-        grid : solprop.grid.TimeGrid
-            The temporal grid, for the core gas's index.
-        z : float
-            The plane's position, m.
-
-        Returns
-        -------
-        ScalarModeBasis
-            The profiles.
-
-        Raises
-        ------
-        CouplingError
-            For a family other than HE1m, or modes of different radii.
+        - ``z``: the plane's position, m.
         """
         radii = {float(mode.dimlimits(z)[2][0]) for mode in modes}
         if len(radii) != 1:
@@ -868,31 +780,10 @@ class ScalarModeBasis:
         index: Float[np.ndarray, "n_modes n_omega"],
         grid: TimeGrid,
         z: float,
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the weak-guidance LP0m profiles of step-index HE1m modes.
 
-        Parameters
-        ----------
-        modes : sequence of StepIndexMode
-            The modes, of one fibre.
-        labels : tuple of str
-            Their labels.
-        index : numpy.ndarray
-            Their real effective indices, shape ``(n_modes, n_omega)``.
-        grid : solprop.grid.TimeGrid
-            The temporal grid.
-        z : float
-            The plane's position, m.
-
-        Returns
-        -------
-        ScalarModeBasis
-            The profiles, frozen at the modes' profile wavelength.
-
-        Raises
-        ------
-        CouplingError
-            For a family other than HE1m, or modes of different fibres.
+        - ``z``: the plane's position, m.
         """
         first = modes[0]
         for mode, label in zip(modes, labels, strict=True):

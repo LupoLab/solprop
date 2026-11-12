@@ -729,8 +729,9 @@ namespace detail {
 /** Whether a view of `Memory` lives where `Space` runs and not on the host. */
 template <class Space, class Memory>
 inline constexpr bool device_resident =
-    Kokkos::SpaceAccessibility<Space, Memory>::accessible &&
-    !Kokkos::SpaceAccessibility<Kokkos::HostSpace, Memory>::accessible;
+    static_cast<bool>(Kokkos::SpaceAccessibility<Space, Memory>::accessible) &&
+    !static_cast<bool>(
+        Kokkos::SpaceAccessibility<Kokkos::HostSpace, Memory>::accessible);
 
 /** A copy or fill between device buffers, whose kernel (if Kokkos needs one) passes
     its views as its argument. */

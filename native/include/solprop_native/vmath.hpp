@@ -7,10 +7,10 @@
 #include <cmath>
 #include <cstddef>
 
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
-#include <cstring>
-
+#ifdef SOLPROP_NATIVE_VECTOR_MATH_SLEEF
 #include <sleef.h>
+
+#include <cstring>
 #endif
 
 /*
@@ -137,7 +137,7 @@ struct Lanes {
 #error "solprop-native: SLEEF vector maths needs an x86-64 or aarch64 target"
 #endif
 
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
+#ifdef SOLPROP_NATIVE_VECTOR_MATH_SLEEF
 inline constexpr bool vectorised = true;
 inline constexpr std::size_t width = Lanes::width;
 // The variant, for the build record.

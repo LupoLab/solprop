@@ -78,8 +78,8 @@ elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
     "The NVIDIA validation build requires GNU C++; "
     "found ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}.")
 elseif(NOT SOLPROP_NATIVE_ENABLE_HIP AND
-       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|IntelLLVM|Clang|AMDClang)$")
-  message(FATAL_ERROR "Linux CPU builds require GNU C++, IntelLLVM, or Clang/AOCC.")
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AMDClang)$")
+  message(FATAL_ERROR "Linux CPU builds require GNU C++ or Clang/AOCC.")
 elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
        CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
   # The CPU reference compiler below, for the host pass of nvcc_wrapper too: GCC 13
@@ -115,48 +115,17 @@ if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
   add_compile_options(-fno-fast-math)
 endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 2022)
-    message(FATAL_ERROR "Kokkos CPU builds require IntelLLVM 2022 or newer.")
-  endif()
-  # icpx defaults to fast floating-point transformations. The adaptive error
-  # estimate requires precise arithmetic in project and dependency templates.
-  add_compile_options(-fp-model=precise)
-  # CMake can find the distribution's older LLVM archiver even when icpx is
-  # newer. LTO objects require the archive tools shipped with that compiler.
-  foreach(_tool IN ITEMS ar ranlib)
-    execute_process(COMMAND "${CMAKE_CXX_COMPILER}" "-print-prog-name=llvm-${_tool}"
-      OUTPUT_VARIABLE _intel_tool OUTPUT_STRIP_TRAILING_WHITESPACE
-      COMMAND_ERROR_IS_FATAL ANY)
-    if(NOT EXISTS "${_intel_tool}")
-      message(FATAL_ERROR "icpx could not locate its llvm-${_tool}: ${_intel_tool}")
-    endif()
-    string(TOUPPER "${_tool}" _tool_upper)
-    set(CMAKE_CXX_COMPILER_${_tool_upper} "${_intel_tool}" CACHE FILEPATH
-        "Archive tool matching IntelLLVM bitcode" FORCE)
-    set(CMAKE_CXX_COMPILER_${_tool_upper} "${_intel_tool}")
-  endforeach()
-  # CMake 3.28 expands these paths during project(), before the correction above.
-  set(CMAKE_CXX_ARCHIVE_CREATE_IPO
-      "\"${CMAKE_CXX_COMPILER_AR}\" cr <TARGET> <LINK_FLAGS> <OBJECTS>")
-  set(CMAKE_CXX_ARCHIVE_APPEND_IPO
-      "\"${CMAKE_CXX_COMPILER_AR}\" r <TARGET> <LINK_FLAGS> <OBJECTS>")
-  set(CMAKE_CXX_ARCHIVE_FINISH_IPO
-      "\"${CMAKE_CXX_COMPILER_RANLIB}\" <TARGET>")
-endif()
-
 # solprop SEP 25: floating-point contraction (fused multiply-add) is on by default for
 # CPU builds, and the few protected blocks opt out (include/solprop_native/fp.hpp).
 # Clang's plain `-ffp-contract=fast` ignores `#pragma clang fp contract(off)` and
 # `#pragma STDC FP_CONTRACT OFF`; `fast-honor-pragmas` contracts across statements and
 # keeps the protected blocks strict. GCC ignores both pragmas: its protected functions
-# carry `optimize("fp-contract=off")` instead. icpx is Clang-based and takes the Clang
-# form after `-fp-model=precise`, which alone contracts within a statement only. The
-# flag is added after `-fno-fast-math` and `-fp-model=precise`, so neither resets it.
+# carry `optimize("fp-contract=off")` instead. The flag is added after
+# `-fno-fast-math`, so that does not reset it.
 # Device builds keep their compilers' defaults (nvcc and HIP Clang already contract).
 set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "")
 if(NOT SOLPROP_NATIVE_ENABLE_CUDA AND NOT SOLPROP_NATIVE_ENABLE_HIP)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang|IntelLLVM)$")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang)$")
     set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "-ffp-contract=fast-honor-pragmas")
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(SOLPROP_NATIVE_FP_CONTRACT_FLAG "-ffp-contract=fast")
@@ -164,11 +133,6 @@ if(NOT SOLPROP_NATIVE_ENABLE_CUDA AND NOT SOLPROP_NATIVE_ENABLE_HIP)
 endif()
 if(SOLPROP_NATIVE_FP_CONTRACT_FLAG)
   add_compile_options("${SOLPROP_NATIVE_FP_CONTRACT_FLAG}")
-  # icpx reports the deliberate override of `-fp-model=precise`'s contraction as a
-  # warning, which `-Werror` would turn into a failed build.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-    add_compile_options(-Wno-overriding-option)
-  endif()
 endif()
 
 if(WIN32)
@@ -249,16 +213,6 @@ endif()
 # SOLPROP_NATIVE_*_THREADS pools, all read once at import; OMP_NUM_THREADS does not
 # set these counts.
 option(SOLPROP_NATIVE_ENABLE_OPENMP "Use OpenMP in Kokkos and FFTW" ON)
-# Kokkos Threads (C++ threads) is the host space of a build that must add no OpenMP
-# runtime to the process: a fallback for Windows builds (solprop SEP 29). FFTW then uses its own
-# threads library, Win32 threads on Windows and POSIX threads elsewhere. It replaces
-# OpenMP, so it needs SOLPROP_NATIVE_ENABLE_OPENMP=OFF.
-option(SOLPROP_NATIVE_ENABLE_THREADS "Use Kokkos Threads and FFTW's threads library" OFF)
-if(SOLPROP_NATIVE_ENABLE_THREADS AND SOLPROP_NATIVE_ENABLE_OPENMP)
-  message(FATAL_ERROR
-    "SOLPROP_NATIVE_ENABLE_THREADS replaces OpenMP; also set "
-    "SOLPROP_NATIVE_ENABLE_OPENMP=OFF.")
-endif()
 # Three build profiles. LOCAL (the default) is the fast build for the machine it is
 # built on: a vendor BLAS, that machine's own architecture and checked IPO.
 # DISTRIBUTION is the build for wheels that run on other machines: a documented CPU
@@ -289,12 +243,6 @@ option(SOLPROP_NATIVE_ENABLE_CLANG_TIDY
        "Run clang-tidy while compiling project-owned C++ sources" OFF)
 option(SOLPROP_NATIVE_ENABLE_SANITIZERS
        "Instrument project targets with AddressSanitizer and UBSan" OFF)
-option(SOLPROP_NATIVE_BUILD_BENCHMARKS
-       "Build local native microbenchmarks (never installed)" OFF)
-set(SOLPROP_NATIVE_GEMM_PROVIDER "HYBRID" CACHE STRING
-    "Dense transform provider: CUSTOM, KOKKOSBLAS_NATIVE, KOKKOSBLAS_TPL, or HYBRID")
-set_property(CACHE SOLPROP_NATIVE_GEMM_PROVIDER PROPERTY STRINGS
-             CUSTOM KOKKOSBLAS_NATIVE KOKKOSBLAS_TPL HYBRID)
 set(SOLPROP_NATIVE_ENABLE_TPL_BLAS "AUTO" CACHE STRING
     "Dispatch compatible GEMMs to vendor BLAS: AUTO (the profile's BLAS), ON or OFF")
 set_property(CACHE SOLPROP_NATIVE_ENABLE_TPL_BLAS PROPERTY STRINGS AUTO ON OFF)
@@ -350,25 +298,11 @@ foreach(SOLPROP_NATIVE_DEVICE_SIZE IN ITEMS
   endif()
 endforeach()
 
-string(TOUPPER "${SOLPROP_NATIVE_GEMM_PROVIDER}"
-       SOLPROP_NATIVE_GEMM_PROVIDER)
-set(SOLPROP_NATIVE_GEMM_PROVIDERS
-    CUSTOM KOKKOSBLAS_NATIVE KOKKOSBLAS_TPL HYBRID)
-if(NOT SOLPROP_NATIVE_GEMM_PROVIDER IN_LIST SOLPROP_NATIVE_GEMM_PROVIDERS)
-  message(FATAL_ERROR
-    "SOLPROP_NATIVE_GEMM_PROVIDER must be CUSTOM, KOKKOSBLAS_NATIVE, "
-    "KOKKOSBLAS_TPL, or HYBRID; got ${SOLPROP_NATIVE_GEMM_PROVIDER}.")
-endif()
-if(SOLPROP_NATIVE_GEMM_PROVIDER STREQUAL "KOKKOSBLAS_TPL" AND
-   NOT SOLPROP_NATIVE_ENABLE_TPL_BLAS)
-  message(FATAL_ERROR
-    "KOKKOSBLAS_TPL requires SOLPROP_NATIVE_ENABLE_TPL_BLAS=ON.")
-endif()
 if(SOLPROP_NATIVE_ENABLE_CUDA AND SOLPROP_NATIVE_ENABLE_HIP)
   message(FATAL_ERROR
     "CUDA and HIP are separate build variants and cannot both be enabled.")
 endif()
-if((SOLPROP_NATIVE_ENABLE_OPENMP OR SOLPROP_NATIVE_ENABLE_THREADS) AND
+if(SOLPROP_NATIVE_ENABLE_OPENMP AND
    (SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP))
   message(FATAL_ERROR
     "Accelerator variants use a Serial host execution space; disable OpenMP.")
@@ -400,11 +334,19 @@ if(SOLPROP_NATIVE_CPU_BASELINE_FLAG)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${SOLPROP_NATIVE_CPU_BASELINE_FLAG}")
 endif()
 string(STRIP "${SOLPROP_NATIVE_COMPILER_FLAGS}" SOLPROP_NATIVE_COMPILER_FLAGS)
-string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS
-  " -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow")
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-  string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " -fp-model=precise")
+# The project's own sources' warnings, defined once: the targets compile with them and the
+# build record lists them. MSVC is not a supported compiler (Windows builds use clang++).
+set(SOLPROP_NATIVE_WARNING_FLAGS
+    -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wundef
+    -Wnon-virtual-dtor -Woverloaded-virtual)
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang|AMDClang)$")
+  list(APPEND SOLPROP_NATIVE_WARNING_FLAGS -Wimplicit-fallthrough)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  list(APPEND SOLPROP_NATIVE_WARNING_FLAGS
+       -Wduplicated-cond -Wduplicated-branches -Wlogical-op)
 endif()
+list(JOIN SOLPROP_NATIVE_WARNING_FLAGS " " _warning_flags_record)
+string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${_warning_flags_record}")
 if(SOLPROP_NATIVE_FP_CONTRACT_FLAG)
   string(APPEND SOLPROP_NATIVE_COMPILER_FLAGS " ${SOLPROP_NATIVE_FP_CONTRACT_FLAG}")
 endif()
@@ -422,15 +364,25 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
 endif()
 
 if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
+  # The development group's pinned clang-tidy, in the environment beside the Python
+  # this build uses, before any machine's LLVM: each LLVM release adds checks.
+  get_filename_component(_python_bin "${Python_EXECUTABLE}" DIRECTORY)
   find_program(SOLPROP_NATIVE_CLANG_TIDY clang-tidy
-               HINTS /opt/homebrew/opt/llvm/bin
+               HINTS "${_python_bin}"
+                     /opt/homebrew/opt/llvm/bin
                      /usr/local/opt/llvm/bin
                REQUIRED)
+  execute_process(COMMAND "${SOLPROP_NATIVE_CLANG_TIDY}" --version
+                  OUTPUT_VARIABLE _clang_tidy_version OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REGEX MATCH "version [0-9.]+" _clang_tidy_version "${_clang_tidy_version}")
+  message(STATUS "clang-tidy: ${SOLPROP_NATIVE_CLANG_TIDY} (${_clang_tidy_version})")
   set(SOLPROP_NATIVE_CLANG_TIDY_COMMAND
       "${SOLPROP_NATIVE_CLANG_TIDY}"
       "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
       "--header-filter=^${PROJECT_SOURCE_DIR}/(include|src|tests)/.*")
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # The GCC-only warnings in the compile commands are unknown to clang-tidy's parser.
+    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-Wno-unknown-warning-option")
     execute_process(
       COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=include
       OUTPUT_VARIABLE SOLPROP_NATIVE_GNU_INCLUDE_DIR
@@ -453,6 +405,20 @@ if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
            "--extra-arg=-D__malloc__(...)=__malloc__")
     endif()
   endif()
+  if(APPLE)
+    # Homebrew's Clang finds the macOS SDK from its own configuration file, which the
+    # PyPI clang-tidy does not read.
+    set(_tidy_sysroot "${CMAKE_OSX_SYSROOT}")
+    if(NOT _tidy_sysroot)
+      execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _tidy_sysroot
+                      OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    endif()
+    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-isysroot${_tidy_sysroot}")
+  endif()
+  # The command the build runs, the resolved binary first, one argument per line, for
+  # native/scripts/tidy.sh (`poe tidy-native`) and the weekly include-cleaner report.
+  list(JOIN SOLPROP_NATIVE_CLANG_TIDY_COMMAND "\n" _tidy_command)
+  file(WRITE "${PROJECT_BINARY_DIR}/clang_tidy_command.txt" "${_tidy_command}\n")
 endif()
 
 function(solprop_native_configure_project_target target)
@@ -462,13 +428,8 @@ function(solprop_native_configure_project_target target)
     target_link_options(${target} PRIVATE -fprofile-instr-generate)
   endif()
   target_compile_options(${target} PRIVATE
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wall>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wextra>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wpedantic>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wconversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wsign-conversion>
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-Wshadow>
-    $<$<AND:$<BOOL:${SOLPROP_NATIVE_WARNINGS_AS_ERRORS}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>>:-Werror>
+    "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:${SOLPROP_NATIVE_WARNING_FLAGS}>"
+    $<$<AND:$<BOOL:${SOLPROP_NATIVE_WARNINGS_AS_ERRORS}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>>:-Werror>
   )
   if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
     set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY
@@ -476,11 +437,13 @@ function(solprop_native_configure_project_target target)
   endif()
   if(SOLPROP_NATIVE_ENABLE_SANITIZERS)
     target_compile_options(${target} PRIVATE
-      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fsanitize=address,undefined>
-      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fno-omit-frame-pointer>
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fsanitize=address,undefined>
+      # A report stops the test there, whatever UBSAN_OPTIONS says.
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fno-sanitize-recover=all>
+      $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fno-omit-frame-pointer>
     )
     target_link_options(${target} PRIVATE
-      $<$<LINK_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang,IntelLLVM>:-fsanitize=address,undefined>
+      $<$<LINK_LANG_AND_ID:CXX,GNU,Clang,AppleClang,AMDClang>:-fsanitize=address,undefined>
     )
   endif()
 endfunction()
@@ -582,9 +545,6 @@ endif()
 if(SOLPROP_NATIVE_ENABLE_OPENMP)
   set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "Disable the Serial backend" FORCE)
   set(Kokkos_ENABLE_OPENMP ON CACHE BOOL "Enable the OpenMP backend" FORCE)
-elseif(SOLPROP_NATIVE_ENABLE_THREADS)
-  set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "Disable the Serial backend" FORCE)
-  set(Kokkos_ENABLE_OPENMP OFF CACHE BOOL "Disable the OpenMP backend" FORCE)
 else()
   set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable the Serial backend" FORCE)
   set(Kokkos_ENABLE_OPENMP OFF CACHE BOOL "Disable the OpenMP backend" FORCE)
@@ -594,8 +554,7 @@ set(Kokkos_ARCH_NATIVE ${SOLPROP_NATIVE_HOST_ARCH} CACHE BOOL
 set(Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION
     ${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION} CACHE BOOL
     "Enable aggressive vectorization of independent Kokkos loops" FORCE)
-set(Kokkos_ENABLE_THREADS ${SOLPROP_NATIVE_ENABLE_THREADS} CACHE BOOL
-    "Enable the Threads backend" FORCE)
+set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "OpenMP is the CPU host space" FORCE)
 set(Kokkos_ENABLE_CUDA ${SOLPROP_NATIVE_ENABLE_CUDA} CACHE BOOL
     "Enable the CUDA backend" FORCE)
 set(Kokkos_ENABLE_HIP ${SOLPROP_NATIVE_ENABLE_HIP} CACHE BOOL
@@ -760,7 +719,6 @@ endif()
 message(STATUS
   "solprop-native build profile: ${SOLPROP_NATIVE_BUILD_PROFILE}; "
   "BLAS ${SOLPROP_NATIVE_BLAS_BACKEND} (${SOLPROP_NATIVE_BLAS_SELECTION}); "
-  "GEMM provider ${SOLPROP_NATIVE_GEMM_PROVIDER}; "
   "native architecture ${SOLPROP_NATIVE_HOST_ARCH}; "
   "CPU baseline ${SOLPROP_NATIVE_CPU_BASELINE}; "
   "IPO ${SOLPROP_NATIVE_IPO_AVAILABLE} (Release builds)")
@@ -841,7 +799,7 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   target_include_directories(solprop_native_labels SYSTEM PRIVATE
     "${kokkos_SOURCE_DIR}/core/src")
   target_compile_options(solprop_native_labels PRIVATE
-    -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    ${SOLPROP_NATIVE_WARNING_FLAGS} -Werror)
   set_target_properties(solprop_native_labels PROPERTIES
     PREFIX "" CXX_VISIBILITY_PRESET default)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
@@ -859,7 +817,7 @@ add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general
 # judgement round as solprop's Python does, so their
 # translation units take no contraction on any build (the flag follows the global one,
 # and the last wins). MSVC's /fp:precise does not contract by default.
-if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang|IntelLLVM)$")
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang)$")
   set_source_files_properties(src/adams_march.cpp src/watch.cpp src/rk_march.cpp
     src/session.cpp src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp
     src/transverse.cpp src/session_edge.cpp src/dense.cpp
@@ -876,7 +834,6 @@ target_link_libraries(solprop_native_core PUBLIC
   ${SOLPROP_NATIVE_MKL_FFT_LIBRARIES}
 )
 target_compile_definitions(solprop_native_core PUBLIC
-  SOLPROP_NATIVE_GEMM_PROVIDER_${SOLPROP_NATIVE_GEMM_PROVIDER}=1
   SOLPROP_NATIVE_DEVICE_TEAM_SIZE=${SOLPROP_NATIVE_DEVICE_TEAM_SIZE}
   SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE=${SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE}
   SOLPROP_NATIVE_BAND_STAGING=$<BOOL:${SOLPROP_NATIVE_BAND_STAGING}>
@@ -952,7 +909,6 @@ target_compile_definitions(_core PRIVATE
   SOLPROP_NATIVE_KOKKOSFFT_VERSION="2.0.0"
   SOLPROP_NATIVE_KOKKOSKERNELS_VERSION="5.2.0"
   SOLPROP_NATIVE_SLEEF_VERSION="${SOLPROP_NATIVE_SLEEF_VERSION}"
-  SOLPROP_NATIVE_GEMM_PROVIDER="${SOLPROP_NATIVE_GEMM_PROVIDER}"
   SOLPROP_NATIVE_TPL_BLAS_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_TPL_BLAS}>
   SOLPROP_NATIVE_BLAS_BACKEND="${SOLPROP_NATIVE_BLAS_BACKEND}"
   SOLPROP_NATIVE_BLAS_THREAD_POLICY="${SOLPROP_NATIVE_BLAS_THREAD_POLICY_ENCODED}"
@@ -977,13 +933,6 @@ target_compile_definitions(_core PRIVATE
   SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION}>
   SOLPROP_NATIVE_IPO_ENABLED=$<AND:$<BOOL:${SOLPROP_NATIVE_IPO_AVAILABLE}>,$<CONFIG:Release>>
 )
-
-if(SOLPROP_NATIVE_BUILD_BENCHMARKS)
-  add_executable(solprop_native_gemm_benchmark src/benchmark_gemm.cpp)
-  target_link_libraries(solprop_native_gemm_benchmark PRIVATE solprop_native_core)
-  solprop_native_mark_dependency_headers_system(solprop_native_gemm_benchmark)
-  solprop_native_configure_project_target(solprop_native_gemm_benchmark)
-endif()
 
 if(BUILD_TESTING)
   set(INSTALL_GTEST OFF CACHE BOOL "Do not install the test-only GoogleTest" FORCE)
@@ -1100,7 +1049,9 @@ if(SKBUILD)
       "openmp_libraries;${OpenMP_CXX_LIB_NAMES}"
       "fft_backend;${SOLPROP_NATIVE_HOST_FFT_BACKEND}"
       "blas_backend;${SOLPROP_NATIVE_BLAS_BACKEND}"
-      "gemm_provider;${SOLPROP_NATIVE_GEMM_PROVIDER}"
+      # One GEMM provider remains (the vendor GEMM for an eligible transform, the
+      # custom kernels for the rest); the field stays for the records that hold it.
+      "gemm_provider;HYBRID"
       "raman_fft_provider;${SOLPROP_NATIVE_RAMAN_FFT_PROVIDER}"
       "vector_math;${SOLPROP_NATIVE_VECTOR_MATH}"
       "build_profile;${SOLPROP_NATIVE_BUILD_PROFILE}"

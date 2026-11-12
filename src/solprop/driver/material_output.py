@@ -181,20 +181,10 @@ def _cross_sections(
 ) -> np.ndarray | None:
     """Factor the mode's first-order attribution into density-independent rows.
 
-    Parameters
-    ----------
-    mixture : Mixture
-        Ordered material populations.
-    modes : sequence of Mode
-        Capillary modes, or an empty sequence for bulk propagation.
-    omega : numpy.ndarray
-        Positive angular frequencies in rad/s within the active band.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Cross sections in m^2, shape (n_species, n_modes_or_one, n_omega), or None
-        when the total loss policy supplies no species attribution.
+    - ``modes``: capillary modes, or an empty sequence for bulk propagation.
+    - ``omega``: positive angular frequencies in rad/s within the active band.
+    - Returns: cross sections in m^2, shape (n_species, n_modes_or_one, n_omega), or
+      None when the total loss policy supplies no species attribution.
     """
     if not modes:
         return np.asarray(
@@ -247,18 +237,9 @@ def _cross_sections(
 def _children(value: object) -> list[object]:
     """Return what the manifest's walk visits next from one object.
 
-    Parameters
-    ----------
-    value : object
-        A dataclass, a ``functools.partial``, a bound method, or any object with a
-        ``__dict__``.
-
-    Returns
-    -------
-    list
-        A dataclass's field values in declaration order; a partial's function,
-        arguments and keywords; a bound method's instance; otherwise the instance
-        attributes, none for an object that has none.
+    - Returns: a dataclass's field values in declaration order; a partial's function,
+      arguments and keywords; a bound method's instance; otherwise the instance
+      attributes, none for an object that has none.
     """
     if isinstance(value, functools.partial):
         return [value.func, value.args, value.keywords]
@@ -277,16 +258,6 @@ def _walk(roots: Sequence[object]) -> Iterator[object]:
     user's mode -- but never into an array, a number, a string, a function or an
     object of a package in :data:`_STOP_PACKAGES`. Each object is visited once, so a
     cycle ends, and the order is fixed by the objects themselves.
-
-    Parameters
-    ----------
-    roots : sequence
-        The run's objects: its configuration, modes, responses, media and grids.
-
-    Yields
-    ------
-    object
-        Each reachable object outside the stopped packages, in depth-first order.
     """
     seen: set[int] = set()
     stack: list[object] = list(reversed(roots))
@@ -320,17 +291,9 @@ def _single_species_fills(
 ) -> list[tuple[Species, GasFillMixin]]:
     """Return each distinct single-species fill among the run's modes.
 
-    Parameters
-    ----------
-    found : sequence
-        The objects the walk reached.
-
-    Returns
-    -------
-    list of tuple
-        ``(species, mode)`` for each gas fill without a mixture whose species
-        carries optmat records, one per distinct species, density path and
-        temperature: the modes of one guide share their fill.
+    - Returns: ``(species, mode)`` for each gas fill without a mixture whose species
+      carries optmat records, one per distinct species, density path and temperature:
+      the modes of one guide share their fill.
     """
     fills: list[tuple[Species, GasFillMixin]] = []
     seen: list[tuple[Species, str, object]] = []
@@ -351,15 +314,7 @@ def _single_species_fills(
 def _records(value: object) -> tuple[MaterialRecord, ...]:
     """Return an object's optmat records, or none for one that carries none.
 
-    Parameters
-    ----------
-    value : object
-        Any of solprop's objects.
-
-    Returns
-    -------
-    tuple of MaterialRecord
-        Its ``material_records``, where it has them.
+    - Returns: its ``material_records``, where it has them.
     """
     found = getattr(value, "material_records", ())
     return tuple(found) if isinstance(found, tuple) else ()
@@ -368,18 +323,9 @@ def _records(value: object) -> tuple[MaterialRecord, ...]:
 def _solid_entry(glass: OptmatGlass, log: MaterialLog | None) -> dict[str, object]:
     """Return an optmat solid's manifest entry.
 
-    Parameters
-    ----------
-    glass : OptmatGlass
-        The adapter.
-    log : MaterialLog or None
-        The run's evaluation log, whose dropped loss is the run's own; ``None``
-        takes what the adapter has dropped over its life.
-
-    Returns
-    -------
-    dict
-        Its material, axis, model, digest, transparency policy and measurement.
+    - ``log``: the run's evaluation log, whose dropped loss is the run's own; ``None``
+      takes what the adapter has dropped over its life.
+    - Returns: its material, axis, model, digest, transparency policy and measurement.
     """
     entry = glass.material_records[0]
     return {
@@ -396,16 +342,8 @@ def _solid_entry(glass: OptmatGlass, log: MaterialLog | None) -> dict[str, objec
 def _citation_entry(value: object) -> dict[str, object] | None:
     """Return the citation of a material object that is not optmat's, if any.
 
-    Parameters
-    ----------
-    value : object
-        Any of solprop's objects.
-
-    Returns
-    -------
-    dict or None
-        ``object``, ``name`` and ``citation`` for a glass, a gas susceptibility or
-        a species that carries no optmat record; ``None`` otherwise.
+    - Returns: ``object``, ``name`` and ``citation`` for a glass, a gas susceptibility
+      or a species that carries no optmat record; ``None`` otherwise.
     """
     if not isinstance(value, GlassIndex | GasSusceptibility | Species) or _records(
         value
@@ -421,15 +359,8 @@ def _citation_entry(value: object) -> dict[str, object] | None:
 def _window(omega: Float[np.ndarray, " n_omega"]) -> float | None:
     """Return the time window a frequency grid resolves.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies in rad/s, uniformly spaced in some order.
-
-    Returns
-    -------
-    float or None
-        ``2 pi / d_omega`` in s, or ``None`` for fewer than two frequencies.
+    - ``omega``: angular frequencies in rad/s, uniformly spaced in some order.
+    - Returns: ``2 pi / d_omega`` in s, or ``None`` for fewer than two frequencies.
     """
     spacing = np.diff(np.unique(np.asarray(omega, dtype=float)))
     return None if spacing.size == 0 else float(2.0 * np.pi / np.min(spacing))
@@ -440,19 +371,10 @@ def _raman_entry(
 ) -> dict[str, object]:
     """Return what was measured about an optmat Raman response's assembly.
 
-    Parameters
-    ----------
-    response : OptmatRamanResponse
-        The response.
-    omega : numpy.ndarray
-        The run's angular frequencies in rad/s, whose spacing fixes the window over
-        which a held line shift's phase error is bounded.
-
-    Returns
-    -------
-    dict
-        The assembly's record with the labels, and the shift's phase bound in rad
-        over the run's window (``None`` without a held shift).
+    - ``omega``: the run's angular frequencies in rad/s, whose spacing fixes the window
+      over which a held line shift's phase error is bounded.
+    - Returns: the assembly's record with the labels, and the shift's phase bound in rad
+      over the run's window (``None`` without a held shift).
     """
     assembly = response.assembly
     entry: dict[str, object] = {"labels": list(response.labels)}
@@ -471,18 +393,9 @@ def _raman_entry(
 def _gnlse_policy(problems: Sequence[GnlseProblem]) -> dict[str, object] | None:
     """Return a GNLSE run's held-back Raman fraction and where it came from.
 
-    Parameters
-    ----------
-    problems : sequence of GnlseProblem
-        The run's GNLSE mappings: none, or one.
-
-    Returns
-    -------
-    dict or None
-        ``fraction``, its ``origin`` (``"user"``, ``"bundle"`` or
-        ``"raman-off"``), whether a Raman response carries it, the silica
-        ``bundle`` (or ``None``) and the origin of ``n2``; ``None`` for a run
-        without a GNLSE mapping.
+    - Returns: ``fraction``, its ``origin`` (``"user"``, ``"bundle"`` or
+      ``"raman-off"``), whether a Raman response carries it, the silica ``bundle`` (or
+      ``None``) and the origin of ``n2``; ``None`` for a run without a GNLSE mapping.
     """
     if not problems:
         return None
@@ -508,27 +421,12 @@ def _policies(
 ) -> dict[str, object]:
     """Return the approximation policies a run's materials are evaluated under.
 
-    Parameters
-    ----------
-    selection : MaterialSelection or None
-        The run's selection.
-    dilute : bool
-        Whether a gas susceptibility from optmat is scaled linearly in density.
-    carrier : float or None
-        The carrier in m an optmat Kerr coefficient was evaluated at, or ``None``
-        when the run has no optmat Kerr model.
-    gnlse : dict or None
-        A GNLSE run's held-back fraction (:func:`_gnlse_policy`).
-    raman : sequence of OptmatRamanResponse, optional
-        The run's optmat Raman responses.
-    dispersive : dict or None, optional
-        The dispersive electronic law in force (:func:`_dispersive_policy`), which
-        replaces the carrier law; ``None`` when the run has none.
-
-    Returns
-    -------
-    dict
-        The policies; one a later phase resolves is recorded as selected.
+    - ``carrier``: the carrier in m an optmat Kerr coefficient was evaluated at, or
+      ``None`` when the run has no optmat Kerr model.
+    - ``dispersive``: the dispersive electronic law in force
+      (:func:`_dispersive_policy`), which replaces the carrier law; ``None`` when the
+      run has none.
+    - Returns: the policies; one a later phase resolves is recorded as selected.
     """
     assemblies = [one.assembly for one in raman if one.assembly is not None]
     temperatures = sorted({assembly.temperature for assembly in assemblies})
@@ -575,18 +473,7 @@ def _policies(
 
 
 def _dispersive_label(response: DispersiveKerrResponse) -> str:
-    """Return the population a dispersive response is recorded under.
-
-    Parameters
-    ----------
-    response : DispersiveKerrResponse
-        The response.
-
-    Returns
-    -------
-    str
-        Its component label, or its gas for a single-gas run.
-    """
+    """Return the population a dispersive response is recorded under."""
     return response.model.material if response.species is None else response.species
 
 
@@ -598,21 +485,10 @@ def _dispersive_entries(
 ) -> list[dict[str, object]]:
     """Return the manifest's electronic entries of a run's dispersive responses.
 
-    Parameters
-    ----------
-    responses : sequence of DispersiveKerrResponse
-        The run's dispersive responses.
-    band : tuple of float or None
-        The run's active band in rad/s, or ``None`` when it is not known.
-    vector : bool
-        Whether the run's field has two polarisation components at a node.
-
-    Returns
-    -------
-    list of dict
-        Per response: its label, gas, evaluator, sector and tensor approximation, the
-        model and support digests, the leg bound and both band edges in m^-1, and the
-        regions of the band (:meth:`ElectronicRegions.to_dict`), in label order.
+    - ``band``: the run's active band in rad/s, or ``None`` when it is not known.
+    - Returns: per response: its label, gas, evaluator, sector and tensor approximation,
+      the model and support digests, the leg bound and both band edges in m^-1, and the
+      regions of the band (:meth:`ElectronicRegions.to_dict`), in label order.
     """
     entries = []
     for response in responses:
@@ -647,31 +523,16 @@ MIXTURE_FILTER_RULE: Final = (
 def _density_identities(found: Sequence[object]) -> dict[str, str]:
     """Return the identity of each population's density profile, by channel label.
 
-    Parameters
-    ----------
-    found : sequence of object
-        The run's objects: its mixtures, and a general modal guide's regions, whose
-        gas fills' channels are labelled ``"<region>:<population>"``.
-
-    Returns
-    -------
-    dict
-        Per label, the SHA-256 of the canonical JSON of the profile's record -- its
-        samples, breakpoints and declarations, as the run's configuration records a
-        mixture (:meth:`solprop.physdata.mixtures.Mixture.serialise`).
+    - ``found``: the run's objects: its mixtures, and a general modal guide's regions,
+      whose gas fills' channels are labelled ``"<region>:<population>"``.
+    - Returns: per label, the SHA-256 of the canonical JSON of the profile's record --
+      its samples, breakpoints and declarations, as the run's configuration records a
+      mixture (:meth:`solprop.physdata.mixtures.Mixture.serialise`).
     """
     identities: dict[str, str] = {}
 
     def add(prefix: str, mixture: Mixture) -> None:
-        """Record a mixture's populations under a label prefix.
-
-        Parameters
-        ----------
-        prefix : str
-            Prepended to every population label.
-        mixture : Mixture
-            The mixture.
-        """
+        """Record a mixture's populations under a label prefix."""
         record = cast("list[dict[str, object]]", mixture.serialise()["components"])
         for component in record:
             identities.setdefault(
@@ -696,21 +557,11 @@ def _mixture_filters(
 ) -> list[dict[str, object]]:
     """Return the symmetric mixture filters a run's leaf builds, for its record.
 
-    Parameters
-    ----------
-    leaf : solprop.translate.responses.DispersiveKerrTerms or None
-        The run's compiled dispersive channels.
-    densities : Mapping of str to str
-        Each label's density-profile identity (:func:`_density_identities`).
-
-    Returns
-    -------
-    list of dict
-        One per group of several species under the symmetric evaluator
-        (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`): the rule,
-        the general modal region it acts in (``None`` on every other route), and the
-        composition it is built from -- each species' label and its density profile's
-        identity. Empty for the polynomial and for a pure gas.
+    - Returns: one per group of several species under the symmetric evaluator
+      (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`): the rule, the
+      general modal region it acts in (``None`` on every other route), and the
+      composition it is built from -- each species' label and its density profile's
+      identity. Empty for the polynomial and for a pure gas.
     """
     if leaf is None or leaf.evaluator != "symmetric":
         return []
@@ -740,22 +591,13 @@ def _dispersive_policy(
 ) -> dict[str, object]:
     """Return the dispersive electronic law a run's entries record, for its key.
 
-    Parameters
-    ----------
-    entries : sequence of Mapping
-        :func:`_dispersive_entries` of the run.
-    mixtures : sequence of Mapping, optional
-        The symmetric evaluator's mixture filters (:func:`_mixture_filters`), written
-        under ``mixture_filters`` only when there is one, so that a pure gas's record
-        is what it was.
-
-    Returns
-    -------
-    dict
-        The law, its evaluator, sector and tensor approximation, the per-leg bound
-        rule, each population's support digest and regions, and each mixture filter
-        with the composition it is built from: what the resume key covers, so that a
-        changed model, support record, band or composition is refused.
+    - ``mixtures``: the symmetric evaluator's mixture filters
+      (:func:`_mixture_filters`), written under ``mixture_filters`` only when there is
+      one, so that a pure gas's record is what it was.
+    - Returns: the law, its evaluator, sector and tensor approximation, the per-leg
+      bound rule, each population's support digest and regions, and each mixture filter
+      with the composition it is built from: what the resume key covers, so that a
+      changed model, support record, band or composition is refused.
     """
     evaluator = str(entries[0]["evaluator"])
     policy: dict[str, object] = {
@@ -779,20 +621,7 @@ def _dispersive_policy(
 
 
 def _rate_policies(found: Sequence[object]) -> list[dict[str, object]]:
-    """Return the policies of a run's optmat ionisation rates.
-
-    Parameters
-    ----------
-    found : sequence of object
-        The run's objects.
-
-    Returns
-    -------
-    list of dict
-        :meth:`solprop.nonlinear.optmat_rates.OptmatRate.manifest_entry` of each
-        rate, each once, in canonical order: the threshold kind, the reference field,
-        the constant energy per event and its bound, the maximum field.
-    """
+    """Return the policies of a run's optmat ionisation rates."""
     entries = [
         value.manifest_entry() for value in found if isinstance(value, OptmatRate)
     ]
@@ -801,22 +630,11 @@ def _rate_policies(found: Sequence[object]) -> list[dict[str, object]]:
 
 
 def _canonical_entry(entry: Mapping[str, object]) -> str:
-    """Return an entry's canonical JSON, for ordering and deduplication.
-
-    Parameters
-    ----------
-    entry : collections.abc.Mapping
-        Plain values.
-
-    Returns
-    -------
-    str
-        Sorted-key, compact JSON.
-    """
+    """Return an entry's canonical JSON, for ordering and deduplication."""
     return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def material_manifest(  # noqa: PLR0913 - the run's objects and its band, one each
+def material_manifest(
     roots: Sequence[object],
     *,
     selection: MaterialSelection | None,

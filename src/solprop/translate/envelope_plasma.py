@@ -19,13 +19,14 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float
 from scipy import special
 
+from solprop._ownership import frozen_copy
 from solprop.constants import CHARGE_MASS_RATIO
 from solprop.exceptions import ConvergenceError, SolpropWarning, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IonisationRate
 from solprop.translate.chebyshev import PiecewiseChebyshev
-from solprop.translate.ionisation import RateTable, build_rate_table
+from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
 
 __all__ = [
     "AngularRule",
@@ -45,24 +46,6 @@ _MOMENT_RTOL = 2e-6
 _NEGLIGIBLE_RATE = 1e-30
 _FORMAT_VERSION = 1
 _CYCLES: dict[str, CycleIntegralData] = {}
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Copy an array into owned, contiguous, read-only storage.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Numeric array of any shape.
-
-    Returns
-    -------
-    numpy.ndarray
-        Owned C-contiguous copy.
-    """
-    result = np.array(values, order="C", copy=True)
-    result.setflags(write=False)
-    return result
 
 
 @dataclass(frozen=True, eq=False)
@@ -98,8 +81,8 @@ class AngularRule:
             or abs(float(np.sum(self.weights)) - 2) > 32 * np.finfo(float).eps
         ):
             raise TranslationError("invalid envelope plasma angular rule")
-        object.__setattr__(self, "nodes", _readonly(self.nodes))
-        object.__setattr__(self, "weights", _readonly(self.weights))
+        object.__setattr__(self, "nodes", frozen_copy(self.nodes))
+        object.__setattr__(self, "weights", frozen_copy(self.weights))
 
 
 @dataclass(frozen=True, eq=False)
@@ -147,8 +130,8 @@ class CycleValidation:
             or self.format_version != _FORMAT_VERSION
         ):
             raise TranslationError("invalid envelope plasma cycle validation evidence")
-        object.__setattr__(self, "probes", _readonly(self.probes))
-        object.__setattr__(self, "residuals", _readonly(self.residuals))
+        object.__setattr__(self, "probes", frozen_copy(self.probes))
+        object.__setattr__(self, "residuals", frozen_copy(self.residuals))
 
 
 @dataclass(frozen=True, eq=False)
@@ -195,23 +178,9 @@ class CycleIntegralData:
             or np.max(self.validation.residuals) > self.moment_rtol
         ):
             raise TranslationError("unvalidated envelope plasma cycle representation")
-        # Reuse a previously compiled owning, read-only table during material
-        # updates. Borrowed views and mutable user tables still need owned copies.
-        if not all(
-            array.flags.owndata
-            and array.flags.c_contiguous
-            and not array.flags.writeable
-            for array in (self.rate.log_rate, self.rate.coefficients)
-        ):
-            object.__setattr__(
-                self,
-                "rate",
-                replace(
-                    self.rate,
-                    log_rate=_readonly(self.rate.log_rate),
-                    coefficients=_readonly(self.rate.coefficients),
-                ),
-            )
+        # A table solprop already holds, as a material update reuses, is taken as it
+        # stands; a caller's table is copied.
+        object.__setattr__(self, "rate", _frozen_table(self.rate))
 
 
 @dataclass(frozen=True, eq=False)
@@ -265,13 +234,10 @@ class EnvelopePlasmaChannel:
             raise TranslationError("invalid envelope plasma channel constants")
 
     @property
-    def rate(self) -> RateTable:
-        """Return the instantaneous magnitude table carried by this channel.
+    def rate(self) -> RateTable:  # numpydoc ignore=RT01
+        """The instantaneous magnitude table carried by this channel.
 
-        Returns
-        -------
-        RateTable
-            The table used inside the cycle integral, not an averaged rate.
+        The table used inside the cycle integral, not an averaged rate.
         """
         return self.cycle.rate
 
@@ -326,7 +292,7 @@ class EnvelopeSourceFactors:
         ):
             raise TranslationError("invalid envelope plasma source factors")
         for name in ("active", "drude", "loss"):
-            object.__setattr__(self, name, _readonly(getattr(self, name)))
+            object.__setattr__(self, name, frozen_copy(getattr(self, name)))
 
 
 @dataclass(frozen=True, eq=False)
@@ -465,21 +431,10 @@ def _integrate_rule(
 ) -> Float[np.ndarray, " n_moments"]:
     """Split at the table cutoff and clipping crossings before quadrature.
 
-    Parameters
-    ----------
-    major : float
-        Major-axis physical field in V/m, positive.
-    ratio : float
-        Minor/major amplitude ratio in ``[0, 1]``.
-    rate : RateTable
-        Instantaneous magnitude table.
-    rule : AngularRule
-        Rule on [-1, 1].
-
-    Returns
-    -------
-    numpy.ndarray
-        Positive cosine and sine directional moments in s^-1.
+    - ``major``: Major-axis physical field in V/m, positive.
+    - ``ratio``: Minor/major amplitude ratio in ``[0, 1]``.
+    - ``rule``: rule on [-1, 1].
+    - Returns: positive cosine and sine directional moments in s^-1.
     """
     edges = [0.0, math.pi / 2]
     # _refine handles the exactly circular case before reaching this rule.
@@ -551,21 +506,9 @@ def _refine(
 ) -> Float[np.ndarray, " n_moments"]:
     """Refine the numeric rule independently of its validation record.
 
-    Parameters
-    ----------
-    major : float
-        Non-negative major field in V/m.
-    ratio : float
-        Minor/major ratio in [0, 1].
-    rate : RateTable
-        Instantaneous magnitude rate.
-    rules : tuple of AngularRule
-        Increasing-order quadrature rules.
-
-    Returns
-    -------
-    numpy.ndarray
-        Converged cosine and sine moments in s^-1.
+    - ``major``: Non-negative major field in V/m.
+    - ``ratio``: Minor/major ratio in [0, 1].
+    - Returns: converged cosine and sine moments in s^-1.
     """
     if major < rate.field_min:
         return np.zeros(2)

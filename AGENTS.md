@@ -9,16 +9,12 @@ each with a pointer to the page that explains it. Those pages win on any detail.
 [`CONTRIBUTING.md`](CONTRIBUTING.md) is the short guide for a first contribution, and holds
 the standard for issues and pull requests.
 
-**Rules marked ⚙ are enforced automatically** by the ruff, basedpyright, numpydoc,
-codespell, reuse and pytest configuration in `pyproject.toml`. The configuration is the
-source of truth ([`docs/dev/tooling.md`](docs/dev/tooling.md) explains its intent); if a ⚙
-rule and the configuration disagree, the configuration wins and this file is out of
-date — say so.
-
-Everything else is a judgement call. When a judgement call concerns physics or numerics
-rather than style, ask rather than guess.
-
----
+**Rules marked ⚙ are enforced automatically** by the configuration in `pyproject.toml`
+(ruff, basedpyright, numpydoc, codespell, reuse, pytest) and `tools/size_budget.toml`. The
+configuration is the source of truth ([`docs/dev/tooling.md`](docs/dev/tooling.md) explains
+its intent); if a ⚙ rule and the configuration disagree, the configuration wins and this
+file is out of date — say so. Everything else is a judgement call. When one concerns
+physics or numerics rather than style, ask rather than guess.
 
 ## Project facts
 
@@ -27,207 +23,157 @@ rather than style, ask rather than guess.
 | Packages | `solprop` (`src/solprop/`), the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)) and the desktop front end `solprop-gui` (`gui/`, its own rules in [`gui/AGENTS.md`](gui/AGENTS.md)): one repository, three distributions, one version |
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
-| Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux), with no support promise elsewhere; the Queue and Slurm scan executors POSIX-only |
+| Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
-| Backends | The native backend (`native`, the `solprop-native` distribution built from `native/`, a required dependency): what `auto` selects, with no fallback, and the GPU path. The NumPy reference (`numpy_ref`, the oracle): the numerical reference, and the executor of the short list of supported features in SEP 43 §5, and the one backend that runs single precision. `numba_cpu` (SEP 43) and `mlx` (SEP 47) are retired: naming either raises `BackendError` |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
-| Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
-| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): open work goes in an issue, not on the roadmap, which lists only SEPs (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
-| Enhancement proposals | `docs/dev/seps/` — SEPs for major changes; process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
-
----
+| Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
+| Enhancement proposals | `docs/dev/seps/` — process in SEP 0 (`sep-0000-process.md`), form in `template.md` |
 
 ## Commands
 
 | Task | Command |
 |---|---|
-| Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `--extra gui --group gui-test` adds the front end from `gui/` with its test plugin. A sync removes every extra it does not name; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. After that setup, `uv run --no-sync poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
-| Full gate (see below) | `uv run poe check` |
-| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs the three gates |
-| Front-end gate | `uv run poe check-gui` (its types, docstrings and tests; needs `--extra gui --group gui-test`) |
-| Lint with autofix | `uv run ruff check --fix .` |
-| Format | `uv run ruff format .` |
-| Type-check | `uv run basedpyright` |
-| Docstring validation | `uv run poe docstrings` |
-| Spelling | `uv run codespell` |
-| Copyright and licence of every file | `uv run poe reuse` |
-| Default tests (fast + medium) | `uv run poe test` (under xdist, one thread per worker); `uv run pytest` runs them serially, for one file or test and for debugging |
-| Medium tier | `uv run poe test-medium` |
-| Slow lane | `uv run poe test-slow` |
-| Coverage lane (100 % required) | `uv run poe cov` |
-| GPU tests | `uv run pytest -m gpu` (needs a GPU build of solprop-native and a device) |
-| Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an otherwise idle machine) |
-| Build docs | `uv run poe docs` (executes no gallery script; refuses stale committed output) |
-| Run the galleries | `uv run poe docs-examples [plot_NN_name]` (every stale lesson, tutorial and worked example, or one; commit what it writes) |
+| Sync environment | `uv sync` (builds native editable; needs a C++20 compiler). `--extra gui --group gui-test` adds the front end. No compiler: the lightweight setup and `poe fetch-wheel` ([`docs/dev/contributing.md`](docs/dev/contributing.md)) |
+| Full gate | `uv run poe check` |
+| Native gate | `uv run poe check-native`; `uv run poe check-all` runs the three gates |
+| Front-end gate | `uv run poe check-gui` (needs `--extra gui --group gui-test`) |
+| Lint, format, types | `uv run ruff check --fix .`, `uv run ruff format .`, `uv run basedpyright` |
+| Docstrings, spelling, licences | `uv run poe docstrings`, `uv run codespell`, `uv run poe reuse` |
+| Size report and ratchets | `uv run poe size [--all] [--json]`; `uv run poe size-check` |
+| Default tests (fast + medium) | `uv run poe test` (xdist, one thread per worker); `uv run pytest <path>` runs serially |
+| Medium tier, slow lane, coverage (100 %) | `uv run poe test-medium`, `uv run poe test-slow`, `uv run poe cov` |
+| GPU tests | `uv run pytest -m gpu` (a GPU build of solprop-native and a device) |
+| Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an idle machine) |
+| Build docs; run the galleries | `uv run poe docs`; `uv run poe docs-examples [plot_NN_name]` |
 
 Do not narrow a plain `pytest` run with `-m`: it replaces the default marker expression
 in `addopts` and selects the slow tier too. Select by path or `-k` instead.
 
 ## Definition of done
 
-**Documentation-only changes**, including adding or editing SEPs, do not need the full
-gate, the slow lane or the coverage lane. Run `git diff --check` and codespell on the
-changed files; `uv run pytest tests/test_seps.py` when proposals, their index or their
-roadmap entries change; and `uv run poe docs` when Sphinx content or links change
-(`docs/dev/testing.md`, "Documentation-only changes").
+**Documentation-only changes**, SEPs included: `git diff --check` and codespell on the
+changed files, `uv run pytest tests/test_seps.py` when proposals, their index or the
+roadmap change, and `uv run poe docs` when Sphinx content or links change (`testing.md`).
 
-**Other changes.** Run the fast checks and directly affected test modules during
-development. The full gate runs in CI on the pull request, with the slow and coverage
-lanes: do not run it locally before opening the pull request, and do not start a local
-full run because a slice, task or SEP is ready to commit, merge or become `Final`. Fix
-what CI reports by rerunning the failing modules, not the whole gate.
+**Other changes:** develop first, test towards the end. Run the fast checks (ruff check
+with `--fix`, ruff format, ruff check, basedpyright) and the modules that exercise what
+changed (`uv run pytest -n auto <files>`). The full gate, slow and coverage lanes run in CI
+on the pull request, not locally; after a CI failure, rerun the failing modules, never the
+whole lane. `poe check` and CI run the same steps ([`tooling.md`](docs/dev/tooling.md)):
+change both in the same commit. Coverage is 100 % of statements and branches; a
+`# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
 
-The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
+**Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
+`pytest -m gpu` on a device. **No test, lane or timing runs a full-length propagation**
+(a 0.2 m capillary, a metre of fibre): use about ten steps or a fibre that finishes in
+seconds. Only the galleries run real problems at full length. The release tracking set
+(`python -m benchmarks track`) times complete runs by design; it runs by hand on a quiet
+machine when the history is recorded, never as part of a change's qualification.
 
-1. `ruff check --fix .` — lint first: autofix rewrites code.
-2. `ruff format .` — format second, so fixes are formatted.
-3. `ruff check .` — no `--fix`; catches what autofix could not.
-4. `basedpyright` — no new errors.
-5. `numpydoc lint` — every public docstring validates.
-6. `codespell` — no misspellings.
-7. `reuse lint` — every file states its copyright and licence.
-8. `poe changelog-check` — release-note fragments and changelog structure validate.
-9. `poe test` — fast and medium tiers, doctests included, under xdist with one thread
-   per worker.
-10. `sphinx-build -W -n --keep-going` — docs build clean.
-
-Report what passed, failed or remains deferred. The
-coverage lane requires 100 % of statements and branches of the whole package
-(`fail_under = 100`); it stays outside `poe check` only because it takes longer. `# pragma: no cover` needs a reason on the same line.
-
-**CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
-`poe check` split into parallel jobs (the static checks and the documentation on Linux;
-the default lane on macOS and Windows with the native CPU wheel built from this tree; and
-on Linux the coverage lane, which is the default lane with coverage and the runtime type
-checks); the slow lane on Linux and macOS; the default lane at the lowest dependency
-versions; and a few modules with no native package. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
-the coverage lane runs the type checks (ADR-053; `docs/dev/tooling.md`, "CI"). Between
-them the jobs run exactly `poe check`'s steps: change both in the same commit.
-
-**Changes touching `gui/`** follow [`gui/AGENTS.md`](gui/AGENTS.md); its gate runs in CI
-as the `gui` jobs, on Linux, macOS and Windows, for every change to `gui/` or to solprop.
-
-**Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
-gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:
-the native gate as the `native-quality` jobs and the distribution wheel's build and smoke
-test as `native-wheel`, whose wheel the documentation, test, slow, coverage and
-lowest-dependency lanes install.
-
-**Slices of a phased SEP.** Develop first and test towards the end. Each slice runs the
-fast checks only: `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` and the
-test modules that directly exercise the code it changed (`uv run pytest -n auto
-<files>`). The full gate, slow lanes and coverage lane run in CI on the SEP's single
-pull request, a draft from the start of implementation. After a CI failure, rerun the
-failing modules locally, fix, and push; never the whole lane.
-
-**Qualification scope.** A change is qualified on `numpy_ref` and the native
-**CPU** build; GPU builds are exercised separately with
-`pytest -m gpu` on a machine that has a device. **No test, lane or timing runs a
-full-length propagation** (a 0.2 m multimode capillary, a metre of fibre): qualify and
-benchmark on about ten steps, or on a fibre short enough to finish in seconds. Two
-gallery kinds are exempt. An introductory lesson (`docs/introduction/tutorials/`) or a
-focused tutorial (`docs/tutorials/`) may run its real problem at full length when that is
-what it demonstrates; it runs when its output is refreshed and in CI's docs job. A worked
-example (`docs/examples/`) runs a real problem at full size, only by hand with
-`poe docs-examples`. The release
-tracking set (`python -m benchmarks track`) times complete runs by design
-([what is timed](docs/dev/benchmarks.md#benchmark-windows)); it runs by hand, on a quiet
-machine, when the history is recorded, never as part of a change's qualification.
-
-Do not declare work finished while any required check fails. If a check genuinely cannot
-pass, say so explicitly and explain why — never suppress a check to make the gate green.
-
-New functionality is not done until it is **tested**, **documented in the manual** as
-well as in docstrings, and recorded in a `changelog.d/` fragment
-([format](changelog.d/README.md)). The rolling release PR collects these into
-`CHANGELOG.md`; implementation PRs do not edit that shared file. Any physical constant,
-coefficient, citation, reference state or validity range you transcribe is cited to its
-primary source in the docstring or the data file; say in your summary what you verified
-against that source and what you could not.
-
----
+Never declare work finished while a required check fails, and never suppress a check to
+make the gate green: say what failed and why. New functionality is done when it is
+**tested**, **documented in the manual** as well as in docstrings, and has a `changelog.d/`
+fragment ([format](changelog.d/README.md)); implementation PRs leave `CHANGELOG.md` to the
+rolling release PR. A transcribed constant, coefficient, citation, reference state or
+validity range is cited to its primary source; say what you verified and what you could not.
 
 ## Working agreement
 
-- **Agree the plan for large changes.** A major change — a new model, route or numerical
-  scheme, a changed physics default or convention, a public interface redesign, a
-  substantive seam change — starts from an accepted SEP (below). Any other change that
-  touches more than a couple of files or alters a public signature starts from an issue
-  or a short agreed plan; a focused fix or documentation update does not need one.
-- **Ask before adding a dependency.** Standard library, then NumPy/SciPy, then the
-  approved list in [`dependencies.md`](docs/dev/dependencies.md), then ask. A floor is
-  the oldest release that works, not the newest; raise one only for a recorded reason.
-- **Re-derive, do not transcribe.** When taking an algorithm or a model from another code
-  or a paper, re-derive it, choose deliberately, test it against an analytic or
-  independent reference and document it. Deliberate differences from Luna.jl, solprop's
-  predecessor, are listed in `docs/guide/workflows/luna.md`; add to it.
-- **Stay in scope.** No refactoring, renaming or reformatting unrelated to the task.
-- **Open an issue for what you find.** Whatever you notice while working and do not fix
-  in the change in hand — a bug, a wrong statement, a missing test, a slow path — gets an
-  issue straight away, so that it outlives the session and the branch. Do not wait to be
-  asked, and write it as [`CONTRIBUTING.md`](CONTRIBUTING.md) says, searching first. If
-  you plan to fix it yourself, open it all the same and keep it in your own plan too.
-- **Connect a fix to its issue.** When you fix something you noticed, search the issues
-  for it. If the change closes one, say `Closes #N` in the pull request; if it only goes
-  part of the way or bears on one, comment there on what changed and what is left, and
-  do not close it. `Closes` acts only on a pull request based on `main`: after a stacked
-  pull request or a local merge reaches `main`, close the issue by hand, naming the
-  commit.
-- **Never hand-edit generated files**: `uv.lock`, `docs/_build/`, the gallery pages
-  `docs/introduction/lessons/`, `docs/auto_tutorials/` and `docs/auto_examples/`
-  (committed, regenerated by `poe docs-examples`) and `docs/api/generated/`. Regenerate
-  them.
-- **No `utils` modules.** Organise by domain concept; the package tree is fixed in
-  `docs/dev/architecture.md §4`.
-- **Report failure honestly.** A check that fails, a test you could not make pass, an
-  assumption you had to invent: say it plainly. Silent partial completion is worse than
-  an admitted gap.
+- **Agree the plan for large changes.** A new model, route or numerical scheme, a changed
+  physics default or convention, a public interface redesign or a substantive seam change
+  starts from an accepted SEP; another change that touches more than a couple of files or
+  alters a public signature, from an issue or a short agreed plan.
+- **Ask before adding a dependency:** standard library, then NumPy/SciPy, then the list in
+  [`dependencies.md`](docs/dev/dependencies.md), then ask. Dependencies come from PyPI; a
+  floor is the oldest release that works, raised only for a recorded reason.
+- **Re-derive, do not transcribe.** An algorithm or model from another code or a paper is
+  re-derived, chosen deliberately, tested against an independent reference and documented;
+  deliberate differences from Luna.jl go in `docs/guide/workflows/luna.md`.
+- **Refactor what the task touches;** unrelated cleanup goes in its own commit or pull request.
+- **Open an issue for what you find and do not fix** — a bug, a wrong statement, a missing
+  test, a slow path — straight away, searching first ([`CONTRIBUTING.md`](CONTRIBUTING.md)).
+  A fix says `Closes #N` in a pull request based on `main`, or comments on the issue.
+- **Never hand-edit generated files**: `uv.lock`, `docs/_build/`, `docs/introduction/lessons/`,
+  `docs/auto_tutorials/`, `docs/auto_examples/`, `docs/api/generated/`. Regenerate them.
+- **Report failure honestly:** a failed check, an untested path, an invented assumption.
 - **The public tree stands alone.** No local paths, host names, private notes or links to
   them, and no development-register identifiers, in code, tests, docs or the changelog.
   The hardware a benchmark ran on is part of its ledger entry.
 
----
+## Code
 
-## Enhancement proposals (SEPs)
+### Principles
 
-The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
-[`docs/dev/seps/index.md`](docs/dev/seps/index.md).
+- One obvious way to do each thing: prefer the existing pattern, consolidate duplicates.
+- Less code: extend an existing path before adding a new one.
+- Optimise for the reader; clear beats clever. Small, single-purpose, preferably pure
+  functions, with side effects (I/O, global state, mutation) at the edges.
+- Make the implicit explicit: explicit arguments, types on interfaces, errors over silent
+  fallbacks.
+- Validate once at the public boundary; inner layers trust validated objects.
+- Respect the layers (`architecture.md §3`): physics code holds no performance tricks,
+  backend code no physics; the kernel contract (`kernel-contract.md`) and the protected
+  driver surface (frozen in `tests/backends/test_driver.py`) are the crossings. No `utils`
+  modules: organise by domain concept, in the package tree of `architecture.md §4`.
 
-- **When.** New physics models, routes, geometries, mode families or numerical schemes;
-  changed defaults or conventions; public interface redesigns; substantive
-  kernel-contract changes; new backends; process changes. Not for fixes, documentation,
-  tests, refactoring, tooling, or optimisations that leave results unchanged.
-- **Writing one.** Copy `template.md` to `sep-NNNN-short-slug.md` with the next free
-  number, add it to the index and the roadmap's draft section, list in its *Context* the
-  open issues it will fix or that must be resolved first (search them), open its tracking
-  issue (SEP 0), and merge it early as `Draft` from a `docs/sep-NNNN-…` branch. A SEP stands alone: it cites solprop's,
-  solprop-native's and optmat's own docs and code, the literature (with DOIs) and public
-  reports — never another code's source, local paths, machines or private notes. Theory
-  is re-derived in SI units and the conventions of `conventions.md`; it compares options
-  and recommends one.
-- **Lifecycle.** `Draft` → `Accepted` (Part I frozen) → `In progress` → `Final` (moved to
-  `docs/dev/seps/archive/` with `git mv`); or `Deferred`, `Rejected`, `Withdrawn`,
-  `Superseded`. `tests/test_seps.py` checks that the header, index, folder and roadmap
-  agree.
-- **Implementing one.** All of a SEP's phases go on one `feature/sep-NNNN-…` branch and
-  reach `main` in one pull request, opened as a draft (`WIP: SEP N …`) when implementation
-  starts and marked ready when the last commit sets `Final`; there are no per-phase pull
-  requests. CI runs on every push to it and need not be green while it is a draft; a push
-  that needs no run has `[skip ci]` in its head commit's message. The branch may start on
-  top of another agent's open pull request, when the SEP needs that work first. Within
-  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
-  tests and the manual page. A backend without the feature refuses it by name, never falls back silently; `Final`
-  needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
-  SEP.
-- **Reporting.** Each phase appends its report to Part II of the SEP: delivered paths,
-  deviations and why, decisions (an ADR for a lasting one), the verification actually
-  run, sources checked and not checked, limitations, numbered open questions and a
-  handoff.
-- **Finishing.** At `Final`, the manual pages the SEP produced link to it, its open
-  questions move to issues, its tracking issue closes, and its release-note fragment cites
-  it.
+### Style
 
----
+- `ruff format` and `ruff check` ⚙ own formatting and linting. Fix the cause; a suppression
+  names its rule and a reason (`# noqa: E501 - URL must stay on one line`) ⚙.
+- Names say what a thing is or does. Domain abbreviations (`fwhm`, `zdw`, `gnlse`) are
+  fine, `tmp2` is not; Greek letters are spelled out (`omega`, `beta1`); a wavelength is
+  `wavelength`, never `lambda`. f-strings, `pathlib.Path`, `encoding="utf-8"` on text I/O.
+- Every code file starts with the SPDX header that `uv run reuse annotate --copyright
+  "John C. Travers and contributors" --year 2026 --license GPL-3.0-or-later <file>`
+  writes ⚙. Every public module declares its surface with `__all__`.
+
+### Types and arrays
+
+- Annotate every public signature and class attribute ⚙; no new basedpyright errors ⚙.
+  `Sequence`/`Mapping` for read-only parameters, `X | None`, built-in generics; a confined,
+  commented `Any` only where unavoidable. Structured data is a frozen `@dataclass`.
+- **Arrays are annotated with jaxtyping on `np.ndarray`** with the axis names of
+  `conventions.md §6`: `Complex[np.ndarray, "n_modes n_pol n_omega"]`. beartype checks them
+  in the test session, which constrains annotations (`ArrayLike | float`, quoted
+  self-returns, no `numpy.typing.NDArray`; `tooling.md`, "jaxtyping + beartype").
+
+### Functions and errors
+
+- One function, one responsibility. Signatures with more than five positional parameters
+  are keyword-only ⚙ (PLR0917); group parameters into a dataclass only when the group is a
+  domain concept. Return new values rather than mutating arguments, except the backends'
+  named buffers.
+- One exception hierarchy rooted at `SolpropError` (`exceptions.py`): raise a specific
+  subclass, early and loudly; never swallow an error, return a sentinel where raising is
+  correct, or let NaN or Inf propagate silently. Warnings are errors in tests ⚙.
+- `logging.getLogger(__name__)` per module; only `solprop.configure_logging()` configures
+  handlers. Debug logging is welcome in the physics, translation and driver layers, guarded
+  by `logger.isEnabledFor` when formatting costs anything. **Nothing logs in kernels or per-stage code**; progress goes through the
+  reporter protocols of `solprop/log.py` (`ProgressReporter` and those built on it).
+
+### Docstrings and comments
+
+- **Public API** — a dotted name (`module.qualname`) with no single-underscore
+  component — has a full **NumPy-style** docstring validated by numpydoc ⚙:
+  an imperative summary line, then `Parameters`, `Returns`, `Raises`, `Examples`,
+  `References` as applicable, with **units, valid ranges and array shapes**. `Examples` run
+  as doctests ⚙. A frozen dataclass documents its fields under `Attributes`. A public
+  property has a one-line docstring naming the quantity and unit, with
+  `# numpydoc ignore=RT01` on the `def` line.
+- **Private code** — any name with a single-underscore component, which numpydoc skips ⚙
+  — has no `Parameters`, `Returns`, `Yields`, `Raises` or `Examples` sections
+  (`poe size-check` caps those left ⚙): one summary line, then only what
+  the signature and annotations don't say — a unit, a valid range, a condition, a
+  convention, or why it exists. A function whose name and signature say everything needs
+  no docstring; a non-obvious inner function gets a one-line comment. A nested function
+  is private. numpydoc still checks one without a leading underscore, so a nested
+  function that takes parameters or returns a value is named with a leading underscore
+  unless it is returned to callers.
+- Comments explain **why**, never **what**: the physics (or the page with the derivation),
+  the numerics (why this quadrature, cutoff or tolerance; where precision is lost), sign,
+  unit and normalisation choices, references (DOI, equation), and anything a reader would
+  otherwise "simplify" incorrectly. Mark follow-ups `# TODO(context): ...`.
 
 ## Conventions: units, signs, normalisation, layout
 
@@ -243,246 +189,101 @@ to it; a function that departs from it says so in the first line of its docstrin
 | Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory (a group is a sequence of problems); saved fields `(n_z, n_modes, n_pol, n_omega)` |
 | Axis names | `n_batch n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
 
-## Guiding principles
-
-- One obvious way to do each thing. Prefer the existing pattern; if you find two ways to
-  do the same thing, consolidate them.
-- Optimise for the reader. Clear beats clever.
-- Small, single-purpose functions with explicit inputs and outputs. Prefer pure
-  functions; push side effects (I/O, global state, mutation) to the edges.
-- Make the implicit explicit: explicit arguments, explicit types on interfaces, explicit
-  errors over silent fallbacks.
-- Fail loudly and early with a clear exception; never swallow errors or return a
-  sentinel where raising is correct.
-- Respect the layers (`architecture.md §3`): physics code never contains performance
-  tricks; backend code never contains physics knowledge; the kernel contract
-  (`kernel-contract.md`) and the protected driver surface (frozen in
-  `tests/backends/test_driver.py`) are the crossings.
-
-## Environment and dependencies
-
-- Python and dependencies are managed with **uv** (`docs/dev/tooling.md`). Prefix
-  commands with `uv run`. Never `pip install` into the environment by hand and never edit
-  `uv.lock`; add dependencies with `uv add` / `uv add --dev` (after asking). A change that
-  alters resolution commits the updated lockfile (CI runs `uv lock --check`).
-- Dependencies come from PyPI; never commit a local-path or private source.
-- The package version is derived from git tags. Do not set a version string, and do not
-  tag.
-
-## Code style
-
-Formatting and linting belong to `ruff format` and `ruff check` ⚙ (import sorting,
-absolute imports, naming, line length, no bare `print`, annotations, NumPy legacy API,
-no blanket `# noqa`). What is left to judgement:
-
-- Fix the cause rather than silencing the warning. A suppression is rule-specific and
-  carries a reason: `# noqa: E501 - URL must stay on one line`.
-- Names state what a thing is or does. Domain abbreviations (`fwhm`, `zdw`, `rdw`,
-  `gnlse`, `ppt`) are fine; `tmp2`, `arr_b` are not. Greek letters are spelled out
-  (`omega`, `beta1`, `chi3`); wavelengths are `wavelength`, never `lambda`.
-- f-strings for interpolation, `pathlib.Path` for paths, and an explicit
-  `encoding="utf-8"` on every text read and write (Windows defaults to another encoding).
-- Every code file starts with the SPDX header that `uv run reuse annotate --copyright
-  "John C. Travers and contributors" --year 2026 --license GPL-3.0-or-later <file>`
-  writes ⚙. Documentation, figures and data are covered by `REUSE.toml`.
-- Declare the public surface of every public module with `__all__`.
-
-## Types and arrays
-
-- Annotate every public signature and class attribute ⚙; not obvious locals. No new
-  basedpyright errors; bump the pinned checker deliberately, in its own commit.
-- Prefer `Sequence`/`Mapping` for read-only parameters, `X | None`, built-in generics;
-  avoid `Any`, and confine and comment it when unavoidable. Structured data is a frozen
-  `@dataclass`, not a loose tuple or dict.
-- **Arrays are annotated with jaxtyping on `np.ndarray`** — the one way; no JAX is
-  involved — with the axis names of `conventions.md §6`:
-
-  ```python
-  def propagate(
-      field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-      omega: Float[np.ndarray, " n_omega"],
-  ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-  ```
-
-- Shapes and dtypes are checked at runtime under beartype in the test session, and by
-  explicit validation at public boundaries. The hook constrains how you annotate
-  (`ArrayLike | float`, quoted self-returns, no `numpy.typing.NDArray`, ...): see
-  `docs/dev/tooling.md`, "jaxtyping + beartype". Run the gate on the merged tree.
-- `scipy-stubs` is a dev dependency. A dependency that ships no stubs (pyfluids) takes a
-  narrowly scoped ignore with a comment at the import.
-
 ## Backends, kernels and hot paths
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Where features land** (ADR-061, ADR-064, ADR-068, `backends.md §10`). `native` is the
-  primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
-  order, and `native` may shape the contract. A backend without a feature refuses it by
-  name.
-- The **NumPy reference backend is the oracle** for numbers. Every other backend is
-  validated against it (one linear application, one nonlinear evaluation, one step, eight
-  steps, each statistic, a full run) with tolerances derived from summation bounds and
-  asserted `> 0`.
+- **Where features land** (ADR-068, ADR-077). A new feature lands on `native` and
+  `numpy_ref`, in either order, and `native` may shape the contract. A backend without a
+  feature refuses it by name; nothing falls back silently.
+- **`numpy_ref` decides the numbers:** `native` is validated against it (one linear
+  application, one nonlinear evaluation, one step, eight steps, each statistic, a full run)
+  with tolerances derived from summation bounds and asserted `> 0`.
 - Hot code lives only under `src/solprop/backends/`, `src/solprop/translate/` and
-  `native/`.
-- **Native kernels** follow [`native/AGENTS.md`](native/AGENTS.md). The floating-point
-  licence (below) applies to them: contraction by default, reassociation only where a
-  kernel asks for it, `SOLPROP_NATIVE_STRICT_*` for a protected helper, nothing else.
-- **No allocation, logging, Python objects or exceptions inside kernels**; every buffer
-  is a parameter; failures are status codes checked by the driver.
-- **Reproducibility to the error bound** ([SEP 25](docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
-  Independent floating-point computations are compared by numerical error, not bits:
-  - No bitwise agreement is required across backends, builds, machines, thread counts,
-    batch membership, scan execution or repeated propagation runs.
-  - Matched discrete methods and histories use rounding budgets that account for
-    operations, magnitudes, conditioning, transforms and propagation sensitivity.
-  - Adaptive runs and ordinary replay meet a per-case accuracy envelope set against a
-    tighter or stored converged reference; `rtol`/`atol` alone do not bound global
-    error. Replay need not reproduce the original adaptive trajectory or agree with it
-    at rounding level.
-  - Kernels may reorder, vectorise, thread and contract. Stable increments,
-    small-argument functions, defect calculations and compensated sums keep their
-    protections. Contraction is on by default for compiled kernels; the few protected
-    helpers opt out and stay strict. Reassociation is enabled only on the loops that
-    need it, per kernel. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
-    functions or reciprocals, or flush-to-zero.
-  - Preserve exact structural contracts: lossless copies and storage, integer and
-    identity metadata, hard-mask zeros and explicitly exact no-op/zero behaviour. A
-    mathematical zero reached through inexact arithmetic uses a justified absolute
-    tolerance. Adaptive work counts may differ; accounting for actual work is exact.
-- **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
-  listed by `memory_ledger()`, which is tested.
-- Device arrays never cross the `Backend` protocol, whose methods take and return host
-  arrays. The native backend's state is an opaque handle (a native state) that only its
-  own session and timing probe read; nothing state-sized crosses but an export or a
-  copy to the host.
-- **The seam has no version number** (ADR-068). A change to the `PropagationProblem` fields,
-  the `RunRequest` fields or the stage bundles of `translate/stage.py` rewrites
-  the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
-  release-note fragment. solprop and solprop-native are released together and pinned to
-  one version, and an editable checkout's extension is compared with its `native/` sources
-  by digest (`check_build`).
-- Every hot-path change comes with a benchmark ledger entry
-  ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
-  on about ten steps or a short `ab --length` window; report the window measured and
-  never extrapolate it to a full run.
-
-## Errors, warnings and logging
-
-- One exception hierarchy rooted at `SolpropError` (`src/solprop/exceptions.py`): raise a
-  specific subclass, never bare `Exception`.
-- Never let NaN or Inf propagate silently: validate at the boundary, assert finiteness in
-  tests.
-- Warnings are errors in the test suite ⚙; assert an expected one with `pytest.warns`.
-- `logging.getLogger(__name__)` per module; the package installs a `NullHandler`; no
-  handler or level configuration outside `solprop.configure_logging()`. Debug logging is
-  welcome in the physics, translation and driver layers, guarded by
-  `logger.isEnabledFor(logging.DEBUG)` when formatting costs anything. **Nothing logs in
-  compiled kernels or per-stage code**; progress goes through the one `ProgressReporter`
-  protocol in `solprop/log.py`.
-
-## Functions and modules
-
-- One function, one responsibility. Keep parameter lists short ⚙; group related
-  parameters into a small frozen dataclass.
-- Return new values rather than mutating arguments, except for the backends' named work
-  buffers.
-- Organise modules by domain concept, each with a nameable purpose.
-
-## Docstrings and comments
-
-- Every public module, class and function has a **NumPy-style** docstring ⚙ validated by
-  `numpydoc lint` ⚙: an imperative one-line summary, then `Parameters`, `Returns`,
-  `Raises`, `Examples`, `References` as applicable. State **units, valid ranges and array
-  shapes** (in the standard axis names). `Examples` run as doctests ⚙, so they are
-  deterministic. A frozen dataclass documents its fields under `Attributes`.
-- Comments explain **why**, never **what**: the physics and mathematics (or the `docs/`
-  page with the derivation), the numerics (why this quadrature, cutoff or tolerance;
-  where precision is lost), non-obvious sign, unit and normalisation choices, references
-  (DOI, equation number), and anything a reader would otherwise "simplify" incorrectly,
-  including a measured fact with its ledger entry. Mark follow-ups `# TODO(context): ...`.
+  `native/` ([`native/AGENTS.md`](native/AGENTS.md)). **No allocation, logging, Python
+  objects or exceptions inside kernels**; buffers are parameters, listed by the tested
+  `memory_ledger()`, and in-place or `out=` work stays inside the backends; failures are
+  status codes. Device arrays never cross the `Backend` protocol.
+- **Reproducibility to the error bound** ([SEP 25](docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md);
+  `testing.md` §3): results are compared by numerical error, never bits — matched
+  computations within a rounding budget, adaptive runs and replay within an accuracy
+  envelope. Kernels may reorder, vectorise, thread and contract; protected helpers stay
+  strict; no umbrella fast-math.
+- **The seam has no version number** (ADR-068). A change to the `PropagationProblem` or
+  `RunRequest` fields or the stage bundles of `translate/stage.py` rewrites the frozen
+  tables in `tests/backends/test_driver.py` in the same commit, with a release-note fragment.
+- A hot-path change comes with a benchmark ledger entry ([`benchmarks.md`](docs/dev/benchmarks.md))
+  from `python -m benchmarks ab` on about ten steps or a short `--length` window; report the
+  window, never extrapolate it.
 
 ## Tests
 
 The long form is [`testing.md`](docs/dev/testing.md).
 
-- **pytest**, in `tests/`, mirroring the package; `test_<unit>_<behaviour>`. Every
-  public function has normal, edge and error-path tests; every bug fix brings a
-  regression test.
-- Deterministic and isolated ⚙ (random order is enforced): fixtures, `parametrize`, no
-  network, no writes outside `tmp_path`; randomness through
-  `np.random.default_rng(seed)` ⚙.
-- Numerical assertions use `assert_allclose`, `pytest.approx` or `tests/bounds.py`'s
-  `assert_within` with explicit tolerances, each with a comment saying what sets it: a
-  rounding budget fixed before the comparison (matched discrete computations) or an
-  accuracy envelope against a tighter or stored reference (adaptive runs, replay,
-  resume). Exact equality is for structural contracts only (`testing.md` §3).
-- Test invariants and behaviour, not only point values: conservation laws and symmetries,
-  convergence orders (three levels), round trips, parity (backend vs reference, field vs
-  envelope, batch vs sequential), and `hypothesis` where an invariant holds over a range.
-- Golden arrays use `pytest-regressions` (`num_regression`), never a pasted literal;
-  stored Luna.jl runs under `tests/data/` are regression witnesses, not truth.
-- Tiers by purpose: fast tests unmarked, short functional runs `@pytest.mark.medium`,
-  milestones and convergence studies `@pytest.mark.slow`; `@pytest.mark.gpu`,
-  `@pytest.mark.benchmark` ⚙. A test that cannot run on a platform skips there and says
-  why (`sys.platform == "win32"`).
-- Coverage is 100 % (see the definition of done). Write the test alongside the code.
+- **pytest** in `tests/`, mirroring the package; `test_<unit>_<behaviour>`. Every public
+  function has normal, edge and error-path tests; every bug fix a regression test.
+- Deterministic and isolated: random order ⚙, no network, no writes outside `tmp_path`,
+  randomness through `np.random.default_rng(seed)` ⚙.
+- Shared builders go in `tests/builders.py` rather than local copies; guard tests are
+  parametrised tables; no measurement or experiment scripts in `tests/`.
+- Numerical assertions (`assert_allclose`, `pytest.approx`, `tests/bounds.py`'s
+  `assert_within`) carry explicit tolerances, each with a comment on what sets it: a
+  rounding budget fixed beforehand, or an accuracy envelope against a tighter or stored
+  reference. Exact equality is for structural contracts only (`testing.md` §3).
+- Test invariants, not only point values: conservation laws, symmetries, convergence orders
+  (three levels), round trips, parity (backend, field/envelope, batch), `hypothesis` over
+  ranges. Golden arrays use `num_regression`; stored Luna.jl runs are witnesses, not truth.
+- Tiers by purpose: fast unmarked, short functional runs `medium`, milestones and
+  convergence studies `slow`; lanes `gpu` and `benchmark` ⚙. A test that cannot run on a
+  platform skips there and says why.
 
 ## Documentation
 
-- Sphinx (myst-parser, numpydoc, autosummary, sphinx-gallery); the API reference is
-  generated from docstrings.
-- **All functionality is described in the user manual under `docs/`** — background, how
-  it works (derivation or reference) and an example — not only in docstrings.
-- Gallery kinds (`docs/dev/contributing.md`):
-  - **Introductory lessons**: sources `docs/introduction/tutorials/plot_*.py`, rendered
-    into `docs/introduction/lessons/`. **Focused tutorials**:
-    `docs/tutorials/**/plot_*.py`, rendered into `docs/auto_tutorials/`. Both
-    deterministic and large enough to show the physics; CI's docs job runs every one
-    again on each change (`SOLPROP_RUN_EXAMPLES=tutorials`).
-  - **Worked examples**: `docs/examples/**/plot_*.py`, full-size problems of minutes to
-    half an hour, rendered into `docs/auto_examples/`.
-  - Every gallery's output is committed, and a normal build (Read the Docs' included)
-    executes none of them. After editing a script, even its prose, run
-    `uv run poe docs-examples [plot_NN_name]` (every stale script, or one) on an idle
-    machine and commit what it writes with the source, stating the run time of a worked
-    example in the commit message. A normal build fails naming any script whose source
-    differs from its committed output.
-- The user guide under `docs/guide/` is tested: every `python` block runs in
-  `tests/test_guide_snippets.py` (compiled in the default lane, run in the slow lane);
-  keep snippets to seconds and fence illustration as `sh` or `text`.
-- Keep `README.md` and the introduction current; record notable changes in a unique
-  `changelog.d/<slug>.<category>.md` fragment. No issue is needed just for a fragment.
-  Only the rolling release PR normally edits `CHANGELOG.md` (Keep a Changelog): it
-  collects the fragments under `Unreleased` after merges. Edit the source fragments,
-  not the generated draft; mark the release PR ready before making release edits
+- Sphinx (myst-parser, numpydoc, autosummary, sphinx-gallery), building clean with
+  `-W -n --keep-going`; the API reference comes from docstrings.
+- **All functionality is described in the user manual** — background, how it works and an
+  example — not only in docstrings. Design pages under `docs/dev/` describe the code as it
+  is and change with it, in the same branch.
+- Gallery output is committed and a normal build runs no script: after editing a lesson,
+  tutorial or worked example, even its prose, run `uv run poe docs-examples <name>` and
+  commit what it writes ([`contributing.md`](docs/dev/contributing.md)).
+- Every `python` block of `docs/guide/` runs in `tests/test_guide_snippets.py`: keep them to
+  seconds and fence illustration as `sh` or `text`.
+- Keep `README.md` and the introduction current. Notable changes get a unique
+  `changelog.d/<slug>.<category>.md` fragment
   ([releasing](docs/dev/releasing.md#the-rolling-release-pr)).
-- The build passes with `-W -n --keep-going`.
-- Design documents under `docs/dev/` describe the code as it is: a change that alters
-  the design updates them in the same branch. A design problem found while working is
-  raised, not silently worked around.
+
+## Enhancement proposals (SEPs)
+
+The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
+[`docs/dev/seps/index.md`](docs/dev/seps/index.md).
+
+- **When:** new physics models, routes, geometries, mode families or numerical schemes;
+  changed defaults or conventions; public interface redesigns; substantive
+  kernel-contract changes; process changes. Not for fixes, documentation, tests,
+  refactoring, tooling or optimisations that leave results unchanged.
+- **Writing:** from `template.md`, standing alone (SEP 0 §7), with its expected cost in
+  code, docstring and test lines; merged early as `Draft`.
+- **Implementing:** one `feature/sep-NNNN-…` branch and one pull request, a draft from the
+  start of implementation, marked ready when its last commit sets `Final`. Each phase
+  appends its report to Part II, with the actual cost. `Final` needs parity on `numpy_ref`
+  and native CPU, or an exception written into the accepted SEP.
 
 ## Git
 
-- **All development happens in a git worktree on a topic branch, never in the main
-  checkout**, which stays on a clean `main`. Create
-  the branch and the worktree yourself, without asking, named for the topic: `fix/…`,
-  `feature/…`, `docs/…`, `chore/…` (`docs/sep-NNNN-…` for a SEP draft,
-  `feature/sep-NNNN-…` for a SEP's implementation), for example
-  `git worktree add -b fix/scan-lock ../solprop-scan-lock main`. Give the worktree its
-  own environment (`uv sync` there).
-- Clean, logical commits with descriptive but not verbose messages; several small
-  commits rather than one large one. Stage deliberately with `git add <paths>`.
-- Changes reach `main` as pull requests with green CI, or by a local merge when the
-  maintainers ask for one.
-- **Few pull requests, few pushes.** CI runs its whole matrix on every push to every pull
-  request, so keep one agent's work in one pull request, or a few, rather than one per
-  step. Stack only on another agent's open pull request, when your work needs it before it
-  lands. Commit as often as you like and push in batches.
-- **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
-  search the issues, the pull requests and the SEPs, link what is related, and follow its
-  sections and labels.
-- **Coding agents:** merge, push, tag or release only when asked; never run a
-  destructive or history-rewriting command (`git reset --hard`, `git checkout .`,
-  `git restore` over uncommitted changes, `git clean`, `git commit --amend`,
-  `git rebase`, `git push --force`) — it can destroy work that is not yours.
+- **Develop in a git worktree on a topic branch, never in the main checkout.** Create both
+  yourself, named for the topic (`fix/…`, `feature/…`, `docs/…`, `chore/…`;
+  `docs/sep-NNNN-…` and `feature/sep-NNNN-…` for SEPs), for example
+  `git worktree add -b fix/scan-lock ../solprop-scan-lock main`, and `uv sync` there.
+- Small, logical commits with brief messages; stage with `git add <paths>`. Manage
+  dependencies with `uv add` (after asking), never `pip install`, and commit the lockfile a
+  change alters. The version comes from git tags: set no version string.
+- Changes reach `main` as pull requests with green CI, or by a local merge the maintainers
+  ask for. **Few pull requests, few pushes:** CI runs its whole matrix on every push, so
+  keep one agent's work in one pull request, stack only on another agent's open one when
+  your work needs it, and push in batches. Before opening an issue or a pull request, follow
+  [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **Coding agents:** merge, push, tag or release only when asked; never run a destructive
+  or history-rewriting command (`git reset --hard`, `git checkout .`, `git restore` over
+  uncommitted changes, `git clean`, `git commit --amend`, `git rebase`,
+  `git push --force`) — it can destroy work that is not yours.

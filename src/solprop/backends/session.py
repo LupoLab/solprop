@@ -258,25 +258,13 @@ class ExecutionOptions:
                 object.__setattr__(self, name, positive_count(name, value))
 
     @property
-    def budget(self) -> int | None:
-        """Return the explicit node budget as an ``int``, or ``None``.
-
-        Returns
-        -------
-        int or None
-            :attr:`node_budget`, which construction already made an ``int``.
-        """
+    def budget(self) -> int | None:  # numpydoc ignore=RT01
+        """Explicit node budget as an ``int``, or ``None``."""
         return None if self.node_budget is None else operator.index(self.node_budget)
 
     @property
-    def chunk(self) -> int | None:
-        """Return the exact node chunk as an ``int``, or ``None``.
-
-        Returns
-        -------
-        int or None
-            :attr:`node_chunk`, which construction already made an ``int``.
-        """
+    def chunk(self) -> int | None:  # numpydoc ignore=RT01
+        """Exact node chunk as an ``int``, or ``None``."""
         return None if self.node_chunk is None else operator.index(self.node_chunk)
 
 
@@ -532,7 +520,7 @@ class Start:
     @classmethod
     def entrance(
         cls, problem: PropagationProblem, *, noise: NoiseRealisation | None = None
-    ) -> "Start":  # noqa: UP037 - runtime type hook
+    ) -> "Start":
         """Return the fresh start of a problem: its launch state, its launch plane owed.
 
         Parameters
@@ -646,13 +634,13 @@ class RunSession(Protocol):
     """
 
     @property
-    def finished(self) -> bool:
-        """Return whether a terminal event was yielded."""
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a terminal event was yielded."""
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed."""
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         ...
 
     def status(self) -> SessionStatus:
@@ -788,7 +776,7 @@ class RunSession(Protocol):
         """Release the session's resources; idempotent."""
         ...
 
-    def __enter__(self) -> "RunSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "RunSession":
         """Return the session, for scoped ownership."""
         ...
 
@@ -841,18 +829,18 @@ class GroupSession(Protocol):
     """
 
     @property
-    def n_members(self) -> int:
-        """Return the number of members."""
+    def n_members(self) -> int:  # numpydoc ignore=RT01
+        """Number of members."""
         ...
 
     @property
-    def finished(self) -> bool:
-        """Return whether every member has ended."""
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every member has ended."""
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the group was closed."""
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group was closed."""
         ...
 
     def advance(self) -> GroupBatch:
@@ -962,7 +950,7 @@ class GroupSession(Protocol):
         """Release every member's resources; idempotent."""
         ...
 
-    def __enter__(self) -> "GroupSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "GroupSession":
         """Return the group, for scoped ownership."""
         ...
 
@@ -991,8 +979,8 @@ class PreparedExecution(Protocol):
     """A backend's lowering of one problem and request, reusable across sessions."""
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it."""
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         ...
 
     def start(
@@ -1047,8 +1035,8 @@ class PreparedGroup(Protocol):
     """
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it."""
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         ...
 
     def start(
@@ -1253,23 +1241,11 @@ class SessionLedger:
         return True
 
     @property
-    def pending(self) -> Receipt | None:
-        """Return the pending batch's receipt.
-
-        Returns
-        -------
-        solprop.backends.events.Receipt or None
-            The receipt, or ``None`` when nothing is pending.
-        """
+    def pending(self) -> Receipt | None:  # numpydoc ignore=RT01
+        """Pending batch's receipt, or ``None``."""
         return self._pending
 
     @property
-    def finished(self) -> bool:
-        """Return whether a terminal batch was issued.
-
-        Returns
-        -------
-        bool
-            True once the session yielded its terminal event.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a terminal batch was issued."""
         return self.outcome is not None

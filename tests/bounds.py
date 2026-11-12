@@ -374,7 +374,7 @@ The witnesses of ``tests/backends/test_exponential_weights.py`` hold both algori
 :func:`solprop.backends.exponential.phi_functions` within 256 ulp of that scale."""
 
 
-def carrier_increment_budget(  # noqa: PLR0913 - the increment's operands
+def carrier_increment_budget(
     coefficients, moments, samples, nodes, shift, shifted, *, phase_rounding=0.0
 ):
     """Bound the rounding of one carrier-frame increment ``sum_k M_k sum_j c_jk G_j``.

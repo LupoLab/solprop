@@ -13,65 +13,16 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 workspace_root=$(cd "$repo_root/.." && pwd)
 cd "$repo_root"
-raman_default=KOKKOSFFT
-if [[ $(uname -s) == Darwin ]]; then
-  raman_default=ACCELERATE
-fi
-raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$raman_default}
+# shellcheck source=native/scripts/compiler.sh
+source "$repo_root/scripts/compiler.sh"
+raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$(native_raman_provider)}
 export CMAKE_ARGS="${CMAKE_ARGS:-} -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER=$raman_provider"
-
-if [[ $(uname -s) == "Linux" ]]; then
-  # CXX when set (Linux CPU builds need GCC 14 or newer; Ubuntu 24.04's g++ is 13).
-  cxx_compiler=$(command -v "${CXX:-g++}")
-elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
-  cxx_compiler=/opt/homebrew/opt/llvm/bin/clang++
-elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
-  cxx_compiler=/usr/local/opt/llvm/bin/clang++
-else
-  cxx_compiler=$(command -v clang++)
-fi
-cpp_sources=(
-  benchmarks/cpu_timer.cpp
-  include/solprop_native/chebyshev.hpp
-  include/solprop_native/core.hpp
-  include/solprop_native/coupled_flow.hpp
-  include/solprop_native/dispersive.hpp
-  include/solprop_native/envelope_plasma.hpp
-  include/solprop_native/far_field.hpp
-  include/solprop_native/fft_plan.hpp
-  include/solprop_native/fp.hpp
-  include/solprop_native/general_modal.hpp
-  include/solprop_native/raman_fft.hpp
-  include/solprop_native/gemm.hpp
-  include/solprop_native/lagrange_basis.hpp
-  include/solprop_native/plasma.hpp
-  include/solprop_native/slab.hpp
-  include/solprop_native/z_table.hpp
-  src/bindings.cpp
-  src/coverage_labels.cpp
-  src/core.cpp
-  src/coupled_flow.cpp
-  src/dispersive.cpp
-  src/far_field.cpp
-  src/general.cpp
-  src/general_modal.cpp
-  src/helpers.cpp
-  src/helpers.hpp
-  src/raman_fft.cpp
-  src/benchmark_gemm.cpp
-  tests/native/bounds.hpp
-  tests/native/main.cpp
-  tests/native/test_aperture.cpp
-  tests/native/test_core.cpp
-  tests/native/test_coupled_flow.cpp
-  tests/native/test_dispersive.cpp
-  tests/native/test_envelope_plasma.cpp
-  tests/native/test_fft.cpp
-  tests/native/test_fp.cpp
-  tests/native/test_general_modal.cpp
-  tests/native/test_helpers.cpp
-  tests/native/test_z_table.cpp
-)
+cxx_compiler=$(native_cxx_compiler)
+# Every tracked C++ file, so that none can drop out of the format check.
+cpp_sources=()
+while IFS= read -r -d '' cpp_source; do
+  cpp_sources+=("$cpp_source")
+done < <(git ls-files -z -- '*.cpp' '*.hpp' '*.h')
 
 # The stages to run, all of them by default; CI runs them as parallel jobs. "lint" is
 # ruff, pyright and clang-format; "tidy" and "sanitize" build and run the native tests

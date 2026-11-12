@@ -48,6 +48,7 @@ from typing import Final
 import numpy as np
 from jaxtyping import Complex, Float, Num
 
+from solprop._ownership import hold
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid, planck_taper
 from solprop.nonlinear.raman import Dephasing, RamanModel, RamanResponse
@@ -245,24 +246,8 @@ def _damped(
 ) -> Float[np.ndarray, " n_to_doubled"]:
     """Apply each term's dephasing to its undamped kernel and sum.
 
-    Parameters
-    ----------
-    response : RamanResponse
-        The response the kernels came from; supplies the dephasings and the fraction.
-    kernels : numpy.ndarray
-        The undamped, tapered rows, shape ``(n_terms, 2 n_to)``.
-    grid : TimeGrid
-        The grid supplying the fine time axis and the temporal collar.
-    density : float
-        Number density in m^-3, non-negative.
-    check : bool
-        Whether to check each damped term against the window it has to fit in, and
-        note in the debug log the ones that outlive it.
-
-    Returns
-    -------
-    numpy.ndarray
-        The damped kernel, shape ``(2 n_to,)``.
+    - ``grid``: the grid supplying the fine time axis and the temporal collar.
+    - ``density``: number density in m^-3, non-negative.
     """
     n_to = grid.n_to
     delays = np.arange(n_to) * grid.dt_fine
@@ -285,15 +270,7 @@ def _damped(
 def _flat_samples(grid: TimeGrid) -> int:
     """Return the number of kernel samples the taper leaves alone.
 
-    Parameters
-    ----------
-    grid : TimeGrid
-        The grid supplying the fine time axis and the temporal collar.
-
-    Returns
-    -------
-    int
-        The index at which the taper starts to fall.
+    - ``grid``: the grid supplying the fine time axis and the temporal collar.
     """
     span = (grid.n_to - 1) * grid.dt_fine
     return int(
@@ -303,7 +280,7 @@ def _flat_samples(grid: TimeGrid) -> int:
     )
 
 
-def _check_window(
+def _check_window(  # noqa: PLR0917 - called positionally
     response: RamanResponse,
     model: RamanModel,
     tail: Float[np.ndarray, " n_tail"],
@@ -326,20 +303,7 @@ def _check_window(
     since the taper has already begun; that makes the test conservative, and the taper
     is one at the sample the tail starts from.
 
-    Parameters
-    ----------
-    response : RamanResponse
-        The response, for the number of terms in the message.
-    model : RamanModel
-        The term itself, for its dephasing time.
-    tail : numpy.ndarray
-        The damped kernel over the tapered region, shape ``(n_tail,)``.
-    damped : numpy.ndarray
-        The damped kernel over the whole response span, shape ``(n_to,)``.
-    density : float
-        Number density in m^-3, non-negative.
-    row : int
-        Index of the term, for the message.
+    - ``density``: number density in m^-3, non-negative.
     """
     peak = float(np.max(np.abs(damped)))
     if peak == 0.0 or tail.size == 0:
@@ -519,26 +483,20 @@ class RamanKernels:
             )
 
     @property
-    def n_terms(self) -> int:
-        """Return the number of independently damped terms.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """Number of independently damped terms.
 
-        Returns
-        -------
-        int
-            One for a glass or a vibration-only gas, two for a gas with both a
-            rotational and a vibrational coherence.
+        One for a glass or a vibration-only gas, two for a gas with both a
+        rotational and a vibrational coherence.
         """
         return int(self.undamped.shape[0])
 
     @property
-    def dephasings(self) -> tuple[Dephasing, ...]:
-        """Return the dephasing of each term, in the order of :attr:`undamped`.
+    def dephasings(self) -> tuple[Dephasing, ...]:  # numpydoc ignore=RT01
+        """Dephasing of each term, in the order of :attr:`undamped`.
 
-        Returns
-        -------
-        tuple of Dephasing
-            One entry per row of the kernel; :meth:`decay_rates` turns them into the
-            paths the contract carries.
+        One entry per row of the kernel; :meth:`decay_rates` turns them into the
+        paths the contract carries.
         """
         return tuple(model.dephasing for model in self.response.models)
 
@@ -573,14 +531,11 @@ class RamanKernels:
         return decay_rate_profiles(self.response, density, self.grid)
 
     @property
-    def recomputations(self) -> int:
-        """Return how many times the spectrum has been transformed.
+    def recomputations(self) -> int:  # numpydoc ignore=RT01
+        """How many times the spectrum has been transformed.
 
-        Returns
-        -------
-        int
-            One per distinct density asked for in succession; repeated calls at the
-            same density do not add to it.
+        One per distinct density asked for in succession; repeated calls at the
+        same density do not add to it.
         """
         return self._memo.transforms
 
@@ -622,7 +577,7 @@ class RamanKernels:
         # propagation at constant density notes it once rather than once per stage.
         kernel = _damped(self.response, self.undamped, self.grid, density, check=True)
         spectrum = kernel_spectrum(kernel, self.grid.dt_fine)
-        spectrum.setflags(write=False)
+        hold(spectrum)
         self._memo.density = density
         self._memo.spectrum = spectrum
         self._memo.transforms += 1
@@ -683,17 +638,8 @@ def decay_rate_profiles(
         ) -> Float[np.ndarray, " n_z"]:
             """Return the capped decay rate at each position.
 
-            Parameters
-            ----------
-            z : numpy.ndarray
-                Positions in m, shape ``(n_z,)``.
-            dephasing : Dephasing
-                The term's dephasing, bound at definition time.
-
-            Returns
-            -------
-            numpy.ndarray
-                ``min(1/tau2(rho(z)), cap)`` in s^-1, shape ``(n_z,)``.
+            - ``z``: positions in m, shape ``(n_z,)``.
+            - Returns: ``min(1/tau2(rho(z)), cap)`` in s^-1, shape ``(n_z,)``.
             """
             values = density(np.asarray(z, dtype=float))
             return np.array(

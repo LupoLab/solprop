@@ -38,7 +38,7 @@ from solprop.processing.fields import (
 __all__ = ["DEFAULT_GATE_POSITIONS", "spectrogram"]
 
 
-def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour scale
+def spectrogram(
     output: Output,
     z: float | None = None,
     axis: SpectralAxis = "wavelength",
@@ -162,21 +162,8 @@ def _ordinate(
 ) -> tuple[Float[np.ndarray, "n_f n_slices"], Float[np.ndarray, " n_f"]]:
     """Return the map and its ordinate on the requested spectral abscissa.
 
-    Parameters
-    ----------
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa.
-    frequency : numpy.ndarray
-        Positive frequencies of the transform, Hz, shape ``(n_f,)``, increasing.
-    intensity : numpy.ndarray
-        The map on those frequencies, shape ``(n_f, n_slices)``.
-
-    Returns
-    -------
-    values : numpy.ndarray
-        The map, reordered so that the ordinate increases.
-    ordinate : numpy.ndarray
-        The abscissa in display units, increasing.
+    - ``frequency``: positive frequencies of the transform, Hz, shape ``(n_f,)``,
+      increasing.
     """
     factor, _ = spectral_display(axis)
     if axis == "wavelength":

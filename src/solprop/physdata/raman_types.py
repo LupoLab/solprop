@@ -294,13 +294,10 @@ class IntermediateBroadeningRaman:
             raise MaterialError("a Raman line set must have at least one line")
 
     @property
-    def n_lines(self) -> int:
-        """Return the number of lines.
+    def n_lines(self) -> int:  # numpydoc ignore=RT01
+        """Number of lines.
 
-        Returns
-        -------
-        int
-            The common length of the four sequences.
+        The common length of the four sequences.
         """
         return len(self.frequencies)
 
@@ -605,9 +602,9 @@ class Dephasing:
 class MolecularOptions:
     """Which parts of a molecular gas's Raman spectrum to build, and at what state.
 
-    Grouped because :func:`solprop.nonlinear.raman.response_for` would otherwise take
-    more arguments than the project allows loose (``AGENTS.md``,
-    "Functions and modules").
+    Grouped because the options are one domain concept, which
+    :func:`solprop.nonlinear.raman.response_for` would otherwise take as loose
+    arguments (``AGENTS.md``, "Functions and errors").
 
     Each term flag has three states: ``None`` (the default) takes the term when the
     species has a model for it and silently goes without otherwise, ``True`` requires
@@ -646,7 +643,7 @@ class MolecularOptions:
     min_j: int = 0
     max_j: int = 50
 
-    def resolved(self, temperature: float) -> "MolecularOptions":  # noqa: UP037 - bound after the class body
+    def resolved(self, temperature: float) -> "MolecularOptions":
         """Return the options with an unset temperature taken from the caller.
 
         Parameters

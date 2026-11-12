@@ -48,18 +48,7 @@ __all__ = ["Queue", "collect"]
 
 
 def _point(job: object) -> ScanPoint:
-    """Require a work description carrying a globally indexed ScanPoint.
-
-    Parameters
-    ----------
-    job : object
-        Point or work description carrying a globally indexed ScanPoint.
-
-    Returns
-    -------
-    ScanPoint
-        Validated global point description.
-    """
+    """Require a work description carrying a globally indexed ScanPoint."""
     point = job if isinstance(job, ScanPoint) else getattr(job, "point", None)
     if not isinstance(point, ScanPoint):
         raise DriverError("Queue work must carry a ScanPoint")
@@ -67,35 +56,14 @@ def _point(job: object) -> ScanPoint:
 
 
 def _point_id(point: ScanPoint) -> str:
-    """Bind a claim to its global index, variable values and derived seed.
-
-    Parameters
-    ----------
-    point : ScanPoint
-        Globally indexed point with variable values and resolved seed.
-
-    Returns
-    -------
-    str
-        SHA-256 binding the point values, index and seed.
-    """
+    """Bind a claim to its global index, variable values and derived seed."""
     return _hash(_json(point))
 
 
 def _filename(manifest: Mapping, index: int) -> str:
     """Keep artifact names independent of task and chunk ordering.
 
-    Parameters
-    ----------
-    manifest : Mapping
-        Immutable scan description and builder identity.
-    index : int
-        Zero-based global point index.
-
-    Returns
-    -------
-    str
-        Stable global point artifact filename.
+    - ``manifest``: immutable scan description and builder identity.
     """
     return f"{manifest['name']}_{index:05d}.h5"
 
@@ -103,15 +71,7 @@ def _filename(manifest: Mapping, index: int) -> str:
 def _builder_key(build: object) -> str:
     """Identify serialised builder parameters and available script source.
 
-    Parameters
-    ----------
-    build : object
-        Pickleable builder, including captured construction parameters.
-
-    Returns
-    -------
-    str
-        Digest of serialised construction parameters and source bytes.
+    - Returns: digest of serialised construction parameters and source bytes.
     """
     original = build
     while isinstance(original, functools.partial):
@@ -132,15 +92,8 @@ def _builder_key(build: object) -> str:
 def _restore_scan(manifest: Mapping) -> Scan:
     """Reconstruct portable axes without importing recorded classes.
 
-    Parameters
-    ----------
-    manifest : Mapping
-        Immutable scan description and builder identity.
-
-    Returns
-    -------
-    Scan
-        Full Cartesian scan reconstructed from portable axis metadata.
+    - ``manifest``: immutable scan description and builder identity.
+    - Returns: full Cartesian scan reconstructed from portable axis metadata.
     """
     description = json.loads(manifest["description"])
     variables = {
@@ -169,15 +122,7 @@ class _QueueWork:
     def probe(self, claim: _Claim) -> Mapping[str, int]:
         """Measure the wrapped worker before admitting local processes.
 
-        Parameters
-        ----------
-        claim : _Claim
-            Point description and unique ownership token.
-
-        Returns
-        -------
-        mapping of str to int
-            Baseline RSS, peak RSS and backend allocation bytes.
+        - Returns: baseline RSS, peak RSS and backend allocation bytes.
         """
         probe = getattr(self.work, "probe", None)
         if not callable(probe):
@@ -187,15 +132,7 @@ class _QueueWork:
     def __call__(self, claim: _Claim) -> PointResult:
         """Compute and publish one claimed point.
 
-        Parameters
-        ----------
-        claim : _Claim
-            Point description and unique ownership token.
-
-        Returns
-        -------
-        PointResult
-            Published result, or skipped if ownership was superseded.
+        - Returns: published result, or skipped if ownership was superseded.
         """
         result = self.work(claim.job)
         if not isinstance(result, PointResult):
@@ -203,39 +140,13 @@ class _QueueWork:
         return self._publish(claim, result)
 
     def failure(self, claim: _Claim, error: str) -> PointResult:
-        """Publish an abnormal worker exit as a retryable failed point.
-
-        Parameters
-        ----------
-        claim : _Claim
-            Point description and unique ownership token.
-        error : str
-            Captured worker failure or abnormal process exit.
-
-        Returns
-        -------
-        PointResult
-            Durably recorded worker failure.
-        """
+        """Publish an abnormal worker exit as a retryable failed point."""
         return self._publish(
             claim, PointResult(_point(claim.job).index, "failed", error=error)
         )
 
     def _publish(self, claim: _Claim, result: PointResult) -> PointResult:
-        """Commit an artifact only if its ownership token is still current.
-
-        Parameters
-        ----------
-        claim : _Claim
-            Point description and unique ownership token.
-        result : PointResult
-            Validated successful or failed worker result.
-
-        Returns
-        -------
-        PointResult
-            Published result, or skipped after ownership changed.
-        """
+        """Commit an artifact only if its ownership token is still current."""
         manifest = read_json(self.path / "manifest.json")
         index = _point(claim.job).index
         if result.index != index:
@@ -276,14 +187,8 @@ class _QueueWork:
 class _Heartbeat:
     """Refresh this controller's leases independently of point completion.
 
-    Parameters
-    ----------
-    path : Path
-        Queue directory or record filename used by this operation.
-    controller : str
-        Unique controller identifier whose leases must be refreshed.
-    age : float
-        Positive lease duration in seconds.
+    - ``controller``: unique controller identifier whose leases must be refreshed.
+    - ``age``: positive lease duration in seconds.
     """
 
     def __init__(self, path: Path, controller: str, age: float) -> None:
@@ -447,19 +352,7 @@ class Queue:
     ) -> Iterator[_Claim]:
         """Claim eligible points atomically while preserving live owners.
 
-        Parameters
-        ----------
-        points : Iterable
-            Lazily supplied point descriptions retaining global indices.
-        holder : Mapping
-            Controller host, process creation identity and unique identifier.
-        heartbeat : _Heartbeat
-            Running lease refresher whose failure stops further dispatch.
-
-        Yields
-        ------
-        _Claim
-            Eligible point carrying a newly published ownership token.
+        - ``holder``: controller host, process creation identity and unique identifier.
         """
         path = Path(cast(Path, self.path))
         for job in points:
@@ -628,24 +521,7 @@ def collect(path: Path | str, output: Path | str) -> ScanOutput:
 def _collect_points(
     path: Path, manifest: Mapping, record: Mapping, writer: ScanWriter
 ) -> bool:
-    """Validate and collect the unchanged point artifacts in a queue snapshot.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Shared queue directory.
-    manifest : mapping
-        Validated immutable scan and builder identity.
-    record : mapping
-        Queue snapshot under the state lock.
-    writer : ScanWriter
-        Exclusively held controller writer.
-
-    Returns
-    -------
-    bool
-        Whether any point changed the collected file.
-    """
+    """Validate and collect the unchanged point artifacts in a queue snapshot."""
     changed = False
     scan = _restore_scan(manifest)
     for index, row in enumerate(record["rows"]):

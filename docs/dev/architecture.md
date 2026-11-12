@@ -247,6 +247,9 @@ cross-check of the reference backend. `processing/windows.py` is a candidate
 module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
 any layer and importing none.
+`_ownership.py` is private in the same way: it records which arrays solprop holds,
+so that an array solprop has just made is frozen where it stands (`hold`) and anything
+a caller hands in is copied before it is frozen (`frozen_copy`), in every layer.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy

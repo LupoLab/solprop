@@ -110,24 +110,8 @@ def gamma3(gas: Gas | str, *, wavelength: float) -> float:
 
 
 @functools.cache
-def _kerr(gas: Gas) -> "OptmatKerr":  # noqa: UP037 - the class is defined below
-    """Return the Kerr adapter of a gas, once per gas.
-
-    Parameters
-    ----------
-    gas : Gas
-        The species.
-
-    Returns
-    -------
-    OptmatKerr
-        Its adapter.
-
-    Raises
-    ------
-    MaterialError
-        If optmat has no hyperpolarizability model of the gas.
-    """
+def _kerr(gas: Gas) -> "OptmatKerr":
+    """Return the Kerr adapter of a gas, once per gas."""
     if gas is Gas.Air:
         msg = (
             "air has no Kerr coefficient of its own: its populations (N2, O2, Ar) each "
@@ -360,22 +344,7 @@ def carriers_agree(first: float, second: float) -> bool:
 def _checked_carrier(wavelength: float, material: str) -> float:
     """Validate a carrier wavelength.
 
-    Parameters
-    ----------
-    wavelength : float
-        Vacuum wavelength in m.
-    material : str
-        The gas, for the message.
-
-    Returns
-    -------
-    float
-        The wavelength as a float.
-
-    Raises
-    ------
-    MaterialError
-        If it is not positive and finite.
+    - ``wavelength``: vacuum wavelength in m.
     """
     value = float(wavelength)
     if not (math.isfinite(value) and value > 0.0):
@@ -497,24 +466,15 @@ class OptmatKerr:
         _ = self.model
 
     @property
-    def key(self) -> Gas:
-        """Return the species as a registry member.
-
-        Returns
-        -------
-        Gas
-            The gas.
-        """
+    def key(self) -> Gas:  # numpydoc ignore=RT01
+        """The species as a registry member."""
         return as_gas(self.gas)
 
     @functools.cached_property
-    def model(self) -> _optmat.Untyped:
-        """Return optmat's hyperpolarizability model of the gas, resolved once.
+    def model(self) -> _optmat.Untyped:  # numpydoc ignore=RT01
+        """The optmat hyperpolarizability model of the gas, resolved once.
 
-        Returns
-        -------
-        optmat.gas.nonlinear.HyperpolarizabilityModel
-            ``hyperpolarizability_models()[gas]``.
+        ``hyperpolarizability_models()[gas]``.
 
         Raises
         ------
@@ -537,14 +497,8 @@ class OptmatKerr:
         return models[name]  # pyright: ignore[reportCallIssue, reportArgumentType] - a StrEnum key
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the hyperpolarizability model.
-
-        Returns
-        -------
-        tuple of MaterialRecord
-            One record.
-        """
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the hyperpolarizability model."""
         return (_optmat.record(self.model),)
 
     def gamma3(self, wavelength: float) -> float:
@@ -582,7 +536,7 @@ class OptmatKerr:
         ):
             return float(model.gamma3("kerr", carrier))
 
-    def dispersive_model(self) -> "DispersiveKerrModel":  # noqa: UP037 - defined below
+    def dispersive_model(self) -> "DispersiveKerrModel":
         """Return the whole fit in SI, for a dispersive electronic policy (SEP 6).
 
         Returns
@@ -731,13 +685,10 @@ class ElectronicRegions:
     best_effort: tuple[float, float] | None
 
     @property
-    def beyond_support(self) -> bool:
-        """Return whether any part of the band is bounded or best effort.
+    def beyond_support(self) -> bool:  # numpydoc ignore=RT01
+        """Whether any part of the band is bounded or best effort.
 
-        Returns
-        -------
-        bool
-            True when a run's legs reach beyond the gas's leg bound or band edge.
+        True when a run's legs reach beyond the gas's leg bound or band edge.
         """
         return self.bounded is not None or self.best_effort is not None
 
@@ -769,18 +720,11 @@ class ElectronicRegions:
             The gas, its band and each region's wavelengths in nm.
         """
 
-        def span(interval: tuple[float, float] | None) -> str | None:
+        def _span(interval: tuple[float, float] | None) -> str | None:
             """Return an interval of wavelengths in nm, or ``None``.
 
-            Parameters
-            ----------
-            interval : tuple of float or None
-                Shortest and longest wavelength, m.
-
-            Returns
-            -------
-            str or None
-                The interval in nm, or ``None`` for no interval.
+            - ``interval``: shortest and longest wavelength, m.
+            - Returns: the interval in nm, or ``None`` for no interval.
             """
             if interval is None:
                 return None
@@ -789,9 +733,9 @@ class ElectronicRegions:
         parts = [
             f"{name} {text}"
             for name, text in (
-                ("supported", span(self.supported)),
-                ("bounded", span(self.bounded)),
-                ("best effort", span(self.best_effort)),
+                ("supported", _span(self.supported)),
+                ("bounded", _span(self.bounded)),
+                ("best effort", _span(self.best_effort)),
             )
             if text is not None
         ]
@@ -799,8 +743,8 @@ class ElectronicRegions:
             "undefined" if self.band_edge is None else f"{1e9 / self.band_edge:.1f} nm"
         )
         return (
-            f"{self.material}: band {span(self.band)} is {', '.join(parts)} (legs held "
-            f"at {1e9 / self.leg_bound:.1f} nm, band edge {edge}, "
+            f"{self.material}: band {_span(self.band)} is {', '.join(parts)} "
+            f"(legs held at {1e9 / self.leg_bound:.1f} nm, band edge {edge}, "
             f"{self.polarisation} polarisation)"
         )
 
@@ -904,7 +848,7 @@ class DispersiveKerrModel:
             raise MaterialError(msg)
 
     @classmethod
-    def from_optmat(cls, model: object) -> "DispersiveKerrModel":  # noqa: UP037 - the hook resolves class names eagerly
+    def from_optmat(cls, model: object) -> "DispersiveKerrModel":
         """Build the SI model of an optmat hyperpolarizability model.
 
         Parameters
@@ -963,24 +907,18 @@ class DispersiveKerrModel:
         )
 
     @property
-    def model_digest(self) -> str:
-        """Return the digest of optmat's hyperpolarizability model.
+    def model_digest(self) -> str:  # numpydoc ignore=RT01
+        """Digest of optmat's hyperpolarizability model.
 
-        Returns
-        -------
-        str
-            Sixty-four hexadecimal digits.
+        Sixty-four hexadecimal digits.
         """
         return self.material_records[0].digest
 
     @property
-    def support_digest(self) -> str:
-        """Return the digest of optmat's support record of the model.
+    def support_digest(self) -> str:  # numpydoc ignore=RT01
+        """Digest of optmat's support record of the model.
 
-        Returns
-        -------
-        str
-            Sixty-four hexadecimal digits.
+        Sixty-four hexadecimal digits.
         """
         return self.material_records[1].digest
 
@@ -1131,15 +1069,7 @@ class DispersiveKerrModel:
 def _edge(value: float | None) -> float | None:
     """Return a band edge as a float, keeping an undefined one undefined.
 
-    Parameters
-    ----------
-    value : float or None
-        The edge optmat's record derives, m^-1.
-
-    Returns
-    -------
-    float or None
-        The edge as a Python float, or ``None``.
+    - ``value``: the edge optmat's record derives, m^-1.
     """
     return None if value is None else float(value)
 
@@ -1147,15 +1077,8 @@ def _edge(value: float | None) -> float | None:
 def _wavelengths(interval: tuple[float, float]) -> tuple[float, float]:
     """Return an interval of wavenumbers as its shortest and longest wavelengths.
 
-    Parameters
-    ----------
-    interval : tuple of float
-        Lower and upper vacuum wavenumber, m^-1, positive.
-
-    Returns
-    -------
-    tuple of float
-        ``(1 / upper, 1 / lower)``, m.
+    - ``interval``: lower and upper vacuum wavenumber, m^-1, positive.
+    - Returns: ``(1 / upper, 1 / lower)``, m.
     """
     return (1.0 / interval[1], 1.0 / interval[0])
 

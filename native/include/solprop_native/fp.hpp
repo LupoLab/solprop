@@ -10,7 +10,7 @@
  * Floating-point contraction policy (solprop SEP 25, sections 4.2 and 5).
  *
  * CPU builds compile with contraction on across statements (`-ffp-contract=fast` for
- * GCC, `-ffp-contract=fast-honor-pragmas` for Clang and icpx; CMakeLists.txt), so the
+ * GCC, `-ffp-contract=fast-honor-pragmas` for Clang; CMakeLists.txt), so the
  * compiler may fuse any multiply and add into one rounding. A protected block keeps
  * the arithmetic as written, each product and sum rounded on its own: the stable phase
  * increments, the small-argument phi-functions, the ionised fraction (every column's
@@ -28,7 +28,7 @@
  * function's declaration, after a lambda's parameter list) and starts its body with
  * `SOLPROP_NATIVE_STRICT_BLOCK`:
  *
- * - Clang and icpx: `#pragma clang fp contract(off)` at the start of the body. The
+ * - Clang: `#pragma clang fp contract(off)` at the start of the body. The
  *   setting is carried by each instruction, so it survives inlining.
  * - GCC ignores `#pragma STDC FP_CONTRACT` and Clang's pragma, so the function is
  *   compiled with `optimize("fp-contract=off")`. GCC then does not inline it into a

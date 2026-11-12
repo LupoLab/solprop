@@ -120,12 +120,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert info.kokkos_version == "5.2.1"
     assert info.kokkos_fft_version == "2.0.0"
     assert info.kokkos_kernels_version == "5.2.0"
-    assert info.gemm_provider in {
-        "CUSTOM",
-        "KOKKOSBLAS_NATIVE",
-        "KOKKOSBLAS_TPL",
-        "HYBRID",
-    }
+    assert info.gemm_provider == "HYBRID"
     if info.tpl_blas_enabled:
         assert info.blas_backend != "none"
     else:
@@ -186,13 +181,9 @@ def test_build_info_is_frozen_and_complete() -> None:
         assert info.cpu_baseline in info.compiler_flags
         assert info.cpu_baseline in info.optimization_policy
     if info.device_backend == "none":
-        if info.openmp_enabled:
-            assert info.execution_space == "OpenMP"
-            assert info.fft_backend in {"FFTW_OPENMP", "FFTW_PTHREADS", "MKL_FFTW"}
-        else:
-            # The Kokkos Threads build adds no OpenMP runtime (solprop SEP 29).
-            assert info.execution_space == "Threads"
-            assert info.fft_backend == "FFTW_THREADS"
+        assert info.openmp_enabled
+        assert info.execution_space == "OpenMP"
+        assert info.fft_backend in {"FFTW_OPENMP", "FFTW_PTHREADS", "MKL_FFTW"}
         for count in (
             info.thread_count,
             info.fftw_threads,
@@ -745,15 +736,6 @@ def test_repeated_and_concurrent_instances_are_independent(
     def run_ignored(_: int) -> ComplexArray:
         return run()
 
-    if native.build_info().execution_space == "Threads":
-        # Kokkos Threads dispatches only from the thread that started it: another
-        # Python thread gets a RuntimeError, never a crash (solprop SEP 29 phase 0).
-        with (
-            ThreadPoolExecutor(max_workers=1) as executor,
-            pytest.raises(RuntimeError, match="master"),
-        ):
-            executor.submit(run).result()
-        return
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(run_ignored, range(2)))
     bound = step_bound(grid.n_to, 4)

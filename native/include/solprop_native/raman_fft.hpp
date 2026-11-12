@@ -19,7 +19,7 @@
 
 namespace solprop_native {
 
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
 // The host adapter owns only vendor setup data. All field storage remains in the
 // workspace's Kokkos Views and is included in its existing allocation ledger.
 class AccelerateRamanPlan {
@@ -30,6 +30,8 @@ public:
   ~AccelerateRamanPlan();
   AccelerateRamanPlan(const AccelerateRamanPlan&) = delete;
   AccelerateRamanPlan& operator=(const AccelerateRamanPlan&) = delete;
+  AccelerateRamanPlan(AccelerateRamanPlan&&) = delete;
+  AccelerateRamanPlan& operator=(AccelerateRamanPlan&&) = delete;
   void execute_task(std::size_t task) const;
   [[nodiscard]] int tasks() const noexcept;
 
@@ -49,7 +51,7 @@ public:
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     const bool contiguous =
         (axis == -1 || axis == 1) && input.stride(1) == 1 && output.stride(1) == 1;
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
     constexpr bool forward =
         std::is_same_v<typename Input::non_const_value_type, double>;
     const auto samples = forward ? input.extent(1) : output.extent(1);
@@ -91,7 +93,7 @@ public:
 
   void execute(const Input& input, const Output& output,
                const KokkosFFT::Normalization normalization) const {
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
     if (accelerate_) {
       if (normalization != KokkosFFT::Normalization::none)
         throw std::invalid_argument("Raman vDSP requires explicit normalization");
@@ -114,7 +116,7 @@ public:
   }
 
   [[nodiscard]] const char* provider() const noexcept {
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
     if (accelerate_)
       return "Accelerate_vDSP";
 #endif
@@ -122,7 +124,7 @@ public:
   }
 
   [[nodiscard]] int tasks(const int fallback_threads) const noexcept {
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
     if (accelerate_)
       return accelerate_->tasks();
 #endif
@@ -133,7 +135,7 @@ private:
   using Fallback = KokkosFFT::Plan<Execution, Input, Output>;
   Execution execution_;
   std::unique_ptr<Fallback> fallback_;
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+#ifdef SOLPROP_NATIVE_RAMAN_ACCELERATE
   std::unique_ptr<AccelerateRamanPlan> accelerate_;
 #endif
 };

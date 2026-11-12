@@ -101,20 +101,16 @@ def gnlse_source(
     to_field = sqrtw_to_vm(problem.aeff)
     n_t, n_to = grid.n_t, grid.n_to
 
+    # Returned to callers, so it keeps its unprefixed name (and ``__qualname__``);
+    # numpydoc then checks it as public, but it carries the short private form.
     def nonlinear(
         state: Complex[np.ndarray, " n_omega"],
-    ) -> Complex[np.ndarray, " n_omega"]:
+    ) -> Complex[np.ndarray, " n_omega"]:  # numpydoc ignore=PR01,RT01
         """Return the nonlinear term of the propagation equation for one spectrum.
 
-        Parameters
-        ----------
-        state : numpy.ndarray
-            Stored spectrum, shape ``(n_omega,)``, in the square root of watts.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``N[state]``, shape ``(n_omega,)``, in the square root of watts per metre.
+        - ``state``: stored spectrum, in the square root of watts.
+        - Returns: ``N[state]``, shape ``(n_omega,)``, in the square root of watts per
+          metre.
         """
         fine = fourier.oversample(state, n_to, kind="envelope")
         envelope = fourier.inverse(fine, kind="envelope") * to_field

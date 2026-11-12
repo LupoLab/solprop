@@ -76,11 +76,10 @@ def test_radial_real_blas_preserves_transform_and_memory_contract(
     try:
         metadata, ledger = backend.metadata(), backend.memory_ledger()
         if backend.name == "native":
-            # Portable/custom and device builds keep their existing provider.
+            # Device builds keep their existing provider.
             packed = str(metadata["synthesis_provider"]).endswith("-packed-real")
             eligible = (
                 metadata["device_backend"] == "none"
-                and metadata["gemm_provider"] in {"HYBRID", "KOKKOSBLAS_TPL"}
                 and n_pol == 1
                 and chunk == n_r
                 and n_r >= 256

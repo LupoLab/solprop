@@ -18,6 +18,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop._ownership import frozen_copy, hold
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import C
 from solprop.exceptions import OutputError, TranslationError
@@ -206,14 +207,11 @@ class SpatialGeometry:
             object.__setattr__(self, name, values)
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of state columns the geometry describes.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of state columns the geometry describes.
 
-        Returns
-        -------
-        int
-            ``n_r`` or ``n_x*n_y`` for the radial and Cartesian kinds, where columns
-            and nodes coincide, and ``n_p*n_y`` for a slab, where they do not.
+        ``n_r`` or ``n_x*n_y`` for the radial and Cartesian kinds, where columns
+        and nodes coincide, and ``n_p*n_y`` for a slab, where they do not.
         """
         return int(self.spectral_weights.size)
 
@@ -454,19 +452,15 @@ class SeparableOperator:
         self._adopt_user_rate()
 
     def _adopt_user_rate(self) -> None:
-        """Own the user's share of the spectral rate, zeros when absent, and check it.
+        """Own the user's share of the spectral rate, zeros when absent.
 
-        Raises
-        ------
-        TranslationError
-            If it is not a finite share of the spectral rate on every bin.
+        Refuse one of another shape or outside ``[0, spectral_rate]`` on any bin.
         """
         rate = (
-            np.zeros(self.spectral_rate.size)
+            hold(np.zeros(self.spectral_rate.size))
             if self.user_rate is None
             else _frozen_array(self.user_rate, np.float64)
         )
-        rate.setflags(write=False)
         if (
             rate.shape != self.spectral_rate.shape
             or np.any(rate < 0)
@@ -480,19 +474,12 @@ class SeparableOperator:
         object.__setattr__(self, "user_rate", rate)
 
     def _adopt_kperp_rate(self) -> None:
-        """Own the transverse rate, zeros when absent, and validate it.
-
-        Raises
-        ------
-        TranslationError
-            If it is not one finite nonnegative rate per column.
-        """
+        """Own the transverse rate, zeros when absent, and validate it."""
         rate = (
-            np.zeros(self.kperp_sq.size)
+            hold(np.zeros(self.kperp_sq.size))
             if self.kperp_rate is None
             else _frozen_array(self.kperp_rate, np.float64)
         )
-        rate.setflags(write=False)
         if rate.shape != self.kperp_sq.shape or np.any(rate < 0):
             msg = (
                 "separable kperp_rate must be one nonnegative rate per transverse "
@@ -504,24 +491,18 @@ class SeparableOperator:
         object.__setattr__(self, "kperp_rate", rate)
 
     @property
-    def n_channels(self) -> int:
-        """Return the number of slab channels the columns cycle through.
+    def n_channels(self) -> int:  # numpydoc ignore=RT01
+        """Number of slab channels the columns cycle through.
 
-        Returns
-        -------
-        int
-            The rows of `kappa_sq`, or 1 when it is absent.
+        The rows of `kappa_sq`, or 1 when it is absent.
         """
         return 1 if self.kappa_sq is None else int(self.kappa_sq.shape[0])
 
     @property
-    def value_shape(self) -> tuple[int, int, int, int]:
-        """Return the full state shape represented by these shared coefficients.
+    def value_shape(self) -> tuple[int, int, int, int]:  # numpydoc ignore=RT01
+        """Full state shape represented by these shared coefficients.
 
-        Returns
-        -------
-        tuple of int
-            ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
+        ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
         """
         return (1, self.kperp_sq.size, self.n_pol, self.k_squared.size)
 
@@ -642,26 +623,17 @@ def rate_bounds(coefficients: SeparableOperator) -> RateBounds:
     )
 
 
-def _frozen_array(values: np.ndarray, dtype: type) -> np.ndarray:
-    """Own a finite, contiguous array without freezing a caller's writable buffer.
+def _frozen_array(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a finite array as :func:`~solprop._ownership.frozen_copy` does.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Numerical coefficients or geometry values to copy.
-    dtype : type
-        Required seam dtype: float64, complex128 or bool.
-
-    Returns
-    -------
-    numpy.ndarray
-        Finite, contiguous, read-only copy with the input shape.
+    - `dtype`: float64, complex128 or bool.
+    - Returns: finite, contiguous and read-only, with the input shape: a copy, unless
+      solprop already holds `values`.
     """
-    result = np.array(values, dtype=dtype, order="C", copy=True)
+    result = frozen_copy(values, dtype)
     if not np.all(np.isfinite(result)):
         msg = "spatial contract arrays must be finite"
         raise TranslationError(msg)
-    result.setflags(write=False)
     return result
 
 
@@ -719,17 +691,8 @@ def _kperp_rate(
 ) -> Float[np.ndarray, " n_columns"]:
     """Return the transverse rate of the selected columns.
 
-    Parameters
-    ----------
-    coefficients : SeparableOperator
-        The operator.
-    columns : slice or None
-        Transverse columns; None selects all.
-
-    Returns
-    -------
-    numpy.ndarray
-        The power rate in m^-1, one per selected column.
+    - ``columns``: transverse columns; None selects all.
+    - Returns: the power rate in m^-1, one per selected column.
     """
     rate = coefficients.kperp_rate
     assert rate is not None  # adopted as zeros in __post_init__
@@ -948,25 +911,12 @@ class FluxPlan:
 
 
 def _far_field_columns(
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return the Cartesian columns a far-field statistic reads, or refuse the geometry.
 
-    Parameters
-    ----------
-    geometry : SpatialGeometry, solprop.grid.FreeGrid, solprop.grid.RadialGrid or None
-        The run's geometry record, or the grid of a saved plane.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The stored axes ``k_x`` and ``k_y`` in rad/m, the spectral weights and the
-        on-axis weights.
-
-    Raises
-    ------
-    OutputError
-        For a radial or planar-hybrid geometry, or none at all.
+    - Returns: the stored axes ``k_x`` and ``k_y`` in rad/m, the spectral weights and
+      the on-axis weights.
     """
     if isinstance(geometry, FreeGrid):
         return geometry.k_x, geometry.k_y, geometry.spectral_weights, geometry.on_axis
@@ -992,7 +942,7 @@ def _far_field_columns(
 def aperture_tables(
     spec: StatsSpec,
     grids: Grids | TimeGrid,
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> ApertureTables | None:
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 
@@ -1089,19 +1039,7 @@ def aperture_tables(
 
 
 def _refuse_off_line(apertures: ApertureSet) -> None:
-    """Refuse the outlines a line uniform in y gives no meaning.
-
-    Parameters
-    ----------
-    apertures : solprop.stats.ApertureSet
-        The set.
-
-    Raises
-    ------
-    OutputError
-        For a half-plane bounded in y, which holds every column or none, or an
-        ellipse, which is an edge in y as well as in x.
-    """
+    """Refuse the outlines a line uniform in y gives no meaning."""
     for row, shape in enumerate(apertures.row_shapes):
         if shape == "ellipse" or shape.startswith("half_plane_y"):
             msg = (
@@ -1114,20 +1052,7 @@ def _refuse_off_line(apertures: ApertureSet) -> None:
 
 
 def _outlines(apertures: ApertureSet, *, line: bool) -> list[ApertureOutline]:
-    """Return each row's outline on a plane or a line.
-
-    Parameters
-    ----------
-    apertures : solprop.stats.ApertureSet
-        The set.
-    line : bool
-        Whether the columns are a line's.
-
-    Returns
-    -------
-    list of solprop.spatial.ApertureOutline
-        One per aperture.
-    """
+    """Return each row's outline on a plane or a line."""
     count = apertures.n_apertures
     diameters = np.asarray(apertures.diameters)
     edges = np.zeros(count) if apertures.edges is None else np.asarray(apertures.edges)

@@ -864,6 +864,8 @@ def test_the_formatter_handles_the_awkward_numbers():
     assert _display.engineering(1e30, "W") == "1e+12 EW"
     assert _display.engineering(1e-30, "s") == "1e-12 as"
     assert _display.engineering(float("inf"), "m") == "inf"
+    assert _display.engineering(float("nan"), "s") == "nan"
+    assert _display.engineering(None, "s") == "none"
     assert _display.engineering(12.3456) == "12.35"
     assert _display.summarise(np.array([])) == "<0 values>"
     assert _display.summarise(3.0) == "<scalar values>"
@@ -872,6 +874,33 @@ def test_the_formatter_handles_the_awkward_numbers():
     long = _display.block("T", [("key", "x" * 200)])
     assert long.split("\n")[1].endswith("...")
     assert len(long.split("\n")[1]) == 88
+
+
+def test_the_formatters_write_the_ordinary_cases():
+    assert _display.engineering(800e-9, "m") == "800 nm"
+    assert _display.engineering(1.5, "m") == "1.5 m"
+    assert _display.engineering(275e-6, "J") == "275 uJ"
+    assert _display.engineering(0.0, "W") == "0 W"
+    assert _display.summarise(np.linspace(0.0, 1.5, 201), "m") == (
+        "<201 values, 0 m to 1.5 m>"
+    )
+    assert _display.summarise(np.zeros((2, 1, 8), dtype=complex)) == "<2x1x8 complex>"
+    assert _display.phase_text((0.3, 0.0, 250e-30, -4000e-45)) == (
+        "CEP 0.3 rad, GDD 250 fs^2, TOD -4000 fs^3"
+    )
+    assert _display.phase_text(()) == "none"
+    assert _display.line("Grid", [("n_t", 8192), ("", "field")]) == (
+        "Grid(n_t=8192, field)"
+    )
+    assert _display.block("Pulse", [("energy", "275 uJ"), ("duration", "7.5 fs")]) == (
+        "Pulse\n  energy:   275 uJ\n  duration: 7.5 fs"
+    )
+
+
+def test_a_long_text_keeps_its_end_within_the_width():
+    # The width counts the ellipsis: 12 characters are "..." and the last 9.
+    assert _display.tail("/a/very/long/path/to/run.h5", 12) == "...to/run.h5"
+    assert _display.tail("short.h5", 12) == "short.h5"
 
 
 def test_a_long_value_wraps_under_itself():

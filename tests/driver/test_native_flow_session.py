@@ -483,7 +483,7 @@ def _stencil(order: int) -> tuple[list[float], np.ndarray]:
     return nodes, np.arange(order, dtype=np.int64)[::-1].copy()
 
 
-def _block_departure(  # noqa: PLR0913 - one trial's every input, by name
+def _block_departure(
     backend: Any,
     block: Any,
     shape: tuple[int, ...],

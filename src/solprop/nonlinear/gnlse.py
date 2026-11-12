@@ -35,6 +35,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 from scipy import interpolate
 
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError, SurrogateAreaWarning
 from solprop.modes.base import alpha, beta, beta1
@@ -109,18 +110,20 @@ class DispersionPath(Protocol):
     """
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the positions in m where the path kinks; may be empty."""
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """The positions in m where the path kinks; may be empty."""
         ...
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval in m the path is declared over, ``(start, end)``."""
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval in m the path is declared over, ``(start, end)``."""
         ...
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path takes the same value at every position."""
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path takes the same value at every position."""
         ...
 
     def __call__(
@@ -172,36 +175,26 @@ class ConstantDispersion:
     function: DispersionFunction
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the empty set of breakpoints.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Empty set of breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            An empty float array: a constant path kinks nowhere.
+        An empty float array: a constant path kinks nowhere.
         """
         return np.empty(0, dtype=float)
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the path covers.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval the path covers.
 
-        Returns
-        -------
-        tuple of float
-            ``(0, inf)``: a constant path covers any run.
+        ``(0, inf)``: a constant path covers any run.
         """
         return 0.0, math.inf
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path varies along z.
-
-        Returns
-        -------
-        bool
-            Always ``True``.
-        """
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path is constant along z: always ``True``."""
         return True
 
     def __call__(
@@ -236,15 +229,8 @@ class _UniformLoss:
     ) -> Float[np.ndarray, " n_omega"]:
         """Return the same attenuation at every frequency.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies, rad/s, shape ``(n_omega,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``alpha`` in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies, rad/s, shape ``(n_omega,)``.
+        - Returns: ``alpha`` in 1/m, shape ``(n_omega,)``.
         """
         return np.full(omega.shape, self.value)
 
@@ -313,7 +299,7 @@ class InterpolatedDispersion:
         ModeError
             Naming what is wrong with the declaration.
         """
-        nodes = np.ascontiguousarray(self.positions, dtype=np.float64).reshape(-1)
+        nodes = frozen_copy(np.reshape(self.positions, -1), np.float64)
         members = tuple(self.members)
         if nodes.size < 2:
             msg = (
@@ -330,42 +316,31 @@ class InterpolatedDispersion:
                 "positions: a path carries one set per position"
             )
             raise ModeError(msg)
-        nodes.setflags(write=False)
         object.__setattr__(self, "positions", nodes)
         object.__setattr__(self, "members", members)
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the declared positions, every one of which is a kink.
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Declared positions, every one of which is a kink, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, shape ``(n_positions,)``.
+        Shape ``(n_positions,)``.
         """
         return np.asarray(self.positions, dtype=float)
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval the declared sets cover.
-
-        Returns
-        -------
-        tuple of float
-            ``(first position, last position)`` in m.
-        """
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval ``(first position, last position)`` the declared sets cover, m."""
         nodes = np.asarray(self.positions, dtype=float)
         return float(nodes[0]), float(nodes[-1])
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether every position declares the same set.
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every position declares the same set.
 
-        Returns
-        -------
-        bool
-            ``True`` only when one object was declared at every position, which is
-            the conservative test an arbitrary callable admits.
+        ``True`` only when one object was declared at every position, which is
+        the conservative test an arbitrary callable admits.
         """
         members = tuple(self.members)
         return all(one is members[0] for one in members[1:])
@@ -653,7 +628,7 @@ class TaylorDispersion:
         ModeError
             Naming what is wrong with the series.
         """
-        coefficients = np.ascontiguousarray(self.betas, dtype=np.float64).reshape(-1)
+        coefficients = frozen_copy(np.reshape(self.betas, -1), np.float64)
         if coefficients.size == 0:
             msg = "betas must hold at least the zeroth-order coefficient"
             raise ModeError(msg)
@@ -666,7 +641,6 @@ class TaylorDispersion:
         if self.derivative < 0:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
-        coefficients.setflags(write=False)
         object.__setattr__(self, "betas", coefficients)
         orders = np.arange(coefficients.size)
         # betas[n] is the n-th derivative at omega_ref, so the polynomial coefficient is
@@ -762,8 +736,8 @@ class TabulatedDispersion:
         ModeError
             Naming what is wrong with the table.
         """
-        nodes = np.ascontiguousarray(self.omega, dtype=np.float64)
-        values = np.ascontiguousarray(self.beta, dtype=np.float64)
+        nodes = frozen_copy(self.omega, np.float64)
+        values = frozen_copy(self.beta, np.float64)
         if nodes.shape != values.shape:
             msg = f"omega and beta have shapes {nodes.shape} and {values.shape}"
             raise ModeError(msg)
@@ -780,7 +754,6 @@ class TabulatedDispersion:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
         for name, array in (("omega", nodes), ("beta", values)):
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
         spline = interpolate.CubicSpline(nodes, values, extrapolate=False)
         object.__setattr__(
@@ -840,15 +813,8 @@ class _TableBeta:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the propagation constant or its analytic first derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the table.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the table.
+        - Returns: values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
         """
         return (
             self.table.beta(omega)
@@ -868,15 +834,8 @@ class _TableAlpha:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the table's power attenuation.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the table.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power attenuation in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the table.
+        - Returns: power attenuation in 1/m, shape ``(n_omega,)``.
         """
         return self.table.alpha(omega)
 
@@ -889,16 +848,6 @@ def _source_paths(mode: Mode) -> tuple[ZProfile, ...]:
     mode declares under :data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES`, which
     is the same tuple the transform's kink walk reads. Only the ones that move are
     kept.
-
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode.
-
-    Returns
-    -------
-    tuple of solprop.profiles.ZProfile
-        The varying declared paths, in declaration order.
     """
     declared: tuple[ZProfile | None, ...]
     if isinstance(mode, ParameterisedMode):
@@ -911,22 +860,8 @@ def _source_paths(mode: Mode) -> tuple[ZProfile, ...]:
 def _source_geometry(mode: Mode) -> tuple[tuple[float, float], Float[np.ndarray, " n"]]:
     """Return the span and the breakpoints a moving source mode declares.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode, which moves along z.
-
-    Returns
-    -------
-    tuple
-        ``((start, end), breakpoints)`` in m: the tightest interval every varying
-        path covers, and the union of their kinks inside it.
-
-    Raises
-    ------
-    ModeError
-        If the mode moves but declares no varying path to say where, or the paths
-        it declares have no interval in common.
+    - Returns: ``((start, end), breakpoints)`` in m: the tightest interval every varying
+      path covers, and the union of their kinks inside it.
     """
     paths = _source_paths(mode)
     if not paths:
@@ -959,23 +894,9 @@ def _area_path(
 ) -> ZProfile:
     """Return the effective-area path declared beside a dispersion path.
 
-    Parameters
-    ----------
-    aeff : array_like or solprop.profiles.ZProfile
-        One positive area in m^2 per declared position, or a path already.
-    positions : numpy.ndarray
-        The dispersion path's declared positions in m, shape ``(n_positions,)``.
-
-    Returns
-    -------
-    solprop.profiles.ZProfile
-        A :class:`solprop.profiles.PiecewiseLinear` through the declared areas, or
-        the supplied path unchanged.
-
-    Raises
-    ------
-    ModeError
-        If a sequence of areas does not carry one value per declared position.
+    - ``aeff``: one positive area in m^2 per declared position, or a path already.
+    - ``positions``: the dispersion path's declared positions in m, shape
+      ``(n_positions,)``.
     """
     if isinstance(aeff, ZProfile):
         return aeff
@@ -1001,15 +922,7 @@ def _dispersion_moves(mode: Mode) -> bool:
     frequency-only dispersion into a path, or the cumulative operator would leave
     the parameter expansion for the z table and the compiled routes with it.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode.
-
-    Returns
-    -------
-    bool
-        ``True`` when the source's propagation constant depends on z.
+    - Returns: ``True`` when the source's propagation constant depends on z.
     """
     declared = getattr(mode, "dispersion_is_constant", None)
     return not mode.z_constant if declared is None else not bool(declared)
@@ -1018,13 +931,8 @@ def _dispersion_moves(mode: Mode) -> bool:
 def _warn_surrogate_area(label: str, omega: object) -> None:
     """Warn that a provider channel's area is its median-knot surrogate.
 
-    Parameters
-    ----------
-    label : str
-        The display label of the channel handed to a scalar model with no area and
-        no wavelength.
-    omega : object
-        The frequency its table records the surrogate at, rad/s, if it records one.
+    - ``omega``: the frequency its table records the surrogate at, rad/s, if it records
+      one.
     """
     where = (
         f"{omega:.6e} rad/s ({2.0 * math.pi * C / omega * 1e9:.2f} nm)"
@@ -1050,15 +958,8 @@ class _ModeArea:
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Sample the source mode's effective area.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``A_eff(z)`` in m^2, shape ``(n_z,)``.
+        - ``z``: positions in m, shape ``(n_z,)``.
+        - Returns: ``A_eff(z)`` in m^2, shape ``(n_z,)``.
         """
         return np.array([self.mode.aeff(float(one)) for one in z], dtype=float)
 
@@ -1080,10 +981,7 @@ class _ModeBeta:
     def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
         """Return the source mode's declared breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, empty for a source whose dispersion is fixed.
+        - Returns: the positions in m, empty for a source whose dispersion is fixed.
         """
         if not _dispersion_moves(self.mode):
             return np.empty(0, dtype=float)
@@ -1093,11 +991,8 @@ class _ModeBeta:
     def z_span(self) -> tuple[float, float]:
         """Return the interval the source mode's declared paths cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m, ``(0, inf)`` for a source whose dispersion is
-            fixed.
+        - Returns: ``(start, end)`` in m, ``(0, inf)`` for a source whose dispersion is
+          fixed.
         """
         if not _dispersion_moves(self.mode):
             return 0.0, math.inf
@@ -1107,10 +1002,7 @@ class _ModeBeta:
     def is_constant(self) -> bool:
         """Return whether the source mode's dispersion moves.
 
-        Returns
-        -------
-        bool
-            ``True`` unless the source's propagation constant depends on z.
+        - Returns: ``True`` unless the source's propagation constant depends on z.
         """
         return not _dispersion_moves(self.mode)
 
@@ -1119,17 +1011,9 @@ class _ModeBeta:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the propagation constant or its analytic first derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the source mode's support.
-        z : float, optional
-            Position along the fibre, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the source mode's support.
+        - ``z``: position along the fibre, m.
+        - Returns: values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
         """
         return (
             beta(self.mode, omega, z)
@@ -1151,10 +1035,7 @@ class _ModeAlpha:
     def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
         """Return the source mode's declared breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, empty for a source that does not move.
+        - Returns: the positions in m, empty for a source that does not move.
         """
         return _ModeBeta(self.mode).breakpoints
 
@@ -1162,10 +1043,7 @@ class _ModeAlpha:
     def z_span(self) -> tuple[float, float]:
         """Return the interval the source mode's declared paths cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m.
+        - Returns: ``(start, end)`` in m.
         """
         return _ModeBeta(self.mode).z_span
 
@@ -1173,10 +1051,7 @@ class _ModeAlpha:
     def is_constant(self) -> bool:
         """Return whether the source mode's loss moves.
 
-        Returns
-        -------
-        bool
-            ``True`` unless the source's attenuation depends on z.
+        - Returns: ``True`` unless the source's attenuation depends on z.
         """
         return not _dispersion_moves(self.mode)
 
@@ -1185,17 +1060,9 @@ class _ModeAlpha:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the supplied mode's power attenuation.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the source mode's support.
-        z : float, optional
-            Position along the fibre, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power attenuation in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the source mode's support.
+        - ``z``: position along the fibre, m.
+        - Returns: power attenuation in 1/m, shape ``(n_omega,)``.
         """
         return alpha(self.mode, omega, z)
 
@@ -1280,26 +1147,20 @@ class SpecifiedMode:
     # properties, and a `ClassVar` does not satisfy a protocol property for the type
     # checker.
     @property
-    def z_constant(self) -> bool:
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the mode is independent of ``z``.
 
-        Returns
-        -------
-        bool
-            ``True`` when the effective area, the dispersion, its derivative and
-            the loss are all constant along z.
+        ``True`` when the effective area, the dispersion, its derivative and
+        the loss are all constant along z.
         """
         return self.area_path.is_constant and self.dispersion_is_constant
 
     @property
-    def dispersion_is_constant(self) -> bool:
+    def dispersion_is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the spectral quantities are functions of frequency alone.
 
-        Returns
-        -------
-        bool
-            ``True`` when the dispersion, its derivative and the loss all report
-            themselves constant along z.
+        ``True`` when the dispersion, its derivative and the loss all report
+        themselves constant along z.
 
         Examples
         --------
@@ -1313,53 +1174,41 @@ class SpecifiedMode:
         )
 
     @property
-    def area_path(self) -> ZProfile:
-        """Return the declared effective-area path in m^2.
+    def area_path(self) -> ZProfile:  # numpydoc ignore=RT01
+        """Declared effective-area path, m^2.
 
-        Returns
-        -------
-        solprop.profiles.ZProfile
-            The path, a :class:`~solprop.profiles.Constant` when the area is a
-            number. It is the path the transform's kink walk and
-            :func:`solprop.translate.linop.declared_paths` take their breakpoints
-            from, so that the tables split there and the schedule lands on them.
+        The path, a :class:`~solprop.profiles.Constant` when the area is a
+        number. It is the path the transform's kink walk and
+        :func:`solprop.translate.linop.declared_paths` take their breakpoints
+        from, so that the tables split there and the schedule lands on them.
         """
         return as_profile(self.effective_area)
 
     @property
-    def dispersion_path(self) -> DispersionPath:
-        """Return the propagation constant as a path along z.
+    def dispersion_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """Propagation constant as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path, a :class:`ConstantDispersion` when the dispersion is
-            a function of frequency alone. Its breakpoints are kinks of the
-            cumulative operator exactly as the area path's are.
+        The declared path, a :class:`ConstantDispersion` when the dispersion is
+        a function of frequency alone. Its breakpoints are kinks of the
+        cumulative operator exactly as the area path's are.
         """
         return as_dispersion_path(self.dispersion)
 
     @property
-    def derivative_path(self) -> DispersionPath:
-        """Return ``d beta / d omega`` as a path along z.
+    def derivative_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """``d beta / d omega`` as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path, a :class:`ConstantDispersion` when the derivative is
-            a function of frequency alone.
+        The declared path, a :class:`ConstantDispersion` when the derivative is
+        a function of frequency alone.
         """
         return as_dispersion_path(self.dispersion_derivative)
 
     @property
-    def loss_path(self) -> DispersionPath:
-        """Return the power attenuation as a path along z.
+    def loss_path(self) -> DispersionPath:  # numpydoc ignore=RT01
+        """Power attenuation as a path along z.
 
-        Returns
-        -------
-        DispersionPath
-            The declared path; a constant number becomes a uniform attenuation at
-            every frequency and every position.
+        The declared path; a constant number becomes a uniform attenuation at
+        every frequency and every position.
         """
         loss = self.loss
         if isinstance(loss, float | int):
@@ -1367,37 +1216,28 @@ class SpecifiedMode:
         return as_dispersion_path(loss)
 
     @property
-    def scale_invariant(self) -> bool:
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the profile scales exactly with a core radius along ``z``.
 
-        Returns
-        -------
-        bool
-            Always ``True``: the surrogate profile is a disc of radius
-            ``sqrt(A_eff(z) / pi)``, which is exactly ``f(r / a(z))``.
+        Always ``True``: the surrogate profile is a disc of radius
+        ``sqrt(A_eff(z) / pi)``, which is exactly ``f(r / a(z))``.
         """
         return True
 
     @property
-    def azimuthal_order(self) -> int:
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
         """Highest azimuthal order of the profile.
 
-        Returns
-        -------
-        int
-            Always 0: the disc is azimuthally uniform.
+        Always 0: the disc is azimuthally uniform.
         """
         return 0
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Name this channel: a dispersion, not an eigenmode of a guide.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Channel label: a dispersion, not an eigenmode of a guide.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``specified``, with no azimuthal or radial order, no parity and
-            no handedness: a mode given by ``beta(omega)`` has no quantum numbers.
+        Family ``specified``, with no azimuthal or radial order, no parity and
+        no handedness: a mode given by ``beta(omega)`` has no quantum numbers.
 
         Examples
         --------
@@ -1474,11 +1314,6 @@ class SpecifiedMode:
         declared in the loss alone would otherwise be a corner nothing lands on.
         It is also what makes a fibre whose **loss** alone moves constructible: its
         value path is constant and declares no position at all.
-
-        Raises
-        ------
-        ModeError
-            Naming which of the three disagreements it is.
         """
         value, derivative = self.dispersion_path, self.derivative_path
         if value.is_constant != derivative.is_constant:
@@ -1523,13 +1358,10 @@ class SpecifiedMode:
             raise ModeError(msg)
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the scalar path this mode's z dependence runs through.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Scalar path this mode's z dependence runs through.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            ``{"effective_area": path}`` in m^2.
+        ``{"effective_area": path}`` in m^2.
 
         Notes
         -----
@@ -1561,7 +1393,7 @@ class SpecifiedMode:
         return MappingProxyType({"effective_area": self.area_path})
 
     @property
-    def parameters_own_z(self) -> bool:
+    def parameters_own_z(self) -> bool:  # numpydoc ignore=RT01
         """Whether the declared parameters are the whole of this mode's z dependence.
 
         The trait the translation layer reads before it expands the cumulative
@@ -1570,10 +1402,7 @@ class SpecifiedMode:
         is everything, and ``False`` once the dispersion follows a path, which no
         scalar parameter can be frozen at.
 
-        Returns
-        -------
-        bool
-            :attr:`dispersion_is_constant`.
+        :attr:`dispersion_is_constant`.
 
         Examples
         --------
@@ -1583,7 +1412,7 @@ class SpecifiedMode:
         """
         return self.dispersion_is_constant
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    def at_parameters(self, values: Mapping[str, float]) -> "SpecifiedMode":
         """Return the same fibre with its area frozen at a value.
 
         Parameters
@@ -1630,7 +1459,7 @@ class SpecifiedMode:
         aeff: float | ZProfile = 1.0,
         # Quoted so that beartype, which resolves the annotation while the class body
         # is still executing, does not look up a name that is not yet bound.
-    ) -> "SpecifiedMode":  # noqa: UP037
+    ) -> "SpecifiedMode":
         """Build a mode from Taylor coefficients of ``beta`` about a frequency.
 
         ``beta(omega) = sum_n betas[n] (omega - omega_ref)**n / n!``. There is no
@@ -1685,7 +1514,7 @@ class SpecifiedMode:
         *,
         aeff: Float[np.ndarray, " n_positions"] | Sequence[float] | ZProfile,
         loss: float | LossFunction | DispersionPath = 0.0,
-    ) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a fibre whose Taylor dispersion and area are declared along z.
 
         One expansion set and one effective area per declared position, both
@@ -1767,7 +1596,7 @@ class SpecifiedMode:
         positions: Float[np.ndarray, " n_positions"] | Sequence[float],
         *,
         aeff: Float[np.ndarray, " n_positions"] | Sequence[float] | ZProfile,
-    ) -> "SpecifiedMode":  # noqa: UP037 - the hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a fibre from an ``n_eff(omega, z)`` table and its area path.
 
         The table's real part is the propagation constant ``beta = omega Re n_eff / c``
@@ -1852,7 +1681,7 @@ class SpecifiedMode:
         *,
         loss: float | LossFunction = 0.0,
         aeff: float | ZProfile = 1.0,
-    ) -> "SpecifiedMode":  # noqa: UP037
+    ) -> "SpecifiedMode":
         """Build a mode from a tabulated propagation constant.
 
         The table is interpolated by a cubic spline and differentiated exactly in the
@@ -1902,7 +1731,7 @@ class SpecifiedMode:
     @classmethod
     def from_index_table(
         cls, table: IndexTable, *, aeff: float | ZProfile = 1.0
-    ) -> "SpecifiedMode":  # noqa: UP037 - type hook resolves the class during construction
+    ) -> "SpecifiedMode":
         """Build a dispersion-specified mode from a complex-index table.
 
         Parameters
@@ -1938,7 +1767,7 @@ class SpecifiedMode:
         *,
         aeff: float | ZProfile | None = None,
         wavelength: float | None = None,
-    ) -> "SpecifiedMode":  # noqa: UP037 - resolved during class construction
+    ) -> "SpecifiedMode":
         """Use a mode's dispersion, loss and area for a GNLSE fibre.
 
         Its fill contributes to the supplied dispersion and loss, but is ignored
@@ -2352,20 +2181,7 @@ class SpecifiedMode:
 def _positive(omega: Float[np.ndarray, " n_omega"]) -> Float[np.ndarray, " n_omega"]:
     """Return the frequencies as a float array, refusing non-positive ones.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies, rad/s, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values as float64, shape ``(n_omega,)``.
-
-    Raises
-    ------
-    ModeError
-        If any value is not strictly positive.
+    - ``omega``: angular frequencies, rad/s, shape ``(n_omega,)``.
     """
     values = np.asarray(omega, dtype=float)
     if values.size and values.min() <= 0.0:
@@ -2459,18 +2275,15 @@ class GnlseProblem:
     n2_origin: str = field(default="user", metadata={"record": False})
 
     @property
-    def responses(self) -> tuple[object, ...]:
-        """Return the declared responses, in the order the compiler is given them.
+    def responses(self) -> tuple[object, ...]:  # numpydoc ignore=RT01
+        """Declared responses, in the order the compiler is given them.
 
-        Returns
-        -------
-        tuple
-            The Kerr response, and the Raman response beside it when one was asked for.
+        The Kerr response, and the Raman response beside it when one was asked for.
         """
         return (self.kerr,) if self.raman is None else (self.kerr, self.raman)
 
 
-def problem_from(  # noqa: PLR0913 - the GNLSE's parameters, each named in ADR-026
+def problem_from(
     betas: Float[np.ndarray, " n_deg"] | list[float],
     *,
     omega_ref: float,
@@ -2677,19 +2490,9 @@ def _held_back_fraction(
     a given fraction is always held back; an omitted one is the silica bundle's
     ``f_R`` with Raman on (SEP 3, D4) and zero with Raman off.
 
-    Parameters
-    ----------
-    raman : bool
-        Whether a Raman response takes the fraction.
-    raman_fraction : float or None
-        The fraction given, or ``None``.
-    bundle : SilicaBundle or None
-        The selection's silica bundle, resolved when Raman is on.
-
-    Returns
-    -------
-    tuple
-        The fraction and ``"user"``, ``"bundle"`` or ``"raman-off"``.
+    - ``raman_fraction``: the fraction given, or ``None``.
+    - ``bundle``: the selection's silica bundle, resolved when Raman is on.
+    - Returns: the fraction and ``"user"``, ``"bundle"`` or ``"raman-off"``.
     """
     if raman_fraction is not None:
         return float(raman_fraction), "user"

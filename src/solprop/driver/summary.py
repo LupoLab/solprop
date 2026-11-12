@@ -80,10 +80,7 @@ class RunSummary(Displayed):
     def _describe(self) -> tuple[str, Sequence[tuple[str, object]]]:
         """Return the title and the rows of the block.
 
-        Returns
-        -------
-        tuple
-            The title, and the rows as they are.
+        - Returns: the title, and the rows as they are.
         """
         return self.title, self.rows
 
@@ -108,7 +105,7 @@ class RunSummary(Displayed):
         return {"title": self.title, "rows": [list(row) for row in self.rows]}
 
 
-def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
+def run_summary(
     problem: PropagationProblem,
     request: RunRequest,
     metadata: RunMetadata,
@@ -227,16 +224,10 @@ def _code(metadata: RunMetadata) -> str:
     whether it was modified; the branch and the installed version follow, where a long
     branch name may be cut.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record, whose ``versions`` and ``git`` were read when it was built.
-
-    Returns
-    -------
-    str
-        For example ``"0.1.0"`` or ``"commit 5e8f6884a1b2, modified (main, installed
-        as 0.1.dev3+g1a2b3c4)"``.
+    - ``metadata``: the run's record, whose ``versions`` and ``git`` were read when it
+      was built.
+    - Returns: for example ``"0.1.0"`` or ``"commit 5e8f6884a1b2, modified (main,
+      installed as 0.1.dev3+g1a2b3c4)"``.
     """
     installed = str(metadata.versions.get("solprop", "unknown"))
     git = metadata.git
@@ -251,16 +242,9 @@ def _code(metadata: RunMetadata) -> str:
 def _machine(record: Mapping[str, object]) -> str:
     """Describe the machine: architecture, CPU, CPU counts, memory and system.
 
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        The machine, as the execution record's ``host`` holds it.
-
-    Returns
-    -------
-    str
-        For example ``"arm64, Apple M4 Max, 16 CPUs (16 usable), 64 GiB, Darwin
-        25.0.0"``; a part that could not be read is left out.
+    - ``record``: the machine, as the execution record's ``host`` holds it.
+    - Returns: for example ``"arm64, Apple M4 Max, 16 CPUs (16 usable), 64 GiB, Darwin
+      25.0.0"``; a part that could not be read is left out.
     """
     logical, usable = record.get("logical_cpus"), record.get("usable_cpus")
     memory = record.get("memory_bytes")
@@ -342,15 +326,8 @@ def resources(spent: Mapping[str, float | int | None]) -> str:
 def _duration(seconds: float) -> str:
     """Write a duration in seconds below a minute, else as ``H:MM:SS``.
 
-    Parameters
-    ----------
-    seconds : float
-        The duration, s.
-
-    Returns
-    -------
-    str
-        For example ``"0.132 s"`` or ``"0:03:12"``.
+    - ``seconds``: the duration, s.
+    - Returns: for example ``"0.132 s"`` or ``"0:03:12"``.
     """
     return f"{seconds:.3g} s" if seconds < 60.0 else format_duration(seconds)
 
@@ -358,17 +335,7 @@ def _duration(seconds: float) -> str:
 def _threads(backend: str, execution: Mapping[str, object]) -> str:
     """Describe the thread pools the backend took.
 
-    Parameters
-    ----------
-    backend : str
-        The backend's name.
-    execution : collections.abc.Mapping
-        The backend's ``metadata()``.
-
-    Returns
-    -------
-    str
-        The pools and the process budget that bounds them.
+    - ``execution``: the backend's ``metadata()``.
     """
     budget = execution.get("thread_budget")
     source = execution.get("thread_budget_source")
@@ -385,15 +352,7 @@ def _threads(backend: str, execution: Mapping[str, object]) -> str:
 def _precision(problem: PropagationProblem) -> str:
     """Describe the floating-point precision of the run.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-
-    Returns
-    -------
-    str
-        ``"double"`` or ``"single"``.
+    - Returns: ``"double"`` or ``"single"``.
     """
     # Translation admits no mixed precision, so the state's name is the run's.
     return problem.precision.state
@@ -402,15 +361,7 @@ def _precision(problem: PropagationProblem) -> str:
 def _grid(metadata: RunMetadata) -> str:
     """Describe the time grid: kind, points, window and wavelength band.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-
-    Returns
-    -------
-    str
-        For example ``"field, 4096 points, window 683.1 fs, 150 nm to 4 um"``.
+    - Returns: for example ``"field, 4096 points, window 683.1 fs, 150 nm to 4 um"``.
     """
     grid = metadata.grid
     window = grid.n_t * grid.dt
@@ -428,20 +379,7 @@ def _grid(metadata: RunMetadata) -> str:
 
 
 def _representation(problem: PropagationProblem, metadata: RunMetadata) -> str:
-    """Describe the transverse representation and the polarisation.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-
-    Returns
-    -------
-    str
-        For example ``"mode-averaged (1 mode), scalar"``.
-    """
+    """Describe the transverse representation and the polarisation."""
     n_modes, n_pol = problem.shape[0], problem.shape[1]
     polarisation = "scalar" if n_pol == 1 else "vector (x and y)"
     kind = metadata.simulation_kind
@@ -474,19 +412,7 @@ def _representation(problem: PropagationProblem, metadata: RunMetadata) -> str:
 
 
 def _medium(configuration: Mapping[str, object]) -> str:
-    """Describe the medium and its fill.
-
-    Parameters
-    ----------
-    configuration : collections.abc.Mapping
-        The run's recorded physics objects.
-
-    Returns
-    -------
-    str
-        The mixture or the bulk medium with any pressure profile, the GNLSE's
-        nonlinear coefficient, or ``"not recorded"``.
-    """
+    """Describe the medium and its fill."""
     gnlse = configuration.get("gnlse")
     if gnlse is not None:
         gamma = getattr(gnlse, "gamma", None)
@@ -505,16 +431,8 @@ def _medium(configuration: Mapping[str, object]) -> str:
 def _pressure(configuration: Mapping[str, object]) -> str | None:
     """Describe the fill pressure, constant or along z.
 
-    Parameters
-    ----------
-    configuration : collections.abc.Mapping
-        The run's recorded physics objects.
-
-    Returns
-    -------
-    str or None
-        The constant pressure in bar or the profile's own description; ``None`` for
-        a run with no pressure profile.
+    - Returns: the constant pressure in bar or the profile's own description; ``None``
+      for a run with no pressure profile.
     """
     profiles = configuration.get("profiles")
     pressure = profiles.get("pressure") if isinstance(profiles, Mapping) else None
@@ -528,15 +446,9 @@ def _pressure(configuration: Mapping[str, object]) -> str | None:
 def _mixture(record: Mapping[str, object]) -> str:
     """Describe a gas mixture from the record a run keeps of it.
 
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        The mixture's record: its ``labels``, mole ``fractions`` and ``temperature_K``.
-
-    Returns
-    -------
-    str
-        For example ``"He, 293.15 K"`` or ``"Ar 0.8 + He 0.2, 293.15 K"``.
+    - ``record``: the mixture's record: its ``labels``, mole ``fractions`` and
+      ``temperature_K``.
+    - Returns: for example ``"He, 293.15 K"`` or ``"Ar 0.8 + He 0.2, 293.15 K"``.
     """
     labels = record.get("labels")
     fractions = record.get("fractions")
@@ -556,18 +468,9 @@ def _mixture(record: Mapping[str, object]) -> str:
 def _responses(problem: PropagationProblem, configuration: Mapping[str, object]) -> str:
     """Describe the nonlinear responses, one line each, with Raman always named.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem, which says what was compiled when the configuration
-        does not hold the response objects.
-    configuration : collections.abc.Mapping
-        The run's recorded physics objects.
-
-    Returns
-    -------
-    str
-        One line per response; ``"Raman off"`` when none is Raman.
+    - ``problem``: the translated problem, which says what was compiled when the
+      configuration does not hold the response objects.
+    - Returns: one line per response; ``"Raman off"`` when none is Raman.
     """
     recorded = configuration.get("responses")
     responses = list(recorded) if isinstance(recorded, Sequence) else []
@@ -591,23 +494,7 @@ def _compiled(
     A problem run directly, with a record built without its configuration, still says
     what it computes, from the compiled terms alone.
 
-    Parameters
-    ----------
-    kerr : bool
-        Whether a Kerr term was compiled.
-    raman_terms : int or None
-        The Raman terms, or ``None`` for none.
-    plasma : bool
-        Whether a plasma term was compiled.
-    dispersive : bool
-        Whether a dispersive Kerr term was compiled.
-    tdse : bool
-        Whether the run carries a TDSE response.
-
-    Returns
-    -------
-    list of str
-        One name per compiled response.
+    - ``raman_terms``: the Raman terms, or ``None`` for none.
     """
     named = (
         (kerr, "Kerr"),
@@ -620,18 +507,7 @@ def _compiled(
 
 
 def _response(response: object) -> str:
-    """Describe one response object.
-
-    Parameters
-    ----------
-    response : object
-        A response as the simulation carries it.
-
-    Returns
-    -------
-    str
-        A short phrase naming the model and its species.
-    """
+    """Describe one response object."""
     name = type(response).__name__
     species = getattr(response, "species", None)
     who = f" ({species})" if species else ""
@@ -666,15 +542,7 @@ def _response(response: object) -> str:
 def _rate(rate: object) -> str:
     """Describe an ionisation rate.
 
-    Parameters
-    ----------
-    rate : object
-        The rate object of a plasma response.
-
-    Returns
-    -------
-    str
-        ``"optmat <model>"`` for an optmat rate, else the rate's class.
+    - Returns: ``"optmat <model>"`` for an optmat rate, else the rate's class.
     """
     if type(rate).__name__ == "OptmatRate":
         return f"optmat {getattr(rate, 'model', '')}"
@@ -687,16 +555,8 @@ def _noise(metadata: RunMetadata) -> str:
     A model the run took by default says so, and a default that resolved to no noise
     gives its reason (SEP 37), so that a noiseless run is never silently noiseless.
 
-    Parameters
-    ----------
-    metadata : solprop.output.schema.RunMetadata
-        The run's record.
-
-    Returns
-    -------
-    str
-        For example ``"input model (default), seed 3"``, ``"off"``, or
-        ``"off (default: single precision carries no noise: ...)"``.
+    - Returns: for example ``"input model (default), seed 3"``, ``"off"``, or ``"off
+      (default: single precision carries no noise: ...)"``.
     """
     noise = metadata.noise
     resolution = metadata.noise_resolution
@@ -711,18 +571,7 @@ def _noise(metadata: RunMetadata) -> str:
 
 
 def _integrator(request: RunRequest) -> str:
-    """Describe the march and its formulation.
-
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-
-    Returns
-    -------
-    str
-        For example ``"Multistep, variable order up to 5, exponential"``.
-    """
+    """Describe the march and its formulation."""
     stepper = request.stepper
     integrator = stepper.integrator
     if integrator is None:
@@ -745,20 +594,9 @@ def _integrator(request: RunRequest) -> str:
 def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
     """Mark a row whose value is the route's default rather than the caller's.
 
-    Parameters
-    ----------
-    text : str
-        The row's description.
-    metadata : solprop.output.schema.RunMetadata
-        The run's record, whose ``defaults`` says which choices were defaults.
-    choice : str
-        The choice the row describes: ``"integrator"`` or ``"rtol"``.
-
-    Returns
-    -------
-    str
-        `text`, followed by ``"(capillary default)"`` or similar where the route's
-        default applied.
+    - ``choice``: the choice the row describes: ``"integrator"`` or ``"rtol"``.
+    - Returns: `text`, followed by ``"(capillary default)"`` or similar where the
+      route's default applied.
     """
     defaults = metadata.defaults
     if defaults is None or defaults.route is None or choice not in defaults.defaulted:
@@ -769,17 +607,8 @@ def _defaulted(text: str, metadata: RunMetadata, choice: str) -> str:
 def _tolerances(request: RunRequest, metadata: RunMetadata) -> str:
     """Describe the step control: tolerances and step bound, or a replayed schedule.
 
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-    metadata : solprop.output.schema.RunMetadata
-        The run's record, which says whether the tolerance is the route's default.
-
-    Returns
-    -------
-    str
-        For example ``"rtol 1e-06, atol 1e-10 (capillary default), dz_max 50 mm"``.
+    - Returns: for example ``"rtol 1e-06, atol 1e-10 (capillary default), dz_max 50
+      mm"``.
     """
     stepper = request.stepper
     controller = stepper.controller
@@ -795,17 +624,7 @@ def _tolerances(request: RunRequest, metadata: RunMetadata) -> str:
 def _absorber(problem: PropagationProblem, check: BoundaryCheck | None) -> str:
     """Describe the temporal absorber and the watch on the window's edges.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    check : solprop.monitor.BoundaryCheck or None
-        The edge thresholds, or ``None`` when the edges are not watched.
-
-    Returns
-    -------
-    str
-        ``"none"`` or the scheme it is applied by, then the edge watch.
+    - ``check``: the edge thresholds, or ``None`` when the edges are not watched.
     """
     text = (
         f"temporal, {problem.responses.absorber_scheme} scheme"
@@ -831,21 +650,7 @@ def _transverse(
     SEP 40 section 5.3: ``unwatched``, ``coarse`` and ``off`` are said before the
     first step, so that a run that cannot reach a clean verdict says so.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's request: its schedule and planes.
-    check : solprop.monitor.BoundaryCheck or None
-        The edge thresholds, or ``None`` when nothing is watched.
-    backend : str
-        The backend's name.
-
-    Returns
-    -------
-    str
-        The boundary, then what the monitor will report.
+    - ``check``: the edge thresholds, or ``None`` when nothing is watched.
     """
     design = transverse_of(problem.route)
     if design is None:
@@ -875,17 +680,7 @@ def _transverse(
 def _planes(request: RunRequest, planes: np.ndarray) -> str:
     """Describe the save planes.
 
-    Parameters
-    ----------
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-    planes : numpy.ndarray
-        The save planes, m.
-
-    Returns
-    -------
-    str
-        The count and the extent, and any per-step saving.
+    - ``planes``: the save planes, m.
     """
     text = (
         f"{planes.size} after the entrance, {engineering(float(planes[0]), 'm')} to "
@@ -902,15 +697,7 @@ def _planes(request: RunRequest, planes: np.ndarray) -> str:
 def _output(output: Output) -> str:
     """Describe where the planes go.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The handler.
-
-    Returns
-    -------
-    str
-        The handler's class, and its file when it has one.
+    - Returns: the handler's class, and its file when it has one.
     """
     path = getattr(output, "path", None)
     name = type(output).__name__
@@ -920,19 +707,8 @@ def _output(output: Output) -> str:
 def _start(start_plane: int, n_planes: int, z_start: float) -> str:
     """Describe whether the run is new or resumed.
 
-    Parameters
-    ----------
-    start_plane : int
-        Index of the first save plane beyond the loaded state.
-    n_planes : int
-        The save planes of the run.
-    z_start : float
-        Where the run starts, m.
-
-    Returns
-    -------
-    str
-        ``"new run"`` or where the resume continues from.
+    - ``z_start``: where the run starts, m.
+    - Returns: ``"new run"`` or where the resume continues from.
     """
     if start_plane == 0:
         return "new run"

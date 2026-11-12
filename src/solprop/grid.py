@@ -31,6 +31,7 @@ from jaxtyping import Bool, Complex, Float
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import GridError
 from solprop.fourier import GridKind
@@ -146,19 +147,8 @@ def _taper_edge(
 ) -> Float[np.ndarray, " n"]:
     """Evaluate one Planck taper edge, strictly between the two breakpoints.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Points strictly between ``outer`` and ``inner``, shape ``(n,)``.
-    outer : float
-        Breakpoint at which the edge reaches 0.
-    inner : float
-        Breakpoint at which the edge reaches 1.
-
-    Returns
-    -------
-    numpy.ndarray
-        Edge values in ``(0, 1)``, shape ``(n,)``.
+    - ``x``: points strictly between ``outer`` and ``inner``, shape ``(n,)``.
+    - Returns: edge values in ``(0, 1)``, shape ``(n,)``.
     """
     width = inner - outer
     exponent = width / (x - outer) + width / (x - inner)
@@ -333,17 +323,7 @@ def _derivative_edges(
 ) -> tuple[tuple[float, float, Bool[np.ndarray, " n"]], ...]:
     """Validate the breakpoints and select the points strictly inside each edge.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Points, shape ``(n,)``.
-    zero_low, one_low, one_high, zero_high : float
-        Breakpoints of :func:`planck_taper`.
-
-    Returns
-    -------
-    tuple
-        ``(outer, inner, mask)`` for the rising and the falling edge.
+    - Returns: ``(outer, inner, mask)`` for the rising and the falling edge.
     """
     if not zero_low < one_low <= one_high < zero_high:
         msg = (
@@ -368,22 +348,9 @@ def _taper_edge_derivative(
 ) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
     """Evaluate one edge's derivative strictly between its two breakpoints.
 
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Points strictly between ``outer`` and ``inner``, shape ``(n,)``.
-    outer : float
-        Breakpoint at which the edge reaches 0.
-    inner : float
-        Breakpoint at which the edge reaches 1.
-
-    Returns
-    -------
-    slope : numpy.ndarray
-        ``dg/dx``, shape ``(n,)``; the asymptotic zero in the cut-off region.
-    exponent : numpy.ndarray
-        ``zeta`` where the slope is evaluated, NaN in the cut-off region, where no
-        reciprocal is formed.
+    - ``x``: points strictly between ``outer`` and ``inner``, shape ``(n,)``.
+    - Returns ``exponent``: ``zeta`` where the slope is evaluated, NaN in the cut-off
+      region, where no reciprocal is formed.
     """
     width = inner - outer
     # Both distances are formed from x directly. r = 1 - s would cancel next to the
@@ -464,69 +431,45 @@ class RadialGrid(Displayed):
         self.validate()
 
     @property
-    def outer_radius(self) -> float:
-        """Return the Dirichlet boundary: the aperture with its collar's room.
+    def outer_radius(self) -> float:  # numpydoc ignore=RT01
+        """Dirichlet boundary: the aperture with its collar's room, m.
 
-        Returns
-        -------
-        float
-            ``radius * (1 + collar_fraction)``, m.
+        ``radius * (1 + collar_fraction)``.
         """
         return self.radius * (1.0 + self.collar_fraction)
 
     @property
-    def r(self) -> Float[np.ndarray, " n_r"]:
-        """Return the positive interior radial samples.
+    def r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Positive interior radial samples, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Radii in m, shape ``(n_r,)``; zero and the outer boundary are excluded.
+        Shape ``(n_r,)``; zero and the outer boundary are excluded.
         """
         return self.hankel.r
 
     @property
-    def k_r(self) -> Float[np.ndarray, " n_r"]:
-        """Return the transverse spectral samples.
-
-        Returns
-        -------
-        numpy.ndarray
-            Positive angular frequencies in rad/m, shape ``(n_r,)``.
-        """
+    def k_r(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Positive transverse spectral samples, rad/m, shape ``(n_r,)``."""
         return self.hankel.k_r
 
     @property
-    def radial_weights(self) -> Float[np.ndarray, " n_r"]:
-        """Return the quadrature weights of the transverse area integral.
+    def radial_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Quadrature weights of the transverse area integral, m^2.
 
-        Returns
-        -------
-        numpy.ndarray
-            Weights of ``2*pi*r*dr``, in m^2, shape ``(n_r,)``.
+        Weights of ``2*pi*r*dr``, shape ``(n_r,)``.
         """
         return self.hankel.radial_weights
 
     @property
-    def spectral_weights(self) -> Float[np.ndarray, " n_r"]:
-        """Return the quadrature weights of the transverse spectral integral.
+    def spectral_weights(self) -> Float[np.ndarray, " n_r"]:  # numpydoc ignore=RT01
+        """Quadrature weights of the transverse spectral integral, m^-2.
 
-        Returns
-        -------
-        numpy.ndarray
-            Weights of ``2*pi*k_r*dk_r``, in m^-2, shape ``(n_r,)``.
+        Weights of ``2*pi*k_r*dk_r``, shape ``(n_r,)``.
         """
         return self.hankel.spectral_weights
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of transverse spectral columns.
-
-        Returns
-        -------
-        int
-            The radial sample count.
-        """
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of transverse spectral columns."""
         return self.n_r
 
     def validate(self) -> None:
@@ -578,10 +521,7 @@ class RadialGrid(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "RadialGrid: a radial grid on the zeros of J0", [
             ("aperture radius", engineering(self.radius, "m")),
@@ -598,20 +538,7 @@ class RadialGrid(Displayed):
 
 
 def _check_fraction(owner: str, fraction: float) -> None:
-    """Refuse a collar fraction that is not finite and at least zero.
-
-    Parameters
-    ----------
-    owner : str
-        The grid class, named in the message.
-    fraction : float
-        The room outside the requested size, as a fraction of it.
-
-    Raises
-    ------
-    GridError
-        If the fraction is negative or not finite.
-    """
+    """Refuse a collar fraction that is not finite and at least zero."""
     if (
         isinstance(fraction, bool)
         or not isinstance(fraction, int | float)
@@ -629,27 +556,12 @@ def _periodic_axis(
 ]:
     """Build one centred periodic Cartesian axis, its FFT frequencies and its collar.
 
-    Parameters
-    ----------
-    owner : str
-        The grid class, named in the error messages.
-    radius : float
-        Requested physical half-width in m, finite and positive.
-    count : int
-        Number of samples, at least 1 (validated by the caller).
-    collar_fraction : float
-        Room outside the requested half-width, as a fraction of it, at least 0.
-
-    Returns
-    -------
-    tuple
-        The centred axis in m, the angular frequencies in rad/m in unshifted FFT
-        order, the Planck collar, each of shape ``(count,)``, and the spacing in m.
-
-    Raises
-    ------
-    GridError
-        If the extent, the spacing or the wave-number squares are not representable.
+    - ``radius``: requested physical half-width in m, finite and positive.
+    - ``count``: number of samples, at least 1 (validated by the caller).
+    - ``collar_fraction``: room outside the requested half-width, as a fraction of it,
+      at least 0.
+    - Returns: the centred axis in m, the angular frequencies in rad/m in unshifted FFT
+      order, the Planck collar, each of shape ``(count,)``, and the spacing in m.
     """
     outer = radius * (1 + collar_fraction)
     spacing = 2 * (outer / count)
@@ -760,22 +672,11 @@ class FreeGrid(Displayed):
     ) -> None:
         """Derive the flattened columns from the two axes and freeze them.
 
-        Parameters
-        ----------
-        x, y : numpy.ndarray
-            Centred physical axes in m.
-        frequencies : tuple of numpy.ndarray
-            ``(k_x, k_y)`` in rad/m, in unshifted FFT order.
-        windows : tuple of numpy.ndarray
-            The x and y Planck collars.
-        area : float
-            The measure of one column: ``dx*dy`` in m^2, or ``dx`` times the unit
-            y measure for a line.
-
-        Raises
-        ------
-        GridError
-            If the measure or a derived array is not representable.
+        - ``x``, ``y``: centred physical axes in m.
+        - ``frequencies``: ``(k_x, k_y)`` in rad/m, in unshifted FFT order.
+        - ``windows``: the x and y Planck collars.
+        - ``area``: the measure of one column: ``dx*dy`` in m^2, or ``dx`` times the
+          unit y measure for a line.
         """
         k_x, k_y = frequencies
         window_x, window_y = windows
@@ -803,13 +704,10 @@ class FreeGrid(Displayed):
         self.validate()
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of flattened transverse spectral columns.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of flattened transverse spectral columns.
 
-        Returns
-        -------
-        int
-            ``n_x*n_y``.
+        ``n_x*n_y``.
         """
         return self.n_x * self.n_y
 
@@ -887,10 +785,7 @@ class FreeGrid(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "FreeGrid: a Cartesian transverse grid", [
             (
@@ -1000,14 +895,11 @@ class LineGrid(FreeGrid):
         )
 
     @property
-    def transverse_measure(self) -> Literal["per_unit_width"]:
-        """Return what the grid's transverse integrals measure.
+    def transverse_measure(self) -> Literal["per_unit_width"]:  # numpydoc ignore=RT01
+        """What the grid's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"``: energies are J/m and powers W/m, per metre of y
-            (:data:`solprop.modes.protocol.TransverseMeasure`).
+        ``"per_unit_width"``: energies are J/m and powers W/m, per metre of y
+        (:data:`solprop.modes.protocol.TransverseMeasure`).
         """
         return "per_unit_width"
 
@@ -1026,10 +918,7 @@ class LineGrid(FreeGrid):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "LineGrid: an x line, uniform in y (per metre of y)", [
             (
@@ -1077,24 +966,18 @@ class Collar:
     zero_high: float
 
     @property
-    def width_low(self) -> float:
-        """Return the width of the rising edge, in the collar's own units.
+    def width_low(self) -> float:  # numpydoc ignore=RT01
+        """Width of the rising edge, in the collar's own units.
 
-        Returns
-        -------
-        float
-            The distance from ``zero_low`` to ``one_low``.
+        The distance from ``zero_low`` to ``one_low``.
         """
         return self.one_low - self.zero_low
 
     @property
-    def width_high(self) -> float:
-        """Return the width of the falling edge, in the collar's own units.
+    def width_high(self) -> float:  # numpydoc ignore=RT01
+        """Width of the falling edge, in the collar's own units.
 
-        Returns
-        -------
-        float
-            The distance from ``one_high`` to ``zero_high``.
+        The distance from ``one_high`` to ``zero_high``.
         """
         return self.zero_high - self.one_high
 
@@ -1179,18 +1062,7 @@ def fft_cost(n: int) -> float:
 
 
 def _smooth_sizes(low: int, high: int) -> list[int]:
-    """Return every even 2-3-5-smooth integer in ``[low, high]``.
-
-    Parameters
-    ----------
-    low, high : int
-        Inclusive bounds.
-
-    Returns
-    -------
-    list of int
-        The sizes, increasing.
-    """
+    """Return every even 2-3-5-smooth integer in ``[low, high]``."""
     found = []
     size = low
     while size <= high:
@@ -1206,24 +1078,7 @@ CollarPlacement = Literal["outside", "inside"]
 def _needed_window(trange: float, collar_fraction: float, placement: str) -> float:
     """Return the window a grid must realise at least, s.
 
-    Parameters
-    ----------
-    trange : float
-        Requested window, s.
-    collar_fraction : float
-        Width of each temporal collar as a fraction of the realised window.
-    placement : {'outside', 'inside'}
-        Where the collar lies against the request.
-
-    Returns
-    -------
-    float
-        ``trange / (1 - 2 collar_fraction)`` outside, ``trange`` inside.
-
-    Raises
-    ------
-    GridError
-        If the placement is neither.
+    - ``trange``: requested window, s.
     """
     if placement == "outside":
         return trange / (1.0 - 2.0 * collar_fraction)
@@ -1236,16 +1091,8 @@ def _needed_window(trange: float, collar_fraction: float, placement: str) -> flo
 def _next_smooth_even(n: int) -> int:
     """Return the smallest even 2-3-5-smooth integer that is at least ``n``.
 
-    Parameters
-    ----------
-    n : int
-        Lower bound on the result.
-
-    Returns
-    -------
-    int
-        The smallest even integer of the form ``2^a 3^b 5^c`` with ``a >= 1`` that is at
-        least ``n``.
+    - Returns: the smallest even integer of the form ``2^a 3^b 5^c`` with ``a >= 1``
+      that is at least ``n``.
     """
     # scipy.fft.next_fast_len also admits factors 7 and 11 (next_fast_len(4100) is
     # 4116 = 2^2 * 3 * 7^3), so it cannot be used where 2-3-5-smooth is required.
@@ -1267,24 +1114,7 @@ def _next_smooth_even(n: int) -> int:
 def _fft_size(needed: float, fft_size: str) -> int:
     """Round a required sample count up to a transform size.
 
-    Parameters
-    ----------
-    needed : float
-        Number of samples the request implies.
-    fft_size : {'auto', 'pow2', 'smooth'}
-        Round up to the next power of two, or to the next even 2-3-5-smooth size
-        (``'auto'`` rounds as ``'smooth'`` here; its choice is made in
-        :func:`_choose_sizes`).
-
-    Returns
-    -------
-    int
-        The rounded transform size, even and at least 4.
-
-    Raises
-    ------
-    GridError
-        If ``fft_size`` is not one of :data:`FFT_SIZES`.
+    - Returns: the rounded transform size, even and at least 4.
     """
     return max(fourier.MIN_N_T, _next_size(needed, fft_size))
 
@@ -1292,25 +1122,8 @@ def _fft_size(needed: float, fft_size: str) -> int:
 def _next_size(needed: float, fft_size: str) -> int:
     """Round a count up to the next size of the chosen family, with no lower bound.
 
-    Parameters
-    ----------
-    needed : float
-        Lower bound on the result.
-    fft_size : {'auto', 'pow2', 'smooth'}
-        Round up to the next power of two, or to the next even 2-3-5-smooth size
-        (``'auto'`` rounds as ``'smooth'`` here; its choice is made in
-        :func:`_choose_sizes`).
-
-    Returns
-    -------
-    int
-        The rounded size. Used for the oversampling multiplier, where a floor of four
-        would inflate the fine grid fourfold.
-
-    Raises
-    ------
-    GridError
-        If ``fft_size`` is not one of :data:`FFT_SIZES`.
+    - Returns: the rounded size. Used for the oversampling multiplier, where a floor of
+      four would inflate the fine grid fourfold.
     """
     if fft_size not in FFT_SIZES:
         msg = f"fft_size must be one of {FFT_SIZES}, got {fft_size!r}"
@@ -1330,18 +1143,8 @@ def _coarse_size(needed: int, n_to: int) -> int:
     exactly; when it is merely 2-3-5-smooth, that rounding could exceed ``n_to`` and
     duplicate spectral bins, which this cannot.
 
-    Parameters
-    ----------
-    needed : int
-        Lower bound on the coarse size.
-    n_to : int
-        Fine transform size, even.
-
-    Returns
-    -------
-    int
-        The chosen coarse size, clamped to ``n_to`` when nothing smaller is big
-        enough.
+    - Returns: the chosen coarse size, clamped to ``n_to`` when nothing smaller is big
+      enough.
     """
     if needed >= n_to:
         return n_to
@@ -1369,23 +1172,11 @@ def _choose_sizes(
     divisors for that to leave any oversampling at all, and only then is the fine grid
     widened to a multiple of the coarse size the request implies.
 
-    Parameters
-    ----------
-    half_bins : callable
-        Function of the bin spacing in rad/s and the fine size, returning the number of
-        positive-frequency bins the coarse grid must hold.
-    trange : float
-        Requested time window, s.
-    dt_fine : float
-        Fine sample spacing, s.
-    fft_size : {'auto', 'pow2', 'smooth'}
-        Rounding rule for both sizes; ``'auto'`` takes the cheapest pair by
-        :func:`fft_cost`.
-
-    Returns
-    -------
-    tuple of int
-        The coarse and fine numbers of time samples, ``(n_t, n_to)``.
+    - ``half_bins``: function of the bin spacing in rad/s and the fine size, returning
+      the number of positive-frequency bins the coarse grid must hold.
+    - ``trange``: requested time window, s.
+    - ``dt_fine``: fine sample spacing, s.
+    - Returns: the coarse and fine numbers of time samples, ``(n_t, n_to)``.
     """
     if fft_size == "auto":
         # The cheapest pair by the transform-cost model, among the smooth fine sizes up
@@ -1485,77 +1276,45 @@ class TimeGrid(Displayed):
     def __post_init__(self) -> None:
         """Replace the axes with private read-only copies, so the grid is frozen."""
         for name in ("t", "omega", "t_fine", "omega_fine"):
-            axis = np.array(getattr(self, name), dtype=np.float64, copy=True)
-            axis.setflags(write=False)
-            object.__setattr__(self, name, axis)
+            object.__setattr__(self, name, frozen_copy(getattr(self, name), np.float64))
 
     # --- sizes ---------------------------------------------------------------------
 
     @property
-    def n_t(self) -> int:
-        """Return the number of coarse time samples.
-
-        Returns
-        -------
-        int
-            The length of ``t``.
-        """
+    def n_t(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse time samples."""
         return self.t.size
 
     @property
-    def n_to(self) -> int:
-        """Return the number of fine time samples.
-
-        Returns
-        -------
-        int
-            The length of ``t_fine``.
-        """
+    def n_to(self) -> int:  # numpydoc ignore=RT01
+        """Number of fine time samples."""
         return self.t_fine.size
 
     @property
-    def n_omega(self) -> int:
-        """Return the number of coarse spectral bins.
-
-        Returns
-        -------
-        int
-            The length of ``omega``.
-        """
+    def n_omega(self) -> int:  # numpydoc ignore=RT01
+        """Number of coarse spectral bins."""
         return self.omega.size
 
     @property
-    def n_omega_fine(self) -> int:
-        """Return the number of fine spectral bins.
-
-        Returns
-        -------
-        int
-            The length of ``omega_fine``.
-        """
+    def n_omega_fine(self) -> int:  # numpydoc ignore=RT01
+        """Number of fine spectral bins."""
         return self.omega_fine.size
 
     # --- frequencies ---------------------------------------------------------------
 
     @property
-    def omega0(self) -> float:
-        """Return the reference angular frequency, rad/s.
+    def omega0(self) -> float:  # numpydoc ignore=RT01
+        """Reference angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            ``2 pi c / reference_wavelength``.
+        ``2 pi c / reference_wavelength``.
         """
         return 2.0 * np.pi * C / self.reference_wavelength
 
     @property
-    def d_omega(self) -> float:
-        """Return the spectral bin spacing, rad/s.
+    def d_omega(self) -> float:  # numpydoc ignore=RT01
+        """Spectral bin spacing, rad/s.
 
-        Returns
-        -------
-        float
-            ``2 pi / (n_to dt_fine)``, the same on the coarse and the fine grid.
+        ``2 pi / (n_to dt_fine)``, the same on the coarse and the fine grid.
         """
         # The axes are built from the fine window, and dt = dt_fine (n_to // n_t) is
         # rounded, so 2 pi / (n_t dt) can differ from this in the last place on a grid
@@ -1563,137 +1322,104 @@ class TimeGrid(Displayed):
         return 2.0 * np.pi / (self.n_to * self.dt_fine)
 
     @property
-    def omega_min(self) -> float:
-        """Return the lowest in-band angular frequency, rad/s.
+    def omega_min(self) -> float:  # numpydoc ignore=RT01
+        """Lowest in-band angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of the longest requested wavelength.
+        The frequency of the longest requested wavelength.
         """
         return self.omega_collar.one_low
 
     @property
-    def omega_max(self) -> float:
-        """Return the highest in-band angular frequency, rad/s.
+    def omega_max(self) -> float:  # numpydoc ignore=RT01
+        """Highest in-band angular frequency, rad/s.
 
-        Returns
-        -------
-        float
-            The frequency of the shortest requested wavelength.
+        The frequency of the shortest requested wavelength.
         """
         return self.omega_collar.one_high
 
     @property
-    def omega_max_window(self) -> float:
-        """Return the upper edge of the apodised frequency window, rad/s.
+    def omega_max_window(self) -> float:  # numpydoc ignore=RT01
+        """Upper edge of the apodised frequency window, rad/s.
 
-        Returns
-        -------
-        float
-            ``1.1 omega_max``, where the spectral collar reaches zero.
+        ``1.1 omega_max``, where the spectral collar reaches zero.
         """
         return self.omega_collar.zero_high
 
     # --- masks and windows -----------------------------------------------------------
 
     @property
-    def active_mask(self) -> Bool[np.ndarray, " n_omega"]:
-        """Return the bins where the physics lives, inside the apodised window.
+    def active_mask(self) -> Bool[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """The bins where the physics lives, inside the apodised window.
 
         The dispersion relation, the noise and the error norm are
         evaluated here and nowhere else.
 
-        Returns
-        -------
-        numpy.ndarray
-            Boolean mask over the coarse frequency axis, shape ``(n_omega,)``.
+        Boolean mask over the coarse frequency axis, shape ``(n_omega,)``.
         """
         return (self.omega > 0.5 * self.omega_min) & (
             self.omega < self.omega_max_window
         )
 
     @property
-    def inband_mask(self) -> Bool[np.ndarray, " n_omega"]:
-        """Return the bins inside the requested wavelength limits.
+    def inband_mask(self) -> Bool[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """The bins inside the requested wavelength limits.
 
-        Returns
-        -------
-        numpy.ndarray
-            Boolean mask over the coarse frequency axis, shape ``(n_omega,)``, true
-            where ``omega_min <= omega <= omega_max``.
+        Boolean mask over the coarse frequency axis, shape ``(n_omega,)``, true
+        where ``omega_min <= omega <= omega_max``.
         """
         return (self.omega >= self.omega_min) & (self.omega <= self.omega_max)
 
     @property
-    def omega_window(self) -> Float[np.ndarray, " n_omega"]:
-        """Return the spectral collar profile on the coarse frequency axis.
+    def omega_window(self) -> Float[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """Spectral collar profile on the coarse frequency axis.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_omega,)``, equal to 1 in band.
+        Window values in ``[0, 1]``, shape ``(n_omega,)``, equal to 1 in band.
         """
         return self.omega_collar.window(self.omega)
 
     @property
-    def t_window(self) -> Float[np.ndarray, " n_t"]:
-        """Return the temporal collar profile on the coarse time axis.
+    def t_window(self) -> Float[np.ndarray, " n_t"]:  # numpydoc ignore=RT01
+        """Temporal collar profile on the coarse time axis.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_t,)``, equal to 1 inside the window.
+        Window values in ``[0, 1]``, shape ``(n_t,)``, equal to 1 inside the window.
         """
         return self.t_collar.window(self.t)
 
     @property
-    def t_window_fine(self) -> Float[np.ndarray, " n_to"]:
-        """Return the temporal collar profile on the fine time axis.
+    def t_window_fine(self) -> Float[np.ndarray, " n_to"]:  # numpydoc ignore=RT01
+        """Temporal collar profile on the fine time axis.
 
         Both temporal windows come from the one collar geometry, so the coarse and fine
         apodisations agree exactly wherever their samples coincide, rather than each
         window being built from its own axis's extremes, which differ at the upper edge.
 
-        Returns
-        -------
-        numpy.ndarray
-            Window values in ``[0, 1]``, shape ``(n_to,)``, 1 inside the window.
+        Window values in ``[0, 1]``, shape ``(n_to,)``, 1 inside the window.
         """
         return self.t_collar.window(self.t_fine)
 
     # --- oversampling -----------------------------------------------------------------
 
     @property
-    def crop_index(self) -> np.ndarray:
-        """Return the positions of the coarse spectral bins inside the fine spectrum.
+    def crop_index(self) -> np.ndarray:  # numpydoc ignore=RT01
+        """The positions of the coarse spectral bins inside the fine spectrum.
 
-        Returns
-        -------
-        numpy.ndarray
-            Index array of ``numpy.intp``, shape ``(n_omega,)``.
+        Index array of ``numpy.intp``, shape ``(n_omega,)``.
         """
         return fourier.crop_index(self.n_t, self.n_to, kind=self.kind)
 
     @property
-    def pad_scale(self) -> float:
-        """Return the factor applied when padding the coarse spectrum out.
+    def pad_scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor applied when padding the coarse spectrum out.
 
-        Returns
-        -------
-        float
-            ``n_to / n_t``.
+        ``n_to / n_t``.
         """
         return fourier.pad_scale(self.n_t, self.n_to)
 
     @property
-    def crop_scale(self) -> float:
-        """Return the factor applied when cropping the fine spectrum back.
+    def crop_scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor applied when cropping the fine spectrum back.
 
-        Returns
-        -------
-        float
-            ``n_t / n_to``.
+        ``n_t / n_to``.
         """
         return fourier.crop_scale(self.n_t, self.n_to)
 
@@ -1760,22 +1486,14 @@ class TimeGrid(Displayed):
         self._validate_spectrum()
 
     def _validate_spectrum(self) -> None:
-        """Check the frequency-axis invariants that depend on the grid's layout.
-
-        Raises
-        ------
-        NotImplementedError
-            Always; each subclass supplies the invariants for its own layout.
-        """
+        """Check the frequency-axis invariants that depend on the grid's layout."""
         raise NotImplementedError
 
     def _band(self) -> str:
         """Return the spectral band as wavelengths, for printing.
 
-        Returns
-        -------
-        str
-            ``"150-4000 nm"``, with ``inf`` where the band reaches zero frequency.
+        - Returns: ``"150-4000 nm"``, with ``inf`` where the band reaches zero
+          frequency.
         """
         shortest = 2.0e9 * np.pi * C / self.omega_max
         longest = 2.0e9 * np.pi * C / self.omega_min if self.omega_min > 0.0 else np.inf
@@ -1803,10 +1521,7 @@ class TimeGrid(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         kind = "a real field" if self.kind == "field" else "an envelope"
         collar = self.t_collar
@@ -1839,20 +1554,8 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
     run-time guard on the pair's length, and the test session's ``beartype`` hook would
     otherwise reject a wrong-length tuple before this check is reached.
 
-    Parameters
-    ----------
-    wavelength_limits : sequence of float
-        Shortest and longest wavelength of the frequency window, m.
-
-    Returns
-    -------
-    tuple of float
-        The lowest and highest angular frequency, rad/s.
-
-    Raises
-    ------
-    GridError
-        If the pair is not two strictly increasing positive wavelengths.
+    - ``wavelength_limits``: shortest and longest wavelength of the frequency window, m.
+    - Returns: the lowest and highest angular frequency, rad/s.
     """
     if len(wavelength_limits) != 2:
         msg = (
@@ -1869,7 +1572,7 @@ def _frequency_limits(wavelength_limits: Sequence[float]) -> tuple[float, float]
     return 2.0 * np.pi * C / high, 2.0 * np.pi * C / low
 
 
-def _check_common(
+def _check_common(  # noqa: PLR0917 - called positionally
     length: float,
     reference_wavelength: float,
     trange: float,
@@ -1879,25 +1582,10 @@ def _check_common(
 ) -> None:
     """Validate the constructor arguments both grids share, naming each failure.
 
-    Parameters
-    ----------
-    length : float
-        Propagation distance, m.
-    reference_wavelength : float
-        Reference wavelength, m.
-    trange : float
-        Requested time window, s.
-    dt : float or None
-        Requested sample spacing, s.
-    ffac : float
-        Fine-grid oversampling factor.
-    collar_fraction : float
-        Minimum temporal collar width as a fraction of the window.
-
-    Raises
-    ------
-    GridError
-        If any argument is outside its valid range.
+    - ``length``: propagation distance, m.
+    - ``reference_wavelength``: reference wavelength, m.
+    - ``trange``: requested time window, s.
+    - ``dt``: requested sample spacing, s.
     """
     if length < 0.0:
         msg = f"length must be a non-negative distance in metres, got {length!r}"
@@ -1939,19 +1627,8 @@ def _temporal_collar(
     Requiring at least ``collar_fraction`` of the full window at each end removes that
     case (conventions.md §3).
 
-    Parameters
-    ----------
-    trange : float
-        Requested time window, s.
-    trange_even : float
-        Realised time window, s, at least ``trange``.
-    collar_fraction : float
-        Minimum width of each collar as a fraction of the full window.
-
-    Returns
-    -------
-    Collar
-        The temporal collar geometry, symmetric about zero.
+    - ``trange``: requested time window, s.
+    - ``trange_even``: realised time window, s, at least ``trange``.
     """
     half = 0.5 * trange_even
     inner = min(0.5 * trange, half * (1.0 - 2.0 * collar_fraction))
@@ -1961,18 +1638,8 @@ def _temporal_collar(
 def _log_grid(kind: str, n_t: int, n_to: int, dt: float, trange_even: float) -> None:
     """Record the realised grid at debug level.
 
-    Parameters
-    ----------
-    kind : str
-        Which grid was built.
-    n_t : int
-        Coarse number of time samples.
-    n_to : int
-        Fine number of time samples.
-    dt : float
-        Coarse sample spacing, s.
-    trange_even : float
-        Realised time window, s.
+    - ``dt``: coarse sample spacing, s.
+    - ``trange_even``: realised time window, s.
     """
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
@@ -2003,11 +1670,8 @@ class FieldGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "field"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
-    def from_limits(  # noqa: PLR0913
+    def from_limits(
         cls,
         length: float,
         reference_wavelength: float,
@@ -2021,7 +1685,7 @@ class FieldGrid(TimeGrid):
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
-    ) -> "FieldGrid":  # noqa: UP037
+    ) -> "FieldGrid":
         """Build a field grid from the wavelength limits and the requested time window.
 
         The fine grid is sampled at ``ffac`` times the highest frequency of the window,
@@ -2097,27 +1761,18 @@ class FieldGrid(TimeGrid):
         required = 2.0 * np.pi / (ffac * omega_max)
         dt_fine = required if dt is None else min(required, dt)
 
-        def half_bins(d_omega: float, n_to: int) -> int:
+        def _half_bins(d_omega: float, n_to: int) -> int:
             """Return the coarse half-size needed to hold the apodised window.
 
-            Parameters
-            ----------
-            d_omega : float
-                Bin spacing, rad/s.
-            n_to : int
-                Fine transform size.
-
-            Returns
-            -------
-            int
-                Number of positive-frequency bins the coarse grid must hold.
+            - ``d_omega``: bin spacing, rad/s.
+            - Returns: number of positive-frequency bins the coarse grid must hold.
             """
             # Keep every fine bin out to the first one past the apodised window edge,
             # so the collar is fully represented on the coarse grid.
             return min(math.floor(omega_max_window / d_omega) + 2, n_to // 2 + 1)
 
         needed = _needed_window(trange, collar_fraction, collar_placement)
-        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
+        n_t, n_to = _choose_sizes(_half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         # dt comes from the integer ratio rather than from pi/omega[-1], so that the
@@ -2144,13 +1799,7 @@ class FieldGrid(TimeGrid):
         return grid
 
     def _validate_spectrum(self) -> None:
-        """Check that the frequency axis is the one-sided rfft axis of the time axis.
-
-        Raises
-        ------
-        GridError
-            If ``dt`` is not ``pi/omega[-1]``, or ``omega`` is not ``k d_omega``.
-        """
+        """Check that the frequency axis is the one-sided rfft axis of the time axis."""
         expected_dt = np.pi / self.omega[-1]
         if not math.isclose(self.dt, expected_dt, rel_tol=INVARIANT_RTOL):
             msg = f"dt is {self.dt!r}, expected pi/omega[-1] = {expected_dt!r}"
@@ -2180,11 +1829,8 @@ class EnvelopeGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "envelope"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
-    def from_limits(  # noqa: PLR0913
+    def from_limits(
         cls,
         length: float,
         reference_wavelength: float,
@@ -2199,7 +1845,7 @@ class EnvelopeGrid(TimeGrid):
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
-    ) -> "EnvelopeGrid":  # noqa: UP037
+    ) -> "EnvelopeGrid":
         """Build an envelope grid from the wavelength limits and the time window.
 
         Without third harmonic the grid is sampled at twice the widest relative
@@ -2284,20 +1930,12 @@ class EnvelopeGrid(TimeGrid):
         dt_fine = required if dt is None else min(required, dt)
         oversampling = thg or dt_fine < required
 
-        def half_bins(d_omega: float, n_to: int) -> int:
+        def _half_bins(d_omega: float, n_to: int) -> int:
             """Return the coarse half-size needed to hold the apodised window.
 
-            Parameters
-            ----------
-            d_omega : float
-                Bin spacing, rad/s.
-            n_to : int
-                Fine transform size.
-
-            Returns
-            -------
-            int
-                Number of relative-frequency bins the coarse grid must hold each side.
+            - ``d_omega``: bin spacing, rad/s.
+            - Returns: number of relative-frequency bins the coarse grid must hold each
+              side.
             """
             if not oversampling:
                 return n_to // 2
@@ -2305,7 +1943,7 @@ class EnvelopeGrid(TimeGrid):
             return min(max(math.ceil(reach / d_omega), 1), n_to // 2)
 
         needed = _needed_window(trange, collar_fraction, collar_placement)
-        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
+        n_t, n_to = _choose_sizes(_half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         dt_coarse = dt_fine * (n_to // n_t)
@@ -2338,12 +1976,6 @@ class EnvelopeGrid(TimeGrid):
         The field grid's ``omega_fine[-1]/omega[-1]`` has no meaning in FFT order, where
         the last bin is the one just below the carrier on both grids; the ratio that
         carries the information is the one of the minima.
-
-        Raises
-        ------
-        GridError
-            If ``dt`` is not ``2 pi / (n_omega d_omega)``, or ``omega`` is not the
-            FFT-order axis about ``omega0``.
         """
         relative = self.omega - self.omega0
         expected_dt = -np.pi / relative.min()
@@ -2366,18 +1998,7 @@ class EnvelopeGrid(TimeGrid):
 
 
 def _fft_order(n: int) -> Float[np.ndarray, " n"]:
-    """Return the integer bin indices of an ``n``-point DFT, in FFT order.
-
-    Parameters
-    ----------
-    n : int
-        Transform length, even.
-
-    Returns
-    -------
-    numpy.ndarray
-        The values ``0, 1, ..., n/2 - 1, -n/2, ..., -1`` as floats, shape ``(n,)``.
-    """
+    """Return the integer bin indices of an ``n``-point DFT, in FFT order."""
     index = np.arange(n, dtype=float)
     index[n // 2 :] -= n
     return index
@@ -2431,20 +2052,7 @@ class GridSuggestion:
 
 
 def _rounded(value: float, *, up: bool) -> float:
-    """Round a positive value to two significant figures, outwards.
-
-    Parameters
-    ----------
-    value : float
-        The value.
-    up : bool
-        Round up rather than down.
-
-    Returns
-    -------
-    float
-        The value with two significant figures.
-    """
+    """Round a positive value to two significant figures, outwards."""
     scale = 10.0 ** (math.floor(math.log10(value)) - 1)
     steps = value / scale
     steps = math.ceil(steps - 1e-9) if up else math.floor(steps + 1e-9)
@@ -2454,23 +2062,10 @@ def _rounded(value: float, *, up: bool) -> float:
 def _extent(pulse: object) -> tuple[float, float, float, float]:
     """Return a pulse's carrier and bandwidth, its duration and its delay.
 
-    Parameters
-    ----------
-    pulse : object
-        A shaped pulse, a sum of pulses or a measured spectrum.
-
-    Returns
-    -------
-    tuple of float
-        The centre frequency and the intensity full width at half maximum in
-        frequency, Hz; the intensity full width at half maximum in time and the
-        largest delay, s.
-
-    Raises
-    ------
-    GridError
-        For a pulse whose extent cannot be read, such as a continuous wave or a
-        custom shape.
+    - ``pulse``: a shaped pulse, a sum of pulses or a measured spectrum.
+    - Returns: the centre frequency and the intensity full width at half maximum in
+      frequency, Hz; the intensity full width at half maximum in time and the largest
+      delay, s.
     """
     from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
         SECH_FWHM_TO_WIDTH,

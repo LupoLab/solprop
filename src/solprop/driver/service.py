@@ -31,6 +31,7 @@ import numpy as np
 
 from solprop._host import RunClock, usage
 from solprop._interrupts import committing, poll
+from solprop._ownership import hold
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
@@ -164,15 +165,7 @@ class ServiceContext:
 def _rows(rows: BackendRows) -> StepStats:
     """Return a session's periodic rows in the form an output handler stores.
 
-    Parameters
-    ----------
-    rows : solprop.backends.protocol.StepStats
-        The rows, with a leading row axis and no batch axis.
-
-    Returns
-    -------
-    solprop.output.schema.StepStats
-        The same rows.
+    - ``rows``: the rows, with a leading row axis and no batch axis.
     """
     return StepStats(z=rows.z, step=rows.step, values=dict(rows.values))
 
@@ -193,17 +186,7 @@ cap restart from that restored state; persisting them is not claimed."""
 def _restart(base: Mapping[str, object], keeper: _MarchKeeper) -> dict[str, object]:
     """Return an execution's restart record with the latest retention decision.
 
-    Parameters
-    ----------
-    base : collections.abc.Mapping
-        What the execution restored, fixed when it started.
-    keeper : solprop.driver.run._MarchKeeper
-        The method-history keeper, holding the latest retention decision.
-
-    Returns
-    -------
-    dict
-        The record (:data:`solprop.driver.run.RESTART_RECORD`).
+    - ``base``: what the execution restored, fixed when it started.
     """
     retention = keeper.record()
     return dict(base) if retention is None else {"retention": retention, **base}
@@ -220,12 +203,7 @@ class _Exports:
     (:func:`solprop.fourier.spectrum_to_internal`), with no second export. An output
     that is not a plane store is given the consumer field itself.
 
-    Parameters
-    ----------
-    session : solprop.backends.session.RunSession
-        The session whose tickets are exported.
-    kind : {'field', 'envelope'}
-        The grid's spectral layout.
+    - ``kind``: the grid's spectral layout.
     """
 
     def __init__(self, session: RunSession, kind: GridKind) -> None:
@@ -239,13 +217,7 @@ class _Exports:
         self._phased = False
 
     def _hold(self, ticket: ExportTicket) -> None:
-        """Forget what another ticket exported.
-
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            The ticket now asked for.
-        """
+        """Forget what another ticket exported."""
         if self._ticket != ticket:
             self._ticket = ticket
             self._field = self._stored = self._phase = None
@@ -254,15 +226,7 @@ class _Exports:
     def field(self, ticket: ExportTicket) -> np.ndarray:
         """Return the consumer field for a ticket, exporting it once.
 
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            A pending ticket.
-
-        Returns
-        -------
-        numpy.ndarray
-            Read-only output amplitudes in the internal convention.
+        - Returns: Read-only output amplitudes in the internal convention.
         """
         self._hold(ticket)
         if self._field is None:
@@ -270,7 +234,8 @@ class _Exports:
                 field = spectrum_to_internal(self._stored, kind=self._kind)
             else:
                 field = self._session.export(ticket, _CONSUMER)
-            field.setflags(write=False)
+            # A new array or a view of a held observation: held, so nothing copies it.
+            hold(field)
             self._field = field
         return self._field
 
@@ -281,23 +246,21 @@ class _Exports:
         export is the ticket's first; any consumer after it is given the consumer
         field from it (:meth:`field`).
 
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            A pending ticket.
-        out : numpy.ndarray or None
-            The plane store's room (``PlaneStore.field_destination``), or ``None``
-            for a new array.
-
-        Returns
-        -------
-        numpy.ndarray
-            Read-only output amplitudes in the optics convention: `out` when given.
+        - ``out``: the plane store's room (``PlaneStore.field_destination``), or
+          ``None`` for a new array.
+        - Returns: Read-only output amplitudes in the optics convention: `out` when
+          given.
         """
         self._hold(ticket)
         assert self._field is None and self._stored is None, "a plane's first export"
         stored = self._session.export(ticket, _STORED, out=out)
-        stored.setflags(write=False)
+        if out is None:
+            # A new array, this plane's own: held, so nothing copies it.
+            hold(stored)
+        else:
+            # The plane store's room, which the store owns and writes again: frozen
+            # but not held.
+            stored.setflags(write=False)
         self._stored = stored
         return stored
 
@@ -309,15 +272,7 @@ class _Exports:
     def phase(self, ticket: ExportTicket) -> np.ndarray | None:
         """Return the noise phase for a ticket, read once.
 
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            A pending ticket.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The phase, read-only, or ``None`` without a noise model.
+        - Returns: the phase, read-only, or ``None`` without a noise model.
         """
         self._hold(ticket)
         if not self._phased:
@@ -339,12 +294,6 @@ class _Chunks:
     (:mod:`solprop.backends.events`); this is where they are assembled. An observation
     takes them all as its plane's history and starts afresh; a running checkpoint
     includes them without consuming them; a terminal checkpoint includes them.
-
-    Parameters
-    ----------
-    step : callable
-        The progress reporter's per-attempt call, made with each attempt's end,
-        length and acceptance as its chunk arrives.
     """
 
     def __init__(self, step: Callable[[float, float, bool], None]) -> None:
@@ -364,16 +313,9 @@ class _Chunks:
         Every attempt arrives exactly once, so the reporter hears each once, in order,
         at the cadence of the session's yields rather than from inside its march.
 
-        Parameters
-        ----------
-        history : solprop.backends.protocol.BackendHistory or None
-            Its attempts.
-        rows : solprop.backends.protocol.StepStats or None
-            Its periodic rows, without a batch axis.
-        report : bool, optional
-            Whether the reporter hears the attempts; ``False`` for the attempts no
-            event delivered, which a failure's checkpoint holds and no reporter call
-            may lose.
+        - ``rows``: its periodic rows, without a batch axis.
+        - ``report``: ``False`` for the attempts no event delivered, which a failure's
+          checkpoint holds and no reporter call may lose.
         """
         self._chunks.append((history, rows))
         if report and history is not None:
@@ -388,20 +330,14 @@ class _Chunks:
     def joined(self) -> tuple[BackendHistory, BackendRows]:
         """Return every chunk held, assembled, without consuming them.
 
-        Returns
-        -------
-        tuple
-            The attempts and rows since the last saved plane.
+        - Returns: the attempts and rows since the last saved plane.
         """
         return join_attempts(self._chunks)
 
     def take(self) -> tuple[BackendHistory, BackendRows]:
         """Return every chunk held, assembled, and start afresh.
 
-        Returns
-        -------
-        tuple
-            The attempts and rows since the last saved plane.
+        - Returns: the attempts and rows since the last saved plane.
         """
         joined = self.joined()
         self._chunks = []
@@ -416,22 +352,11 @@ def _plane(
 ) -> SavedPlane:
     """Build the plane an output stores from an observation.
 
-    Parameters
-    ----------
-    event : solprop.backends.events.ObservationReady
-        The observation.
-    attempts : tuple
-        Its history and rows, assembled from the chunks since the previous plane.
-    field : numpy.ndarray or None
-        Its field in the internal convention, or ``None``: a field-free plane, or one
-        whose field is exported straight into a plane store.
-    phase : numpy.ndarray or None
-        Its noise phase, where it keeps its field and a noise model runs.
-
-    Returns
-    -------
-    solprop.output.schema.SavedPlane
-        The plane.
+    - ``attempts``: its history and rows, assembled from the chunks since the previous
+      plane.
+    - ``field``: its field in the internal convention, or ``None``: a field-free plane,
+      or one whose field is exported straight into a plane store.
+    - ``phase``: its noise phase, where it keeps its field and a noise model runs.
     """
     return SavedPlane(
         z=event.z,
@@ -459,26 +384,9 @@ def _prepare_plane(
     has one (SEP 47 section 5.4), and the plane carries none; any other output is
     given the consumer field on the plane (:func:`_save_plane`).
 
-    Parameters
-    ----------
-    event : solprop.backends.events.ObservationReady
-        The observation.
-    output : solprop.output.schema.Output
-        The run's output.
-    exports : _Exports
-        The pending ticket's exports.
-    attempts : tuple
-        Its history and rows.
-    shape : tuple of int
-        ``(n_modes, n_pol, n_omega)`` of the field.
-    keep : bool
-        Whether the plane keeps its field.
-
-    Returns
-    -------
-    tuple
-        The plane and, where its field was exported into a plane store, the stored
-        field (``None`` otherwise).
+    - ``shape``: ``(n_modes, n_pol, n_omega)`` of the field.
+    - Returns: the plane and, where its field was exported into a plane store, the
+      stored field (``None`` otherwise).
     """
     ticket = event.ticket
     phase = exports.phase(ticket) if keep else None
@@ -493,17 +401,7 @@ def _prepare_plane(
 
 
 def _save_plane(output: Output, plane: SavedPlane, stored: StoredField | None) -> None:
-    """Hand a prepared plane to the output (:func:`_prepare_plane`).
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's output.
-    plane : solprop.output.schema.SavedPlane
-        The plane.
-    stored : solprop.output.schema.StoredField or None
-        Its field exported into the plane store's stored form, or ``None``.
-    """
+    """Hand a prepared plane to the output (:func:`_prepare_plane`)."""
     if stored is None:
         output.save(plane)
     else:
@@ -598,19 +496,13 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     shape = tuple(context.problem.shape)
     current: list[ObservationReady | None] = [None]
 
-    def fetch() -> np.ndarray:
-        """Return the pending observation's field, for the plane observer.
-
-        Returns
-        -------
-        numpy.ndarray
-            The field of the observation the observer is shown.
-        """
+    def _fetch() -> np.ndarray:
+        """Return the pending observation's field, for the plane observer."""
         event = current[0]
         assert event is not None  # the observer is shown a pending plane only
         return exports.field(event.ticket)
 
-    watch = PlaneWatch(reporter, context.metadata, fetch, clock.observer)
+    watch = PlaneWatch(reporter, context.metadata, _fetch, clock.observer)
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
     pending_ticket: ExportTicket | None = None
@@ -787,12 +679,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
 def _warn_coarse(event: ObservationReady, planes: np.ndarray) -> None:
     """Log a plane whose propagation did not meet its tolerance.
 
-    Parameters
-    ----------
-    event : solprop.backends.events.ObservationReady
-        The observation.
-    planes : numpy.ndarray
-        The requested save planes, m.
+    - ``planes``: the requested save planes, m.
     """
     summary = event.summary
     if summary.met_tolerance:
@@ -809,7 +696,7 @@ def _warn_coarse(event: ObservationReady, planes: np.ndarray) -> None:
     )
 
 
-def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's context
+def _service_snapshot(  # noqa: PLR0917 - the snapshot transaction's context
     event: ServiceRequired,
     output: HDF5Output,
     checkpoint_output: CheckpointOutput | None,
@@ -829,31 +716,8 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     field and the attempts and rows since the last plane are written as a running
     checkpoint without being consumed (SEP 47 section 5.5).
 
-    Parameters
-    ----------
-    event : solprop.backends.events.ServiceRequired
-        The snapshot request.
-    output : solprop.output.hdf5.HDF5Output
-        The live writer.
-    checkpoint_output : solprop.output.schema.CheckpointOutput or None
-        The writer as a checkpoint store.
-    backend : object
-        The driver, for the execution record.
-    keeper : _MarchKeeper
-        Keeps the method history beside the checkpoint.
-    exports : _Exports
-        The endpoint's field.
-    context : ServiceContext
-        The run's context.
-    attempts : tuple
-        The attempts and rows since the last plane, the snapshot's own chunk included:
-        the running checkpoint's, which does not consume them.
-    clock : solprop._host.RunClock
-        When the run started.
-    adams : bool
-        Whether the run's method keeps an Adams history, which a snapshot requires.
-    base : collections.abc.Mapping
-        What the execution restored, for its restart record.
+    - ``attempts``: the attempts and rows since the last plane, the snapshot's own chunk
+      included: the running checkpoint's, which does not consume them.
     """
     snapshots = context.snapshots
     assert snapshots is not None
@@ -907,7 +771,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     )
 
 
-def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
+def _persist_failure(  # noqa: PLR0917 - the failure's whole context
     session: RunSession,
     output: CheckpointOutput | None,
     context: ServiceContext,
@@ -921,36 +785,12 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
 ) -> float | None:
     """Checkpoint the accepted state without replacing the original exception.
 
-    Parameters
-    ----------
-    session : solprop.backends.session.RunSession
-        The session, its last batch still pending.
-    output : solprop.output.schema.CheckpointOutput or None
-        Handler supporting terminal checkpoints, when available.
-    context : ServiceContext
-        The run's context.
-    keeper : _MarchKeeper
-        Keeps the method history beside the checkpoint.
-    exports : _Exports
-        Shares a field already exported for the pending plane.
-    ticket : solprop.backends.events.ExportTicket or None
-        The committed field to checkpoint, or ``None`` when the state is poisoned or
-        the failure arose outside the session.
-    rows : tuple
-        The attempts and periodic rows since the last saved plane, assembled for the
-        terminal event or the failed plane, or ``None`` for each.
-    chunks : _Chunks
-        The chunks delivered since the last saved plane, for a failure outside the
-        session, whose own undelivered attempts are joined to them.
-    base : collections.abc.Mapping
-        What the execution restored, for its restart record.
-    failure : solprop.driver.run._FailedObservation
-        The primary failure and the plane in hand.
-
-    Returns
-    -------
-    float or None
-        The checkpointed position, m, when one was written.
+    - ``output``: handler supporting terminal checkpoints, when available.
+    - ``ticket``: the committed field to checkpoint, or ``None`` when the state is
+      poisoned or the failure arose outside the session.
+    - ``rows``: the attempts and periodic rows since the last saved plane, assembled for
+      the terminal event or the failed plane, or ``None`` for each.
+    - Returns: the checkpointed position, m, when one was written.
     """
     if output is None:
         return None
@@ -1067,16 +907,8 @@ def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     nothing is pending, the session issues a failed terminal batch whose ticket exports
     the committed state (``HostSession.pending_ticket``).
 
-    Parameters
-    ----------
-    session : solprop.backends.session.RunSession
-        The session.
-
-    Returns
-    -------
-    solprop.backends.events.ExportTicket or None
-        A ticket for the committed state, or ``None`` when the session is closed or
-        its state was left in flight.
+    - Returns: a ticket for the committed state, or ``None`` when the session is closed
+      or its state was left in flight.
     """
     # A session that can end itself at its committed state for the checkpoint says
     # so (`NativeSession.failure_ticket`); the reference session's pending ticket
@@ -1092,16 +924,6 @@ def _facts(session: RunSession) -> HostStepping | SessionFacts:
 
     The reference session's driver, or a session's own facts
     (:class:`~solprop.driver.run.SessionFacts`).
-
-    Parameters
-    ----------
-    session : solprop.backends.session.RunSession
-        The session.
-
-    Returns
-    -------
-    Any
-        The driver, or the facts.
     """
     if isinstance(session, HostSession):
         return session.driver

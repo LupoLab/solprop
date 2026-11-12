@@ -17,6 +17,7 @@ from scipy.linalg import svd
 from scipy.optimize import linear_sum_assignment
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes.guide import BASIS_UNITARY_ATOL, ChannelBasis
@@ -133,22 +134,7 @@ interpolated in frequency alone.
 def _overlap(
     left: ModalSample, right: ModalSample, nodes: ModalNodeRule
 ) -> Complex[np.ndarray, "n_modes n_modes"]:
-    """Form the physical cross-Poynting matrix on common nodes.
-
-    Parameters
-    ----------
-    left : ModalSample
-        Reference sample on common physical nodes.
-    right : ModalSample
-        Candidate sample on the same physical nodes.
-    nodes : ModalNodeRule
-        The common physical nodes and their area weights in m².
-
-    Returns
-    -------
-    numpy.ndarray
-        Cross overlaps, shape (n_modes, n_modes).
-    """
+    """Form the physical cross-Poynting matrix on common nodes."""
     e, h, f, g = left.electric, left.magnetic, right.electric, right.magnetic
     return (
         np.einsum("qm,qn,q->mn", h[:, 1].conj(), f[:, 0], nodes.weights)
@@ -477,21 +463,6 @@ def _check_transformed_passivity(
     original's own worst rate by more than the product's rounding is arithmetic that
     went wrong, and ``_channel_index_table`` would otherwise meet it as a channel
     with ``Im n_eff`` of the wrong sign.
-
-    Parameters
-    ----------
-    sample : solprop.modes.vector.ModalSample
-        The sample before the declared transform.
-    turned : solprop.modes.vector.ModalSample
-        The same sample after it, with the product evaluated.
-    basis : solprop.modes.guide.ChannelBasis
-        The declaration, named in the refusal.
-
-    Raises
-    ------
-    ModeError
-        If a transformed channel's rate exceeds the block's own worst by more than
-        the rounding of the product.
     """
     count = len(np.diag(sample.generator))
     scale = float(np.max(abs(sample.generator)))
@@ -588,10 +559,7 @@ class DenseModalTable(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         reference = self.samples[0][0]
         _, _, modes = reference.electric.shape
@@ -627,7 +595,7 @@ class DenseModalTable(Displayed):
             If knots, samples, gauges or validity disagree.
         """
         for name in ("omega", "z"):
-            values = np.array(getattr(self, name), dtype=float, copy=True)
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -637,7 +605,6 @@ class DenseModalTable(Displayed):
                 raise ModeError(
                     "table knots must be finite, non-empty and strictly increasing"
                 )
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
         if (
             len(self.omega) < 4
@@ -716,19 +683,9 @@ class DenseModalTable(Displayed):
     def _gate_gram(self, defect: float, omega: float, z: float) -> None:
         """Record the largest sampled Gram defect and refuse one above the budget.
 
-        Parameters
-        ----------
-        defect : float
-            Largest ``norm(W - I, 2)`` over the knots, dimensionless.
-        omega : float
-            Angular frequency in rad/s of the knot that reached it.
-        z : float
-            Position in m of that knot.
-
-        Raises
-        ------
-        ModeError
-            If the budget is not positive and finite, or the defect exceeds it.
+        - ``defect``: largest ``norm(W - I, 2)`` over the knots, dimensionless.
+        - ``omega``: angular frequency in rad/s of the knot that reached it.
+        - ``z``: position in m of that knot.
         """
         if not np.isfinite(self.gram_atol) or self.gram_atol <= 0:
             raise ModeError("gram_atol must be positive and finite")
@@ -747,26 +704,8 @@ class DenseModalTable(Displayed):
     ) -> Complex[np.ndarray, "*shape"]:
         """Evaluate a dense field or generator component inside its knots.
 
-        Parameters
-        ----------
-        name : str
-            Stored component name, one of :data:`_INTERPOLATED`.
-        omega : float
-            Positive angular frequency in rad/s.
-        z : float
-            Position in m within the declared path.
-        derivative : int, optional
-            Non-negative angular-frequency derivative order.
-
-        Returns
-        -------
-        numpy.ndarray
-            Interpolated component, with its stored shape.
-
-        Raises
-        ------
-        ModeError
-            If the requested point lies outside the knots.
+        - ``omega``: positive angular frequency in rad/s.
+        - ``z``: position in m within the declared path.
         """
         if (
             not self.omega[0] <= omega <= self.omega[-1]
@@ -785,17 +724,8 @@ class DenseModalTable(Displayed):
     ) -> Float[np.ndarray, " n_modes"]:
         """Return the largest knot boundary residual around a requested point.
 
-        Parameters
-        ----------
-        omega : float
-            Angular frequency in rad/s inside the knot interval.
-        z : float
-            Position in m inside the knot interval.
-
-        Returns
-        -------
-        numpy.ndarray
-            Per-channel residual in the interpolation cell, shape (n_modes,).
+        - ``omega``: angular frequency in rad/s inside the knot interval.
+        - ``z``: position in m inside the knot interval.
         """
         # Carrying knot (0, 0)'s residual described a corner of the table, not the
         # point asked for. The bracketing knots are the local physical statement.
@@ -929,7 +859,7 @@ class DenseModalTable(Displayed):
         return self._interpolate("generator", omega, z, 1)
 
 
-def sample_modal_table(  # noqa: PLR0913 - a provider, two grids, a rule and three declarations
+def sample_modal_table(
     provider: ModalProvider,
     omega: Float[np.ndarray, " n_omega"],
     z: Float[np.ndarray, " n_z"],
@@ -1196,15 +1126,8 @@ def _channel_splitting(
     propagation constants themselves so that an exactly degenerate pair -- or a
     single channel, which has no splitting at all -- still has a positive scale.
 
-    Parameters
-    ----------
-    diagonal : numpy.ndarray
-        The generator's diagonal in 1/m, shape (n_modes,).
-
-    Returns
-    -------
-    float
-        Positive scale in 1/m.
+    - ``diagonal``: the generator's diagonal in 1/m, shape (n_modes,).
+    - Returns: positive scale in 1/m.
     """
     floor = 64 * float(np.finfo(float).eps) * float(np.max(abs(diagonal)))
     if len(diagonal) < 2:
@@ -1225,15 +1148,8 @@ def _area_knot(omega: Float[np.ndarray, " n_omega"]) -> int:
     taken in the middle. For an even knot count this is the upper of the
     two middle knots, so that it is always a frequency the band was solved at.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Increasing angular frequencies in rad/s, shape (n_omega,).
-
-    Returns
-    -------
-    int
-        Index on the frequency axis.
+    - ``omega``: increasing angular frequencies in rad/s, shape (n_omega,).
+    - Returns: index on the frequency axis.
     """
     return len(omega) // 2
 
@@ -1295,38 +1211,16 @@ def _channel_index_table(
 ) -> IndexTable:
     """Read one channel's dispersion out of a tracked dense table.
 
-    Parameters
-    ----------
-    table : DenseModalTable
-        Tracked knots of one physical guide at one longitudinal position.
-    channel : int
-        Channel index on the mode axis.
-    include_area : bool
-        Sample :func:`channel_area` at every frequency knot.
-    coupled : bool, optional
-        Admit a generator that couples its channels and read ``i G_cc``, the
-        channel's **mean** propagation constant, off its diagonal. Default false,
-        which refuses one by name. It is not a tuning knob: a coupled basis has no
-        per-channel propagation constant, because its channels beat, and a run that
-        declares one propagates the whole block through ``linear.coupled_flow``
-        instead. What the per-channel table is still
-        *for* on such a route is everything the flow does not do -- the surrogate
-        effective area, the dimension limits, the labels, and the cumulative
-        ``Phi`` of the **one** reference channel the block is measured against -- so
-        it is built, from the diagonal, by a caller that has said it knows which of
-        the two it is asking for.
-
-    Returns
-    -------
-    IndexTable
-        Index snapshot with the interpolant's slopes at the knots.
-
-    Raises
-    ------
-    ModeError
-        If the channel is not on the mode axis, the table spans more than one
-        position, the generator couples its channels and `coupled` is false, or a
-        channel declares gain (``Re G > 0`` in the internal convention).
+    - ``channel``: channel index on the mode axis.
+    - ``include_area``: sample :func:`channel_area` at every frequency knot.
+    - ``coupled``: admit a generator that couples its channels and read ``i G_cc``,
+      the channel's **mean** propagation constant, off its diagonal; false refuses
+      one by name. Not a tuning knob: a coupled basis has no per-channel propagation
+      constant, because its channels beat, and a run that declares one propagates
+      the whole block through ``linear.coupled_flow``. The table is still built for
+      what the flow does not do -- the surrogate effective area, the dimension
+      limits, the labels and the cumulative ``Phi`` of the one reference channel --
+      by a caller that has said which of the two it is asking for.
     """
     modes = table.samples[0][0].electric.shape[2]
     if not 0 <= channel < modes:
@@ -1645,10 +1539,7 @@ class ModalTransformTables(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         _, nodes, _, modes, _ = np.shape(self.electric)
         return "ModalTransformTables: the flat E/H reference of a general guide", [
@@ -1680,8 +1571,8 @@ class ModalTransformTables(Displayed):
         ]
 
     @property
-    def frozen_rule(self) -> bool:
-        """Return whether one node rule was broadcast across every position.
+    def frozen_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one node rule was broadcast across every position.
 
         A record built over several positions from **one** rule -- the same
         Cartesian nodes and the same area weights at every z -- is the frozen-rule
@@ -1693,10 +1584,7 @@ class ModalTransformTables(Displayed):
         own rules (:mod:`solprop.translate.modal_path`); a snapshot is trivially
         frozen.
 
-        Returns
-        -------
-        bool
-            True when ``node_xy`` and ``weights`` do not vary along z.
+        True when ``node_xy`` and ``weights`` do not vary along z.
         """
         return bool(
             np.all(self.node_xy == self.node_xy[0])
@@ -1704,8 +1592,8 @@ class ModalTransformTables(Displayed):
         )
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the scalar identity a run records and a resume compares.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Scalar identity a run records and a resume compares.
 
         The record is ``eq=False``: two of them are never compared by value, and a
         resume must not compare megabytes of E and H field by field either. What
@@ -1726,10 +1614,7 @@ class ModalTransformTables(Displayed):
         number, so that the two agree and a re-solve on another BLAS does not move
         either of them.
 
-        Returns
-        -------
-        mapping
-            JSON-serialisable scalars, stable across processes.
+        JSON-serialisable scalars, stable across processes.
         """
         positions, nodes, components, modes, frequencies = np.shape(self.electric)
         factors = self.factors
@@ -1799,9 +1684,7 @@ class ModalTransformTables(Displayed):
         # read-only, and a view the caller still holds could then rewrite the
         # record behind its back. Copy, as every other record here does.
         for name in ("omega", "omega_fine", "z_edges"):
-            values = np.array(
-                getattr(self, name), dtype=np.float64, order="C", copy=True
-            )
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -1811,7 +1694,6 @@ class ModalTransformTables(Displayed):
                 raise ModeError(
                     f"{name} must be a finite, non-empty, increasing vector"
                 )
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
         if self.omega[0] < 0 or self.omega_fine[0] < 0:
             raise ModeError("frequency grids must be non-negative")
@@ -1820,21 +1702,7 @@ class ModalTransformTables(Displayed):
     def _map_degree(self, intervals: int) -> int:
         """Return the Chebyshev degree count the two execution maps share.
 
-        Parameters
-        ----------
-        intervals : int
-            Intervals the record's positions declare.
-
-        Returns
-        -------
-        int
-            The degrees along z, or zero when the record carries no map at all.
-
-        Raises
-        ------
-        ModeError
-            If only one half of the map is present, or the synthesis does not
-            carry one leading interval axis and at least one degree.
+        - Returns: the degrees along z, or zero when the record carries no map at all.
         """
         if (self.synthesis is None) != (self.projection is None):
             raise ModeError(
@@ -1852,14 +1720,7 @@ class ModalTransformTables(Displayed):
         return int(shape[1])
 
     def _validate_arrays(self) -> None:
-        """Copy, check and freeze every leaf against the extents the record declares.
-
-        Raises
-        ------
-        ModeError
-            If an array has the wrong shape or dtype, holds a value it may not, or
-            belongs to a group that is only half supplied.
-        """
+        """Copy, check and freeze every leaf against the extents the record declares."""
         # The component count is the contract's ceiling, which lives beside the
         # state's polarisation ceiling in translate.problem; that module imports this
         # one, so the import is deferred rather than the number copied.
@@ -1867,7 +1728,7 @@ class ModalTransformTables(Displayed):
             MAX_N_COMPONENTS,
         )
 
-        reference = np.array(self.electric, dtype=np.complex128, order="C", copy=True)
+        reference = frozen_copy(self.electric, np.complex128)
         if reference.ndim != 5 or reference.shape[2] != MAX_N_COMPONENTS:
             raise ModeError(
                 f"electric must have shape (n_z, n_nodes, {MAX_N_COMPONENTS}, "
@@ -1925,12 +1786,11 @@ class ModalTransformTables(Displayed):
             value = reference if name == "electric" else getattr(self, name)
             if value is None:
                 continue
-            array = np.array(value, dtype=dtype, order="C", copy=True)
+            array = frozen_copy(value, dtype)
             if array.shape != shape:
                 raise ModeError(f"{name} must have shape {shape}, got {array.shape}")
             if dtype is not np.bool_ and not np.all(np.isfinite(array)):
                 raise ModeError(f"{name} must be finite")
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
         if np.any(self.weights <= 0):
             raise ModeError("area weights must be positive")
@@ -1953,18 +1813,9 @@ def _coordinate_dual(
     longitudinal columns are zero. It is for amplitude recovery, not for nonlinear
     projection, which carries the separate ``-i omega`` factor.
 
-    Parameters
-    ----------
-    sample : ModalSample
-        Internal-convention sample at one frequency and position.
-    weights : numpy.ndarray
-        Area weights in m², shape (n_nodes,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Coefficients, shape (n_modes, n_nodes, 6): the first three pair with E in
-        sqrt(W) m/V and the last three with H in sqrt(W) m/A.
+    - ``sample``: Internal-convention sample at one frequency and position.
+    - Returns: coefficients, shape (n_modes, n_nodes, 6): the first three pair with E in
+      sqrt(W) m/V and the last three with H in sqrt(W) m/A.
     """
     inverse = np.linalg.inv(sample.flux_metric)
     electric, magnetic = sample.electric.conj(), sample.magnetic.conj()
@@ -1993,17 +1844,7 @@ def _projection_map(
     operations: this one contracts a polarisation in C/m^2 and has units
     V m/sqrt(W), so ``Q P omega`` is in sqrt(W)/m.
 
-    Parameters
-    ----------
-    sample : ModalSample
-        Internal-convention sample at one frequency and position.
-    weights : numpy.ndarray
-        Area weights in m², shape (n_nodes,).
-
-    Returns
-    -------
-    numpy.ndarray
-        The projection, shape (n_modes, n_nodes, 3), in V m/sqrt(W).
+    - ``sample``: Internal-convention sample at one frequency and position.
     """
     inverse = np.linalg.inv(sample.flux_metric)
     projected = np.einsum("mn,qcn->mqc", inverse, sample.electric.conj())
@@ -2284,10 +2125,7 @@ class ProjectedLaunch(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ProjectedLaunch: a declared field in a guide's channels", [
             ("channels", int(self.amplitudes.shape[0])),

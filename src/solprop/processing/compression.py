@@ -152,13 +152,7 @@ class Compression(Displayed):
     table: tuple[tuple[int, float, float], ...] = ()
 
     def _found_text(self) -> str:
-        """Return what the search found, in the units it is quoted in.
-
-        Returns
-        -------
-        str
-            The Taylor coefficients, the thickness, or the reflections and thickness.
-        """
+        """Return what the search found, in the units it is quoted in."""
         if self.kind == "taylor":
             return phase_text(self.coefficients)
         if isinstance(self.transfer, GratingPair):
@@ -202,10 +196,7 @@ class Compression(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         rows: list[tuple[str, object]] = [
             ("found", self._found_text()),
@@ -293,15 +284,8 @@ class CepOptimum(Displayed):
 class _Pulse:
     """One plane of a run, held ready for repeated trial compressions.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid.
-    stored : numpy.ndarray
-        Stored spectrum, internal convention, shape ``(n_modes, n_pol, n_omega)``,
-        already band-passed.
-    oversampling : int
-        Time-domain resampling factor used for every power evaluated.
+    - ``stored``: stored spectrum, internal convention, shape ``(n_modes, n_pol,
+      n_omega)``, already band-passed.
     """
 
     def __init__(
@@ -324,17 +308,7 @@ class _Pulse:
     ) -> tuple[Float[np.ndarray, " n_t"], Float[np.ndarray, " n_t"]]:
         """Return the time axis and the power summed over modes and polarisation.
 
-        Parameters
-        ----------
-        transfer : TransferFunction or None
-            Element applied first.
-        transform_limit : bool
-            Whether to discard the spectral phase first.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Time in s and power in W.
+        - Returns: time in s and power in W.
         """
         t, amplitude = _to_time(
             self.grid,
@@ -349,37 +323,22 @@ class _Pulse:
     def power(self, transfer: TransferFunction | None) -> Float[np.ndarray, " n_t"]:
         """Return the summed power after an element.
 
-        Parameters
-        ----------
-        transfer : TransferFunction or None
-            The element; ``None`` leaves the pulse as it is.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power in W on :attr:`t`.
+        - ``transfer``: the element; ``None`` leaves the pulse as it is.
+        - Returns: power in W on :attr:`t`.
         """
         return self._power(transfer)[1]
 
     def objective(self, transfer: TransferFunction) -> float:
         """Return the transform-limited peak power over the peak power after an element.
 
-        Parameters
-        ----------
-        transfer : TransferFunction
-            The trial element.
-
-        Returns
-        -------
-        float
-            At least one for a phase-only element, and one at the transform limit;
-            infinite if the element leaves no power in the window.
+        - Returns: at least one for a phase-only element, and one at the transform
+          limit; infinite if the element leaves no power in the window.
         """
         self.evaluations += 1
         peak = float(np.max(self.power(transfer)))
         return self.peak_limit / peak if peak > 0.0 else math.inf
 
-    def result(  # noqa: PLR0913 - the fields of the result that differ between compressors
+    def result(
         self,
         kind: str,
         transfer: TransferFunction,
@@ -393,29 +352,7 @@ class _Pulse:
     ) -> Compression:
         """Assemble a result, measuring the pulse before and after.
 
-        Parameters
-        ----------
-        kind : str
-            Which compressor.
-        transfer : TransferFunction
-            The optimal element.
-        coefficients : tuple of float, optional
-            Taylor coefficients found.
-        thickness : float, optional
-            Thickness found, m.
-        reflections : int, optional
-            Reflections found.
-        success : bool
-            Whether the search converged inside its bounds.
-        message : str
-            What to tell the user about the search.
-        table : tuple of tuple, optional
-            Per-count results of a mirror search.
-
-        Returns
-        -------
-        Compression
-            The result. A failed search is also logged at ``WARNING``.
+        - ``thickness``: thickness found, m.
         """
         before, after = self.power(None), self.power(transfer)
         if not success:
@@ -445,22 +382,7 @@ def _select_modes(
 ) -> Complex[np.ndarray, "n_selected n_pol n_omega"]:
     """Return the modes a compressor works on.
 
-    Parameters
-    ----------
-    stored : numpy.ndarray
-        One plane, shape ``(n_modes, n_pol, n_omega)``.
-    modes : int, sequence of int or None
-        The selection.
-
-    Returns
-    -------
-    numpy.ndarray
-        The selected modes, mode axis kept.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If an index is out of range.
+    - Returns: the selected modes, mode axis kept.
     """
     if modes is None:
         return stored
@@ -482,17 +404,6 @@ def _require_modal(output: Output) -> None:
     (:func:`solprop.output.capability.capability_of`). A general modal or spatial
     run's coordinates are not that, so it is refused by name rather than optimised on
     a quantity that is not a power.
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the output carries no metadata, or declares a ``general_modal`` or
-        ``spatial`` capability.
     """
     if output.metadata is None:
         raise ProcessingError("output has no metadata")
@@ -505,7 +416,7 @@ def _require_modal(output: Output) -> None:
         )
 
 
-def _pulse_of(  # noqa: PLR0913 - the two input forms and the selection common to both
+def _pulse_of(
     output: Output | None,
     grid: TimeGrid | None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
@@ -517,34 +428,8 @@ def _pulse_of(  # noqa: PLR0913 - the two input forms and the selection common t
 ) -> _Pulse:
     """Return the pulse a compressor works on, from either input form.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output or None
-        An opened output handler.
-    grid : solprop.grid.TimeGrid or None
-        The grid of a bare spectrum.
-    spectrum : numpy.ndarray or None
-        A stored spectrum in the internal convention, as a pulse's ``build(grid)``
-        returns it: shape ``(n_omega,)`` or ``(n_modes, n_pol, n_omega)``.
-    plane : int
-        Plane of the output to take.
-    modes : int, sequence of int or None
-        Modes to work on.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        Window applied to the spectrum first.
-    oversampling : int
-        Time-domain resampling factor.
-
-    Returns
-    -------
-    _Pulse
-        The plane, ready.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        Unless exactly one input form is given, or if the output is not an
-        orthogonal modal one (:func:`_require_modal`).
+    - ``spectrum``: a stored spectrum in the internal convention, as a pulse's
+      ``build(grid)`` returns it: shape ``(n_omega,)`` or ``(n_modes, n_pol, n_omega)``.
     """
     mixed = "give an output, or a grid together with its stored spectrum, not both"
     if output is not None:
@@ -614,7 +499,7 @@ def apply_transfer(
     return omega, stored[..., keep] * _fft_norm(grid) * transfer(omega)
 
 
-def transform_limit(  # noqa: PLR0913 - the two input forms and the selection
+def transform_limit(
     output: Output | None = None,
     *,
     grid: TimeGrid | None = None,
@@ -673,26 +558,7 @@ def transform_limit(  # noqa: PLR0913 - the two input forms and the selection
 def _scan_then_refine(
     objective: Callable[[float], float], low: float, high: float
 ) -> tuple[float, bool, str]:
-    """Minimise a function of one bounded parameter that may have several minima.
-
-    Parameters
-    ----------
-    objective : callable
-        The function.
-    low : float
-        Lower bound.
-    high : float
-        Upper bound, above `low`.
-
-    Returns
-    -------
-    best : float
-        The minimiser.
-    success : bool
-        Whether the refinement converged with the minimiser inside the bounds.
-    message : str
-        What happened, in words.
-    """
+    """Minimise a function of one bounded parameter that may have several minima."""
     samples = np.linspace(low, high, _SCAN_POINTS)
     values = np.array([objective(float(sample)) for sample in samples])
     centre = int(np.argmin(values))
@@ -730,17 +596,9 @@ def _gaussian_width(
     half-maximum width and a large RMS one, and the search bounds built on this width
     must contain the chirp of the whole pulse, not of its spike.
 
-    Parameters
-    ----------
-    t : numpy.ndarray
-        Time axis, s.
-    power : numpy.ndarray
-        Power on it, W.
-
-    Returns
-    -------
-    float
-        ``tau0`` of ``exp(-t**2 / tau0**2)`` in s.
+    - ``t``: time axis, s.
+    - ``power``: power on it, W.
+    - Returns: ``tau0`` of ``exp(-t**2 / tau0**2)`` in s.
     """
     from_fwhm = time.fwhm(t, power) / (2.0 * math.sqrt(math.log(2.0)))
     centre = time.moment(t, power)
@@ -749,7 +607,7 @@ def _gaussian_width(
     return max(from_fwhm, from_rms)
 
 
-def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the search
+def compress_taylor(
     output: Output | None = None,
     *,
     grid: TimeGrid | None = None,
@@ -840,24 +698,13 @@ def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the s
     scale = math.sqrt(max(chirp, width_limit**2))
     bounds = [bound_factor * scale**n for n in range(2, order + 1)]
 
-    def objective(dispersion: Sequence[float] | np.ndarray) -> float:
-        """Return the objective for trial dispersion coefficients.
-
-        Parameters
-        ----------
-        dispersion : sequence of float
-            Orders two and above.
-
-        Returns
-        -------
-        float
-            The transform-limited peak power over the trial's.
-        """
+    def _objective(dispersion: Sequence[float] | np.ndarray) -> float:
+        """Return the objective for trial dispersion coefficients."""
         return pulse.objective(TaylorPhase((0.0, 0.0, *dispersion), reference))
 
     if order == 2:
         best, success, message = _scan_then_refine(
-            lambda gdd: objective([gdd]), -bounds[0], bounds[0]
+            lambda gdd: _objective([gdd]), -bounds[0], bounds[0]
         )
         found = [best]
     else:
@@ -865,10 +712,10 @@ def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the s
         edge = min(chirp, bounds[0])
         start = min(
             ([-edge], [edge]),
-            key=lambda guess: objective([*guess, *([0.0] * (order - 2))]),
+            key=lambda guess: _objective([*guess, *([0.0] * (order - 2))]),
         )
         result = differential_evolution(
-            objective,
+            _objective,
             [(-bound, bound) for bound in bounds],
             x0=[*start, *([0.0] * (order - 2))],
             seed=seed,
@@ -895,7 +742,7 @@ def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the s
     )
 
 
-def compress_material(  # noqa: PLR0913 - the input forms, the medium and the selection
+def compress_material(
     output: Output | None = None,
     *,
     medium: Medium,
@@ -975,26 +822,18 @@ def compress_material(  # noqa: PLR0913 - the input forms, the medium and the se
     )
     reference = pulse.grid.reference_wavelength if wavelength is None else wavelength
 
-    def element(thickness: float) -> Material:
+    def _element(thickness: float) -> Material:
         """Return the material at one thickness.
 
-        Parameters
-        ----------
-        thickness : float
-            Thickness in m.
-
-        Returns
-        -------
-        Material
-            The element.
+        - ``thickness``: thickness in m.
         """
         return Material(medium, thickness, reference, pressure=pressure)
 
     best, success, message = _scan_then_refine(
-        lambda thickness: pulse.objective(element(thickness)), low, high
+        lambda thickness: pulse.objective(_element(thickness)), low, high
     )
     return pulse.result(
-        "material", element(best), thickness=best, success=success, message=message
+        "material", _element(best), thickness=best, success=success, message=message
     )
 
 
@@ -1007,29 +846,14 @@ def _behind_mirrors(
 ) -> float:
     """Return the objective for one insertion of material behind some reflections.
 
-    Parameters
-    ----------
-    pulse : _Pulse
-        The pulse being compressed.
-    mirrors : ChirpedMirror
-        The reflections.
-    glass : Medium
-        The material.
-    reference : float
-        Wavelength at which the material's group delay is removed, m.
-    thickness : float
-        Thickness in m.
-
-    Returns
-    -------
-    float
-        The transform-limited peak power over the trial's.
+    - ``reference``: wavelength at which the material's group delay is removed, m.
+    - ``thickness``: thickness in m.
     """
     insertion = Material(glass, thickness, reference)
     return pulse.objective(Chain((mirrors, insertion)))
 
 
-def compress_mirrors(  # noqa: PLR0913 - the input forms, the mirror, the wedge and the selection
+def compress_mirrors(
     output: Output | None = None,
     *,
     mirror: ChirpedMirror | str,
@@ -1209,18 +1033,11 @@ def optimise_cep(
     working = pulse.grid
     reference = working.reference_wavelength
 
-    def peak(phase: float) -> float:
+    def _peak(phase: float) -> float:
         """Return minus the largest value of the real field at one added phase.
 
-        Parameters
-        ----------
-        phase : float
-            Carrier-envelope phase added, rad.
-
-        Returns
-        -------
-        float
-            Minus the peak of the real field, in the square root of W.
+        - ``phase``: carrier-envelope phase added, rad.
+        - Returns: minus the peak of the real field, in the square root of W.
         """
         t, amplitude = _to_time(
             working,
@@ -1235,9 +1052,11 @@ def optimise_cep(
         return -float(np.max(np.real(amplitude[0, 0])))
 
     samples = np.linspace(-math.pi, math.pi, _CEP_SCAN, endpoint=False)
-    start = float(samples[int(np.argmin([peak(float(sample)) for sample in samples]))])
+    start = float(samples[int(np.argmin([_peak(float(sample)) for sample in samples]))])
     step = 2.0 * math.pi / _CEP_SCAN
-    found = minimize_scalar(peak, bounds=(start - step, start + step), method="bounded")
+    found = minimize_scalar(
+        _peak, bounds=(start - step, start + step), method="bounded"
+    )
     phase = math.remainder(float(found.x), 2.0 * math.pi)
     return CepOptimum(
         phase=phase,
@@ -1249,17 +1068,8 @@ def optimise_cep(
 def _pair_range(bounds: tuple[float, float], name: str) -> tuple[float, float]:
     """Require explicit finite, ordered nonnegative motor travel in metres.
 
-    Parameters
-    ----------
-    bounds : tuple of float
-        Lower and upper stage coordinates in m.
-    name : str
-        Coordinate name for an error message.
-
-    Returns
-    -------
-    tuple of float
-        Validated lower and upper stage coordinates in m.
+    - ``bounds``: lower and upper stage coordinates in m.
+    - Returns: validated lower and upper stage coordinates in m.
     """
     if (
         len(bounds) != 2
@@ -1272,7 +1082,7 @@ def _pair_range(bounds: tuple[float, float], name: str) -> tuple[float, float]:
     return bounds
 
 
-def _pair_pulse(  # noqa: PLR0913 - the shared input forms and fixed selection
+def _pair_pulse(
     output: Output | None,
     grid: TimeGrid | None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
@@ -1285,29 +1095,8 @@ def _pair_pulse(  # noqa: PLR0913 - the shared input forms and fixed selection
 ) -> _Pulse:
     """Select the same pulse for every trial, before forming any power objective.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output or None
-        Orthogonal modal saved output.
-    grid : solprop.grid.TimeGrid or None
-        Grid of a raw spectrum, alternative to output.
-    spectrum : numpy.ndarray or None
-        Stored internal spectrum, shape (n_omega,) or (n_modes, n_pol, n_omega).
-    pair : GratingPair or PrismPair
-        Fixed optical settings including the selected working band.
-    plane : int
-        Saved plane index, negative from the end.
-    modes : int, sequence of int or None
-        Modes whose orthogonal powers are summed.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        Additional fixed spectral window.
-    oversampling : int
-        Positive temporal resampling factor.
-
-    Returns
-    -------
-    _Pulse
-        The selected pulse, with all metrics using the same selection.
+    - ``spectrum``: stored internal spectrum, shape (n_omega,) or (n_modes, n_pol,
+      n_omega).
     """
     if output is not None:
         _require_modal(output)
@@ -1367,19 +1156,8 @@ def _pair_trial(
 ) -> float:
     """Count every trial, including expected geometric failures only.
 
-    Parameters
-    ----------
-    pulse : _Pulse
-        Fixed selected pulse and objective evaluation counter.
-    element : callable
-        Map normalised stage coordinates to a physical pair.
-    coordinates : sequence of float
-        Normalised coordinates in the unit search interval or square.
-
-    Returns
-    -------
-    float
-        Transform-limited peak divided by trial peak, or infinity if infeasible.
+    - ``element``: map normalised stage coordinates to a physical pair.
+    - Returns: Transform-limited peak divided by trial peak, or infinity if infeasible.
     """
     pulse.evaluations += 1
     try:
@@ -1394,15 +1172,10 @@ def _feasible_scan(
 ) -> tuple[float, float, bool]:
     """Scan a unit interval and refine only brackets with feasible endpoints.
 
-    Parameters
-    ----------
-    objective : callable
-        Objective on normalised coordinates; infinity for infeasible trials.
-
-    Returns
-    -------
-    tuple
-        Best coordinate, objective value and convergence flag; infinity if all invalid.
+    - ``objective``: objective on normalised coordinates; infinity for infeasible
+      trials.
+    - Returns: best coordinate, objective value and convergence flag; infinity if all
+      invalid.
     """
     samples = np.linspace(0.0, 1.0, _SCAN_POINTS)
     values = np.array([objective(float(sample)) for sample in samples])
@@ -1446,21 +1219,9 @@ def _pair_edge(
 ) -> float:
     """Evaluate one fixed edge of the normalised motor box.
 
-    Parameters
-    ----------
-    objective : callable
-        Objective on two normalised coordinates.
-    fixed_axis : int
-        Index of the coordinate held fixed on this edge, zero or one.
-    edge : float
-        Fixed normalised coordinate, zero or one.
-    variable : float
-        Free coordinate on the fixed boundary, in [0, 1].
-
-    Returns
-    -------
-    float
-        Objective on the fixed edge.
+    - ``objective``: objective on two normalised coordinates.
+    - ``edge``: fixed normalised coordinate, zero or one.
+    - ``variable``: free coordinate on the fixed boundary, in [0, 1].
     """
     point = [edge, variable] if fixed_axis == 0 else [variable, edge]
     return objective(point)
@@ -1471,17 +1232,9 @@ def _pair_search(
 ) -> tuple[tuple[float, ...], bool, str]:
     """Search one or two normalised stage coordinates including their boundaries.
 
-    Parameters
-    ----------
-    objective : callable
-        Objective on normalised coordinates; infinity for infeasible trials.
-    names : sequence of str
-        Names of the one or two fitted stage coordinates.
-
-    Returns
-    -------
-    tuple
-        Normalised coordinates, convergence flag and boundary/search message.
+    - ``objective``: objective on normalised coordinates; infinity for infeasible
+      trials.
+    - Returns: normalised coordinates, convergence flag and boundary/search message.
     """
     if len(names) == 1:
         point, value, success = _feasible_scan(lambda value: objective([value]))
@@ -1538,7 +1291,7 @@ def _pair_search(
     return coordinates, success, message
 
 
-def compress_gratings(  # noqa: PLR0913 - physical settings, input forms and selection
+def compress_gratings(
     output: Output | None = None,
     *,
     pair: GratingPair,
@@ -1604,30 +1357,19 @@ def compress_gratings(  # noqa: PLR0913 - physical settings, input forms and sel
         oversampling=oversampling,
     )
 
-    def element(coordinates: Sequence[float]) -> GratingPair:
-        """Map a normalised separation to its physical grating pair.
-
-        Parameters
-        ----------
-        coordinates : sequence of float
-            Normalised coordinates in the unit search interval or square.
-
-        Returns
-        -------
-        GratingPair or PrismPair
-            Pair at the requested physical stage position.
-        """
+    def _element(coordinates: Sequence[float]) -> GratingPair:
+        """Map a normalised separation to its physical grating pair."""
         return replace(pair, separation=low + (high - low) * coordinates[0])
 
     coordinates, success, message = _pair_search(
-        lambda point: _pair_trial(pulse, element, point), ["separation"]
+        lambda point: _pair_trial(pulse, _element, point), ["separation"]
     )
     return pulse.result(
-        "gratings", element(coordinates), success=success, message=message
+        "gratings", _element(coordinates), success=success, message=message
     )
 
 
-def compress_prisms(  # noqa: PLR0913 - physical settings, input forms and selection
+def compress_prisms(
     output: Output | None = None,
     *,
     pair: PrismPair,
@@ -1708,19 +1450,8 @@ def compress_prisms(  # noqa: PLR0913 - physical settings, input forms and selec
         oversampling=oversampling,
     )
 
-    def element(coordinates: Sequence[float]) -> PrismPair:
-        """Move only the requested second-prism stage coordinates.
-
-        Parameters
-        ----------
-        coordinates : sequence of float
-            Normalised coordinates in the unit search interval or square.
-
-        Returns
-        -------
-        GratingPair or PrismPair
-            Pair at the requested physical stage position.
-        """
+    def _element(coordinates: Sequence[float]) -> PrismPair:
+        """Move only the requested second-prism stage coordinates."""
         settings = {
             name: low + (high - low) * coordinate
             for name, (low, high), coordinate in zip(
@@ -1730,8 +1461,8 @@ def compress_prisms(  # noqa: PLR0913 - physical settings, input forms and selec
         return replace(pair, geometry=replace(pair.geometry, **settings))
 
     coordinates, success, message = _pair_search(
-        lambda point: _pair_trial(pulse, element, point), names
+        lambda point: _pair_trial(pulse, _element, point), names
     )
     return pulse.result(
-        "prisms", element(coordinates), success=success, message=message
+        "prisms", _element(coordinates), success=success, message=message
     )

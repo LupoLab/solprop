@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._ownership import frozen_copy, hold
 from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter, StopFlag
@@ -129,8 +130,9 @@ class BackendHistory:
             ("accepted", np.bool_),
             ("wall_time", np.float64),
         ):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
+            # At least one-dimensional, as numpy.ascontiguousarray made it: a scalar
+            # stands for one entry.
+            values = frozen_copy(np.atleast_1d(getattr(self, name)), dtype)
             object.__setattr__(self, name, values)
             # The rank is fixed by the annotations, which the test session enforces;
             # what a caller can still get wrong is the number of entries.
@@ -162,13 +164,8 @@ class BackendHistory:
             raise BackendError(msg)
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of steps recorded, accepted and rejected together.
-
-        Returns
-        -------
-        int
-            The length of ``z``.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of steps recorded, accepted and rejected together.
 
         Examples
         --------
@@ -181,13 +178,8 @@ class BackendHistory:
         return int(self.z.size)
 
     @property
-    def n_rejected(self) -> int:
-        """Return the number of rejected steps.
-
-        Returns
-        -------
-        int
-            How many entries of ``accepted`` are false.
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Number of rejected steps.
 
         Examples
         --------
@@ -255,11 +247,12 @@ class StepStats:
         BackendError
             Naming the offending column or statistic.
         """
-        positions = np.ascontiguousarray(self.z, dtype=np.float64)
-        indices = np.ascontiguousarray(self.step, dtype=np.int64)
-        for name, values in (("z", positions), ("step", indices)):
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
+        # At least one-dimensional, as numpy.ascontiguousarray made them: a scalar
+        # position is one row.
+        positions = frozen_copy(np.atleast_1d(self.z), np.float64)
+        indices = frozen_copy(np.atleast_1d(self.step), np.int64)
+        object.__setattr__(self, "z", positions)
+        object.__setattr__(self, "step", indices)
         if indices.shape != positions.shape:
             msg = (
                 f"step has {indices.size} entries and z has {positions.size}: "
@@ -277,23 +270,20 @@ class StepStats:
                 raise BackendError(msg)
         adopted = {}
         for name, values in self.values.items():
-            # `asarray` before `ascontiguousarray`, because the latter promotes a
-            # zero-dimensional array to one dimension and a scalar would then pass
-            # as a single row.
-            row = np.asarray(values)
+            # A copy, unless solprop already holds the rows; it keeps a scalar
+            # zero-dimensional, so a scalar cannot pass as a single row.
+            row = frozen_copy(values)
             if row.ndim == 0 or row.shape[0] != positions.size:
                 msg = (
                     f"the {name!r} rows have leading axis {row.shape}, expected "
                     f"{positions.size} rows as z has"
                 )
                 raise BackendError(msg)
-            row = np.ascontiguousarray(row)
-            row.setflags(write=False)
             adopted[name] = row
         object.__setattr__(self, "values", adopted)
 
     @classmethod
-    def empty(cls) -> "StepStats":  # noqa: UP037 - bound after the class body
+    def empty(cls) -> "StepStats":
         """Return the channel a run without a periodic subset carries.
 
         Returns
@@ -301,28 +291,16 @@ class StepStats:
         StepStats
             No rows and no statistics.
         """
-        return cls(np.empty(0), np.empty(0, dtype=np.int64), {})
+        return cls(hold(np.empty(0)), hold(np.empty(0, dtype=np.int64)), {})
 
     @property
-    def n_rows(self) -> int:
-        """Return how many rows were taken since the previous observation.
-
-        Returns
-        -------
-        int
-            The row count.
-        """
+    def n_rows(self) -> int:  # numpydoc ignore=RT01
+        """How many rows were taken since the previous observation."""
         return int(self.z.size)
 
     @property
-    def names(self) -> tuple[str, ...]:
-        """Return the statistics the channel carries, sorted.
-
-        Returns
-        -------
-        tuple of str
-            The catalogue names.
-        """
+    def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -333,15 +311,8 @@ def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
     pass over the rows. Only a sum that overflows takes the second look, which allows
     for finite entries too large to add.
 
-    Parameters
-    ----------
-    state : numpy.ndarray
-        A contiguous complex state.
-
-    Returns
-    -------
-    bool
-        True when no entry is a NaN or an infinity.
+    - ``state``: a contiguous complex state.
+    - Returns: True when no entry is a NaN or an infinity.
     """
     if state.size == 0:
         return True
@@ -350,15 +321,7 @@ def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
     def finite(selected: slice) -> bool:
         """Return whether the selected rows are finite.
 
-        Parameters
-        ----------
-        selected : slice
-            The rows.
-
-        Returns
-        -------
-        bool
-            True when none holds a NaN or an infinity.
+        - Returns: True when none holds a NaN or an infinity.
         """
         part = rows[selected]
         # Per thread: a sum that overflows is what the second look is for.
@@ -442,7 +405,7 @@ class Observation:
     field_owned: bool = False
 
     def __post_init__(self) -> None:
-        """Freeze the arrays, as given when already contiguous, and check the plane.
+        """Freeze the arrays, copying any solprop does not already hold, and check.
 
         Raises
         ------
@@ -456,8 +419,9 @@ class Observation:
             object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
-        state = np.ascontiguousarray(self.field, dtype=np.complex128)
-        state.setflags(write=False)
+        # A backend holds what it hands over (solprop._ownership.hold), which is then
+        # taken as it stands; anything else, as from a caller, is copied.
+        state = frozen_copy(self.field, np.complex128)
         object.__setattr__(self, "field", state)
         if not _all_finite(state):
             bad = int(np.sum(~np.isfinite(state)))
@@ -467,8 +431,7 @@ class Observation:
             )
             raise BackendError(msg)
         if self.noise_phase is not None:
-            phase = np.ascontiguousarray(self.noise_phase, dtype=np.float64)
-            phase.setflags(write=False)
+            phase = frozen_copy(self.noise_phase, np.float64)
             object.__setattr__(self, "noise_phase", phase)
             if phase.shape != state.shape:
                 msg = (
@@ -510,13 +473,7 @@ class Observation:
         return self.field
 
     def _check_counts(self) -> None:
-        """Check the step counts against the history and the rows against both.
-
-        Raises
-        ------
-        BackendError
-            Naming the disagreement.
-        """
+        """Check the step counts against the history and the rows against both."""
         if self.n_steps != self.step_history.n_steps:
             msg = (
                 f"n_steps is {self.n_steps} but the history records "
@@ -696,8 +653,8 @@ class Backend(Protocol):
     reads_transverse_edge: bool
 
     @property
-    def request(self) -> "RunRequest":  # noqa: UP037 - the request module imports this one's
-        """Return the run request the backend was built for.
+    def request(self) -> "RunRequest":  # numpydoc ignore=RT01
+        """Run request the backend was built for.
 
         Its method, error control, itinerary, planes and statistics; a run adapts it
         with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
@@ -706,9 +663,9 @@ class Backend(Protocol):
 
     def prepare(
         self,
-        problem: "PropagationProblem",  # noqa: UP037 - the translation imports this one
-        request: "RunRequest",  # noqa: UP037
-    ) -> "PreparedExecution":  # noqa: UP037 - the session module imports this one
+        problem: "PropagationProblem",
+        request: "RunRequest",
+    ) -> "PreparedExecution":
         """Prepare a run for one problem and request (SEP 47 section 5.2).
 
         Parameters
@@ -728,10 +685,10 @@ class Backend(Protocol):
 
     def prepare_group(
         self,
-        members: "Sequence[Backend]",  # noqa: UP037 - bound after the class body
-        problems: "Sequence[PropagationProblem]",  # noqa: UP037
-        requests: "Sequence[RunRequest]",  # noqa: UP037
-    ) -> "PreparedGroup":  # noqa: UP037 - the session module imports this one
+        members: "Sequence[Backend]",
+        problems: "Sequence[PropagationProblem]",
+        requests: "Sequence[RunRequest]",
+    ) -> "PreparedGroup":
         """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
 
         Called on the group's first member, ``members[0]``, so that the backend, not
@@ -802,7 +759,7 @@ class Backend(Protocol):
 
     def timing_probe(
         self,
-        start: "Start",  # noqa: UP037 - the session module imports this one
+        start: "Start",
     ) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.
 
@@ -848,14 +805,8 @@ class Backend(Protocol):
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers, as a failure may.
-
-        Returns
-        -------
-        bool
-            ``True`` when it can run no other input.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend has released its buffers, as a failure may."""
         ...
 
 
@@ -988,13 +939,10 @@ class HostStepping(Backend, Protocol):
         ...
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the low-storage step a failure abandoned in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """Low-storage step a failure abandoned in flight, or ``None``.
 
-        Returns
-        -------
-        tuple of float or None
-            The step's start and length, m, while the state is neither of its ends.
+        The step's start and length, m, while the state is neither of its ends.
         """
         ...
 
@@ -1121,27 +1069,20 @@ class BatchBackend(HostStepping, Protocol):
         ...
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
-        """Return what stopped each member's watch, ``None`` where nothing did.
+    def member_stops(
+        self,
+    ) -> tuple[BoundaryError | BoundaryWarning | None, ...]:  # numpydoc ignore=RT01
+        """What stopped each member's watch, ``None`` where nothing did.
 
         A stop, or a warning raised as an error under an ``"error"`` filter.
-
-        Returns
-        -------
-        tuple
-            One entry per member, in member order.
         """
         ...
 
     @property
-    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
-        """Return each member's monitor record as it closed, ``None`` if unwatched.
-
-        Returns
-        -------
-        tuple
-            One entry per member, in member order.
-        """
+    def member_records(
+        self,
+    ) -> tuple[Mapping[str, object] | None, ...]:  # numpydoc ignore=RT01
+        """Each member's monitor record as it closed, ``None`` if unwatched."""
         ...
 
     def finish_monitors(self) -> None:

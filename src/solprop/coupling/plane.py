@@ -114,26 +114,7 @@ def _frozen(
 ) -> np.ndarray:
     """Return an owned, read-only, finite copy of an array.
 
-    Parameters
-    ----------
-    values : object
-        Anything :func:`numpy.array` accepts.
-    dtype : type
-        The dtype of the copy.
-    name : str
-        The attribute name, for the refusal.
-    shape : tuple of int or None, optional
-        The required shape, when one is fixed.
-
-    Returns
-    -------
-    numpy.ndarray
-        The copy, with ``flags.writeable`` False.
-
-    Raises
-    ------
-    CouplingError
-        If the array is not finite or has the wrong shape.
+    - ``shape``: the required shape, when one is fixed.
     """
     array = np.array(values, dtype=dtype, copy=True)
     if shape is not None and array.shape != shape:
@@ -149,16 +130,8 @@ def _frozen(
 def _canonical(record: object) -> str:
     """Return the canonical JSON text an identity is a digest of.
 
-    Parameters
-    ----------
-    record : object
-        JSON-ready data.
-
-    Returns
-    -------
-    str
-        Sorted, compact JSON. A material's open interval bound is infinite, and
-        JSON's ``Infinity`` spells it deterministically.
+    A material's open interval bound is infinite, and JSON's ``Infinity`` spells it
+    deterministically.
     """
     return json.dumps(record, sort_keys=True, separators=(",", ":"))
 
@@ -204,18 +177,7 @@ digits sit well above that and far below any physical difference of guide."""
 
 
 def _quantised(values: np.ndarray) -> list[float]:
-    """Return values rounded to :data:`_QUANTUM_DIGITS` significant digits.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Finite real values.
-
-    Returns
-    -------
-    list of float
-        The rounded values.
-    """
+    """Return values rounded to :data:`_QUANTUM_DIGITS` significant digits."""
     return [float(f"{float(one):.{_QUANTUM_DIGITS}g}") for one in np.ravel(values)]
 
 
@@ -407,18 +369,12 @@ class PlaneGeometry:
         object.__setattr__(self, "x_axis", tuple(float(one) for one in self.x_axis))
 
     @property
-    def y_axis(self) -> tuple[float, float, float]:
-        """Return the local y axis, ``normal`` cross ``x_axis``.
-
-        Returns
-        -------
-        tuple of float
-            The unit vector completing the right-handed frame.
-        """
+    def y_axis(self) -> tuple[float, float, float]:  # numpydoc ignore=RT01
+        """Local y axis, ``normal`` cross ``x_axis``."""
         value = np.cross(np.asarray(self.normal), np.asarray(self.x_axis))
         return (float(value[0]), float(value[1]), float(value[2]))
 
-    def oriented_as(self, other: "PlaneGeometry") -> bool:  # noqa: UP037 - beartype evaluates the class body
+    def oriented_as(self, other: "PlaneGeometry") -> bool:
         """Return whether two planes share their normal, axes and origin.
 
         Parameters
@@ -504,7 +460,7 @@ class PlaneReference:
         """
         return np.exp(1j * (self.phase + np.asarray(omega, dtype=float) * self.delay))
 
-    def minus(self, other: "PlaneReference") -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def minus(self, other: "PlaneReference") -> "PlaneReference":
         """Return this reference measured from another.
 
         Parameters
@@ -524,7 +480,7 @@ class PlaneReference:
             tuple(name for name in self.calibrated if name in other.calibrated),
         )
 
-    def plus(self, other: "PlaneReference") -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def plus(self, other: "PlaneReference") -> "PlaneReference":
         """Return the sum of two references, calibrated where both are.
 
         Parameters
@@ -558,7 +514,7 @@ class PlaneReference:
         }
 
     @classmethod
-    def from_record(cls, record: Mapping[str, object]) -> "PlaneReference":  # noqa: UP037 - beartype evaluates the class body
+    def from_record(cls, record: Mapping[str, object]) -> "PlaneReference":
         """Return the reference a record describes.
 
         Parameters
@@ -581,23 +537,8 @@ class PlaneReference:
 def _chebyshev_at(table: Mapping[str, object], z: float) -> float:
     """Evaluate a persisted piecewise Chebyshev series at one position.
 
-    Parameters
-    ----------
-    table : collections.abc.Mapping
-        ``breakpoints`` (increasing interval edges, m) and ``coefficients`` (one
-        list per interval, lowest degree first).
-    z : float
-        The position, inside the span to rounding.
-
-    Returns
-    -------
-    float
-        The value.
-
-    Raises
-    ------
-    CouplingError
-        If ``z`` lies outside the span.
+    - ``table``: ``breakpoints`` (increasing interval edges, m) and ``coefficients``
+      (one list per interval, lowest degree first).
     """
     edges = np.asarray(table["breakpoints"], dtype=float)
     slack = 1e-9 * max(1.0, abs(float(edges[-1])))
@@ -756,7 +697,7 @@ class PlaneMetric:
                 object.__setattr__(self, name, _frozen(value, dtype, name))
 
     @classmethod
-    def from_flux(cls, flux: SpatialFlux) -> "PlaneMetric":  # noqa: UP037 - beartype evaluates the class body
+    def from_flux(cls, flux: SpatialFlux) -> "PlaneMetric":
         """Return the admittance metric of a resolved spatial measure.
 
         Parameters
@@ -783,7 +724,7 @@ class PlaneMetric:
         space: RadialGrid | FreeGrid,
         index: Float[np.ndarray, " n_omega"],
         grid: TimeGrid,
-    ) -> "PlaneMetric":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "PlaneMetric":
         r"""Return the axial admittance metric of a lossless medium given by its index.
 
         Each column's admittance is :math:`ck_z/\omega = \sqrt{n^2 -
@@ -917,7 +858,7 @@ class PlaneBasis:
         object.__setattr__(self, "labels", tuple(self.labels))
 
     @classmethod
-    def of_space(cls, space: RadialGrid | FreeGrid) -> "PlaneBasis":  # noqa: UP037 - beartype evaluates the class body
+    def of_space(cls, space: RadialGrid | FreeGrid) -> "PlaneBasis":
         """Return the basis of a spatial grid.
 
         Parameters
@@ -997,7 +938,7 @@ class PlaneProvenance:
     lineage: tuple[str, ...] = ()
     history: tuple[str, ...] = ()
 
-    def then(self, step: str) -> "PlaneProvenance":  # noqa: UP037 - beartype evaluates the class body
+    def then(self, step: str) -> "PlaneProvenance":
         """Return the provenance with one more preparation step.
 
         Parameters
@@ -1057,13 +998,10 @@ class AnalyticRecord:
     resolution_change: float
 
     @property
-    def error(self) -> float:
-        """Return the larger of the two checks, the energy's numerical error bound.
+    def error(self) -> float:  # numpydoc ignore=RT01
+        """Larger of the two checks, the energy's numerical error bound.
 
-        Returns
-        -------
-        float
-            ``max(domain_change, resolution_change)``, dimensionless.
+        ``max(domain_change, resolution_change)``, dimensionless.
         """
         return max(self.domain_change, self.resolution_change)
 
@@ -1178,13 +1116,10 @@ class FieldPlane:
         )
 
     @property
-    def omega(self) -> Float[np.ndarray, " n_omega"]:
-        """Return the absolute angular frequency of each stored bin.
+    def omega(self) -> Float[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """Absolute angular frequency of each stored bin, rad/s.
 
-        Returns
-        -------
-        numpy.ndarray
-            Angular frequencies in rad/s, shape ``(n_omega,)``, in storage order.
+        Shape ``(n_omega,)``, in storage order.
         """
         return self.grid.omega
 
@@ -1256,7 +1191,7 @@ class FieldPlane:
 
     @classmethod
     @host_blas()
-    def from_pulse(  # noqa: PLR0913 - the beam, its grids and the plane's medium
+    def from_pulse(
         cls,
         pulse: object,
         grid: TimeGrid,
@@ -1266,7 +1201,7 @@ class FieldPlane:
         medium: SpatialMedium | None = None,
         index: Float[np.ndarray, " n_omega"] | None = None,
         reference: PlaneReference | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         r"""Build a spatial plane from the package's beam builder.
 
         No second Gaussian is written: the beam is the
@@ -1374,11 +1309,11 @@ class FieldPlane:
         )
 
     @classmethod
-    def from_analytic(  # noqa: PLR0913 - the field, its grids and its declarations
+    def from_analytic(
         cls,
         grid: TimeGrid,
         geometry: PlaneGeometry,
-        field: "AnalyticField",  # noqa: UP037 - defined below this class
+        field: "AnalyticField",
         *,
         space: RadialGrid | FreeGrid,
         medium: SpatialMedium | None = None,
@@ -1386,7 +1321,7 @@ class FieldPlane:
         support: float | None = None,
         exterior: Exterior = "zero",
         reference: PlaneReference | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         r"""Sample a physical analytic field on a transverse grid (SEP 31, section 5.1).
 
         `field` is called with the grid's node positions and the absolute angular
@@ -1527,7 +1462,7 @@ class FieldPlane:
         )
 
     @classmethod
-    def from_samples(  # noqa: PLR0913 - the arrays and every declaration they need
+    def from_samples(
         cls,
         samples: Complex[np.ndarray, "n_nodes n_pol n_omega"],
         grid: TimeGrid,
@@ -1540,7 +1475,7 @@ class FieldPlane:
         metric: PlaneMetric | None = None,
         reference: PlaneReference | None = None,
         profiles: ScalarModeBasis | None = None,
-    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "FieldPlane":
         """Bind physical arrays to explicit axes, units, domain, medium and reference.
 
         Two forms. With `space` and `medium`, `samples` is the electric field at the
@@ -1651,19 +1586,9 @@ def _transverse(
 ) -> Complex[np.ndarray, "n_columns n_pol n_omega"]:
     """Apply a grid's transverse transform along the column axis.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Internal-convention spectra, shape ``(n_columns, n_pol, n_omega)``.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid whose QDHT or two-dimensional FFT is applied.
-    inverse : bool
-        True for columns to nodes, False for nodes to columns.
-
-    Returns
-    -------
-    numpy.ndarray
-        The transformed spectra, same shape.
+    - ``values``: Internal-convention spectra, shape ``(n_columns, n_pol, n_omega)``.
+    - ``space``: the grid whose QDHT or two-dimensional FFT is applied.
+    - ``inverse``: True for columns to nodes, False for nodes to columns.
     """
     if isinstance(space, RadialGrid):
         moved = np.moveaxis(values, 0, -1)
@@ -1679,18 +1604,7 @@ def _transverse(
 
 
 def _kappa_squared(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_columns"]:
-    """Return each transverse column's squared wavenumber, m^-2.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(n_columns,)``.
-    """
+    """Return each transverse column's squared wavenumber, m^-2."""
     if isinstance(space, RadialGrid):
         return np.asarray(space.k_r, dtype=np.float64) ** 2
     return np.asarray(space.kperp_sq, dtype=np.float64)
@@ -1699,15 +1613,7 @@ def _kappa_squared(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_column
 def _node_positions(space: RadialGrid | FreeGrid) -> Float[np.ndarray, "n_nodes 2"]:
     """Return a grid's nodes as ``(x, y)`` pairs; radial nodes lie on the x axis.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Positions in m, shape ``(n_nodes, 2)``, in the grid's node order.
+    - Returns: positions in m, shape ``(n_nodes, 2)``, in the grid's node order.
     """
     if isinstance(space, RadialGrid):
         return np.column_stack((space.r, np.zeros_like(space.r)))
@@ -1717,36 +1623,14 @@ def _node_positions(space: RadialGrid | FreeGrid) -> Float[np.ndarray, "n_nodes 
 
 
 def _extent(space: RadialGrid | FreeGrid) -> float:
-    """Return the radius of the largest centred disc inside a grid's window, m.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    float
-        The radial window, or the smaller Cartesian half-width.
-    """
+    """Return the radius of the largest centred disc inside a grid's window, m."""
     if isinstance(space, RadialGrid):
         return float(space.hankel.radius)
     return float(min(np.max(np.abs(space.x)), np.max(np.abs(space.y))))
 
 
 def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
-    """Return the grid with its window doubled at the same node spacing.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The doubled grid.
-    """
+    """Return the grid with its window doubled at the same node spacing."""
     if isinstance(space, RadialGrid):
         return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
@@ -1759,18 +1643,7 @@ def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
 
 
 def _refined(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
-    """Return the grid with its node spacing halved in the same window.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The grid.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The refined grid.
-    """
+    """Return the grid with its node spacing halved in the same window."""
     if isinstance(space, RadialGrid):
         return RadialGrid(space.radius, 2 * space.n_r, space.collar_fraction)
     return FreeGrid(
@@ -1790,27 +1663,9 @@ def _analytic_columns(
 ) -> Complex[np.ndarray, "n_columns n_pol n_omega"]:
     """Sample an analytic field at a grid's nodes and return its plane columns.
 
-    Parameters
-    ----------
-    field : callable
-        The analytic field (:meth:`FieldPlane.from_analytic`).
-    grid : solprop.grid.TimeGrid
-        Temporal grid.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse grid.
-    support : float or None
-        Declared support radius, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        Optics-convention raw column spectra referenced to the window centre,
-        shape ``(n_columns, n_pol, n_omega)``.
-
-    Raises
-    ------
-    CouplingError
-        If the field returns the wrong shape or nonfinite values.
+    - ``support``: declared support radius, m.
+    - Returns: Optics-convention raw column spectra referenced to the window centre,
+      shape ``(n_columns, n_pol, n_omega)``.
     """
     xy = _node_positions(space)
     radius = np.hypot(xy[:, 0], xy[:, 1])

@@ -51,17 +51,7 @@ logger = logging.getLogger(__name__)
 def _relaxed_end(value: float, direction: float) -> float:
     """Shift a table end by the admitted ulp margin.
 
-    Parameters
-    ----------
-    value : float
-        End node in rad/s.
-    direction : float
-        Sign of the shift, ``-numpy.inf`` below the node or ``numpy.inf`` above.
-
-    Returns
-    -------
-    float
-        The node moved ``_END_ULP`` representable steps in that direction.
+    - ``value``: end node in rad/s.
     """
     result = float(value)
     for _ in range(_END_ULP):
@@ -72,22 +62,7 @@ def _relaxed_end(value: float, direction: float) -> float:
 def _positive_vector(values: ArrayLike, name: str) -> Float[np.ndarray, " n_nodes"]:
     """Copy a positive finite vector.
 
-    Parameters
-    ----------
-    values : array_like
-        One-dimensional coordinates or areas in the caller's SI units.
-    name : str
-        Quantity named in an error.
-
-    Returns
-    -------
-    numpy.ndarray
-        Positive finite float64 values, shape ``(n_nodes,)``.
-
-    Raises
-    ------
-    ModeError
-        If the input is not a positive finite vector.
+    - Returns: positive finite float64 values, shape ``(n_nodes,)``.
     """
     result = np.array(values, dtype=np.float64, copy=True)
     if result.ndim != 1 or not np.all(np.isfinite(result) & (result > 0)):
@@ -231,7 +206,7 @@ class IndexTable(Displayed):
         *,
         area: ArrayLike | None = None,
         loss_interpolation: Literal["log", "linear"] = "log",
-    ) -> "IndexTable":  # noqa: UP037 - runtime type hook resolves the class during construction
+    ) -> "IndexTable":
         """Build a table from wavelengths and complex indices in either order.
 
         Parameters
@@ -267,7 +242,7 @@ class IndexTable(Displayed):
         *,
         area: ArrayLike | None = None,
         loss_interpolation: Literal["log", "linear"] = "log",
-    ) -> "IndexTable":  # noqa: UP037 - runtime type hook resolves the class during construction
+    ) -> "IndexTable":
         """Build a table from wavelengths, real indices and power loss in dB/m.
 
         Parameters
@@ -310,14 +285,8 @@ class IndexTable(Displayed):
         )
 
     @property
-    def wavelength_range(self) -> tuple[float, float]:
-        """Return the inclusive wavelength range in metres.
-
-        Returns
-        -------
-        tuple of float
-            Shortest and longest wavelength, m.
-        """
+    def wavelength_range(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Inclusive wavelength range ``(shortest, longest)``, m."""
         omega = np.asarray(self.omega)
         return float(2 * np.pi * C / omega[-1]), float(2 * np.pi * C / omega[0])
 
@@ -328,20 +297,8 @@ class IndexTable(Displayed):
         clamped onto it, so that a frequency converted from a table-end
         wavelength evaluates instead of landing outside the splines.
 
-        Parameters
-        ----------
-        omega : array_like
-            Angular frequencies in rad/s, shape ``(n_omega,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Validated frequencies in rad/s, inside the table's support.
-
-        Raises
-        ------
-        ModeError
-            If frequencies are invalid or outside the table.
+        - ``omega``: angular frequencies in rad/s, shape ``(n_omega,)``.
+        - Returns: validated frequencies in rad/s, inside the table's support.
         """
         values = _positive_vector(omega, "omega")
         nodes = np.asarray(self.omega)
@@ -509,10 +466,7 @@ class IndexTable(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         low, high = self.wavelength_range
         return "IndexTable: a tabulated effective index", [
@@ -544,13 +498,7 @@ class _TableMode(MarcatiliMode):
     reference_wavelength: float | None = None
 
     def _check_arguments(self) -> None:
-        """Refuse geometry or area declarations incompatible with a fixed table.
-
-        Raises
-        ------
-        ModeError
-            If the inherited inputs, geometry or reference wavelength are invalid.
-        """
+        """Refuse geometry or area declarations incompatible with a fixed table."""
         super()._check_arguments()
         if self.model != "full":
             raise ModeError('a tabulated mode does not support model="reduced"')
@@ -577,20 +525,7 @@ class _TableMode(MarcatiliMode):
     def sampled_terms(self, omega: Float[np.ndarray, " n_omega"]) -> MarcatiliTerms:
         """Sample the gas response without evaluating any cladding model.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive angular frequencies in rad/s, shape ``(n_omega,)``.
-
-        Returns
-        -------
-        MarcatiliTerms
-            Gas susceptibility and derivative, with zero cladding terms.
-
-        Raises
-        ------
-        ModeError
-            If a frequency is not positive and finite or lies outside the table.
+        - ``omega``: positive angular frequencies in rad/s, shape ``(n_omega,)``.
         """
         # The parent's check first, so that the whole grid including its DC bin
         # still earns the capillary's zero-frequency diagnostic rather than the
@@ -609,15 +544,8 @@ class _TableMode(MarcatiliMode):
     def aeff(self, z: float = 0.0) -> float:
         """Return the propagation area at the declared reference wavelength.
 
-        Parameters
-        ----------
-        z : float, optional
-            Position in m; the table fixes the geometry.
-
-        Returns
-        -------
-        float
-            Area in m^2, or Marcatili's closed form when there is no area column.
+        - ``z``: position in m; the table fixes the geometry.
+        - Returns: area in m^2, or Marcatili's closed form when there is no area column.
         """
         if self.reference_wavelength is None:
             return super().aeff(z)
@@ -630,56 +558,29 @@ class _TableMode(MarcatiliMode):
     ) -> Float[np.ndarray, " n_omega"]:
         """Return the table's frequency-dependent effective area.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, shape ``(n_omega,)``, inside the table.
-        z : float, optional
-            Position in m; ignored because the geometry is fixed.
-
-        Returns
-        -------
-        numpy.ndarray
-            Areas in m^2, shape ``(n_omega,)``.
-
-        Raises
-        ------
-        ModeError
-            If there is no area column or the table cannot evaluate this query.
+        - ``omega``: angular frequencies in rad/s, shape ``(n_omega,)``, inside the
+          table.
+        - ``z``: position in m; ignored because the geometry is fixed.
+        - Returns: areas in m^2, shape ``(n_omega,)``.
         """
         del z
         return self.table.effective_area(omega)
 
     def _area_rows(self) -> list[tuple[str, object]]:
-        """Return no area row: this mode's area is not a constant of the geometry.
-
-        Returns
-        -------
-        list of tuple
-            Empty.
-        """
+        """Return no area row: this mode's area is not a constant of the geometry."""
         return []
 
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         title, rows = super()._describe()
         kept = [row for row in rows if row[0] not in ("model", "cladding")]
         return title, [*kept, ("table", repr(self.table))]
 
     def __repr__(self) -> str:
-        """Return the mode, geometry, fill and table support.
-
-        Returns
-        -------
-        str
-            Compact mode description.
-        """
+        """Return the mode, geometry, fill and table support."""
         radius = float(self.core_radius(np.array([0.0]))[0])
         fill = (
             repr(self.mixture)
@@ -716,17 +617,9 @@ class TabulatedHollowMode(_TableMode):
     ) -> tuple[Inexact[np.ndarray, " n_omega"], Inexact[np.ndarray, " n_omega"]]:
         """Return the evacuated transverse-wavenumber term and its derivative.
 
-        Parameters
-        ----------
-        terms : MarcatiliTerms
-            Frequency samples in rad/s.
-        radius : float
-            Field radius in m; the table fixes the waveguide geometry.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Dimensionless ``1 - n_v**2`` and its derivative in s/rad.
+        - ``terms``: frequency samples in rad/s.
+        - ``radius``: field radius in m; the table fixes the waveguide geometry.
+        - Returns: dimensionless ``1 - n_v**2`` and its derivative in s/rad.
         """
         # Geometry is fixed by the table; radius serves the field, normalisation
         # and the closed-form area only. Form 1 - n_v^2 without cancellation.
@@ -811,19 +704,10 @@ class TabulatedMode(_TableMode):
     ) -> tuple[Inexact[np.ndarray, " n_omega"], Inexact[np.ndarray, " n_omega"]]:
         """Return the filled table's refractivity and derivative.
 
-        Parameters
-        ----------
-        terms : MarcatiliTerms
-            Frequency samples in rad/s.
-        radius : float
-            Field radius in m; ignored by the stored linear response.
-        density : float or numpy.ndarray
-            Number densities in m^-3; ignored by the stored linear response.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Complex refractivity and its derivative in s/rad.
+        - ``terms``: frequency samples in rad/s.
+        - ``radius``: field radius in m; ignored by the stored linear response.
+        - ``density``: number densities in m^-3; ignored by the stored linear response.
+        - Returns: complex refractivity and its derivative in s/rad.
         """
         # Both geometry and fill are already included in the stored linear index.
         del radius, density
@@ -859,23 +743,14 @@ class _SampledIndexTable(IndexTable):
     ``repr=False``: a regenerated dataclass ``__repr__`` dumped 809 characters of
     arrays and undid :class:`IndexTable`'s one-line description.
 
-    Parameters
-    ----------
-    omega : array_like
-        Positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
-    neff_values : array_like
-        Finite complex effective indices matching `omega`.
-    area : array_like or None, optional
-        Positive finite effective areas in m^2 at the same samples.
-    loss_interpolation : {'log', 'linear'}, optional
-        Imaginary-index interpolation policy; ``linear`` by default here, because
-        a lossless source has no logarithm.
-    derivative_values : array_like
-        Source ``dneff_domega`` in s/rad at the same frequencies, stored sorted
-        and read-only, shape ``(n_sampled_derivatives,)``.
-    source_identity : collections.abc.Mapping
-        The sampled mode's type, repr, snapshot position, frequency domain and
-        area model.
+    - ``omega``: positive finite angular frequencies in rad/s, shape ``(n_nodes,)``.
+    - ``area``: positive finite effective areas in m^2 at the same samples.
+    - ``loss_interpolation``: ``linear`` by default here, because a lossless source has
+      no logarithm.
+    - ``derivative_values``: source ``dneff_domega`` in s/rad at the same frequencies,
+      stored sorted and read-only, shape ``(n_sampled_derivatives,)``.
+    - ``source_identity``: the sampled mode's type, repr, snapshot position, frequency
+      domain and area model.
     """
 
     derivative_values: Complex[np.ndarray, " n_sampled_derivatives"]
@@ -893,21 +768,12 @@ class _SampledIndexTable(IndexTable):
     ) -> None:
         """Store the sampled derivatives, then validate as any index table.
 
-        Parameters
-        ----------
-        omega : array_like
-            Positive frequencies in rad/s, shape ``(n_nodes,)``, in either order.
-        neff_values : array_like
-            Passive indices at those frequencies, same shape.
-        area : array_like or None, optional
-            Positive effective areas in m^2 at the same samples.
-        loss_interpolation : {'log', 'linear'}, optional
-            Imaginary-index interpolation policy; ``linear`` here, because a
-            lossless source has no logarithm.
-        derivative_values : array_like
-            Source ``dneff_domega`` in s/rad at the same frequencies.
-        source_identity : collections.abc.Mapping
-            Provenance of the sampled mode.
+        - ``omega``: positive frequencies in rad/s, shape ``(n_nodes,)``, in either
+          order.
+        - ``neff_values``: passive indices at those frequencies, same shape.
+        - ``area``: positive effective areas in m^2 at the same samples.
+        - ``derivative_values``: source ``dneff_domega`` in s/rad at the same
+          frequencies.
         """
         # Set before delegating: IndexTable.__init__ calls __post_init__, which
         # fits the Hermite interpolants from these two fields. Declaring them as
@@ -918,14 +784,7 @@ class _SampledIndexTable(IndexTable):
         super().__init__(omega, neff_values, area, loss_interpolation)
 
     def __post_init__(self) -> None:
-        """Sort the derivatives with the samples and fit Hermite interpolants.
-
-        Raises
-        ------
-        ModeError
-            If the derivatives are non-finite or disagree with the frequencies,
-            or if the inherited table requirements fail.
-        """
+        """Sort the derivatives with the samples and fit Hermite interpolants."""
         # The base sorts by frequency and does not report the permutation, so take
         # it from the same input here and apply it to the derivatives.
         order = np.argsort(_positive_vector(self.omega, "omega"))

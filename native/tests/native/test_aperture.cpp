@@ -15,7 +15,6 @@
 #include "solprop_native/far_field.hpp"
 
 #include <Kokkos_Core.hpp>
-
 #include <gtest/gtest.h>
 
 #include <array>
@@ -81,6 +80,7 @@ Case make_case(const std::size_t n_x, const std::size_t n_y, const std::size_t n
   problem.spatial_k_x = fft_axis(n_x, n_y > 1 ? 1.5e6 : 1.0e5);
   problem.spatial_k_y = n_y > 1 ? fft_axis(n_y, 1.2e6) : std::vector<double>{0.0};
   const std::size_t columns = n_x * n_y;
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed keeps the test reproducible
   std::mt19937_64 random(7);
   std::normal_distribution<double> normal;
   data.field.resize(columns * n_pol * n);
@@ -175,18 +175,18 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
   Kokkos::deep_copy(field, host);
   native::FarFieldPass pass(data.problem, native::ExecutionSpace{});
   const native::FarFieldPass::Inputs inputs{
-      device("test.weights", data.weights),
-      device("test.on_axis", data.on_axis),
-      device("test.square", data.square),
-      device("test.square_low", data.square_low),
-      device("test.transverse", data.transverse),
-      device("test.transverse_low", data.transverse_low),
-      device("test.spectral_rate", data.spectral_rate),
-      device("test.user_rate", data.user_rate),
-      device("test.transverse_rate", data.transverse_rate),
-      device("test.omega", data.omega),
-      device("test.active", data.active),
-      data.evanescent};
+      .weights = device("test.weights", data.weights),
+      .on_axis = device("test.on_axis", data.on_axis),
+      .square = device("test.square", data.square),
+      .square_low = device("test.square_low", data.square_low),
+      .transverse = device("test.transverse", data.transverse),
+      .transverse_low = device("test.transverse_low", data.transverse_low),
+      .spectral_rate = device("test.spectral_rate", data.spectral_rate),
+      .user_rate = device("test.user_rate", data.user_rate),
+      .transverse_rate = device("test.transverse_rate", data.transverse_rate),
+      .omega = device("test.omega", data.omega),
+      .active = device("test.active", data.active),
+      .evanescent = data.evanescent};
   auto values = pass.run(flags, apertures, exponent, data.regions, 0.5, field, inputs);
   pass.close();
   return values;
@@ -219,12 +219,13 @@ double host_weight(const Case& data, const std::size_t index, const double kx,
   return native::far_field_shaped_weight(
       native::far_field_offset(scale, kx, centre_x),
       native::far_field_offset(scale, ky, centre_y),
-      native::FarFieldOutline{constants[native::far_field_half_width],
-                              constants[native::far_field_half_height],
-                              constants[native::far_field_stretch_x],
-                              constants[native::far_field_stretch_y],
-                              constants[native::far_field_inverse_width],
-                              constants[native::far_field_edge]},
+      native::FarFieldOutline{.half_width = constants[native::far_field_half_width],
+                              .half_height = constants[native::far_field_half_height],
+                              .stretch_x = constants[native::far_field_stretch_x],
+                              .stretch_y = constants[native::far_field_stretch_y],
+                              .inverse_width =
+                                  constants[native::far_field_inverse_width],
+                              .edge = constants[native::far_field_edge]},
       shape, code);
 }
 
@@ -244,14 +245,18 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
   const std::size_t row = native::far_field_aperture_constants + n;
   const std::size_t n_apertures = data.apertures.size() / row;
   const std::size_t n_regions = data.regions.size() / 4;
-  std::vector<double> beam(n), absorbed(native::far_field_absorbed_channels), axis(n);
+  std::vector<double> beam(n);
+  std::vector<double> absorbed(native::far_field_absorbed_channels);
+  std::vector<double> axis(n);
   std::vector<std::vector<double>> regions(n_regions, std::vector<double>(n));
   std::vector<std::vector<double>> collected(n_apertures, std::vector<double>(n));
   std::vector<std::vector<double>> through(n_apertures, std::vector<double>(n));
   for (std::size_t bin = 0; bin < n; ++bin) {
     // Each amplitude and its magnetic closure, the same sum with conj(eta) applied.
-    std::vector<std::complex<double>> amplitude(n_pol), axial(n_apertures * n_pol);
-    std::vector<std::complex<double>> closed(n_pol), closed_axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> amplitude(n_pol);
+    std::vector<std::complex<double>> axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> closed(n_pol);
+    std::vector<std::complex<double>> closed_axial(n_apertures * n_pol);
     for (std::size_t column = 0; column < columns; ++column) {
       const double kx = problem.spatial_k_x[column % problem.n_x];
       const double ky = problem.spatial_k_y[column / problem.n_x];
@@ -327,6 +332,7 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
                                              .real();
   }
   std::vector<double> packed;
+  packed.reserve(beam.size());
   for (const double value : beam)
     packed.push_back(0.5 * density * value);
   for (const double value : absorbed)
@@ -515,9 +521,12 @@ TEST(FarFieldPass, TheShapesAreTheirFormulas) {
   const auto outline = [](const double half_width, const double half_height,
                           const double stretch_x, const double stretch_y,
                           const double width) {
-    return native::FarFieldOutline{
-        half_width, half_height, stretch_x, stretch_y, width > 0.0 ? 1.0 / width : 0.0,
-        width};
+    return native::FarFieldOutline{.half_width = half_width,
+                                   .half_height = half_height,
+                                   .stretch_x = stretch_x,
+                                   .stretch_y = stretch_y,
+                                   .inverse_width = width > 0.0 ? 1.0 / width : 0.0,
+                                   .edge = width};
   };
   // The offset is X - x, so x >= X reads across <= 0, whichever side is asked for.
   EXPECT_EQ(native::far_field_offset(2.0, -3.0, 1.0), -5.0);

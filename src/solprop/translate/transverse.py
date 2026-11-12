@@ -73,16 +73,8 @@ class _Axis:
 def _axes(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Axis, ...]:
     """Return the axes whose faces bound `space`, with each column's wavenumber.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The transverse grid.
-
-    Returns
-    -------
-    tuple of _Axis
-        One radially; x and y on a Cartesian grid, x alone on a line; y on a planar
-        grid, whose columns are ``p + n_p * iy``.
+    - Returns: one radially; x and y on a Cartesian grid, x alone on a line; y on a
+      planar grid, whose columns are ``p + n_p * iy``.
     """
     if isinstance(space, RadialGrid):
         return (_Axis("r", np.asarray(space.k_r), space.radius, radial=True),)
@@ -97,15 +89,7 @@ def _axes(space: RadialGrid | FreeGrid | PlanarGrid) -> tuple[_Axis, ...]:
 def _nodes_window(space: RadialGrid | FreeGrid | PlanarGrid) -> np.ndarray:
     """Return the grid's window on the nodes the collar's rate is applied at.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The transverse grid.
-
-    Returns
-    -------
-    numpy.ndarray
-        One inside the requested size, falling to zero at the outer size.
+    One inside the requested size, falling to zero at the outer size.
     """
     if isinstance(space, PlanarGrid):
         return np.repeat(space.window_y, int(space.x.size))
@@ -173,30 +157,13 @@ def _column_power(
 ) -> Float[np.ndarray, " n_columns"]:
     """Return each spectral column's launch energy over the requested band.
 
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The transverse grid, for its spectral weights.
-    field0 : numpy.ndarray
-        The noise-free launch, canonical layout.
-    mask : numpy.ndarray
-        The requested band's bins.
-
-    Returns
-    -------
-    numpy.ndarray
-        Energy per column in the field's own units.
+    - ``field0``: the noise-free launch, canonical layout.
+    - Returns: energy per column in the field's own units.
     """
     density = np.empty(field0.shape[1])
 
     def columns(rows: slice) -> None:
-        """Sum one block of columns; each column's own sum is unchanged by blocking.
-
-        Parameters
-        ----------
-        rows : slice
-            The block of columns.
-        """
+        """Sum one block of columns; each column's own sum is unchanged by blocking."""
         density[rows] = np.sum(np.abs(field0[:, rows][..., mask]) ** 2, axis=(0, 2, 3))
 
     # A large launch's single pass took 2 s of translation (solprop issue #347).
@@ -209,24 +176,17 @@ def _ramp_profile(
 ) -> Float[np.ndarray, " n_columns"]:
     """Return the raised-cosine ramp from `start` to `top` on the columns.
 
-    Parameters
-    ----------
-    columns : numpy.ndarray
-        Each column's ``|k|``, rad/m.
-    start, top : float
-        Where the ramp leaves zero and reaches one, rad/m; ``start < top``, since
-        every axis holds at least two samples and so a nonzero largest ``|k|``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The profile, in [0, 1].
+    - ``columns``: each column's ``|k|``, rad/m.
+    - ``start``, ``top``: where the ramp leaves zero and reaches one, rad/m; ``start <
+      top``, since every axis holds at least two samples and so a nonzero largest
+      ``|k|``.
+    - Returns: the profile, in [0, 1].
     """
     inside = np.clip((np.abs(columns) - start) / (top - start), 0.0, 1.0)
     return 0.5 * (1.0 - np.cos(np.pi * inside))
 
 
-def _intermediate_return(  # noqa: PLR0913, PLR0917 - the design and its weights
+def _intermediate_return(  # noqa: PLR0917 - the design and its weights
     axes: tuple[_Axis, ...],
     kappa_p: list[np.ndarray],
     widths: tuple[float, ...],
@@ -244,31 +204,11 @@ def _intermediate_return(  # noqa: PLR0913, PLR0917 - the design and its weights
     exact symbol per frequency, weighted by the launch's spectrum. The band is taken in
     sixteen contiguous groups of bins, each at its power-weighted wavenumber.
 
-    Parameters
-    ----------
-    axes : tuple of _Axis
-        The grid's axes.
-    kappa_p : list of numpy.ndarray
-        The protected band's edge per axis.
-    widths : tuple of float
-        The collar's width per axis, m.
-    starts : list of float
-        The ramp's start per axis, rad/m.
-    alpha0 : float
-        The collar's peak rate, 1/m.
-    field0 : numpy.ndarray
-        The noise-free launch.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The grid, for its spectral weights.
-    grid : solprop.grid.TimeGrid
-        The temporal grid.
-    k : numpy.ndarray
-        The band's wavenumbers, the entrance's first.
-
-    Returns
-    -------
-    float
-        A share of the launch energy.
+    - ``axes``: the grid's axes.
+    - ``kappa_p``: the protected band's edge per axis.
+    - ``widths``: the collar's width per axis, m.
+    - ``starts``: the ramp's start per axis, rad/m.
+    - ``alpha0``: the collar's peak rate, 1/m.
     """
     band = np.nonzero(grid.inband_mask & grid.active_mask)[0]
     power = np.asarray(space.spectral_weights)[:, None] * np.sum(
@@ -508,20 +448,7 @@ LADDER = (0.5, 1.0, 1.5, 2.0, 3.0)
 def _trial_grid(
     space: RadialGrid | FreeGrid | PlanarGrid, fraction: float
 ) -> RadialGrid | FreeGrid | PlanarGrid:
-    """Return `space` with another collar fraction at the same spacing.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The design's grid.
-    fraction : float
-        The trial fraction.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The trial grid.
-    """
+    """Return `space` with another collar fraction at the same spacing."""
     scale = (1.0 + fraction) / (1.0 + float(space.collar_fraction))
     if isinstance(space, RadialGrid):
         return RadialGrid(space.radius, max(2, round(space.n_r * scale)), fraction)
@@ -545,22 +472,7 @@ def _relaunched(
     trial: RadialGrid | FreeGrid | PlanarGrid,
     field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
 ) -> Complex[np.ndarray, "1 n_trial n_pol n_omega"]:
-    """Return the launch on a trial grid: its field, zero beyond the design's grid.
-
-    Parameters
-    ----------
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The design's grid.
-    trial : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The trial grid, the same spacing.
-    field0 : numpy.ndarray
-        The launch's spectral columns on `space`.
-
-    Returns
-    -------
-    numpy.ndarray
-        Its spectral columns on `trial`.
-    """
+    """Return the launch on a trial grid: its field, zero beyond the design's grid."""
     first = np.asarray(field0[:1], dtype=np.complex128)
     _, n_cols, n_pol, n_omega = first.shape
     flat = first[0].reshape(n_cols, n_pol * n_omega)

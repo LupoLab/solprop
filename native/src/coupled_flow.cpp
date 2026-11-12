@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/coupled_flow.hpp"
+
 #include "solprop_native/launch.hpp"
 
 #include <algorithm>
@@ -11,6 +12,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace solprop_native {
@@ -31,7 +33,7 @@ void require_size(const std::size_t actual, const std::size_t expected,
 }
 
 bool finite(const std::vector<Complex>& values) {
-  return std::all_of(values.begin(), values.end(), [](const Complex& value) {
+  return std::ranges::all_of(values, [](const Complex& value) {
     return std::isfinite(value.real()) && std::isfinite(value.imag());
   });
 }
@@ -353,12 +355,11 @@ void require_coupled_flow(const Problem& problem) {
     throw std::invalid_argument("coupled flow residual data must be finite");
 }
 
-CoupledFlowAction::CoupledFlowAction(const Problem& problem,
-                                     const ExecutionSpace& kernels)
+CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kernels)
     : n_modes_(problem.n_modes), n_omega_(problem.n_omega), n_stages_(problem.n_stages),
       active_(problem.flow_active), sections_(problem.flow_sections),
       terms_(problem.flow_terms), identity_(problem.n_stages + 1, 0U),
-      listed_counts_(problem.n_stages, 0U), kernels_(kernels) {
+      listed_counts_(problem.n_stages, 0U), kernels_(std::move(kernels)) {
   require_coupled_flow(problem);
   if (!problem.coupled_flow)
     throw std::invalid_argument("the problem does not declare a coupled flow");
@@ -439,7 +440,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
     throw std::invalid_argument("flow_section names no section of the coupled flow");
   require_size(fractions.size(), n_stages_ + 1, "stage fractions");
   if (!std::isfinite(dz) || dz <= 0.0 ||
-      !std::all_of(fractions.begin(), fractions.end(), [](const double value) {
+      !std::ranges::all_of(fractions, [](const double value) {
         return std::isfinite(value) && value >= 0.0 && value <= 1.0;
       }))
     throw std::invalid_argument("coupled flow step and fractions must be finite, the "
@@ -558,8 +559,8 @@ void CoupledFlowAction::set_trial(const std::size_t section,
     return;
   }
   require_size(weights.size(), n_stages_ * terms_, "flow_weights");
-  if (!std::all_of(weights.begin(), weights.end(),
-                   [](const double value) { return std::isfinite(value); }))
+  if (!std::ranges::all_of(weights,
+                           [](const double value) { return std::isfinite(value); }))
     throw std::invalid_argument("flow_weights must be finite");
   upload(kernels_, weights_, weights);
   const auto& listed = host_active_terms_;

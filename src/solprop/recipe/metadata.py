@@ -96,13 +96,7 @@ class _Required:
     """The default of a keyword that has none: the caller must give it."""
 
     def __repr__(self) -> str:
-        """Return the sentinel's name.
-
-        Returns
-        -------
-        str
-            ``"REQUIRED"``.
-        """
+        """Return the sentinel's name."""
         return "REQUIRED"
 
 
@@ -261,16 +255,9 @@ class Parameter:
 def _precision(values: Mapping[str, object]) -> str:
     """Return the precision a recipe asks for.
 
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values; on an object route the precision is a keyword of its
-        ``settings`` table.
-
-    Returns
-    -------
-    str
-        ``"double"`` unless the recipe sets ``"single"``.
+    - ``values``: the recipe's values; on an object route the precision is a keyword of
+      its ``settings`` table.
+    - Returns: ``"double"`` unless the recipe sets ``"single"``.
     """
     settings = values.get("settings")
     if isinstance(settings, Mapping):
@@ -285,15 +272,7 @@ _SLAB_TYPES: Final = ("SlabMode", "ModeCollection.slab")
 def _is_slab(value: object) -> bool:
     """Return whether a ``modes`` value, as a recipe or a script gives it, holds a slab.
 
-    Parameters
-    ----------
-    value : object
-        A table with a ``type``, a list of them, or the mode objects themselves.
-
-    Returns
-    -------
-    bool
-        True when any element is a slab mode or a collection of them.
+    - Returns: True when any element is a slab mode or a collection of them.
     """
     if isinstance(value, Mapping):
         return value.get("type") in _SLAB_TYPES
@@ -342,15 +321,7 @@ def per_unit_width(route: str, values: Mapping[str, object]) -> bool:
 def _slab_note(route: str) -> str:
     """Return what a route's energy summary adds for slab sets.
 
-    Parameters
-    ----------
-    route : str
-        The route.
-
-    Returns
-    -------
-    str
-        `` (per metre of y on a slab set)`` on the waveguide route, else nothing.
+    - Returns: `` (per metre of y on a slab set)`` on the waveguide route, else nothing.
     """
     return " (per metre of y on a slab set)" if route == "waveguide" else ""
 
@@ -358,18 +329,8 @@ def _slab_note(route: str) -> str:
 def _row(route: str, values: Mapping[str, object]) -> str:
     """Return the defaults-table row a recipe reads.
 
-    Parameters
-    ----------
-    route : str
-        The keyword route.
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    str
-        ``"capillary tdse"`` for a capillary beside a TDSE response, and
-        ``"waveguide slab"`` for a waveguide of slab modes; the route otherwise.
+    - Returns: ``"capillary tdse"`` for a capillary beside a TDSE response, and
+      ``"waveguide slab"`` for a waveguide of slab modes; the route otherwise.
     """
     if route == "capillary" and values.get("tdse") is not None:
         return "capillary tdse"
@@ -379,32 +340,10 @@ def _row(route: str, values: Mapping[str, object]) -> str:
 
 
 def _rtol(route: str) -> Resolver:
-    """Return the resolver of a route's ``rtol``.
-
-    Parameters
-    ----------
-    route : str
-        The keyword route.
-
-    Returns
-    -------
-    callable
-        The resolver.
-    """
+    """Return the resolver of a route's ``rtol``."""
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default in the recipe's precision.
-
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The recipe's values.
-
-        Returns
-        -------
-        Resolution
-            The tolerance and its rule.
-        """
+        """Return the route's default in the recipe's precision."""
         row = _row(route, values)
         precision = _precision(values)
         return Resolution(
@@ -417,32 +356,10 @@ def _rtol(route: str) -> Resolver:
 
 
 def _integrator(route: str) -> Resolver:
-    """Return the resolver of a route's ``integrator``.
-
-    Parameters
-    ----------
-    route : str
-        The keyword route.
-
-    Returns
-    -------
-    callable
-        The resolver.
-    """
+    """Return the resolver of a route's ``integrator``."""
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return the route's default method in the recipe's precision.
-
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The recipe's values.
-
-        Returns
-        -------
-        Resolution
-            The integrator and its rule.
-        """
+        """Return the route's default method in the recipe's precision."""
         row = _row(route, values)
         precision = _precision(values)
         rule = (
@@ -456,31 +373,12 @@ def _integrator(route: str) -> Resolver:
 
 
 def _noise(route: str) -> Resolver:
-    """Return the resolver of a route's ``noise="default"``.
-
-    Parameters
-    ----------
-    route : str
-        The keyword route.
-
-    Returns
-    -------
-    callable
-        The resolver.
-    """
+    """Return the resolver of a route's ``noise="default"``."""
 
     def resolve(values: Mapping[str, object]) -> Resolution:
         """Return the model the default draws, and why.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The recipe's values.
-
-        Returns
-        -------
-        Resolution
-            The model (``None`` for none) and the reason.
+        - Returns: the model (``None`` for none) and the reason.
         """
         row = _row(route, values)
         model, resolution = resolve_noise(row, "default", None, _precision(values))
@@ -493,18 +391,7 @@ def _noise(route: str) -> Resolver:
 
 
 def _scheme(values: Mapping[str, object]) -> Resolution:
-    """Return the collar scheme a keyword route takes when none is named.
-
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    Resolution
-        The scheme and its rule.
-    """
+    """Return the collar scheme a keyword route takes when none is named."""
     del values
     return Resolution(
         default_scheme("gnlse", interpolate_planes=False),
@@ -515,30 +402,11 @@ def _scheme(values: Mapping[str, object]) -> Resolution:
 def _by_envelope(name: str) -> Resolver:
     """Return the resolver of a keyword that defaults to the opposite of ``envelope``.
 
-    Parameters
-    ----------
-    name : str
-        ``"thg"`` or ``"plasma"``.
-
-    Returns
-    -------
-    callable
-        The resolver.
+    - ``name``: ``"thg"`` or ``"plasma"``.
     """
 
     def resolve(values: Mapping[str, object]) -> Resolution:
-        """Return on for a field grid, off for an envelope grid.
-
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The recipe's values.
-
-        Returns
-        -------
-        Resolution
-            The switch and its rule.
-        """
+        """Return on for a field grid, off for an envelope grid."""
         envelope = bool(values.get("envelope", False))
         return Resolution(
             not envelope,
@@ -551,15 +419,7 @@ def _by_envelope(name: str) -> Resolver:
 def _step_planes(values: Mapping[str, object]) -> Resolution:
     """Return the capillary's ``step_planes`` default.
 
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    Resolution
-        1 beside a TDSE response, else 0.
+    - Returns: 1 beside a TDSE response, else 0.
     """
     tdse = values.get("tdse") is not None
     return Resolution(
@@ -571,15 +431,7 @@ def _step_planes(values: Mapping[str, object]) -> Resolution:
 def _requested_planes(values: Mapping[str, object]) -> Resolution:
     """Return the ``step_planes`` default of the GNLSE and the waveguide.
 
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    Resolution
-        0: the requested planes only.
+    - Returns: 0: the requested planes only.
     """
     del values
     return Resolution(0, "the requested planes only")
@@ -588,16 +440,8 @@ def _requested_planes(values: Mapping[str, object]) -> Resolution:
 def _raman(values: Mapping[str, object]) -> Resolution:
     """Return the capillary's ``raman`` default, which depends on the species.
 
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    Resolution
-        The rule; the value is ``None`` here, because it is decided by building the
-        fill: on for a molecular gas whose Raman data are curated, off otherwise.
+    - Returns: the rule; the value is ``None`` here, because it is decided by building
+      the fill: on for a molecular gas whose Raman data are curated, off otherwise.
     """
     del values
     return Resolution(
@@ -610,48 +454,22 @@ def _raman(values: Mapping[str, object]) -> Resolution:
 def _pressure(values: Mapping[str, object]) -> Resolution:
     """Return the capillary's default pressure.
 
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        The recipe's values.
-
-    Returns
-    -------
-    Resolution
-        One bar.
+    - Returns: one bar.
     """
     del values
     return Resolution(1.0, "one bar when no pressure is given")
 
 
 def _length_fraction(fraction: float, text: str) -> Resolver:
-    """Return the resolver of a step length that defaults to a fraction of the length.
+    """Return the resolver of a step length.
 
-    Parameters
-    ----------
-    fraction : float
-        The fraction of ``length``.
-    text : str
-        The rule.
-
-    Returns
-    -------
-    callable
-        The resolver.
+    The step defaults to `fraction` of ``length``; `text` is the rule.
     """
 
     def resolve(values: Mapping[str, object]) -> Resolution:
         """Return the fraction of the recipe's length.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The recipe's values.
-
-        Returns
-        -------
-        Resolution
-            The step, m, or ``None`` without a length, and the rule.
+        - Returns: the step, m, or ``None`` without a length, and the rule.
         """
         length = values.get("length")
         value = None if not isinstance(length, int | float) else fraction * length
@@ -711,18 +529,7 @@ _PLANES_PAGE: Final = "guide/numerics/solver.md"
 
 
 def _shared(route: str) -> tuple[Parameter, ...]:
-    """Return the keywords the keyword routes share, with the route's rules.
-
-    Parameters
-    ----------
-    route : str
-        The route, one of :data:`solprop.recipe.core.ROUTES`.
-
-    Returns
-    -------
-    tuple of Parameter
-        The shared entries.
-    """
+    """Return the keywords the keyword routes share, with the route's rules."""
     return (
         Parameter(
             "length",
@@ -1010,13 +817,7 @@ def _shared(route: str) -> tuple[Parameter, ...]:
 
 
 def _gnlse() -> tuple[Parameter, ...]:
-    """Return the GNLSE route's own keywords.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries not shared with the capillary.
-    """
+    """Return the GNLSE route's own keywords."""
     page = "guide/waveguides/gnlse.md"
     return (
         Parameter(
@@ -1114,13 +915,7 @@ def _gnlse() -> tuple[Parameter, ...]:
 
 
 def _capillary() -> tuple[Parameter, ...]:
-    """Return the capillary route's own keywords.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries not shared with the GNLSE.
-    """
+    """Return the capillary route's own keywords."""
     page = "guide/waveguides/capillaries.md"
     ionisation = "guide/media/ionisation.md"
     return (
@@ -1450,11 +1245,6 @@ def _waveguide() -> tuple[Parameter, ...]:
     The fill, the responses and the transverse rule are the capillary's entries
     (:func:`_route_entries`); these are the ones the waveguide has alone or reads
     differently.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries not shared with the capillary.
     """
     supplied = "guide/waveguides/supplied-guides.md"
     provider = f"{supplied}#a-guide-instead-of-a-fill"
@@ -1592,16 +1382,6 @@ def _free_space(route: str) -> tuple[Parameter, ...]:
     The noise, seed, material selection and boundary check are the shared entries
     (:func:`_route_entries`); the absorber and its scheme are keywords of the
     ``settings`` table (:data:`SETTINGS_KEYWORDS`).
-
-    Parameters
-    ----------
-    route : {'radial', 'free', 'planar'}
-        The route.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries not shared with the keyword routes.
     """
     beams = "guide/free-space/beams.md"
     planar = "guide/waveguides/planar.md#resolving-y"
@@ -1716,16 +1496,6 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
     The waveguide takes the capillary's entries for the fill, the responses and the
     rule, under its own; an entry the route's constructor does not name is dropped by
     :func:`parameters`.
-
-    Parameters
-    ----------
-    route : str
-        The route, already checked by :func:`surface`.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries, without defaults, the first of each name winning.
     """
     layers = {
         "gnlse": (_gnlse(),),
@@ -1742,7 +1512,7 @@ def _route_entries(route: str) -> tuple[Parameter, ...]:
     return tuple(entries.values())
 
 
-def surface(route: str) -> "Callable[..., Simulation]":  # noqa: UP037 - run time
+def surface(route: str) -> "Callable[..., Simulation]":
     """Return the constructor whose keywords a route's ``[build]`` table holds.
 
     Parameters
@@ -1804,72 +1574,24 @@ def _number(
     maximum: float | None = None,
     exclusive: bool = False,
 ) -> Form:
-    """Return a number's form.
-
-    Parameters
-    ----------
-    unit : str or None, optional
-        Its unit.
-    minimum, maximum : float or None, optional
-        Its range.
-    exclusive : bool, optional
-        Whether the range's ends are excluded.
-
-    Returns
-    -------
-    Form
-        The form.
-    """
+    """Return a number's form."""
     return Form(
         "number", unit=unit, minimum=minimum, maximum=maximum, exclusive=exclusive
     )
 
 
 def _integer(minimum: float | None = None, maximum: float | None = None) -> Form:
-    """Return an integer's form.
-
-    Parameters
-    ----------
-    minimum, maximum : float or None, optional
-        Its range, inclusive.
-
-    Returns
-    -------
-    Form
-        The form.
-    """
+    """Return an integer's form."""
     return Form("integer", minimum=minimum, maximum=maximum)
 
 
 def _choice(*choices: str) -> Form:
-    """Return the form of one of fixed strings.
-
-    Parameters
-    ----------
-    *choices : str
-        The strings.
-
-    Returns
-    -------
-    Form
-        The form.
-    """
+    """Return the form of one of fixed strings."""
     return Form("choice", choices=choices)
 
 
 def _object(*types: str) -> Form:
-    """Return the form of a registered type.
-
-    Parameters
-    ----------
-    *types : str
-        The types it may name.
-
-    Returns
-    -------
-    Form
-        The form.
-    """
+    """Return the form of a registered type."""
     return Form("object", types=types)
 
 
@@ -1902,26 +1624,7 @@ def _keyword(
     *,
     display: str | None = None,
 ) -> tuple[str, tuple[Form, ...], Level, str, str | None]:
-    """Return one keyword's row, its group and anchor left to its type.
-
-    Parameters
-    ----------
-    name : str
-        The keyword.
-    forms : Form or tuple of Form
-        Its forms.
-    level : str
-        A :data:`~solprop.recipe.metadata.Level`.
-    summary : str
-        One line.
-    display : str or None, optional
-        The unit it is shown in.
-
-    Returns
-    -------
-    tuple
-        The row.
-    """
+    """Return one keyword's row, its group and anchor left to its type."""
     return (
         name,
         forms if isinstance(forms, tuple) else (forms,),
@@ -1935,22 +1638,7 @@ Row = tuple[str, tuple[Form, ...], Level, str, str | None]
 
 
 def _type(group: Group, anchor: str, *rows: Row) -> tuple[Parameter, ...]:
-    """Return a type's entries, each with the type's group and anchor.
-
-    Parameters
-    ----------
-    group : str
-        Where the type is shown.
-    anchor : str
-        Its manual section.
-    *rows : tuple
-        Its keywords (:func:`_keyword`).
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
-    """
+    """Return a type's entries, each with the type's group and anchor."""
     return tuple(
         Parameter(name, forms, group, level, summary, anchor, display=display)
         for name, forms, level, summary, display in rows
@@ -1971,18 +1659,7 @@ _IONISATION_PAGE: Final = "guide/media/ionisation.md"
 
 
 def _pulse(*extra: Row) -> tuple[Parameter, ...]:
-    """Return a shaped pulse's entries: the shared keywords and its own.
-
-    Parameters
-    ----------
-    *extra : tuple
-        Its own keywords' rows.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
-    """
+    """Return a shaped pulse's entries: the shared keywords and its own."""
     return _type(
         "input",
         _TYPE_PULSE_PAGE,
@@ -2019,18 +1696,7 @@ def _pulse(*extra: Row) -> tuple[Parameter, ...]:
 
 
 def _gradient(*first: Row) -> tuple[Parameter, ...]:
-    """Return a pressure gradient's entries: its stages and the flow keywords.
-
-    Parameters
-    ----------
-    *first : tuple
-        The rows that give its stages.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
-    """
+    """Return a pressure gradient's entries: its stages and the flow keywords."""
     return _type(
         "medium",
         f"{_PROFILE_PAGE}#steady-flow-fills",
@@ -2060,13 +1726,7 @@ def _gradient(*first: Row) -> tuple[Parameter, ...]:
 
 
 def _fill_rows() -> tuple[Row, ...]:
-    """Return the keywords a gas fill shares: its pressure path and the flow.
-
-    Returns
-    -------
-    tuple
-        The rows.
-    """
+    """Return the keywords a gas fill shares: its pressure path and the flow."""
     return (
         _keyword(
             "floor",
@@ -2117,15 +1777,7 @@ _TEMPERATURE_PATH: Final = (_TEMPERATURE, _PROFILE)
 def _grid(*rows: Row) -> tuple[Parameter, ...]:
     """Return a time grid's entries: the window, the band and the sampling.
 
-    Parameters
-    ----------
-    *rows : tuple
-        The rows between the sample spacing and the transform sizes.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
+    - ``*rows``: the rows between the sample spacing and the transform sizes.
     """
     return _type(
         "grid",
@@ -2182,18 +1834,7 @@ def _grid(*rows: Row) -> tuple[Parameter, ...]:
 
 
 def _hollow_rows(cladding: str) -> tuple[Row, ...]:
-    """Return a hollow mode's loss and cladding keywords.
-
-    Parameters
-    ----------
-    cladding : str
-        What the cladding is called.
-
-    Returns
-    -------
-    tuple
-        The rows.
-    """
+    """Return a hollow mode's loss and cladding keywords."""
     return (
         _keyword(
             "loss",
@@ -2211,18 +1852,7 @@ def _hollow_rows(cladding: str) -> tuple[Row, ...]:
 
 
 def _slab_fill(temperature: Form | tuple[Form, ...]) -> tuple[Row, ...]:
-    """Return a slab channel's own fill, which the planar route reads.
-
-    Parameters
-    ----------
-    temperature : Form or tuple of Form
-        The temperature's forms.
-
-    Returns
-    -------
-    tuple
-        The rows.
-    """
+    """Return a slab channel's own fill, which the planar route reads."""
     return (
         _keyword("gas", _GAS, "basic", "The filling gas; none for vacuum."),
         _keyword(
@@ -2246,18 +1876,7 @@ def _slab_fill(temperature: Form | tuple[Form, ...]) -> tuple[Row, ...]:
 
 
 def _beam(*extra: Row) -> tuple[Parameter, ...]:
-    """Return a transverse beam's entries.
-
-    Parameters
-    ----------
-    *extra : tuple
-        Its own keywords' rows.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
-    """
+    """Return a transverse beam's entries."""
     return _type(
         "input",
         f"{_TYPE_PULSE_PAGE}#transverse-beams",
@@ -2307,18 +1926,7 @@ def _beam(*extra: Row) -> tuple[Parameter, ...]:
 
 
 def _plasma(*extra: Row) -> tuple[Parameter, ...]:
-    """Return a plasma response's entries.
-
-    Parameters
-    ----------
-    *extra : tuple
-        Its own keywords' rows.
-
-    Returns
-    -------
-    tuple of Parameter
-        The entries.
-    """
+    """Return a plasma response's entries."""
     return _type(
         "nonlinear",
         _IONISATION_PAGE,
@@ -3648,20 +3256,7 @@ def parameters(route: str) -> Mapping[str, Parameter]:
 def _type_parameters(
     name: str, entries: Sequence[Parameter]
 ) -> Mapping[str, Parameter]:
-    """Return a registered type's keyword metadata, with its target's defaults.
-
-    Parameters
-    ----------
-    name : str
-        The type, as a recipe names it.
-    entries : collections.abc.Sequence of Parameter
-        Its entries (:data:`_TYPES`).
-
-    Returns
-    -------
-    collections.abc.Mapping
-        :class:`Parameter` by keyword, in the target's order.
-    """
+    """Return a registered type's keyword metadata, with its target's defaults."""
     from solprop.recipe.registry import REGISTRY  # noqa: PLC0415 - a cycle
 
     factory = REGISTRY[name]

@@ -179,36 +179,21 @@ class HostGroupSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def n_members(self) -> int:
-        """Return the number of members.
-
-        Returns
-        -------
-        int
-            The members.
-        """
+    def n_members(self) -> int:  # numpydoc ignore=RT01
+        """Number of members."""
         return len(self._members)
 
     @property
-    def finished(self) -> bool:
-        """Return whether the group's terminal batch was issued.
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group's terminal batch was issued.
 
-        Returns
-        -------
-        bool
-            True once every member has ended.
+        True once every member has ended.
         """
         return self._ledger.finished
 
     @property
-    def closed(self) -> bool:
-        """Return whether the group was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def advance(self) -> GroupBatch:
@@ -365,7 +350,7 @@ class HostGroupSession:
             self._runner.set_stop(None)
             self._runner.close()
 
-    def __enter__(self) -> "HostGroupSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "HostGroupSession":
         """Return the group.
 
         Returns
@@ -398,45 +383,21 @@ class HostGroupSession:
     # -- internals ------------------------------------------------------------------
 
     def _member(self, member: int) -> int:
-        """Return a valid member position.
-
-        Parameters
-        ----------
-        member : int
-            The position asked for.
-
-        Returns
-        -------
-        int
-            The same position.
-
-        Raises
-        ------
-        solprop.backends.session.SessionError
-            If the group has no such member.
-        """
+        """Return a valid member position."""
         if not 0 <= member < len(self._members):
             msg = f"the group has {len(self._members)} members, not a member {member}"
             raise SessionError(msg)
         return member
 
     def _running(self) -> list[int]:
-        """Return the members that have not ended.
-
-        Returns
-        -------
-        list of int
-            Their positions.
-        """
+        """Return the members that have not ended."""
         return [index for index, ended in enumerate(self._outcomes) if ended is None]
 
     def _chunks(self) -> list[tuple[BackendHistory, StepStats]]:
         """Drain every member's attempts and rows since the previous window.
 
-        Returns
-        -------
-        list of tuple
-            Each member's attempts and rows (without a batch axis), in member order.
+        - Returns: each member's attempts and rows (without a batch axis), in member
+          order.
         """
         chunks: list[tuple[BackendHistory, StepStats]] = []
         for index in range(len(self._members)):
@@ -460,15 +421,8 @@ class HostGroupSession:
         the abandoned step are drained from its record instead
         (:meth:`~solprop.backends.host.driver.HostDriver.drain_attempts`).
 
-        Parameters
-        ----------
-        index : int
-            The member's position.
-
-        Returns
-        -------
-        tuple or None
-            Its attempts and rows, or ``None`` when its state cannot be read at all.
+        - Returns: its attempts and rows, or ``None`` when its state cannot be read at
+          all.
         """
         member = self._hosts[index]
         try:
@@ -486,15 +440,8 @@ class HostGroupSession:
     def _ticket(self, z: float | None = None) -> ExportTicket:
         """Return an unbound ticket for a committed state of the current generation.
 
-        Parameters
-        ----------
-        z : float or None, optional
-            The member's committed position, m; the window's end by default.
-
-        Returns
-        -------
-        solprop.backends.events.ExportTicket
-            The ticket, its receipt filled in when the batch is issued.
+        - ``z``: the member's committed position, m; the window's end by default.
+        - Returns: the ticket, its receipt filled in when the batch is issued.
         """
         return ExportTicket(
             Receipt(self._ledger.session, 0),
@@ -507,17 +454,7 @@ class HostGroupSession:
     ) -> Terminal | None:
         """Return a stopped member's terminal event, or ``None`` if it runs on.
 
-        Parameters
-        ----------
-        index : int
-            The member's position.
-        chunk : tuple
-            Its attempts and rows since its previous event.
-
-        Returns
-        -------
-        solprop.backends.events.Terminal or None
-            The boundary stop that ended it, which ends it alone.
+        - ``chunk``: its attempts and rows since its previous event.
         """
         stop = self._runner.member_stops[index]
         if stop is None:
@@ -534,13 +471,7 @@ class HostGroupSession:
         )
 
     def _launch(self) -> GroupBatch:
-        """Give each member its monitor and report the launch planes.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            Each member's launch plane, or the boundary stop that refused it.
-        """
+        """Give each member its monitor and report the launch planes."""
         try:
             self._runner.attach_monitors(
                 [request.boundary.monitor for request in self._requests]
@@ -552,22 +483,7 @@ class HostGroupSession:
     def _window(
         self, kind: ObservationKind, plane: int, summary: StepSummary
     ) -> GroupBatch:
-        """Report a window's end: each running member's plane, or its boundary stop.
-
-        Parameters
-        ----------
-        kind : solprop.backends.events.ObservationKind
-            The launch or a save plane.
-        plane : int
-            The save plane, ``-1`` for the launch.
-        summary : solprop.backends.protocol.StepSummary
-            The common march to it; its maximum norm is a group diagnostic.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            The window's events.
-        """
+        """Report a window's end: each running member's plane, or its boundary stop."""
         try:
             chunks = self._chunks()
             stats = self._runner.stats(self._requests[0].observation.stats)
@@ -605,13 +521,7 @@ class HostGroupSession:
         return self._issue(events)
 
     def _complete(self) -> GroupBatch:
-        """Run each watched member's final check and report every outcome.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            Each running member's completion, or the final warning that failed it.
-        """
+        """Run each watched member's final check and report every outcome."""
         try:
             chunks = self._chunks()
             self._runner.finish_monitors()
@@ -648,18 +558,6 @@ class HostGroupSession:
         a member ahead of the failing one stands at the step's end, its step neither
         validated nor recorded -- in flight, and so poisoned -- and the others at the
         step's start; each reports its own position.
-
-        Parameters
-        ----------
-        outcome : solprop.backends.events.Outcome
-            Stopped or failed.
-        error : BaseException
-            The primary failure or the stop request.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            Each running member's terminal event at its own committed position.
         """
         self._generation += 1
         self._broken = True
@@ -706,19 +604,7 @@ class HostGroupSession:
     ) -> GroupBatch:
         """Issue a window's events under a new receipt.
 
-        Parameters
-        ----------
-        members : list
-            Each member's events; tickets are bound to the receipt here.
-        outcome : solprop.backends.events.Outcome or None, optional
-            The group's outcome, when the batch ends it.
-        error : BaseException or None, optional
-            A group-wide failure's primary error.
-
-        Returns
-        -------
-        solprop.backends.events.GroupBatch
-            The batch.
+        - ``outcome``: the group's outcome, when the batch ends it.
         """
         receipt = self._ledger.issue(outcome=outcome)
         # Every drained attempt is delivered by this batch.
@@ -734,18 +620,6 @@ class HostGroupSession:
 
         A window's fields are observed together, once; after a group-wide failure each
         member is observed alone, since a member left in flight refuses observation.
-
-        Parameters
-        ----------
-        ticket : solprop.backends.events.ExportTicket
-            A valid ticket.
-        member : int
-            The member's position.
-
-        Returns
-        -------
-        solprop.backends.protocol.Observation
-            The member's observation with its field.
         """
         if self._observed_generation != ticket.generation:
             self._observed = {}
@@ -789,13 +663,10 @@ class HostPreparedGroup:
         self._requests = tuple(requests)
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it.
 
-        Returns
-        -------
-        str
-            The first member's registered name.
+        The first member's registered name.
         """
         return self._members[0].name
 

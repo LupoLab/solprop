@@ -105,13 +105,10 @@ class StageTerms:
     separable: SeparableOperator | None = None
 
     @property
-    def device_ready(self) -> bool:
-        """Return whether both quantities are a weighted sum of fixed arrays.
+    def device_ready(self) -> bool:  # numpydoc ignore=RT01
+        """Whether both quantities are a weighted sum of fixed arrays.
 
-        Returns
-        -------
-        bool
-            True when neither member is ``None``.
+        True when neither member is ``None``.
         """
         return self.separable is not None or (
             self.phi is not None and self.prefactor is not None
@@ -295,13 +292,10 @@ class StageScalars:
     dispersive_kerr_densities: tuple[float, ...] = ()
 
     @property
-    def preionisation(self) -> float:
-        """Return the initial fraction for the one-channel specialised path.
+    def preionisation(self) -> float:  # numpydoc ignore=RT01
+        """Initial fraction for the one-channel specialised path.
 
-        Returns
-        -------
-        float
-            The sole channel's fraction, or zero when there is no sole channel.
+        The sole channel's fraction, or zero when there is no sole channel.
         """
         return (
             self.plasma_preionisation[0] if len(self.plasma_preionisation) == 1 else 0.0
@@ -410,18 +404,7 @@ def terms(problem: PropagationProblem) -> StageTerms:
 def _phi_terms(
     linear: LinearOperator,
 ) -> Complex[np.ndarray, "n_phi_terms n_batch n_modes n_pol n_omega"] | None:
-    """Return the terms of ``Phi``, or ``None`` for the z table.
-
-    Parameters
-    ----------
-    linear : solprop.translate.linop.LinearOperator
-        Section 3 of the contract.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Shape ``(n_phi_terms, 1, n_modes, n_pol, n_omega)``.
-    """
+    """Return the terms of ``Phi``, or ``None`` for the z table."""
     if linear.phi_constant is not None:
         return linear.phi_constant[np.newaxis]
     if linear.phi_expansion is not None:
@@ -432,18 +415,7 @@ def _phi_terms(
 def _prefactor_terms(
     responses: CompiledResponses,
 ) -> Complex[np.ndarray, "n_pre_terms n_modes n_pol n_omega"] | None:
-    """Return the terms of the prefactor, or ``None`` for the z table.
-
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        Section 5 of the contract.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Shape ``(n_pre_terms, n_modes, n_pol, n_omega)``.
-    """
+    """Return the terms of the prefactor, or ``None`` for the z table."""
     if responses.prefactor_constant is not None:
         return responses.prefactor_constant[np.newaxis]
     if responses.prefactor_expansion is not None:
@@ -502,22 +474,11 @@ def scalars(
     kerr = responses.kerr_coefficients
     flow = linear.coupled_flow
 
-    def read(table: PiecewiseChebyshev) -> float:
-        """Return a scalar table's value at the stage, by the backend's pass.
-
-        Parameters
-        ----------
-        table : solprop.translate.chebyshev.PiecewiseChebyshev
-            A scalar table.
-
-        Returns
-        -------
-        float
-            Its value at `z1`.
-        """
+    def _read(table: PiecewiseChebyshev) -> float:
+        """Return a scalar table's value at the stage, by the backend's pass."""
         return float(table(z1, helpers=helpers))
 
-    density = read(responses.density)
+    density = _read(responses.density)
     return StageScalars(
         z0=z0,
         z1=z1,
@@ -525,23 +486,23 @@ def scalars(
         phi_at=phi_at,
         prefactor=_prefactor_weights(responses, z1, helpers),
         density=density,
-        taper_scale=1.0 if taper is None else read(taper),
+        taper_scale=1.0 if taper is None else _read(taper),
         raman_rates=tuple(
-            read(table) for term in responses.raman_terms for table in term.decay_rates
+            _read(table) for term in responses.raman_terms for table in term.decay_rates
         ),
         kerr_density=0.0
         if kerr is None
         else density
         if kerr.density is None
-        else read(kerr.density),
+        else _read(kerr.density),
         plasma_densities=tuple(
-            read(channel.density) for channel in responses.population_channels
+            _read(channel.density) for channel in responses.population_channels
         ),
         plasma_preionisation=tuple(
-            read(channel.preionisation) for channel in responses.population_channels
+            _read(channel.preionisation) for channel in responses.population_channels
         ),
         raman_densities=tuple(
-            density if term.density is None else read(term.density)
+            density if term.density is None else _read(term.density)
             for term in responses.raman_terms
         ),
         flow_section=-1 if flow is None else flow_section(flow, z0),
@@ -551,7 +512,7 @@ def scalars(
         transform_weights=transform_weights(problem.transform.modal_tables, z1),
         dispersive_kerr_densities=()
         if responses.dispersive_kerr is None
-        else tuple(read(table) for table in responses.dispersive_kerr.densities),
+        else tuple(_read(table) for table in responses.dispersive_kerr.densities),
     )
 
 
@@ -641,19 +602,8 @@ def scalars_at(
     zs = np.array(where, dtype=np.float64)
     read: dict[int, list[float]] = {}
 
-    def column(table: PiecewiseChebyshev) -> list[float]:
-        """Return a scalar table's values at every position, reading it once.
-
-        Parameters
-        ----------
-        table : solprop.translate.chebyshev.PiecewiseChebyshev
-            A scalar table.
-
-        Returns
-        -------
-        list of float
-            Its values at the step's positions, in order.
-        """
+    def _column(table: PiecewiseChebyshev) -> list[float]:
+        """Return a scalar table's values at every position, reading it once."""
         held = read.get(id(table))
         if held is None:
             held = read[id(table)] = table.at_positions(zs, helpers=helpers).tolist()
@@ -661,11 +611,11 @@ def scalars_at(
 
     phi = _phi_rows(linear, z0, where, zs, at, helpers)
     prefactor = _prefactor_rows(responses, where, zs, helpers)
-    density = column(responses.density)
+    density = _column(responses.density)
     taper = problem.transform.taper_scale
-    tapers = [1.0] * count if taper is None else column(taper)
+    tapers = [1.0] * count if taper is None else _column(taper)
     rates = [
-        column(table) for term in responses.raman_terms for table in term.decay_rates
+        _column(table) for term in responses.raman_terms for table in term.decay_rates
     ]
     kerr = responses.kerr_coefficients
     kerrs = (
@@ -673,19 +623,19 @@ def scalars_at(
         if kerr is None
         else density
         if kerr.density is None
-        else column(kerr.density)
+        else _column(kerr.density)
     )
     channels = responses.population_channels
-    plasma = [column(channel.density) for channel in channels]
-    preionised = [column(channel.preionisation) for channel in channels]
+    plasma = [_column(channel.density) for channel in channels]
+    preionised = [_column(channel.preionisation) for channel in channels]
     raman = [
-        density if term.density is None else column(term.density)
+        density if term.density is None else _column(term.density)
         for term in responses.raman_terms
     ]
     dispersive = (
         []
         if responses.dispersive_kerr is None
-        else [column(table) for table in responses.dispersive_kerr.densities]
+        else [_column(table) for table in responses.dispersive_kerr.densities]
     )
     flow = linear.coupled_flow
     section = -1 if flow is None else flow_section(flow, z0)
@@ -713,7 +663,7 @@ def scalars_at(
     )
 
 
-def _phi_rows(
+def _phi_rows(  # noqa: PLR0917 - called positionally
     linear: LinearOperator,
     z0: float,
     where: list[float],
@@ -727,25 +677,10 @@ def _phi_rows(
 ]:
     """Return :func:`_phi_weights` at each of several positions, reading ``Phi`` once.
 
-    Parameters
-    ----------
-    linear : solprop.translate.linop.LinearOperator
-        Section 3 of the contract.
-    z0 : float
-        The step's anchor, m.
-    where : list of float
-        The positions, m.
-    zs : numpy.ndarray
-        The same positions as float64, shape ``(n_points,)``.
-    at : StepAnchor or None
-        The anchor's weights, hoisted, or ``None`` to evaluate them here.
-    helpers : solprop._helpers.Helpers
-        The implementation of the Clenshaw pass.
-
-    Returns
-    -------
-    list of tuple
-        Per position, ``(weights of Phi(z1) - Phi(z0), weights of Phi(z1))``.
+    - ``z0``: the step's anchor, m.
+    - ``where``: the positions, m.
+    - ``at``: the anchor's weights, hoisted, or ``None`` to evaluate them here.
+    - Returns: per position, ``(weights of Phi(z1) - Phi(z0), weights of Phi(z1))``.
     """
     if linear.phi_constant is not None or linear.separable is not None:
         # The increment is the distance itself, formed per position exactly as
@@ -772,21 +707,8 @@ def _prefactor_rows(
 ) -> list[Float[np.ndarray, " n_pre_terms"] | None]:
     """Return :func:`_prefactor_weights` at each of several positions.
 
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        Section 5 of the contract.
-    where : list of float
-        The positions, m.
-    zs : numpy.ndarray
-        The same positions as float64, shape ``(n_points,)``.
-    helpers : solprop._helpers.Helpers
-        The implementation of the Clenshaw pass.
-
-    Returns
-    -------
-    list
-        Per position, the weights, or ``None`` for the z table.
+    - ``where``: the positions, m.
+    - Returns: per position, the weights, or ``None`` for the z table.
     """
     if responses.prefactor_constant is not None or responses.separable is not None:
         return [_prefactor_weights(responses, z1, helpers) for z1 in where]
@@ -812,22 +734,10 @@ def _phi_weights(
     tabulated range, so the value at `z1` -- which is what the noise's unitary phase
     needs -- is the weights at `z1` against the same terms.
 
-    Parameters
-    ----------
-    linear : solprop.translate.linop.LinearOperator
-        Section 3 of the contract.
-    z0, z1 : float
-        The step's anchor and the stage's position, m.
-    at : StepAnchor or None
-        The anchor's weights, hoisted, or ``None`` to evaluate them here.
-    helpers : solprop._helpers.Helpers
-        The implementation of the Clenshaw pass.
-
-    Returns
-    -------
-    tuple
-        ``(weights of Phi(z1) - Phi(z0), weights of Phi(z1))``, each shape
-        ``(n_phi_terms,)``, or ``(None, None)`` for the z table.
+    - ``z0``, ``z1``: the step's anchor and the stage's position, m.
+    - ``at``: the anchor's weights, hoisted, or ``None`` to evaluate them here.
+    - Returns: ``(weights of Phi(z1) - Phi(z0), weights of Phi(z1))``, each shape
+      ``(n_phi_terms,)``, or ``(None, None)`` for the z table.
     """
     if linear.phi_constant is not None or linear.separable is not None:
         # Phi(z) = D z for a constant operator, so the increment's weight is the
@@ -850,20 +760,9 @@ def _prefactor_weights(
 ) -> Float[np.ndarray, " n_pre_terms"] | None:
     """Return the prefactor's weights at a position, or ``None`` for the z table.
 
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        Section 5 of the contract.
-    z : float
-        Position, m.
-    helpers : solprop._helpers.Helpers
-        The implementation of the Clenshaw pass.
-
-    Returns
-    -------
-    numpy.ndarray or None
-        Shape ``(n_pre_terms,)``. Exactly ``[1.0]`` for a constant, so that combining
-        returns the stored array's own values.
+    - ``z``: position, m.
+    - Returns: exactly ``[1.0]`` for a constant, so that combining returns the stored
+      array's own values.
     """
     if responses.prefactor_constant is not None or responses.separable is not None:
         low, high = responses.prefactor_span

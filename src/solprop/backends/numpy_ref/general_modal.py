@@ -255,18 +255,15 @@ class GeneralMaps:
     node_region: Int32[np.ndarray, " n_nodes_region"] | None = None
 
     @property
-    def moving(self) -> bool:
-        """Return whether the maps move along z.
+    def moving(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the maps move along z.
 
-        Returns
-        -------
-        bool
-            True when the synthesis and projection are Chebyshev terms a stage
-            combines over its ``transform_weights``.
+        True when the synthesis and projection are Chebyshev terms a stage
+        combines over its ``transform_weights``.
         """
         return self.synthesis_terms is not None
 
-    def at(self, weights: Float[np.ndarray, " n_map_weights"] | None) -> "GeneralMaps":  # noqa: UP037 - the hook resolves the class while its body runs
+    def at(self, weights: Float[np.ndarray, " n_map_weights"] | None) -> "GeneralMaps":
         """Return the maps a stage evaluates at, from its ``transform_weights``.
 
         A constant guide's maps are returned as they are, whatever `weights` says,
@@ -313,35 +310,26 @@ class GeneralMaps:
         )
 
     @property
-    def n_terms(self) -> int:
-        """Return how many delayed channels the maps carry.
+    def n_terms(self) -> int:  # numpydoc ignore=RT01
+        """How many delayed channels the maps carry.
 
-        Returns
-        -------
-        int
-            Zero when no region declares a delayed response.
+        Zero when no region declares a delayed response.
         """
         return 0 if self.delayed_tensor is None else int(self.delayed_tensor.shape[1])
 
     @property
-    def n_nodes(self) -> int:
-        """Return how many quadrature nodes the guide's rule carries.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """How many quadrature nodes the guide's rule carries.
 
-        Returns
-        -------
-        int
-            The node axis of ``synthesis``.
+        The node axis of ``synthesis``.
         """
         return int(self.synthesis.shape[0])
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the guide propagates.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the guide propagates.
 
-        Returns
-        -------
-        int
-            The channel axis of ``synthesis``.
+        The channel axis of ``synthesis``.
         """
         return int(self.synthesis.shape[2])
 
@@ -1056,7 +1044,7 @@ def general_memory(
     }
 
 
-def general_source(  # noqa: PLR0913 - a state, its maps and the stage's scalars
+def general_source(
     state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     maps: GeneralMaps,
     crop_index: np.ndarray,

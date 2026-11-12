@@ -609,23 +609,11 @@ def _vector_raman_polarisation(
 ) -> Num[np.ndarray, "n_nodes_chunk 2 n_to"]:
     """Convolve trace, difference and coherence drives with compiled kernels.
 
-    Parameters
-    ----------
-    field_t : numpy.ndarray
-        Cartesian field in V/m, shape ``(n_nodes_chunk, 2, n_to)``.
-    spectrum : numpy.ndarray
-        One or two effective kernels, shape ``(n_raman_kernels, n_to + 1)``.
-    kind : {'field', 'envelope'}
-        Temporal representation.
-    thg : bool
-        Keep the real-field harmonic drive; ignored for envelopes.
-    density : float
-        Outside amplitude density in m^-3, or one for a density-weighted mixture.
-
-    Returns
-    -------
-    numpy.ndarray
-        Cartesian polarisation in C/m^2 with the field's shape.
+    - ``field_t``: Cartesian field in V/m, shape ``(n_nodes_chunk, 2, n_to)``.
+    - ``thg``: keep the real-field harmonic drive; ignored for envelopes.
+    - ``density``: outside amplitude density in m^-3, or one for a density-weighted
+      mixture.
+    - Returns: Cartesian polarisation in C/m^2 with the field's shape.
     """
     n_to = field_t.shape[-1]
     if spectrum.ndim != 2 or spectrum.shape not in ((1, n_to + 1), (2, n_to + 1)):
@@ -801,20 +789,12 @@ def plasma_scan(
 def _rule(integral: RunningIntegral | None) -> RunningIntegral:
     """Return the running-integral rule a plasma pass uses.
 
-    Parameters
-    ----------
-    integral : solprop.nonlinear.ionisation.RunningIntegral or None
-        The problem's rule, or ``None`` for the trapezoid.
-
-    Returns
-    -------
-    solprop.nonlinear.ionisation.RunningIntegral
-        `integral`, or the trapezoid.
+    - ``integral``: the problem's rule, or ``None`` for the trapezoid.
     """
     return RunningIntegral.trapezoid() if integral is None else integral
 
 
-def plasma_current(  # noqa: PLR0913 - the oracle's own inputs, three of them per node
+def plasma_current(
     field_t: Float[np.ndarray, "n_nodes_chunk n_pol n_to"],
     rate: Float[np.ndarray, "n_nodes_chunk n_to"],
     fraction: Float[np.ndarray, "n_nodes_chunk n_to"],
@@ -901,23 +881,10 @@ def _plasma_total_current(
 ) -> Float[np.ndarray, "n_nodes_chunk n_pol n_to"]:
     """Add the guarded loss current to the free current, per unit density.
 
-    Parameters
-    ----------
-    field_t : numpy.ndarray
-        Real field in V/m, shape ``(n_nodes_chunk, n_pol, n_to)``.
-    rate : numpy.ndarray
-        Ionisation rate in s⁻¹, shape ``(n_nodes_chunk, n_to)``.
-    fraction : numpy.ndarray
-        Dimensionless ionised population, with the same shape as the rate.
-    free_current : numpy.ndarray
-        Free current per unit number density, with the same shape as the field.
-    coefficients : PlasmaCoefficients
-        Ionisation potential in J and the compiled single-channel model.
-
-    Returns
-    -------
-    numpy.ndarray
-        Total current per unit number density in A m, with the field's shape.
+    - ``field_t``: real field in V/m, shape ``(n_nodes_chunk, n_pol, n_to)``.
+    - ``rate``: ionisation rate in s⁻¹, shape ``(n_nodes_chunk, n_to)``.
+    - ``coefficients``: ionisation potential in J and the compiled single-channel model.
+    - Returns: total current per unit number density in A m, with the field's shape.
     """
     # The squared magnitude rather than the field itself: it is the divisor the guard
     # has to test, and it underflows to zero below about 1e-162 V/m.
@@ -1078,6 +1045,7 @@ def plasma_channels_polarisation(
     densities: tuple[float, ...],
     preionisation: tuple[float, ...],
     dt: float,
+    *,
     integral: RunningIntegral | None = None,
 ) -> Float[np.ndarray, "n_nodes_chunk n_pol n_to"]:
     r"""Sum channel weights before the two shared current integrals.
@@ -1120,7 +1088,7 @@ def plasma_channels_polarisation(
     )
 
 
-def _plasma_channels_current(
+def _plasma_channels_current(  # noqa: PLR0917 - called through a reference
     field_t: Float[np.ndarray, "n_nodes_chunk n_pol n_to"],
     channels: tuple[PlasmaChannel, ...],
     densities: tuple[float, ...],
@@ -1136,30 +1104,13 @@ def _plasma_channels_current(
     current is pointwise.
     The original one-channel pass retains its density outside the integrals.
 
-    Parameters
-    ----------
-    field_t : numpy.ndarray
-        Real node fields in V/m, shape (n_nodes_chunk, n_pol, n_to).
-    channels : tuple of PlasmaChannel
-        Ordered independent channel coefficients.
-    densities : tuple of float
-        Number density of each population in m^-3.
-    preionisation : tuple of float
-        Initial fraction of each population, dimensionless in [0, 1].
-    dt : float
-        Fine-grid sample spacing in s.
-    integral : solprop.nonlinear.ionisation.RunningIntegral or None, optional
-        The running-integral rule shared by every channel; ``None`` is the trapezoid.
-
-    Returns
-    -------
-    numpy.ndarray
-        Total plasma current density in A/m², with the field shape.
-
-    Raises
-    ------
-    BackendError
-        If there is not one density per channel.
+    - ``field_t``: real node fields in V/m, shape (n_nodes_chunk, n_pol, n_to).
+    - ``densities``: number density of each population in m^-3.
+    - ``preionisation``: initial fraction of each population, dimensionless in [0, 1].
+    - ``dt``: Fine-grid sample spacing in s.
+    - ``integral``: the running-integral rule shared by every channel; ``None`` is the
+      trapezoid.
+    - Returns: the total plasma current density in A/m², with the field's shape.
     """
     if len(densities) != len(channels):
         raise BackendError("plasma channels require one density each")
@@ -1286,7 +1237,7 @@ def tensor_raman_spectrum(
     return transforms.rfft(total, axis=-1) * dt
 
 
-def nonlinear_polarisation(  # noqa: PLR0913 - the fused pass takes what the responses need
+def nonlinear_polarisation(
     field_t: Num[np.ndarray, "n_nodes_chunk n_pol n_to"],
     responses: CompiledResponses,
     t_window_fine: Float[np.ndarray, " n_to_window"],
@@ -1414,7 +1365,7 @@ class NonlinearSources:
     current: Float[np.ndarray, "n_nodes_chunk n_pol n_to"] | None
 
 
-def nonlinear_sources(  # noqa: PLR0913 - the fused pass takes what the responses need
+def nonlinear_sources(
     field_t: Num[np.ndarray, "n_nodes_chunk n_pol n_to"],
     responses: CompiledResponses,
     t_window_fine: Float[np.ndarray, " n_to_window"],
@@ -1694,15 +1645,7 @@ def _magnitude(
 ) -> Float[np.ndarray, "n_nodes_chunk n_to"]:
     """Return the field magnitude the ionisation rate and the loss term take.
 
-    Parameters
-    ----------
-    field_t : numpy.ndarray
-        The real field at the chunk's nodes, shape ``(n_nodes_chunk, n_pol, n_to)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``|E|`` in V/m, shape ``(n_nodes_chunk, n_to)``.
+    - Returns: ``|E|`` in V/m, shape ``(n_nodes_chunk, n_to)``.
     """
     if field_t.shape[-2] == 1:
         return np.abs(field_t[..., 0, :])
@@ -1710,23 +1653,7 @@ def _magnitude(
 
 
 def _kerr(responses: CompiledResponses) -> KerrCoefficients:
-    """Return the compiled Kerr coefficients a declared Kerr stage promised.
-
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        The compiled responses.
-
-    Returns
-    -------
-    solprop.translate.responses.KerrCoefficients
-        The coefficients.
-
-    Raises
-    ------
-    BackendError
-        If the order names the stage and the coefficients are absent.
-    """
+    """Return the compiled Kerr coefficients a declared Kerr stage promised."""
     if responses.kerr_coefficients is None:
         msg = "response_order names the Kerr stage but no coefficients were compiled"
         raise BackendError(msg)
@@ -1734,23 +1661,7 @@ def _kerr(responses: CompiledResponses) -> KerrCoefficients:
 
 
 def _plasma(responses: CompiledResponses) -> PlasmaCoefficients:
-    """Return the compiled plasma group a declared plasma stage promised.
-
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        The compiled responses.
-
-    Returns
-    -------
-    solprop.translate.responses.PlasmaCoefficients
-        The group.
-
-    Raises
-    ------
-    BackendError
-        If the order names a plasma stage and the group is absent.
-    """
+    """Return the compiled plasma group a declared plasma stage promised."""
     if responses.plasma_coefficients is None:
         msg = "response_order names a plasma stage but no coefficients were compiled"
         raise BackendError(msg)
@@ -1768,20 +1679,7 @@ def _raman_thg(responses: CompiledResponses) -> bool:
     now carried, so it is read where it belongs. An envelope grid's drive is ``|A|^2/2``
     whatever it says, which is why the value is not checked there.
 
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        The compiled responses.
-
-    Returns
-    -------
-    bool
-        True when the drive is ``E^2`` rather than ``|E_a|^2/2``.
-
-    Raises
-    ------
-    BackendError
-        If no Raman leaf was compiled, so there is no drive to describe.
+    - Returns: True when the drive is ``E^2`` rather than ``|E_a|^2/2``.
     """
     compiled = responses.raman_terms
     if not compiled:
@@ -1797,23 +1695,7 @@ def _raman_thg(responses: CompiledResponses) -> bool:
 def _raman(
     spectrum: Complex[np.ndarray, "... n_omega_doubled"] | None,
 ) -> Complex[np.ndarray, "... n_omega_doubled"]:
-    """Return the Raman kernel spectrum a declared Raman stage promised.
-
-    Parameters
-    ----------
-    spectrum : numpy.ndarray or None
-        What the caller formed for this position.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same spectrum.
-
-    Raises
-    ------
-    BackendError
-        If the order names the stage and no spectrum was formed.
-    """
+    """Return the Raman kernel spectrum a declared Raman stage promised."""
     if spectrum is None:
         msg = (
             "response_order names the Raman stage but no kernel spectrum was given; "
@@ -1824,23 +1706,7 @@ def _raman(
 
 
 def _plasma_rate(responses: CompiledResponses) -> RateTable:
-    """Return the rate table the ionisation stage reads.
-
-    Parameters
-    ----------
-    responses : solprop.translate.responses.CompiledResponses
-        The compiled responses.
-
-    Returns
-    -------
-    solprop.translate.ionisation.RateTable
-        The table.
-
-    Raises
-    ------
-    BackendError
-        If the order names the stage and no table was compiled.
-    """
+    """Return the rate table the ionisation stage reads."""
     if len(responses.ionisation_table) != 1:
         msg = "response_order names the ionisation stage but no rate table was compiled"
         raise BackendError(msg)
@@ -1848,23 +1714,7 @@ def _plasma_rate(responses: CompiledResponses) -> RateTable:
 
 
 def _checked[T](value: T | None) -> T:
-    """Return a stage result the compiled order guarantees is present.
-
-    Parameters
-    ----------
-    value : object or None
-        What the earlier stage produced.
-
-    Returns
-    -------
-    object
-        The same value.
-
-    Raises
-    ------
-    BackendError
-        If a stage ran before the one that feeds it.
-    """
+    """Return a stage result the compiled order guarantees is present."""
     if value is None:
         msg = (
             "a plasma stage ran before the one that feeds it; response_order is out of "

@@ -32,7 +32,6 @@ import json
 import logging
 import math
 import warnings
-import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import ROUND_FLOOR, Decimal
@@ -42,6 +41,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Num
 
+from solprop._ownership import frozen_copy, hold, is_held
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
@@ -101,7 +101,10 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
+from solprop.translate.chebyshev import (
+    DEFAULT_TOL,
+    PiecewiseChebyshev,
+)
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     CoupledFlowTables,
@@ -387,8 +390,8 @@ class Flags:
         linear: LinearOperator,
         transform: Transform,
         responses: CompiledResponses,
-        initial: "Initial",  # noqa: UP037 - bound after this class body
-    ) -> "Flags":  # noqa: UP037 - beartype resolves it while the body still runs
+        initial: "Initial",
+    ) -> "Flags":
         """Derive the flags from the problem's own content.
 
         Parameters
@@ -463,7 +466,7 @@ class Initial:
       block's bytes rather than one state's;
     - an array the problem already holds, which a replaced or re-translated problem
       passes back, is taken as it is, and so is one solprop built for the problem
-      itself (``_hold``), so that neither is copied twice.
+      itself (``hold``), so that neither is copied twice.
 
     Attributes
     ----------
@@ -522,7 +525,7 @@ class Initial:
         state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
-            noise = _held_copy(self.noise0, np.complex128)
+            noise = frozen_copy(self.noise0, np.complex128)
             object.__setattr__(self, "noise0", noise)
             if noise.shape != state.shape:
                 msg = (
@@ -545,19 +548,7 @@ _ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
 
 
 def _refuse_unread_control(controller: PIController) -> None:
-    """Refuse a controller setting the Adams march would ignore, by name.
-
-    Parameters
-    ----------
-    controller : solprop.stepper.controller.PIController
-        The run's controller.
-
-    Raises
-    ------
-    TranslationError
-        Naming each field set away from its default that the Adams march does not
-        read.
-    """
+    """Refuse a controller setting the Adams march would ignore, by name."""
     default = PIController(rtol=controller.rtol, atol=controller.atol)
     unread = [
         one.name
@@ -674,7 +665,7 @@ class StepperSettings:
         TranslationError
             Naming the offending field.
         """
-        planes = _readonly(np.asarray(self.save_planes, dtype=np.float64).reshape(-1))
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         object.__setattr__(self, "save_planes", planes)
         if planes.size == 0 or not np.all(np.diff(planes) > 0.0):
             msg = f"save_planes must be non-empty and increasing, got {planes}"
@@ -715,16 +706,6 @@ class StepperSettings:
         The march accepts every step in place and has no estimate, so it replays a
         prescribed schedule and nothing else (SEP 24 section 5); `dz_max` stays a true
         statement about the run it records, so a longer schedule step is refused.
-
-        Parameters
-        ----------
-        method : solprop.stepper.low_storage.LowStorageRungeKutta
-            The march asked for.
-
-        Raises
-        ------
-        TranslationError
-            Naming the setting and its remedy.
         """
         if self.schedule is None:
             msg = (
@@ -752,13 +733,8 @@ class StepperSettings:
             raise TranslationError(msg)
 
     @property
-    def z_end(self) -> float:
-        """Return the last save plane, where the run stops.
-
-        Returns
-        -------
-        float
-            The largest save plane, m.
+    def z_end(self) -> float:  # numpydoc ignore=RT01
+        """Last save plane, where the run stops, m.
 
         Examples
         --------
@@ -786,135 +762,35 @@ class _RunPolicy(NamedTuple):
     stats: StatsSpec
 
 
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only view or copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
-
-
-_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
-"""The arrays an :class:`Initial` holds as its own, by ``id``.
-
-An array is in it because solprop made it -- a copy :class:`Initial` took, or one the
-translation built for the problem (:func:`_hold`) -- never because of its flags, which
-the owner of an array, or a writeable buffer beneath it, can change. Entries leave with
-their arrays.
-"""
-
-
-def _hold(values: np.ndarray) -> np.ndarray:
-    """Return an array solprop made for a problem, frozen and marked as held.
-
-    Only for an array no one else refers to: a copy, a quotient or a fresh build.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only, which :class:`Initial` takes without a copy.
-    """
-    values.setflags(write=False)
-    _HELD[id(values)] = values
-    return values
-
-
-def _is_held(values: object) -> bool:
-    """Return whether an array is one :func:`_hold` marked.
-
-    Parameters
-    ----------
-    values : object
-        Anything.
-
-    Returns
-    -------
-    bool
-        True for the very array that was marked, while it lives.
-    """
-    return _HELD.get(id(values)) is values
-
-
-def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held, C-contiguous copy of an array, or the array if already held.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The caller's array, or one already held.
-    dtype : numpy.dtype or type
-        The element type of the copy, byte order included.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only and the problem's own, of `dtype`.
-    """
-    if _is_held(values) and values.dtype == dtype:
-        return values
-    return _hold(np.array(values, dtype=dtype, order="C"))
-
-
 def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
+    """Return an array as solprop holds it, a broadcast copying its block alone.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The caller's array, of any numeric dtype, or one already held.
-    dtype : numpy.dtype or type
-        The element type of the copy, byte order included.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only, of `dtype`: `values` itself when it is already held with that
-        dtype; for a broadcast view, a broadcast of a held copy of the block it
-        repeats; otherwise a held C-contiguous copy.
+    - Returns: read-only, held and of `dtype`: for a broadcast view, a broadcast of the
+      block it repeats, which is copied unless already held and C-contiguous; otherwise
+      :func:`~solprop._ownership.frozen_copy` of `values`, so a strided view is copied
+      to a C-contiguous array even when it views a held one.
     """
-    if _is_held(values) and values.dtype == dtype:
-        return values
     repeated = tuple(
         size > 1 and stride == 0
         for size, stride in zip(values.shape, values.strides, strict=True)
     )
     if not any(repeated):
-        return _held_copy(values, dtype)
-    block = _held_copy(
-        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)], dtype
-    )
-    return _hold(np.broadcast_to(block, values.shape))
+        return frozen_copy(values, dtype)
+    sliced = values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)]
+    block = frozen_copy(sliced, dtype)
+    if block is sliced and is_held(values):
+        # Already a broadcast of a held block: taken back as it is.
+        return values
+    # A read-only view of a held block, so itself held.
+    return np.broadcast_to(block, values.shape)
 
 
 def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
     """Return the initial state as :class:`Initial` holds it, copying only the block.
 
-    Parameters
-    ----------
-    field0 : numpy.ndarray
-        The state the caller passed, of any numeric dtype.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex128 and read-only: `field0` itself when it is already held as
-        complex128; for a broadcast view, a broadcast of a held copy of the block it
-        repeats; otherwise a held C-contiguous copy (:func:`_held_block`).
+    - Returns: Complex128 and read-only: `field0` itself when it is already held as
+      complex128; for a broadcast view, a broadcast of a held copy of the block it
+      repeats; otherwise a held C-contiguous copy (:func:`_held_block`).
     """
     return _held_block(np.asarray(field0), np.complex128)
 
@@ -992,19 +868,16 @@ class PropagationProblem:
     split_crossing: SplitCrossing | None = None
 
     @property
-    def transform(self) -> Transform:
-        """Return the route's transform, which every route variant carries.
+    def transform(self) -> Transform:  # numpydoc ignore=RT01
+        """The route's transform, which every route variant carries.
 
-        Returns
-        -------
-        solprop.translate.modal.Transform
-            Synthesis and projection (section 4).
+        Synthesis and projection (section 4).
         """
         return self.route.transform
 
     @property
-    def device_ready(self) -> bool:
-        """Return whether both z-varying arrays are in the seam's device form.
+    def device_ready(self) -> bool:  # numpydoc ignore=RT01
+        """Whether both z-varying arrays are in the seam's device form.
 
         True when ``Phi`` and the prefactor each evaluate as a weighted sum of a fixed
         set of arrays over host scalars -- the constant fast path with one term and the
@@ -1016,10 +889,7 @@ class PropagationProblem:
         accelerator build refuses through
         :func:`solprop.translate.stage.require_device_ready`.
 
-        Returns
-        -------
-        bool
-            Whether neither representation is ``"table"``.
+        Whether neither representation is ``"table"``.
 
         Examples
         --------
@@ -1097,16 +967,8 @@ class PropagationProblem:
     def _validate(self, run: _RunPolicy | None) -> None:
         """Run the checks in their one order, those of the run only with a request.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics, or ``None`` for the checks the
-            problem makes alone.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
+        - ``run``: the run's stepper section and statistics, or ``None`` for the checks
+          the problem makes alone.
         """
         if run is not None:
             self._check_integrator(run.stepper)
@@ -1127,7 +989,7 @@ class PropagationProblem:
         self._check_modal_leaves(run)
         self._check_tables(run)
 
-    def validate_launch(self, request: "RunRequest") -> None:  # noqa: UP037
+    def validate_launch(self, request: "RunRequest") -> None:
         """Check the launch against the save planes, and a schedule against them.
 
         The part of :func:`validate_run` a replaced input with a new launch position
@@ -1168,16 +1030,6 @@ class PropagationProblem:
 
         Each variant checks its own fields (``validate``, also run on construction);
         what spans groups is checked here, one variant at a time (SEP 47 section 6.2).
-
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics, or ``None``.
-
-        Raises
-        ------
-        TranslationError
-            Naming the route and what disagrees.
         """
         # Again here, as every group's own checks are: a problem may hold a route
         # that was changed after it was built.
@@ -1215,16 +1067,6 @@ class PropagationProblem:
         Its half-step flows are exact exponentials of commuting diagonal values, so a
         coupled flow, whose flows are not, would leave an error outside the
         Runge-Kutta order; the TDSE response is the Adams route's alone.
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            Naming the configuration and the integrator that steps it.
         """
         method = stepper.integrator
         if not isinstance(method, LowStorageRungeKutta):
@@ -1252,16 +1094,8 @@ class PropagationProblem:
         electronic response, the far-field statistics and noise models are outside
         SEP 33's scope, so every backend refuses them under ``precision="single"``.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics; ``None`` leaves the statistics
-            and the step's exponent to :func:`validate_run`.
-
-        Raises
-        ------
-        TranslationError
-            Naming the refused route, response or statistic.
+        - ``run``: the run's stepper section and statistics; ``None`` leaves the
+          statistics and the step's exponent to :func:`validate_run`.
         """
         if not isinstance(
             self.precision, Precision
@@ -1323,21 +1157,6 @@ class PropagationProblem:
         kind is checked: the exponent is evaluated from the operator itself over that
         step at the start and the end of the run, which for a varying operator samples
         its range.
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            Past ``log(FLT_MAX)``, naming the exponent, the step and the remedies.
-
-        Warns
-        -----
-        solprop.exceptions.ExponentBudgetWarning
-            Between nine tenths of the limit and the limit.
         """
         schedule = stepper.schedule
         step, source = (
@@ -1409,18 +1228,8 @@ class PropagationProblem:
     def _check_tdse(self, source: TDSESource, stepper: StepperSettings | None) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route.
 
-        Parameters
-        ----------
-        source : solprop.translate.routes.TDSESource
-            The modal route's TDSE extension.
-        stepper : StepperSettings or None
-            The run's stepper section; ``None`` leaves the method to
-            :func:`validate_run`.
-
-        Raises
-        ------
-        TranslationError
-            Naming what departs from the scalar resolved modal Adams route.
+        - ``stepper``: the run's stepper section; ``None`` leaves the method to
+          :func:`validate_run`.
         """
         descriptor = source.descriptor
         if (
@@ -1507,17 +1316,9 @@ class PropagationProblem:
 
         The initial state alone may be strided (:data:`_STRIDED_LEAVES`).
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics, whose arrays are held to the
-            same rules under their names ``stepper`` and ``stats_spec``; ``None``
-            checks the problem's alone.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
+        - ``run``: the run's stepper section and statistics, whose arrays are held to
+          the same rules under their names ``stepper`` and ``stats_spec``; ``None``
+          checks the problem's alone.
         """
         for name, values in _walk_arrays(self, run):
             if not values.flags.c_contiguous and name not in _STRIDED_LEAVES:
@@ -1551,13 +1352,7 @@ class PropagationProblem:
                 raise TranslationError(msg)
 
     def _check_shapes(self) -> None:
-        """Check every array agrees with the canonical state shape.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
-        """
+        """Check every array agrees with the canonical state shape."""
         n_modes, n_pol, n_omega = self.shape
         if self.initial.field0.shape != self.shape:
             msg = (
@@ -1652,11 +1447,8 @@ class PropagationProblem:
     def _check_spatial(self, run: _RunPolicy | None) -> None:
         """Check spatial geometry and the shared separable representation agree.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics; ``None`` leaves the propagator
-            mode to :func:`validate_run`.
+        - ``run``: the run's stepper section and statistics; ``None`` leaves the
+          propagator mode to :func:`validate_run`.
         """
         geometry = self.transform.geometry
         separable = self.linear.separable
@@ -1708,16 +1500,8 @@ class PropagationProblem:
     def _check_slab(self, separable: SeparableOperator) -> None:
         """Check the hybrid planar operator against its geometry and transform.
 
-        Parameters
-        ----------
-        separable : solprop.translate.spatial.SeparableOperator
-            The shared coefficients, which must carry one wall term per channel.
-
-        Raises
-        ------
-        TranslationError
-            If the wall terms are absent, their channels are not the transform's,
-            or a column's ``kperp_sq`` is not its ``k_y**2`` with the channel fastest.
+        - ``separable``: the shared coefficients, which must carry one wall term per
+          channel.
         """
         geometry = self.transform.geometry
         assert geometry is not None
@@ -1742,11 +1526,6 @@ class PropagationProblem:
         the operator: a table must be one interval of degree zero, an
         expansion one term, and either must hold this array, so that a backend taking
         the array sees what a Clenshaw pass would.
-
-        Raises
-        ------
-        TranslationError
-            If the representation is not degenerate, or does not agree with the array.
         """
         constant = self.responses.prefactor_constant
         if constant is None:
@@ -1798,16 +1577,6 @@ class PropagationProblem:
         already fixed, and a floor ``dz_min`` set above the limit. Past the limit the
         collar amplifies the field it should absorb, and the run diverges, so they are
         refused rather than run.
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            Naming the limit, the offending step and the scheme that lifts it.
         """
         geometry = self.transform.geometry
         if geometry is not None and np.any(geometry.absorber_rate):
@@ -1863,22 +1632,6 @@ class PropagationProblem:
         forms the same inverse factor from it, so it is bounded by
         :func:`solprop.translate.radial.radial_rate_bounds` instead (SEP 22, Q16);
         the modal kinds are not checked.
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            Naming the binding term, its value, the factor and the admissible step
-            and rate.
-
-        Warns
-        -----
-        solprop.exceptions.ExponentBudgetWarning
-            Between nine tenths of the limit and the limit.
         """
         operator = self.linear.separable
         geometry = self.transform.geometry
@@ -1924,15 +1677,7 @@ class PropagationProblem:
     def _runge_kutta_advice(stepper: StepperSettings) -> str:
         """Name the Runge-Kutta march where an Adams method's interval is the limit.
 
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Returns
-        -------
-        str
-            A clause ending in ", " for an Adams run, otherwise empty.
+        - Returns: a clause ending in ", " for an Adams run, otherwise empty.
         """
         if not isinstance(stepper.integrator, Multistep):
             return ""
@@ -1947,16 +1692,6 @@ class PropagationProblem:
         DOPRI5's :data:`solprop.boundaries.STABILITY_RADIUS`, the Adams method's far
         smaller one at its highest order (SEP 16 admits Adams schedules), or RK4's
         2.785 under the low-storage march (SEP 24 section 4.6).
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Returns
-        -------
-        float
-            The largest ``h |lambda|`` an explicitly integrated damping rate allows.
         """
         method = stepper.integrator
         if method is None:
@@ -1966,16 +1701,7 @@ class PropagationProblem:
     def _check_spatial_collar_stability(self, stepper: StepperSettings) -> None:
         """Refuse a step past the spatial collar's limit in the energy-weighted basis.
 
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            When a replayed schedule's longest step, or the step floor, exceeds
-            the limit.
+        The step checked is a replayed schedule's longest, or else the step floor.
         """
         geometry = self.transform.geometry
         if geometry is None:
@@ -2029,16 +1755,6 @@ class PropagationProblem:
         because it is bound first by damping accuracy, ``alpha0 h / 2 <= 1.3``
         (:data:`solprop.spatial_absorber.DAMPING_BOUND`). An adaptive run is held to
         the crossing limit through ``dz_max`` instead (:func:`assemble`).
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section.
-
-        Raises
-        ------
-        TranslationError
-            Naming the bound and the longest step.
         """
         route = self.route
         design = route.transverse if isinstance(route, SpatialRoute) else None
@@ -2064,13 +1780,7 @@ class PropagationProblem:
             raise TranslationError(msg)
 
     def _check_carrier(self) -> None:
-        """Check the harmonic carrier against the Kerr term that needs it.
-
-        Raises
-        ------
-        TranslationError
-            If the carrier is present without a harmonic term or absent with one.
-        """
+        """Check the harmonic carrier against the Kerr term that needs it."""
         wanted = self.responses.harmonic_carrier
         if (self.grids.carrier_2w0 is not None) != wanted:
             msg = (
@@ -2187,13 +1897,6 @@ class PropagationProblem:
 
         On the general modal route each channel names a node region of the guide
         rather than a population of the run's material.
-
-        Raises
-        ------
-        TranslationError
-            If its arrays are not on the fine grid's spectral layout, a channel names
-            an unknown population or region, its carrier flag disagrees with the grid
-            and the sector, or a density table does not cover the run.
         """
         leaf = self.responses.dispersive_kerr
         if leaf is None:
@@ -2270,16 +1973,8 @@ class PropagationProblem:
         Every leaf is ``None`` on every route that exists today, and the whole
         method is then a single test of four references.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics; ``None`` leaves the run's
-            extent along z to :func:`validate_run`.
-
-        Raises
-        ------
-        TranslationError
-            Naming the leaf that disagrees with the state.
+        - ``run``: the run's stepper section and statistics; ``None`` leaves the run's
+          extent along z to :func:`validate_run`.
         """
         n_modes, n_pol, _ = self.shape
         tables = self.transform.modal_tables
@@ -2360,16 +2055,8 @@ class PropagationProblem:
         Every leaf tabulated along z must also cover the run, as
         :meth:`_check_tables` requires of every other z table.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics, whose last plane the leaves must
-            reach; ``None`` checks the axes alone.
-
-        Raises
-        ------
-        TranslationError
-            Naming the leaf whose axis is not the state's.
+        - ``run``: the run's stepper section and statistics, whose last plane the leaves
+          must reach; ``None`` checks the axes alone.
         """
         omega = self.grids.omega
         z_end = None if run is None else run.stepper.z_end
@@ -2415,17 +2102,9 @@ class PropagationProblem:
     def _check_tables(self, run: _RunPolicy | None) -> None:
         """Check the z tables cover the run, and the schedule contains its targets.
 
-        Parameters
-        ----------
-        run : _RunPolicy or None
-            The run's stepper section and statistics; ``None`` checks the tables
-            against each other alone, and leaves the run's extent, its schedule, the
-            collar's stability and the exponent budget to :func:`validate_run`.
-
-        Raises
-        ------
-        TranslationError
-            Naming the field that failed.
+        - ``run``: the run's stepper section and statistics; ``None`` checks the tables
+          against each other alone, and leaves the run's extent, its schedule, the
+          collar's stability and the exponent budget to :func:`validate_run`.
         """
         edges = self.linear.phi_breakpoints
         if not np.all(np.diff(edges) > 0.0):
@@ -2480,17 +2159,6 @@ class PropagationProblem:
         is refused by name rather than integrated; adaptive
         stepping needs no such rule, because the driver lands on every hard kink
         itself.
-
-        Parameters
-        ----------
-        stepper : StepperSettings
-            The run's stepper section, which replays a schedule.
-
-        Raises
-        ------
-        TranslationError
-            If a target is not an edge of the schedule, or if a coupled flow's kink
-            is straddled rather than landed on.
         """
         schedule = stepper.schedule
         assert schedule is not None
@@ -2542,10 +2210,10 @@ class Translation(NamedTuple):
     """
 
     problem: PropagationProblem
-    request: "RunRequest"  # noqa: UP037 - the request module imports this one
+    request: "RunRequest"
 
 
-def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:  # noqa: UP037
+def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     """Check a problem and the request it is run with, before anything is allocated.
 
     Everything :meth:`PropagationProblem.validate` checks, in the same order, and
@@ -2614,20 +2282,8 @@ def _budget_term(
 ) -> tuple[str, float, float | None]:
     """Return the exponent budget's binding term: its name, value and what remains.
 
-    Parameters
-    ----------
-    bounds : solprop.translate.spatial.RateBounds
-        The operator's bounds.
-    span : int
-        Steps a gain factor spans.
-    attenuation : str
-        The name of the `propagating` term, which no setting moves.
-
-    Returns
-    -------
-    tuple
-        The term's description, its rate in m^-1, and the rest of the loss bound
-        beside it (``None`` for a term no setting moves).
+    - Returns: the term's description, its rate in m^-1, and the rest of the loss bound
+      beside it (``None`` for a term no setting moves).
     """
     if span * bounds.gain > bounds.loss:
         return f"the medium's gain over {span} step(s)", span * bounds.gain, None
@@ -2643,7 +2299,7 @@ def _budget_term(
     return name, scale * value, bounds.loss - value
 
 
-def _budget_message(
+def _budget_message(  # noqa: PLR0917 - called positionally
     source: str,
     step: float,
     bounds: RateBounds,
@@ -2653,25 +2309,7 @@ def _budget_message(
 ) -> str:
     """Describe the factor a step forms, naming the binding term.
 
-    Parameters
-    ----------
-    source : str
-        Which step: the replayed schedule's or the floor.
-    step : float
-        The step, m.
-    bounds : solprop.translate.spatial.RateBounds
-        The operator's bounds.
-    span : int
-        Steps a gain factor spans.
-    exponent : float
-        The factor's exponent.
-    attenuation : str
-        The name of the operator's own attenuation term.
-
-    Returns
-    -------
-    str
-        The opening of the message.
+    - ``step``: the step, m.
     """
     name, value, _ = _budget_term(bounds, span, attenuation)
     return (
@@ -2685,23 +2323,7 @@ def _budget_remedy(
 ) -> str:
     """Name the admissible step, and the admissible rate when a setting binds.
 
-    Parameters
-    ----------
-    step : float
-        The step, m.
-    bounds : solprop.translate.spatial.RateBounds
-        The operator's bounds.
-    span : int
-        Steps a gain factor spans.
-    limit : float
-        The exponent to stay within.
-    attenuation : str
-        The name of the operator's own attenuation term.
-
-    Returns
-    -------
-    str
-        The remedy.
+    - ``step``: the step, m.
     """
     name, value, rest = _budget_term(bounds, span, attenuation)
     rate = max(bounds.loss, span * bounds.gain)
@@ -2774,7 +2396,7 @@ class _Assembly:
     tol: float
     has_noise: bool
     dz_max: float
-    reuse: "TranslationReuse | None"  # noqa: UP037 - bound after this class body
+    reuse: "TranslationReuse | None"
     kinks: tuple[tuple[float, str], ...] = ()
     taper_coupling: bool = True
     evanescent_rate: float | None = None
@@ -2792,20 +2414,7 @@ def _check_operator_settings(
 ) -> None:
     """Refuse the separable-operator settings where they cannot apply.
 
-    Parameters
-    ----------
-    spatial : bool
-        Whether the run has a spatial grid.
-    evanescent_rate : float or None
-        The requested evanescent cap, m^-1.
-    spatial_absorber : solprop.spatial_absorber.SpatialAbsorber or None
-        The requested transverse boundary.
-
-    Raises
-    ------
-    TranslationError
-        If either is set on a run without a spatial grid, or the rate is not
-        positive and finite.
+    - ``evanescent_rate``: the requested evanescent cap, m^-1.
     """
     if not spatial and (evanescent_rate is not None or spatial_absorber is not None):
         msg = (
@@ -2828,17 +2437,8 @@ def _refuse_planes_at_jumps(
     SEP 34 section 4.4: a plane at a jump measures one side's forward closure, and
     a request that does not say which is ambiguous.
 
-    Parameters
-    ----------
-    medium : solprop.spatial.SpatialMedium or None
-        The run's medium; None for a modal run, which has none.
-    planes : numpy.ndarray
-        The requested save positions in m.
-
-    Raises
-    ------
-    TranslationError
-        If a plane lies exactly on a declared jump.
+    - ``medium``: the run's medium; None for a modal run, which has none.
+    - ``planes``: the requested save positions in m.
     """
     if medium is None:
         return
@@ -2869,26 +2469,11 @@ def _spatial_assembly(
 ]:
     """Assemble the operator, the transform, the prefactor and the plane measure.
 
-    Parameters
-    ----------
-    spatial_grid : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The transverse geometry; a :class:`solprop.modes.slab.PlanarGrid` is the
-        hybrid planar transform (slab modes in x, an FFT in y).
-    medium : solprop.spatial.SpatialMedium
-        Material and density path.
-    grid : solprop.grid.TimeGrid
-        The run's temporal grid.
-    frame : solprop.linear.Frame
-        The co-moving frame.
-    build : _Assembly
-        The assembly's knobs.
-
-    Returns
-    -------
-    tuple
-        The operator, the transform, the already translated prefactor, the run's
-        plane measure and its transverse boundary's design (SEP 40), ``None`` for
-        none.
+    - ``spatial_grid``: the transverse geometry; a
+      :class:`solprop.modes.slab.PlanarGrid` is the hybrid planar transform (slab modes
+      in x, an FFT in y).
+    - Returns: the operator, the transform, the already translated prefactor, the run's
+      plane measure and its transverse boundary's design (SEP 40), ``None`` for none.
     """
     dispersion = (
         SpatialDispersion(medium, grid, frame)
@@ -3026,21 +2611,10 @@ def _crossing_clamped(
     ``exp(alpha_s h / 2)`` stays within half the precision's range, so a strong ramp on
     a fine grid cannot overflow it.
 
-    Parameters
-    ----------
-    design : solprop.spatial_absorber.SpatialAbsorberDesign or None
-        The run's transverse boundary.
-    dz_max : float
-        The requested largest step, m.
-    dz_init : float
-        The requested first step, m.
-    single : bool, optional
-        Whether the state is binary32, whose range is smaller.
-
-    Returns
-    -------
-    tuple
-        The largest step and the first step, m.
+    - ``dz_max``: the requested largest step, m.
+    - ``dz_init``: the requested first step, m.
+    - ``single``: whether the state is binary32, whose range is smaller.
+    - Returns: the largest step and the first step, m.
     """
     if design is None:
         return dz_max, dz_init
@@ -3073,24 +2647,9 @@ def _split_crossing(
     then by the boundary monitor from the state at every check. The in-stage scheme,
     and a run without a temporal collar, have no such limit.
 
-    Parameters
-    ----------
-    compiled : solprop.translate.responses.CompiledResponses
-        The compiled responses, with the temporal collar and its scheme.
-    linear : LinearOperator
-        The linear operator, whose group delays walk.
-    grid : solprop.grid.TimeGrid
-        The grid, with the collar and the active band.
-    launch : numpy.ndarray
-        The launched state, shape ``(n_modes, n_pol, n_omega)``.
-    columns : numpy.ndarray or None
-        The modes' quadrature weights, as the boundary monitor weighs them, or
-        ``None`` for unit weights.
-
-    Returns
-    -------
-    solprop.boundaries.SplitCrossing or None
-        The limit, or ``None`` when none applies.
+    - ``columns``: the modes' quadrature weights, as the boundary monitor weighs them,
+      or ``None`` for unit weights.
+    - Returns: the limit, or ``None`` when none applies.
     """
     if compiled.absorber_scheme != "split_step" or compiled.temporal_absorber is None:
         return None
@@ -3112,22 +2671,11 @@ def _split_clamped(
 ) -> tuple[float, float]:
     """Return an adaptive run's step bounds held to the launch's crossing limit.
 
-    Parameters
-    ----------
-    crossing : solprop.boundaries.SplitCrossing or None
-        The limit (:func:`_split_crossing`).
-    schedule : solprop.stepper.schedule.FixedSchedule or None
-        The schedule to replay, which keeps its bounds, or ``None``.
-    dz_max : float
-        The requested largest step, m.
-    dz_init : float
-        The requested first step, m.
-
-    Returns
-    -------
-    tuple
-        The largest step and the first step, m. Lowering ``dz_max`` is logged at
-        ``INFO``, naming the limit and what sets it.
+    - ``schedule``: the schedule to replay, which keeps its bounds, or ``None``.
+    - ``dz_max``: the requested largest step, m.
+    - ``dz_init``: the requested first step, m.
+    - Returns: the largest step and the first step, m. Lowering ``dz_max`` is logged at
+      ``INFO``, naming the limit and what sets it.
     """
     if crossing is None or schedule is not None:
         return dz_max, dz_init
@@ -3151,17 +2699,7 @@ def _refuse_split_crossing(
 ) -> None:
     """Refuse a fixed schedule whose longest step exceeds the launch's crossing limit.
 
-    Parameters
-    ----------
-    crossing : solprop.boundaries.SplitCrossing or None
-        The limit (:func:`_split_crossing`).
-    schedule : solprop.stepper.schedule.FixedSchedule or None
-        The schedule to replay, or ``None`` for an adaptive run.
-
-    Raises
-    ------
-    TranslationError
-        Naming the limit and the collar's width.
+    - ``schedule``: the schedule to replay, or ``None`` for an adaptive run.
     """
     if crossing is None or schedule is None:
         return
@@ -3189,19 +2727,7 @@ def _transverse_design(
     A material update (:class:`TranslationReuse`) keeps the design its reused
     transform and expansions were built with, as it keeps the transform itself.
 
-    Parameters
-    ----------
-    spatial_grid : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        The transverse geometry.
-    dispersion : solprop.spatial.SpatialDispersion
-        The medium and the temporal grid.
-    build : _Assembly
-        The assembly's knobs, with the specification and the noise-free launch.
-
-    Returns
-    -------
-    solprop.spatial_absorber.SpatialAbsorberDesign or None
-        The design, or ``None`` when the run asked for no transverse boundary.
+    - Returns: the design, or ``None`` when the run asked for no transverse boundary.
     """
     if build.reuse is not None:
         return build.reuse.transverse
@@ -3242,29 +2768,8 @@ def _general_assembly(
     :func:`solprop.translate.coupled.constant_schur_flow` itself: there is no wall
     vector, no validity ratio and no Marcatili mode in it.
 
-    Parameters
-    ----------
-    route : solprop.translate.general.GeneralModalRoute
-        The guide's leaves and its Gram certificate.
-    grid : solprop.grid.TimeGrid
-        The run's field grid.
-    modes : sequence of Mode
-        The guide's channels in state order.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs, including the legacy ones it refuses.
-
-    Returns
-    -------
-    tuple
-        The operator carrying the identity metric and the unit power weight, the
-        transform carrying the tables, and the prefactor row.
-
-    Raises
-    ------
-    TranslationError
-        Naming what cannot be combined with a general modal route.
+    - Returns: the operator carrying the identity metric and the unit power weight, the
+      transform carrying the tables, and the prefactor row.
     """
     _check_general(route, grid, build)
     coupled = route.coupled_generator
@@ -3378,30 +2883,11 @@ def _general_flow(
     the method. A guide that varies along z needs the transform maps to move with
     it and is built by :func:`_moving_flow` instead.
 
-    Parameters
-    ----------
-    route : solprop.translate.general.GeneralModalRoute
-        The route, whose gauge identity the flow carries so that a resume comparing
-        the flow compares the basis it was built in.
-    coupled : numpy.ndarray
-        The block relative to the reference channel in 1/m, shape
-        ``(n_modes, n_modes, n_omega)``.
-    grid : solprop.grid.TimeGrid
-        The run's grid, whose coarse axis the leaf is tabulated on.
-    build : _Assembly
-        The assembly's knobs, for ``dz_max`` and the run's length.
-
-    Returns
-    -------
-    solprop.translate.coupled.CoupledFlowTables
-        The validated leaf, one ``"constant_schur"`` section.
-
-    Raises
-    ------
-    TranslationError
-        If the run declares the ``'modified'`` noise model, if the block's exponent
-        over ``dz_max`` exceeds :data:`MAX_GENERAL_FLOW_EXPONENT`, or on anything
-        ``constant_schur_flow`` refuses.
+    - ``route``: its gauge identity is carried by the flow, so that a resume comparing
+      the flow compares the basis it was built in.
+    - ``coupled``: the block relative to the reference channel in 1/m, shape ``(n_modes,
+      n_modes, n_omega)``.
+    - ``grid``: the run's grid, whose coarse axis the leaf is tabulated on.
     """
     if build.noise_model == "modified":
         msg = (
@@ -3452,23 +2938,7 @@ def _landed_kinks(
 ) -> Float[np.ndarray, " n_kinks"]:
     """Return the operator's hard kinks, refusing a response kink they do not hold.
 
-    Parameters
-    ----------
-    build : _Assembly
-        The assembly's knobs, carrying the response kinks.
-    linear : LinearOperator
-        The route's operator, whose hard kinks are what every step lands on.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``linear.hard_kinks``, in m, shape ``(n_kinks,)``.
-
-    Raises
-    ------
-    TranslationError
-        Naming the path and the position, if a response kink strictly inside the run
-        is not a hard kink: only the uncoupled modal route adds them to ``Phi``.
+    - Returns: ``linear.hard_kinks``, in m, shape ``(n_kinks,)``.
     """
     straddled = unlanded_kinks(
         build.kinks,
@@ -3513,60 +2983,28 @@ class _PathCarrier:
 
     @property
     def z_constant(self) -> bool:
-        """Return False, so that the declared kinks reach the operator's tables.
-
-        Returns
-        -------
-        bool
-            Always ``False``.
-        """
+        """Return False, so that the declared kinks reach the operator's tables."""
         return False
 
     @property
     def scale_invariant(self) -> bool:
-        """Return False: a solid guide's modes have no scaling law.
-
-        Returns
-        -------
-        bool
-            Always ``False``.
-        """
+        """Return False: a solid guide's modes have no scaling law."""
         return False
 
     @property
     def channel_label(self) -> ChannelLabel:
-        """Return the reference channel's label.
-
-        Returns
-        -------
-        solprop.modes.protocol.ChannelLabel
-            The entrance channel's own.
-        """
+        """Return the reference channel's label."""
         return self.entrance.channel_label
 
     @property
     def azimuthal_order(self) -> int:
-        """Return the reference channel's azimuthal order.
-
-        Returns
-        -------
-        int
-            The entrance channel's own.
-        """
+        """Return the reference channel's azimuthal order."""
         return self.entrance.azimuthal_order
 
     def principal_component(self, z: float = 0.0) -> PolarisationComponent | None:
         """Return the reference channel's principal component at the entrance.
 
-        Parameters
-        ----------
-        z : float, optional
-            Position in m; ignored.
-
-        Returns
-        -------
-        str or None
-            The entrance channel's own.
+        - ``z``: position in m; ignored.
         """
         del z
         return self.entrance.principal_component()
@@ -3576,17 +3014,8 @@ class _PathCarrier:
     ) -> Complex[np.ndarray, " n_omega"]:
         """Return the entrance index at every position.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-        z : float, optional
-            Position in m; ignored, the carrier being the entrance's.
-
-        Returns
-        -------
-        numpy.ndarray
-            The entrance ``n_eff``, complex.
+        - ``omega``: angular frequencies in rad/s.
+        - ``z``: position in m; ignored, the carrier being the entrance's.
         """
         del z
         return self.entrance.neff(omega)
@@ -3596,17 +3025,8 @@ class _PathCarrier:
     ) -> Complex[np.ndarray, " n_omega"]:
         """Return the entrance ``n_eff - 1`` at every position.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-        z : float, optional
-            Position in m; ignored.
-
-        Returns
-        -------
-        numpy.ndarray
-            The entrance ``n_eff - 1``, complex.
+        - ``omega``: angular frequencies in rad/s.
+        - ``z``: position in m; ignored.
         """
         del z
         return self.entrance.neff_minus_one(omega)
@@ -3616,17 +3036,9 @@ class _PathCarrier:
     ) -> Complex[np.ndarray, " n_omega"]:
         """Return the entrance index derivative at every position.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s.
-        z : float, optional
-            Position in m; ignored.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``d n_eff / d omega`` in s/rad, complex.
+        - ``omega``: angular frequencies in rad/s.
+        - ``z``: position in m; ignored.
+        - Returns: ``d n_eff / d omega`` in s/rad, complex.
         """
         del z
         return self.entrance.dneff_domega(omega)
@@ -3634,15 +3046,7 @@ class _PathCarrier:
     def aeff(self, z: float = 0.0) -> float:
         """Return the entrance surrogate area.
 
-        Parameters
-        ----------
-        z : float, optional
-            Position in m; ignored.
-
-        Returns
-        -------
-        float
-            Area in m².
+        - ``z``: position in m; ignored.
         """
         del z
         return self.entrance.aeff()
@@ -3652,15 +3056,7 @@ class _PathCarrier:
     ) -> tuple[CrossSection, tuple[float, ...], tuple[float, ...]]:
         """Return the entrance domain.
 
-        Parameters
-        ----------
-        z : float, optional
-            Position in m; ignored.
-
-        Returns
-        -------
-        tuple
-            The entrance channel's own.
+        - ``z``: position in m; ignored.
         """
         del z
         return self.entrance.dimlimits()
@@ -3670,17 +3066,8 @@ class _PathCarrier:
     ) -> Float[np.ndarray, "n_points 2"]:
         """Refuse, as the provider channel it carries does.
 
-        Parameters
-        ----------
-        points : numpy.ndarray
-            Cross-section positions in m.
-        z : float, optional
-            Position in m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Never returns for a provider channel.
+        - ``points``: Cross-section positions in m.
+        - ``z``: position in m.
         """
         return self.entrance.field(points, z)
 
@@ -3688,31 +3075,12 @@ class _PathCarrier:
     def parameter_paths(self) -> Mapping[str, ZProfile]:
         """Return the one declared path: the position, kinked where the maps are.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            ``{"position": path}``.
+        - Returns: ``{"position": path}``.
         """
         return MappingProxyType({"position": self.path})
 
     def at_parameters(self, values: Mapping[str, float]) -> Mode:
-        """Return the entrance channel, whatever the position.
-
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            The position, by name.
-
-        Returns
-        -------
-        solprop.modes.protocol.Mode
-            The entrance channel.
-
-        Raises
-        ------
-        TranslationError
-            If a name other than ``"position"`` is given.
-        """
+        """Return the entrance channel, whatever the position."""
         if set(values) - {"position"}:
             msg = f"a moving guide's carrier declares one path, got {sorted(values)}"
             raise TranslationError(msg)
@@ -3720,20 +3088,7 @@ class _PathCarrier:
 
 
 def _carrier(mode: Mode, route: GeneralModalRoute) -> _PathCarrier:
-    """Return the carrier of a moving guide's ``Phi`` for its reference channel.
-
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The reference channel, a moving provider channel.
-    route : solprop.translate.general.GeneralModalRoute
-        The moving route, whose guide identity names the path's sections.
-
-    Returns
-    -------
-    _PathCarrier
-        The carrier.
-    """
+    """Return the carrier of a moving guide's ``Phi`` for its reference channel."""
     entrance = getattr(mode, "entrance", None)
     base = cast("Mode", entrance() if callable(entrance) else mode)
     edges = route.tables.z_edges
@@ -3753,15 +3108,7 @@ def _carrier(mode: Mode, route: GeneralModalRoute) -> _PathCarrier:
 def _position(z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
     """Return the position itself, the carrier's declared path.
 
-    Parameters
-    ----------
-    z : numpy.ndarray
-        Positions in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same positions, float64.
+    - ``z``: positions in m.
     """
     return np.asarray(z, dtype=float)
 
@@ -3779,26 +3126,6 @@ def _moving_flow(
     the interaction picture's source carries, as for a varying capillary. The
     flow's sections are the maps' here, which is natural and not required: the
     stage bundle carries the two weight rows separately (kernel schema 14).
-
-    Parameters
-    ----------
-    route : solprop.translate.general.GeneralModalRoute
-        The moving route.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    build : _Assembly
-        The assembly's knobs, for ``dz_max`` and the noise refusal.
-
-    Returns
-    -------
-    solprop.translate.coupled.CoupledFlowTables
-        The validated leaf, every section ``"frozen_residual"``.
-
-    Raises
-    ------
-    TranslationError
-        If the run declares the ``'modified'`` noise model, or on anything the flow
-        refuses.
     """
     if build.noise_model == "modified":
         msg = (
@@ -3831,27 +3158,12 @@ def _modal_linear(
 ) -> LinearOperator:
     """Return the linear operator of a mode-set route, with or without a wall block.
 
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall or None
-        The coherent wall declaration, or ``None``. Without one, a multimode
-        capillary taper carries the taper coupling when ``build.taper_coupling``
-        says so, and every other set -- or that one with the coupling declined --
-        takes the uncoupled diagonal route.
-    modes : sequence of Mode
-        The mode set in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs, including ``dz_max`` and the prequalified reuse.
-
-    Returns
-    -------
-    LinearOperator
-        Section 3 of the contract, carrying ``coupled_flow`` exactly when a wall was
-        declared or the taper coupling applies (:func:`_taper_assembly`).
+    - ``wall``: the coherent wall declaration, or ``None``. Without one, a multimode
+      capillary taper carries the taper coupling when ``build.taper_coupling`` says so,
+      and every other set -- or that one with the coupling declined -- takes the
+      uncoupled diagonal route.
+    - Returns: section 3 of the contract, carrying ``coupled_flow`` exactly when a wall
+      was declared or the taper coupling applies (:func:`_taper_assembly`).
     """
     if wall is not None:
         # Every channel's frequency-only terms are sampled once for the whole wall
@@ -3915,31 +3227,8 @@ def _wall_assembly(
     built from the real mode set, so a saved amplitude still carries each channel's
     own ``sqrt(Re n_eff)``.
 
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall
-        The declaration, carrying the two limits the block is admitted under.
-    modes : sequence of Mode
-        The contiguous ``HE_11`` to ``HE_1N`` block in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid; supplies the frequency axis and the active band.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs, including the ``dz_max`` the conditioning bound is
-        declared over.
-
-    Returns
-    -------
-    LinearOperator
-        The mode-independent carrier, the real mode set's power weight and the
-        coupled flow leaf.
-
-    Raises
-    ------
-    TranslationError
-        If the run is not one this block is derived for, if the carrier is not the
-        exact constant representation, or if the total generator is not passive.
+    - ``modes``: the contiguous ``HE_11`` to ``HE_1N`` block in state order.
+    - ``grid``: the run's grid; supplies the frequency axis and the active band.
     """
     block = tuple(modes)
     _check_wall_route(build)
@@ -4015,18 +3304,6 @@ def _check_wall_method(wall: CoherentWall, first: MarcatiliMode) -> None:
     than dropped. CF4 is admitted beside the vector block of ``impedance="te_tm"``
     too: it integrates the stored expansion of whichever block the route built and
     reads nothing else of it.
-
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall
-        The declaration.
-    first : solprop.modes.capillary.MarcatiliMode
-        The block's first channel, whose profiles are every channel's.
-
-    Raises
-    ------
-    TranslationError
-        If CF4 is declared on a constant guide.
     """
     if wall.method != "cf4":
         return
@@ -4068,31 +3345,6 @@ def _vector_wall_assembly(
     the vector connection, which is block diagonal -- each family's own ``C_mn`` of
     its Bessel order, and no term between the families -- as derived and as measured
     (:func:`solprop.modes.capillary.wall_connection`).
-
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall
-        The declaration, carrying ``impedance="te_tm"`` and the two limits.
-    block : tuple of Mode
-        One azimuthal order of the capillary, in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs.
-
-    Returns
-    -------
-    LinearOperator
-        The mode-independent carrier, the real mode set's power weight and the
-        constant-Schur coupled flow of the vector block, or the varying route's flow.
-
-    Raises
-    ------
-    TranslationError
-        If the total generator is not passive, or on everything the varying route
-        refuses.
     """
     first = cast("MarcatiliMode", block[0])
     if not first.z_constant:
@@ -4192,33 +3444,8 @@ def _varying_wall_assembly(
     still the same equation, because the residual is defined against whichever block
     the step's anchor names, so the edges need not be landed on exactly.
 
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall
-        The declaration, carrying the two limits and the section count.
-    block : tuple of Mode
-        The contiguous ``HE_11`` to ``HE_1N`` set in state order, or one azimuthal
-        order of the capillary for ``wall.impedance == "te_tm"``.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs.
-
-    Returns
-    -------
-    LinearOperator
-        The mode-independent carrier, the real mode set's power weight and the
-        frozen-residual coupled flow -- or, for ``wall.method == "cf4"``, the CF4 flow
-        of the same expansion (:func:`solprop.translate.coupled.cf4_flow`).
-
-    Raises
-    ------
-    TranslationError
-        If the carrier is not mode independent, if the total generator grows, or on
-        everything :func:`solprop.translate.coupled.frozen_residual_flow` or
-        :func:`solprop.translate.coupled.cf4_flow` refuses.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set in state order, or one
+      azimuthal order of the capillary for ``wall.impedance == "te_tm"``.
     """
     first = cast("MarcatiliMode", block[0])
     carrier = build_phi(
@@ -4347,32 +3574,8 @@ def _taper_assembly(
     frozen per section of the carrier's own table with the variation and the
     connection in the explicit residual (:func:`frozen_residual_flow`).
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The contiguous ``HE_11`` to ``HE_1N`` set on a varying radius, from
-        :func:`solprop.modes.capillary.taper_coupling_block`.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    frame : solprop.linear.Frame
-        The one shared co-moving frame.
-    build : _Assembly
-        The assembly's knobs.
-
-    Returns
-    -------
-    LinearOperator
-        The mode-independent carrier, the real mode set's power weight and the
-        frozen-residual coupled flow.
-
-    Raises
-    ------
-    TranslationError
-        If the run carries a noise model or a second field component, if the total
-        generator grows, or on everything
-        :func:`solprop.translate.coupled.frozen_residual_flow` refuses.
-    solprop.exceptions.ModeError
-        If the channels do not declare one guide with analytic profile derivatives.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set on a varying radius, from
+      :func:`solprop.modes.capillary.taper_coupling_block`.
     """
     _check_taper_route(build, grid)
     # The block's own door, before the generator differentiates the profiles: it
@@ -4455,18 +3658,7 @@ def _taper_assembly(
 def _check_taper_route(build: _Assembly, grid: TimeGrid) -> None:
     """Refuse, by name, a run the taper coupling cannot be carried in.
 
-    Parameters
-    ----------
-    build : _Assembly
-        The assembly's knobs.
-    grid : solprop.grid.TimeGrid
-        The run's grid, which must be a field grid.
-
-    Raises
-    ------
-    TranslationError
-        For an envelope grid, a second field component or the ``'modified'`` noise
-        model, naming the opt-out.
+    - ``grid``: the run's grid, which must be a field grid.
     """
     if grid.kind != "field":
         msg = (
@@ -4508,19 +3700,10 @@ def _taper_generator_at(
     rest of each channel's normalisation rate (:func:`_channel_normalisation_at`).
     The difference is formed from ``n_eff - 1`` without the round trip through unity.
 
-    Parameters
-    ----------
-    block : tuple of MarcatiliMode
-        The contiguous ``HE_11`` to ``HE_1N`` set.
-    grid : solprop.grid.TimeGrid
-        The run's grid; the generator is exactly zero off its active band.
-    z : float
-        Position in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
+    - ``z``: position in m.
+    - Returns: the generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``,
+      exactly zero off the grid's active band.
     """
     band = grid.omega[grid.active_mask]
     reference = np.asarray(block[0].neff_minus_one(band, z))
@@ -4544,17 +3727,8 @@ def _section_edges(
     kink of the radius and the density and never spans one; `CoherentWall.sections` is
     the refinement inside each of those, in equal parts.
 
-    Parameters
-    ----------
-    breakpoints : numpy.ndarray
-        The carrier's interval edges in m, strictly increasing.
-    wall : solprop.modes.capillary.CoherentWall
-        The declaration, carrying the section count.
-
-    Returns
-    -------
-    numpy.ndarray
-        The edges in m, strictly increasing, with the same two ends.
+    - ``breakpoints``: the carrier's interval edges in m, strictly increasing.
+    - Returns: the edges in m, strictly increasing, with the same two ends.
     """
     if wall.sections == 1:
         return np.array(breakpoints, dtype=float)
@@ -4570,17 +3744,8 @@ def _padded_degrees(
 ) -> np.ndarray:
     """Return a coefficient block lengthened along its degree axis with exact zeros.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        The block, shape ``(n_intervals, n_deg, ...)``.
-    degrees : int
-        The degree axis to reach, at least the block's own.
-
-    Returns
-    -------
-    numpy.ndarray
-        The block, with the same values and a degree axis of `degrees`.
+    - ``degrees``: the degree axis to reach, at least the block's own.
+    - Returns: the block, with the same values and a degree axis of `degrees`.
     """
     pad = [(0, 0)] * coefficients.ndim
     pad[1] = (0, degrees - coefficients.shape[1])
@@ -4596,25 +3761,7 @@ def _wall_block_at(
 ) -> WallOperator | VectorWallOperator:
     """Return the wall block the declared impedance names, at one position.
 
-    Parameters
-    ----------
-    block : tuple of Mode
-        The channels in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    z : float
-        Position in m.
-    validity_limit : float
-        Largest admitted validity ratio, as :class:`CoherentWall` declares it.
-    impedance : str
-        ``"mean"`` builds :func:`solprop.modes.capillary.wall_operator`, ``"te_tm"``
-        :func:`solprop.modes.capillary.vector_wall_operator`.
-
-    Returns
-    -------
-    WallOperator or VectorWallOperator
-        The block, built on the grid's active band with its validity ratios taken
-        over the requested band (``grid.inband_mask``).
+    - ``z``: position in m.
     """
     if impedance == "mean":
         return wall_operator(
@@ -4650,24 +3797,13 @@ def _wall_generator_at(
     the two. Both the block and the reference channel are read **at this position**,
     which is the whole difference from the constant section.
 
-    Parameters
-    ----------
-    block : tuple of Mode
-        The contiguous ``HE_11`` to ``HE_1N`` set.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    z : float
-        Position in m.
-    sampled : list
-        Collects the limits of every position sampled, for the admission that follows.
-    impedance : str, optional
-        Which block to sample, ``"mean"`` or ``"te_tm"``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``, exactly
-        zero off the active band.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
+    - ``z``: position in m.
+    - ``sampled``: collects the limits of every position sampled, for the admission
+      that follows.
+    - ``impedance``: which block to sample, ``"mean"`` or ``"te_tm"``.
+    - Returns: the generator in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``,
+      exactly zero off the active band.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GrazingIncidenceWarning)
@@ -4700,19 +3836,10 @@ def _channel_normalisation_at(
     its variation, and CF4 integrates it with the rest. The slope is the analytic
     :meth:`solprop.modes.capillary.MarcatiliMode.dneff_dz`, never a difference.
 
-    Parameters
-    ----------
-    block : tuple of Mode
-        The contiguous ``HE_11`` to ``HE_1N`` set.
-    grid : solprop.grid.TimeGrid
-        The run's grid; the rate is exactly zero off its active band.
-    z : float
-        Position in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The rate in 1/m, shape ``(n_modes, n_omega)``.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
+    - ``z``: position in m.
+    - Returns: the rate in 1/m, shape ``(n_modes, n_omega)``, exactly zero off the
+      grid's active band.
     """
     band = grid.omega[grid.active_mask]
     logarithmic = np.stack(
@@ -4751,21 +3878,10 @@ def _wall_shifted_generator(
     the absolute rounding of ``k`` (about 1e-9 1/m) instead of that of the
     refractivities.
 
-    Parameters
-    ----------
-    generator : numpy.ndarray
-        The optics-convention block in 1/m, shape ``(n_modes, n_modes, n_omega)``.
-    first : solprop.modes.capillary.MarcatiliMode
-        The channel the cumulative carrier was built from.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    z : float, optional
-        Position in m both are read at.
-
-    Returns
-    -------
-    numpy.ndarray
-        The internal-convention generator in 1/m, same shape.
+    - ``generator``: the optics-convention block in 1/m, shape ``(n_modes, n_modes,
+      n_omega)``.
+    - ``z``: position in m both are read at.
+    - Returns: the internal-convention generator in 1/m, same shape.
     """
     band = grid.omega[grid.active_mask]
     refractivity = np.asarray(first.core_index_minus_one(band, z)) - np.asarray(
@@ -4798,21 +3914,10 @@ def _wall_connection_at(
     the same way: each channel's weight is its own, whichever family it is in, and
     the terms between the families are zero before the weights and after them.
 
-    Parameters
-    ----------
-    block : tuple of Mode
-        The contiguous ``HE_11`` to ``HE_1N`` set, or one azimuthal order.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    z : float
-        Position in m.
-    impedance : str, optional
-        Which block the connection is of, ``"mean"`` or ``"te_tm"``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``C(z)`` in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
+    - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set, or one azimuthal order.
+    - ``z``: position in m.
+    - ``impedance``: which block the connection is of, ``"mean"`` or ``"te_tm"``.
+    - Returns: ``C(z)`` in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
     """
     return _true_power_connection(
         wall_connection(block, z, impedance=impedance), block, grid, z
@@ -4831,21 +3936,9 @@ def _true_power_connection(
     ``sqrt(w_n / w_m) C_mn``, exactly zero off the active band
     (:func:`_wall_connection_at` gives the reason).
 
-    Parameters
-    ----------
-    link : numpy.ndarray
-        ``C`` in 1/m, real, shape ``(n_modes, n_modes)``.
-    block : tuple of Mode
-        The channels in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    z : float
-        Position in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The term in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
+    - ``link``: ``C`` in 1/m, real, shape ``(n_modes, n_modes)``.
+    - ``z``: position in m.
+    - Returns: the term in 1/m, complex, shape ``(n_modes, n_modes, n_omega)``.
     """
     band = grid.omega[grid.active_mask]
     weight = np.stack([np.real(np.asarray(mode.neff(band, z))) for mode in block])
@@ -4857,7 +3950,7 @@ def _true_power_connection(
     return scattered
 
 
-def _check_wall_total_varying(
+def _check_wall_total_varying(  # noqa: PLR0917 - called positionally
     coefficients: Complex[
         np.ndarray, "n_intervals_v n_deg_v n_modes_v_out n_modes_v_in n_omega_v"
     ],
@@ -4880,32 +3973,16 @@ def _check_wall_total_varying(
     passivity is checked at every sampled position by
     :func:`solprop.modes.capillary.wall_operator`.
 
-    Parameters
-    ----------
-    coefficients : numpy.ndarray
-        The stored generator's Chebyshev coefficients in 1/m.
-    linear : solprop.translate.linop.LinearOperator
-        The carrier the flow is multiplied by.
-    edges : numpy.ndarray
-        The section edges in m.
-    block : tuple of Mode
-        The mode set. ``Phi`` was built from its lowest channel and the flow's diagonal
-        completes every other channel's normalisation, so the allowance is each
-        channel's own.
-    grid : solprop.grid.TimeGrid
-        The run's grid, which supplies the band the allowance is taken over.
-    tail : float, optional
-        The expansion's relative Chebyshev tail, dimensionless. The interpolant's
-        section mean departs from the function's by about the size of its last
-        coefficients, so twice the tail times the block's scale joins the rounding
-        budget: the normalisation term is compared through the interpolant on one side
-        and exactly on the other.
-
-    Raises
-    ------
-    TranslationError
-        If any channel grows on average over any section by more than its own
-        normalisation term accounts for.
+    - ``coefficients``: the stored generator's Chebyshev coefficients in 1/m.
+    - ``edges``: the section edges in m.
+    - ``block``: the mode set. ``Phi`` was built from its lowest channel and the flow's
+      diagonal completes every other channel's normalisation, so the allowance is each
+      channel's own.
+    - ``tail``: the expansion's relative Chebyshev tail, dimensionless. The
+      interpolant's section mean departs from the function's by about the size of its
+      last coefficients, so twice the tail times the block's scale joins the rounding
+      budget: the normalisation term is compared through the interpolant on one side and
+      exactly on the other.
     """
     count = len(block)
     degrees = np.arange(coefficients.shape[1])
@@ -4940,16 +4017,8 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:  # noqa: UP037
-    """Validate an assembled problem and run every diagnostic that only warns.
-
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The assembled contract.
-    request : solprop.translate.run_request.RunRequest
-        The request of a fresh run of it.
-    """
+def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:
+    """Validate an assembled problem and run every diagnostic that only warns."""
     validate_run(problem, request)
     validate_coupled_flow(problem, request.stepper)
     _admit_dense(problem, request.stepper)
@@ -4972,19 +4041,10 @@ def _normalisation_rate(
     three orders above this -- and the allowance is each channel's term's own exact
     mean over the section, ``|ln(w_n(hi)/w_n(lo))|/(2 (hi - lo))``.
 
-    Parameters
-    ----------
-    block : tuple of Mode
-        The channels, in state order.
-    grid : solprop.grid.TimeGrid
-        The run's grid; the allowance is zero off its active band, where the block is.
-    lo, hi : float
-        The section's ends in m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The non-negative allowance in 1/m, shape ``(n_modes, n_omega)``.
+    - ``grid``: the run's grid; the allowance is zero off its active band, where the
+      block is.
+    - ``lo``, ``hi``: the section's ends in m.
+    - Returns: the non-negative allowance in 1/m, shape ``(n_modes, n_omega)``.
     """
     band = grid.omega[grid.active_mask]
     rate = np.zeros((len(block), grid.n_omega))
@@ -4999,7 +4059,7 @@ def _normalisation_rate(
 
 
 def validate_coupled_flow(
-    problem: "PropagationProblem",  # noqa: UP037
+    problem: "PropagationProblem",
     stepper: StepperSettings,
 ) -> None:
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
@@ -5058,15 +4118,8 @@ def validate_coupled_flow(
 def _declared_steps(settings: StepperSettings) -> dict[str, float]:
     """Return the steps a run declares, by name: the two limits and a replay's largest.
 
-    Parameters
-    ----------
-    settings : StepperSettings
-        The run's stepper section.
-
-    Returns
-    -------
-    dict
-        ``dz_init``, ``dz_max`` and, for a fixed schedule, its largest step, in m.
+    - Returns: ``dz_init``, ``dz_max`` and, for a fixed schedule, its largest step, in
+      m.
     """
     declared = {
         "dz_init": float(settings.dz_init),
@@ -5084,23 +4137,7 @@ def _warn_advisory_step(
     settings: StepperSettings,
     scored: Bool[np.ndarray, " n_omega"],
 ) -> None:
-    """Warn when a declared step exceeds the explicit residual's advisory limit.
-
-    Parameters
-    ----------
-    flow : solprop.translate.coupled.CoupledFlowTables
-        The leaf.
-    settings : StepperSettings
-        The run's stepper section.
-    scored : numpy.ndarray of bool
-        The error norm's bins, on which alone the residual is applied.
-
-    Warns
-    -----
-    solprop.exceptions.SolpropWarning
-        Naming the step, the term, the section, the frequency, ``K``, the
-        conditioning factor and the limit.
-    """
+    """Warn when a declared step exceeds the explicit residual's advisory limit."""
     limits = advisory_step(flow, scored)
     section, bin_index = np.unravel_index(int(np.argmin(limits)), limits.shape)
     smallest = float(limits[section, bin_index])
@@ -5164,19 +4201,8 @@ def _warn_cf4_defect(
     estimator**, not a bound, and the warning says so; nothing here changes the
     caller's tolerances or schedule.
 
-    Parameters
-    ----------
-    flow : solprop.translate.coupled.CoupledFlowTables
-        The leaf, carrying at least one ``"cf4"`` section.
-    settings : StepperSettings
-        The run's stepper section.
-    kinks : numpy.ndarray
-        The run's hard kinks in m, at which every step ends.
-
-    Warns
-    -----
-    solprop.exceptions.SolpropWarning
-        Naming the step, the section, the frequency, the estimate and the tolerance.
+    - ``flow``: the leaf, carrying at least one ``"cf4"`` section.
+    - ``kinks``: the run's hard kinks in m, at which every step ends.
     """
     declared = _declared_steps(settings)
     name = max(declared, key=lambda key: declared[key])
@@ -5211,16 +4237,6 @@ def _check_wall_route(build: _Assembly) -> None:
     :func:`solprop.modes.capillary.wall_operator`, and an empty active band by that
     same function, which names the mask it was given and is the layer that evaluates
     over it.
-
-    Parameters
-    ----------
-    build : _Assembly
-        The assembly's knobs.
-
-    Raises
-    ------
-    TranslationError
-        Naming what the block cannot carry.
     """
     if build.n_pol != 1:
         msg = (
@@ -5258,22 +4274,6 @@ def _refuse_a_wall_off_the_capillary_route(
     with ``linear.coupled_flow`` absent, no ``modal.flow`` key on its record and no
     word said. The other two doors are the mode set's
     (:func:`solprop.modes.capillary.wall_operator`) and the backend's.
-
-    Parameters
-    ----------
-    wall : solprop.modes.capillary.CoherentWall or None
-        What the run declared.
-    general : bool
-        Whether the run takes the general modal route.
-    spatial : bool
-        Whether the run carries a spatial geometry.
-    taper_coupling : bool, optional
-        Whether the run keeps the taper coupling, which a wall cannot decline.
-
-    Raises
-    ------
-    TranslationError
-        Naming the route that cannot carry the block, or the declined coupling.
     """
     if wall is not None and not taper_coupling:
         msg = (
@@ -5309,19 +4309,7 @@ def _check_wall_total(
     easy mistake of writing ``-i B`` where ``-i conj(B)`` was meant -- turns the
     diagonal into gain and is caught.
 
-    Parameters
-    ----------
-    generator : numpy.ndarray
-        The stored internal-convention generator in 1/m.
-    linear : LinearOperator
-        The carrier, whose constant term is what the flow is multiplied by.
-    count : int
-        Channel count, used in the refusal.
-
-    Raises
-    ------
-    TranslationError
-        If any channel grows at any frequency.
+    - ``generator``: the stored internal-convention generator in 1/m.
     """
     assert linear.phi_constant is not None
     total = np.real(linear.phi_constant[0, :, 0, :]) + np.real(
@@ -5350,21 +4338,9 @@ def _check_general(
 ) -> None:
     """Refuse every legacy knob and every grid a general modal route cannot take.
 
-    Parameters
-    ----------
-    route : solprop.translate.general.GeneralModalRoute
-        The guide's leaves.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    refusals : _Assembly
-        The assembly's knobs; each legacy one is refused by name when it is set,
-        and the declared responses must be empty, a general guide's belonging to
-        its material regions.
-
-    Raises
-    ------
-    TranslationError
-        Naming what cannot be combined with a general modal route.
+    - ``refusals``: the assembly's knobs; each legacy one is refused by name when it is
+      set, and the declared responses must be empty, a general guide's belonging to its
+      material regions.
     """
     named = (
         ("quadrature", refusals.quadrature),
@@ -5439,28 +4415,18 @@ def _general_prefactor(
     active band as every other route's prefactor is, so no unnormalised
     polarisation survives there for the stages or the error estimate to see.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The run's grid, which supplies the crop scale and the active band.
-    linear : solprop.translate.linop.LinearOperator
-        The assembled operator, whose z span every other table must share.
-    n_pol : int
-        State polarisations, one on this route.
-
-    Returns
-    -------
-    solprop.translate.chebyshev.PiecewiseChebyshev
-        One interval of degree zero with value shape ``(n_modes, n_pol, n_omega)``.
+    - ``linear``: the assembled operator, whose z span every other table must share.
+    - Returns: one interval of degree zero with value shape ``(n_modes, n_pol,
+      n_omega)``.
     """
     n_modes = linear.value_shape[1]
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(
-        _readonly(values),
-        _readonly(np.asarray(linear.z_span, dtype=np.float64)),
-        _readonly(np.zeros(1, dtype=np.intp)),
-        _readonly(np.zeros(0)),
+        hold(values),
+        hold(np.array(linear.z_span, dtype=np.float64)),
+        hold(np.zeros(1, dtype=np.intp)),
+        hold(np.zeros(0)),
     )
 
 
@@ -5469,14 +4435,7 @@ def _check_scalar_domain(
 ) -> None:
     """Check a scalar polynomial at endpoints and every real stationary point.
 
-    Parameters
-    ----------
-    table : PiecewiseChebyshev
-        Scalar profile table checked over every polynomial interval.
-    name : str
-        Table name used in a refusal diagnostic.
-    upper : float
-        Inclusive upper domain bound, in the table value units; infinity by default.
+    ``upper`` is inclusive, in the table's value units.
     """
     if table.value_shape != ():
         raise TranslationError(f"{name} must be a scalar table")
@@ -5498,30 +4457,14 @@ def _walk_arrays(
 ) -> list[tuple[str, np.ndarray]]:
     """Collect every NumPy array in the problem tree, with its dotted name.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The problem to walk.
-    run : _RunPolicy or None, optional
-        The run's stepper section and statistics, walked after the initial state
-        under the names ``stepper`` and ``stats_spec`` they have always had.
-
-    Returns
-    -------
-    list of tuple
-        ``(name, array)`` pairs, in field order.
+    - Returns: ``(name, array)`` pairs, in field order.
     """
     found: list[tuple[str, np.ndarray]] = []
 
     def visit(prefix: str, node: object) -> None:
         """Add every array reachable from one node.
 
-        Parameters
-        ----------
-        prefix : str
-            Dotted name of the node.
-        node : object
-            A dataclass, an array, or anything else.
+        - ``node``: a dataclass, an array, or anything else.
         """
         if isinstance(node, np.ndarray):
             found.append((prefix, node))
@@ -5554,15 +4497,7 @@ def _walk_arrays(
 def _walk_tables(problem: PropagationProblem) -> list[tuple[str, PiecewiseChebyshev]]:
     """Collect every Chebyshev table along z, with its dotted name.
 
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The problem to walk.
-
-    Returns
-    -------
-    list of tuple
-        ``(name, table)`` pairs.
+    - Returns: ``(name, table)`` pairs.
     """
     candidates = [
         ("linear.beta0", problem.linear.beta0),
@@ -5630,27 +4565,13 @@ def _state(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Bring an initial field to the canonical single-trajectory layout.
 
-    Parameters
-    ----------
-    field0 : numpy.ndarray
-        A ``Pulse.build`` result of shape ``(n_modes, n_pol, n_omega)``. The shape is
-        checked here rather than by an annotation, so that a wrong rank is reported by
-        name in production too. A group of trajectories is a sequence of problems
-        (SEP 47 section 6.7), never a stacked field.
-    n_omega : int
-        Required number of spectral bins from the grid.
+    The shape is checked here rather than by an annotation, so that a wrong rank is
+    reported by name in production too. A group of trajectories is a sequence of
+    problems (SEP 47 section 6.7), never a stacked field.
 
-    Returns
-    -------
-    numpy.ndarray
-        The state, complex128, the problem's own: copied once here as :class:`Initial`
-        holds it, so that it is not copied again there, and taken as it is when the
-        problem already holds it.
-
-    Raises
-    ------
-    TranslationError
-        If the array does not have three axes or the grid extent differs.
+    - Returns: the state, complex128, the problem's own: copied once here as
+      :class:`Initial` holds it, so that it is not copied again there, and taken as it
+      is when the problem already holds it.
     """
     values = np.asarray(field0)
     if values.ndim != 3:
@@ -5671,24 +4592,10 @@ def _material_mixture(
 ) -> Mixture | None:
     """Resolve the material shared by the linear and response paths.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        Ordered mode set, empty for spatial geometry.
-    medium : SpatialMedium or None
-        Spatial material, or None for modal geometry.
-    density : ZProfile, float or None
-        Optional explicit response density in m^-3.
-
-    Returns
-    -------
-    Mixture or None
-        The declared mixture, or None for the legacy single material.
-
-    Raises
-    ------
-    TranslationError
-        If an explicit density conflicts with a mixture or a gas medium.
+    - ``modes``: ordered mode set, empty for spatial geometry.
+    - ``medium``: spatial material, or None for modal geometry.
+    - ``density``: optional explicit response density in m^-3.
+    - Returns: the declared mixture, or None for the legacy single material.
     """
     if medium is not None and isinstance(medium.material, Gas) and density is not None:
         # The linear operator takes the medium's own density path; an explicit one
@@ -5758,18 +4665,9 @@ def _check_tdse_assembly_route(
 ) -> None:
     """Refuse paths whose optical ownership is outside the atomic contract.
 
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor or None
-        Atomic declaration, or None for an ordinary response.
-    modal : bool
-        Whether the geometry is the uncoupled modal route.
-    scheduled : bool
-        Whether a fixed step schedule was supplied.
-    absorber_scheme : str
-        Temporal collar application policy.
-    density : ZProfile, float or None
-        Requested density override in m^-3, refused for an atomic declaration.
+    - ``descriptor``: atomic declaration, or None for an ordinary response.
+    - ``density``: requested density override in m^-3, refused for an atomic
+      declaration.
     """
     if descriptor is None:
         return
@@ -5783,25 +4681,13 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
     Adams interpolant alike. The per-step temporal collar changes the state after the
     step, so an interpolated plane would be uncollared; a coupled flow's action and the
     ``modified`` noise's draw are outside the interpolant.
-
-    Parameters
-    ----------
-    problem : PropagationProblem
-        The assembled problem.
-    stepper : StepperSettings
-        The run's stepper section.
-
-    Raises
-    ------
-    TranslationError
-        Naming the combination refused.
     """
     if not stepper.interpolate_planes:
         return
@@ -5839,23 +4725,7 @@ def _stepper_settings(
     an overshoot, so both keep the version-16 policy: the interval cap and no start-up
     rule.
 
-    Parameters
-    ----------
-    linear : LinearOperator
-        The problem's linear operator, whose coupled flow decides the policy.
-    controller : solprop.stepper.controller.PIController
-        The controller, whose reject-free switch decides the policy too.
-    interval_cap : bool or None
-        The interval cap asked for; ``None`` takes the route's.
-    auto_init : bool
-        Whether the start-up rule was asked for.
-    **fields
-        The other :class:`StepperSettings` fields.
-
-    Returns
-    -------
-    StepperSettings
-        The settings.
+    - ``interval_cap``: the interval cap asked for; ``None`` takes the route's.
     """
     restrained = linear.coupled_flow is not None or controller.reject_free
     return StepperSettings(
@@ -5874,15 +4744,7 @@ def _printed_down(value: float) -> str:
     to nearest would give ``5.239e-03``, a step the check still refuses. The decimal
     expansion of the double is exact, so the floor is too.
 
-    Parameters
-    ----------
-    value : float
-        The limit, positive and finite.
-
-    Returns
-    -------
-    str
-        Four significant digits, as ``f"{value:.3e}"`` writes them, never above `value`.
+    - ``value``: the limit, positive and finite.
     """
     exact = Decimal(value)
     exponent = exact.adjusted()
@@ -5901,20 +4763,7 @@ def _history_replay_advice(printed: str, *, split_step: bool, integrator: bool) 
     Capping the discovery run with ``dz_max`` under the limit always replays; the
     split temporal collar lifts the temporal collar's limit alone.
 
-    Parameters
-    ----------
-    printed : str
-        The limit as the refusal prints it, rounded down, m.
-    split_step : bool
-        Whether ``absorber_scheme="split_step"`` lifts the limit, as it does the
-        temporal collar's.
-    integrator : bool
-        Whether the limit is a stability limit, which depends on the integrator.
-
-    Returns
-    -------
-    str
-        Sentences, starting with a space, naming the remedies.
+    - ``printed``: the limit as the refusal prints it, rounded down, m.
     """
     split = (
         'either give absorber_scheme="split_step" to both the discovery run and '
@@ -5942,18 +4791,6 @@ def _check_harmonic_frame(harmonic: bool, compiled: CompiledResponses) -> None:
     :func:`solprop.translate.responses.declares_harmonic_carrier`; the operator it
     writes is right only if the compiled pass agrees on whether it carries the
     harmonic (:attr:`solprop.translate.responses.CompiledResponses.harmonic_carrier`).
-
-    Parameters
-    ----------
-    harmonic : bool
-        What the declared responses said.
-    compiled : solprop.translate.responses.CompiledResponses
-        The compiled responses.
-
-    Raises
-    ------
-    TranslationError
-        If the two disagree, an internal inconsistency that no input should reach.
     """
     if compiled.harmonic_carrier != harmonic:
         msg = (
@@ -5975,18 +4812,7 @@ def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
     spurious mismatch (:class:`solprop.linear.Frame`,
     :func:`solprop.linear.frame_origin`).
 
-    Parameters
-    ----------
-    frame : solprop.linear.Frame or None
-        The frame the caller gave, or ``None`` for the co-moving one.
-    harmonic : bool
-        Whether the declared responses compile the harmonic carrier
-        (:func:`solprop.translate.responses.declares_harmonic_carrier`).
-
-    Raises
-    ------
-    TranslationError
-        Naming ``subtract_beta0``, if `frame` removes ``beta_0`` beside the harmonic.
+    - ``frame``: the frame the caller gave, or ``None`` for the co-moving one.
     """
     if frame is not None and frame.subtract_beta0 and harmonic:
         msg = (
@@ -6001,7 +4827,7 @@ def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
 
 
 @host_blas()
-def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
+def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
     modes: Mode | Sequence[Mode] | None,
     responses: Sequence[object],
@@ -6539,27 +5365,8 @@ def _route(
 ) -> Route:
     """Return the route variant an assembled transform and its leaves describe.
 
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        The assembled transform: a spatial geometry makes a spatial route, general
-        modal tables a general one, and anything else a modal one.
-    tdse : solprop.translate.routes.TDSESource or None
-        The TDSE extension, admitted on the modal route alone.
-    flux : solprop.translate.spatial.FluxPlan or None
-        The plane measure, which a spatial route requires and no other carries.
-    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None
-        The transverse boundary, a spatial route's alone.
-
-    Returns
-    -------
-    solprop.translate.routes.Route
-        The variant.
-
-    Raises
-    ------
-    TranslationError
-        If a leaf is given to a route that does not carry it.
+    - ``transform``: the assembled transform: a spatial geometry makes a spatial route,
+      general modal tables a general one, and anything else a modal one.
     """
     geometry = transform.geometry
     if (geometry is None) != (flux is None):
@@ -6692,32 +5499,22 @@ def _power_initial(
     ``neff`` call at the last few bits, and the two conventions disagreeing at the
     entrance was measured at 3e-15 of the launch.
 
-    Parameters
-    ----------
-    initial : Initial
-        Fresh true-power launch and noise in canonical shape.
-    linear : solprop.translate.linop.LinearOperator
-        Assembled linear group; its modal power-weight row is the entrance weight, and
-        its absence marks spatial geometry, which carries no modal conversion.
-    index : float or None
-        Constant index override, or None for the physical effective index.
-    reused : Initial or None
-        Previously scaled launch retained only when its arrays match.
-
-    Returns
-    -------
-    Initial
-        Internal vacuum-normalised launch and noise.
+    - ``initial``: fresh true-power launch and noise in canonical shape.
+    - ``linear``: its modal power-weight row is the entrance weight; its absence marks
+      spatial geometry, which carries no modal conversion.
+    - ``index``: constant index override, or None for the physical effective index.
+    - ``reused``: previously scaled launch retained only when its arrays match.
+    - Returns: internal vacuum-normalised launch and noise.
     """
     if linear.power_weight_representation is not None and index != 1.0:
         root_weight = np.sqrt(power_weight_row(linear, initial.z))
         # The quotients are the problem's own, held without a second copy.
         initial = replace(
             initial,
-            field0=_hold(initial.field0 / root_weight),
+            field0=hold(initial.field0 / root_weight),
             noise0=None
             if initial.noise0 is None
-            else _hold(initial.noise0 / root_weight),
+            else hold(initial.noise0 / root_weight),
         )
     if (
         reused is not None
@@ -6741,17 +5538,8 @@ def _density(
 ) -> ZProfile | float:
     """Choose the density path a compiled response multiplies its coefficient by.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set; a gas-filled capillary declares its own ``density`` path.
-    density : solprop.profiles.ZProfile or float or None
-        The caller's choice, or ``None`` to take the mode's.
-
-    Returns
-    -------
-    solprop.profiles.ZProfile or float
-        The density, or 1.0 when neither the caller nor the mode states one.
+    - ``density``: the caller's choice, or ``None`` to take the mode's.
+    - Returns: the density, or 1.0 when neither the caller nor the mode states one.
     """
     if density is not None:
         return density
@@ -6766,26 +5554,11 @@ def _components(
 ) -> tuple[str, ...]:
     """Resolve and validate the transverse components a transform resolves.
 
-    Parameters
-    ----------
-    components : sequence of str or None
-        What the caller asked for, or ``None`` to resolve the mode set's components.
-    quadrature : solprop.modes.quadrature.TransverseQuadrature or None
-        The fixed rule, or ``None`` for the mode-averaged case, which has no components
-        to resolve.
-    modes : sequence of Mode
-        Modes whose continuous profiles declare the nonzero components.
-
-    Returns
-    -------
-    tuple of str
-        The resolved components.
-
-    Raises
-    ------
-    TranslationError
-        If components are given without a rule, or are not a non-empty subset of
-        ``("x", "y")``.
+    - ``components``: what the caller asked for, or ``None`` to resolve the mode set's
+      components.
+    - ``quadrature``: the fixed rule, or ``None`` for the mode-averaged case, which has
+      no components to resolve.
+    - ``modes``: modes whose continuous profiles declare the nonzero components.
     """
     if components is None:
         if quadrature is None:
@@ -6815,7 +5588,7 @@ def _components(
     return resolved
 
 
-def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinct choice
+def _transform(
     modes: Sequence[Mode],
     grid: TimeGrid,
     quadrature: TransverseQuadrature | None,
@@ -6828,36 +5601,10 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
 ) -> Transform:
     """Build the mode-averaged or the multimode transform, as the problem asks.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    quadrature : solprop.modes.quadrature.TransverseQuadrature or None
-        The fixed rule, or ``None`` for the mode-averaged case.
-    z_max : float
-        Length the run covers, m.
-    n_pol : int
-        Polarisation components of the state, 1 or 2.
-    components : sequence of str or None
-        The transverse components the rule resolves, or ``None`` for the union of
-        the modes' nonzero components at the entrance (:func:`_components`).
-    margin : float
-        Fraction of `z_max` the tables extend beyond the end.
-    tol : float
-        Target bound on the uniform error of the tables.
-
-    Returns
-    -------
-    Transform
-        Section 4 of the kernel contract.
-
-    Raises
-    ------
-    TranslationError
-        If a mode set is given without a rule, if the components are invalid, or if the
-        transform and the state would both carry a polarisation axis.
+    - ``quadrature``: the fixed rule, or ``None`` for the mode-averaged case.
+    - ``z_max``: length the run covers, m.
+    - ``components``: the transverse components the rule resolves, or ``None`` for the
+      union of the modes' nonzero components at the entrance (:func:`_components`).
     """
     # A trait, not a class: any future non-degenerate partner pair (a tabulated
     # pair, Zeisberger) declares it and is refused here without naming a class.

@@ -59,6 +59,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, ModeError
 from solprop.grid import _check_fraction, _periodic_axis
@@ -248,20 +249,8 @@ class SlabMode(_WallPairFill):
     def _half_gap(self, z: float) -> float:
         """Return the positive half-gap at one longitudinal position.
 
-        Parameters
-        ----------
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        float
-            Half-gap ``a`` in m.
-
-        Raises
-        ------
-        ModeError
-            If the half-gap is non-positive or non-finite there.
+        - ``z``: position in m.
+        - Returns: Half-gap ``a`` in m.
         """
         a = float(self.width_x(np.asarray([z]))[0])
         if not (math.isfinite(a) and a > 0):
@@ -271,30 +260,24 @@ class SlabMode(_WallPairFill):
         return a
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what this mode's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What this mode's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"``: the normalisation is a power per metre of y and
-            :meth:`aeff` an effective width, so a run's powers are W/m and its
-            energies J/m (:data:`solprop.modes.protocol.TransverseMeasure`).
+        ``"per_unit_width"``: the normalisation is a power per metre of y and
+        :meth:`aeff` an effective width, so a run's powers are W/m and its
+        energies J/m (:data:`solprop.modes.protocol.TransverseMeasure`).
         """
         return "per_unit_width"
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the gap and material paths carrying longitudinal variation.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Gap and material paths carrying longitudinal variation.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            The half-gap path plus the shared fill's density or pressure paths.
+        The half-gap path plus the shared fill's density or pressure paths.
         """
         return MappingProxyType({"half_gap": self.width_x, **self._fill_paths()})
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":  # noqa: UP037 - eager hook
+    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":
         """Copy the mode with the supplied gap and fill paths frozen.
 
         Parameters
@@ -328,76 +311,55 @@ class SlabMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether the gap and every material path are constant.
-
-        Returns
-        -------
-        bool
-            True if all declared paths are constant.
-        """
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the gap and every material path are constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return the transform's geometry-constant trait for the slab.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """The transform's geometry-constant trait for the slab.
 
-        Returns
-        -------
-        bool
-            True when the half-gap path is constant; the historical trait name also
-            serves Cartesian and slab modes.
+        True when the half-gap path is constant; the historical trait name also
+        serves Cartesian and slab modes.
         """
         return self.width_x.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether one scalar rescaling represents the geometry along z.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one scalar rescaling represents the geometry along z.
 
-        Returns
-        -------
-        bool
-            Always True: one gap is the whole geometry, and the profile is a function
-            of ``x / a(z)``, so a taper rescales the matrices by
-            ``sqrt(a(0) / a(z))`` (:func:`solprop.modes.quadrature.taper_scale`).
+        Always True: one gap is the whole geometry, and the profile is a function
+        of ``x / a(z)``, so a taper rescales the matrices by
+        ``sqrt(a(0) / a(z))`` (:func:`solprop.modes.quadrature.taper_scale`).
         """
         return True
 
     @property
-    def polarisation_degenerate(self) -> bool:
-        """Return whether the two polarisations share one effective index.
+    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the two polarisations share one effective index.
 
-        Returns
-        -------
-        bool
-            False: TE and TM take different wall coefficients, so they are distinct
-            modes and need a row each, as the rectangular partners do.
+        False: TE and TM take different wall coefficients, so they are distinct
+        modes and need a row each, as the rectangular partners do.
         """
         return False
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the mode order as the rule's resolution hint.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Mode order as the rule's resolution hint.
 
-        Returns
-        -------
-        int
-            ``p``. A slab has no azimuthal coordinate; the x rule's node bound is the
-            measured :func:`solprop.modes.quadrature.cartesian_nodes` of it.
+        ``p``. A slab has no azimuthal coordinate; the x rule's node bound is the
+        measured :func:`solprop.modes.quadrature.cartesian_nodes` of it.
         """
         return self.order
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the slab family and order.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Slab family and order.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``TE`` or ``TM``, no azimuthal order, the mode order ``p`` in the
-            radial field -- the one index the record carries -- and ``TE1``,
-            ``TM3`` and so on as the display label. The other polarisation is a
-            distinct mode, not a parity partner, so ``parity`` stays ``None``.
+        Family ``TE`` or ``TM``, no azimuthal order, the mode order ``p`` in the
+        radial field -- the one index the record carries -- and ``TE1``,
+        ``TM3`` and so on as the display label. The other polarisation is a
+        distinct mode, not a parity partner, so ``parity`` stays ``None``.
 
         Examples
         --------
@@ -427,14 +389,11 @@ class SlabMode(_WallPairFill):
         return "y" if self.polarisation == "te" else "x"
 
     @property
-    def orthogonal_polarisation(self) -> "SlabMode":  # noqa: UP037 - eager hook
-        """Return the same order with the other polarisation.
+    def orthogonal_polarisation(self) -> "SlabMode":  # numpydoc ignore=RT01
+        """Same order with the other polarisation.
 
-        Returns
-        -------
-        SlabMode
-            TM for a TE mode and TE for a TM one: a distinct mode with its own
-            effective index and its own operator row.
+        TM for a TE mode and TE for a TM one: a distinct mode with its own
+        effective index and its own operator row.
         """
         return replace(self, polarisation="tm" if self.polarisation == "te" else "te")
 
@@ -443,22 +402,8 @@ class SlabMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Evaluate the one-wall-pair reflection model before the loss policy.
 
-        Parameters
-        ----------
-        terms : _RectTerms
-            Core and wall samples, with holomorphic frequency continuation allowed.
-        a : float
-            Positive half-gap in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its frequency derivative in s/rad.
-
-        Raises
-        ------
-        ModeError
-            If the wall contrast vanishes or the model produces a non-finite result.
+        - ``a``: positive half-gap in m.
+        - Returns: refractivity and its frequency derivative in s/rad.
         """
         te, dte, tm, dtm = self._wall_coefficients(terms)
         # E parallel to the plates is the TE-like (s) reflection, E normal to them
@@ -480,17 +425,10 @@ class SlabMode(_WallPairFill):
     ) -> tuple[Complex[np.ndarray, " n_omega"], Complex[np.ndarray, " n_omega"]]:
         """Apply the shared loss policy and floor to the local model.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Positive frequencies in rad/s.
-        z : float
-            Position in m.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Refractivity and its derivative in s/rad after loss and floor policies.
+        - ``omega``: positive frequencies in rad/s.
+        - ``z``: position in m.
+        - Returns: refractivity and its derivative in s/rad after loss and floor
+          policies.
         """
         a = self._half_gap(z)
         terms = self._terms(omega, z)
@@ -615,10 +553,7 @@ class SlabMode(_WallPairFill):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         cladding = self.cladding_index
         return f"SlabMode {self.channel_label.display_label}", [
@@ -910,20 +845,7 @@ def gaussian_to_per_unit_width(value: float, w_y: float) -> float:
 def _checked_radius(w_y: float) -> float:
     """Return a Gaussian radius after checking it.
 
-    Parameters
-    ----------
-    w_y : float
-        1/e field radius in m.
-
-    Returns
-    -------
-    float
-        The same radius.
-
-    Raises
-    ------
-    ModeError
-        If it is not positive and finite.
+    - ``w_y``: 1/e field radius in m.
     """
     if not (math.isfinite(w_y) and w_y > 0):
         raise ModeError(f"the Gaussian radius w_y must be positive, got {w_y!r}")
@@ -1087,120 +1009,87 @@ class PlanarGrid(Displayed):
             "PlanarGrid", self.radius_y, self.n_y, self.collar_fraction
         )
         values = {
-            "x": np.ascontiguousarray(rule.nodes(limits)[:, 0]),
-            "x_weights": np.ascontiguousarray(rule.weights(limits)),
+            "x": rule.nodes(limits)[:, 0],
+            "x_weights": rule.weights(limits),
             "y": y,
             "k_y": k_y,
             "window_y": window_y,
-            "synthesis": np.ascontiguousarray(matrices.synthesis),
-            "projection": np.ascontiguousarray(matrices.projection),
-            "projection_coarse": np.ascontiguousarray(matrices.projection_coarse),
-            "centre": np.ascontiguousarray(centre.synthesis[0]),
+            "synthesis": matrices.synthesis,
+            "projection": matrices.projection,
+            "projection_coarse": matrices.projection_coarse,
+            "centre": centre.synthesis[0],
         }
+        # Copies, held, of arrays the rule and the matrices may share: the planar
+        # transform then takes the matrices without copying them again.
         for name, array in values.items():
-            array.setflags(write=False)
-            object.__setattr__(self, name, array)
+            object.__setattr__(self, name, frozen_copy(array))
         object.__setattr__(self, "rule", rule)
 
     @property
-    def n_p(self) -> int:
-        """Return the number of slab channels.
-
-        Returns
-        -------
-        int
-            ``len(modes)``.
-        """
+    def n_p(self) -> int:  # numpydoc ignore=RT01
+        """Number of slab channels."""
         return len(self.modes)
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of state columns, ``(p, k_y)`` pairs.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of state columns, ``(p, k_y)`` pairs.
 
-        Returns
-        -------
-        int
-            ``n_p * n_y``.
+        ``n_p * n_y``.
         """
         return self.n_p * self.n_y
 
     @property
-    def n_nodes(self) -> int:
-        """Return the number of physical nodes, ``(x, y)`` pairs with x fastest.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """Number of physical nodes, ``(x, y)`` pairs with x fastest.
 
-        Returns
-        -------
-        int
-            ``n_x * n_y`` with ``n_x = x.size``.
+        ``n_x * n_y`` with ``n_x = x.size``.
         """
         return int(self.x.size) * self.n_y
 
     @property
-    def dy(self) -> float:
-        """Return the y spacing.
-
-        Returns
-        -------
-        float
-            In m.
-        """
+    def dy(self) -> float:  # numpydoc ignore=RT01
+        """Y spacing, m."""
         return float(self.y[1] - self.y[0])
 
     @property
-    def half_gap(self) -> float:
-        """Return the plates' half separation.
-
-        Returns
-        -------
-        float
-            ``a`` in m.
-        """
+    def half_gap(self) -> float:  # numpydoc ignore=RT01
+        """Plates' half separation ``a``, m."""
         return float(self.modes[0].dimlimits(0.0)[2][0])
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the grid's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the grid's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"area"``: the grid integrates over y, so energies are J and powers W.
+        ``"area"``: the grid integrates over y, so energies are J and powers W.
         """
         return "area"
 
     @property
-    def spectral_weights(self) -> Float[np.ndarray, " n_columns"]:
-        """Return the Parseval weight of each state column.
+    def spectral_weights(
+        self,
+    ) -> Float[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """Parseval weight of each state column.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``dy / n_y`` in m, shape ``(n_columns,)``: the energy of a state of
-            modal amplitudes in sqrt(W/m) is ``sum w |A|^2`` integrated over time.
+        ``dy / n_y`` in m, shape ``(n_columns,)``: the energy of a state of
+        modal amplitudes in sqrt(W/m) is ``sum w |A|^2`` integrated over time.
         """
         return np.full(self.n_columns, self.dy / self.n_y)
 
     @property
-    def kperp_sq(self) -> Float[np.ndarray, " n_columns"]:
-        """Return each column's ``k_y**2``.
+    def kperp_sq(self) -> Float[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """Each column's ``k_y**2``, m^-2.
 
-        Returns
-        -------
-        numpy.ndarray
-            In m^-2, shape ``(n_columns,)``, the mode index fastest.
+        Shape ``(n_columns,)``, the mode index fastest.
         """
         return np.repeat(self.k_y**2, self.n_p)
 
     @property
-    def on_axis(self) -> Complex[np.ndarray, " n_columns"]:
-        """Return the weights that reconstruct the field at ``x = y = 0``.
+    def on_axis(self) -> Complex[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """The weights that reconstruct the field at ``x = y = 0``.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``V_p(0) exp(-i k_y y[0]) / n_y`` in V/(m sqrt(W/m)), complex, shape
-            ``(n_columns,)``: the inverse y DFT at ``y = 0`` times each mode's
-            mid-plane field.
+        ``V_p(0) exp(-i k_y y[0]) / n_y`` in V/(m sqrt(W/m)), complex, shape
+        ``(n_columns,)``: the inverse y DFT at ``y = 0`` times each mode's
+        mid-plane field.
         """
         phase = np.exp(-1j * self.k_y * self.y[0]) / self.n_y
         return (phase[:, None] * self.centre[None, :]).ravel()
@@ -1226,10 +1115,7 @@ class PlanarGrid(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         labels = ", ".join(mode.channel_label.display_label for mode in self.modes)
         return "PlanarGrid: slab modes in x, periodic samples in y", [
@@ -1247,20 +1133,7 @@ class PlanarGrid(Displayed):
 
 
 def _check_planar_modes(modes: Sequence[Mode]) -> None:
-    """Refuse, by name, a mode set the hybrid planar transform cannot carry.
-
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The proposed channels.
-
-    Raises
-    ------
-    ModeError
-        Naming what is wrong: an empty set, a mode that is not a slab mode, a
-        repeated channel, different gaps, TE and TM together, different fills, or a
-        gap that varies along z.
-    """
+    """Refuse, by name, a mode set the hybrid planar transform cannot carry."""
     if not modes:
         raise ModeError("a planar grid needs at least one slab mode")
     for mode in modes:

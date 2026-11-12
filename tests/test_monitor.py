@@ -70,7 +70,7 @@ BETA2 = 2e-26
 pulse, about 1.4 m, keeps it compact over the metre."""
 
 
-def walker(  # noqa: PLR0913 - the issues' reproductions vary each
+def walker(
     drift: float,
     *,
     check: BoundaryCheck | None = None,

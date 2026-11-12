@@ -76,22 +76,8 @@ logger = logging.getLogger(__name__)
 def _normalisation(mode: Mode, z: float) -> float:
     """Return a mode's closed-form normalisation.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``N`` in W.
-
-    Raises
-    ------
-    ModeError
-        If the mode has no closed-form normalisation.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``N`` in W.
     """
     closed_form: Callable[[float], float] | None = getattr(mode, "normalisation", None)
     if not callable(closed_form):
@@ -144,21 +130,12 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
         0.5 * EPS0 * C / math.sqrt(_normalisation(first, z) * _normalisation(second, z))
     )
 
-    def integrand(inner: float, outer: float) -> float:
+    def _integrand(inner: float, outer: float) -> float:
         """Return the product of the two profiles times the area element.
 
-        Parameters
-        ----------
-        inner : float
-            The first cross-section coordinate, ``r`` or ``x`` in m. dblquad passes
-            the *inner* variable first, which is why the order looks reversed.
-        outer : float
-            The second coordinate, ``theta`` in rad or ``y`` in m.
-
-        Returns
-        -------
-        float
-            The integrand of the overlap.
+        - ``inner``: the first cross-section coordinate, ``r`` or ``x`` in m. dblquad
+          passes the *inner* variable first, which is why the order looks reversed.
+        - ``outer``: the second coordinate, ``theta`` in rad or ``y`` in m.
         """
         point = np.array([[inner, outer]])
         product = float(np.sum(first.field(point, z) * second.field(point, z)))
@@ -169,7 +146,7 @@ def overlap(first: Mode, second: Mode, z: float = 0.0) -> float:
         return scale * _overlap_along_x(first, second, (lower[0], upper[0]), z)
     # The outer variable is the second coordinate and the inner the first, with the
     # polar Jacobian r folded into the integrand above.
-    value, _ = dblquad(integrand, lower[1], upper[1], lower[0], upper[0])
+    value, _ = dblquad(_integrand, lower[1], upper[1], lower[0], upper[0])
     return scale * value
 
 
@@ -178,33 +155,15 @@ def _overlap_along_x(
 ) -> float:
     """Return the integral over x of two slab profiles' product, per metre of y.
 
-    Parameters
-    ----------
-    first, second : Mode
-        Slab modes sharing one gap.
-    limits : tuple of float
-        The gap's edges in m.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    float
-        ``int e_1 . e_2 dx`` in m, integrated adaptively.
+    - ``limits``: the gap's edges in m.
+    - ``z``: position along the waveguide, m.
+    - Returns: ``int e_1 . e_2 dx`` in m, integrated adaptively.
     """
 
     def along_x(x: float) -> float:
         """Return the product of the two slab profiles at one x.
 
-        Parameters
-        ----------
-        x : float
-            Transverse coordinate in m.
-
-        Returns
-        -------
-        float
-            The integrand of the per-unit-width overlap.
+        - ``x``: transverse coordinate in m.
         """
         point = np.array([[x, 0.0]])
         return float(np.sum(first.field(point, z) * second.field(point, z)))
@@ -310,15 +269,8 @@ def _measure_of(mode: Mode) -> TransverseMeasure:
     specified mode keeps its source in its dispersion's ``mode``, and its area --
     ``aeff()`` of that source unless one was declared -- is in the source's units.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-
-    Returns
-    -------
-    str
-        The first declared ``transverse_measure`` along the chain, else ``"area"``.
+    - Returns: the first declared ``transverse_measure`` along the chain, else
+      ``"area"``.
     """
     one: object = mode
     while one is not None:
@@ -425,18 +377,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     def _same_stepindex_guide(self, mode: Mode) -> bool:
-        """Check whether a channel shares the first physical guide.
-
-        Parameters
-        ----------
-        mode : StepIndexMode
-            Existing bound lossless mode.
-
-        Returns
-        -------
-        bool
-            Whether radius paths and both material laws agree.
-        """
+        """Check whether a channel shares the first physical guide."""
         first = self.modes[0]
         return (
             isinstance(first, StepIndexMode)
@@ -465,17 +406,14 @@ class ModeCollection(Displayed, Sequence[Mode]):
             seen.add(label)
 
     @property
-    def channel_labels(self) -> tuple[ChannelLabel, ...]:
-        """Return each member's physical label, in the order of the mode axis.
+    def channel_labels(self) -> tuple[ChannelLabel, ...]:  # numpydoc ignore=RT01
+        """Each member's physical label, in the order of the mode axis.
 
-        Returns
-        -------
-        tuple of ChannelLabel
-            The members' own :attr:`solprop.modes.protocol.Mode.channel_label`, in
-            order. A label a family does not have is ``None``, never a string
-            standing for one: an axially symmetric TE0m or TM0m channel has no
-            parity partner, so its parity is ``None``, exactly as its handedness is.
-            The run record persists these labels.
+        The members' own :attr:`solprop.modes.protocol.Mode.channel_label`, in
+        order. A label a family does not have is ``None``, never a string
+        standing for one: an axially symmetric TE0m or TM0m channel has no
+        parity partner, so its parity is ``None``, exactly as its handedness is.
+        The run record persists these labels.
 
         Examples
         --------
@@ -488,7 +426,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return tuple(mode.channel_label for mode in self.modes)
 
     @classmethod
-    def with_polarisations(cls, modes: Sequence[Mode]) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    def with_polarisations(cls, modes: Sequence[Mode]) -> "ModeCollection":
         """Build a collection carrying both polarisations of every degenerate mode.
 
         Parameters
@@ -512,7 +450,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return cls(polarisation_pairs(modes))
 
     @classmethod
-    def he1m(  # noqa: PLR0913 - MarcatiliMode's own keywords, carried through
+    def he1m(
         cls,
         radius: float | ZProfile,
         gas: Gas | str,
@@ -524,7 +462,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile = ROOM_TEMPERATURE,
         susceptibility: GasSusceptibility | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the first `count` HE_1m modes of one gas-filled capillary.
 
         The linearly polarised hybrid modes of a hollow capillary, in the order of
@@ -599,7 +537,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def slab(  # noqa: PLR0913 - SlabMode's own keywords, carried through
+    def slab(
         cls,
         half_gap: float | ZProfile,
         orders: Sequence[int],
@@ -612,7 +550,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the given orders of one hollow planar guide, uniform in y.
 
         A centred, symmetric launch couples only to odd orders, so the set a
@@ -687,7 +625,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def vincetti(  # noqa: PLR0913 - the mode's material keywords, carried through
+    def vincetti(
         cls,
         radius: float | ZProfile,
         gas: Gas | str | None = None,
@@ -700,7 +638,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the first `count` HE_1m modes of a tube-lattice fibre.
 
         The field and transverse quadrature remain Marcatili's. Corrections and
@@ -760,7 +698,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def marcatili(  # noqa: PLR0913 - mode indices and MarcatiliMode's material keywords
+    def marcatili(  # noqa: PLR0917 - called positionally
         cls,
         radius: float | ZProfile,
         gas: Gas | str,
@@ -774,7 +712,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile = ROOM_TEMPERATURE,
         susceptibility: GasSusceptibility | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build an ordered mixture of hybrid and transverse capillary modes.
 
         Parameters
@@ -863,10 +801,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         count = len(self.modes)
         return f"ModeCollection: {count} mode{'s' * (count != 1)}", [
@@ -959,27 +894,21 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return limits
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the highest azimuthal order in the set.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Highest azimuthal order in the set.
 
-        Returns
-        -------
-        int
-            The bound that fixes how many azimuthal nodes a quartic product needs,
-            ``n_theta >= 4 h + 1``.
+        The bound that fixes how many azimuthal nodes a quartic product needs,
+        ``n_theta >= 4 h + 1``.
         """
         return max(mode.azimuthal_order for mode in self.modes)
 
     @property
-    def needs_full_rule(self) -> bool:
-        """Return whether the azimuthal coordinate has to be resolved.
+    def needs_full_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the azimuthal coordinate has to be resolved.
 
-        Returns
-        -------
-        bool
-            ``False`` for a set whose products are azimuthally symmetric -- any set of
-            ``HE_1m`` modes -- which then needs the radial rule alone, and for a slab
-            set, which is uniform in y; ``True`` otherwise.
+        ``False`` for a set whose products are azimuthally symmetric -- any set of
+        ``HE_1m`` modes -- which then needs the radial rule alone, and for a slab
+        set, which is uniform in y; ``True`` otherwise.
         """
         kind = self.dimlimits()[0]
         if kind == "slab":
@@ -987,37 +916,28 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return self.azimuthal_order > 0 or kind == "cartesian"
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the set's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the set's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"`` for a slab set, whose powers are W/m and energies
-            J/m, and ``"area"`` otherwise (:func:`transverse_measure`).
+        ``"per_unit_width"`` for a slab set, whose powers are W/m and energies
+        J/m, and ``"area"`` otherwise (:func:`transverse_measure`).
         """
         return transverse_measure(self.modes)
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether nothing in the set varies along z.
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether nothing in the set varies along z.
 
-        Returns
-        -------
-        bool
-            ``True`` only when every mode says so.
+        ``True`` only when every mode says so.
         """
         return all(mode.z_constant for mode in self.modes)
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether every mode rescales with the core radius.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every mode rescales with the core radius.
 
-        Returns
-        -------
-        bool
-            ``True`` when the transform may rescale its matrices along a taper rather
-            than rebuilding them.
+        ``True`` when the transform may rescale its matrices along a taper rather
+        than rebuilding them.
         """
         return all(mode.scale_invariant for mode in self.modes)
 
