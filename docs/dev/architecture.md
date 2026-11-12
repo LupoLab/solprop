@@ -861,17 +861,13 @@ linearly — a capillary's coherent wall, the taper coupling of a moving multimo
 block on the general modal route — the problem carries the optional
 `linear.coupled_flow` leaf (`translate/coupled.py`) beside the diagonal Φ table. Its
 generator does not commute with itself at different z, so the flow is built per
-section of the operator table's breakpoints, in one of three ways:
+section of the operator table's breakpoints, in one of two ways:
 
 - `"constant_schur"`: a constant block per section, whose exponential is formed from its
   Schur decomposition and is exact over any step inside the section;
 - `"frozen_residual"`: the block frozen per section inside the exponential, and the rest of
   the generator — its z variation and the connection — as an explicit residual that the
-  Runge–Kutta source carries, so the embedded pair sees its error;
-- `"cf4"`: a fourth-order commutator-free exponential of the whole generator at Gauss
-  nodes of each stage interval, whose flow error the embedded pair does not see
-  ([stepper.md](stepper.md) §2); admitted on `numpy_ref` only and never selected by
-  default.
+  Runge–Kutta source carries, so the embedded pair sees its error.
 
 The coupled flow runs on `numpy_ref` and the native CPU build, which forms
 the per-bin flow actions in its own kernels and agrees with the reference to a derived

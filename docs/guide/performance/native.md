@@ -56,8 +56,6 @@ generator applied to its state), so a snapshot of it continues only on the nativ
 backend, and a host engine's snapshot of it only on `numpy_ref`; a
 mismatch starts the history afresh and says why. Other histories cross between backends.
 
-Separately, the `cf4` section method of a coupled flow (`CoherentWall(method="cf4")`)
-runs on `numpy_ref` only, with the Runge–Kutta march; the native backend does not run it.
 The planar guide resolved in y is built into the GPU builds but has not been qualified
 on a device. solprop has no fallback: an import failure, an incompatible build, a processor
 below the build's baseline or a refused problem raises, naming what to do instead

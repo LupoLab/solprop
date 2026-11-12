@@ -14,12 +14,10 @@ import dataclasses
 
 import pytest
 
-from driver.test_coherent_capillary import CF4_WALL, varying
+from driver.test_coherent_capillary import varying
 from driver.test_split_block import build
 from modal_provider_cases import general_grid, split_guide
 from solprop.backends.numpy_ref.admission import (
-    FLOW_METHODS,
-    refuse_coupled_flow,
     refuse_general_route,
 )
 from solprop.exceptions import (
@@ -27,6 +25,7 @@ from solprop.exceptions import (
     GrazingIncidenceWarning,
     MaterialRangeWarning,
 )
+from solprop.modes import CoherentWall
 
 pytestmark = [
     pytest.mark.filterwarnings(
@@ -47,32 +46,16 @@ def split_problem():
 
 
 @pytest.fixture(scope="module")
-def cf4_problem():
-    """A tapered wall integrated by CF4."""
-    return varying(wall=CF4_WALL).translate()
+def frozen_problem():
+    """A tapered wall integrated by the frozen-residual split."""
+    return varying(wall=CoherentWall()).translate()
 
 
-def test_the_reference_admits_every_flow_method_it_executes(split_problem, cf4_problem):
-    assert set(FLOW_METHODS) == {"constant_schur", "frozen_residual", "cf4"}
-    assert refuse_general_route(split_problem) is None
-    assert refuse_general_route(cf4_problem, backend="numpy_ref") is None
-
-
-def test_a_section_method_the_caller_has_not_built_is_refused_by_its_name(
-    cf4_problem,
+def test_the_reference_admits_every_flow_method_it_executes(
+    split_problem, frozen_problem
 ):
-    """A backend narrows the flow's methods and is refused in its own name."""
-    with pytest.raises(BackendError, match=r"^compiled does not execute a 'cf4'"):
-        refuse_coupled_flow(
-            cf4_problem,
-            backend="compiled",
-            flow_methods=("constant_schur", "frozen_residual"),
-        )
-    # The full list refuses it the same way, flow first.
-    with pytest.raises(BackendError, match="not yet implemented on the native backend"):
-        refuse_general_route(
-            cf4_problem, backend="compiled", flow_methods=("frozen_residual",)
-        )
+    assert refuse_general_route(split_problem) is None
+    assert refuse_general_route(frozen_problem, backend="numpy_ref") is None
 
 
 @pytest.mark.parametrize(

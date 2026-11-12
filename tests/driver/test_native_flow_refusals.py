@@ -256,14 +256,7 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
         with pytest.raises(BackendError) as ours:
             native_class()(problem_spoiled, run_request, grid=grid)
         assert "numpy_ref" in str(theirs.value), name
-        # The one difference by design: a varying flow's methods, where native names
-        # 'frozen_residual' alone because it refuses 'cf4' first.
-        expected = (
-            str(theirs.value)
-            .replace("numpy_ref", "native")
-            .replace("'frozen_residual' or 'cf4'", "'frozen_residual'")
-        )
-        assert str(ours.value) == expected, name
+        assert str(ours.value) == str(theirs.value).replace("numpy_ref", "native"), name
 
 
 @needs_native

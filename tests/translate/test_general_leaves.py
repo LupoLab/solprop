@@ -580,7 +580,7 @@ def test_a_flow_prints_one_line_and_a_block():
         generator_error=np.zeros((2, 3)),
         residual_norm_bound=np.zeros((2, 3)),
         inverse_condition_bound=np.ones((2, 3)),
-        section_methods=("diagonal", "cf4"),
+        section_methods=("diagonal", "frozen_residual"),
     )
     assert "2 sections" in repr(wide)
 

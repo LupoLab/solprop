@@ -357,7 +357,7 @@ LINEAR_OPERATOR_FIELDS: tuple[str, ...] = (
 The four modal power-weight rows the statistics read (schema 11) and the two optional
 general-modal leaves added at schema 12: ``modal_metric`` (identity, or the dense
 metric of a declared unitary basis) and ``coupled_flow`` (the constant-Schur and
-frozen-residual sections; CF4 is refused by name), both executed by this backend.
+frozen-residual sections), both executed by this backend.
 The general z table (solprop SEP 29 G1): ``phi_representation``, and the table
 ``polynomial`` and its derivative ``rate`` (cached properties), whose coefficients
 this backend holds resident and evaluates natively.

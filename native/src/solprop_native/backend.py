@@ -97,7 +97,6 @@ from solprop.translate.chebyshev import (
 )
 from solprop.translate.coupled import (
     CoupledFlowTables,
-    SectionMethod,
     flow_edge_slack,
     frozen_generator,
     schur_blocks,
@@ -2930,8 +2929,7 @@ def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None
         return
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
-    # formulation only (phase 5), as solprop's reference does; its CF4 sections are
-    # refused by the shared check.
+    # formulation only (phase 5), as solprop's reference does.
     if (
         problem.linear.coupled_flow is not None
         and integrator.formulation != "exponential"
@@ -3018,23 +3016,14 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
     # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
     # pipeline; elsewhere it is refused by name rather than stepped by this backend's
-    # Runge-Kutta march, which would silently be a different method. A 'cf4' section
-    # is refused first, by the shared list: no integrator runs one here, so the
-    # integrator's advice to take the Runge-Kutta march would mislead.
-    flow = problem.linear.coupled_flow
-    if flow is not None and "cf4" in flow.section_methods:
-        refuse_general_route(
-            problem, backend="native", flow_methods=_FLOW_METHODS, moving_maps=True
-        )
+    # Runge-Kutta march, which would silently be a different method.
     _refuse_adams(problem, stepper)
     # One list for every backend: the general modal route and the coupled flow, each
     # refusal naming this backend.
     # A moving guide's synthesis and projection, combined per stage over schema 14's
     # `StageScalars.transform_weights`, run here beside the frozen-residual flow that
     # carries their connection.
-    refuse_general_route(
-        problem, backend="native", flow_methods=_FLOW_METHODS, moving_maps=True
-    )
+    refuse_general_route(problem, backend="native", moving_maps=True)
     _refuse_native_route(problem)
     flags = problem.flags
     if problem.transform.n_pol * problem.shape[1] > 2:
@@ -3064,15 +3053,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
         raise BackendError(
             "spectral responses other than envelope plasma are unsupported by Kokkos"
         )
-
-
-_FLOW_METHODS: tuple[SectionMethod, ...] = ("constant_schur", "frozen_residual")
-"""The section methods of ``linear.coupled_flow`` this backend executes.
-
-The constant Schur section and the frozen-residual varying flow. The commutator-free
-CF4 flow is solprop's reference backend's alone, and solprop's shared admission list
-refuses it here by name.
-"""
 
 
 def _refuse_native_route(problem: PropagationProblem) -> None:

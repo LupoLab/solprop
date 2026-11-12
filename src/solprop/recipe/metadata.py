@@ -2451,24 +2451,6 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "advanced",
             "The impedance-averaged block or the coupled azimuthal one.",
         ),
-        _keyword(
-            "method",
-            _choice("frozen_residual", "cf4"),
-            "advanced",
-            "How a guide that varies along z is integrated.",
-        ),
-        _keyword(
-            "growth_limit",
-            _number(minimum=1.0),
-            "advanced",
-            "Largest admitted internal growth of a CF4 section.",
-        ),
-        _keyword(
-            "fallback",
-            _choice("frozen_residual"),
-            "advanced",
-            "What a section the CF4 guards reject becomes; the default refuses it.",
-        ),
     ),
     "MarcatiliMode": _type(
         "geometry",

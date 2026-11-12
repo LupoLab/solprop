@@ -1006,7 +1006,7 @@ def prop_capillary(
         ``HE_11`` to ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal
         order -- on a constant or a varying guide, and a scalar run. It carries the
         default ``"input"`` noise and refuses ``"modified"``. ``numpy_ref`` and
-        ``native`` execute it (``method="cf4"`` on ``numpy_ref`` alone).
+        ``native`` execute it.
         ``None``, the default, carries no wall: the modes keep their own Marcatili
         loss, and a multimode taper its taper coupling (below).
     taper_coupling : bool, optional

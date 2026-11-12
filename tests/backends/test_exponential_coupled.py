@@ -10,8 +10,7 @@ in the channel axis; the trial's flow and moments are matrix functions of it on 
 that carry a block (:func:`solprop.backends.multistep.coupled_moments`). These tests
 check the matrix moments against independent evaluations, the march against the
 Runge-Kutta march on the constant-Schur cases of ``tests/flow_parity.py``, exactness
-without a source, and what stays refused: the interaction formulation and the CF4 and
-(until it is delivered) frozen-residual sections.
+without a source, and what stays refused: the interaction formulation.
 """
 
 import dataclasses

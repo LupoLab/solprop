@@ -216,10 +216,8 @@ may be reused through it.
 **A coupled flow recycles no stage, on any backend.** A frozen-residual flow adds
 `R_s(z)·u` to the same lab-frame source the material response is evaluated in, so its
 stages are the same objects a diagonal flow's are. The flow actions a step holds are keyed
-on `(section, dz)`, so a step that begins in a different section rebuilds them; a `"cf4"`
-section's actions are keyed on `(section, dz, z)` as well, because they exponentiate the
-generator at Gauss nodes inside each stage's own interval, and nothing is reused between
-steps. An adaptive run, whose `dz` changes every step, re-forms the actions every trial;
+on `(section, dz)`, so a step that begins in a different section rebuilds them. An
+adaptive run, whose `dz` changes every step, re-forms the actions every trial;
 the compiled backends form them in their own kernels, at 3 to 11 % of a step.
 
 The identity itself is known. On a frozen-residual or constant section the last stage's
@@ -230,9 +228,8 @@ fraction where the action is the identity, is `N(y) + R_{s'}(z + h) y`. So
 section**, `s' = s`: the certified forward action it needs is the whole step's `U_h`,
 which the step already holds and whose conditioning it has measured. It fails at a
 section edge, where the next anchor's frozen block and one-sided weights differ — the
-same invalidation as the actions' own key. A CF4 section has no such identity (its
-actions depend on `z`). In rounding the rebased stage differs from a fresh one by the
-round trip `U_h U_h⁻¹`, a few `C u` with `C` the declared conditioning.
+same invalidation as the actions' own key. In rounding the rebased stage differs from a
+fresh one by the round trip `U_h U_h⁻¹`, a few `C u` with `C` the declared conditioning.
 
 It is not taken. One stage evaluation on the coherent-wall cases (scalar wall, TE/TM
 wall, taper; one thread) costs 0.18 to 1.39 ms on
@@ -253,20 +250,6 @@ normative: the step's section wins wherever the position lies inside it, matched
 1e-10 of the flow's span so that a schedule arriving a few ulp short of a kink and one
 arriving a few ulp past name the same section, and a stage that ran past its step's
 section takes the section it **closes** in.
-
-**A CF4 section's flow error is outside the embedded pair.** On a `"cf4"` section the
-interaction picture is built on the commutator-free fourth-order exponential of the whole
-generator rather than on a frozen block, and no explicit linear term enters the source.
-The embedded difference compares two combinations of the same stages, each carried by the
-same approximate flow, so the flow's own local defect — `O(h⁵)`, which makes the run at
-most **fourth** order — never appears in the error norm, and the controller can neither
-see nor bound it; the flow's error enters the source only through the stage actions'
-perturbation, one order of `h` higher. What governs it is the declared step:
-`validate_coupled_flow` compares the step-doubling estimate `(16/15) ‖V(h) − V(h/2)²‖` at
-the largest declared step with the controller's `rtol` and warns, advisory like the frozen
-split's advisory step. That estimate is asymptotic, not a bound; it has been checked
-against independent solves and the run's measured order. CF4 is admitted on `numpy_ref`
-only and is never selected by default.
 
 ### The low-storage march
 
@@ -369,7 +352,7 @@ take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
-and CF4 sections are refused by name (`backends.exponential.refuse_formulation`).
+is refused by name (`backends.exponential.refuse_formulation`).
 
 **The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and

@@ -273,12 +273,6 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
     assert float(np.max(np.abs(actual - expected))) / scale <= bound
 
 
-def test_cf4_is_refused_by_name() -> None:
-    case = simulation(radius=taper(), wall=CoherentWall(method="cf4"))
-    with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
-        NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
-
-
 def _owner(
     case: Simulation, problem: PropagationProblem, run_request: RunRequest
 ) -> NativeBackend:

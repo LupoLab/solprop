@@ -283,29 +283,6 @@ def test_every_compiled_backend_admits_moving_maps_and_a_new_one_refuses_them(
     select("native", problem, run_request, grid=simulation.grid).close()
 
 
-def test_the_reference_refuses_a_cf4_flow_beside_moving_maps(kinked_problem):
-    """CF4 composes on paper and is not yet built or measured on this route.
-
-    CF4 is the Runge-Kutta march's section method: the default Adams history refuses
-    it before the route is reached.
-    """
-    simulation, problem = kinked_problem
-    run_request = simulation._run_request()
-    run_request = run_request.with_stepper(
-        dataclasses.replace(run_request.stepper, integrator=None)
-    )
-    flow = problem.linear.coupled_flow
-    assert flow is not None
-    spoiled_flow = dataclasses.replace(flow)
-    object.__setattr__(spoiled_flow, "section_methods", ("cf4", "cf4"))
-    linear = dataclasses.replace(problem.linear)
-    object.__setattr__(linear, "coupled_flow", spoiled_flow)
-    spoiled = dataclasses.replace(problem)
-    object.__setattr__(spoiled, "linear", linear)
-    with pytest.raises(BackendError, match="CF4 beside moving maps"):
-        NumpyRefBackend(spoiled, run_request, grid=simulation.grid)
-
-
 def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
     """The batch applies neither half of a flow, so a member carrying one is refused."""
     simulation, problem = kinked_problem

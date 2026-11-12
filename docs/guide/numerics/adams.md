@@ -52,7 +52,7 @@ the general modal route and the radial, Cartesian, line and planar free-space ro
 with constant and varying operators and every noise model the route admits. Beside a
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
 exponential formulation runs, on its constant-Schur and frozen-residual sections; the
-interaction formulation and CF4 sections are refused by name. Another backend refuses
+interaction formulation is refused by name. Another backend refuses
 `Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
 ([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`
@@ -301,9 +301,8 @@ own section's block -- rebuilding the history's residual when a step enters a ne
 section -- and carries it by the reference's forward flow, never an inverse one. The
 residual acts on the in-band bins, as the Runge-Kutta stage applies it. The lab-frame
 sample is the material source alone. The interaction formulation stays refused, since it
-would carry its history through inverse actions whose conditioning grows with loss; a
-CF4 section, which exponentiates the generator inside each stage, is excluded. On the
-scalar wall and the taper (0.2 mm windows) it takes
+would carry its history through inverse actions whose conditioning grows with loss. On
+the scalar wall and the taper (0.2 mm windows) it takes
 two to three times fewer calls than IP-DOPRI5 at matched error. On
 the native backend, the bins on the flow actions' eigenbasis route take their matrix functions as
 `W f(x + h λ) Y` from that basis, and the bins off it read them off the augmented exponential as
@@ -654,7 +653,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
 
 - `numpy_ref` and `native` on every route, for both formulations, but
   beside a coupled flow, where the exponential formulation alone steps its
-  constant-Schur and frozen-residual sections and CF4 sections are refused. On `native`
+  constant-Schur and frozen-residual sections. On `native`
   the history and the step's arithmetic are resident in the engine, on the CPU and on
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too:
   at any width and whichever route each bin takes. On the CPU build the

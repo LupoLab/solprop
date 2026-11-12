@@ -372,7 +372,7 @@ every step of the anatomy in [architecture.md §8](architecture.md) is a named f
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
 the supported executor of the short list of features `native` does not run yet: the TDSE
-response, CF4 coupled-flow sections and single precision away from Apple silicon
+response and single precision away from Apple silicon
 ([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
@@ -424,7 +424,7 @@ the in-stage absorber and the return to the interaction picture.
 the coherent wall block of a capillary (scalar, one `HE_1m` family, or vector, the two
 radial families of one azimuthal order), the declared unitary basis of a *split* block on
 the general modal route, and the connection of a moving solid guide. All take the same path
-through this backend. Each section's method is one of three:
+through this backend. Each section's method is one of two:
 
 - **`"constant_schur"`.** The backend decomposes the leaf's frozen generator once per
   section, in its own constructor, and applies a Schur matrix-function action over the
@@ -442,21 +442,10 @@ through this backend. Each section's method is one of three:
   picture's own factors carry it back. The residual is evaluated from the stage bundle's
   `flow_section` and `flow_weights` rows, and applied only on the bins the error norm
   scores (`grids.inband_mask`); the frozen flow alone carries the spectral collar.
-- **`"cf4"`**. A step anchored in a CF4 section applies, for each stage fraction `c`, the
-  commutator-free product `exp(B₂) exp(B₁)` of the whole generator `G − C` at the two
-  Gauss nodes of `[z, z + c h]` — the node weights built from the leaf by
-  `translate.coupled.flow_weights`, not from the bundle, because a node is not a stage —
-  and its exact inverse `exp(−B₁) exp(−B₂)`, both by the same scaled Taylor series the
-  Schur path uses; the source carries no residual there. The four factors' spectral norms
-  are measured at every stage and refused above the section's declared pair bound. A flow
-  whose declared fallback left some sections `"frozen_residual"` is executed step by step
-  by the method of the anchor's section. The held actions are keyed on the step's start as
-  well as its section and length, so the resident peak `memory_ledger` reports does not
-  grow.
 
 The route needs the cumulative `Phi` beside the flow to be a multiple of the identity,
 because the two factors are applied as a product, and it checks that; a frozen-residual
-or CF4 flow needs `Phi` only to be a **weighted sum of fixed terms**, and a problem whose
+flow needs `Phi` only to be a **weighted sum of fixed terms**, and a problem whose
 `Phi` took the z table is refused by name. FSAL is absent there as it is everywhere in this
 backend.
 
@@ -465,8 +454,7 @@ expansion per section of the guide's path, and `numpy_ref` evaluates `S(z1)` and
 at every stage as the weighted sum of their coefficients over the stage bundle's
 `transform_weights`, in the seam's own evaluation form, before the source pass runs on
 them (`GeneralMaps.at`). It admits them only beside a `"frozen_residual"` flow carrying the
-connection on every section; a CF4 flow or none at all beside moving maps is refused by
-name.
+connection on every section; moving maps with no flow beside them are refused by name.
 
 The anatomy of one stage — the node chunks, mode-averaged propagation as the one-node
 case (ADR-010), the transverse components, the dual synthesis–projection pair, the fused
@@ -1071,12 +1059,12 @@ frequency-dependent map of three Cartesian components.
 
 ### 3.9 The coupled flow
 
-`native` executes `linear.coupled_flow` in the combinations `numpy_ref` admits but CF4: the
+`native` executes `linear.coupled_flow` in every combination `numpy_ref` admits: the
 single constant-Schur section (the scalar wall, the TE/TM wall, the split block on the general
 route) and the varying `"frozen_residual"` flow with its explicit residual and the taper
-connection. A `"cf4"` section is refused by name at the backend and at the capillary entry
-point, and so is a flow beside a Cartesian free-space problem, which no translation builds
-(`require_coupled_flow`). Its admission is the shared list under its own name.
+connection. A flow beside a Cartesian free-space problem, which no translation builds, is
+refused by name (`require_coupled_flow`). Its admission is the shared list under its own
+name.
 
 - **Host-side, shared with the reference.** The Schur factors of every section's frozen block,
   once at construction, as the reference forms them, and the eigenbasis of each triangular
@@ -1727,8 +1715,8 @@ synthesis and projection read; nothing is allocated in a trial, and the ledger a
 weights (`general_map_weights`).
 
 **The coupled flow** (`src/coupled_flow.cpp`, `CoupledFlowAction`) executes the
-constant-Schur and frozen-residual sections; CF4 stays `numpy_ref`'s and is refused by
-name. The adapter uploads each section's eigenbasis
+constant-Schur and frozen-residual sections, every section the translation builds. The
+adapter uploads each section's eigenbasis
 (`solprop.translate.coupled.schur_eigenbasis`: `W`, `Y`, the eigenvalues and the route per
 bin, with the Schur factors of the bins routed to scaling and squaring) once at
 construction, and `CoupledFlowAction::form_actions` forms every stage's and the whole
@@ -1997,7 +1985,6 @@ that execution space.
 | the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP; other combinations not qualified |
 | general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
-| coupled flow: `"cf4"` sections | yes | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route, the history resident; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections, the history resident at any width and on either route of each bin (the eigenbasis or the augmented exponential), in the native session | beside a coupled flow the history resident at any width and on either route of each bin, in the native session (past 16 channels or off the eigenbasis route: run on an NVIDIA A40, not yet qualified); qualified |
 | the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | CPU builds, resident, on every representation of the operator (a z table's chord carried as its own scalar table, #255); device builds refused | refused by name |
@@ -2080,7 +2067,6 @@ Which backend and build to choose for a run is the user guide's
 
 ## 11. Current limits
 
-- `"cf4"` coupled-flow sections run only on `numpy_ref`.
 - Single precision runs on `numpy_ref`, its oracle, alone; it
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams

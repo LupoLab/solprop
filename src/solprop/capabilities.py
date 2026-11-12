@@ -542,12 +542,6 @@ _RULES: Final = (
         _CAPILLARY,
     ),
     Rule(
-        "wall-cf4-numpy-ref",
-        ("wall", "backend"),
-        "A coherent wall with method='cf4' runs on numpy_ref alone.",
-        _CAPILLARY,
-    ),
-    Rule(
         "wall-is-the-loss",
         ("wall", "loss"),
         "A coherent wall block is the loss model, so loss stays True beside it.",

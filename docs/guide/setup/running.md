@@ -291,9 +291,7 @@ straight bore or a taper alike. The block is the run's loss model, so `loss=` mu
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
 model is refused beside it. It runs on `numpy_ref` and the native
-backend, CPU and GPU builds alike, with the default integration method;
-`CoherentWall(method="cf4")`, which integrates each section by commutator-free
-exponentials of its whole generator, runs on `numpy_ref` alone. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
+backend, CPU and GPU builds alike. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
 the [capillary guide](../waveguides/capillaries.md) and the gallery examples they link.
 
 **The taper coupling.** A multimode capillary whose radius varies along z carries the

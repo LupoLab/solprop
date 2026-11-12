@@ -97,10 +97,6 @@ from solprop.stats import (
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.coupled import (
-    CF4_NODES,
-    CF4_WEIGHTS,
-    CoupledFlowTables,
-    flow_weights,
     frozen_generator,
     metric_at,
     schur_blocks,
@@ -289,7 +285,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._block_residual: BlockResidual | None = None
         self._flow_cache: (
             tuple[
-                tuple[int, float, float | None],
+                tuple[int, float],
                 dict[float, tuple[np.ndarray | None, np.ndarray | None]],
             ]
             | None
@@ -1215,7 +1211,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         section = bundle.flow_section
         assert section is not None
         residual = None
-        if flow.residual_terms is not None and not flow.cf4[section]:
+        if flow.residual_terms is not None:
             if self._block_residual is None:
                 self._block_residual = BlockResidual(flow)
             residual = functools.partial(self._block_residual, section)
@@ -1299,12 +1295,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         second-order approximation: whatever block the exponential carries, the
         residual is the rest of the generator.
 
-        A step anchored in a ``"cf4"`` section carries **no** residual: its flow
-        actions are the commutator-free exponentials of the whole generator over each
-        stage's own length (:func:`_cf4_action`), so the source is the material
-        response alone and the flow's own error is outside what the embedded pair
-        measures: a known limitation of the controller on a CF4 section.
-
         - ``z``: position at the start of the step, m.
         - ``dz``: length of the trial step, m, positive.
         - Returns: the scaled error norm and the state at the end of the step.
@@ -1318,7 +1308,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
         exponents = self._exponents(z, dz)
         step = self._stage_scalars(z, z + dz)
-        actions = self._flow_actions(z, step.flow_section, dz)
+        actions = self._flow_actions(step.flow_section, dz)
         stages: list[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]] = []
         solution = np.zeros_like(state)
         error = np.zeros_like(state)
@@ -1396,14 +1386,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         ``None`` for every problem but a ``"frozen_residual"`` coupled flow: the
         constant section has an identically zero residual and is not
-        multiplied by one, so its arithmetic is bit for bit what it was; a step
-        anchored in a ``"cf4"`` section has none either, its whole generator being in
-        the exponential.
+        multiplied by one, so its arithmetic is bit for bit what it was.
 
         - Returns: ``R_s(z_1) u`` in the state's layout, or ``None``.
         """
         flow = self._flow
-        if flow is None or flow.residual_terms is None or flow.cf4[section]:
+        if flow is None or flow.residual_terms is None:
             return None
         assert bundle.flow_weights is not None
         return _residual_drive(
@@ -1414,7 +1402,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         )
 
     def _flow_actions(
-        self, z: float, section: int, dz: float
+        self, section: int, dz: float
     ) -> Callable[
         [float],
         tuple[
@@ -1442,15 +1430,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         the flow (``docs/dev/stepper.md`` section 2). The conditioning of a held
         length was measured when it was built.
 
-        A step anchored in a ``"cf4"`` section is not frozen: its actions are the
-        commutator-free exponentials of the generator at Gauss nodes **inside** each
-        stage's own interval, so they depend on where the step starts as well as on
-        its length, and the key carries `z`. Within one step the six fractions are
-        still computed once each; between steps nothing is reused. Every one of them
-        is checked against the section's declared pair bound, factor by factor
-        (:func:`_check_cf4_growth`).
-
-        - ``z``: where the step starts, m.
         - ``dz``: length of the trial step, m.
         - Returns: ``fraction -> (U, U^-1)``, each ``None`` when no coupled flow is
           carried.
@@ -1459,8 +1438,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if flow is None:
             return lambda fraction: (None, None)  # noqa: ARG005
         held = self._flow_cache
-        cf4 = bool(flow.cf4[section])
-        key = (section, dz, float(z) if cf4 else None)
+        key = (section, dz)
         cache: dict[float, tuple[np.ndarray | None, np.ndarray | None]] = (
             held[1] if held is not None and held[0] == key else {}
         )
@@ -1478,17 +1456,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             if fraction == 0.0:
                 return None, None
             if fraction not in cache:
-                if cf4:
-                    forward, inverse, growth = _cf4_action(
-                        flow, float(z), fraction * dz, section
-                    )
-                    _check_cf4_growth(flow, section, growth, fraction * dz)
-                    cache[fraction] = (forward, inverse)
-                else:
-                    pair = _flow_action(flow, section, fraction * dz)
-                    if fraction == 1.0:
-                        _check_flow_conditioning(flow, section, pair, dz)
-                    cache[fraction] = pair
+                pair = _flow_action(flow, section, fraction * dz)
+                if fraction == 1.0:
+                    _check_flow_conditioning(flow, section, pair, dz)
+                cache[fraction] = pair
             return cache[fraction]
 
         return action
@@ -2705,15 +2676,9 @@ class _CoupledFlow:
     residual_terms : numpy.ndarray or None
         The coefficients of ``G(z) - C(z)`` in 1/m, shape
         ``(n_intervals * n_deg, n_active, n_modes, n_modes)``; ``None`` for a leaf with
-        no explicit residual. A ``"cf4"`` section exponentiates the same combination
-        at its Gauss nodes.
+        no explicit residual.
     n_modes : int
         Channels the block couples.
-    cf4 : numpy.ndarray
-        Which sections are ``"cf4"``, bool, shape ``(n_sections,)``.
-    leaf : solprop.translate.coupled.CoupledFlowTables
-        The leaf itself, whose edges and degree axis a CF4 node's weights are built
-        on (:func:`solprop.translate.coupled.flow_weights`).
     """
 
     active: Bool[np.ndarray, " n_omega_flow"]
@@ -2728,8 +2693,6 @@ class _CoupledFlow:
         Complex[np.ndarray, "n_terms_r n_active_r n_modes_r_out n_modes_r_in"] | None
     )
     n_modes: int
-    cf4: Bool[np.ndarray, " n_sections_cf4"]
-    leaf: CoupledFlowTables
 
 
 _TAYLOR_ORDER = 16
@@ -2820,95 +2783,6 @@ def _flow_action(
     forward = vectors @ _triangular_exponential(exponent, backend=backend) @ adjoint
     inverse = vectors @ _triangular_exponential(-exponent, backend=backend) @ adjoint
     return forward, inverse
-
-
-def _cf4_action(
-    flow: _CoupledFlow, z: float, length: float, section: int
-) -> tuple[
-    Complex[np.ndarray, "n_active_c4f n_modes_c4f_out n_modes_c4f_in"],
-    Complex[np.ndarray, "n_active_c4i n_modes_c4i_out n_modes_c4i_in"],
-    Float[np.ndarray, " n_active_c4g"],
-]:
-    """Return the CF4 forward and inverse actions over ``[z, z + length]``.
-
-    ``V = exp(B_2) exp(B_1)`` with ``B_1 = l (b A_1 + a A_2)`` acting first and
-    ``B_2 = l (a A_1 + b A_2)`` second, ``A_j`` the whole generator ``G - C`` at the
-    Gauss nodes ``z + c_j l`` (:data:`solprop.translate.coupled.CF4_NODES`, ``a, b``
-    :data:`solprop.translate.coupled.CF4_WEIGHTS`). The inverse is
-    ``exp(-B_1) exp(-B_2)``: the exact inverse of the approximation, formed from the
-    negated exponents and never by a solve, so the interaction picture's forward and
-    backward actions are inverse to rounding and a zero source reproduces ``V``
-    exactly.
-
-    The generator at a node is the stage bundle's own evaluation form, applied at a
-    position that is not a stage: ``flow_weights`` of the node, resolved against the
-    step's section, combined over the held terms. Every node lies strictly inside the
-    step, so no edge rule is ever exercised by it.
-
-    - ``z``: where the step starts, m.
-    - ``length``: the stage's own length ``c_i h``, m, positive.
-    - Returns: the two actions, shape ``(n_active, n_modes, n_modes)``, and the product
-      of the four factors' spectral norms per active bin -- the quantity the CF4
-      factor-norm guard is declared on.
-    """
-    assert flow.residual_terms is not None
-    early, late = (
-        combine(
-            flow_weights(flow.leaf, float(z) + node * float(length), section),
-            flow.residual_terms,
-        )
-        for node in CF4_NODES
-    )
-    small, large = CF4_WEIGHTS
-    first = float(length) * (large * early + small * late)
-    second = float(length) * (small * early + large * late)
-    factors = (
-        _triangular_exponential(first),
-        _triangular_exponential(second),
-        _triangular_exponential(-first),
-        _triangular_exponential(-second),
-    )
-    growth = np.prod(
-        [np.linalg.norm(factor, ord=2, axis=(-2, -1)) for factor in factors], axis=0
-    )
-    return factors[1] @ factors[0], factors[2] @ factors[3], growth
-
-
-def _check_cf4_growth(
-    flow: _CoupledFlow,
-    section: int,
-    growth: Float[np.ndarray, " n_active_g"],
-    length: float,
-) -> None:
-    """Refuse a CF4 action whose internal factors exceed the declared pair bound.
-
-    The CF4 factor-norm guard at the executor. The leaf declares, for a ``"cf4"``
-    section, ``exp((2/sqrt(3)) dz_max (m_hi - m_lo))``: a bound on the product of the
-    four factor norms of any forward and inverse pair a step anchored there can form
-    (:func:`solprop.translate.coupled.cf4_flow`). Here the four norms are **measured**,
-    from the factors actually formed, and compared with it, so a certificate declared
-    over too short a step or a generator it was not built from is caught per step rather
-    than trusted. It bounds the forward product's excess over the exact action and the
-    inverse action the source is carried back by, together.
-
-    - ``length``: the stage length it was formed over, m, used in the refusal.
-    """
-    declared = flow.condition_bound[section]
-    # The same allowance as the frozen check: the bound is on the exact factors, and
-    # what exceeds it by less than the rounding of four spectral norms is arithmetic.
-    allowance = 1.0 + 64.0 * flow.n_modes * float(np.finfo(float).eps)
-    excess = growth / (declared * allowance)
-    if np.any(excess > 1.0):
-        worst = int(np.argmax(excess))
-        msg = (
-            f"numpy_ref measured a CF4 factor-norm product of "
-            f"{float(growth[worst]):.12g} over a stage of {length:.4g} m, above the "
-            f"{float(declared[worst]):.12g} the certificate declares at active bin "
-            f"{worst} of section {section}: the negative CF4 weight lets a factor of a "
-            "dissipative flow grow beyond the exact action. Lower "
-            "dz_max, which is what the bound was declared over"
-        )
-        raise BackendError(msg)
 
 
 def _residual_action(
@@ -3158,8 +3032,6 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
         condition_bound=np.ascontiguousarray(flow.inverse_condition_bound[:, active]),
         residual_terms=residual,
         n_modes=flow.n_modes,
-        cf4=np.array([method == "cf4" for method in flow.section_methods]),
-        leaf=flow,
     )
     logger.debug(
         "coupled flow: %d channel(s) on %d of %d bins over %d section(s), %s, largest "
