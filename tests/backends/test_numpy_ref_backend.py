@@ -27,7 +27,7 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError, TranslationError
 from solprop.noise import modified_noise
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.stats import StatsSpec, collect
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import unitary_phase

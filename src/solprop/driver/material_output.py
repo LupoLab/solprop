@@ -16,8 +16,6 @@ in force.
 import dataclasses
 import enum
 import functools
-import hashlib
-import json
 import math
 import types
 from collections.abc import Iterator, Mapping, Sequence
@@ -26,6 +24,7 @@ from typing import Final, cast
 import numpy as np
 from jaxtyping import Float
 
+from solprop._identity import canonical_digest, canonical_json
 from solprop.constants import EPS0, C
 from solprop.grid import TimeGrid
 from solprop.modes.fill import GasFillMixin
@@ -537,11 +536,7 @@ def _density_identities(found: Sequence[object]) -> dict[str, str]:
         for component in record:
             identities.setdefault(
                 f"{prefix}{component['label']}",
-                hashlib.sha256(
-                    _canonical_entry(
-                        cast("Mapping[str, object]", component["density"])
-                    ).encode()
-                ).hexdigest(),
+                canonical_digest(component["density"]),
             )
 
     for value in found:
@@ -625,13 +620,8 @@ def _rate_policies(found: Sequence[object]) -> list[dict[str, object]]:
     entries = [
         value.manifest_entry() for value in found if isinstance(value, OptmatRate)
     ]
-    distinct = {_canonical_entry(entry): entry for entry in entries}
+    distinct = {canonical_json(entry): entry for entry in entries}
     return [distinct[key] for key in sorted(distinct)]
-
-
-def _canonical_entry(entry: Mapping[str, object]) -> str:
-    """Return an entry's canonical JSON, for ordering and deduplication."""
-    return json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def material_manifest(

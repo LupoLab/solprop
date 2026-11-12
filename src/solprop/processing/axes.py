@@ -4,8 +4,8 @@
 
 """Rebuild the axes and the layout of a saved run from its grid record.
 
-A saved run carries a :class:`solprop.output.schema.GridRecord` -- scalars only, so that
-the metadata stays small and its digest cheap -- and not the
+A saved run carries a :class:`solprop.output.records.GridRecord` -- scalars only, so
+that the metadata stays small and its digest cheap -- and not the
 :class:`solprop.grid.TimeGrid` it was computed on. Everything else in
 :mod:`solprop.processing` needs the axes back, and :mod:`solprop.stats` needs a grid
 object, so this module is the one place that rebuilds them.
@@ -26,6 +26,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.grid import (
@@ -40,7 +41,8 @@ from solprop.grid import (
 from solprop.modes.protocol import TransverseMeasure
 from solprop.modes.slab import PlanarGrid
 from solprop.output.capability import reading_refusal
-from solprop.output.schema import Convention, GridRecord, Output, PlaneStore
+from solprop.output.records import Convention, GridRecord
+from solprop.output.store import Output, PlaneStore
 
 __all__ = [
     "BANDS",
@@ -85,7 +87,7 @@ def grid_from_record(record: GridRecord) -> TimeGrid:
 
     Parameters
     ----------
-    record : solprop.output.schema.GridRecord
+    record : solprop.output.records.GridRecord
         The grid record of the run.
 
     Returns
@@ -102,7 +104,7 @@ def grid_from_record(record: GridRecord) -> TimeGrid:
     Examples
     --------
     >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.output.schema import GridRecord
+    >>> from solprop.output.records import GridRecord
     >>> from solprop.processing.axes import grid_from_record
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
     >>> rebuilt = grid_from_record(GridRecord.from_grid(grid))
@@ -151,7 +153,7 @@ def grid_of(output: Output) -> TimeGrid:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened.
 
     Returns
@@ -198,7 +200,7 @@ def spatial_grid_of(output: Output) -> RadialGrid | FreeGrid | PlanarGrid:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened.
 
     Returns
@@ -305,7 +307,7 @@ class TransverseUnits:
         -------
         TransverseUnits
             The labels. The measure is already validated where it is read
-            (:attr:`solprop.output.schema.RunMetadata.transverse_measure`).
+            (:attr:`solprop.output.metadata.RunMetadata.transverse_measure`).
         """
         if measure == "area":
             return cls(measure, "W", "J")
@@ -317,14 +319,14 @@ def transverse_units(output: Output) -> TransverseUnits:
 
     A run on modes uniform in y -- the hollow planar guide of
     :class:`solprop.modes.slab.SlabMode` -- records that its transverse integrals are
-    per metre of y (:attr:`solprop.output.schema.RunMetadata.transverse_measure`): its
+    per metre of y (:attr:`solprop.output.metadata.RunMetadata.transverse_measure`): its
     powers, energies and the processing functions that integrate them are then in
     W/m and J/m, from the same formulas. A handler without metadata is taken to
     measure an area, as every run did before the key existed.
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
 
     Returns
@@ -413,7 +415,7 @@ def band_mask(grid: TimeGrid, band: Band = "active") -> Bool[np.ndarray, " n_ome
     >>> int(band_mask(grid, "all").sum()) == grid.n_omega
     True
     """
-    _check_choice(band, BANDS, "band")
+    choice(band, "band", BANDS, ProcessingError)
     if band == "active":
         return grid.active_mask
     return np.ones(grid.n_omega, dtype=bool)
@@ -462,7 +464,7 @@ def spectral_axis(
     >>> float(x[0]) / 1e14, float(jacobian[0])
     (3.183098861837907, 6.283185307179586)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if axis == "omega":
         return omega, np.ones_like(omega)
     if axis == "f":
@@ -485,7 +487,7 @@ def layout(output: Output) -> tuple[int, int, int, int]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         A memory or HDF5 output handler that has been opened and holds at least one
         plane.
 
@@ -649,18 +651,6 @@ def _squeeze(
     elif mode_axis and values.shape[-3] == 1:
         values = values[..., 0, :, :]
     return values
-
-
-def _check_choice(value: str, allowed: tuple[str, ...], what: str) -> None:
-    """Reject a keyword that is not one of a fixed set of names.
-
-    The parameter is a plain string rather than the enumeration itself, exactly as
-    :func:`solprop.fourier._check_kind` is, so that the refusal stays reachable in
-    production, where no runtime type checker stands in front of it.
-    """
-    if value not in allowed:
-        msg = f"{what} must be one of {allowed}, got {value!r}"
-        raise ProcessingError(msg)
 
 
 def _check_mode_selection(modes: object) -> None:

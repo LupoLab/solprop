@@ -474,7 +474,7 @@ def spatial(
         # at translation, its error measured at 1.7e-6 in field.
         settings = dataclasses.replace(settings, spatial_absorber=SpatialAbsorber())
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid, space, medium, responses, pulse, settings=settings, **_launch(options)
         )
     return Simulation.from_free(

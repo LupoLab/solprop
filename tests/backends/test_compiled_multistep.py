@@ -26,7 +26,8 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
-from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.driver.settings import SimulationSettings
+from solprop.driver.simulation import Simulation
 from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise

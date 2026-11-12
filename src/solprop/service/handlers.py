@@ -27,6 +27,7 @@ from solprop.recipe import Parameter, Recipe, parameters
 from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.recipe.registry import REGISTRY
+from solprop.service._payload import Payload, read_recipe
 from solprop.service.beams import BEAM_HANDLERS
 from solprop.service.design import DESIGN_HANDLERS, pin_targets
 from solprop.service.figures import FIGURE_HANDLERS
@@ -44,18 +45,6 @@ from solprop.service.sheet import SHEET_HANDLERS, design_numbers
 from solprop.service.waveguide import WAVEGUIDE_HANDLERS
 
 __all__ = ["HANDLERS"]
-
-Payload = Mapping[str, object]
-
-
-def _recipe(payload: Payload) -> Recipe:
-    """Read the recipe a payload carries.
-
-    - ``payload``: ``text``, the recipe's TOML, and optionally ``base``, the directory
-      its data files resolve against.
-    """
-    base = payload.get("base")
-    return Recipe.loads(str(payload["text"]), base=Path(str(base)) if base else None)
 
 
 def _plain(value: object) -> object:
@@ -245,7 +234,7 @@ def check(payload: Payload) -> list[dict[str, object]]:
         error at no parameter.
     """
     try:
-        issues = _recipe(payload).check()
+        issues = read_recipe(payload).check()
     except SolpropError as error:
         return [
             {
@@ -291,7 +280,7 @@ def summarise(payload: Payload) -> dict[str, object]:
         pinned path, the solved value in its keyword's unit), and ``per_width``,
         whether the energy and peak power are per metre of y (a slab mode set).
     """
-    authored = _recipe(payload)
+    authored = read_recipe(payload)
     recipe = authored.resolve()
     pinned = {
         path: _plain(recipe.get(path)) for path in authored.to_dict().get("pins", {})
@@ -347,7 +336,7 @@ def design(payload: Payload) -> dict[str, object]:
     solprop.exceptions.SolpropError
         If a pin has no root, or the pinned recipe does not read.
     """
-    document = _recipe(payload).to_dict()
+    document = read_recipe(payload).to_dict()
     pins: Mapping[str, object] = payload["pins"]  # pyright: ignore[reportAssignmentType]
     build = document["build"]
     for name in pins:
@@ -382,7 +371,7 @@ def preview_input(payload: Payload) -> dict[str, object]:
         spectrum's squared magnitude summed over modes), ``energy`` (J) and
         ``peak_power`` (W).
     """
-    preview = _recipe(payload).preview_input()
+    preview = read_recipe(payload).preview_input()
     spectrum = np.abs(np.asarray(preview.spectrum)) ** 2
     if spectrum.ndim > 1:
         spectrum = spectrum.reshape(-1, spectrum.shape[-1]).sum(axis=0)
@@ -412,7 +401,7 @@ def estimate(payload: Payload) -> dict[str, object]:
     dict
         The estimate's fields.
     """
-    result = _recipe(payload).build().estimate()
+    result = read_recipe(payload).build().estimate()
     return {
         "shape": list(result.shape),
         "n_planes": result.n_planes,
@@ -441,7 +430,7 @@ def to_python(payload: Payload) -> str:
         The script.
     """
     output = payload.get("output")
-    return _recipe(payload).to_python(None if output is None else str(output))
+    return read_recipe(payload).to_python(None if output is None else str(output))
 
 
 def check_resume(payload: Payload) -> dict[str, object]:

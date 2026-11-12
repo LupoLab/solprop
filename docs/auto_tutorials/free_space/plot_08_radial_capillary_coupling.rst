@@ -184,7 +184,7 @@ with 256 nodes, a 300 fs window over 500 nm to 1.4 um, and steps no longer than
     kerr = [KerrResponse(gamma3("Ar", wavelength=WAVELENGTH), thg=False)]
     gap = {}
     for name, responses in (("linear", []), ("Kerr", kerr)):
-        simulation = Simulation.from_radial(
+        simulation = Simulation.from_free(
             grid, space, medium, responses, beam, settings=settings, noise=None
         )
         gap[name] = (simulation, simulation.run(progress="none"))
@@ -774,7 +774,7 @@ through a :class:`~solprop.coupling.elements.PlanarInterface`, before giving it
 
  .. code-block:: none
 
-    run time 2.8 s
+    run time 1.5 s
 
 
 
@@ -792,7 +792,7 @@ The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 2.787 seconds)
+   **Total running time of the script:** (0 minutes 1.483 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_08_radial_capillary_coupling.py:

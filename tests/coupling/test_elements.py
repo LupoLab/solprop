@@ -35,7 +35,8 @@ from solprop.optics import (
     TaylorPhase,
     littrow_angle,
 )
-from solprop.output.schema import SavedPlane, serialise
+from solprop.output.records import SavedPlane
+from solprop.output.serialisation import serialise
 from solprop.profiles import Linear
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec, collect

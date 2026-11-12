@@ -81,7 +81,7 @@ def radial(integrator: str, **changes):
         "backend": "numpy_ref",
         **changes,
     }
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", 1.0),

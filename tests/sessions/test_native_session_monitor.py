@@ -488,9 +488,9 @@ def _through_serve(simulation: Simulation, kind: str, *, error: bool = False) ->
     The production selection of the native session is not wired yet: the loop is
     handed the session directly, with the context ``run_problem`` would give it.
     """
+    from solprop.driver.metadata import metadata_for  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
-    from solprop.driver.simulation import metadata_for  # noqa: PLC0415
+    from solprop.driver.session_loop import ServiceContext, serve  # noqa: PLC0415
     from solprop.log import resolve_reporter  # noqa: PLC0415
     from solprop.output import MemoryOutput  # noqa: PLC0415
 

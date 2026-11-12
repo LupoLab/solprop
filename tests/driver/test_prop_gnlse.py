@@ -24,7 +24,8 @@ from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
-from solprop.driver.simulation import _dispersion_table, _gnlse_mode, _shot_noise
+from solprop.driver.inputs import _shot_noise
+from solprop.driver.routes.gnlse import _dispersion_table, _gnlse_mode
 from solprop.exceptions import DriverError, ModeError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import IndexTable, MarcatiliMode
@@ -36,7 +37,7 @@ from solprop.nonlinear.gnlse import (
     attenuation_from_db,
 )
 from solprop.output import HDF5Output, MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule

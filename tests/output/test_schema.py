@@ -32,25 +32,23 @@ from solprop.noise import input_noise
 from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.raman import RamanResponse, response_for
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import schema
-from solprop.output.schema import (
+from solprop.output import metadata as run_metadata
+from solprop.output import provenance, serialisation
+from solprop.output.metadata import SCHEMA_VERSION, RunMetadata, resolve_metadata_write
+from solprop.output.provenance import GitProvenance, package_versions
+from solprop.output.records import (
     FIELD_LAYOUT,
-    SCHEMA_VERSION,
     SPECTRAL_CONVENTION,
-    GitProvenance,
     GridRecord,
     ModeRecord,
     NoiseRecord,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepLimits,
     StepperRecord,
     StepStats,
-    package_versions,
-    resolve_metadata_write,
-    serialise,
 )
+from solprop.output.serialisation import serialise
 from solprop.physdata import aluminium, fused_silica
 from solprop.physdata.gases import Gas
 from solprop.physdata.selection import MaterialSelection
@@ -392,15 +390,15 @@ def test_package_versions_are_read_once_and_handed_out_as_copies():
     first = package_versions()
     first["numpy"] = "changed"
     assert package_versions()["numpy"] != "changed"
-    assert schema._installed_versions.cache_info().hits > 0
+    assert provenance._installed_versions.cache_info().hits > 0
 
 
 @pytest.fixture
 def fresh_provenance():
     """Forget whether the checkout tracks the package, asked once per process."""
-    schema._tracks.cache_clear()
+    provenance._tracks.cache_clear()
     yield
-    schema._tracks.cache_clear()
+    provenance._tracks.cache_clear()
 
 
 def _status(branch: str = "main", dirty: bool = False) -> str:
@@ -445,7 +443,7 @@ def test_git_provenance_reads_one_status_per_run(
 
     def answer(arguments, **kwargs):
         calls.append(arguments[1])
-        text = "schema.py" if arguments[1] == "ls-files" else _status(branch, dirty)
+        text = "provenance.py" if arguments[1] == "ls-files" else _status(branch, dirty)
         return subprocess.CompletedProcess(arguments, 0, stdout=text, stderr="")
 
     monkeypatch.setattr(subprocess, "run", answer)
@@ -460,7 +458,7 @@ def test_git_provenance_is_none_without_a_commit(monkeypatch, fresh_provenance):
     # A repository before its first commit reports "(initial)" for the commit.
     def answer(arguments, **kwargs):
         text = (
-            "schema.py"
+            "provenance.py"
             if arguments[1] == "ls-files"
             else "# branch.oid (initial)\n# branch.head main"
         )
@@ -474,7 +472,7 @@ def test_git_provenance_is_none_when_status_fails(monkeypatch, fresh_provenance)
     def answer(arguments, **kwargs):
         code = 0 if arguments[1] == "ls-files" else 128
         return subprocess.CompletedProcess(
-            arguments, code, stdout="schema.py", stderr=""
+            arguments, code, stdout="provenance.py", stderr=""
         )
 
     monkeypatch.setattr(subprocess, "run", answer)
@@ -677,8 +675,8 @@ def test_metadata_hash_is_stable_across_processes(envelope_grid, stepper):
         [
             "import numpy as np",
             "from solprop.grid import EnvelopeGrid",
-            "from solprop.output.schema import GridRecord, RunMetadata, StepLimits",
-            "from solprop.output.schema import StepperRecord",
+            "from solprop.output.metadata import RunMetadata",
+            "from solprop.output.records import GridRecord, StepLimits, StepperRecord",
             "from solprop.stepper import DOPRI5, FixedSchedule, PIController",
             "grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)",
             "stepper = StepperRecord.from_settings(",
@@ -818,7 +816,7 @@ def test_overwrite_rule_refuses_a_different_run_and_names_the_field(
 def test_overwrite_rule_overwrites_and_logs_when_forced(envelope_grid, stepper, caplog):
     one = make_metadata(envelope_grid, stepper)
     two = make_metadata(envelope_grid, stepper, configuration={"gamma": 0.22})
-    with caplog.at_level("WARNING", logger=schema.__name__):
+    with caplog.at_level("WARNING", logger=run_metadata.__name__):
         assert resolve_metadata_write(one, two, force=True) is True
     assert "configuration.gamma" in caplog.text
 
@@ -844,7 +842,8 @@ def test_tabulated_mode_metadata_is_reproducible(class_name, envelope_grid, step
     script = f"""
 import numpy as np
 from solprop.modes import IndexTable, {class_name}
-from solprop.output.schema import ModeRecord, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import ModeRecord
 metadata = RunMetadata.from_json({metadata.to_json()!r})
 table = IndexTable.from_wavelength(
     [400e-9, 600e-9, 800e-9, 1000e-9], [1.001 + 1e-8j] * 4, area=[1e-10] * 4)
@@ -878,7 +877,8 @@ def test_rectangular_and_stepindex_records_round_trip_and_hash_alike(
     script = f"""
 from dataclasses import replace
 from solprop.modes import RectMode, StepIndexMode
-from solprop.output.schema import ModeRecord, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import ModeRecord
 metadata = RunMetadata.from_json({metadata.to_json()!r})
 records = (
     ModeRecord.from_mode(RectMode(50e-6, 10e-6, "Ar", 5., cladding=1.45)),
@@ -926,7 +926,8 @@ def test_a_metal_wall_record_round_trips_and_hashes_alike_across_processes(
     script = f"""
 from dataclasses import replace
 from solprop.modes import RectMode
-from solprop.output.schema import ModeRecord, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import ModeRecord
 from solprop.physdata.metals import aluminium
 metadata = RunMetadata.from_json({metadata.to_json()!r})
 record = ModeRecord.from_mode(RectMode(50e-6, 10e-6, "Ar", 5., cladding=aluminium()))
@@ -976,7 +977,7 @@ def test_cubic_spline_metadata_survives_independent_construction(
     assert "reproducible" not in record
     script = (
         "import json, numpy as np; from scipy.interpolate import CubicSpline; "
-        "from solprop.output.schema import serialise; "
+        "from solprop.output.serialisation import serialise; "
         "x = np.linspace(0.0, 1.0, 5); "
         "print(json.dumps(serialise(CubicSpline(x, np.sin(x), extrapolate=False))))"
     )
@@ -1045,7 +1046,7 @@ def test_spatial_metadata_names_its_flux_model(envelope_grid, stepper):
 
 
 def test_inlined_replaces_every_array_reference_by_its_values():
-    inlined = schema._inlined(schema.serialise({"axis": np.zeros(5000)}))
+    inlined = serialisation._inlined(serialisation.serialise({"axis": np.zeros(5000)}))
     assert isinstance(inlined, dict)
     axis = inlined["axis"]
     assert isinstance(axis, dict)
@@ -1053,23 +1054,23 @@ def test_inlined_replaces_every_array_reference_by_its_values():
 
 
 def test_array_name_carries_the_dtype_and_the_shape():
-    digest = schema.ArrayDigest.of(np.zeros((50, 100)))
-    assert schema._array_name(digest).split("-")[1:] == ["float64", "50x100"]
+    digest = serialisation.ArrayDigest.of(np.zeros((50, 100)))
+    assert serialisation._array_name(digest).split("-")[1:] == ["float64", "50x100"]
 
 
 def test_dotted_writes_keys_with_dots_and_indices_in_brackets():
-    assert schema._dotted(("modes", 2, "label")) == "modes[2].label"
+    assert serialisation._dotted(("modes", 2, "label")) == "modes[2].label"
 
 
 def test_flow_text_names_a_diagonal_flow_and_summarises_a_coupled_one():
-    assert schema._flow_text(None) == "diagonal"
+    assert run_metadata._flow_text(None) == "diagonal"
     flow = {
         "model": "mean impedance coherent wall",
         "section_methods": ["constant_schur"],
         "transverse_ratio": 9.012e-3,
         "inverse_condition_bound": 1.0,
     }
-    assert schema._flow_text(flow) == (
+    assert run_metadata._flow_text(flow) == (
         "mean impedance coherent wall, constant_schur, worst ratio 9.012e-03, "
         "conditioning 1.000e+00"
     )

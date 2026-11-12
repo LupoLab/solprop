@@ -18,6 +18,7 @@ import pytest
 
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver import settings as settings_module
 from solprop.driver import simulation as simulation_module
 from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.nonlinear.gnlse import problem_from
@@ -104,7 +105,7 @@ def test_the_backend_alone_may_change_after_translation(build_simulation):
 
 def test_a_setting_that_cannot_be_compared_is_not_the_same():
     """A container of arrays has no truth value; it is never taken as unchanged."""
-    same = simulation_module._same_setting
+    same = settings_module._same_setting
     assert same((np.ones(2),), (np.ones(2),)) is False
     assert same(np.ones(2), [1.0, 1.0]) and not same(np.ones(2), np.ones(3))
     assert same(1e-3, 1e-3) and not same(1e-3, 2e-3)
@@ -292,7 +293,7 @@ def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
     Every object the configuration carries -- the modes, the pressure and density
     paths, the responses, the rate object and the pulse -- has to serialise to its own
     data rather than to a ``repr`` holding a memory address
-    (:func:`solprop.output.schema.serialise`).
+    (:func:`solprop.output.serialisation.serialise`).
     """
     program = (
         "import warnings, sys\n"

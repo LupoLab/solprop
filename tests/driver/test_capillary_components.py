@@ -203,7 +203,7 @@ def test_a_wall_beside_a_two_component_set_resolves_both_components(caplog):
     # contracts the channel axis
     # of the one-component state and never reads the synthesis. So a wall keeps the
     # set's inference, and nothing is logged.
-    with caplog.at_level(logging.WARNING, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.WARNING, logger="solprop.driver"):
         simulation = _capillary(
             _family("TE", 0), wall=CoherentWall(impedance="te_tm"), plasma=False
         )

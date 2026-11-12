@@ -30,7 +30,7 @@ from solprop._interrupts import deferred_handlers
 from solprop.exceptions import OutputError, TDSEArchiveError
 from solprop.output._writer_lock import WriterLock
 from solprop.output.hdf5 import HDF5Output, ResumeState, resume
-from solprop.output.schema import RunMetadata
+from solprop.output.metadata import RunMetadata
 from solprop.output.tdse_archive import (
     ArchiveOutputs,
     TDSEArchive,

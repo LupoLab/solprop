@@ -41,7 +41,7 @@ from solprop.boundaries import absorber
 from solprop.constants import HBAR
 from solprop.driver import Simulation
 from solprop.noise import photons_per_bin
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing.axes import grid_of
 from solprop.stepper import FixedSchedule, RungeKutta
 

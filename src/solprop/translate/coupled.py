@@ -2358,7 +2358,7 @@ def wall_identity(
     Returns
     -------
     collections.abc.Mapping
-        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`.
+        The ``modal`` record of :class:`solprop.output.metadata.RunMetadata`.
 
     Examples
     --------
@@ -2468,7 +2468,7 @@ def taper_identity(
     Returns
     -------
     collections.abc.Mapping
-        The ``modal`` record of :class:`solprop.output.schema.RunMetadata`.
+        The ``modal`` record of :class:`solprop.output.metadata.RunMetadata`.
 
     Examples
     --------

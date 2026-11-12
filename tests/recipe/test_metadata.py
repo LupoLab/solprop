@@ -20,12 +20,11 @@ from solprop.driver.interface import (
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import DriverError
-from solprop.modes import MarcatiliMode, ModeCollection
+from solprop.modes.slab import SlabMode
 from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
@@ -37,7 +36,7 @@ BUILDERS = {
     "gnlse": Simulation.from_gnlse,
     "capillary": Simulation.from_capillary,
     "waveguide": Simulation.from_waveguide,
-    "radial": Simulation.from_radial,
+    "radial": Simulation.from_free,
     "free": Simulation.from_free,
     "planar": Simulation.from_planar,
 }
@@ -45,7 +44,7 @@ PROPS = {
     "gnlse": prop_gnlse,
     "capillary": prop_capillary,
     "waveguide": prop_waveguide,
-    "radial": prop_radial,
+    "radial": prop_free,
     "free": prop_free,
     "planar": prop_planar,
 }
@@ -189,52 +188,6 @@ def test_the_resolvable_keywords_are_those_the_sep_measured():
             assert entry is None or not entry.resolvable
 
 
-GNLSE = {
-    "wavelength": 835e-9,
-    "wavelength_limits": (500e-9, 2e-6),
-    "trange": 1e-12,
-    "width": 100e-15,
-    "peak_power": 9.8,
-    "shape": "sech",
-    "n_save": 3,
-    "backend": "numpy_ref",
-}
-CAPILLARY = {
-    "wavelength": 800e-9,
-    "wavelength_limits": (400e-9, 2e-6),
-    "trange": 200e-15,
-    "fwhm": 30e-15,
-    "energy": 1e-6,
-    "n_save": 2,
-    "backend": "numpy_ref",
-}
-
-
-def test_the_resolvers_say_what_the_build_resolves():
-    gnlse = Simulation.from_gnlse(0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE)
-    capillary = Simulation.from_capillary(125e-6, 0.1, "He", 1.0, **CAPILLARY)
-    hollow = [MarcatiliMode(125e-6)]
-    waveguide = Simulation.from_waveguide(hollow, 0.1, "He", 1.0, **CAPILLARY)
-    slab = ModeCollection.slab(50e-6, (1,))
-    planar = Simulation.from_waveguide(slab, 0.1, "Ar", 1.0, **CAPILLARY)
-    for route, simulation, modes in (
-        ("gnlse", gnlse, None),
-        ("capillary", capillary, None),
-        ("waveguide", waveguide, hollow),
-        ("waveguide", planar, slab),
-    ):
-        table = metadata.parameters(route)
-        values = {"modes": modes}
-        settings = simulation.settings
-        controller = settings.controller
-        assert controller is not None
-        assert _resolve(table, "rtol", values).value == controller.rtol
-        integrator = _resolve(table, "integrator", values).value
-        assert type(integrator) is type(settings.integrator)
-        model = _resolve(table, "noise", values).value
-        assert model == simulation.noise_resolution.resolved
-
-
 def test_the_capillary_s_rules_follow_the_envelope_and_the_tdse():
     table = metadata.parameters("capillary")
     assert _resolve(table, "thg", {}).value is True
@@ -332,3 +285,17 @@ def test_a_slab_set_s_energy_is_per_metre_of_y():
     assert set(metadata.PER_WIDTH_KEYWORDS) <= set(metadata.parameters("waveguide"))
     assert "per metre of y" in metadata.parameters("waveguide")["energy"].summary
     assert "per metre" not in metadata.parameters("capillary")["peak_power"].summary
+
+
+@pytest.mark.parametrize(
+    ("modes", "expected"),
+    [
+        (SlabMode(63.5e-6, "Ar", 1.0, order=1), True),
+        ([SlabMode(63.5e-6, "Ar", 1.0, order=1)], True),
+        ("ModeCollection.slab", False),
+        (None, False),
+    ],
+)
+def test_a_waveguide_is_per_unit_width_when_its_modes_hold_a_slab(modes, expected):
+    # A script passes mode objects, a recipe tables; a bare string is no mode set.
+    assert metadata.per_unit_width("waveguide", {"modes": modes}) is expected

@@ -23,12 +23,10 @@ convention, so its complex value is conjugated before comparison; the real and
 imaginary parts are compared together, never the real part alone.
 """
 
-import hashlib
 import json
 import logging
 import math
 import os
-import tempfile
 import time
 import uuid
 import warnings
@@ -42,6 +40,8 @@ from jaxtyping import Complex, Float
 
 import solprop
 import solprop.driver.tdse as tdse_runtime
+from solprop._durable import write_atomic
+from solprop._identity import canonical_digest
 from solprop.constants import EPS0, C
 from solprop.exceptions import (
     BackendError,
@@ -356,8 +356,7 @@ def cache_directory() -> Path:
 
 def _key(inputs: Mapping[str, object]) -> str:
     """Digest the cache key's canonical inputs."""
-    encoded = json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(encoded.encode()).hexdigest()
+    return canonical_digest(inputs, finite=True)
 
 
 def _reduction_from(record: object) -> LinearReduction | None:
@@ -464,16 +463,7 @@ def _read_cache(
 def _write_cache(path: Path, entry: Mapping[str, object]) -> None:
     """Write a cache entry atomically: a temporary file, then a rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.stem}.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(entry, stream, sort_keys=True, allow_nan=False)
-        Path(temporary).replace(path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+    write_atomic(path, json.dumps(entry, sort_keys=True, allow_nan=False))
 
 
 @dataclass(frozen=True)

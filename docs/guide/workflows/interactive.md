@@ -89,7 +89,7 @@ the same object as in its home module:
    * - group
      - names
    * - runs
-     - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_radial``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``, ``Batch``
+     - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``, ``Batch``
    * - outputs
      - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``CallbackOutput``, ``open_scan``, ``ScanOutput``
    * - building blocks
@@ -190,7 +190,7 @@ ModeCollection: 2 modes
 ```
 
 An {py:class}`~solprop.output.hdf5.HDF5Output` says whether its file is open, closed,
-read-only or gone. A {py:class}`~solprop.tools.SolitonParams` prints the block shown in
+read-only or gone. A {py:class}`~solprop.tools.capillary.SolitonParams` prints the block shown in
 [design tools](design-tools.md), and a
 {py:class}`~solprop.processing.compression.Compression` says `NOT CLEAN` when its search did not
 converge inside its bounds.

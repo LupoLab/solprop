@@ -20,7 +20,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from solprop.constants import C
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.plotting.style import (
     ENERGY_TO_UJ,
     T_TO_FS,
@@ -100,7 +100,7 @@ def plot_stats(output: Output, **kwargs: Any) -> list[Figure]:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     **kwargs : Any
         Passed to :meth:`matplotlib.axes.Axes.plot`.

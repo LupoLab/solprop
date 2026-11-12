@@ -105,7 +105,7 @@ def _radial_call() -> Simulation:
         ionisation_field_range=(1e8, 1e11),
         backend="numpy_ref",
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(400e-6, 32),
         SpatialMedium("Ar", pressure=1.0),
@@ -152,7 +152,7 @@ FIELD = textwrap.dedent(
 
 def _field_call() -> Simulation:
     grid = FieldGrid.from_limits(0.2e-3, 800e-9, (400e-9, 2e-6), 150e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(200e-6, 16, collar_fraction=0.25),
         SpatialMedium("Ar", pressure=2.0, temperature=300.0),

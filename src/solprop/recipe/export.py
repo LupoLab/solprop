@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Final
 
 from solprop.recipe.document import NONE
 from solprop.recipe.errors import RecipeError
+from solprop.recipe.metadata import surface
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
@@ -174,6 +175,8 @@ def script(
     execution = dict(document.get("execution", {}))
     target = repr(output)
     title = recipe.title or f"a {recipe.route} run"
+    # The route's entry point: the radial route's is the free-space one.
+    entry = surface(recipe.route).__name__.removeprefix("from_")
     header = [f'"""{title}, written from its recipe by solprop."""', ""]
     if execution:
         writer.need("solprop.driver", "Simulation")
@@ -182,7 +185,7 @@ def script(
             for key, item in execution.items()
         )
         body = [
-            f"simulation = Simulation.from_{recipe.route}(",
+            f"simulation = Simulation.from_{entry}(",
             *lines,
             ")",
         ]
@@ -193,8 +196,8 @@ def script(
         )
         body.append(f"output = simulation.run({target})")
     else:
-        writer.need("solprop.driver", f"prop_{recipe.route}")
-        body = [f"output = prop_{recipe.route}(", *lines]
+        writer.need("solprop.driver", f"prop_{entry}")
+        body = [f"output = prop_{entry}(", *lines]
         if output is not None:
             body.append(f"{_INDENT}output={target},")
         body.append(")")

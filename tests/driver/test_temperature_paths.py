@@ -16,7 +16,7 @@ from march_bounds import FIXED_ORDER, STATISTIC_FACTOR, assert_matched, simulati
 from solprop.boundaries import absorber
 from solprop.constants import ROOM_TEMPERATURE
 from solprop.driver import Simulation
-from solprop.driver.simulation import _refuse_gas_keywords
+from solprop.driver.routes.general import _refuse_gas_keywords
 from solprop.exceptions import (
     DriverError,
     MaterialError,
@@ -26,7 +26,7 @@ from solprop.exceptions import (
 )
 from solprop.gasflow import steady_fill
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture, species
 from solprop.profiles import Constant, Linear, PressureGradient
 from solprop.spatial import SpatialMedium

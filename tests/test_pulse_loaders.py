@@ -561,7 +561,7 @@ GOOD_ROWS = "1e14 0.1\n2e14 1\n3e14 1\n4e14 0.1\n"
         (GOOD_ROWS, {"floor": 1.0}, r"floor must be a share .* \[0, 1\)"),
         (GOOD_ROWS, {"floor": -1e-3}, "floor must be a share"),
         (GOOD_ROWS, {"floor": math.nan}, "floor must be a share"),
-        (GOOD_ROWS, {"energy": 0.0}, "energy must be a finite positive number"),
+        (GOOD_ROWS, {"energy": 0.0}, "energy must be finite and positive"),
     ],
 )
 def test_a_bad_file_or_keyword_is_refused_by_name(text, keywords, message):

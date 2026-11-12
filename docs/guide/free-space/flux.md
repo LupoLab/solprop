@@ -372,7 +372,7 @@ settings = SimulationSettings(
     dz_max=2.5e-4,
     stats=StatsSpec(names=("energy",)),
 )
-run = Simulation.from_radial(grid, space, cell, [], beam, settings=settings).run()
+run = Simulation.from_free(grid, space, cell, [], beam, settings=settings).run()
 for plane in run.planes():
     flux = SpatialFlux.resolve(grid, space, cell, z=plane.z)
     print(
@@ -395,7 +395,7 @@ A tighter budget than the path can meet refuses the run at translation:
 ```python
 strict = replace(settings, adiabatic_accuracy=AdiabaticAccuracy(reflected_energy=1e-7))
 try:
-    Simulation.from_radial(grid, space, cell, [], beam, settings=strict).translate()
+    Simulation.from_free(grid, space, cell, [], beam, settings=strict).translate()
 except MaterialError as error:
     print("refused:", str(error).split(":")[0])
 ```

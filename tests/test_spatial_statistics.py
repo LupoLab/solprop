@@ -20,7 +20,7 @@ from solprop.exceptions import GridError, OutputError
 from solprop.fourier import energy_omega
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.hankel import QDHT
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     SpatialFlux,

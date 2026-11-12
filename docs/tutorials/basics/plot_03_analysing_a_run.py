@@ -24,7 +24,8 @@ import numpy as np
 
 from solprop.grid import EnvelopeGrid
 from solprop.output import MemoryOutput, open_file
-from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.plotting import plot_energy, plot_stats, prop_2d, spec_1d, time_1d
 from solprop.processing import energy as pulse_energy
 from solprop.processing import (

@@ -40,7 +40,7 @@ from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
@@ -708,7 +708,7 @@ class Backend(Protocol):
         thread configuration alone moved one step by a factor of nine
         (``docs/dev/backends.md`` section 3.4), so a result whose execution is not
         recorded is not reproducible. The driver writes this into
-        :attr:`solprop.output.schema.RunMetadata.backend`, which is outside the resume
+        :attr:`solprop.output.metadata.RunMetadata.backend`, which is outside the resume
         key -- a run continued on the other backend is the same run.
 
         Returns
@@ -968,7 +968,7 @@ class HostStepping(Backend, Protocol):
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The snapshot, or ``None`` wherever the march has nothing to continue.
         """
         ...
@@ -993,7 +993,7 @@ class HostStepping(Backend, Protocol):
 
         Parameters
         ----------
-        snapshot : solprop.output.schema.MarchSnapshot
+        snapshot : solprop.output.records.MarchSnapshot
             The snapshot a file holds.
 
         Returns

@@ -684,7 +684,7 @@ THUMBNAILS: Final[Mapping[tuple[str, str], str]] = {
 }
 """The ``(route, representation)`` pairs :func:`thumbnail` draws, each with what it
 shows. A route is a ``prop_*`` entry point's name and a representation one of
-:data:`~solprop.output.schema.SimulationKind`."""
+:data:`~solprop.output.records.SimulationKind`."""
 
 
 def thumbnail(
@@ -714,7 +714,7 @@ def thumbnail(
         ``planar``.
     representation : str
         The transverse representation, as a run records it
-        (:data:`~solprop.output.schema.SimulationKind`).
+        (:data:`~solprop.output.records.SimulationKind`).
     size : int, optional
         Width and height in pixels, at least 16. Default 128.
     palette : Palette, optional

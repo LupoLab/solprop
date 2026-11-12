@@ -14,7 +14,7 @@ from solprop.boundaries import SpatialAbsorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning, TranslationError
 from solprop.grid import EnvelopeGrid, LineGrid
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta

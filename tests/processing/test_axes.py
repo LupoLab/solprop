@@ -9,10 +9,12 @@ import pytest
 from jaxtyping import TypeCheckError
 
 from runtime_types import requires_typecheck
+from solprop._validation import choice
 from solprop.exceptions import GridError, ModeError, OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.output import MemoryOutput
-from solprop.output.schema import Convention, FieldRetention, GridRecord
+from solprop.output.records import Convention, GridRecord
+from solprop.output.store import FieldRetention
 from solprop.processing import axes
 from solprop.processing._examples import example_grid, example_output, gvd_phase
 
@@ -76,10 +78,14 @@ def test_band_mask_selects_the_active_band(grid):
 
 
 def test_check_choice_refuses_an_unknown_keyword():
-    with pytest.raises(ProcessingError, match="band must be one of"):
-        axes._check_choice("middle", axes.BANDS, "band")
-    with pytest.raises(ProcessingError, match="axis must be one of"):
-        axes._check_choice("energy", axes.SPECTRAL_AXES, "axis")
+    with pytest.raises(
+        ProcessingError, match="band must be 'active' or 'all', got 'middle'"
+    ):
+        choice("middle", "band", axes.BANDS, ProcessingError)
+    with pytest.raises(
+        ProcessingError, match="axis must be 'omega', 'f' or 'wavelength', got 'energy'"
+    ):
+        choice("energy", "axis", axes.SPECTRAL_AXES, ProcessingError)
 
 
 def test_spectral_axis_carries_the_jacobian_of_each_abscissa():

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from solprop import fourier, stats
+from solprop._validation import choice
 from solprop.exceptions import ModeError, OutputError, ProcessingError
 from solprop.output import MemoryOutput
 from solprop.processing import axes, fields
@@ -242,8 +243,11 @@ def test_the_spectral_phase_of_a_dispersed_pulse_is_the_expected_parabola(
 
 
 def test_get_field_refuses_an_unknown_representation():
-    with pytest.raises(ProcessingError, match="kind must be one of"):
-        axes._check_choice("power", fields.FIELD_KINDS, "kind")
+    with pytest.raises(
+        ProcessingError,
+        match="kind must be 'analytic', 'real' or 'envelope', got 'power'",
+    ):
+        choice("power", "kind", fields.FIELD_KINDS, ProcessingError)
 
 
 def test_get_field_refuses_an_oversampling_below_one(output):

@@ -33,13 +33,11 @@ from solprop.output import (
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
-    SCHEMA_VERSION,
-    BackendRecord,
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, SCHEMA_VERSION, RunMetadata
+from solprop.output.provenance import BackendRecord
+from solprop.output.records import (
     GridRecord,
     NoiseRecord,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepLimits,

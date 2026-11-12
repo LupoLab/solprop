@@ -20,7 +20,7 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
+| {mod}`solprop.driver` | the entry points `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_free` and `prop_planar`, the `Simulation` object behind them, and `run_problem`, the loop over save planes that takes a translated problem, a constructed backend, an output handler and a `Start` (`solprop.backends.session.Start.entrance(problem)` for a fresh run), which the run loads into the backend, for a batch runner of your own |
 | {mod}`solprop.grid` | time and frequency grids (`FieldGrid`, `EnvelopeGrid`) and the free-space transverse grids (`RadialGrid`, `FreeGrid`, `LineGrid`) |
 | {mod}`solprop.pulses` | initial pulses: `GaussianPulse`, `SechPulse`, `CustomPulse`, `DataPulse`, `TimeDataPulse`, `load_spectrum` (a measured spectrum and phase from a text file), and spatial and planar pulses |
 | {mod}`solprop.profiles` | quantities that vary along z: radius, pressure and temperature profiles such as `PiecewiseLinear` and `PressureGradient` |

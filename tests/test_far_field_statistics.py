@@ -25,7 +25,8 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import ApertureEdgeWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
-from solprop.output.schema import SavedPlane, serialise
+from solprop.output.records import SavedPlane
+from solprop.output.serialisation import serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     EDGE_MOMENTS,

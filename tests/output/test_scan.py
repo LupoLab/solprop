@@ -23,8 +23,8 @@ from solprop.exceptions import OutputError, ProcessingError
 from solprop.output._file_lock import lock, unlock
 from solprop.output._scan_lock import lock_path, read_scan
 from solprop.output.hdf5 import _dataset, _group
+from solprop.output.metadata import _example_metadata
 from solprop.output.scan import PointResult, ScanWriter, _hash, _json, read_point
-from solprop.output.schema import _example_metadata
 from solprop.processing.scans import ScanOutput
 from solprop.processing.scans import open as open_scan
 

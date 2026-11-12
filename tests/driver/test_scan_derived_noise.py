@@ -135,7 +135,7 @@ def shared(point):
 def radial(medium=None, **overrides):
     """Return a small radial run in helium, by default at one bar."""
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 8),
         SpatialMedium(Mixture.fill({"He": 1.0}, 1.0)) if medium is None else medium,

@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
-from solprop.driver.simulation import default_collar
+from solprop.driver.settings import default_collar
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid
 from solprop.modes import IndexTable, StepIndexMode

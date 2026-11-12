@@ -33,7 +33,7 @@ on; pass `integrator=`, `rtol=` or `atol=` to choose another.
 | `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
 | `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
 | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"`; none for slab modes |
-| `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+| `prop_free` (radial) | `Multistep()` | 1e-5 | 0 | `"input"` |
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 

@@ -5,7 +5,7 @@
 """Read fields, spectra and spectral densities out of a saved run.
 
 The field, spectrum and density accessors, in solprop's conventions. Each one takes an
-:class:`~solprop.output.schema.Output` -- a memory handler or an HDF5 handler, through
+:class:`~solprop.output.store.Output` -- a memory handler or an HDF5 handler, through
 the same protocol -- selects a saved plane and a set of modes, and returns an abscissa
 and an array whose trivial mode and polarisation axes have been squeezed away.
 
@@ -48,10 +48,12 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop import fourier
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
-from solprop.output.schema import Convention, Output
+from solprop.output.records import Convention
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     SPECTRAL_AXES,
@@ -59,7 +61,6 @@ from solprop.processing.axes import (
     ModeSelection,
     SpectralAxis,
     _apply_modes,
-    _check_choice,
     _keep_index,
     _nearest_plane,
     _plane_field,
@@ -119,7 +120,7 @@ def nearest_plane(output: Output, z: float) -> int:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler holding at least one plane.
     z : float
         Position along the propagation, m.
@@ -163,7 +164,7 @@ def get_spectrum(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end. With ``z``, at most one of the
@@ -231,7 +232,7 @@ def get_spectral_density(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'wavelength', 'f', 'omega'}
         The abscissa, in m, Hz or rad/s.
@@ -329,7 +330,7 @@ def _spectral_density(
     - ``z``: position of the plane wanted, m.
     - ``band``: which part of the stored axis to use.
     """
-    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
+    choice(noise_floor, "noise_floor", NOISE_FLOORS, ProcessingError)
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention="optics")
     density = np.abs(values * _fft_norm(grid)) ** 2
@@ -416,7 +417,7 @@ def get_field(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     kind : {'analytic', 'real', 'envelope'}
         Which representation to return.
@@ -467,7 +468,7 @@ def get_field(
     >>> bool(np.isrealobj(field))
     True
     """
-    _check_choice(kind, FIELD_KINDS, "kind")
+    choice(kind, "kind", FIELD_KINDS, ProcessingError)
     grid, t, amplitude = _plane_amplitude(
         output,
         plane=plane,
@@ -510,7 +511,7 @@ def get_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -623,7 +624,7 @@ def get_phase(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; see :func:`get_spectrum`.
@@ -860,7 +861,7 @@ def get_spectrogram(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     axis : {'f', 'omega', 'wavelength'}
         The spectral abscissa, in Hz, rad/s or m.
@@ -914,7 +915,7 @@ def get_spectrogram(
     >>> values.shape == (f.size, t.size), bool(np.all(np.diff(f) > 0))
     (True, True)
     """
-    _check_choice(axis, SPECTRAL_AXES, "axis")
+    choice(axis, "axis", SPECTRAL_AXES, ProcessingError)
     if plane is None and z is None:
         plane = -1
     t, field = get_field(

@@ -23,8 +23,9 @@ from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import HDF5Output, check_cache, open_file
 from solprop.output.hdf5 import _read_record, _write_record
+from solprop.output.metadata import RunMetadata, _example_metadata
 from solprop.output.scan import PointResult, ScanWriter, read_point
-from solprop.output.schema import RECORD_ARRAY_LIMIT, RunMetadata, _example_metadata
+from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 from solprop.processing.planes import field_plane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium

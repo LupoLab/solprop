@@ -14,7 +14,7 @@ here. The pages themselves are described in [Reading the results](analysis.md).
 
 **Capillary** is a gas-filled hollow [capillary](../waveguides/capillaries.md),
 mode-averaged or with several modes (the *Modes* row; a multimode run adds the *Modes* page). Its numbers come from
-{py:func}`solprop.tools.capillary_params`: the soliton order, the zero-dispersion
+{py:func}`solprop.tools.capillary.capillary_params`: the soliton order, the zero-dispersion
 wavelength and the dispersive wave, each of which can be set as a target, and the peak
 power and intensity, the fission length and the loss at the pump. Its preview is the
 group-velocity dispersion at the entrance. Its pages are *Overview*, *At this plane*,

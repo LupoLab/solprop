@@ -76,7 +76,7 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.stats import (
     _POYNTING_STATISTICS,

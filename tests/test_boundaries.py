@@ -32,7 +32,7 @@ from solprop.exceptions import GridError, SolpropWarning
 from solprop.grid import Collar, EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.linear import Frame
 from solprop.nonlinear.gnlse import SpecifiedMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
