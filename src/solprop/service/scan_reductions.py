@@ -184,6 +184,8 @@ class _Reader:
 def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarray]:
     """Return what a reduction computes from a point's run.
 
+    A picklable object rather than a closure, so that a ``Pool``'s workers can take it.
+
     - ``spec``: ``kind``, and ``band`` or ``z`` as it takes them.
     - ``axis``: a spectrum's or a pulse's fixed axis.
     """
