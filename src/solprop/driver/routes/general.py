@@ -54,7 +54,7 @@ from solprop.translate.responses import KerrForm
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
 
-__all__ = []
+__all__ = ["GAS_KEYWORD_DEFAULTS"]
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ def _from_general(
     return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
 
 
-_GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
+GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
     "gas": None,
     "pressure": None,
     "pressure_floor": None,
@@ -393,7 +393,7 @@ def _refuse_gas_keywords(supplied: Mapping[str, object]) -> None:
         # `from_waveguide` would silently ignore on this route, and
         # `test_from_waveguide_refuses_or_names_every_keyword_it_takes` locks the
         # two together so that adding one cannot pass unnoticed.
-        default = _GAS_KEYWORD_DEFAULTS[name]
+        default = GAS_KEYWORD_DEFAULTS[name]
         if _means_not_given(value, default):
             continue
         msg = (

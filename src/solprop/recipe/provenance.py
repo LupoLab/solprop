@@ -111,13 +111,13 @@ def _used(
         # A general guide takes its physics from the guide: the route refuses these
         # beside a provider, so the resolved text must not name them.
         from solprop.driver.routes.general import (  # noqa: PLC0415 - layer above
-            _GAS_KEYWORD_DEFAULTS,
+            GAS_KEYWORD_DEFAULTS,
         )
 
         values = {
             name: value
             for name, value in values.items()
-            if name not in _GAS_KEYWORD_DEFAULTS
+            if name not in GAS_KEYWORD_DEFAULTS
         }
     return values
 
