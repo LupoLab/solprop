@@ -39,7 +39,6 @@ from solprop.backends.host.group import HostGroup
 from solprop.backends.host.group_session import HostGroupSession
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
-from solprop.backends.multistep import HostHistory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import NumpySingleBackend
@@ -47,7 +46,6 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_group, start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
-from solprop.stepper.multistep import ComparisonMultistep
 
 PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
 """The reference backend and its host machinery."""
@@ -306,11 +304,12 @@ def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(
 def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
     soliton_problem, narrow_grid
 ):
-    # The bridge's march takes a resident engine on the fused and exponential paths
-    # only; the reference's takes an injected one there alone, and names what it lacks.
+    # The reference's march takes an injected engine and names what it lacks.
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
     with closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend:
         with pytest.raises(BackendError, match="exponential path lacks"):
             HostAdamsMarch(backend, Multistep(), engine=object())
-        general = HostAdamsMarch(backend, ComparisonMultistep(order=3), engine=object())
-        assert isinstance(general._engine, HostHistory)
+        with pytest.raises(BackendError, match="fused path lacks"):
+            HostAdamsMarch(
+                backend, Multistep(formulation="interaction"), engine=object()
+            )

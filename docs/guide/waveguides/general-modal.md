@@ -26,9 +26,8 @@ fill. What the route supports, and what it refuses rather than approximates, is 
 in the last two sections of this page; read them before planning a run. In short: the route
 runs on **a field grid, for a guide of constant geometry or a solid guide whose geometry
 moves along z**, on `numpy_ref` and the native backend (its CPU build and
-its CUDA and HIP device builds alike); a coupled flow runs on all of them too, except
-that a flow with a CF4 section runs on `numpy_ref` alone. A general modal run writes,
-reads back and resumes an HDF5 file, a scan point writes one, and a
+its CUDA and HIP device builds alike); a coupled flow runs on all of them too. A general
+modal run writes, reads back and resumes an HDF5 file, a scan point writes one, and a
 batch of launches on one guide runs in lockstep. A declared basis over a block that is
 only *nearly* degenerate propagates as a coupled matrix flow, and a guide whose geometry
 moves carries the connection of its moving basis, which couples its channels.
@@ -376,9 +375,6 @@ at the translation layer and in the backend.
 
 * Every gas keyword beside a provider: the guide owns its materials, its responses and
   its transverse rule, and a keyword silently ignored would read as applied.
-* A CF4 section on any backend but `numpy_ref`: it has no execution path there (its
-  Gauss-node weights are evaluated inside the reference backend), and nothing falls
-  back.
 * A guide that does not span the active band, or whose sampled or interpolated Gram is
   further from orthonormal than `gram_atol`: the run would propagate against zeros, or
   against a basis it declares orthonormal and is not.
@@ -391,7 +387,7 @@ at the translation layer and in the backend.
   `MAX_GENERAL_FLOW_EXPONENT`.
 * Beside a guide whose geometry moves: a snapshot position other than the entrance, a
   run longer than the declared path, the `modified` noise model, a lockstep batch, a
-  fixed schedule that straddles a kink, and a CF4 flow or no flow at all beside the moving maps
+  fixed schedule that straddles a kink, and no flow at all beside the moving maps
   ([a guide whose geometry moves along z](moving-modal.md#a-guide-whose-geometry-moves-along-z)).
 * The scalar-route power names, `quadrature_error` and — beside a split block — `zdw`: a
   statistic the basis does not define is refused with its replacement where it has one,
@@ -424,8 +420,7 @@ two radial families of one azimuthal order. Each has its gallery example:
 ## What is implemented, and what is not
 
 Implemented, and executed by both backends — `numpy_ref`, and `native` in its
-CPU build and its CUDA and HIP device builds — with the one exception of a CF4 section,
-which runs on `numpy_ref` alone:
+CPU build and its CUDA and HIP device builds:
 
 * `Simulation.from_waveguide(..., provider=guide)` and
   `prop_waveguide(..., provider=guide)`, with the launch, the noise draw, the statistics
@@ -508,9 +503,7 @@ Not implemented, and refused rather than approximated:
   finite-element tables, but it is not built: the linear operator asks every channel for
   a propagation constant across the whole active band, through the one site every route
   in the package shares. A guide that does not span the active band is therefore
-  refused, with both bands in the message;
-* a **CF4 section** on the native backend. `numpy_ref` evaluates a CF4 step's
-  Gauss-node weights itself, and `native` has no path for them.
+  refused, with both bands in the message.
 
 Two approximations are worth naming because a reader would otherwise take them as exact.
 Outside the guide's sampled band the stored reference is an **explicit zero** rather than

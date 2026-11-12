@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from solprop.exceptions import ConvergenceError
+from solprop.exceptions import ConvergenceError, StepperError
 from solprop.stepper.controller import (
     DZ_MIN_RELATIVE,
     ControlRecord,
@@ -396,3 +396,13 @@ def test_an_empty_record_has_no_worst_step_and_meets_tolerance():
     record = ControlRecord.from_norms(BASE_CONTROLLER, [])
     assert record.worst_step == -1
     assert record.met_tolerance
+
+
+def test_the_controller_is_final():
+    # Both backends implement PIController's decisions and norm themselves, so a
+    # subclass that changed one would run differently on each: it is refused when the
+    # class is defined (ADR-077).
+    with pytest.raises(StepperError, match="PIController is final: _OwnAccept"):
+
+        class _OwnAccept(PIController):  # pyright: ignore[reportGeneralTypeIssues]
+            pass

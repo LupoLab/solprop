@@ -5,8 +5,8 @@
 """The NumPy reference's own host execution machinery (SEP 47 phase 2).
 
 The stateful control the reference session runs on: the step driver
-(:mod:`solprop.backends.host.driver`), the Adams march and its general path
-(:mod:`~solprop.backends.host.adams`, :mod:`~solprop.backends.host.general`), the
+(:mod:`solprop.backends.host.driver`), the Adams march
+(:mod:`~solprop.backends.host.adams`), the
 low-storage march (:mod:`~solprop.backends.host.low_storage`), the fixed-schedule group
 (:mod:`~solprop.backends.host.group`), the reference's run session
 (:mod:`~solprop.backends.host.session`) and its group session

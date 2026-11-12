@@ -43,7 +43,6 @@ from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
-from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor
@@ -523,8 +522,6 @@ def select(
         # has not yet.
         cast("Callable[[], None]", _load(first_use))()
     _check_required_device(name)
-    if _BENCHMARK_GATED.get() and name != "numpy_ref":
-        raise BackendError("the gated plasma benchmark requires numpy_ref")
     if (
         tdse_descriptor(problem.route) is not None or tdse_binding is not None
     ) and name != "numpy_ref":

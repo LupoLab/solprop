@@ -565,6 +565,8 @@ native::Problem problem_from(const nb::dict& values) {
       // solprop SEP 18: the running-integral rule. Translation designed and
       // certified the taps; the core checks their extent, finiteness and the
       // trapezoid's one identity tap.
+      if (values.contains("plasma_gated"))
+        result.plasma_gated = nb::cast<bool>(values["plasma_gated"]);
       if (values.contains("plasma_band")) {
         result.plasma_band = nb::cast<bool>(values["plasma_band"]);
         const auto taps = exact_array<RealInput>(values["plasma_taps"]);

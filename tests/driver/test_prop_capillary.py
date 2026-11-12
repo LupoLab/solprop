@@ -2254,7 +2254,7 @@ def witness_run(
 def gated_witness_run(case, tag, **keywords):
     """Compare an archive with its original equation and unchanged tolerance."""
     with _gated_source():
-        return witness_run(case, tag, backend="numpy_ref", **keywords)
+        return witness_run(case, tag, backend=TEST_BACKEND, **keywords)
 
 
 def band_mask(grid, limits):
@@ -3112,8 +3112,6 @@ def ctc_run(
     A `seed` launches the case with input shot noise of that seed; without one the run
     is noise-free, as the witness is.
     """
-    if luna_vibration and backend != "numpy_ref":
-        raise ValueError("the historical CtC witness requires the NumPy gated hook")
     grid = ctc_grid(case)
     context = _gated_source() if luna_vibration else nullcontext()
     with warnings.catch_warnings(), context:
@@ -3477,9 +3475,8 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
     a cascade in both codes alike, which is what these bounds once described (0.154,
     1.044, and a Stokes ladder); the seeded cascade is now solprop's own check.
     """
-    del test_backend_name
     ctc_reduced = ctc_run(
-        CTC_REDUCED, "REDUCED", backend="numpy_ref", luna_vibration=True
+        CTC_REDUCED, "REDUCED", backend=test_backend_name, luna_vibration=True
     )
     grid = ctc_grid(CTC_REDUCED)
     fields = ctc_reduced.fields("fft")

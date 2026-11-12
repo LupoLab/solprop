@@ -277,8 +277,7 @@ def refuse_formulation(
 
     The exponential formulation steps constant, separable and varying diagonal
     operators (phases 2--4) and the constant-Schur and frozen-residual sections of a
-    coupled flow (phase 5); a CF4 section is excluded (Q3) and refused by name before
-    any source is evaluated.
+    coupled flow (phase 5).
 
     Parameters
     ----------
@@ -302,15 +301,6 @@ def refuse_formulation(
     if flow is None:
         return
     methods = set(flow.section_methods)
-    if "cf4" in methods:
-        # SEP 16 Q3: a CF4 section has no explicit residual and exponentiates the
-        # generator inside each stage; it is excluded from delivery.
-        msg = (
-            f"{backend}: the {method.name} integrator does not step a 'cf4' section "
-            "of a coupled flow, which only the Runge-Kutta march does; pass "
-            "integrator=RungeKutta()"
-        )
-        raise BackendError(msg)
     if not methods <= COUPLED_SECTIONS:
         unsupported = ", ".join(sorted(repr(one) for one in methods - COUPLED_SECTIONS))
         msg = (

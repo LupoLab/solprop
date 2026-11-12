@@ -4,8 +4,7 @@
 
 """The coupled flow on the native CPU backend, against ``numpy_ref``.
 
-Native executes ``linear.coupled_flow`` in the combinations the reference admits but the
-commutator-free CF4 flow, which is not yet implemented on the compiled backends: the
+Native executes ``linear.coupled_flow`` in every combination the reference admits: the
 scalar wall, the TE/TM wall and the split block, each one constant-Schur section, and
 the frozen-residual flow of a varying guide. The section's actions are formed natively
 from the eigenbasis of its Schur factor, or by the reference's scaling and squaring
@@ -36,7 +35,6 @@ from backends.forced_threads import (
     thread_environment,
 )
 from driver.test_coherent_capillary import (
-    CF4_WALL,
     LENGTH,
     STEPS,
     VECTOR_WALL,
@@ -66,7 +64,6 @@ from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
-    DriverError,
     GasFlowWarning,
     GrazingIncidenceWarning,
     MaterialRangeWarning,
@@ -434,17 +431,6 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
     backend = native_class()(problem, run_request, grid=case.grid)
     with pytest.raises(BackendError, match="native measured a coupled flow"):
         final_field(backend, problem, bare(run_request), ended=True, owns=True)
-
-
-def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
-    """CF4 stays the reference's: both doors name it and the backend."""
-    simulation = varying(wall=CF4_WALL)
-    problem, run_request = simulation.translate(), simulation._run_request()
-    with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
-        native_class()(problem, run_request, grid=simulation.grid)
-    for name in ("native", "auto"):
-        with pytest.raises(DriverError, match=r"method='cf4'.*numpy_ref"):
-            varying(wall=CF4_WALL, backend=name).translate()
 
 
 def test_a_native_group_admits_a_coupled_flow():

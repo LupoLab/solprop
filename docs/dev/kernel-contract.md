@@ -46,7 +46,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
 | `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7) |
-| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
+| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
@@ -211,18 +211,6 @@ read the side it came from; reading the opening side instead drops a whole run f
 order to **first** (measured 2.1e-3 at ten steps of a qualification taper, against
 3.45e-9 once the tie is broken this way).
 
-A `"cf4"` section stores exactly what a `"frozen_residual"` one does — the same Chebyshev
-coefficients of `G` and `C` along z — and differs in how a backend integrates it and in
-what its rows mean: no explicit residual (`residual_norm_bound` is zero) and a pair bound
-for `inverse_condition_bound`. A CF4 step of length `l` from `z` exponentiates the whole
-generator `L = G − C` at the two Gauss nodes `z + c_j l`, which are **not** stage
-positions, so the stage bundle's `flow_weights` cannot supply them; `numpy_ref` builds them
-from the leaf itself — `solprop.translate.coupled.flow_weights` of the node against the
-step's `flow_section`, the same Chebyshev evaluation the bundle row is, from `z_edges` and
-the `n_deg` axis the leaf already carries. A compiled backend would need up to twelve such
-positions per step (two nodes at each of six distinct stage fractions); no bundle row
-carries them, which is why CF4 runs on `numpy_ref` alone.
-
 The Schur factors of a section's frozen block and the actions formed from them are
 backend-local and never cross the seam. The compiled backends form the actions in their
 own kernels, from the eigenbasis of each section's triangular factor
@@ -334,8 +322,7 @@ interface. The default returns `None`, and the march uses `HostHistory`, the hos
 engine, over the other Adams hooks; `native` always returns one resident in its native
 state, and refuses the untransported compensation witness by name (SEP 47 phase 5
 deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
-`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides). The general path
-(PECE and the comparison variants) keeps host arrays.
+`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides).
 
 `HostDriver._adams_source(lab, anchor, position, *, purpose)` takes a
 `TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
@@ -596,16 +583,9 @@ The three certificate rows are per section: `generator_error` is the frozen bloc
 diagnostic **plus** the relative Chebyshev tail of the z expansion, `residual_norm_bound`
 is the enclosure `Σ_k ‖r_k‖₂` of the explicit residual over the **whole** section (`|T_k|
 ≤ 1`, so it bounds the extrema no sample sees), and `inverse_condition_bound` is
-`exp(dz_max (μ_max − μ_min))` of the frozen block. On a **`"cf4"`** section the same three
-rows mean: the Chebyshev tail alone, **zero** (the whole generator is in the exponential),
-and the **pair bound** `exp((2/√3) dz_max (m_hi − m_lo))` on the product of the four
-factor norms of any forward-and-inverse CF4 pair a step anchored there can form, `[m_lo,
-m_hi]` enclosing the Hermitian-part spectrum of `G − C` over the step's reach by Weyl's
-inequality on the stored coefficients; its growth bound `exp((2√3 − 3)/6 · dz_max (m_hi −
-m_lo))` is that row to the power `(2 − √3)/4` and needs no row of its own
-(`solprop.translate.coupled.cf4_growth_bound`). `0.9/(K · cond)` from the last two is the
-advisory step `solprop.translate.problem.validate_coupled_flow` warns `dz_init`, `dz_max`
-and a fixed schedule against; no row carries it.
+`exp(dz_max (μ_max − μ_min))` of the frozen block. `0.9/(K · cond)` from the last two is
+the advisory step `solprop.translate.problem.validate_coupled_flow` warns `dz_init`,
+`dz_max` and a fixed schedule against; no row carries it.
 
 **What executes.** Two families of combinations, either of which may carry the vector
 block (which differs only in the generator it stores and in carrying no factored pair; on
@@ -614,18 +594,9 @@ each family's own and exactly zero between them, stored like the scalar one in t
 true-power amplitude): `section_methods == ("constant_schur",)`, the dense generator at
 one interval of degree zero, no connection and an identically zero `residual_norm_bound`,
 beside a `Phi` that is the exact constant representation; and `section_methods` that is
-`"frozen_residual"` or `"cf4"` on **every** section, the dense generator at any degree
-along z, an optional connection and, on a frozen-residual section, a residual the
-interaction-picture source carries, beside a `Phi` of any device-ready representation. A
-`"cf4"` section is integrated by the commutator-free fourth-order exponential `exp(l(a A₁
-+ b A₂)) exp(l(b A₁ + a A₂))` of the whole generator at the Gauss nodes (`a, b = (3 ∓
-2√3)/12`, the early-weighted factor acting first; `solprop.translate.coupled.CF4_NODES`,
-`CF4_WEIGHTS`) with no residual, its inverse the product of the negated factors in reverse
-order. A step is integrated by the method of the section its anchor lies in, so a flow
-whose declared fallback mixed the two is the same equation throughout. For a CF4 section
-the backend measures the four factor norms of every stage's pair and refuses a product
-above the declared pair bound; the flow's own `O(l⁵)` defect is invisible to the embedded
-pair, so a run through CF4 sections is at most **fourth** order.
+`"frozen_residual"` on **every** section, the dense generator at any degree along z, an
+optional connection and a residual the interaction-picture source carries, beside a `Phi`
+of any device-ready representation.
 
 Both need no noise draw and a scalar state (`n_pol = 1`, the action contracting the
 channel axis alone; the synthesis may resolve two components, which the flow never reads),
@@ -636,7 +607,7 @@ ln[w(z)/w(0)]` is that channel's for all of them, and the capillary wall's varyi
 generator carries the rest of each channel's own on its diagonal, `−½ d ln(w_n/w_1)/dz`
 (real, zero on the reference channel and on a constant guide), so `exp(ΔΦ)` times the flow
 renormalises every channel by its own power weight; the term is part of the stored
-generator and so of the frozen block, the residual and the CF4 exponent alike. The backend
+generator and so of the frozen block and the residual alike. The backend
 measures `norm(U) norm(U^-1)` of the whole step itself and refuses above the declared
 `inverse_condition_bound` rather than trusting it.
 
@@ -658,9 +629,8 @@ package has certified, and admitted on the **general modal** route, where
 which a declared unitary rotation leaves where it was. A flow that mixes a
 `"constant_schur"` section with any other, a factored generator, a `"diagonal"` section, a
 varying degree or a connection beside a constant section, and a `Phi` that took the z
-table beside a varying one, are refused by name. `numpy_ref` executes every admitted
-combination; the native backend executes the constant-Schur and frozen-residual
-sections and refuse a `"cf4"` section by name
+table beside a varying one, are refused by name. `numpy_ref` and the native backend
+execute every admitted combination.
 
 ## 4. Multimode transform
 
@@ -674,7 +644,7 @@ sections and refuse a `"cf4"` section by name
 | `geometry` | `SpatialGeometry` or `None` | the spatial leaf below; absent for modal transforms |
 | `node_weights` | `float64 (n_nodes,)` or `None` | physical transverse weights in m² at z=0 for resolved modal populations; divide by taper scale squared at later planes; mode-averaged runs use `aeff` and spatial runs use geometry weights |
 | `kind` | `"mode_averaged"`, `"modal"`, `"radial"`, `"free"` or `"slab"` | what the transform represents, checked on construction against the geometry, the tables, the node count and the node weights; `mode_averaged` is `kind == "mode_averaged"`, so a one-node quadrature is `"modal"` and gets no area conversion |
-| `modal_tables` | `ModalTransformTables` or `None` | the full E/H reference of a general modal guide — separate synthesis S and projection Q, both on `omega`, the dense complex E and H per √W, the reciprocal partners and their Gram, the coefficient dual, the node rule with its Cartesian coordinates, area weights and per-node `int32` region index, the `−iω` source factor, the active-support mask and the declared profile error, with optional `factors`. A leaf in `translate.modal_tables`. S and Q are Chebyshev coefficients along z, `(n_intervals, n_deg, ...)`. A snapshot guide's are one coefficient over one interval, exact for a map that does not move; a **moving** solid guide's are one expansion per section of its path (`solprop.translate.modal_path.path_transform_tables`), sampled at the section's Chebyshev-Lobatto points on the provider's own rule at each position — a rule whose panel edges move with the material interfaces, so node `q` is one point `x_q(z)` moving smoothly with the geometry and keeps one material region, which is why `region_index` stays one row per node — and combined per stage over `StageScalars.transform_weights` (§1). The dense reference, its partners, the coordinate dual, `node_xy`, `weights` and `valid` are then stored at the section edges, which are `z_edges`. `omega` is `grids.omega` itself, `omega_fine` the problem's fine spectrum — which sizes the support mask `valid` and nothing else, the state being a coarse spectrum and both maps therefore coarse, `(..., n_omega)` — and `z_edges` covers the run. When it is present the general route reads these tables and the real static `synthesis`, `projection` and `projection_coarse` above are **declared placeholders**: the single zero column `(1, n_modes)` and its two `(n_modes, 1)` transposes, with no taper, node weights or geometry, all checked by `Transform.__post_init__`, so that a route that does not use them cannot carry a second, silently wrong transform. The route's own chunking is its backend's ledger. It is never present beside spatial `geometry`; a general guide has `n_pol = 1` and three physical components per channel (`MAX_N_COMPONENTS`), which is not the same thing as three state polarisations (`MAX_N_POL` stays 2). Every backend executes it in one combination — a field grid, a certified identity `linear.modal_metric` or the dense metric of a declared unitary change of basis, the tables' own execution maps at one interval of degree zero (or a moving guide's maps of any sections and degree beside the `"frozen_residual"` coupled flow that carries their connection; CF4 and no flow at all are refused by name beside them), `n_pol = 1`, the constant unit `power_weight` and each region's declared responses, instantaneous and delayed — and refuses every other by name, before it allocates. A declared change of basis also composes its identity into `gauge_id`, `<tracking>+circular(i,j)`, which the metric must match |
+| `modal_tables` | `ModalTransformTables` or `None` | the full E/H reference of a general modal guide — separate synthesis S and projection Q, both on `omega`, the dense complex E and H per √W, the reciprocal partners and their Gram, the coefficient dual, the node rule with its Cartesian coordinates, area weights and per-node `int32` region index, the `−iω` source factor, the active-support mask and the declared profile error, with optional `factors`. A leaf in `translate.modal_tables`. S and Q are Chebyshev coefficients along z, `(n_intervals, n_deg, ...)`. A snapshot guide's are one coefficient over one interval, exact for a map that does not move; a **moving** solid guide's are one expansion per section of its path (`solprop.translate.modal_path.path_transform_tables`), sampled at the section's Chebyshev-Lobatto points on the provider's own rule at each position — a rule whose panel edges move with the material interfaces, so node `q` is one point `x_q(z)` moving smoothly with the geometry and keeps one material region, which is why `region_index` stays one row per node — and combined per stage over `StageScalars.transform_weights` (§1). The dense reference, its partners, the coordinate dual, `node_xy`, `weights` and `valid` are then stored at the section edges, which are `z_edges`. `omega` is `grids.omega` itself, `omega_fine` the problem's fine spectrum — which sizes the support mask `valid` and nothing else, the state being a coarse spectrum and both maps therefore coarse, `(..., n_omega)` — and `z_edges` covers the run. When it is present the general route reads these tables and the real static `synthesis`, `projection` and `projection_coarse` above are **declared placeholders**: the single zero column `(1, n_modes)` and its two `(n_modes, 1)` transposes, with no taper, node weights or geometry, all checked by `Transform.__post_init__`, so that a route that does not use them cannot carry a second, silently wrong transform. The route's own chunking is its backend's ledger. It is never present beside spatial `geometry`; a general guide has `n_pol = 1` and three physical components per channel (`MAX_N_COMPONENTS`), which is not the same thing as three state polarisations (`MAX_N_POL` stays 2). Every backend executes it in one combination — a field grid, a certified identity `linear.modal_metric` or the dense metric of a declared unitary change of basis, the tables' own execution maps at one interval of degree zero (or a moving guide's maps of any sections and degree beside the `"frozen_residual"` coupled flow that carries their connection; no flow at all is refused by name beside them), `n_pol = 1`, the constant unit `power_weight` and each region's declared responses, instantaneous and delayed — and refuses every other by name, before it allocates. A declared change of basis also composes its identity into `gauge_id`, `<tracking>+circular(i,j)`, which the metric must match |
 
 The transform carries **no node chunk**. How many nodes a response pass holds at once is
 an execution choice, not part of the scientific problem
@@ -764,7 +734,6 @@ sqrt(A_eff(0)/A_eff(z))`, which for a scale-invariant mode is the `a(0)/a(z)` of
 | `labels` | tuple of str | unique stable component labels, in species order |
 | `species_names` | tuple of str | chemical species names in the same order; names may repeat |
 | `species_densities` | tuple of scalar Chebyshev tables | one number density per label, including zero and non-ionising populations |
-| `spectral_responses` | tuple of `EnvelopePlasmaAssembly` | explicit post-transform source assembly, empty or the same object as `envelope_plasma` |
 | `envelope_plasma` | `EnvelopePlasmaAssembly` or None | labelled envelope channels with validated instantaneous rate/cycle rules and coarse-axis Drude/loss multipliers; ordinary polarisation remains a separate stream until spectral assembly |
 | `prefactor_representation` | `"constant" \| "expansion" \| "table" \| "separable"` | which representation carries the prefactor, following §3 |
 | `prefactor` | `(n_intervals, n_deg, n_modes, n_pol, n_omega) complex128` Chebyshev table or `None` | the UPPE/envelope prefactor `−iω/(2ε₀c Re n_eff)` (or its envelope form) times the crop scale — on the general modal route the **real crop scale alone**, the `−iω` being `transform.modal_tables.source_frequency_factor` and the reciprocal normalisation being inside Q — as a table along z over the same span and the same declared kinks as Φ (a `"constant"` prefactor stays one interval of degree 0 and does not carry a response path's kinks); the real part of the index only, the loss stays in `D`. Exactly zero outside the active mask at every position. Present for `"table"` and for `"constant"`, whose one interval of degree 0 is exact, and absent for `"expansion"` |
@@ -1269,8 +1238,7 @@ none), so the run layer names no backend. It qualifies on the conformance suite 
 *Normative since kernel schema 39 ([SEP 39](seps/archive/sep-0039-native-adams-march.md),
 ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
 formulation, adaptive or replayed; every other configuration and backend runs the
-reference. The comparison methods (`ComparisonMultistep`) are the reference's alone:
-native refuses them by name ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
+reference.*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `HostAdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1387,9 +1355,8 @@ and the wheel stage's scan of the strict files' disassembly for a fused instruct
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
-not, on CPU and device builds; a controller that overrides one of `PIController`'s
-decisions is the reference's alone, and native refuses it by name
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
+not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
+the only ones either backend takes.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `HostDriver._march_to` and the controller core it

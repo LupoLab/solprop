@@ -66,7 +66,6 @@ from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     CARRIER_PHASE_CAP,
     PEC_REAL_INTERVAL,
-    ComparisonMultistep,
     Multistep,
     lagrange_coefficients,
 )
@@ -351,8 +350,6 @@ def test_the_policy_is_a_field_of_the_method():
 def test_a_shift_needs_the_exponential_formulation():
     with pytest.raises(StepperError, match="needs the exponential formulation"):
         Multistep(formulation="interaction", carrier_frame="scalar")
-    with pytest.raises(StepperError, match="needs the exponential formulation"):
-        ComparisonMultistep(carrier_frame="scalar")
 
 
 def test_the_refusals_name_the_policy_and_the_route():

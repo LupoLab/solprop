@@ -1,0 +1,1 @@
+Removed `CompiledResponses.spectral_responses` and `Flags.has_spectral_responses` from the kernel contract. The tuple could only repeat `envelope_plasma`, which carries the envelope plasma's post-transform assembly alone, and the refusals that read the flag could not be reached.

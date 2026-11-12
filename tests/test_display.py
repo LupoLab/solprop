@@ -205,8 +205,6 @@ def modal_records():
         # The coherent wall block: its declaration, the ratios it was admitted under and
         # the operator itself.
         "CoherentWall": CoherentWall(),
-        # Its CF4 declaration, whose growth limit and fallback only a CF4 wall prints.
-        "CoherentWallCF4": CoherentWall(method="cf4", fallback="frozen_residual"),
         # The moving-basis connection: a synthetic two-channel record, because the
         # measured one costs three provider solves and this gallery is about the
         # printing.
@@ -517,7 +515,6 @@ NAMES = sorted(
         "CompressionBounces",
         "CepOptimum",
         "CoherentWall",
-        "CoherentWallCF4",
         "ModalConnection",
         "WallOperator",
         "WallLimits",
@@ -911,7 +908,6 @@ def rounding(block: str) -> str:
         "SolitonParams",
         "CompressionTaylor",
         "CoherentWall",
-        "CoherentWallCF4",
         "ModalConnection",
         "WallOperator",
         "WallLimits",

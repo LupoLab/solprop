@@ -50,7 +50,7 @@ the default of some interfaces
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
 the binary64 backends for their supported configurations; single precision admits
 `Multistep()` in its exponential formulation on `numpy_ref`. Beside a coupled flow, Adams requires its
-exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
+exponential formulation. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
 
@@ -88,7 +88,6 @@ supported on the supported platforms:
 | feature | reached by | tracked by |
 |---|---|---|
 | the [TDSE response](../media/tdse.md) | `auto` or by name | |
-| `CoherentWall(method="cf4")`, and a coupled flow with a CF4 section, with `integrator=RungeKutta()` | by name | [#304](https://github.com/LupoLab/solprop/issues/304) |
 | [single precision](single-precision.md) | by name | [#342](https://github.com/LupoLab/solprop/issues/342) |
 
 The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
@@ -143,9 +142,8 @@ ten steps before committing a long campaign to one backend.
   ([execution resources](resources.md#memory)) before raising the channel count, the node
   count or the grid.
 - **The coupled flow** (a coherent wall, a varying wall, a split block): both CPU
-  backends run the constant-Schur and frozen-residual sections;
-  `CoherentWall(method="cf4")` runs on `numpy_ref` alone. A single small wall run gains
-  nothing past a few threads. On a varying wall the flow's actions are re-formed every
+  backends run the constant-Schur and frozen-residual sections. A single small wall run
+  gains nothing past a few threads. On a varying wall the flow's actions are re-formed every
   adaptive step, in a few per cent of a step on the native backend.
 - **On a GPU** (a CUDA or HIP build of the native backend): pick it for large grids. Every general-route,
   coupled-flow and moving-guide case measured ran faster on either a data-centre NVIDIA

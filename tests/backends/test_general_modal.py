@@ -61,7 +61,7 @@ from solprop.backends.numpy_ref.general_modal import (
 )
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.nonlinear.raman import SilicaTensorResponse
@@ -1934,7 +1934,10 @@ def test_a_delayed_response_refuses_a_non_uniform_temporal_weight(strand):
 
 
 def test_a_record_with_more_delayed_terms_than_the_model_has_is_refused(strand):
-    """Two channels, named; a third is not executed as one of them."""
+    """Two channels, named; a third is refused when the record is built.
+
+    The translation-time check is the one raise site for both backends.
+    """
     grid = strand.grid
     regional = regional_responses(
         [CHI3],
@@ -1943,13 +1946,13 @@ def test_a_record_with_more_delayed_terms_than_the_model_has_is_refused(strand):
         n_to=grid.n_to,
         dt_fine=grid.dt_fine,
     )
-    object.__setattr__(regional, "delayed_tensor", np.zeros((1, 3, 3, 3, 3, 3)))
-    object.__setattr__(
-        regional, "delayed_kernel", np.zeros((1, 1, 1, 3, 2 * grid.n_to))
-    )
-    object.__setattr__(regional, "kernel_valid_samples", np.zeros((1, 3), np.int32))
-    with pytest.raises(BackendError, match="delayed channels"):
-        node_delayed_maps(strand.route.tables, regional)
+    with pytest.raises(TranslationError, match="2 delayed channels"):
+        dataclasses.replace(
+            regional,
+            delayed_tensor=np.zeros((1, 3, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 3, 2 * grid.n_to)),
+            kernel_valid_samples=np.zeros((1, 3), np.int32),
+        )
 
 
 def test_two_regions_meet_their_own_kernels_and_only_theirs(strand):

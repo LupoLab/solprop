@@ -79,7 +79,6 @@ def test_envelope_plasma_contract_fields_are_frozen():
             "plasma_channels",
             "raman_terms",
             "density",
-            "spectral_responses",
             "prefactor_representation",
             "prefactor",
             "prefactor_expansion",
@@ -217,7 +216,6 @@ def test_compilation_keeps_currents_separate_from_ordinary_polarisation(grid):
     assembly = compiled.envelope_plasma
     assert assembly is not None
     assert compiled.plasma_channels == ()
-    assert compiled.spectral_responses == (assembly,)
     assert compiled.population_channels == assembly.channels
     assert compiled.ionisation_table[0] is assembly.channels[0].rate
     assert assembly.channels[0].preionisation(0) == pytest.approx(0.2, rel=0, abs=1e-16)
@@ -322,8 +320,6 @@ def test_compiled_envelope_channel_and_spectral_consistency(grid, cycle):
     channel = assembly.channels[0]
     with pytest.raises(TranslationError, match="channel constants"):
         replace(channel, electrons_per_event=2)
-    with pytest.raises(TranslationError, match="spectral_responses"):
-        replace(compiled, spectral_responses=())
     field_channel = PlasmaChannel(
         label=channel.label,
         rate=channel.rate,

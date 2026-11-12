@@ -300,7 +300,6 @@ from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
 from solprop.translate.coupled import (
-    CF4_GROWTH_LIMIT,
     metric_at,
     taper_identity,
     wall_identity,
@@ -737,8 +736,7 @@ class SimulationSettings(Displayed):
         starting it afresh at order one. ``None``, the default, keeps it while it is at
         most :data:`solprop.driver.run.MARCH_SNAPSHOT_AUTO_BYTES`; it is outside the
         resume key. Every backend's fused and exponential Adams engines, the native
-        backend's resident one included, export and install their history; a march
-        that cannot (the general path of a comparison method) restarts it and warns.
+        backend's resident one included, export and install their history.
     fields : {'all', 'planes', 'none'}
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane
@@ -1888,8 +1886,7 @@ class Simulation(Displayed):
         ``HE_1N`` block -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
         constant or a varying guide, the cumulative operator carries the
         mode-independent carrier alone and the modal part of the flow becomes
-        ``linear.coupled_flow``, which ``numpy_ref`` and ``native`` execute (a
-        ``method="cf4"`` wall ``numpy_ref`` alone).
+        ``linear.coupled_flow``, which ``numpy_ref`` and ``native`` execute.
     taper_coupling : bool, optional
         Carry the **taper coupling** of a multimode capillary whose radius varies along
         z: the connection ``<psi_m|d_z psi_n>`` between the ``HE_1m`` channels, lossless
@@ -3094,22 +3091,11 @@ class Simulation(Displayed):
                 validity_limit=self.wall.validity_limit,
                 impedance=self.wall.impedance,
             )
-        cf4 = self.wall.method == "cf4"
         return wall_identity(
             flow,
             limits,
             channels=[mode.channel_label for mode in self.modes],
             impedance=self.wall.impedance,
-            growth_limit=(
-                CF4_GROWTH_LIMIT
-                if self.wall.growth_limit is None
-                else self.wall.growth_limit
-            )
-            if cf4
-            else None,
-            fallback=self.wall.fallback,
-            dz_max=float(self._run_request().stepper.dz_max) if cf4 else None,
-            kinks=self.translate().linear.hard_kinks,
             scored=self.translate().grids.inband_mask,
             n_components=self.translate().transform.n_pol,
             has_noise=self.noise is not None,
@@ -4844,11 +4830,10 @@ class Simulation(Displayed):
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
             varying guide, and a scalar run; it carries the default ``"input"`` noise
-            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it (a
-            ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
-            geometry is refused by name. ``None``, the default, carries no wall:
-            the modes keep their own Marcatili loss, and a multimode taper its taper
-            coupling (below).
+            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it;
+            every other mode set or geometry is refused by name. ``None``, the
+            default, carries no wall: the modes keep their own Marcatili loss, and a
+            multimode taper its taper coupling (below).
         taper_coupling : bool, optional
             On a multimode capillary whose radius varies along z, carry the
             **taper coupling** -- the connection ``<psi_m|d_z psi_n>`` that moves
@@ -6123,10 +6108,9 @@ class Simulation(Displayed):
           ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
           constant or a varying guide, and a scalar run; it carries the default
           ``"input"`` noise and refuses ``"modified"``. ``numpy_ref`` and ``native``
-          execute it (a ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set
-          or geometry is refused by name. ``None``, the default, carries no wall: the
-          modes keep their own Marcatili loss, and a multimode taper its taper coupling
-          (below).
+          execute it; every other mode set or geometry is refused by name. ``None``,
+          the default, carries no wall: the modes keep their own Marcatili loss, and a
+          multimode taper its taper coupling (below).
         - ``taper_coupling``: on a multimode capillary whose radius varies along z,
           carry the **taper coupling** -- the connection ``<psi_m|d_z psi_n>`` that
           moves power between the ``HE_1m`` channels as the bore changes -- lossless or
@@ -6282,7 +6266,6 @@ class Simulation(Displayed):
             )
         _check_wall_declaration(
             wall,
-            backend=backend,
             model=model,
             loss=loss,
             lattice=lattice,
@@ -7354,17 +7337,9 @@ def _undamped_model_key(response: RamanResponse) -> object:
     return models
 
 
-_CF4_BACKEND: Final = "numpy_ref"
-"""The one backend that executes a ``"cf4"`` section of the flow.
-
-CF4 is not yet implemented on the native backend, which refuses such a section.
-"""
-
-
 def _check_wall_declaration(
     wall: CoherentWall | None,
     *,
-    backend: str,
     model: MarcatiliModel,
     loss: LossSpec,
     lattice: TubeLattice | None,
@@ -7392,22 +7367,6 @@ def _check_wall_declaration(
         )
         raise DriverError(
             msg, parameter=("wall", "taper_coupling"), rule="wall-keeps-taper-coupling"
-        )
-    resolved = resolve_name(backend)
-    selected = f"{backend!r}" if backend == resolved else f"{backend!r} ({resolved})"
-    if wall.method == "cf4" and resolved != _CF4_BACKEND:
-        msg = (
-            f"a coherent wall with method='cf4' integrates each section by the "
-            f"commutator-free exponentials of its whole generator, which the "
-            f"{_CF4_BACKEND} backend alone executes, and this run selects "
-            f"{selected}: the native backend executes the default "
-            f"method='frozen_residual' and refuses a CF4 section by name: CF4 is not "
-            "yet implemented there. Pass "
-            f"backend={_CF4_BACKEND!r} with method='cf4', or leave the method at its "
-            "default"
-        )
-        raise DriverError(
-            msg, parameter=("wall.method", "backend"), rule="wall-cf4-numpy-ref"
         )
     if loss is not True:
         msg = (

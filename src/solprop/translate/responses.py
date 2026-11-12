@@ -124,6 +124,7 @@ from solprop.translate.spatial import SeparableOperator, separable_values
 
 __all__ = [
     "DELAYED_MODEL_ID",
+    "DELAYED_TERMS",
     "KERR_FORM_MODEL_IDS",
     "KERR_MODEL_FORMS",
     "MODEL_ID_SEPARATOR",
@@ -1406,6 +1407,17 @@ class RegionalResponseTables(Displayed):
                 f"{components}, got {delayed.shape}"
             )
             raise TranslationError(msg)
+        terms = int(delayed.shape[1])
+        if terms and (terms != DELAYED_TERMS or components != MAX_N_COMPONENTS):
+            # The one check of the delayed channels: both backends execute the silica
+            # tensor model's channels on three components and nothing else.
+            msg = (
+                f"regional_responses carries {terms} delayed term(s) on {components} "
+                f"component(s); the delayed response is the {DELAYED_TERMS} delayed "
+                "channels of the silica tensor Raman model -- the trace and the "
+                f"traceless rank-two one -- on {MAX_N_COMPONENTS} Cartesian components"
+            )
+            raise TranslationError(msg)
         delayed.setflags(write=False)
         object.__setattr__(self, "delayed_tensor", delayed)
 
@@ -1545,6 +1557,9 @@ def isotropic_kerr_tensor(form: KerrForm = "analytic") -> Float[np.ndarray, "3 3
 
 DELAYED_MODEL_ID: Final[str] = "silica-tensor-raman"
 """The model tag a compiled record carries when a region declares a delayed term."""
+
+DELAYED_TERMS: Final[int] = 2
+"""Delayed channels the silica tensor Raman model carries: trace and rank two."""
 
 MODEL_ID_SEPARATOR: Final[str] = "+"
 """What joins the model tags of one compiled record's ``model_id``.
@@ -1800,8 +1815,6 @@ class CompiledResponses:
     density : solprop.translate.chebyshev.PiecewiseChebyshev
         Number density along z, in m^-3 for a gas or dimensionless 1 for a medium whose
         ``chi3`` is already absolute, as a table.
-    spectral_responses : tuple of EnvelopePlasmaAssembly
-        Typed post-transform assembly; empty or the ``envelope_plasma`` record.
     envelope_plasma : EnvelopePlasmaAssembly or None
         Independent envelope populations, cycle data and spectral multipliers.
     prefactor_representation : {'constant', 'expansion', 'table'}
@@ -1877,7 +1890,6 @@ class CompiledResponses:
     plasma_channels: tuple[PlasmaChannel, ...]
     raman_terms: tuple[RamanCoefficients, ...]
     density: PiecewiseChebyshev
-    spectral_responses: tuple[EnvelopePlasmaAssembly, ...]
     prefactor_representation: PhiRepresentation
     prefactor: PiecewiseChebyshev | None
     prefactor_expansion: ParameterExpansion | None
@@ -1907,11 +1919,6 @@ class CompiledResponses:
             Naming the offending field.
         """
         self._check_prefactor_representation()
-        expected = () if self.envelope_plasma is None else (self.envelope_plasma,)
-        if self.spectral_responses != expected:
-            raise TranslationError(
-                "spectral_responses must name the envelope plasma assembly"
-            )
         if self.envelope_plasma is not None and self.plasma_channels:
             raise TranslationError("field and envelope plasma channels cannot coexist")
         if self.plasma_integral.policy != "trapezoid" and not self.plasma_channels:
@@ -3116,7 +3123,6 @@ def compile_responses(
         labels=material.labels,
         species_names=material.names,
         species_densities=density_tables,
-        spectral_responses=() if compiled_envelope is None else (compiled_envelope,),
         envelope_plasma=compiled_envelope,
         prefactor_representation=_prefactor_kind(constant, expansion is not None)
         if supplied is None

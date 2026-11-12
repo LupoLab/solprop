@@ -103,7 +103,6 @@ from solprop.translate.responses import (
 
 __all__ = [
     "BUFFERS_PER_GENERAL_NODE",
-    "DELAYED_TERMS",
     "PAIR_BUFFERS_PER_GENERAL_NODE",
     "PAIR_HISTORIES",
     "GeneralMaps",
@@ -125,9 +124,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-DELAYED_TERMS = 2
-"""Delayed channels the silica tensor Raman model carries: trace and rank two."""
 
 PAIR_HISTORIES = 6
 """Independent entries of the real symmetric pair history of three components.
@@ -415,13 +411,6 @@ def refuse_regional_responses(
             f"{regional.model_id!r} and {regional.n_terms} delayed term(s): a "
             "record's model identity and its term axis must agree, or the run "
             "would execute a model its own file does not name"
-        )
-        raise BackendError(msg)
-    if regional.n_terms and regional.n_terms != DELAYED_TERMS:
-        msg = (
-            f"{backend} executes the {DELAYED_TERMS} delayed channels of the "
-            f"silica tensor Raman model -- the trace and the traceless rank-two "
-            f"one -- and this record carries {regional.n_terms}"
         )
         raise BackendError(msg)
     weight = regional.temporal_weight

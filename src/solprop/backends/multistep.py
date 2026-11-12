@@ -4,11 +4,11 @@
 
 """The interaction-picture Adams march every CPU backend steps with (SEP 13, SEP 14).
 
-One accepted step of a mature method costs one expensive source evaluation (explicit
-Adams-Bashforth and PEC) or two (PECE), against seven for the reference backend's
-IP-DOPRI5. The march keeps a short history of **transported** derivatives, re-anchored
-at every accepted step, and decides each step on a local-defect estimate formed from
-that history without another evaluation (SEP 13 sections 4.1--4.3).
+One accepted step of the PEC method costs one expensive source evaluation, against
+seven for the reference backend's IP-DOPRI5. The march keeps a short history of
+**transported** derivatives, re-anchored at every accepted step, and decides each step
+on a local-defect estimate formed from that history without another evaluation (SEP 13
+sections 4.1--4.3).
 
 The interaction picture is anchored at the start of each step, ``z_n``. With
 ``U(z_2, z_1) = exp(Phi(z_2) - Phi(z_1))``, the variable ``v(z) = U(z_n, z) a(z)``
@@ -31,10 +31,6 @@ section 6.1):
 - a trial computes its predictor, its single source call and its estimate without
   touching the history; only an accepted step commits, so a rejection leaves the
   accepted history exactly as it was;
-- PECE decides acceptance before its second call, so a rejection costs one call;
-- explicit Adams-Bashforth rejects for free on a history estimate before the call,
-  and checks the step again afterwards with the new derivative (section 4.3), at the
-  cost of the call it has made;
 - a hard kink is landed on and the history restarted on its far side; a save plane is
   a pure observation and keeps the history;
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
@@ -112,7 +108,7 @@ class CallLedger:
     predictor : int
         Evaluations at a predicted field, accepted or not.
     corrected : int
-        PECE's evaluations at the corrected, accepted field.
+        Evaluations at a corrected, accepted field; PEC makes none.
     rejected : int
         Evaluations spent on steps that were then rejected (included in the above).
     accepted_steps, rejected_steps : int
@@ -330,11 +326,10 @@ class _Derivative:
 
     z: float
     value: _State | None
-    """The derivative on the general path; the store's row, or ``None`` for an engine
-    that keeps its rows resident, on the fused and exponential paths."""
+    """The store's row, or ``None`` for an engine that keeps its rows resident."""
     identity: str
     slot: int = -1
-    """Its row of the fused path's history store; -1 off that path."""
+    """Its row of the history store."""
 
 
 @dataclass
@@ -344,33 +339,8 @@ class _DenseStep:
     z: float
     dz: float
     start: _State
-    end: _State
-    start_slope: _State
-    end_slope: _State
     nodes: np.ndarray
     slopes: list[_State]
-
-
-def _hermite(step: _DenseStep, theta: float) -> _State:
-    """Return the cubic Hermite interpolant of an accepted step at `theta`.
-
-    The generic option (a2) of SEP 13 section 6.4: the two end states and the two end
-    derivatives, all in the step's anchor frame, with local error ``O(h^4)``.
-
-    - ``theta``: the observation as a fraction of the step, in ``[0, 1]``.
-    """
-    theta2 = theta * theta
-    theta3 = theta2 * theta
-    h00 = 2 * theta3 - 3 * theta2 + 1
-    h10 = theta3 - 2 * theta2 + theta
-    h01 = -2 * theta3 + 3 * theta2
-    h11 = theta3 - theta2
-    return (
-        h00 * step.start
-        + h10 * step.dz * step.start_slope
-        + h01 * step.end
-        + h11 * step.dz * step.end_slope
-    )
 
 
 class AdamsKernels:
@@ -1578,8 +1548,8 @@ class AdamsEngine(Protocol):
     """
 
     dense: Any
-    """The general path's last accepted step (a ``_DenseStep`` or ``None``), which the
-    march sets for observation."""
+    """The interaction formulation's last accepted step (a ``_DenseStep`` or ``None``),
+    for observation."""
 
     compensated: bool
     """Whether trials carry a varying operator's linear compensation (SEP 16 4.2)."""
@@ -1619,15 +1589,13 @@ class AdamsEngine(Protocol):
         """
         ...
 
-    def start(self, z: float, *, stored: bool) -> _State | None:
-        """Evaluate the history's first sample at the accepted state.
+    def start(self, z: float) -> _State | None:
+        """Evaluate the history's first sample at the accepted state into row zero.
 
         Parameters
         ----------
         z : float
             The accepted position, m.
-        stored : bool
-            Whether the sample goes to the store's row zero.
 
         Returns
         -------
@@ -1840,7 +1808,6 @@ class HostHistory:
         self._kernels = kernels
         self._exponential = exponential
         self._compensation = compensation
-        self._interpolant = getattr(method, "interpolant", "adams")
         linear = backend._problem.linear
         # SEP 16 phase 4: a varying operator's linear compensation, integrated in the
         # reference flow's frame (Q8); the untransported treatment is a test witness.
@@ -1923,16 +1890,15 @@ class HostHistory:
 
     # --- startup ----------------------------------------------------------------------
 
-    def start(self, z: float, *, stored: bool) -> _State:
+    def start(self, z: float) -> _State:
         """Evaluate the source at the accepted state, the history's first sample.
+
+        The sample goes to the store's row zero.
 
         Parameters
         ----------
         z : float
             The accepted position, m.
-        stored : bool
-            Whether the sample goes to the store's row zero (the fused and exponential
-            paths) or is returned alone (the general path).
 
         Returns
         -------
@@ -1947,8 +1913,6 @@ class HostHistory:
             value = backend._adams_lab_source(state, z, purpose="startup")
         else:
             value, _ = backend._adams_source(state, z, z, purpose="startup")
-        if not stored:
-            return value
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
@@ -2066,7 +2030,7 @@ class HostHistory:
         store = self._store
         assert trial is not None and store is not None
         self._fused_trial = None
-        finished = self._backend._adams_adopt(trial.advanced, trial.dz)
+        self._backend._adams_adopt(trial.advanced, trial.dz)
         order = trial.order
         if interpolate:
             # Copied before the transport re-anchors the rows in place: the step's own
@@ -2079,9 +2043,6 @@ class HostHistory:
                 z=trial.z,
                 dz=trial.dz,
                 start=trial.state.copy(),
-                end=finished / trial.propagator,
-                start_slope=slopes[1],
-                end_slope=trial.source,
                 nodes=np.array([1.0, *trial.nodes[:order]]),
                 slopes=slopes,
             )
@@ -2491,13 +2452,10 @@ class HostHistory:
         assert step is not None
         backend = self._backend
         theta = (position - step.z) / step.dz
-        if self._interpolant == "adams":
-            weights = integrated_weights(
-                step.nodes, theta, check=False, helpers=backend.helpers
-            )
-            value = step.start + _combine(weights, step.slopes, step.dz)
-        else:
-            value = _hermite(step, theta)
+        weights = integrated_weights(
+            step.nodes, theta, check=False, helpers=backend.helpers
+        )
+        value = step.start + _combine(weights, step.slopes, step.dz)
         # A bin the linear flow changes by more than an e-fold over the step (the
         # spectral collar's) takes the anchor's linear flow: no polynomial follows its
         # exponentially growing derivative (as for the Runge-Kutta extension).
@@ -2632,8 +2590,12 @@ def _divisor(
 ) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
-    See :func:`solprop.backends.host.general._norm_function` for why the state
-    before the step is the scale.
+    The Runge-Kutta march scales by the larger of the states before and after the step.
+    An Adams step outside its stability region can multiply the state many times over
+    while its predictor and corrector still agree to a fraction of the *new* state, so
+    that scale lets a divergence pass as accurate: SEP 13 phase 2 measured PEC4 growing
+    from 1e7 to 1e236 in five accepted steps with every scaled norm below 0.6. The state
+    the step starts from is the scale that cannot grow with the step it judges.
 
     - Returns: the scale of every bin, shape ``(n_omega,)``.
     """

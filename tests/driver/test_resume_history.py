@@ -42,7 +42,6 @@ from solprop.output import HDF5Output
 from solprop.output.hdf5 import open_file, resume
 from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
 from solprop.stepper import Multistep, RungeKutta
-from solprop.stepper.multistep import ComparisonMultistep
 from solprop.translate.precision import SINGLE_RTOL_FLOOR
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -600,33 +599,3 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
         assert backend.march_snapshot() is None
     finally:
         backend.close()
-
-
-def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation):
-    # Called directly, a march that keeps no history store says so rather than
-    # installing rows it has nowhere to put.
-    simulation = build_simulation(
-        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
-    )
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    general = build_simulation(
-        length=LENGTH,
-        n_save=N_SAVE,
-        backend="numpy_ref",
-        integrator=ComparisonMultistep(order=3),
-    )
-    backends = [
-        NumpyRefBackend(problem, run_request, grid=simulation.grid),
-        NumpyRefBackend(general.translate(), general._run_request(), grid=general.grid),
-    ]
-    try:
-        backends[0].set_initial(problem.initial.field0, None)
-        backends[0].propagate_to(float(run_request.stepper.save_planes[0]))
-        snapshot = backends[0].march_snapshot()
-        assert snapshot is not None
-        backends[1].set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "general Adams path" in str(backends[1].restore_march(snapshot))
-    finally:
-        for backend in backends:
-            backend.close()

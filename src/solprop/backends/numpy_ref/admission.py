@@ -9,12 +9,8 @@ One list, run by each backend under its own name: ``numpy_ref`` calls
 it from its adapter. A combination admitted or
 refused here is admitted or refused on every backend that calls it, and each refusal
 names the calling backend and the leaf, so a new refusal is written once and cannot
-drift between copies.
-
-What a backend has not built is said with `flow_methods`: the section methods of
-``linear.coupled_flow`` it executes. A section method outside them is refused by name
-before anything is allocated. Everything else -- a backend's own kernels' limits --
-stays with the backend that has the limit.
+drift between copies. A backend's own kernels' limits stay with the backend that has
+the limit.
 
 The list runs **before** :meth:`solprop.translate.problem.PropagationProblem.validate`
 and before any buffer is allocated, and repeats checks the translation layer also makes,
@@ -23,8 +19,7 @@ because a problem can be assembled by something other than
 having been careful.
 """
 
-from collections.abc import Collection, Sequence
-from typing import Final
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -33,7 +28,6 @@ from solprop.exceptions import BackendError
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
-    SectionMethod,
 )
 from solprop.translate.general import MAX_DENSE_METRIC_DEPARTURE, metric_departure
 from solprop.translate.linop import LinearOperator
@@ -41,24 +35,10 @@ from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTabl
 from solprop.translate.problem import MAX_N_COMPONENTS, PropagationProblem
 
 __all__ = [
-    "FLOW_METHODS",
     "refuse_coupled_flow",
     "refuse_general_leaves",
     "refuse_general_route",
 ]
-
-FLOW_METHODS: Final[tuple[SectionMethod, ...]] = (
-    "constant_schur",
-    "frozen_residual",
-    "cf4",
-)
-"""Every section method of ``linear.coupled_flow`` the reference executes.
-
-``"diagonal"`` is not among them: it is the existing cumulative flow and needs no
-leaf. A backend that executes fewer passes its own subset to
-:func:`refuse_coupled_flow`; ``"cf4"`` is executed by the reference alone: it is not yet
-implemented on the native backend.
-"""
 
 
 def refuse_general_leaves(
@@ -115,7 +95,6 @@ def refuse_general_route(
     problem: PropagationProblem,
     *,
     backend: str = "numpy_ref",
-    flow_methods: Collection[SectionMethod] = FLOW_METHODS,
     moving_maps: bool = False,
 ) -> None:
     """Refuse, by name, every general modal or coupled-flow problem not executed.
@@ -136,9 +115,6 @@ def refuse_general_route(
         The problem to check.
     backend : str, optional
         The registry name each refusal names.
-    flow_methods : collection of str, optional
-        The section methods of ``linear.coupled_flow`` the backend executes; every
-        one of :data:`FLOW_METHODS` by default, which is the reference's own list.
     moving_maps : bool, optional
         Whether the backend executes a **moving** guide's maps -- synthesis and
         projection of more than one coefficient along z, combined per stage over
@@ -170,7 +146,7 @@ def refuse_general_route(
     >>> refuse_general_route(problem, backend="native") is None
     True
     """
-    refuse_coupled_flow(problem, backend=backend, flow_methods=flow_methods)
+    refuse_coupled_flow(problem, backend=backend)
     _refuse_modal_route(problem, backend=backend, moving_maps=moving_maps)
 
 
@@ -178,18 +154,15 @@ def refuse_coupled_flow(
     problem: PropagationProblem,
     *,
     backend: str = "numpy_ref",
-    flow_methods: Collection[SectionMethod] = FLOW_METHODS,
 ) -> None:
     """Refuse, by name, every coupled flow the calling backend does not execute.
 
-    The reference executes exactly two combinations: the dense generator of **one**
+    Both backends execute exactly two combinations: the dense generator of **one**
     constant section with no connection and no residual, by a Schur matrix-function
-    action, and a **varying** flow whose every section is ``"frozen_residual"`` or
-    ``"cf4"`` -- the dense generator at any degree along z and an optional connection,
-    a frozen-residual section by the Schur action of its frozen block with a residual
-    the interaction-picture source carries explicitly, and a CF4 section by the
-    commutator-free exponentials of its whole generator with none. A backend's
-    `flow_methods` narrows that; naming
+    action, and a **varying** flow whose every section is ``"frozen_residual"`` -- the
+    dense generator at any degree along z and an optional connection, each section by
+    the Schur action of its frozen block with a residual the interaction-picture
+    source carries explicitly. Naming
     ``linear.coupled_flow`` among a backend's admitted leaves says only that the field
     may be present, and this says which contents are executed: every other method,
     representation, mixture of the two and certificate row is named here rather than
@@ -201,8 +174,6 @@ def refuse_coupled_flow(
         The problem to check.
     backend : str, optional
         The registry name each refusal names.
-    flow_methods : collection of str, optional
-        The section methods the backend executes (:data:`FLOW_METHODS` by default).
 
     Raises
     ------
@@ -212,7 +183,7 @@ def refuse_coupled_flow(
     flow = problem.linear.coupled_flow
     if flow is None:
         return
-    _refuse_flow_representation(flow, backend=backend, flow_methods=flow_methods)
+    _refuse_flow_representation(flow, backend=backend)
     _refuse_flow_problem(problem, backend=backend)
 
 
@@ -220,34 +191,18 @@ def _refuse_flow_representation(
     flow: CoupledFlowTables,
     *,
     backend: str,
-    flow_methods: Collection[SectionMethod],
 ) -> None:
     """Refuse a coupled flow whose representation the backend does not execute."""
     methods = set(flow.section_methods)
-    frozen = methods <= {"frozen_residual", "cf4"}
+    frozen = methods == {"frozen_residual"}
     if flow.section_methods != ("constant_schur",) and not frozen:
-        varying = " or ".join(
-            repr(method) for method in flow_methods if method != "constant_schur"
-        )
         msg = (
             f"{backend} executes one constant section by a Schur matrix-function "
-            f"action, or every section of a varying flow as {varying}, and this "
+            "action, or every section of a varying flow as 'frozen_residual', and this "
             f"flow declares {sorted(methods)} over "
             f"{len(flow.section_methods)} section(s): 'diagonal' is the existing "
             "cumulative flow and needs no leaf, and a constant-Schur section beside "
             "any other is not one this backend builds a single held decomposition for"
-        )
-        raise BackendError(msg)
-    unexecuted = sorted(methods - set(flow_methods))
-    if unexecuted:
-        msg = (
-            f"{backend} does not execute a {' or '.join(map(repr, unexecuted))} "
-            "section of linear.coupled_flow: it executes "
-            f"{', '.join(map(repr, sorted(flow_methods)))} sections, and a section "
-            "method silently integrated by another would run, converge and be a "
-            "different approximation. The commutator-free CF4 flow is not yet "
-            "implemented on the native backend; pass backend='numpy_ref', or "
-            "declare the default frozen split"
         )
         raise BackendError(msg)
     if flow.representation != "dense":
@@ -591,10 +546,7 @@ def _refuse_moving_maps(
     guide is propagated with: a coupled flow carrying the connection, integrated as
     ``"frozen_residual"`` on every section. Moving maps with no connection are a
     guide whose modes change shape and exchange no power, which is the adiabatic
-    approximation the route exists to replace; and CF4 beside moving maps composes
-    on paper -- its Gauss-node exponentials read ``flow_weights`` and the source
-    reads ``transform_weights`` at stage positions -- but is not built or measured
-    on this route, so it is refused rather than run.
+    approximation the route exists to replace.
     """
     assert tables.synthesis is not None
     intervals, degrees = (int(one) for one in tables.synthesis.shape[:2])
@@ -623,8 +575,7 @@ def _refuse_moving_maps(
             f"{backend} executes a moving guide's maps beside the flow that carries "
             f"its connection, 'frozen_residual' on every section, and this problem "
             f"carries {described}: maps that move with no connection are the "
-            "adiabatic approximation the moving route replaces, and CF4 beside "
-            "moving maps is not built or measured on this route"
+            "adiabatic approximation the moving route replaces"
         )
         raise BackendError(msg)
 
@@ -646,7 +597,6 @@ def _refuse_legacy_responses(problem: PropagationProblem, *, backend: str) -> No
             ("population_channels", bool(responses.population_channels)),
             ("raman_terms", bool(responses.raman_terms)),
             ("envelope_plasma", responses.envelope_plasma is not None),
-            ("spectral_responses", bool(responses.spectral_responses)),
         )
         if present
     ]

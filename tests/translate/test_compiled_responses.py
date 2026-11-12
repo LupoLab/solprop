@@ -390,7 +390,6 @@ def test_the_fields_of_the_responses_not_declared_stay_empty(envelope_grid, mode
     assert compiled.raman_coefficients is None
     assert compiled.raman_coefficients is None
     assert compiled.raman_coefficients is None
-    assert compiled.spectral_responses == ()
     assert compiled.ionisation_table == ()
 
 
@@ -599,7 +598,6 @@ def test_one_rate_without_the_other_is_refused(envelope_grid, mode):
             plasma_channels=(),
             raman_terms=(),
             density=compiled.density,
-            spectral_responses=(),
             prefactor_representation=compiled.prefactor_representation,
             prefactor=compiled.prefactor,
             prefactor_expansion=compiled.prefactor_expansion,
@@ -620,7 +618,6 @@ def test_a_prefactor_representation_without_its_member_is_refused(envelope_grid,
             plasma_channels=(),
             raman_terms=(),
             density=compiled.density,
-            spectral_responses=(),
             prefactor_representation="expansion",
             prefactor=compiled.prefactor,
             prefactor_expansion=None,
@@ -673,7 +670,6 @@ def test_a_constant_prefactor_of_the_wrong_shape_is_refused(envelope_grid, mode)
             plasma_channels=(),
             raman_terms=(),
             density=compiled.density,
-            spectral_responses=(),
             prefactor_representation=compiled.prefactor_representation,
             prefactor=compiled.prefactor,
             prefactor_expansion=compiled.prefactor_expansion,
@@ -983,7 +979,6 @@ def test_a_prefactor_table_without_its_kind_is_refused(envelope_grid, mode):
             plasma_channels=(),
             raman_terms=(),
             density=compiled.density,
-            spectral_responses=(),
             prefactor_representation="table",
             prefactor=None,
             prefactor_expansion=None,

@@ -44,7 +44,6 @@ from solprop.backends.multistep import (
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.general_modal import (
-    DELAYED_TERMS,
     general_planned_chunk,
     node_delayed_maps,
     node_kerr_form,
@@ -85,7 +84,6 @@ from solprop.stats import (
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
-    ComparisonMultistep,
     MarchPolicy,
     Multistep,
     integrated_weights,
@@ -98,7 +96,6 @@ from solprop.translate.chebyshev import (
 )
 from solprop.translate.coupled import (
     CoupledFlowTables,
-    SectionMethod,
     flow_edge_slack,
     frozen_generator,
     schur_blocks,
@@ -111,7 +108,7 @@ from solprop.translate.linop import (
     unitary_phase,
 )
 from solprop.translate.plasma_source import (
-    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
+    _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - the private gated benchmark
     plasma_source_record,
 )
 from solprop.translate.problem import (
@@ -327,9 +324,10 @@ class NativeBackend:
         far_field: FarFieldTables | None = None,
         options: ExecutionOptions | None = None,
     ) -> None:
-        if _BENCHMARK_GATED.get():
-            raise BackendError("the gated plasma benchmark requires numpy_ref")
         check_build()
+        # The private gated benchmark is captured where the backend is built, as the
+        # reference captures it; the run's identity carries it from the driver.
+        self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
         validate_run(problem, request)
@@ -1409,7 +1407,10 @@ class NativeBackend:
             **self._chunk_plan.record(),
             "node_chunk": self.node_chunk,
         }
-        if self._problem.responses.plasma_channels:
+        if self._problem.responses.plasma_channels and self._gated_plasma:
+            work["_benchmark_plasma_source"] = "gated_nonresumable"
+            work["plasma_source"] = {"form": "gated_benchmark", "resumable": False}
+        elif self._problem.responses.plasma_channels:
             work["plasma_source"] = plasma_source_record(self._problem.grids)
         # The evaluations this backend made: the Adams ledger's logical calls, the
         # low-storage march's physical ones (SEP 24 section 5), or the native
@@ -1715,8 +1716,8 @@ class _ResidentAdams:
         self.native.adams_allocate(self.n_slots, self.compensated, self.interpolate)
         self._exponential = self.method.formulation == "exponential"
         # The controller's scale is formed on the device each trial, so that the
-        # state's magnitude never crosses: it is solprop's own, since the backend
-        # refuses a controller that overrides it (`_refuse_reference_only`).
+        # state's magnitude never crosses: it is solprop's own, since PIController
+        # is final (ADR-077).
         controller = self.controller
         weights = controller.weights
         self.native.adams_scale(
@@ -1800,9 +1801,8 @@ class _ResidentAdams:
         self.native.adams_restore()
         self.adopted(z)
 
-    def start(self, z: float, *, stored: bool) -> None:
+    def start(self, z: float) -> None:
         """Evaluate the history's first sample at the accepted state into row zero."""
-        del stored
         self.hoist(z)
         arrays, material = self.arrays(z, z)
         with _envelope_errors():
@@ -2016,8 +2016,7 @@ class _ResidentAdams:
                 np.ascontiguousarray(self._dense_carrier),
             )
             return self.native
-        # The step's own derivative polynomial: the cubic Hermite interpolant is a
-        # comparison method's (`ComparisonMultistep`), which native refuses.
+        # The step's own derivative polynomial.
         theta = (position - z) / dz
         weights = dz * integrated_weights(
             nodes, theta, check=False, helpers=self.helpers
@@ -2382,18 +2381,8 @@ class _NativeAdamsMarch:
         # Whether the run interpolates its planes (ADR-036, ADR-039).
         self._interpolate = bool(stepper.interpolate_planes)
         exponential_form = method.formulation == "exponential"
-        # The selected method's family, one-order-higher PEC, takes the fused path;
-        # the comparison variants' general path is the reference's alone (SEP 47
-        # section 6.3), refused at admission.
-        self._fused = (
-            not exponential_form
-            and method.corrector == "pec"
-            and all(
-                method.corrector_nodes(order) == order + 1
-                for order in range(1, method.order + 1)
-            )
-        )
-        assert self._fused or exponential_form
+        # The interaction formulation takes the fused path.
+        self._fused = not exponential_form
         resident = engine is None
         self._engine: Any = (
             backend._adams_engine(method, "transported") if engine is None else engine
@@ -2923,36 +2912,9 @@ class _ZTables:
         return self._native.table_terms_to_host(kind, slot)
 
 
-_CONTROLLER_DECISIONS = (
-    "scale",
-    "accepts",
-    "propose",
-    "rejection_factor",
-    "start_factor",
-    "equivalent_norm",
-)
-"""The ``PIController`` methods the native controller implements itself.
-
-A subclass that overrides one of them is a reference-only experiment (solprop SEP 47
-section 6.3), which native refuses by name.
-"""
-
-
-def _refuse_reference_only(stepper: StepperSettings) -> None:
-    """Refuse the reference-only methods and controllers by name (SEP 47 6.3).
-
-    The benchmark-only comparison family and a controller that decides in Python run
-    on ``numpy_ref`` alone; native refuses them, on CPU and device builds alike, before
-    anything is allocated.
-    """
+def _refuse_unknown_method(stepper: StepperSettings) -> None:
+    """Refuse a method object the native marches do not step, by name."""
     integrator = stepper.integrator
-    if isinstance(integrator, ComparisonMultistep):
-        raise BackendError(
-            f"solprop-native does not step the comparison variant {integrator.name}: "
-            "ComparisonMultistep (PEC, PECE, explicit Adams-Bashforth and the matched "
-            "pairs) is benchmark-only and reference-only (solprop SEP 47); use "
-            "backend='numpy_ref' for it, or Multistep()"
-        )
     # A request built by hand may hold a method its annotation does not name.
     unnamed = not isinstance(integrator, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
     if integrator is not None and unnamed:
@@ -2960,32 +2922,17 @@ def _refuse_reference_only(stepper: StepperSettings) -> None:
             f"solprop-native does not step the method {type(integrator).__name__}; "
             "use Multistep(), LowStorageRungeKutta() or a Runge-Kutta tableau"
         )
-    controller = type(stepper.controller)
-    overridden = [
-        name
-        for name in _CONTROLLER_DECISIONS
-        if getattr(controller, name) is not getattr(PIController, name)
-    ]
-    if overridden:
-        raise BackendError(
-            f"solprop-native does not run the controller {controller.__name__}, "
-            f"which overrides PIController's {', '.join(overridden)}: a controller "
-            "that decides in Python is reference-only (solprop SEP 47); use "
-            "backend='numpy_ref' for it, or PIController"
-        )
 
 
 def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
     integrator = stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
-    # translation admits it on: no coupled flow and no TDSE response. The comparison
-    # variants were refused before (`_refuse_reference_only`).
+    # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
-    # formulation only (phase 5), as solprop's reference does; its CF4 sections are
-    # refused by the shared check.
+    # formulation only (phase 5), as solprop's reference does.
     if (
         problem.linear.coupled_flow is not None
         and integrator.formulation != "exponential"
@@ -3040,7 +2987,7 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    _refuse_reference_only(stepper)
+    _refuse_unknown_method(stepper)
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
@@ -3072,24 +3019,14 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
     # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
     # pipeline; elsewhere it is refused by name rather than stepped by this backend's
-    # Runge-Kutta march, which would silently be a different method. A 'cf4' section
-    # is refused first, by the shared list: no integrator runs one here, so the
-    # integrator's advice to take the Runge-Kutta march would mislead.
-    flow = problem.linear.coupled_flow
-    if flow is not None and "cf4" in flow.section_methods:
-        refuse_general_route(
-            problem, backend="native", flow_methods=_FLOW_METHODS, moving_maps=True
-        )
+    # Runge-Kutta march, which would silently be a different method.
     _refuse_adams(problem, stepper)
     # One list for every backend: the general modal route and the coupled flow, each
     # refusal naming this backend.
     # A moving guide's synthesis and projection, combined per stage over schema 14's
     # `StageScalars.transform_weights`, run here beside the frozen-residual flow that
     # carries their connection.
-    refuse_general_route(
-        problem, backend="native", flow_methods=_FLOW_METHODS, moving_maps=True
-    )
-    _refuse_native_route(problem)
+    refuse_general_route(problem, backend="native", moving_maps=True)
     flags = problem.flags
     if problem.transform.n_pol * problem.shape[1] > 2:
         raise BackendError(
@@ -3108,48 +3045,6 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     ):
         raise BackendError(
             "vector Raman requires tensor-capable terms; found scalar_only"
-        )
-    if (
-        flags.has_spectral_responses and problem.responses.envelope_plasma is None
-    ) or any(
-        response is not problem.responses.envelope_plasma
-        for response in problem.responses.spectral_responses
-    ):
-        raise BackendError(
-            "spectral responses other than envelope plasma are unsupported by Kokkos"
-        )
-
-
-_FLOW_METHODS: tuple[SectionMethod, ...] = ("constant_schur", "frozen_residual")
-"""The section methods of ``linear.coupled_flow`` this backend executes.
-
-The constant Schur section and the frozen-residual varying flow. The commutator-free
-CF4 flow is solprop's reference backend's alone, and solprop's shared admission list
-refuses it here by name.
-"""
-
-
-def _refuse_native_route(problem: PropagationProblem) -> None:
-    """Refuse what solprop's shared list admits and this backend has not built.
-
-    The general modal route and the coupled flow are admitted by solprop's one list,
-    :func:`solprop.backends.numpy_ref.admission.refuse_general_route`, run under this
-    backend's name before anything is allocated. What remains
-    here is this backend's own: the native delayed response contracts the six pair
-    histories of three Cartesian components, which the reference's arithmetic does
-    not require of a record.
-    """
-    tables = problem.transform.modal_tables
-    regional = problem.responses.regional_responses
-    if tables is None or regional is None or not regional.n_terms:
-        return
-    components = int(tables.electric.shape[2])
-    if regional.n_terms != DELAYED_TERMS or components != 3:
-        raise BackendError(
-            f"native executes the {DELAYED_TERMS} delayed channels of the silica "
-            "tensor Raman model on three components, and "
-            f"responses.regional_responses carries {regional.n_terms} term(s) on "
-            f"{components}"
         )
 
 
@@ -3698,6 +3593,9 @@ def _native_problem(
         "harmonic_factor": 0.0 if kerr is None else kerr.harmonic_factor,
         "take_real": kerr is not None and kerr.take_real,
         "plasma": plasma is not None,
+        # The private gated benchmark (solprop's tests/gated_source.py), read where
+        # the backend is built, as the reference reads it.
+        "plasma_gated": plasma is not None and _BENCHMARK_GATED.get(),
         "raman": raman is not None,
         "raman_thg": raman is not None
         and bool(raman.thg)

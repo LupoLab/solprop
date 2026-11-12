@@ -103,11 +103,8 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
 from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
 from solprop.translate.coupled import (
-    CF4_GROWTH_LIMIT,
     CoupledFlowTables,
     advisory_step,
-    cf4_defect,
-    cf4_flow,
     constant_schur_flow,
     flow_edge_slack,
     frozen_residual_flow,
@@ -345,8 +342,6 @@ class Flags:
         A plasma response is compiled.
     has_raman : bool
         A Raman kernel is compiled.
-    has_spectral_responses : bool
-        Responses are evaluated after the forward transform.
     has_noise : bool
         A shot-noise realisation is carried and added at every stage.
     has_temporal_absorber : bool
@@ -363,7 +358,7 @@ class Flags:
     Examples
     --------
     >>> from solprop.translate.problem import Flags
-    >>> flags = Flags(True, True, False, False, False, False, False, True, True)
+    >>> flags = Flags(True, True, False, False, False, False, True, True)
     >>> flags.constant_linop, flags.has_raman
     (True, False)
     """
@@ -372,7 +367,6 @@ class Flags:
     scalar_pol: bool
     has_plasma: bool
     has_raman: bool
-    has_spectral_responses: bool
     has_noise: bool
     has_temporal_absorber: bool
     constant_linop: bool
@@ -436,7 +430,6 @@ class Flags:
             scalar_pol=shape[1] == 1,
             has_plasma=bool(responses.population_channels),
             has_raman=bool(responses.raman_terms),
-            has_spectral_responses=bool(responses.spectral_responses),
             has_noise=initial.noise0 is not None,
             has_temporal_absorber=responses.temporal_absorber is not None,
             constant_linop=linear.phi_representation in ("constant", "separable"),
@@ -3287,7 +3280,6 @@ def _wall_assembly(
     """
     block = tuple(modes)
     _check_wall_route(build)
-    _check_wall_method(wall, cast("MarcatiliMode", block[0]))
     if wall.impedance == "te_tm":
         return _vector_wall_assembly(wall, block, grid, frame, build)
     if not cast("MarcatiliMode", block[0]).z_constant:
@@ -3347,30 +3339,6 @@ def _wall_assembly(
         float(np.max(flow.generator_error)),
     )
     return replace(linear, coupled_flow=flow)
-
-
-def _check_wall_method(wall: CoherentWall, first: MarcatiliMode) -> None:
-    """Refuse, by name, a CF4 declaration the block it would integrate cannot take.
-
-    A guide that does not vary along z has one constant section, whose flow the
-    constant-Schur action integrates **exactly**, so there is nothing for a
-    commutator-free exponential to order and the declaration would otherwise be
-    silently ignored; a declaration that would change nothing is refused rather
-    than dropped. CF4 is admitted beside the vector block of ``impedance="te_tm"``
-    too: it integrates the stored expansion of whichever block the route built and
-    reads nothing else of it.
-    """
-    if wall.method != "cf4":
-        return
-    if first.z_constant:
-        msg = (
-            "CoherentWall(method='cf4') orders the exponentials of a generator that "
-            "varies along z, and this guide's does not: its one constant section is "
-            "integrated exactly by the constant-Schur action, which a CF4 "
-            "step would only reproduce to rounding. Declare the default method, or a "
-            "radius or pressure that varies"
-        )
-        raise TranslationError(msg)
 
 
 def _vector_wall_assembly(
@@ -3560,34 +3528,17 @@ def _varying_wall_assembly(
         else f"capillary azimuthal order nu={operator.sector}"
     )
     _check_wall_total_varying(coefficients, linear, edges, block, grid, tail)
-    if wall.method == "cf4":
-        flow = cf4_flow(
-            grid.omega,
-            edges,
-            coefficients,
-            link,
-            dz_max=build.dz_max,
-            condition_limit=wall.condition_limit,
-            growth_limit=CF4_GROWTH_LIMIT
-            if wall.growth_limit is None
-            else wall.growth_limit,
-            fallback=wall.fallback,
-            representation_error=tail,
-            gauge_id=gauge_id,
-            certificate_id="cf4",
-        )
-    else:
-        flow = frozen_residual_flow(
-            grid.omega,
-            edges,
-            coefficients,
-            link,
-            dz_max=build.dz_max,
-            condition_limit=wall.condition_limit,
-            representation_error=tail,
-            gauge_id=gauge_id,
-            certificate_id="frozen-residual",
-        )
+    flow = frozen_residual_flow(
+        grid.omega,
+        edges,
+        coefficients,
+        link,
+        dz_max=build.dz_max,
+        condition_limit=wall.condition_limit,
+        representation_error=tail,
+        gauge_id=gauge_id,
+        certificate_id="frozen-residual",
+    )
     logger.debug(
         "coherent wall, varying (%s): %d channels over %d section(s), worst validity "
         "ratio %.3e (%s) at z = %.6g m, residual bound %.3e 1/m, largest conditioning "
@@ -3887,8 +3838,8 @@ def _channel_normalisation_at(
     ``-0.5 d ln(w_n/w_1)/dz = -0.5 (w_n'/w_n - w_1'/w_1)``, real, so the
     optics/internal conjugation leaves it alone, zero for channel 1 by construction
     and zero where the guide does not vary. It is part of the generator, so the
-    frozen block carries it at the section midpoint, the explicit residual carries
-    its variation, and CF4 integrates it with the rest. The slope is the analytic
+    frozen block carries it at the section midpoint and the explicit residual carries
+    its variation. The slope is the analytic
     :meth:`solprop.modes.capillary.MarcatiliMode.dneff_dz`, never a difference.
 
     - ``block``: the contiguous ``HE_11`` to ``HE_1N`` set.
@@ -4133,12 +4084,6 @@ def validate_coupled_flow(
     fixed schedule is replayed, its own largest step, which the controller can neither
     shorten nor reject.
 
-    A flow with a ``"cf4"`` section has no explicit residual there and no advisory step,
-    but a flow error the embedded pair cannot see: the largest declared step's
-    step-doubling defect estimate (:func:`solprop.translate.coupled.cf4_defect`) is
-    warned on when it exceeds the controller's relative tolerance -- an asymptotic
-    estimator, and advisory like the first.
-
     Parameters
     ----------
     problem : PropagationProblem
@@ -4152,8 +4097,7 @@ def validate_coupled_flow(
     -----
     solprop.exceptions.SolpropWarning
         Naming the step that exceeds the limit, with the term, the section, the
-        frequency, ``K``, the conditioning factor and the limit; or, for a CF4 flow,
-        the step, the section, the frequency, the defect estimate and the tolerance.
+        frequency, ``K``, the conditioning factor and the limit.
 
     Examples
     --------
@@ -4166,8 +4110,6 @@ def validate_coupled_flow(
         return
     # Over the bins the explicit residual is applied on: the requested band.
     _warn_advisory_step(flow, stepper, problem.grids.inband_mask)
-    if "cf4" in flow.section_methods:
-        _warn_cf4_defect(flow, stepper, problem.linear.hard_kinks)
 
 
 def _declared_steps(settings: StepperSettings) -> dict[str, float]:
@@ -4234,50 +4176,6 @@ def _warn_advisory_step(
         "real eigenvalues is locally growing relative to the frozen frame and no "
         f"positive step makes it contractive. Nothing here changes your schedule: "
         f"{advice}",
-        SolpropWarning,
-        stacklevel=3,
-    )
-
-
-def _warn_cf4_defect(
-    flow: CoupledFlowTables,
-    settings: StepperSettings,
-    kinks: Float[np.ndarray, " n_kinks"],
-) -> None:
-    """Warn when a CF4 flow's estimated local defect exceeds the controller's tolerance.
-
-    The CF4 counterpart of the advisory step, and as advisory as it: a CF4
-    section's flow error is invisible to the embedded Runge-Kutta pair, which compares
-    two combinations of the same stages, so the controller can neither see nor bound
-    it, and the only step that governs it is the one the run declares. The
-    step-doubling estimate of :func:`solprop.translate.coupled.cf4_defect` at the
-    largest declared step is compared with the controller's relative tolerance, which
-    is what the pair holds the rest of each step to. It is an **asymptotic
-    estimator**, not a bound, and the warning says so; nothing here changes the
-    caller's tolerances or schedule.
-
-    - ``flow``: the leaf, carrying at least one ``"cf4"`` section.
-    - ``kinks``: the run's hard kinks in m, at which every step ends.
-    """
-    declared = _declared_steps(settings)
-    name = max(declared, key=lambda key: declared[key])
-    step = declared[name]
-    defect = cf4_defect(flow, step, kinks)
-    section, bin_index = np.unravel_index(int(np.argmax(defect)), defect.shape)
-    largest = float(defect[section, bin_index])
-    tolerance = float(settings.controller.rtol)
-    if largest <= tolerance:
-        return
-    warnings.warn(
-        f"the coherent wall's CF4 flow has an estimated local defect of {largest:.4g} "
-        f"per step of {step:.4g} m ({name}) on section {int(section)} at bin "
-        f"{int(bin_index)}, {float(flow.omega[bin_index]):.6g} rad/s, above the "
-        f"controller's relative tolerance {tolerance:.4g}: the embedded pair does not "
-        "see a CF4 flow's error, so only the declared step governs it, and at this "
-        "one the run is at most fourth order with a linear share the controller "
-        "cannot hold. The estimate is step doubling, asymptotic and not a bound. "
-        "Nothing here changes your schedule: cap the step, or "
-        "declare the default method, deliberately",
         SolpropWarning,
         stacklevel=3,
     )
@@ -5071,7 +4969,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         or, with ``impedance="te_tm"``, of one azimuthal order, on a constant or a
         varying guide. With it ``Phi`` carries the mode-independent carrier alone
         and the modal part of the flow becomes ``linear.coupled_flow``, which every
-        backend executes (a CF4 section ``numpy_ref`` alone). A general modal guide,
+        backend executes. A general modal guide,
         a spatial geometry, a polarisation axis and a noise model are refused beside
         it by name.
     taper_coupling : bool, optional

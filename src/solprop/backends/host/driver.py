@@ -902,17 +902,15 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         return self._adams.snapshot_nbytes()
 
     def march_export_refusal(self) -> str | None:
-        """Return why this backend's Adams march cannot carry its history, or ``None``.
+        """Return ``None``: every march the reference admits carries its history.
 
         Returns
         -------
-        str or None
-            The reason
-            (:meth:`solprop.backends.host.adams.HostAdamsMarch.export_refusal`), or
-            ``None`` for a march that exports and installs its history and for the
-            Runge-Kutta and low-storage marches, which keep none.
+        None
+            The Adams engines export and install their rows; the Runge-Kutta and
+            low-storage marches keep none.
         """
-        return None if self._adams is None else self._adams.export_refusal()
+        return None
 
     def restore_march(self, snapshot: MarchSnapshot) -> str | None:
         """Continue the Adams march from a snapshot at the loaded position.

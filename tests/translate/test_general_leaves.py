@@ -580,7 +580,7 @@ def test_a_flow_prints_one_line_and_a_block():
         generator_error=np.zeros((2, 3)),
         residual_norm_bound=np.zeros((2, 3)),
         inverse_condition_bound=np.ones((2, 3)),
-        section_methods=("diagonal", "cf4"),
+        section_methods=("diagonal", "frozen_residual"),
     )
     assert "2 sections" in repr(wide)
 
@@ -658,22 +658,22 @@ def test_a_delayed_tensor_must_have_six_axes():
 def test_a_delayed_regional_term_is_carried_with_its_kernel_and_support():
     """A regional term's tensor, kernel and support arrays must agree."""
     record = kerr_regions(
-        delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-        delayed_kernel=np.zeros((1, 1, 1, 1, 16)),
-        kernel_valid_samples=np.zeros((1, 1), dtype=np.int32),
+        delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+        delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
+        kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
     )
-    assert record.n_terms == 1
+    assert record.n_terms == 2
     with pytest.raises(TranslationError, match="delayed_kernel must have shape"):
         kerr_regions(
-            delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-            delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
-            kernel_valid_samples=np.zeros((1, 1), dtype=np.int32),
+            delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 3, 16)),
+            kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
         )
     with pytest.raises(TranslationError, match="kernel_valid_samples must have shape"):
         kerr_regions(
-            delayed_tensor=np.zeros((1, 1, 3, 3, 3, 3)),
-            delayed_kernel=np.zeros((1, 1, 1, 1, 16)),
-            kernel_valid_samples=np.zeros((1, 2), dtype=np.int32),
+            delayed_tensor=np.zeros((1, 2, 3, 3, 3, 3)),
+            delayed_kernel=np.zeros((1, 1, 1, 2, 16)),
+            kernel_valid_samples=np.zeros((1, 3), dtype=np.int32),
         )
 
 

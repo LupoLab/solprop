@@ -273,7 +273,7 @@ class LinearOperator:
     coupled_flow : solprop.translate.coupled.CoupledFlowTables or None
         Kernel schema 12: the generator of a guide whose channels couple -- a
         coherent wall, a taper's connection, a split block, a moving guide;
-        executed by ``numpy_ref`` and ``native``, a CF4 section by ``numpy_ref`` alone.
+        executed by ``numpy_ref`` and ``native``.
         ``None`` on every route that declares no coupling.
     modal_metric : solprop.translate.coupled.ModalMetricTables or None
         Kernel schema 12: the explicit physical flux metric, a documented leaf here

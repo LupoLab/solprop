@@ -73,7 +73,7 @@ from solprop.driver import prop_capillary
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall
 from solprop.processing import energy
-from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule
 
 length, steps = 2e-4, 10
 grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
@@ -350,35 +350,6 @@ hard_kinks=corners)` builds one that does for any corners; adaptive stepping lan
 corners by itself; a schedule that comes near a corner without landing
 on it is refused.
 
-**The frozen split or CF4.** `CoherentWall(method="cf4")` integrates each section's
-whole generator by the fourth-order commutator-free exponential instead of freezing it:
-no explicit residual and no advisory step, but a flow error the step controller cannot
-see, a run at most fourth order, and a step 3.3 times dearer. It is the more accurate
-only for steps beyond the frozen split's advisory limit, so **prefer the default**; use
-CF4 when you must take steps longer than `advisory_step` and have checked the answer by
-halving them. It runs on `numpy_ref` only and with the Runge–Kutta march only
-(`integrator=RungeKutta()`; the default Adams method refuses it), is refused on a guide
-that does not vary, and is admitted only where its growth guard (`growth_limit`,
-default 2) holds — with `fallback="frozen_residual"` a section the guard rejects is
-integrated by the frozen split instead of refused:
-
-```python
-cf4 = prop_capillary(
-    taper,
-    length,
-    "He",
-    1.0,
-    backend="numpy_ref",
-    integrator=RungeKutta(),
-    wall=CoherentWall(method="cf4", fallback="frozen_residual"),
-    **common,
-)
-difference = np.max(np.abs(cf4.planes()[-1].field - tapered.planes()[-1].field))
-print(
-    f"CF4 against the frozen split: {difference / np.max(np.abs(tapered.planes()[-1].field)):.1e}"
-)
-```
-
 ## The vector wall: radial and azimuthal polarisation
 
 `CoherentWall(impedance="te_tm")` gives the wall's tangential and normal fields their own
@@ -414,8 +385,7 @@ a disagreement is refused by name rather than silently ignored. A `TE_0m` or `TM
 ionisation table's default range is read from the peak over the axis and the run's own
 transverse nodes, where the plasma is evaluated; `ionisation_field_range=` still
 overrides it (worked example 03 declares one). The vector wall carries a
-taper and a gradient exactly as the scalar one does, with each family's own connection;
-CF4 is admitted beside it.
+taper and a gradient exactly as the scalar one does, with each family's own connection.
 
 A set with azimuthal structure is evaluated on a full polar rule rather than the radial
 one, with both transverse components at every node:
@@ -441,7 +411,7 @@ launch, each with three radial orders and the vector wall.
 ## Backends
 
 Both CPU backends run the wall — scalar and TE/TM, straight, tapered or in a gradient —
-and the taper coupling without one, with the frozen split; CF4 is `numpy_ref`'s alone.
+and the taper coupling without one, with the frozen split.
 The **adiabatic** opt-out of a multimode taper (`taper_coupling=False`) puts every mode
 on its own row of the linear operator, and where that expansion does not resolve (a
 metre of kinked taper, for instance) it takes the general z table, which every CPU
