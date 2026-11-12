@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-12 |
 | **Resolution** | — |
@@ -812,3 +812,289 @@ milestone pull request per phase as for SEP 47 (Q9).
 - 2026-11-12: Q2 decided by the maintainer: no TDSE on native device builds and no shared
   GPU. A TDSE run gives the provider the GPU or every CPU thread, and solprop's optical
   side runs on one thread. §2, §6.2 and §6.8 revised to match.
+- 2026-11-12: AI review by GPT-6 of all of Part I, with particular attention to the
+  verification and development capabilities retained after removing the reference
+  executor; R1–R11 below. Only review metadata and this record changed.
+
+### AI review — 2026-11-12
+
+Reviewer: **GPT-6 (AI)**. Reviewed PR #765 at `63201dca4ab69d21b6d4ae0cd4611c4203ff47b1`,
+including the worker-process revisions, against the current design, SEP 0, SEP 25,
+the reference and native marches, their decision corpora, numerical parity tests,
+session tests and contributor tooling. These findings belong to
+[#764](https://github.com/LupoLab/solprop/issues/764). Part I is unchanged. No point
+below records a maintainer decision or a response from the drafting agent.
+
+**Assessment.** The production sessions, groups and registry selection are separable
+from the reference's scientific value. Removing those mechanisms can be a good change,
+and native can still have strong independent numerical verification without a second
+production backend. The current proposal does not yet establish that equivalence:
+native-scheduled replay checks execution of a chosen trajectory, and checking decisions
+on native's own readings checks policy conditional on those readings. Neither alone
+establishes the readings' correctness, adaptive accuracy, or the ability to develop a
+new response before native implements it. I recommend a small independently runnable
+reference, built on the retained arithmetic and decision functions, alongside the
+proposed replay. It need not implement `Backend`, production sessions, output stores,
+groups, or the GUI. That alternative deserves comparison with the two extremes in §10.
+
+The TDSE source split and separate provider process are reasonable. R10–R11 concern
+execution contracts, without reopening the TDSE model or the maintainer's device
+decision. Phase 1 is useful independently; I recommend making phase 2b conditional on
+the evidence requested below, rather than treating deletion or a line-count target as
+its own success criterion. **High** identifies a verification or correctness gap to
+resolve before accepting the affected design; **Medium** identifies a development or
+qualification contract that needs an explicit answer.
+
+**Evidence run.** In a Python 3.14.5 environment without solprop-native, the scripted
+reference suites `tests/backends/test_adams_traces.py` and
+`tests/backends/test_rk_traces.py` passed, **67 tests**. Two small Python probes used
+the existing `adams_core.choose_order` and `integrated_weights`; their results appear
+in R2 and R5. These are reference-policy and coefficient probes, not native parity or
+propagation measurements. Native, GPU and real-provider execution were read, not run;
+no physical constant or TDSE model was requalified by this review.
+
+1. **R1 — High: independently verify every decision's numerical inputs
+   (§§4, 5.2, 6.4, 7.2, 9.4 R2).** Feeding native's reported norm back into
+   `adams_core` or `rk_core` cannot establish that native formed the right defect or
+   norm. For example, dividing every reported error by 100 while leaving each trial's
+   field update correct can produce an inaccurate adaptive schedule that both the
+   accepted-step replay and a policy check on the divided errors accept. The scripted
+   corpora deliberately replace field arithmetic with supplied norms, so they do not
+   close this gap. The one-trial rung helps, but must specify what is compared and
+   must reach the cases the real adaptive run encounters.
+
+   The existing
+   [native error-norm tests](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_native_error_norm.py)
+   explicitly check the norm of native's operands and the norm of independently
+   computed trial stages, including masking and nonuniform weights. Preserve these
+   two levels. **Requested change:** on the short adaptive ladder cases, compare
+   native and reference defects and scaled norms for rejected as well as accepted
+   attempts, and all scored Adams orders. Include the state scales, masks, weights,
+   non-finite cases and rejection rollback. Then check policy on identical supplied
+   readings separately. Demonstrate that an error-scale mutation and a mutation
+   confined to a rejected trial fail the replacement checks. Do not describe
+   `check_decisions` as covering rejected-trial numerics merely because their reported
+   norms are present.
+
+2. **R2 — High: `StepTrace` lacks the information needed to check the advertised
+   decisions (§§4, 5.2, 6.4, 6.7).** The current attempt row contains one norm and
+   the order used, but
+   [`adams_core.choose_order`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/src/solprop/backends/adams_core.py)
+   also reads the lower- and higher-order defect scores. Native's
+   [`adams_march.cpp`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/native/src/adams_march.cpp)
+   records only `norms[0]`, although `choose_order` consumes the other scores too.
+
+   **Probe:** with the default `Multistep` policy, no active collar cap, current
+   order 2 and `dz=0.001`, scores `{2: 0.5, 1: 1.0, 3: 1.0}` keep order 2 and propose
+   approximately `0.00100793684`; changing only the order-3 score to `0.001` chooses
+   order 3 and proposes `0.002`. Both have the same recorded attempt norm, accepted
+   flag and order. Restarts and landings alone cannot fill in the missing score.
+
+   **Requested change:** specify the trace's complete input and output records before
+   the old march is removed: scored orders and norms, stencil/history identities,
+   proposal before and after caps, controller state, quiet/crossing readings, landing
+   reasons, startup and restart events, and terminal failures that occur before an
+   attempt row is emitted. Distinguish trial order from stored and control orders.
+   For each checked decision, identify which inputs are independently recomputed
+   and which are supplied identically for a policy test; copying a native output
+   into the expected state must not count as verifying that output.
+
+3. **R3 — High, maintainer decision: retain autonomous reference integration for
+   development and accuracy checks (§§2, 5.2, 7.2, 10.1–10.4).** A new response can
+   implement `ref.source` before native supports it, but `ref.replay` then has no
+   native trajectory for that response. A developer would have to invent a schedule,
+   implement a private adaptive loop, or port to C++ before assessing propagation.
+   Prescribed schedules remain useful, but alone make tolerance studies, difficult
+   transients and debugging a native regression substantially less convenient.
+
+   There is also an existing independent accuracy claim to retain:
+   [`test_a_full_adaptive_run_meets_the_reference_s_accuracy`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_backend_ladder.py)
+   compares against a tighter reference integration and checks a declared work band.
+   Replaying native's own schedule cannot replace that claim. The analytic P0–P2,
+   three-level P3 and cross-scheme checks in [testing.md](../testing.md) must remain
+   separately identified class-T or analytic checks, not become matched-replay tests.
+
+   **Recommendation and question:** compare a third option: a small, non-production
+   adaptive runner that owns NumPy history, calls the retained trial and policy
+   functions, and returns fields and diagnostics, without the production service
+   machinery. Give it a documented example of developing a response that native
+   explicitly refuses, and of comparing independently chosen trajectories within an
+   accuracy envelope. What is its incremental maintenance cost beyond the replay and
+   decision-check loops already proposed? If it is rejected, specify the equally
+   concrete native-independent workflow for these tasks and the independent accuracy
+   oracle replacing the current adaptive comparisons. Removing public selection and
+   removing this development capability should be separate decisions.
+
+4. **R4 — High: make independent history and observation arithmetic part of the
+   slim contract (§§5.2, 6.4, 6.7, 7.2).** Anchoring from native's field *and history*
+   is useful for locating a failing trial, but can conceal an incorrect history
+   already committed by native. Free-running replay must keep its own derivative
+   rows, prediction/acceptance identities, compensation and carrier-frame data;
+   its next step must not be repaired by importing native's history. Specify the
+   treatment of rejected attempts, restarts, history retention and RK stage reuse.
+   Both forms of comparison should be required, rather than left optional in Q6.
+
+   The retained API also needs to name dense evaluation and diagnostic outputs.
+   Section 6.4 groups planes, statistics and monitors under exact bookkeeping, but
+   interpolated field values and numerical readings are not bookkeeping. In
+   particular, replay must evaluate a plane inside a crossing step with the method's
+   continuous extension, not insert an extra landed step. Stage-dependent quadrature
+   diagnostics and periodic plasma statistics cannot all be reconstructed by treating
+   `stats(problem, state, z, ...)` as a stateless accepted-field query. See the
+   [dense-plane session tests](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/sessions/test_conformance.py)
+   and the [stash-versus-fresh-scan tests](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_native_stash_and_saving.py).
+
+   **Requested change:** define the numerical history and trial-result records and
+   their pure commit, restart and dense-evaluation operations. Preserve independent
+   checks of the numerical values in dense planes, statistics and boundary readings,
+   with their existing rounding or accuracy bounds; use exact expectations for event
+   order and accounting. Include mutations of a retained history row, a dense weight
+   and a cached statistic, with the ordinary endpoint update left correct.
+
+5. **R5 — High: derive replay bounds for the actual variable-step recurrence
+   (§§4, 6.7, 7.1–7.2).** `step_budget` and `propagation_growth` are calculators
+   requiring a justified operation count and growth bound; they do not establish
+   either for an arbitrary Adams history. In particular,
+   [`tests/bounds.py::step_evaluations`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/bounds.py)
+   uses equal-step Adams weights. Variable steps can change their conditioning
+   substantially, even when each individual growth factor is permitted.
+
+   **Probe:** `integrated_weights` for five predictor nodes
+   `[0, -1, -2, -3, -4]` gives absolute weight sums approximately `12.2444` for the
+   predictor and `2.34861` for the corrector through the endpoint. Nodes
+   `[0, -0.5, -0.75, -0.875, -0.9375]`, corresponding to successive step doublings,
+   give `1305.9714` and `167.3738`. This is a coefficient-conditioning example,
+   not a claim that an observed run selected that stencil or became inaccurate.
+
+   **Requested change:** state bounds in terms of each actual stencil's weights or
+   moments and operand magnitudes, including cancellation in defects, history
+   transport, compensation and coupled-flow conditioning. For free-running replay,
+   justify propagation of errors in the augmented field/history recurrence, not
+   merely the physical field's continuous sensitivity. Explain when a bound becomes
+   uninformative and which short cases then qualify the path. The `16 epsilon` and
+   `128 epsilon` witnesses are case-specific evidence, not universal TDSE or
+   variable-step guarantees. Reconcile §7.2's blanket ban on changing bounds with
+   deriving bounds for these new comparisons; retained tests must keep their claims.
+
+6. **R6 — Medium: distinguish exact decisions from floating-point trace values
+   (§§4, 6.4, 7.2).** The statement that decision traces are exact today needs a
+   platform qualification. The existing
+   [`rk_traces.same_trace`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/rk_traces.py)
+   uses exact comparison on Linux and a numerical tolerance elsewhere because the
+   corpus's `pow` values came from glibc. Disabling contraction does not make every
+   elementary function portable bit for bit. Nor should independently rounded norms
+   be required to produce identical threshold decisions on all adaptive cases.
+
+   **Requested change:** distinguish a same-input policy comparison on a qualified
+   implementation from a cross-platform stored corpus and from decisions on
+   independently computed numerical readings. Keep exact structural decisions and
+   ledgers where justified; give scalar proposals and positions a documented rounding
+   treatment where needed, and retain deliberate near-threshold cases whose two
+   trajectories satisfy an independent accuracy envelope. Do not turn legitimate
+   numerical forks into failures or silently widen the arithmetic checks to avoid them.
+
+7. **R7 — High: preserve claims and the normal execution path during test migration
+   (§§6.4, 6.7, 7.2, 11).** Counts of tests, assertions and covered branches are useful
+   audit information, but do not show that the replacement detects the same failures.
+   An arithmetic mutation alone says little about a lost resume, monitor, event-order
+   or stale-statistic check. Moving all observation tests to exact expected rows can
+   lose a numerical claim even with the same number of assertions.
+
+   Also, exporting each step for the ladder must not be the only native execution
+   configuration tested. Returning after every step could miss state or buffering
+   bugs in the normal resident call. The current
+   [Adams trace tests](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_native_march_traces.py)
+   compare one-attempt and production-sized calls; the
+   [RK trace tests](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_native_rk_traces.py)
+   exercise bounds of 1, 7 and 256. That distinction should survive.
+
+   **Requested change:** before phase 2b, provide an old-claim-to-new-test inventory,
+   including method/formulation, route, response, varying and coupled operators,
+   noise, norms, dense output, statistics, monitors, resume and groups. Separate
+   deleted-only behaviour from retained behaviour. Run representative numerical and
+   lifecycle mutations against both the old and replacement tests, and keep
+   uninstrumented session tests. Establish that enabling trace export changes no
+   numerical work, landing, restart or retained history. Keep device qualification
+   explicit: CPU success alone must not retire reference-dependent GPU checks.
+
+8. **R8 — Medium: keep a native-free reference development lane (§§6.4, 9.2–9.3,
+   10.4).** Removing the selectable backend does not require removing the ability
+   to import and exercise its numerical library without native. That ability helps
+   develop a new model, diagnose a broken native build and guard the reference's
+   independence. The default lane's 100 % coverage does not prove that an accidental
+   import of native, or a call into its implementation, has not made the oracle circular.
+
+   `poe fetch-wheel` is not a replacement for every contributor workflow:
+   [`difference_from`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/native/scripts/fetch_wheel.py)
+   deliberately refuses an ancestor wheel if `native/` or the solprop modules it
+   imports have changed, including uncommitted edits. Those are precisely the edits
+   a new feature can require. A published wheel also cannot be presumed to implement
+   a changed development seam. The open [#570](https://github.com/LupoLab/solprop/issues/570)
+   and [#312](https://github.com/LupoLab/solprop/issues/312) add the deployment limits
+   already acknowledged in the SEP.
+
+   **Recommendation and question:** retain a lightweight setup and replace the old
+   `no-native` execution lane with a smaller native-free library/translation test
+   lane. It should run the reference's analytic, trial and development-runner checks
+   and enforce the import boundary. Native qualification still needs a compatible
+   native build. Document the two workflows separately, and state what a contributor
+   changing the seam can do before CI produces a wheel. If native-free development
+   is intentionally removed, identify that as an additional decision beyond removing
+   `backend="numpy_ref"`.
+
+9. **R9 — Medium: state what remains independent when code is shared
+   (§§3.4, 4, 6.1, 7.1–7.2).** Agreement between two calls into the same moved TDSE
+   source implementation verifies wiring and placement of the native finish, but
+   cannot detect an error inside that shared source. Likewise, two implementations
+   consuming the same translated tables do not independently establish the tables'
+   physical correctness. This limitation exists today; slimming should make its
+   remaining independent checks explicit, not imply that every ladder rung is an
+   independent derivation.
+
+   **Requested change:** document the oracle boundary: which arithmetic is separately
+   implemented, which tables or policy constants are shared, and which analytic or
+   manufactured tests validate the shared parts. Preserve the manufactured TDSE
+   source expectations, signs, density and taper scaling, active-band masking and
+   edge-term checks after the production move. Keep a guard against production native
+   importing the slim reference, and against the reference invoking native to obtain
+   its expected numerical result. A mutation to a shared assembly term should fail
+   an independently stated expectation even if both callers agree.
+
+10. **R10 — High: define the hook's failure boundary relative to commit
+    (§§6.2, 7.1).** Section 6.2 promises that an exception in *any* hook entry point
+    abandons the attempt uncommitted. However, `end(accepted)` calls
+    `binding.record_trial`, which can raise `TDSEArchiveError`. In the current
+    [host Adams march](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/src/solprop/backends/host/adams.py),
+    `_attempt` commits the accepted state and history before `_record` calls that
+    binding method. Native also commits its engine before recording the accepted
+    attempt. Thus preserving the existing call ordering and guaranteeing rollback
+    for every `end` failure are different contracts.
+
+    **Requested change:** specify the transaction boundary for `begin`, each
+    `evaluate`, acceptance, archive recording and reservation release. Distinguish
+    failures before commit from failures after an accepted commit; preserve coherent
+    field, position, history, logical/atomic ledgers, archive labels and checkpoint
+    eligibility in each case. Release reservations even when `end` raises, retaining
+    all attempted-call charges and the original exception. Test archive failure and
+    interruption at the boundary as well as provider failure. This asks for precise
+    lifecycle semantics, not a change to the chosen source hook or TDSE physics.
+
+11. **R11 — Medium: complete the worker's runtime and cancellation contract
+    (§§6.2, 6.5, 6.8, 7.1, 11).** A separate process is a sensible way to isolate the
+    provider runtime, but the start mechanism must actually give it that isolation:
+    a fork of an already initialised native process would inherit its runtime state.
+    The text also refers to a worker exceeding "the run's limit", while the current
+    `TDSEExecution` declares memory and attempted-call limits, not a wall-time limit.
+    A hung atomic call cannot reach the usual between-attempt stop boundary by itself.
+
+    **Requested change:** specify a fresh interpreter start and an import boundary
+    that avoids loading solprop-native in the worker, including notebook, GUI and
+    spawned scan use. Name the timeout or cancellation policy and who polls it while
+    the hook waits; describe cooperative stop versus forced worker termination,
+    attempted-call accounting, exception transport, shared-memory ownership and
+    cleanup after partial startup or a dead worker. Include shared transport buffers
+    and per-process resources in the memory accounting. Clarify the one-thread-budget
+    case, where "every other core" would otherwise assign zero threads, and the
+    behaviour when solprop's process-wide pool is already initialised. Qualify these
+    contracts with manufactured workers on supported platforms; keep the real-provider
+    checks as the separate, explicitly scoped evidence already proposed.
