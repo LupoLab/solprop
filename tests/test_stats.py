@@ -4,7 +4,6 @@
 
 """Tests for the plane-statistics catalogue, its definitions and the collector."""
 
-import dataclasses
 import re
 from pathlib import Path
 
@@ -404,16 +403,6 @@ def test_a_spec_accepts_the_implemented_radial_width():
     assert CATALOGUE["fwhm_r"].requires == ("spatial_geometry",)
 
 
-def test_a_spec_refuses_a_reserved_catalogue_entry(monkeypatch):
-    monkeypatch.setitem(
-        CATALOGUE,
-        "future_width",
-        dataclasses.replace(CATALOGUE["fwhm_r"], implemented=False),
-    )
-    with pytest.raises(OutputError, match="reserved but not implemented"):
-        StatsSpec(names=("future_width",))
-
-
 @pytest.mark.parametrize(
     "name",
     [
@@ -507,12 +496,12 @@ def test_every_periodic_default_is_one_the_catalogue_allows():
     ],
     ids=["averaged", "averaged-full", "multimode", "multimode-full"],
 )
-def test_every_default_name_is_in_the_catalogue_and_implemented(kind_and_flags):
+def test_every_default_name_is_in_the_catalogue(kind_and_flags):
     kind, with_profiles, with_zdw = kind_and_flags
     spec = default_spec(kind, with_profiles=with_profiles, with_zdw=with_zdw)
     assert spec.names
     for name in spec.names:
-        assert CATALOGUE[name].implemented
+        assert name in CATALOGUE
 
 
 def test_the_multimode_default_adds_the_total_peak_power():
@@ -649,8 +638,8 @@ def test_the_manual_page_states_the_trait_the_catalogue_holds():
         cells = [line[7:] for line in body.splitlines() if line.startswith("     - ")]
         if name in CATALOGUE and len(cells) >= 4:
             rows[name] = cells[2]
-    # The catalogue tables include every implemented entry, including spatial widths.
-    documented = {name for name, entry in CATALOGUE.items() if entry.implemented}
+    # The catalogue tables include every entry, including spatial widths.
+    documented = set(CATALOGUE)
     assert set(rows) == documented
     for name, cell in rows.items():
         assert cell == ("yes" if CATALOGUE[name].between_planes else "no"), name
