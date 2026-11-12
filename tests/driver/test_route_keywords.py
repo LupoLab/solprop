@@ -13,6 +13,8 @@ changes behaviour.
 
 import annotationlib
 import inspect
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -163,6 +165,17 @@ def test_each_interface_s_composed_docstring_is_valid(interface, constructor, co
         for name in entry.name.split(", ")
     ]
     assert documented == [*inspect.signature(constructor).parameters, *controls]
+
+
+def test_the_interface_imports_with_its_docstrings_stripped():
+    # Under -OO every __doc__ is None: the composition is skipped, not an error.
+    result = subprocess.run(
+        [sys.executable, "-OO", "-c", "import solprop.driver.interface"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 # ------------------------------------------------------------------ the planes

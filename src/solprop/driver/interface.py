@@ -153,11 +153,14 @@ def _propagates[**P](
 
     def compose(run: Callable[P, Output]) -> Callable[P, Output]:
         """Write the composed docstring onto `run`."""
-        own = inspect.cleandoc(run.__doc__ or "")
+        if run.__doc__ is None or build.__doc__ is None:
+            # Docstrings stripped (``python -OO``): there is nothing to compose.
+            return run
+        own = inspect.cleandoc(run.__doc__)
         names = list(inspect.signature(run).parameters)
         block = (
             "Parameters\n----------\n"
-            + _parameters(inspect.cleandoc(build.__doc__ or ""))
+            + _parameters(inspect.cleandoc(build.__doc__))
             + _run_controls(names)
             + "\n"
         )
