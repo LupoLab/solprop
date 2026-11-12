@@ -69,13 +69,15 @@ usual arrangement for real runs.
 - *TDSE users.* One executor for every run: `auto` picks native for every problem, and
   TDSE runs gain native's session features. Ctrl-C, SIGTERM and a stop button end a run
   promptly even during an atomic call of many minutes. The optical side's share of a TDSE
-  run is not measured ([#247](https://github.com/LupoLab/solprop/issues/247)), and an
-  atomic call dominates (§6.8), so the speed-up is unknown and probably small.
+  run is negligible beside the atomic calls (§6.8), so speed is not the reason: native is
+  the executor every production run uses, and the one most exercised and most reliable,
+  so TDSE runs should use it too (the maintainer's decision, §12 P4).
 - *Developers.* No runtime interaction between Pyroraptor and solprop-native to qualify
   or work around, and one host source implementation with independent tests.
 
 The worker serves `numpy_ref`'s TDSE runs from the moment it lands, independently of the
-native hook. The hook's benefit is mainly uniformity (§12, P4).
+native hook. Neither the hook nor the worker is specific to TDSE or Pyroraptor (§6.2,
+§6.5, §12 P10): TDSE is their first user.
 
 **In scope.**
 
@@ -196,11 +198,10 @@ call returns after one attempt anyway.
 
 - **ADR-077** (two backends, binary64 only; [decisions.md](../decisions.md)), and the
   change it calls for, which must be merged before implementation starts: in particular
-  native importing nothing from `numpy_ref`. ADR-077 also names a slim reference as
-  `numpy_ref`'s end state, for a later SEP to specify with the TDSE response on native;
-  this SEP specifies the TDSE half only, and its ADR records that the other half is
-  deferred (§8, §10.1). ADR-068's rules therefore stand: a feature lands on both
-  backends, and a SEP is `Final` with parity on both.
+  native importing nothing from `numpy_ref`. ADR-077 records that `numpy_ref` stays a
+  complete, selectable backend (amended with the maintainer's decision in this SEP's
+  review, §10.1), so ADR-068's rules stand: a feature lands on both backends, and a SEP is
+  `Final` with parity on both.
 - **ADR-052** (one thread budget per process), **ADR-056** and **ADR-071** (how idle
   native threads wait: sleeping at once, or after about ten microseconds of spinning on
   GNU's runtime and a 1 ms block time inside native calls on LLVM's).
@@ -212,8 +213,8 @@ call returns after one attempt anyway.
 From a search of the open issues on 2026-11-12:
 
 - **Changed by this SEP.** [#247](https://github.com/LupoLab/solprop/issues/247) (the cost
-  of a TDSE run): its "compiled coupling" item is the native hook, and phase 0 measures
-  the optical side's share it asks for.
+  of a TDSE run): its "compiled coupling" item is the native hook; the optical side's
+  share it asks about is negligible beside the atomic calls (§6.8).
 - **Unchanged, for the record.** [#246](https://github.com/LupoLab/solprop/issues/246),
   [#248](https://github.com/LupoLab/solprop/issues/248),
   [#249](https://github.com/LupoLab/solprop/issues/249) and
@@ -309,7 +310,7 @@ same three. The worker's protocol is private to `solprop.driver.tdse`.
 | translation | the TDSE parameters and tables: admission, the descriptor, the gate, the node quadrature, the prefactors |
 | `solprop.backends.tdse_source` | at each evaluation: synthesis to the nodes, the current subtraction, density and taper scaling, gating, transforms, projection and the diagnostics' floors |
 | `solprop.driver.tdse` (the binding) | the provider worker and its lifetime, budgets and reservations, chunks, the archive, consistency checks, memory admission, cancellation while waiting, every resource's release |
-| the worker (`solprop.driver._tdse_worker`) | Pyroraptor: its import, initialisation, models, plans and atomic calls |
+| the worker (`solprop.driver._source_worker`, with Pyroraptor's adapter) | Pyroraptor: its import, initialisation, models, plans and atomic calls |
 | `numpy_ref` | its own optical march and history; calls `tdse_source` and the binding |
 | native | its own optical march and history (C++); the hook calls `tdse_source` and the binding |
 
@@ -330,6 +331,11 @@ term, the optmat cubic included when the descriptor asks for it, as on `numpy_re
 engine calls the hook from the thread that called `advance`, outside any parallel region.
 The engine's translation unit sees no Python; the binding layer wraps the Python object
 and acquires the GIL for each call.
+
+**Not TDSE-specific.** The C++ member and its session protocol know a lab-frame field in,
+a spectral source out, and an attempt's start and end; nothing about atoms, nodes or
+Pyroraptor. TDSE is the first hook object; another host-evaluated source would be a second
+one, with its own admission (§12 P10).
 
 **The three entry points** (Q1) mirror the reference's binding calls at the same points
 of an attempt:
@@ -382,23 +388,31 @@ field and calls.
 | D. Precompute the response | tabulate it and evaluate natively | — | impossible: the response depends on the whole field waveform at each node |
 | E. Keep TDSE on `numpy_ref` | `auto` keeps its TDSE rule | no native work and no ADR exception; the shared source and the worker still land and serve it | native keeps its refusals and `auto` its exception; TDSE runs keep the reference's optical side and session features |
 
-With `numpy_ref` retained, E is the status quo for TDSE and costs nothing to keep. A is
-recommended for uniformity; §12 P4 asks the maintainer to confirm it.
+With `numpy_ref` retained, E is the status quo for TDSE. A is chosen (§12 P4): production
+runs belong on native.
 
 #### 6.5 The provider worker
 
-The binding (`solprop.driver.tdse`) runs Pyroraptor in a worker process for every use of
-the provider: a run's evaluations, `basis_from_preset`, `hacc_preset`, `hacc_basis` and
+The worker has two layers. A provider-agnostic one (`solprop.driver._source_worker`)
+owns the start, framing, handshake, lifetime, signals and cancellation; a provider adapter
+runs inside it, Pyroraptor's for real runs and a manufactured one in CI, so the generic
+layer is exercised by two providers from the start (§12 P10). The binding
+(`solprop.driver.tdse`) runs Pyroraptor's adapter in a worker for every use of the
+provider: a run's evaluations, `basis_from_preset`, `hacc_preset`, `hacc_basis` and
 `DiagnosticSession`. `_load_provider` is called only in the worker.
 
 - **Start.** `subprocess` launches the same interpreter with the parent's import path and
   environment, running an isolated entry point (`sys.executable -m
-  solprop.driver._tdse_worker`). `multiprocessing`'s spawn and forkserver methods are not
+  solprop.driver._source_worker <adapter>`). `multiprocessing`'s spawn and forkserver methods are not
   used, since they re-import the parent's `__main__` (a user's script or notebook), and
   fork never, since it inherits the parent's runtimes. The entry point imports neither
   `solprop_native` nor `numpy_ref`, and a test holds it to that. Before importing the
   provider it moves its protocol to private descriptors and points its standard output at
-  standard error, so the provider's or Kokkos's printing cannot corrupt a frame.
+  standard error, so the provider's or Kokkos's printing cannot corrupt a frame. It starts
+  in its own process group and ignores SIGINT and SIGTERM, so a terminal's Ctrl-C or a
+  scheduler's signal to every process of a job reaches the parent, which then ends it
+  (§6.7); and a watchdog thread ends it at once when its pipe from the parent reaches end
+  of file, so a parent killed outright does not leave it computing.
 - **Environment.** The parent's, except that the OpenMP wait variables solprop-native set
   itself (those its marker `SOLPROP_NATIVE_WAIT` identifies, ADR-071) are removed, so the
   provider's runtime keeps its own defaults; a user's own settings pass through. The
@@ -430,8 +444,9 @@ the provider: a run's evaluations, `basis_from_preset`, `hacc_preset`, `hacc_bas
   name as today.
 - **Lifetime.** The parent owns the worker and both pipe ends from `prepare_binding` to
   `close`, through the binding's `ExitStack`. Every exit path, a failure in start-up
-  included, ends the worker: a shutdown request, a bounded grace period, then
-  termination and, if needed, a kill; then it reaps the process and closes both ends. A
+  included, ends the worker and then reaps it and closes both ends: between calls by a
+  shutdown request with a short grace period, then a kill; during a call, after a failure
+  or on cancellation by a kill at once, since the worker holds nothing solprop needs. A
   worker is never reused after a failure, a protocol error or a cancellation, and a pipe
   interrupted by termination is discarded with any partial frame. A dead worker is always
   an observable failure, although a live call has no time limit. The preset and basis
@@ -472,12 +487,13 @@ GUI job's stop) and the run's `StopFlag` (a stop button, a scan's supervisor).
   is inside `advance`, which the session wraps in `committing()`, so the handler holds
   the signal; the loop takes the held signal (a small addition to `_interrupts`) and
   raises it there. A stop flag raises `StopRequested`.
-- **Ending.** On any of these the parent stops the worker without waiting for the call
+- **Ending.** On any of these the parent kills the worker without waiting for the call
   (§6.5, *Lifetime*), discards the unfinished trial and keeps the last accepted state for
   checkpointing (§6.3). The call in flight stays charged and the archive records the
   evaluation as interrupted. A user's cancellation is an interrupted or stopped run, never
-  a provider failure. The grace period before termination bounds how long the stop
-  takes; it is not an evaluation timeout.
+  a provider failure, and a worker exit observed after the parent began to cancel belongs
+  to the cancellation. The stop takes at most the poll interval and the kill; there is no
+  evaluation timeout.
 - **Threads.** Signals reach only the main thread, so they cancel a run started there,
   as scripts, notebooks, scan workers and the GUI's jobs start them. A run started on
   another thread (an embedding application's worker thread) is cancelled only by its
@@ -494,9 +510,8 @@ a GIL acquisition and a Python call (microseconds), the worker a copy each way o
 and a context switch (milliseconds), and the host source assembly, which `numpy_ref`
 already performs (of order 10–100 ms at the response lattices in use, to be measured in
 phase 0). Together that is below $10^{-3}$ of the fastest recorded call. A worker start
-costs one interpreter and provider import per run. What native saves is the optical side
-of each step, whose share of a TDSE run is unmeasured (#247); phase 0 measures it with a
-manufactured binding.
+costs one interpreter and provider import per run. The optical side of each step is
+negligible beside an atomic call, so the change is not a speed-up.
 
 **Memory.** Two `n_omega` complex rows for the hook, the transport copies of §6.5, and the
 provider's rows, now in the worker.
@@ -552,14 +567,17 @@ worker:
    a failure during start-up and preparation each end as the named failure of §6.5, with
    the worker reaped and both pipe ends closed;
 4. explicit cancellation of a worker that hangs inside a call, by SIGINT, SIGTERM and a
-   stop flag, on both backends: the run ends interrupted or stopped within the grace
-   period, the call stays charged and the last accepted state is checkpointed; test
+   stop flag, on both backends: the run ends interrupted or stopped within the poll
+   interval and the kill, the call stays charged and the last accepted state is checkpointed; test
    deadlines detect a broken cancellation, and the production code has none;
-5. import isolation: after a TDSE run `pyroraptor` is not in solprop's `sys.modules`, and
+5. signals: SIGINT or SIGTERM sent to the whole process group (as a terminal and a
+   scheduler send them) ends the run as interrupted, not as a provider failure; a parent
+   killed with SIGKILL during a hanging call leaves no worker behind (the watchdog);
+6. import isolation: after a TDSE run `pyroraptor` is not in solprop's `sys.modules`, and
    the worker never loads `solprop_native`, `numpy_ref` or the parent's `__main__`,
    started from a script whose re-import would fail, from `python -c`, and from a scan
    executor's worker process;
-6. memory rows for the transport and the worker's report appear in the ledger, and an
+7. memory rows for the transport and the worker's report appear in the ledger, and an
    admission over `memory_limit` is refused before start.
 
 #### 7.3 TDSE on native (class P, R and T)
@@ -609,8 +627,7 @@ execution-space check (§6.5) refuses a mismatched provider at run time.
   tests); `AGENTS.md` and `native/AGENTS.md` (the hook's exception).
 - **Records.** One ADR: the host source hook (the one Python call in a native trial, its
   scope, its refusal on device builds), the provider worker, and the failure boundary;
-  it amends ADR-077's "every feature except the TDSE response, for now", and records
-  that `numpy_ref`'s slimming is deferred, so ADR-068's rules stay in force.
+  it amends ADR-077's "every feature except the TDSE response, for now".
 - **Release notes** for the `auto` change, the worker and cancellation during an atomic
   call.
 
@@ -686,7 +703,7 @@ linked companion pull request in its repository. PR #765 stays the proposal's.
 
 | phase | deliverables | verifies |
 |---|---|---|
-| **0. Baseline** | ADR-077's change merged; `poe size` baseline; with a manufactured binding on the short TDSE test window, the optical side's share of a TDSE run on `numpy_ref` and the host assembly's time (#247) | the numbers recorded in the phase report |
+| **0. Baseline** | ADR-077's change merged; `poe size` baseline; the host assembly's time per evaluation with a manufactured binding on the short TDSE test window | the numbers recorded in the phase report |
 | **1. Shared source** | `solprop.backends.tdse_source` (a move from `numpy_ref`); `numpy_ref` calls it | §7.1 |
 | **2. Provider worker** | the worker, its protocol, lifetime, cancellation and memory rows in the binding; presets, bases and diagnostic sessions through it; `numpy_ref`'s TDSE runs use it; the Pyroraptor companion pull request | §7.2 |
 | **3. Native hook** | the C++ hook, its binding and the adapter's hook object; session wiring, metadata, memory rows, resume; the failure boundary; `auto` sends TDSE to native; device builds refuse | §7.3 |
@@ -714,8 +731,9 @@ Q4–Q8 concerned the reference's reduction and went with it (§10.1).
 
 #### Points for the maintainer
 
-The author's resolutions of points the decisions left open, for confirmation or
-reversal:
+The author's resolutions of points the decisions left open. On 2026-11-12 the maintainer
+accepted P1, P2, P3 and P5, decided P4 (the native hook is wanted), and asked for the
+cancellation of P3 to work in every case; P6–P10 await confirmation.
 
 - **P1. Threads** (refines Q2's wording). The worker gets the run's whole thread budget
   or its device; native's pool keeps its size and waits while the hook blocks; it is not
@@ -723,7 +741,7 @@ reversal:
   and a one-core budget would leave the provider none. The optical side's work between
   calls is negligible. This keeps Q2's intent (§6.6).
 - **P2. Worker start and protocol.** `subprocess` running `sys.executable -m
-  solprop.driver._tdse_worker`, never `multiprocessing`'s spawn or fork; length-prefixed
+  solprop.driver._source_worker`, never `multiprocessing`'s spawn or fork; length-prefixed
   frames, arrays as raw bytes with a dtype, shape and byte-order header, no pickle;
   provider exceptions as type, message, classification and traceback text, re-raised as
   the existing provider failure; a handshake with the protocol version and the
@@ -735,6 +753,10 @@ reversal:
   during the hook is held rather than raised, so the loop takes the held signal and raises
   it, an extension of `_interrupts`. Every cancellation is a failure before commit. Signals
   work for a run on the main thread; elsewhere only the `StopFlag` does (§6.7).
+  *Accepted*, with the maintainer's request that stopping work in every case: it does for
+  every way solprop starts a run (scripts, notebooks, the GUI's jobs, scan workers, all on
+  their process's main thread), and for an application embedding a run on another thread
+  through that run's `StopFlag`, since Python delivers signals to the main thread only.
 - **P4. Value and order.** With `numpy_ref` retained, the native hook's benefit is
   uniformity (`auto` picks native for every problem, native's session features for TDSE,
   native's TDSE refusals go) and an unmeasured optical-side speed-up (#247), against about
@@ -742,16 +764,41 @@ reversal:
   valuable alone (isolation, a GPU provider beside CPU solprop) and serves `numpy_ref` at
   once. Recommended: phase 0 measures the optical side's share and the host assembly's
   time; the pull request lands the shared source and the worker first, then the hook.
-  The hook is justified mainly by uniformity: please confirm it is still wanted (§2,
-  §6.4, §11).
+  *Decided:* the hook is wanted. The optical side is certainly negligible, so speed is
+  not the reason; native is the executor of nearly every run, and the more reliable
+  choice for TDSE too (§2, §6.4, §11).
 - **P5. Backends and qualification.** `auto` sends TDSE to native; `numpy_ref` still runs
   TDSE, through the worker; parity between them is the qualification, with the
   `tests/bounds.py` budgets stated as derived for these cases, not as universal
   guarantees, and near-threshold forks reported as class T, not failures (§4, §7.3).
-- **P6. ADR-077's end state** (the drafting agent's). The SEP's ADR amends ADR-077's
-  "except the TDSE response, for now" and records that its slim-reference end state is
-  deferred, leaving ADR-068's rules in force, rather than leaving ADR-077 to promise a
-  SEP that no longer specifies it (§3.4, §8).
+- **P6. ADR-077.** Already amended before merge to keep `numpy_ref` a complete backend;
+  the SEP's ADR amends only its "every feature except the TDSE response, for now" (§3.4,
+  §8).
+- **P7. Signals and the worker's process.** A terminal's Ctrl-C reaches its whole process
+  group, and a Slurm time limit or `scancel` signals every process of the job, so the
+  worker would otherwise die beside the parent and the parent would read a provider
+  failure where the user stopped the run. The worker therefore starts in its own process
+  group (session on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows), ignores SIGINT and
+  SIGTERM, and is ended only by its parent; and the parent classifies any worker exit
+  after it has begun to cancel as part of the cancellation (§6.5, §6.7).
+- **P8. Parent death.** A parent killed outright (out of memory, `kill -9`) cannot stop
+  its worker, which would otherwise keep computing, possibly on a GPU, for hours. The
+  worker runs a watchdog thread that ends its process at once when its pipe from the
+  parent reaches end of file, even during a call (§6.5).
+- **P9. No grace period during a call.** All solprop records, the archive included, are
+  the parent's, so a worker in a call has nothing to save: on cancellation the parent
+  kills it at once rather than waiting a grace period it cannot use (the provider does not
+  return mid-call). An orderly shutdown with a short grace period is kept for `close`
+  between calls (§6.5, §6.7).
+- **P10. A general host source, not a TDSE one.** The native hook and the worker's
+  generic layer are written without TDSE or Pyroraptor in them (§6.2, §6.5), at almost no
+  extra cost: TDSE is the first hook object and Pyroraptor the first provider adapter,
+  with the manufactured provider as the second. That opens a route for other
+  host-evaluated sources and providers, and keeps Pyroraptor an adapter module rather
+  than a dependency. A *public* way for users to plug in an arbitrary external source is
+  not part of this SEP: it needs its own contract (which routes admit it, the field and
+  source it exchanges and their units, budgets, resume and its refusals) and is better
+  designed with a second real use in hand, as a later SEP.
 
 ### 13. References
 
@@ -794,6 +841,15 @@ reversal:
   reduced to the TDSE response on native, numpy_ref retained (phase 2 removed), Q1–Q3,
   Q9–Q11, R9–R11 incorporated; the author's resolutions P1–P5 (and the drafting
   agent's P6) listed in §12 for the maintainer.
+- 2026-11-12: Author's review of the revision: ADR-077 is already amended to keep
+  `numpy_ref` complete (P6); added P7 (the worker in its own process group, ignoring
+  SIGINT and SIGTERM, so a group-wide or scheduler signal is a stop, not a provider
+  failure), P8 (a watchdog ends the worker when its parent dies) and P9 (no grace period
+  during a call). The maintainer accepted P1, P2, P3 and P5 and decided P4 (the hook is
+  wanted; the optical side is negligible, and native is the reliable default); phase 0's
+  optical-share measurement dropped. P10 proposed: the hook and the worker's generic
+  layer are not TDSE- or Pyroraptor-specific; a public external-source API is left to a
+  later SEP.
 
 ### AI review — 2026-11-12
 
