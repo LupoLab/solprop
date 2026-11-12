@@ -54,7 +54,7 @@ class _Trial:
     scale: Callable[[_State], float]
 
     @classmethod
-    def start(
+    def start(  # noqa: PLR0917 - called positionally
         cls,
         history: list[_Derivative],
         order: int,
@@ -62,7 +62,7 @@ class _Trial:
         dz: float,
         state: _State,
         backend: HostDriver,
-    ) -> "_Trial":  # noqa: UP037 - a runtime hook evaluates it
+    ) -> "_Trial":
         """Form the predictor of a step from the history, newest derivative first.
 
         Parameters
@@ -252,7 +252,7 @@ class HostGeneralPath:
         # conservative estimate of the accepted corrector's.
         return corrected, difference, formula
 
-    def commit(
+    def commit(  # noqa: PLR0917 - called positionally
         self,
         trial: _Trial,
         advanced: _State,

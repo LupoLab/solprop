@@ -681,7 +681,7 @@ class OptmatRate:
 
     def bound(
         self, reference_field: float, field_range: tuple[float, float] | None = None
-    ) -> "OptmatRate":  # noqa: UP037 - the hook resolves class names eagerly
+    ) -> "OptmatRate":
         """Return the rate with its energy taken at a reference field.
 
         Parameters

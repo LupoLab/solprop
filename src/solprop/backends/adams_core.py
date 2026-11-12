@@ -147,7 +147,7 @@ def factor(policy: MarchPolicy, norm: float, order: int, *, growth: float) -> fl
     return min(growth, max(policy.min_factor, raw))
 
 
-def stencil(  # noqa: PLR0913 - the march's state, by name
+def stencil(  # noqa: PLR0917 - called positionally
     policy: MarchPolicy,
     z: float,
     dz: float,

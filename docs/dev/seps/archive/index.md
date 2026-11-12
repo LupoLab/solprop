@@ -44,4 +44,5 @@ sep-0044-native-edge-read
 sep-0045-native-rk-march
 sep-0046-machine-calibration
 sep-0047-run-ownership
+sep-0048-julia-backend
 ```

@@ -36,12 +36,16 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
+from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import ModeError, TranslationError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import GEOMETRY_PATH_NAMES, Mode
 from solprop.modes.quadrature import TransverseQuadrature, mode_matrix, taper_scale
 from solprop.nonlinear.normalisation import sqrtw_to_vm
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
+from solprop.translate.chebyshev import (
+    DEFAULT_TOL,
+    PiecewiseChebyshev,
+)
 from solprop.translate.linop import tabulate
 from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.spatial import SpatialGeometry
@@ -162,11 +166,10 @@ class Transform:
             Naming the offending field.
         """
         for name in ("synthesis", "projection", "projection_coarse"):
-            values = np.ascontiguousarray(getattr(self, name), dtype=np.float64)
-            values.setflags(write=False)
+            values = frozen_copy(getattr(self, name), np.float64)
             object.__setattr__(self, name, values)
         if self.node_weights is not None:
-            weights = np.array(self.node_weights, dtype=float, copy=True)
+            weights = frozen_copy(self.node_weights, np.float64)
             if (
                 weights.shape != (self.n_nodes,)
                 or np.any(weights < 0)
@@ -175,7 +178,6 @@ class Transform:
                 raise TranslationError(
                     "node_weights must be finite, non-negative and match n_nodes"
                 )
-            weights.setflags(write=False)
             object.__setattr__(self, "node_weights", weights)
         rows, n_modes = self.synthesis.shape
         for name in ("projection", "projection_coarse"):
@@ -560,8 +562,8 @@ def mode_averaged_transform(
             tol=tol,
         )
     )
-    synthesis = np.array([[sqrtw_to_vm(reference) * grid.pad_scale]])
-    identity = np.array([[1.0]])
+    synthesis = hold(np.array([[sqrtw_to_vm(reference) * grid.pad_scale]]))
+    identity = hold(np.array([[1.0]]))
     logger.debug(
         "mode-averaged transform: A_eff(0) = %.6e m^2 over %d intervals, taper %s",
         reference,
@@ -579,7 +581,7 @@ def mode_averaged_transform(
     )
 
 
-def multimode_transform(  # noqa: PLR0913 - the documented signature takes every option
+def multimode_transform(
     modes: Sequence[Mode],
     quadrature: TransverseQuadrature,
     grid: TimeGrid,
@@ -682,10 +684,11 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
         matrices.n_pol,
         "tabulated" if taper is not None else "absent",
     )
+    # The matrices were built for this transform alone: held in place, not copied.
     return Transform(
-        synthesis=matrices.synthesis * grid.pad_scale,
-        projection=matrices.projection,
-        projection_coarse=matrices.projection_coarse,
+        synthesis=hold(matrices.synthesis * grid.pad_scale),
+        projection=hold(matrices.projection),
+        projection_coarse=hold(matrices.projection_coarse),
         taper_scale=taper,
         aeff=aeff,
         _n_pol=matrices.n_pol,
@@ -760,9 +763,9 @@ def general_modal_transform(
         tables.gauge_id,
     )
     return Transform(
-        synthesis=np.zeros((1, n_modes)),
-        projection=np.zeros((n_modes, 1)),
-        projection_coarse=np.zeros((n_modes, 1)),
+        synthesis=hold(np.zeros((1, n_modes))),
+        projection=hold(np.zeros((n_modes, 1))),
+        projection_coarse=hold(np.zeros((n_modes, 1))),
         taper_scale=None,
         aeff=aeff,
         modal_tables=tables,

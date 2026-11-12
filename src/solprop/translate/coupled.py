@@ -39,6 +39,7 @@ from numpy.polynomial import chebyshev as chebyshev_basis
 from scipy.linalg import expm, schur
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.exceptions import SolpropWarning, TranslationError
 from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
@@ -151,7 +152,7 @@ def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     TranslationError
         If the values are not a finite, non-empty, increasing vector.
     """
-    array = np.array(values, dtype=np.float64, order="C", copy=True)
+    array = frozen_copy(values, np.float64)
     if (
         array.ndim != 1
         or not array.size
@@ -160,7 +161,6 @@ def _vector(values: object, name: str) -> Float[np.ndarray, " n_entries"]:
     ):
         msg = f"{name} must be a finite, non-empty, increasing vector"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array
 
 
@@ -190,14 +190,13 @@ def _owned(
     TranslationError
         If the shape disagrees or a value is not finite.
     """
-    array = np.array(values, dtype=dtype, order="C", copy=True)
+    array = frozen_copy(values, dtype)
     if array.shape != shape:
         msg = f"{name} must have shape {shape}, got {array.shape}"
         raise TranslationError(msg)
     if not np.all(np.isfinite(array)):
         msg = f"{name} must be finite"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array
 
 
@@ -247,7 +246,7 @@ def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     TranslationError
         If the rank is wrong, the two channel axes disagree, or a value is not finite.
     """
-    array = np.array(values, dtype=np.complex128, order="C", copy=True)
+    array = frozen_copy(values, np.complex128)
     if array.ndim != rank or array.shape[-3] != array.shape[-2] or not array.shape[-2]:
         msg = (
             f"{name} must have {rank} axes with equal and non-empty output and input "
@@ -257,7 +256,6 @@ def _square(values: object, name: str, rank: int) -> tuple[np.ndarray, int]:
     if not np.all(np.isfinite(array)):
         msg = f"{name} must be finite"
         raise TranslationError(msg)
-    array.setflags(write=False)
     return array, int(array.shape[-2])
 
 
@@ -476,7 +474,7 @@ class ModalMetricTables(Displayed):
             raise TranslationError(msg)
         intervals = interval_count(len(self.z_edges))
         if self.diagonal is not None:
-            weights = np.array(self.diagonal, dtype=np.float64, order="C", copy=True)
+            weights = frozen_copy(self.diagonal, np.float64)
             if weights.ndim != 4 or weights.shape[0] != intervals:
                 msg = (
                     "modal_metric.diagonal must have shape (n_intervals, n_deg, "
@@ -494,7 +492,6 @@ class ModalMetricTables(Displayed):
             if not np.all(np.isfinite(weights)) or np.any(weights <= 0):
                 msg = "modal_metric.diagonal must be finite and positive"
                 raise TranslationError(msg)
-            weights.setflags(write=False)
             object.__setattr__(self, "diagonal", weights)
         if self.dense is not None:
             self._validate_dense(intervals)
@@ -856,7 +853,7 @@ class CoupledFlowTables(Displayed):
                 f"frequencies, got {terms.shape}"
             )
             raise TranslationError(msg)
-        weights = np.array(self.term_weights, dtype=np.complex128, order="C", copy=True)
+        weights = frozen_copy(self.term_weights, np.complex128)
         if (
             weights.ndim != 3
             or weights.shape[0] != intervals
@@ -872,7 +869,6 @@ class CoupledFlowTables(Displayed):
         if not np.all(np.isfinite(weights)):
             msg = "coupled_flow.term_weights must be finite"
             raise TranslationError(msg)
-        weights.setflags(write=False)
         object.__setattr__(self, "fixed_terms", terms)
         object.__setattr__(self, "term_weights", weights)
 
@@ -899,9 +895,7 @@ class CoupledFlowTables(Displayed):
                 np.complex128,
             )
             object.__setattr__(self, "wall_vectors", vectors)
-            weights = np.array(
-                self.wall_weights, dtype=np.complex128, order="C", copy=True
-            )
+            weights = frozen_copy(self.wall_weights, np.complex128)
             if (
                 weights.ndim != 3
                 or weights.shape[0] != intervals
@@ -917,7 +911,6 @@ class CoupledFlowTables(Displayed):
             if not np.all(np.isfinite(weights)):
                 msg = "coupled_flow.wall_weights must be finite"
                 raise TranslationError(msg)
-            weights.setflags(write=False)
             object.__setattr__(self, "wall_weights", weights)
         if self.connection is not None:
             link, link_modes = _square(self.connection, "coupled_flow.connection", 5)
@@ -1462,7 +1455,7 @@ def _flow_certificate(
     return (relative + defect) * amplification, np.exp(float(dz_max) * spread)
 
 
-def constant_schur_flow(  # noqa: PLR0913 - the leaf's own fields plus its two limits
+def constant_schur_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[np.ndarray, "n_modes_flow_out n_modes_flow_in n_omega_flow"],
@@ -2143,7 +2136,7 @@ _TRUNCATION_OVERFLOW: float = 600.0
 """Largest ``h K`` whose truncation bound is formed: ``exp(600) 600^7`` is 1.7e280."""
 
 
-def frozen_residual_flow(  # noqa: PLR0913 - the leaf's own arrays plus its two limits
+def frozen_residual_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[
@@ -2485,7 +2478,7 @@ def _reach_spread(
     return spread
 
 
-def cf4_flow(  # noqa: PLR0913 - the leaf's own arrays plus its three limits
+def cf4_flow(
     omega: Float[np.ndarray, " n_omega"],
     z_edges: Float[np.ndarray, " n_edges"],
     generator: Complex[
@@ -2710,7 +2703,7 @@ def cf4_flow(  # noqa: PLR0913 - the leaf's own arrays plus its three limits
     )
 
 
-def _cf4_rejection(  # noqa: PLR0913 - one section's two bounds and their two limits
+def _cf4_rejection(
     index: int,
     omega: Float[np.ndarray, " n_omega"],
     growth: Float[np.ndarray, " n_omega_g"],
@@ -2970,7 +2963,7 @@ def cf4_defect(
     return defect
 
 
-def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declaration
+def wall_identity(
     flow: CoupledFlowTables,
     limits: WallLimits,
     *,

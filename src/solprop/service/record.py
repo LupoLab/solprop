@@ -30,7 +30,6 @@ import contextlib
 import os
 import queue
 import socket
-import sys
 import tempfile
 import threading
 import time
@@ -39,6 +38,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from solprop._process import process_stamp
 from solprop.service.frames import encode, split_frames
 from solprop.service.messages import TERMINAL, Event, ServiceError
 
@@ -157,93 +157,6 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def process_stamp(pid: int) -> str | None:
-    """Return when a process started, as its operating system states it.
-
-    A process number is reused once its process has gone; the start time tells a
-    run's own process from a later one with its number.
-
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start, in the system's own terms; ``None`` where the system does not say
-        or the process does not exist.
-    """
-    if sys.platform == "linux":
-        try:
-            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-        except OSError:
-            return None
-        return stat.rsplit(")", 1)[1].split()[19]
-    if sys.platform == "win32":  # pragma: no cover - Windows only
-        return _windows_stamp(pid)
-    return _ps_stamp(pid)  # pragma: no cover - macOS and other POSIX: not the lanes
-
-
-def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
-    """Return a process's start as ``ps`` gives it, off Linux.
-
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start; ``None`` when it does not exist.
-    """
-    import subprocess  # noqa: PLC0415 - only off Linux
-
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "lstart="],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout.strip() or None
-
-
-def _windows_stamp(pid: int) -> str | None:  # pragma: no cover - Windows only
-    """Return a Windows process's creation time, or ``None`` when it has gone.
-
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its creation time in 100 ns units, as text.
-    """
-    import ctypes  # noqa: PLC0415 - Windows only
-    from ctypes import wintypes  # noqa: PLC0415 - Windows only
-
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return None
-    try:
-        code = wintypes.DWORD()
-        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return None
-        if code.value != 259:  # STILL_ACTIVE
-            return None
-        times = [wintypes.FILETIME() for _ in range(4)]
-        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
-            return None
-        created = times[0]
-        return str((created.dwHighDateTime << 32) | created.dwLowDateTime)
-    finally:
-        kernel.CloseHandle(handle)
-
-
 def alive(pid: int, stamp: str | None) -> bool:
     """Return whether a process of this machine still runs, and is the one meant.
 
@@ -319,7 +232,7 @@ class Job:
     threads: int | None = None
 
     @classmethod
-    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> "Job":  # noqa: UP037 - the runtime type hook resolves it in the class body
+    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> "Job":
         """Return the record of a run starting in this process.
 
         Parameters

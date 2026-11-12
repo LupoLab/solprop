@@ -365,7 +365,7 @@ class HostGroupSession:
             self._runner.set_stop(None)
             self._runner.close()
 
-    def __enter__(self) -> "HostGroupSession":  # noqa: UP037 - runtime type hook
+    def __enter__(self) -> "HostGroupSession":
         """Return the group.
 
         Returns

@@ -467,7 +467,7 @@ class RectMode(_WallPairFill):
             }
         )
 
-    def at_parameters(self, values: Mapping[str, float]) -> "RectMode":  # noqa: UP037 - eager hook
+    def at_parameters(self, values: Mapping[str, float]) -> "RectMode":
         """Copy the mode with the supplied geometry and fill paths frozen.
 
         Parameters
@@ -607,7 +607,7 @@ class RectMode(_WallPairFill):
         return self.polarisation
 
     @property
-    def orthogonal_polarisation(self) -> "RectMode":  # noqa: UP037 - eager hook
+    def orthogonal_polarisation(self) -> "RectMode":
         """Return the distinct mode with the other electric-field orientation.
 
         Returns

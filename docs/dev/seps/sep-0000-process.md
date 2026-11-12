@@ -89,7 +89,7 @@ Any status ──► Superseded (by a later SEP)
 | Draft | Written and under discussion; may change freely | `seps/` | yes, under drafts |
 | Accepted | Agreed by the maintainers; waiting to be picked up | `seps/` | yes |
 | In progress | Being implemented; at least one phase has started | `seps/` | yes |
-| Final | Implemented on the Tier 1 backends, tested and documented | `seps/archive/` | no |
+| Final | Implemented on `numpy_ref` and the native CPU build, tested and documented | `seps/archive/` | no |
 | Deferred | Not pursued for now; may return to Draft | `seps/` | no |
 | Rejected | Decided against; the reasons are recorded in the SEP | `seps/archive/` | no |
 | Withdrawn | Abandoned by its author | `seps/archive/` | no |
@@ -234,8 +234,8 @@ on the branch.
 A SEP becomes `Final` when:
 
 - every phase is merged and reported;
-- the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
-  [ADR-061](../decisions.md)), with parity tests — or the accepted SEP records a justified exception, which
+- the functionality runs on `numpy_ref` and the native CPU build
+  ([ADR-068, ADR-077](../decisions.md)), with parity tests — or the accepted SEP records a justified exception, which
   then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
 - the open questions left are moved to issues, and named in the last report.
@@ -323,6 +323,8 @@ code is kept. Each report states:
 - **Limitations:** cases refused, ranges not qualified, backends still missing.
 - **Open questions**, numbered Q1, Q2, … through the whole SEP, each with its owner or
   destination (the next phase, an issue).
+- **Cost:** the lines of code, docstrings and tests added and removed (`poe size`); the
+  last report compares the totals with the proposal's estimate.
 - **Handoff:** what the next phase needs to know.
 
 A report is written honestly: a check that failed, a test left weaker than planned, an
@@ -384,3 +386,6 @@ that edits this document and adds a line to its history.
   CI. Temporary internal adapters are removed by Final, and its Implementation field
   retains the successive milestone branches and PRs. The general one-branch/one-PR
   rule is unchanged; this records the delivery exception, not acceptance of SEP 47.
+- 2026-11-11: The backend tiers are gone (ADR-077): a SEP is `Final` on `numpy_ref` and the
+  native CPU build. A proposal estimates its cost in lines of code, docstrings and tests,
+  and its phase reports record the actual numbers.

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 __all__ = ["start_group", "start_session"]
 
 
-def start_session(  # noqa: PLR0913 - the session context
+def start_session(
     backend: Backend,
     problem: PropagationProblem,
     request: RunRequest,

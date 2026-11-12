@@ -558,7 +558,7 @@ def _interfaces(provider: ModalProvider, z: float) -> tuple[float, ...]:
     return tuple(sorted(values))
 
 
-def modal_connection(  # noqa: PLR0913 - a provider, a point, and four declarations
+def modal_connection(
     provider: ModalProvider,
     omega: float,
     z: float,
@@ -650,7 +650,7 @@ def modal_connection(  # noqa: PLR0913 - a provider, a point, and four declarati
     )
 
 
-def band_connection(  # noqa: PLR0913 - a provider, a band, a point, and five declarations
+def band_connection(
     provider: ModalProvider,
     omega: Sequence[float] | Float[np.ndarray, " n_omega"],
     z: float,

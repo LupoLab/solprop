@@ -32,7 +32,6 @@ import json
 import logging
 import math
 import warnings
-import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import ROUND_FLOOR, Decimal
@@ -42,6 +41,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Num
 
+from solprop._ownership import frozen_copy, hold, is_held
 from solprop._process import host_blas
 from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
@@ -101,7 +101,10 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev
+from solprop.translate.chebyshev import (
+    DEFAULT_TOL,
+    PiecewiseChebyshev,
+)
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     CoupledFlowTables,
@@ -387,8 +390,8 @@ class Flags:
         linear: LinearOperator,
         transform: Transform,
         responses: CompiledResponses,
-        initial: "Initial",  # noqa: UP037 - bound after this class body
-    ) -> "Flags":  # noqa: UP037 - beartype resolves it while the body still runs
+        initial: "Initial",
+    ) -> "Flags":
         """Derive the flags from the problem's own content.
 
         Parameters
@@ -463,7 +466,7 @@ class Initial:
       block's bytes rather than one state's;
     - an array the problem already holds, which a replaced or re-translated problem
       passes back, is taken as it is, and so is one solprop built for the problem
-      itself (``_hold``), so that neither is copied twice.
+      itself (``hold``), so that neither is copied twice.
 
     Attributes
     ----------
@@ -522,7 +525,7 @@ class Initial:
         state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
-            noise = _held_copy(self.noise0, np.complex128)
+            noise = frozen_copy(self.noise0, np.complex128)
             object.__setattr__(self, "noise0", noise)
             if noise.shape != state.shape:
                 msg = (
@@ -674,7 +677,7 @@ class StepperSettings:
         TranslationError
             Naming the offending field.
         """
-        planes = _readonly(np.asarray(self.save_planes, dtype=np.float64).reshape(-1))
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         object.__setattr__(self, "save_planes", planes)
         if planes.size == 0 or not np.all(np.diff(planes) > 0.0):
             msg = f"save_planes must be non-empty and increasing, got {planes}"
@@ -786,92 +789,8 @@ class _RunPolicy(NamedTuple):
     stats: StatsSpec
 
 
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only view or copy of an array.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
-
-
-_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
-"""The arrays an :class:`Initial` holds as its own, by ``id``.
-
-An array is in it because solprop made it -- a copy :class:`Initial` took, or one the
-translation built for the problem (:func:`_hold`) -- never because of its flags, which
-the owner of an array, or a writeable buffer beneath it, can change. Entries leave with
-their arrays.
-"""
-
-
-def _hold(values: np.ndarray) -> np.ndarray:
-    """Return an array solprop made for a problem, frozen and marked as held.
-
-    Only for an array no one else refers to: a copy, a quotient or a fresh build.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only, which :class:`Initial` takes without a copy.
-    """
-    values.setflags(write=False)
-    _HELD[id(values)] = values
-    return values
-
-
-def _is_held(values: object) -> bool:
-    """Return whether an array is one :func:`_hold` marked.
-
-    Parameters
-    ----------
-    values : object
-        Anything.
-
-    Returns
-    -------
-    bool
-        True for the very array that was marked, while it lives.
-    """
-    return _HELD.get(id(values)) is values
-
-
-def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held, C-contiguous copy of an array, or the array if already held.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The caller's array, or one already held.
-    dtype : numpy.dtype or type
-        The element type of the copy, byte order included.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only and the problem's own, of `dtype`.
-    """
-    if _is_held(values) and values.dtype == dtype:
-        return values
-    return _hold(np.array(values, dtype=dtype, order="C"))
-
-
 def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
+    """Return an array as solprop holds it, a broadcast copying its block alone.
 
     Parameters
     ----------
@@ -883,22 +802,24 @@ def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.nd
     Returns
     -------
     numpy.ndarray
-        Read-only, of `dtype`: `values` itself when it is already held with that
-        dtype; for a broadcast view, a broadcast of a held copy of the block it
-        repeats; otherwise a held C-contiguous copy.
+        Read-only, held and of `dtype`: for a broadcast view, a broadcast of the
+        block it repeats, which is copied unless already held and C-contiguous;
+        otherwise :func:`~solprop._ownership.frozen_copy` of `values`, so a strided
+        view is copied to a C-contiguous array even when it views a held one.
     """
-    if _is_held(values) and values.dtype == dtype:
-        return values
     repeated = tuple(
         size > 1 and stride == 0
         for size, stride in zip(values.shape, values.strides, strict=True)
     )
     if not any(repeated):
-        return _held_copy(values, dtype)
-    block = _held_copy(
-        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)], dtype
-    )
-    return _hold(np.broadcast_to(block, values.shape))
+        return frozen_copy(values, dtype)
+    sliced = values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)]
+    block = frozen_copy(sliced, dtype)
+    if block is sliced and is_held(values):
+        # Already a broadcast of a held block: taken back as it is.
+        return values
+    # A read-only view of a held block, so itself held.
+    return np.broadcast_to(block, values.shape)
 
 
 def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
@@ -1127,7 +1048,7 @@ class PropagationProblem:
         self._check_modal_leaves(run)
         self._check_tables(run)
 
-    def validate_launch(self, request: "RunRequest") -> None:  # noqa: UP037
+    def validate_launch(self, request: "RunRequest") -> None:
         """Check the launch against the save planes, and a schedule against them.
 
         The part of :func:`validate_run` a replaced input with a new launch position
@@ -2542,10 +2463,10 @@ class Translation(NamedTuple):
     """
 
     problem: PropagationProblem
-    request: "RunRequest"  # noqa: UP037 - the request module imports this one
+    request: "RunRequest"
 
 
-def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:  # noqa: UP037
+def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     """Check a problem and the request it is run with, before anything is allocated.
 
     Everything :meth:`PropagationProblem.validate` checks, in the same order, and
@@ -2643,7 +2564,7 @@ def _budget_term(
     return name, scale * value, bounds.loss - value
 
 
-def _budget_message(
+def _budget_message(  # noqa: PLR0917 - called positionally
     source: str,
     step: float,
     bounds: RateBounds,
@@ -2774,7 +2695,7 @@ class _Assembly:
     tol: float
     has_noise: bool
     dz_max: float
-    reuse: "TranslationReuse | None"  # noqa: UP037 - bound after this class body
+    reuse: "TranslationReuse | None"
     kinks: tuple[tuple[float, str], ...] = ()
     taper_coupling: bool = True
     evanescent_rate: float | None = None
@@ -4857,7 +4778,7 @@ def _true_power_connection(
     return scattered
 
 
-def _check_wall_total_varying(
+def _check_wall_total_varying(  # noqa: PLR0917 - called positionally
     coefficients: Complex[
         np.ndarray, "n_intervals_v n_deg_v n_modes_v_out n_modes_v_in n_omega_v"
     ],
@@ -4940,7 +4861,7 @@ def _check_wall_total_varying(
             raise TranslationError(msg)
 
 
-def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:  # noqa: UP037
+def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:
     """Validate an assembled problem and run every diagnostic that only warns.
 
     Parameters
@@ -4999,7 +4920,7 @@ def _normalisation_rate(
 
 
 def validate_coupled_flow(
-    problem: "PropagationProblem",  # noqa: UP037
+    problem: "PropagationProblem",
     stepper: StepperSettings,
 ) -> None:
     """Warn when a run's declared steps exceed its coupled flow's advisory limit.
@@ -5457,10 +5378,10 @@ def _general_prefactor(
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(
-        _readonly(values),
-        _readonly(np.asarray(linear.z_span, dtype=np.float64)),
-        _readonly(np.zeros(1, dtype=np.intp)),
-        _readonly(np.zeros(0)),
+        hold(values),
+        hold(np.array(linear.z_span, dtype=np.float64)),
+        hold(np.zeros(1, dtype=np.intp)),
+        hold(np.zeros(0)),
     )
 
 
@@ -5783,7 +5704,7 @@ def _check_tdse_assembly_route(
         )
 
 
-def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:  # noqa: UP037 - defined below
+def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:
     """Refuse dense observation where its interpolant is not the run's field.
 
     SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
@@ -6001,7 +5922,7 @@ def _refuse_carrier_removing_frame(frame: Frame | None, harmonic: bool) -> None:
 
 
 @host_blas()
-def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a run
+def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     grid: TimeGrid,
     modes: Mode | Sequence[Mode] | None,
     responses: Sequence[object],
@@ -6714,10 +6635,10 @@ def _power_initial(
         # The quotients are the problem's own, held without a second copy.
         initial = replace(
             initial,
-            field0=_hold(initial.field0 / root_weight),
+            field0=hold(initial.field0 / root_weight),
             noise0=None
             if initial.noise0 is None
-            else _hold(initial.noise0 / root_weight),
+            else hold(initial.noise0 / root_weight),
         )
     if (
         reused is not None
@@ -6815,7 +6736,7 @@ def _components(
     return resolved
 
 
-def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinct choice
+def _transform(
     modes: Sequence[Mode],
     grid: TimeGrid,
     quadrature: TransverseQuadrature | None,

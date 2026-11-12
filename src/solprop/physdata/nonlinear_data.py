@@ -110,7 +110,7 @@ def gamma3(gas: Gas | str, *, wavelength: float) -> float:
 
 
 @functools.cache
-def _kerr(gas: Gas) -> "OptmatKerr":  # noqa: UP037 - the class is defined below
+def _kerr(gas: Gas) -> "OptmatKerr":
     """Return the Kerr adapter of a gas, once per gas.
 
     Parameters
@@ -582,7 +582,7 @@ class OptmatKerr:
         ):
             return float(model.gamma3("kerr", carrier))
 
-    def dispersive_model(self) -> "DispersiveKerrModel":  # noqa: UP037 - defined below
+    def dispersive_model(self) -> "DispersiveKerrModel":
         """Return the whole fit in SI, for a dispersive electronic policy (SEP 6).
 
         Returns
@@ -904,7 +904,7 @@ class DispersiveKerrModel:
             raise MaterialError(msg)
 
     @classmethod
-    def from_optmat(cls, model: object) -> "DispersiveKerrModel":  # noqa: UP037 - the hook resolves class names eagerly
+    def from_optmat(cls, model: object) -> "DispersiveKerrModel":
         """Build the SI model of an optmat hyperpolarizability model.
 
         Parameters

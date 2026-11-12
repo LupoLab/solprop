@@ -2462,7 +2462,7 @@ class ApertureSet:
         """
         return int(np.asarray(self.diameters).size)
 
-    def same_as(self, other: "ApertureSet | None") -> bool:  # noqa: UP037
+    def same_as(self, other: "ApertureSet | None") -> bool:
         """Return whether another set describes the same apertures, entry for entry.
 
         Parameters
@@ -2657,7 +2657,7 @@ class StatsSpec:
         """
         return int(self.spectral_regions.shape[0])
 
-    def same_tables(self, other: "StatsSpec") -> bool:  # noqa: UP037
+    def same_tables(self, other: "StatsSpec") -> bool:
         """Return whether another spec carries the same far-field tables.
 
         Parameters
@@ -2888,7 +2888,7 @@ def _zdw_or_nan(
     return values
 
 
-def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional sources
+def collect(
     spec: StatsSpec,
     grid: TimeGrid,
     plane: SavedPlane,

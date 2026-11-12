@@ -504,7 +504,7 @@ class FarFieldTables:
         )
 
 
-def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT workspace
+def collect_spatial(
     spec: StatsSpec,
     grid: TimeGrid,
     transform: Transform,
@@ -671,7 +671,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     return values
 
 
-def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
+def _local_statistics(
     wanted: set[str],
     grid: TimeGrid,
     transform: Transform,
@@ -973,7 +973,7 @@ def _rows(
     ).reshape(-1, source.shape[1], source.shape[2])
 
 
-def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
+def _far_field(
     names: set[str],
     grid: TimeGrid,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],

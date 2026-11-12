@@ -62,7 +62,7 @@ class ScalarProblem:
     exact: Callable[[float], complex]
 
 
-def march(  # noqa: PLR0913 - the reference march's whole configuration
+def march(
     problem: ScalarProblem,
     length: float,
     steps: int,

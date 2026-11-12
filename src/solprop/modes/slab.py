@@ -59,6 +59,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, ModeError
 from solprop.grid import _check_fraction, _periodic_axis
@@ -294,7 +295,7 @@ class SlabMode(_WallPairFill):
         """
         return MappingProxyType({"half_gap": self.width_x, **self._fill_paths()})
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":  # noqa: UP037 - eager hook
+    def at_parameters(self, values: Mapping[str, float]) -> "SlabMode":
         """Copy the mode with the supplied gap and fill paths frozen.
 
         Parameters
@@ -427,7 +428,7 @@ class SlabMode(_WallPairFill):
         return "y" if self.polarisation == "te" else "x"
 
     @property
-    def orthogonal_polarisation(self) -> "SlabMode":  # noqa: UP037 - eager hook
+    def orthogonal_polarisation(self) -> "SlabMode":
         """Return the same order with the other polarisation.
 
         Returns
@@ -1087,19 +1088,20 @@ class PlanarGrid(Displayed):
             "PlanarGrid", self.radius_y, self.n_y, self.collar_fraction
         )
         values = {
-            "x": np.ascontiguousarray(rule.nodes(limits)[:, 0]),
-            "x_weights": np.ascontiguousarray(rule.weights(limits)),
+            "x": rule.nodes(limits)[:, 0],
+            "x_weights": rule.weights(limits),
             "y": y,
             "k_y": k_y,
             "window_y": window_y,
-            "synthesis": np.ascontiguousarray(matrices.synthesis),
-            "projection": np.ascontiguousarray(matrices.projection),
-            "projection_coarse": np.ascontiguousarray(matrices.projection_coarse),
-            "centre": np.ascontiguousarray(centre.synthesis[0]),
+            "synthesis": matrices.synthesis,
+            "projection": matrices.projection,
+            "projection_coarse": matrices.projection_coarse,
+            "centre": centre.synthesis[0],
         }
+        # Copies, held, of arrays the rule and the matrices may share: the planar
+        # transform then takes the matrices without copying them again.
         for name, array in values.items():
-            array.setflags(write=False)
-            object.__setattr__(self, name, array)
+            object.__setattr__(self, name, frozen_copy(array))
         object.__setattr__(self, "rule", rule)
 
     @property

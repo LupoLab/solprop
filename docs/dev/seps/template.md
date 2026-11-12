@@ -74,9 +74,11 @@ plan. Cover as applicable:*
 - *the layer the work belongs to (physics, translation, backends; architecture.md §3);*
 - *the effect on the kernel contract and the frozen tables of
   tests/backends/test_driver.py;*
-- *each Tier 1 backend — numpy_ref and the native CPU build, in either order — and anything
+- *each backend — numpy_ref and the native CPU build, in either order — and anything
   that makes one of them hard; GPU considerations for later;*
 - *the expected cost in time and memory, and how it scales;*
+- *cost: the expected lines of code, docstrings and tests it adds or removes (`poe size`
+  measures them), to be compared with the actual numbers at Final;*
 - *new dependencies (to be agreed before acceptance).*
 
 ### 7. Verification and validation
@@ -137,6 +139,8 @@ Copy the skeleton below for each phase.*
 - **Limitations:** cases refused, ranges not qualified, backends still missing.
 - **Open questions:** Q1, Q2, … (numbered through the whole SEP), each with its
   destination.
+- **Cost:** lines of code, docstrings and tests added and removed (`poe size` before and
+  after); in the last report, the totals against the estimate of §6.
 - **Handoff:** what the next phase needs to know.
 
 ## Part III — History

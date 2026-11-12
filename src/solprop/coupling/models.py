@@ -736,7 +736,7 @@ class ScalarModeBasis:
     @classmethod
     def from_modes(
         cls, modes: Sequence[Mode], grid: TimeGrid, z: float = 0.0
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the scalar profiles of an ordinary mode set at a plane.
 
         Admitted are a capillary's :math:`HE_{1m}` modes (Marcatili; the scalar
@@ -801,7 +801,7 @@ class ScalarModeBasis:
         index: Float[np.ndarray, "n_modes n_omega"],
         grid: TimeGrid,
         z: float,
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the J0 profiles of capillary HE1m modes.
 
         Parameters
@@ -868,7 +868,7 @@ class ScalarModeBasis:
         index: Float[np.ndarray, "n_modes n_omega"],
         grid: TimeGrid,
         z: float,
-    ) -> "ScalarModeBasis":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "ScalarModeBasis":
         """Return the weak-guidance LP0m profiles of step-index HE1m modes.
 
         Parameters

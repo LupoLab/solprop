@@ -18,6 +18,7 @@ import numpy as np
 from jaxtyping import Bool, Float
 
 from solprop import fourier
+from solprop._ownership import hold
 from solprop.constants import EPS0, C
 from solprop.exceptions import TranslationError
 from solprop.grid import FieldGrid, TimeGrid, planck_taper
@@ -120,7 +121,7 @@ def _helium(mode: MarcatiliMode) -> Species:
     return material
 
 
-def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
+def admit_tdse(
     responses: Sequence[object],
     grid: TimeGrid,
     modes: Sequence[Mode],
@@ -237,8 +238,7 @@ def current_numerator(grid: TimeGrid) -> Float[np.ndarray, "1 1 n_omega"]:
     """
     values = np.zeros((1, 1, grid.n_omega), dtype=np.float64)
     values[..., grid.active_mask] = -grid.crop_scale / (2 * EPS0 * C)
-    values.setflags(write=False)
-    return values
+    return hold(values)
 
 
 def steady_current_certificate(

@@ -268,7 +268,7 @@ class SlurmResources:
         return " · ".join(part for part in parts if part)
 
     @classmethod
-    def from_value(cls, value: Mapping[str, object]) -> "SlurmResources":  # noqa: UP037 - the runtime type hook resolves it in the class body
+    def from_value(cls, value: Mapping[str, object]) -> "SlurmResources":
         """Return resources from their plain form (:func:`dataclasses.asdict`).
 
         Parameters

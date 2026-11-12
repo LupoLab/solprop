@@ -29,6 +29,7 @@ from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
 
 from solprop._helpers import PLAIN, Helpers
+from solprop._ownership import hold
 from solprop.exceptions import TranslationError
 
 __all__ = [
@@ -119,7 +120,7 @@ def clenshaw(
     return np.asarray(chebyshev_basis.chebval(float(x), coefficients))
 
 
-def _clenshaw_points(  # noqa: PLR0912 - one loop, its cases inline
+def _clenshaw_points(  # noqa: PLR0912, PLR0917 - one loop, its cases inline; called through a reference
     z: np.ndarray,
     edges: np.ndarray,
     lower: float,
@@ -582,7 +583,7 @@ class PiecewiseChebyshev:
         beyond = self.hard_kinks[self.hard_kinks > z + slack]
         return float(np.min(beyond)) if beyond.size > 0 else None
 
-    def integral(self) -> "PiecewiseChebyshev":  # noqa: UP037 - bound after the class body; beartype evaluates eagerly
+    def integral(self) -> "PiecewiseChebyshev":
         """Return the antiderivative, continuous across intervals and zero at the start.
 
         Integration is a coefficient recurrence in the Chebyshev basis, not a
@@ -625,7 +626,7 @@ class PiecewiseChebyshev:
             self.budget_exceeded,
         )
 
-    def derivative(self) -> "PiecewiseChebyshev":  # noqa: UP037 - bound after the class body; beartype evaluates eagerly
+    def derivative(self) -> "PiecewiseChebyshev":
         """Return the derivative with respect to z.
 
         Returns
@@ -674,7 +675,7 @@ class _Piece:
     coefficients: np.ndarray
 
 
-def build(  # noqa: PLR0913 - the documented signature takes every option by name
+def build(
     f: _SampleFunction,
     z0: float,
     z1: float,
@@ -779,7 +780,7 @@ def build(  # noqa: PLR0913 - the documented signature takes every option by nam
     return _assemble(pieces, edges[1:-1], exceeded)
 
 
-def build_from_paths(  # noqa: PLR0913 - the documented signature takes every option
+def build_from_paths(
     paths: Sequence[Callable[[Float[np.ndarray, " n_z"]], Float[np.ndarray, " n_z"]]],
     f_of_params: Callable[..., Inexact[np.ndarray, " n_z *value"]],
     z0: float,
@@ -895,7 +896,7 @@ def _along_paths(
     return f_of_params(z, *(path(z) for path in paths))
 
 
-def _validate(
+def _validate(  # noqa: PLR0917 - called positionally
     z0: float,
     z1: float,
     tol: float,
@@ -1128,7 +1129,7 @@ class _BatchedSampler:
         return [np.ascontiguousarray(part) for part in np.split(values, ends)]
 
 
-def _split(  # noqa: PLR0913 - the split is driven by the public keywords
+def _split(
     f: _SampleFunction,
     lo: float,
     hi: float,
@@ -1222,7 +1223,7 @@ def _split(  # noqa: PLR0913 - the split is driven by the public keywords
     return pieces, exceeded
 
 
-def _look_ahead(  # noqa: PLR0913 - the split's keywords plus the look-ahead's bound
+def _look_ahead(
     sample: _BatchedSampler,
     frontier: Sequence[tuple[float, float]],
     ahead: dict[tuple[float, float], _Outcome],
@@ -1815,7 +1816,9 @@ def _assemble(
         np.asarray(
             [piece.coefficients.shape[0] - 1 for piece in pieces], dtype=np.intp
         ),
-        np.asarray(hard_kinks, dtype=np.float64),
+        # A copy: the kinks are a slice of the edges, and a table's arrays own their
+        # memory so that they can be held.
+        np.array(hard_kinks, dtype=np.float64),
         exceeded,
     )
     _log_summary(representation)
@@ -2015,3 +2018,27 @@ def trim_axis(
     (1, 1)
     """
     return np.moveaxis(_trim(np.moveaxis(coefficients, axis, 0)), 0, axis)
+
+
+def _held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
+    """Hold the arrays of a table solprop has just built, in place, and return it.
+
+    Parameters
+    ----------
+    table : PiecewiseChebyshev
+        A table no one else refers to, such as what :func:`build` or
+        :meth:`PiecewiseChebyshev.integral` just returned.
+
+    Returns
+    -------
+    PiecewiseChebyshev
+        The same table, its arrays read-only and held.
+    """
+    for values in (
+        table.coefficients,
+        table.breakpoints,
+        table.degrees,
+        table.hard_kinks,
+    ):
+        hold(values)
+    return table

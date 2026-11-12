@@ -250,7 +250,7 @@ def _within_band(grid: TimeGrid, omega: np.ndarray) -> np.ndarray:
     return (omega >= float(np.min(active))) & (omega <= float(np.max(active)))
 
 
-def regrid(  # noqa: PLR0913 - the target and each explicitly lossy permission
+def regrid(
     plane: FieldPlane,
     grid: TimeGrid,
     *,
@@ -427,7 +427,7 @@ def regrid(  # noqa: PLR0913 - the target and each explicitly lossy permission
     return moved, report
 
 
-def _record_window(  # noqa: PLR0913 - the record and each permission it is checked by
+def _record_window(
     plane: FieldPlane,
     analytic: Complex[np.ndarray, "n_columns n_t"],
     weights: Float[np.ndarray, " n_columns"],

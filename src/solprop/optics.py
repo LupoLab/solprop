@@ -833,7 +833,7 @@ class ChirpedMirror(Displayed):
         ]
 
     @classmethod
-    def from_data(  # noqa: PLR0913 - two data columns, their axis and how to reduce them
+    def from_data(
         cls,
         wavelength: Float[np.ndarray, " n_wavelength"],
         reflectivity: Float[np.ndarray, " n_reflectivity"] | None,
@@ -846,7 +846,7 @@ class ChirpedMirror(Displayed):
         fit_order: int = 5,
         fit_window: tuple[float, float] | None = None,
         name: str = "",
-    ) -> "ChirpedMirror":  # noqa: UP037 - beartype evaluates the annotation eagerly
+    ) -> "ChirpedMirror":
         """Build a mirror from a data sheet's columns.
 
         Parameters
@@ -920,7 +920,7 @@ class ChirpedMirror(Displayed):
         )
 
     @classmethod
-    def _from_columns(  # noqa: PLR0913 - the columns and every choice of the reduction
+    def _from_columns(
         cls,
         reflectivity_wavelength: Float[np.ndarray, " n_r"],
         reflectivity: Float[np.ndarray, " n_r"] | None,
@@ -933,7 +933,7 @@ class ChirpedMirror(Displayed):
         fit_window: tuple[float, float] | None,
         band: tuple[float, float, float, float],
         name: str,
-    ) -> "ChirpedMirror":  # noqa: UP037 - beartype evaluates the annotation eagerly
+    ) -> "ChirpedMirror":
         """Integrate the dispersion to a phase and assemble the mirror.
 
         Parameters
@@ -1003,7 +1003,7 @@ class ChirpedMirror(Displayed):
         return cls(omega, phase, amplitude_omega, amplitude, band, 1, name)
 
     @classmethod
-    def lookup(cls, name: str) -> "ChirpedMirror":  # noqa: UP037 - see from_data
+    def lookup(cls, name: str) -> "ChirpedMirror":
         """Return one reflection from a shipped data set.
 
         Parameters
@@ -1058,7 +1058,7 @@ class ChirpedMirror(Displayed):
             name=name,
         )
 
-    def bounces(self, reflections: int) -> "ChirpedMirror":  # noqa: UP037 - see from_data
+    def bounces(self, reflections: int) -> "ChirpedMirror":
         """Return the same mirror with another number of reflections.
 
         Parameters

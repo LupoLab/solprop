@@ -18,6 +18,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop._ownership import frozen_copy, hold
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import C
 from solprop.exceptions import OutputError, TranslationError
@@ -462,11 +463,10 @@ class SeparableOperator:
             If it is not a finite share of the spectral rate on every bin.
         """
         rate = (
-            np.zeros(self.spectral_rate.size)
+            hold(np.zeros(self.spectral_rate.size))
             if self.user_rate is None
             else _frozen_array(self.user_rate, np.float64)
         )
-        rate.setflags(write=False)
         if (
             rate.shape != self.spectral_rate.shape
             or np.any(rate < 0)
@@ -488,11 +488,10 @@ class SeparableOperator:
             If it is not one finite nonnegative rate per column.
         """
         rate = (
-            np.zeros(self.kperp_sq.size)
+            hold(np.zeros(self.kperp_sq.size))
             if self.kperp_rate is None
             else _frozen_array(self.kperp_rate, np.float64)
         )
-        rate.setflags(write=False)
         if rate.shape != self.kperp_sq.shape or np.any(rate < 0):
             msg = (
                 "separable kperp_rate must be one nonnegative rate per transverse "
@@ -642,8 +641,8 @@ def rate_bounds(coefficients: SeparableOperator) -> RateBounds:
     )
 
 
-def _frozen_array(values: np.ndarray, dtype: type) -> np.ndarray:
-    """Own a finite, contiguous array without freezing a caller's writable buffer.
+def _frozen_array(values: np.ndarray, dtype: type[np.generic]) -> np.ndarray:
+    """Return a finite array as :func:`~solprop._ownership.frozen_copy` does.
 
     Parameters
     ----------
@@ -655,13 +654,18 @@ def _frozen_array(values: np.ndarray, dtype: type) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        Finite, contiguous, read-only copy with the input shape.
+        Finite, contiguous and read-only, with the input shape: a copy, unless
+        solprop already holds `values`.
+
+    Raises
+    ------
+    TranslationError
+        If a value is not finite.
     """
-    result = np.array(values, dtype=dtype, order="C", copy=True)
+    result = frozen_copy(values, dtype)
     if not np.all(np.isfinite(result)):
         msg = "spatial contract arrays must be finite"
         raise TranslationError(msg)
-    result.setflags(write=False)
     return result
 
 
@@ -948,7 +952,7 @@ class FluxPlan:
 
 
 def _far_field_columns(
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return the Cartesian columns a far-field statistic reads, or refuse the geometry.
 
@@ -992,7 +996,7 @@ def _far_field_columns(
 def aperture_tables(
     spec: StatsSpec,
     grids: Grids | TimeGrid,
-    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",  # noqa: UP037
+    geometry: "SpatialGeometry | FreeGrid | RadialGrid | None",
 ) -> ApertureTables | None:
     """Form the far-field statistics' tables once, for every backend (SEP 23 §6).
 

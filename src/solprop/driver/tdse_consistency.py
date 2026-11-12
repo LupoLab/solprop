@@ -715,7 +715,7 @@ def _decide(deviation: float, policy: TDSEConsistency) -> Outcome:
     return "refused"
 
 
-def evaluate_consistency(  # noqa: PLR0913 - the check's complete context
+def evaluate_consistency(
     source: DiagnosticSource | None,
     basis: HaccBasis,
     policy: TDSEConsistency,

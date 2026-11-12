@@ -543,7 +543,7 @@ def electronic_response(
     )
 
 
-def responses_for(  # noqa: PLR0913 - independent public response selectors
+def responses_for(
     mixture: Mixture,
     *,
     kerr: bool = True,

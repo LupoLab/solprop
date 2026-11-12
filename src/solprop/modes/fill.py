@@ -340,7 +340,7 @@ class GasFillMixin(Displayed):
             )
         return MappingProxyType(paths)
 
-    def _frozen_fill(self, values: Mapping[str, float]) -> "GasFillMixin":  # noqa: UP037 - the hook resolves class names eagerly
+    def _frozen_fill(self, values: Mapping[str, float]) -> "GasFillMixin":
         """Copy the mode with its named material paths frozen.
 
         Parameters
@@ -702,7 +702,7 @@ class GasFillMixin(Displayed):
             np.asarray(np.where(binds, 0.0, derivative), dtype=complex),
         )
 
-    def with_mixture(self, mixture: Mixture) -> "GasFillMixin":  # noqa: UP037 - the hook resolves class names eagerly
+    def with_mixture(self, mixture: Mixture) -> "GasFillMixin":
         """Return the same mode geometry with the supplied ordered gas mixture.
 
         Parameters

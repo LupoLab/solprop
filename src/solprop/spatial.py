@@ -315,7 +315,7 @@ class SpatialMedium:
         derivative = density * self.susceptibility.dsusceptibility_domega(omega)
         return np.asarray(derivative / (2 * self.index(omega, z)), dtype=np.complex128)
 
-    def at_density(self, density: float) -> "SpatialMedium":  # noqa: UP037 - bound after the class body
+    def at_density(self, density: float) -> "SpatialMedium":
         """Freeze the scalar density for a parameter-expansion sample.
 
         Parameters
@@ -366,7 +366,7 @@ class SpatialMedium:
             return {"pressure": self.material.shared}
         return {f"density:{c.label}": c.density for c in self.material.components}
 
-    def at_parameters(self, values: Mapping[str, float]) -> "SpatialMedium":  # noqa: UP037 - bound after class creation
+    def at_parameters(self, values: Mapping[str, float]) -> "SpatialMedium":
         """Freeze the named material parameters for an operator sample.
 
         Parameters
@@ -867,7 +867,7 @@ class SpatialFlux:
         z: float = 0.0,
         side: FluxSide | None = None,
         evanescent_rate: float = EVANESCENT_RATE,
-    ) -> "SpatialFlux":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "SpatialFlux":
         """Resolve the measure of the plane at ``z`` in ``medium``.
 
         Parameters
@@ -3192,7 +3192,7 @@ class _FarFieldSums:
             )
             self._regions[row] += np.sum(weighted[member], axis=0)
 
-    def _add_apertures(
+    def _add_apertures(  # noqa: PLR0917 - called positionally
         self,
         first: int,
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],

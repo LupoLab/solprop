@@ -2173,7 +2173,7 @@ class SilicaTensorResponse(Displayed):
         return (EPS0 * chi3) * polarisation
 
 
-def _optmat_response(
+def _optmat_response(  # noqa: PLR0917 - called positionally
     gas: str,
     options: MolecularOptions | None,
     selection: MaterialSelection,
@@ -2552,7 +2552,7 @@ def _molecular_models(
     return tuple(models)
 
 
-def response_for(  # noqa: PLR0913 - the material, its options and the response's switches
+def response_for(
     material: Gas | str | Species,
     options: MolecularOptions | None = None,
     *,
@@ -2648,7 +2648,7 @@ def response_for(  # noqa: PLR0913 - the material, its options and the response'
     )
 
 
-def _supplied_response(
+def _supplied_response(  # noqa: PLR0917 - called positionally
     material: Species,
     options: MolecularOptions | None,
     fraction: float | None,

@@ -488,7 +488,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return tuple(mode.channel_label for mode in self.modes)
 
     @classmethod
-    def with_polarisations(cls, modes: Sequence[Mode]) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    def with_polarisations(cls, modes: Sequence[Mode]) -> "ModeCollection":
         """Build a collection carrying both polarisations of every degenerate mode.
 
         Parameters
@@ -512,7 +512,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return cls(polarisation_pairs(modes))
 
     @classmethod
-    def he1m(  # noqa: PLR0913 - MarcatiliMode's own keywords, carried through
+    def he1m(
         cls,
         radius: float | ZProfile,
         gas: Gas | str,
@@ -524,7 +524,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile = ROOM_TEMPERATURE,
         susceptibility: GasSusceptibility | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the first `count` HE_1m modes of one gas-filled capillary.
 
         The linearly polarised hybrid modes of a hollow capillary, in the order of
@@ -599,7 +599,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def slab(  # noqa: PLR0913 - SlabMode's own keywords, carried through
+    def slab(
         cls,
         half_gap: float | ZProfile,
         orders: Sequence[int],
@@ -612,7 +612,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the given orders of one hollow planar guide, uniform in y.
 
         A centred, symmetric launch couples only to odd orders, so the set a
@@ -687,7 +687,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def vincetti(  # noqa: PLR0913 - the mode's material keywords, carried through
+    def vincetti(
         cls,
         radius: float | ZProfile,
         gas: Gas | str | None = None,
@@ -700,7 +700,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         temperature: float | ZProfile | None = None,
         susceptibility: GasSusceptibility | None = None,
         mixture: Mixture | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build the first `count` HE_1m modes of a tube-lattice fibre.
 
         The field and transverse quadrature remain Marcatili's. Corrections and
@@ -760,7 +760,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         )
 
     @classmethod
-    def marcatili(  # noqa: PLR0913 - mode indices and MarcatiliMode's material keywords
+    def marcatili(  # noqa: PLR0917 - called positionally
         cls,
         radius: float | ZProfile,
         gas: Gas | str,
@@ -774,7 +774,7 @@ class ModeCollection(Displayed, Sequence[Mode]):
         cladding: GlassIndex | complex | None = None,
         temperature: float | ZProfile = ROOM_TEMPERATURE,
         susceptibility: GasSusceptibility | None = None,
-    ) -> "ModeCollection":  # noqa: UP037 - bound after the class body
+    ) -> "ModeCollection":
         """Build an ordered mixture of hybrid and transverse capillary modes.
 
         Parameters

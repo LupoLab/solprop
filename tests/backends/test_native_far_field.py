@@ -71,7 +71,7 @@ NATIVE_CONSTANTS = 11
 """The constants before an aperture row's scale row (``far_field.hpp``)."""
 
 
-def problem_of(  # noqa: PLR0913 - one state and what it is measured under
+def problem_of(
     grid,
     space,
     field,

@@ -234,7 +234,7 @@ class _FlowGas:
     molar_mass: float
 
     @classmethod
-    def of(cls, gas: Composition | Mixture, temperature: float) -> "_FlowGas":  # noqa: UP037 - evaluated while the class body still runs
+    def of(cls, gas: Composition | Mixture, temperature: float) -> "_FlowGas":
         """Evaluate the properties of a gas or a shared mixture fill.
 
         Parameters
@@ -331,7 +331,7 @@ class _TemperatureFlow:
         gas: Composition | Mixture,
         temperature: ZProfile,
         positions: Float[np.ndarray, " n_positions"],
-    ) -> "_TemperatureFlow":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "_TemperatureFlow":
         """Fit the viscosity law over the temperatures a path takes on a fill.
 
         Parameters
@@ -1383,7 +1383,7 @@ def _stage_samples(
     )
 
 
-def _stage_flow(
+def _stage_flow(  # noqa: PLR0917 - called positionally
     flow: _FlowGas,
     fill: PressureGradient,
     radius: ZProfile,
@@ -1841,7 +1841,7 @@ def temperature_weight(
     return _TemperatureFlow.of(gas, kelvin, edges).weight
 
 
-def steady_fill(  # noqa: PLR0913 - the fill's gas, table, bore, temperature and ends
+def steady_fill(
     gas: Composition | Mixture,
     positions: Sequence[float] | np.ndarray,
     pressures_bar: Sequence[float] | np.ndarray,

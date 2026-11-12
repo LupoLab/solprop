@@ -150,7 +150,7 @@ class NumpySingleBackend(NumpyRefBackend):
     # The observed field is the state widened into a new array (`_observed_field`).
     observes_fresh_field: ClassVar[bool] = True
 
-    def __init__(  # noqa: PLR0913 - the problem, its request and the host context
+    def __init__(
         self,
         problem: PropagationProblem,
         request: RunRequest,
@@ -818,7 +818,7 @@ def _require_dtype(values: np.ndarray, dtype: np.dtype, what: str) -> None:
         raise BackendError(msg)
 
 
-def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses need
+def single_sources(
     field_t: Num[np.ndarray, "n_nodes_chunk n_pol n_to"],
     responses: CompiledResponses,
     t_window: Float[np.ndarray, " n_to"],
@@ -1265,7 +1265,7 @@ def stable_population(
     return fraction, survival
 
 
-def plasma_current_single(
+def plasma_current_single(  # noqa: PLR0917 - called positionally
     field: Float[np.ndarray, "n_nodes_chunk n_pol n_to"],
     channels: tuple[PlasmaChannel, ...],
     densities: Sequence[float],

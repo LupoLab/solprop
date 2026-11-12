@@ -215,7 +215,7 @@ class SpatialState:
         space: RadialGrid | FreeGrid | None = None,
         medium: SpatialMedium | None = None,
         frame: Float[np.ndarray, "3 3"] | None = None,
-    ) -> "SpatialState":  # noqa: UP037 - beartype evaluates the class body
+    ) -> "SpatialState":
         """Return a state with a new spectrum and, optionally, new plane data.
 
         Parameters
@@ -910,7 +910,7 @@ class _Extras:
     notes: tuple[str, ...] = ()
 
 
-def _report(  # noqa: PLR0913 - the ledger's terms, each named at the call
+def _report(
     element: str,
     measured_in: _Measured,
     measured_out: _Measured,
@@ -1079,7 +1079,7 @@ def _phase_step(
     return step
 
 
-def _apply_screen(  # noqa: PLR0913 - the screen and its declarations
+def _apply_screen(
     state: SpatialState,
     transmission: Complex[np.ndarray, "n_modes n_band"],
     *,

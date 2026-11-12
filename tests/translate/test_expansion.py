@@ -224,6 +224,26 @@ def usable_parts():
     return expansion
 
 
+def test_the_group_leaves_the_caller_s_arrays_writeable():
+    expansion = usable_parts()
+    mine = {
+        "ranges": np.array(expansion.ranges, dtype=np.float64),
+        "degrees": np.array(expansion.degrees, dtype=np.intp),
+        "terms": np.array(expansion.terms),
+    }
+    held = ParameterExpansion(
+        expansion.parameters,
+        mine["ranges"],
+        mine["degrees"],
+        mine["terms"],
+        expansion.weights,
+    )
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(held, name).flags.writeable, name
+        assert not np.shares_memory(getattr(held, name), values), name
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

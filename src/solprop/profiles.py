@@ -55,6 +55,7 @@ from numpy.polynomial import Chebyshev
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._ownership import frozen_copy
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.physdata.equation_of_state import density
@@ -225,12 +226,13 @@ class PathVariation:
             If the shapes disagree, a value is not finite, the knots do not increase,
             or a bound fails to enclose the piece's limits.
         """
-        knots = _checked_edges(self.knots, "PathVariation")
+        # Copies, held: the checked edges may be the caller's own array.
+        knots = frozen_copy(_checked_edges(self.knots, "PathVariation"))
         arrays = {
-            name: np.array(getattr(self, name), dtype=float)
+            name: frozen_copy(getattr(self, name), np.float64)
             for name in ("first", "last", "variation", "low", "high")
         }
-        monotone = np.array(self.monotone, dtype=bool)
+        monotone = frozen_copy(self.monotone, np.bool_)
         pieces = knots.size - 1
         if monotone.shape != (pieces,) or any(
             a.shape != (pieces,) for a in arrays.values()
@@ -250,7 +252,6 @@ class PathVariation:
                 "PathVariation bounds must enclose each piece's one-sided limits"
             )
         for name, values in (("knots", knots), *arrays.items(), ("monotone", monotone)):
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
 
     @property
@@ -277,7 +278,7 @@ class PathVariation:
         jumps = np.abs(self.first[1:] - self.last[:-1])
         return float(np.sum(self.variation) + np.sum(jumps))
 
-    def collapse(self) -> "PathVariation":  # noqa: UP037 - evaluated in the class body
+    def collapse(self) -> "PathVariation":
         """Return the same enclosure as one piece over the whole interval.
 
         Returns
@@ -303,7 +304,7 @@ class PathVariation:
             np.array([monotone]),
         )
 
-    def scaled(self, factor: float) -> "PathVariation":  # noqa: UP037 - see collapse
+    def scaled(self, factor: float) -> "PathVariation":
         """Return the enclosure of the path multiplied by a constant.
 
         Parameters
@@ -898,7 +899,7 @@ class PiecewiseLinear(Displayed):
         cls,
         positions: Sequence[float] | np.ndarray,
         values: Sequence[float] | np.ndarray,
-    ) -> "PiecewiseLinear":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PiecewiseLinear":
         """Build a path from any sequence of positions and values.
 
         Parameters
@@ -1298,7 +1299,7 @@ class _BoreIntegral:
         radius: ZProfile | None,
         stage_edges: Float[np.ndarray, " n_positions"],
         factor: ZProfile | None = None,
-    ) -> "_BoreIntegral":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "_BoreIntegral":
         """Cut the fill into pieces and integrate the bore weight over each.
 
         Parameters
@@ -1803,7 +1804,7 @@ class PressureGradient(Displayed):
         floor: float | None = None,
         radius: float | ZProfile | None = None,
         weight: float | ZProfile | None = None,
-    ) -> "PressureGradient":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PressureGradient":
         """Build a single-stage fill from one end pressure to the other.
 
         Parameters
@@ -1859,7 +1860,7 @@ class PressureGradient(Displayed):
         floor: float | None = None,
         radius: float | ZProfile | None = None,
         weight: float | ZProfile | None = None,
-    ) -> "PressureGradient":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "PressureGradient":
         """Build a multi-stage fill, applying and logging the vacuum-end floor.
 
         Parameters
@@ -2156,7 +2157,7 @@ class _Compressibility:
         pressures: tuple[float, float],
         temperatures: tuple[float, float],
         what: str,
-    ) -> "_Compressibility":  # noqa: UP037 - evaluated while the class body still runs
+    ) -> "_Compressibility":
         """Tabulate ``Z`` at Chebyshev nodes, raising each axis's degree to convergence.
 
         Parameters

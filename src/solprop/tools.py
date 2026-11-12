@@ -1574,7 +1574,7 @@ def _zdw_near(mode: Mode, omega: float, z: float) -> float:
     return 2.0 * math.pi * C / nearest
 
 
-def soliton_params(  # noqa: PLR0913 - a pulse (three numbers and a shape) and a fill
+def soliton_params(
     mode: Mode,
     gas: Fill,
     pressure: float | None = None,
@@ -1696,7 +1696,7 @@ def soliton_params(  # noqa: PLR0913 - a pulse (three numbers and a shape) and a
     )
 
 
-def _capillary(  # noqa: PLR0913 - the capillary's keywords
+def _capillary(
     radius: float,
     mixture: Mixture,
     *,
@@ -1745,7 +1745,7 @@ def _capillary(  # noqa: PLR0913 - the capillary's keywords
     )
 
 
-def capillary_params(  # noqa: PLR0913 - the capillary's keywords beside the pulse's
+def capillary_params(
     radius: float,
     gas: Fill,
     pressure: float | None = None,
@@ -1965,7 +1965,7 @@ def _target_order(
     return eta + 0.5 if shape == "sech" else _gaussian_order(eta)
 
 
-def capillary_design(  # noqa: PLR0913 - the capillary's keywords beside the pulse's and targets
+def capillary_design(
     radius: float,
     gas: Gas | str,
     *,
@@ -2433,7 +2433,7 @@ def _prepare_mismatch(
     )
 
 
-def phase_mismatch(  # noqa: PLR0913 - two modes, a position and the two Kerr numbers
+def phase_mismatch(
     mode: Mode,
     omega: Float[np.ndarray, " n_omega"],
     wavelength: float,
@@ -2515,7 +2515,7 @@ def phase_mismatch(  # noqa: PLR0913 - two modes, a position and the two Kerr nu
     return prepared(np.asarray(omega, dtype=float))
 
 
-def lambda_rdw_all(  # noqa: PLR0913 - phase_mismatch's keywords and the search window
+def lambda_rdw_all(
     mode: Mode,
     wavelength: float,
     *,
@@ -2642,7 +2642,7 @@ def lambda_rdw_all(  # noqa: PLR0913 - phase_mismatch's keywords and the search 
     return tuple(sorted(2.0 * math.pi * C / root for root in found))
 
 
-def lambda_rdw(  # noqa: PLR0913 - phase_mismatch's keywords and the search window
+def lambda_rdw(
     mode: Mode,
     wavelength: float,
     *,
@@ -2787,7 +2787,7 @@ def _pressure_root(
     return root
 
 
-def _design_capillary(  # noqa: PLR0913 - the capillary's keywords
+def _design_capillary(
     radius: float,
     gas: Gas | str,
     *,
@@ -3101,7 +3101,7 @@ def _rdw_pressure_root(
     return root
 
 
-def pressure_rdw(  # noqa: PLR0913 - the capillary's keywords beside the two wavelengths
+def pressure_rdw(
     radius: float,
     gas: Gas | str,
     target_wavelength: float,
@@ -3235,7 +3235,7 @@ def pressure_rdw(  # noqa: PLR0913 - the capillary's keywords beside the two wav
     return _rdw_pressure_root(residual, limits)
 
 
-def pressure_zdw(  # noqa: PLR0913 - the capillary's keywords
+def pressure_zdw(
     radius: float,
     gas: Gas | str,
     zdw_wavelength: float,
@@ -4112,7 +4112,7 @@ def solve_parameter(
     )
 
 
-def radius_zdw(  # noqa: PLR0913 - the capillary's keywords
+def radius_zdw(
     gas: Gas | str,
     pressure: float,
     zdw_wavelength: float,

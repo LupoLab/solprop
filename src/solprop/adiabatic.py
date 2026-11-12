@@ -548,7 +548,7 @@ def _wavelength_text(omega: float) -> str:
     return f"{2 * math.pi * C / omega * 1e9:.6g} nm"
 
 
-def certify_wave_path(  # noqa: PLR0913, PLR0917 - the affine model's arrays and the run path
+def certify_wave_path(  # noqa: PLR0917 - the affine model's arrays and the run path
     omega: Float[np.ndarray, " n_omega"],
     permittivity: Num[np.ndarray, " n_omega"],
     susceptibilities: Num[np.ndarray, "n_paths n_omega"],

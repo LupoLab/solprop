@@ -1846,7 +1846,7 @@ def one_run() -> drawsvg.Drawing:
     return drawing
 
 
-def _table(
+def _table(  # noqa: PLR0917 - called positionally
     drawing: drawsvg.Drawing,
     slot: Slot,
     title: str,
