@@ -36,11 +36,9 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate import masks
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagationProblem, assemble
-from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import terms
 
 import solprop_native
@@ -165,15 +163,6 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
         session.close()
 
 
-def test_a_solprop_without_a_descriptor_member_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The seam is the descriptors and the bundles, not solprop's version string."""
-    monkeypatch.delattr(RunRequest, "stepper")
-    with pytest.raises(BackendError, match=r"has no RunRequest\.stepper"):
-        check_build()
-
-
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
@@ -201,32 +190,6 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     backend.close()
     with pytest.raises(RuntimeError, match="closed"):
         state.stage_to_host(0)
-
-
-def test_a_stage_bundle_without_a_packed_field_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        solprop_native,
-        "STAGE_SCALARS_FIELDS",
-        (*solprop_native.STAGE_SCALARS_FIELDS, "gone"),
-    )
-    with pytest.raises(BackendError, match=r"has no StageScalars\.gone"):
-        check_build()
-
-
-def test_a_march_policy_field_either_way_is_refused_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # The native march reads exactly the policy it was built against (SEP 39): a field
-    # it lacks, or one solprop added that it would not honour, refuses the build.
-    fields = solprop_native.MARCH_POLICY_FIELDS
-    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", (*fields, "gone"))
-    with pytest.raises(BackendError, match=r"has no MarchPolicy\.gone"):
-        check_build()
-    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", fields[1:])
-    with pytest.raises(BackendError, match=r"MarchPolicy has order, which this build"):
-        check_build()
 
 
 def test_the_solprop_version_is_recorded_and_never_compared(
@@ -792,99 +755,6 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     backend.close()
 
 
-def test_build_refuses_a_missing_separable_residual(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        solprop_native,
-        "SEPARABLE_OPERATOR_FIELDS",
-        (*solprop_native.SEPARABLE_OPERATOR_FIELDS, "missing_residual"),
-    )
-    with pytest.raises(
-        BackendError, match=r"has no SeparableOperator\.missing_residual"
-    ):
-        solprop_native.check_build()
-
-
-@pytest.mark.parametrize(
-    ("tuple_name", "bundle"),
-    [
-        ("LINEAR_OPERATOR_FIELDS", "LinearOperator"),
-        ("TRANSFORM_FIELDS", "Transform"),
-        ("RESPONSE_FIELDS", "CompiledResponses"),
-        ("MODAL_TABLES_FIELDS", "ModalTransformTables"),
-        ("REGIONAL_RESPONSE_FIELDS", "RegionalResponseTables"),
-        ("COUPLED_FLOW_FIELDS", "CoupledFlowTables"),
-        ("DISPERSIVE_KERR_FIELDS", "DispersiveKerrTerms"),
-        ("PROBLEM_FIELDS", "PropagationProblem"),
-        ("REQUEST_FIELDS", "RunRequest"),
-    ],
-)
-def test_build_refuses_a_renamed_general_modal_leaf(
-    monkeypatch: pytest.MonkeyPatch, tuple_name: str, bundle: str
-) -> None:
-    """A renamed leaf is named by `check_build`, not an `AttributeError` later.
-
-    Reading `problem.linear.coupled_flow` on a solprop that renamed it raises an
-    `AttributeError` from inside the adapter's refusal, with no useful context; the
-    frozen name is looked up once, at build check, and reported with the member.
-    """
-    monkeypatch.setattr(
-        solprop_native,
-        tuple_name,
-        (*getattr(solprop_native, tuple_name), "renamed_leaf"),
-    )
-    with pytest.raises(BackendError, match=rf"has no {bundle}\.renamed_leaf"):
-        solprop_native.check_build()
-
-
-def test_build_refuses_a_renamed_request_section_member(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A renamed member of a request section is named by `check_build`."""
-    sections = dict(solprop_native.REQUEST_SECTION_FIELDS)
-    sections["ObservationRequest"] = (*sections["ObservationRequest"], "renamed_leaf")
-    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
-    with pytest.raises(BackendError, match=r"has no ObservationRequest\.renamed_leaf"):
-        solprop_native.check_build()
-
-
-def test_build_refuses_a_missing_request_section(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A request section solprop no longer defines is named by `check_build`."""
-    sections = {**solprop_native.REQUEST_SECTION_FIELDS, "RenamedSpec": ("method",)}
-    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
-    with pytest.raises(
-        BackendError, match=r"solprop\.translate\.run_request\.RenamedSpec"
-    ):
-        solprop_native.check_build()
-
-
-def test_the_leaf_member_tuples_name_what_the_installed_solprop_has() -> None:
-    """Each nested member the adapter reads exists as a field or property today.
-
-    `check_build` passing already says so; this names the three tuples and the classes
-    they guard, so a tuple entry that no class has fails here
-    by name before any backend is built.
-    """
-    from solprop.translate.coupled import CoupledFlowTables
-    from solprop.translate.modal_tables import ModalTransformTables
-    from solprop.translate.responses import DispersiveKerrTerms, RegionalResponseTables
-
-    for bundle, wanted in (
-        (ModalTransformTables, solprop_native.MODAL_TABLES_FIELDS),
-        (RegionalResponseTables, solprop_native.REGIONAL_RESPONSE_FIELDS),
-        (CoupledFlowTables, solprop_native.COUPLED_FLOW_FIELDS),
-        (DispersiveKerrTerms, solprop_native.DISPERSIVE_KERR_FIELDS),
-    ):
-        fields = {field.name for field in dataclasses.fields(bundle)}
-        for name in wanted:
-            assert name in fields or isinstance(getattr(bundle, name), property), (
-                f"{bundle.__name__}.{name}"
-            )
-
-
 @pytest.mark.parametrize("kind", ["radial", "free"])
 def test_temporal_statistics_are_refused_on_a_spatial_problem(
     phase_a_case: PhaseACase, kind: str
@@ -1117,11 +987,3 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     assert payloads["nonlinear"]["stash_plasma"] is True
     assert payloads["split_step"]["split_step_absorber"] is True
     assert payloads["split_step"]["stash_plasma"] is False
-
-
-def test_the_held_current_collar_member_is_checked_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(masks, "Grids", dataclasses.make_dataclass("Grids", []))
-    with pytest.raises(BackendError, match=r"has no Grids\.t_window_fine_derivative"):
-        check_build()

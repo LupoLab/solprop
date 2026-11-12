@@ -37,7 +37,6 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule, reached
 from solprop.translate import routes
-from solprop.translate import run_request as run_requests
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
@@ -1112,8 +1111,8 @@ ROUTE_VARIANT_FIELDS = {
 }
 """The closed route union: each variant and its fields, in order.
 
-A route is added or changed here, in `kernel-contract.md` and in native's
-`ROUTE_FIELDS` together (the contract's extension procedure, section 10)."""
+A route is added or changed here and in `kernel-contract.md` together (the contract's
+extension procedure, section 10)."""
 
 TDSE_SOURCE_FIELDS = ("descriptor", "current_numerator")
 SPATIAL_KINDS = ("radial", "cartesian", "planar", "line")
@@ -1139,15 +1138,3 @@ def test_the_descriptor_and_its_route_union_are_frozen():
         == TDSE_SOURCE_FIELDS
     )
     assert routes.SPATIAL_KINDS == SPATIAL_KINDS
-
-
-def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
-    native = pytest.importorskip("solprop_native")
-    assert set(native.PROBLEM_FIELDS) <= set(PROPAGATION_PROBLEM_FIELDS)
-    # The request's fields, and the stepper section it gathers for the march.
-    assert set(native.REQUEST_FIELDS) <= {*RUN_REQUEST_FIELDS, "stepper"}
-    for name, fields in native.ROUTE_FIELDS.items():
-        assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])
-    for name, fields in native.REQUEST_SECTION_FIELDS.items():
-        section = getattr(run_requests, name)
-        assert set(fields) <= {field.name for field in dataclasses.fields(section)}

@@ -37,8 +37,38 @@ backend_module = pytest.importorskip("solprop_native.backend")
 session_module = pytest.importorskip("solprop_native.session")
 native = pytest.importorskip("solprop_native")
 
-WATCH_POLICY_FIELDS = native.WATCH_POLICY_FIELDS
-WATCH_STATE_FIELDS = native.WATCH_STATE_FIELDS
+WATCH_POLICY_FIELDS = (
+    "split",
+    "crossing",
+    "floor_regions",
+    "launch_floor",
+    "activity",
+    "warn",
+    "stop",
+    "quiet_share",
+    "quiet_checks",
+    "quiet_collar",
+    "cadence",
+    "interval",
+    "share",
+    "bucket_limits",
+)
+"""``BoundaryMonitor.watch_policy``'s fields, exactly (SEP 45 section 4.8): the numbers
+the native march predicts the monitor's checks from."""
+
+WATCH_STATE_FIELDS = (
+    "has_last",
+    "last_z",
+    "since",
+    "busy",
+    "quiet_run",
+    "quiet",
+    "warned",
+    "cap",
+)
+"""``BoundaryMonitor.watch_state``'s fields, exactly: what the predictions read and
+change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
+
 SPLIT_RATE_BUCKETS = __import__("solprop.boundaries", fromlist=["x"]).SPLIT_RATE_BUCKETS
 _REACHED = backend_module._REACHED
 _HOST_STEP = backend_module._HOST_STEP

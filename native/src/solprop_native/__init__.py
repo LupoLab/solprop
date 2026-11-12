@@ -65,7 +65,7 @@ from solprop._process import (  # noqa: E402
 )
 
 
-def native_threads(budget: ThreadBudget) -> int:
+def _native_threads(budget: ThreadBudget) -> int:
     """Return the Kokkos pool: ``SOLPROP_NATIVE_THREADS`` within the budget, else it.
 
     The native count only narrows the budget, unless ``SOLPROP_OVERSUBSCRIBE=1`` lets
@@ -80,7 +80,7 @@ def native_threads(budget: ThreadBudget) -> int:
 # control groups' quota and SOLPROP_THREADS. The Kokkos pool is SOLPROP_NATIVE_THREADS
 # within it, or all of it.
 THREAD_BUDGET = thread_budget()
-_BUDGET_THREADS = native_threads(THREAD_BUDGET)
+_BUDGET_THREADS = _native_threads(THREAD_BUDGET)
 
 # A wheel with more than one build registers the chosen one as ``._core`` below.
 _STEM = select_variant(Path(__file__).parent)
@@ -140,23 +140,6 @@ if TYPE_CHECKING:
     from .backend import NativeBackend
 
 __all__ = [
-    "COUPLED_FLOW_FIELDS",
-    "DISPERSIVE_KERR_FIELDS",
-    "LINEAR_OPERATOR_FIELDS",
-    "MARCH_POLICY_FIELDS",
-    "MODAL_TABLES_FIELDS",
-    "PROBLEM_FIELDS",
-    "REGIONAL_RESPONSE_FIELDS",
-    "REQUEST_FIELDS",
-    "REQUEST_SECTION_FIELDS",
-    "RESPONSE_FIELDS",
-    "ROUTE_FIELDS",
-    "SEPARABLE_OPERATOR_FIELDS",
-    "STAGE_SCALARS_FIELDS",
-    "STAGE_TERMS_FIELDS",
-    "TRANSFORM_FIELDS",
-    "WATCH_POLICY_FIELDS",
-    "WATCH_STATE_FIELDS",
     "BuildInfo",
     "NativeBackend",
     "__version__",
@@ -280,287 +263,6 @@ if not any(
     _core.fit_blas_threads(min(_REQUESTED_THREADS, THREAD_BUDGET.threads))
 # A compact problem's products then run on one OpenBLAS thread (``CpuTeamScope``).
 _core.register_host_blas()
-
-
-MARCH_POLICY_FIELDS: tuple[str, ...] = (
-    "order",
-    "variable_order",
-    "safety",
-    "max_growth",
-    "min_factor",
-    "rejection_growth",
-    "hysteresis",
-    "restart_after",
-    "collar_stability",
-    "real_intervals",
-    "collar_rate",
-    "carrier",
-    "carrier_cap",
-    "max_calls",
-    "equal_approach",
-    "interval_cap",
-    "dz_min",
-    "dz_max",
-    "stretch",
-    "z_end",
-    "save_planes",
-    "hard_kinks",
-    "breakpoints",
-    "landing_ulps",
-    "interpolate",
-    "quiet_interval",
-)
-"""``solprop.stepper.multistep.MarchPolicy``'s fields, exactly, since schema 39.
-
-The native Adams march reads every number of its algorithm from this record (solprop
-SEP 39 section 4.2), so a field solprop adds is one the native march would not honour:
-:func:`check_build` refuses a solprop whose record differs in either direction."""
-
-WATCH_POLICY_FIELDS: tuple[str, ...] = (
-    "split",
-    "crossing",
-    "floor_regions",
-    "launch_floor",
-    "activity",
-    "warn",
-    "stop",
-    "quiet_share",
-    "quiet_checks",
-    "quiet_collar",
-    "cadence",
-    "interval",
-    "share",
-    "bucket_limits",
-)
-"""``BoundaryMonitor.watch_policy``'s fields, exactly (solprop SEP 45 section 4.8).
-
-The native march predicts the monitor's checks from these numbers alone, so a field
-solprop adds is one it would not honour: the adapter refuses a policy that differs in
-either direction."""
-
-WATCH_STATE_FIELDS: tuple[str, ...] = (
-    "has_last",
-    "last_z",
-    "since",
-    "busy",
-    "quiet_run",
-    "quiet",
-    "warned",
-    "cap",
-)
-"""``BoundaryMonitor.watch_state``'s fields, exactly: what the predictions read and
-change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
-
-
-LINEAR_OPERATOR_FIELDS: tuple[str, ...] = (
-    "power_weight_representation",
-    "power_weight",
-    "power_weight_expansion",
-    "power_weight_constant",
-    "coupled_flow",
-    "modal_metric",
-    "phi_representation",
-    "polynomial",
-    "rate",
-)
-"""``LinearOperator`` rows this backend relies on.
-
-The four modal power-weight rows the statistics read (schema 11) and the two optional
-general-modal leaves added at schema 12: ``modal_metric`` (identity, or the dense
-metric of a declared unitary basis) and ``coupled_flow`` (the constant-Schur and
-frozen-residual sections), both executed by this backend.
-The general z table (solprop SEP 29 G1): ``phi_representation``, and the table
-``polynomial`` and its derivative ``rate`` (cached properties), whose coefficients
-this backend holds resident and evaluates natively.
-Naming them here makes a solprop that renamed one fail at :func:`check_build` with a
-message naming the member, rather than as an ``AttributeError`` raised from inside the
-adapter on the first problem it is handed."""
-
-PROBLEM_FIELDS: tuple[str, ...] = (
-    "grid_kind",
-    "shape",
-    "flags",
-    "grids",
-    "linear",
-    "responses",
-    "initial",
-    "route",
-    "split_crossing",
-)
-"""``PropagationProblem`` fields this backend reads (solprop SEP 47 section 6.2).
-
-The descriptor's shared components and its route: a solprop that renamed or removed
-one fails at :func:`check_build` naming it, rather than inside the adapter. The run's
-policy is the request's (:data:`REQUEST_FIELDS`)."""
-
-REQUEST_FIELDS: tuple[str, ...] = (
-    "integration",
-    "error_control",
-    "replay",
-    "observation",
-    "boundary",
-    "history",
-    "snapshots",
-    "stepper",
-)
-"""``RunRequest`` members this backend reads (solprop SEP 47 section 5.2).
-
-The method, error control, itinerary, observation, boundary and history policies a
-backend is built and a session started with, and ``stepper``, the stepping policy
-gathered into one record, which the march reads."""
-
-REQUEST_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
-    "IntegrationSpec": ("method",),
-    "ErrorControlSpec": ("controller",),
-    "ReplaySpec": ("schedule",),
-    "ObservationRequest": ("save_planes", "dense", "stats"),
-    "BoundaryRequest": ("monitor",),
-}
-"""Members of the ``RunRequest`` sections this backend reads, by section class.
-
-Checked at :func:`check_build` as :data:`ROUTE_FIELDS` is, so a solprop that renamed
-one is named there rather than failing inside the adapter."""
-
-ROUTE_FIELDS: dict[str, tuple[str, ...]] = {
-    "ModalRoute": ("transform", "tdse"),
-    "GeneralRoute": ("transform",),
-    "SpatialRoute": ("kind", "transform", "flux", "transverse"),
-}
-"""The route variants this backend visits, each with the fields it reads.
-
-``solprop.translate.routes`` holds the closed union; the adapter visits
-``problem.route`` with a ``match`` statement, prepares these variants and refuses the
-modal route's TDSE extension, and any variant it does not know, by name before it
-allocates (solprop SEP 47 section 6.2)."""
-
-TRANSFORM_FIELDS: tuple[str, ...] = ("modal_tables",)
-"""``Transform`` rows this backend relies on.
-
-The general-modal reference of schema 12, whose synthesis and projection maps this
-backend executes; the same frozen-name guard as :data:`LINEAR_OPERATOR_FIELDS`, for the
-same reason."""
-
-RESPONSE_FIELDS: tuple[str, ...] = (
-    "regional_responses",
-    "dispersive_kerr",
-    "plasma_integral",
-    "prefactor_representation",
-    "prefactor",
-)
-"""``CompiledResponses`` rows this backend relies on.
-
-The regional response tables of schema 12, executed by this backend (the instantaneous
-cubic in both forms and the silica tensor Raman model), and schema 24's
-``dispersive_kerr``, solprop SEP 6's frequency-dependent electronic response, executed
-on every route; the prefactor's representation and its z table (solprop SEP 29 G1);
-the same frozen-name guard as :data:`LINEAR_OPERATOR_FIELDS`, for the same reason."""
-
-MODAL_TABLES_FIELDS: tuple[str, ...] = (
-    "electric",
-    "omega_fine",
-    "projection",
-    "region_index",
-    "source_frequency_factor",
-    "synthesis",
-)
-"""``ModalTransformTables`` members the adapter reads itself (``modal_tables``).
-
-The leaves' tuples above guard the leaf names; these guard the members inside them that
-this package reads directly when it packs the general modal route. Members read only
-inside solprop's own derivations, which the adapter calls (``node_kerr_tensor``,
-``node_delayed_maps``, ``metric_at``, ...), are solprop's to keep consistent and are
-not listed. For the same reason ``ModalMetricTables`` has no tuple:
-the adapter hands ``linear.modal_metric`` to solprop's ``metric_at`` and reads none of
-its members. Add a name here whenever the adapter starts reading another member."""
-
-DISPERSIVE_KERR_FIELDS: tuple[str, ...] = (
-    "carrier",
-    "coefficients",
-    "evaluator",
-    "filters",
-    "n_channels",
-    "outputs",
-    "positive",
-    "products",
-    "regions",
-    "sector",
-)
-"""``DispersiveKerrTerms`` members the adapter reads itself.
-
-``responses.dispersive_kerr``, read when the response is laid out for the native
-engine (``regions`` on the general modal route); the leaf's grouping (``groups``) is
-solprop's own derivation, which the adapter calls. The same guard as
-:data:`MODAL_TABLES_FIELDS`; ``n_channels`` is a property, looked up on the class."""
-
-REGIONAL_RESPONSE_FIELDS: tuple[str, ...] = ("n_terms",)
-"""``RegionalResponseTables`` members the adapter reads itself.
-
-``responses.regional_responses``; the same guard as :data:`MODAL_TABLES_FIELDS`."""
-
-COUPLED_FLOW_FIELDS: tuple[str, ...] = (
-    "connection",
-    "generator",
-    "inverse_condition_bound",
-    "n_deg",
-    "n_modes",
-    "section_methods",
-)
-"""``CoupledFlowTables`` members the adapter reads itself (``linear.coupled_flow``).
-
-Read when the host-side Schur factors and residual terms are formed; the same guard as
-:data:`MODAL_TABLES_FIELDS`. ``n_deg`` and ``n_modes`` are properties, looked up on the
-class."""
-
-SEPARABLE_OPERATOR_FIELDS: tuple[str, ...] = (
-    "k_squared",
-    "kperp_sq",
-    "k_squared_low",
-    "kperp_sq_low",
-    "frame",
-    "spectral_rate",
-    "prefactor_numerator",
-    "prefactor_clamped",
-    "active",
-    "evanescent_rate",
-    "n_pol",
-    "z_span",
-    "kperp_rate",
-    "user_rate",
-)
-"""Required shared spatial coefficients, frozen since schema 6.
-
-Schema 31 (solprop SEP 22 phase 2) appends ``kperp_rate``, a transverse collar's power
-rate per column."""
-
-STAGE_TERMS_FIELDS: tuple[str, ...] = ("phi", "prefactor", "separable")
-"""The ``StageTerms`` fields the native problem is packed from."""
-
-STAGE_SCALARS_FIELDS: tuple[str, ...] = (
-    "z0",
-    "z1",
-    "phi_delta",
-    "phi_at",
-    "prefactor",
-    "density",
-    "kerr_density",
-    "plasma_densities",
-    "plasma_preionisation",
-    "raman_densities",
-    "dispersive_kerr_densities",
-    "taper_scale",
-    "raman_rates",
-    "flow_section",
-    "flow_weights",
-    "transform_weights",
-)
-"""The ``StageScalars`` fields a trial's bundles are packed from.
-
-``flow_section`` and ``flow_weights`` are schema 13's rows for a coupled flow: the
-step's frozen section and each stage's weights of the flow's residual terms, packed
-when a problem carries ``linear.coupled_flow``. ``transform_weights`` is schema 14's
-row: each stage's weights of a moving guide's synthesis and projection maps, which this
-backend combines per stage. ``dispersive_kerr_densities`` is schema 24's row: each
-dispersive channel's number density at the stage (solprop SEP 6)."""
 
 
 @dataclass(frozen=True)
@@ -911,28 +613,17 @@ def _checkout_digest() -> str | None:
 
 
 def check_build() -> None:
-    """Validate this build against this checkout's sources and the installed solprop.
+    """Validate this build against this checkout's sources and its own metadata.
 
     Raises
     ------
     solprop.exceptions.BackendError
         If an editable checkout's ``native`` sources are not the ones the extension
-        was compiled from, if the installed solprop lacks a seam member this backend
-        relies on
-        (:data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
-        :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
-        :data:`PROBLEM_FIELDS`, :data:`REQUEST_FIELDS`, :data:`REQUEST_SECTION_FIELDS`,
-        :data:`ROUTE_FIELDS`,
-        :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
-        :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
-        :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
-        :data:`DISPERSIVE_KERR_FIELDS`),
-        execution-space metadata is inconsistent, a reference build carries vendor
-        BLAS or machine-specific code, a distribution build carries native code or no
-        BLAS, fast-math is enabled, or an accelerator build sees no device. The
-        solprop *version* is recorded, never compared here: the two packages are
-        released together and pinned to one version, and the members are looked up by
-        name.
+        was compiled from, execution-space metadata is inconsistent, a reference build
+        carries vendor BLAS or machine-specific code, a distribution build carries
+        native code or no BLAS, fast-math is enabled, or an accelerator build sees no
+        device. The solprop *version* is recorded, never compared here: the two
+        packages are released together and pinned to one version.
     """
     from solprop.exceptions import BackendError
 
@@ -944,7 +635,6 @@ def check_build() -> None:
             f"checkout's native/ ({Path(__file__).parents[2]}): rebuild it with "
             "`uv sync --reinstall-package solprop-native`"
         )
-    _check_seam(info, BackendError)
     if info.fast_math_enabled:
         raise BackendError("solprop-native was built with forbidden fast-math")
     if info.openmp_enabled and info.execution_space != "OpenMP":
@@ -996,103 +686,6 @@ def check_build() -> None:
     ):
         raise BackendError(
             "the selected BLAS provider cannot access this accelerator's memory"
-        )
-
-
-def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
-    """Refuse a solprop lacking a descriptor or bundle member this backend uses."""
-    import dataclasses as _dataclasses
-
-    from solprop.stepper.multistep import MarchPolicy
-    from solprop.translate import routes
-    from solprop.translate import run_request as run_requests
-    from solprop.translate.coupled import CoupledFlowTables
-    from solprop.translate.linop import LinearOperator
-    from solprop.translate.masks import Grids
-    from solprop.translate.modal import Transform
-    from solprop.translate.modal_tables import ModalTransformTables
-    from solprop.translate.problem import PropagationProblem
-    from solprop.translate.responses import (
-        CompiledResponses,
-        DispersiveKerrTerms,
-        RegionalResponseTables,
-    )
-    from solprop.translate.run_request import RunRequest
-    from solprop.translate.spatial import SeparableOperator
-    from solprop.translate.stage import StageScalars, StageTerms
-
-    missing: list[str] = []
-    # The policy is exact: a field the native march does not read is not honoured.
-    policy = tuple(field.name for field in _dataclasses.fields(MarchPolicy))
-    missing.extend(
-        f"MarchPolicy.{name}" for name in MARCH_POLICY_FIELDS if name not in policy
-    )
-    extra = [name for name in policy if name not in MARCH_POLICY_FIELDS]
-    descriptor = {field.name for field in _dataclasses.fields(PropagationProblem)}
-    missing.extend(
-        f"PropagationProblem.{name}"
-        for name in PROBLEM_FIELDS
-        if name not in descriptor
-    )
-    request = {field.name for field in _dataclasses.fields(RunRequest)}
-    missing.extend(
-        f"RunRequest.{name}"
-        for name in REQUEST_FIELDS
-        if name not in request and not hasattr(RunRequest, name)
-    )
-    for section, wanted in REQUEST_SECTION_FIELDS.items():
-        spec = getattr(run_requests, section, None)
-        if spec is None:
-            missing.append(f"solprop.translate.run_request.{section}")
-            continue
-        present = {field.name for field in _dataclasses.fields(spec)}
-        missing.extend(f"{section}.{name}" for name in wanted if name not in present)
-    for variant, wanted in ROUTE_FIELDS.items():
-        route = getattr(routes, variant, None)
-        if route is None:
-            missing.append(f"solprop.translate.routes.{variant}")
-            continue
-        present = {field.name for field in _dataclasses.fields(route)}
-        missing.extend(f"{variant}.{name}" for name in wanted if name not in present)
-    for bundle, wanted in (
-        (Grids, ("t_window_fine_derivative",)),
-        (LinearOperator, LINEAR_OPERATOR_FIELDS),
-        (Transform, TRANSFORM_FIELDS),
-        (CompiledResponses, RESPONSE_FIELDS),
-        (SeparableOperator, SEPARABLE_OPERATOR_FIELDS),
-        (StageTerms, STAGE_TERMS_FIELDS),
-        (StageScalars, STAGE_SCALARS_FIELDS),
-        (ModalTransformTables, MODAL_TABLES_FIELDS),
-        (RegionalResponseTables, REGIONAL_RESPONSE_FIELDS),
-        (CoupledFlowTables, COUPLED_FLOW_FIELDS),
-        (DispersiveKerrTerms, DISPERSIVE_KERR_FIELDS),
-    ):
-        # A member is a dataclass field or, for the leaves' derived counts and the
-        # z table's views, a property or a cached property.
-        present = {field.name for field in _dataclasses.fields(bundle)}
-        present.update(
-            name
-            for name in wanted
-            if isinstance(
-                getattr(bundle, name, None), (property, functools.cached_property)
-            )
-        )
-        missing.extend(
-            f"{bundle.__name__}.{name}" for name in wanted if name not in present
-        )
-    if missing or extra:
-        lacks = f"it has no {', '.join(missing)}" if missing else ""
-        reads = (
-            f"its MarchPolicy has {', '.join(extra)}, which this build does not read"
-            if extra
-            else ""
-        )
-        raise error(
-            f"solprop-native {__version__} (built beside solprop "
-            f"{info.solprop_version_built_against}) does not fit the installed "
-            f"solprop {version('solprop')}: {'; '.join(filter(None, (lacks, reads)))};"
-            " rebuild the backend against this solprop or install the one it was "
-            "built beside"
         )
 
 

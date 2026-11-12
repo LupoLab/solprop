@@ -66,23 +66,6 @@ class PhaseBThreadRecord(ThreadRecord):
 
 def test_public_surface_is_exact() -> None:
     assert native.__all__ == [
-        "COUPLED_FLOW_FIELDS",
-        "DISPERSIVE_KERR_FIELDS",
-        "LINEAR_OPERATOR_FIELDS",
-        "MARCH_POLICY_FIELDS",
-        "MODAL_TABLES_FIELDS",
-        "PROBLEM_FIELDS",
-        "REGIONAL_RESPONSE_FIELDS",
-        "REQUEST_FIELDS",
-        "REQUEST_SECTION_FIELDS",
-        "RESPONSE_FIELDS",
-        "ROUTE_FIELDS",
-        "SEPARABLE_OPERATOR_FIELDS",
-        "STAGE_SCALARS_FIELDS",
-        "STAGE_TERMS_FIELDS",
-        "TRANSFORM_FIELDS",
-        "WATCH_POLICY_FIELDS",
-        "WATCH_STATE_FIELDS",
         "BuildInfo",
         "NativeBackend",
         "__version__",
@@ -679,7 +662,8 @@ def test_the_native_count_narrows_unless_oversubscribing(
             monkeypatch.setenv(name, value)
     budget = _process.thread_budget()
     assert (budget.threads, budget.source) == (4, "affinity")
-    assert native.native_threads(budget) == expected
+    threads = native._native_threads(budget)  # pyright: ignore[reportPrivateUsage]
+    assert threads == expected
 
 
 @pytest.mark.usefixtures("four_cpus")
@@ -691,7 +675,8 @@ def test_oversubscribing_never_passes_solprop_threads(
     monkeypatch.setenv("SOLPROP_NATIVE_THREADS", "16")
     budget = _process.thread_budget()
     assert (budget.threads, budget.source) == (3, "SOLPROP_THREADS")
-    assert native.native_threads(budget) == 3
+    threads = native._native_threads(budget)  # pyright: ignore[reportPrivateUsage]
+    assert threads == 3
 
 
 def test_initial_array_contract(

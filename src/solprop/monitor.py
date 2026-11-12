@@ -1026,7 +1026,7 @@ class BoundaryMonitor:
         Returns
         -------
         dict
-            The fields of ``solprop_native.WATCH_POLICY_FIELDS``.
+            The numbers above by name, ``split`` to ``bucket_limits``.
         """
         check = self.check
         crossing = self.crossing
@@ -1064,9 +1064,9 @@ class BoundaryMonitor:
         Returns
         -------
         dict
-            The fields of ``solprop_native.WATCH_STATE_FIELDS``: whether a check has
-            been made and where, the steps since it, the cadence's busy flag, the
-            quiet run and flag, whether the warning was given, and the crossing cap.
+            Whether a check has been made and where, the steps since it, the cadence's
+            busy flag, the quiet run and flag, whether the warning was given, and the
+            crossing cap.
         """
         last = self._last
         return {
