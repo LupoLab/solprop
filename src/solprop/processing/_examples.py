@@ -72,21 +72,9 @@ _LIMITS = (400e-9, 2e-6)
 def example_grid(kind: str = "envelope") -> TimeGrid:
     """Return the small grid the synthetic runs are built on.
 
-    Parameters
-    ----------
-    kind : {'envelope', 'field'}
-        Which spectral layout to build.
-
-    Returns
-    -------
-    solprop.grid.TimeGrid
-        A grid over 400 nm to 2 um with a 400 fs window, small enough for a doctest.
-
-    Examples
-    --------
-    >>> from solprop.processing._examples import example_grid
-    >>> example_grid("field").kind
-    'field'
+    - ``kind``: which spectral layout to build.
+    - Returns: a grid over 400 nm to 2 um with a 400 fs window, small enough for a
+      doctest.
     """
     if kind == "field":
         return FieldGrid.from_limits(_LENGTH, _WAVELENGTH, _LIMITS, _TRANGE)
@@ -104,27 +92,10 @@ def gvd_phase(
     duration ``tau0`` then has the closed form
     ``tau(z) = tau0 sqrt(1 + (beta2 z / tau0^2)^2)``.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the spectrum lives on.
-    beta2 : float
-        Group-velocity dispersion, s^2/m.
-    z : float
-        Propagation distance, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The phasor, shape ``(n_omega,)``, multiplying an internal-convention
-        spectrum.
-
-    Examples
-    --------
-    >>> from solprop.processing._examples import example_grid, gvd_phase
-    >>> grid = example_grid()
-    >>> gvd_phase(grid, 1e-27, 0.0).tolist() == [1] * grid.n_omega
-    True
+    - ``beta2``: Group-velocity dispersion, s^2/m.
+    - ``z``: propagation distance, m.
+    - Returns: the phasor, shape ``(n_omega,)``, multiplying an internal-convention
+      spectrum.
     """
     return np.exp(-0.5j * beta2 * (grid.omega - grid.omega0) ** 2 * z)
 
@@ -232,22 +203,6 @@ def example_general_output(n_z: int = 3) -> MemoryOutput:
     could be checked against. A reconstruction offered this record is refused as
     incomplete by :mod:`solprop.processing.modal`, which is where that branch is
     exercised.
-
-    Parameters
-    ----------
-    n_z : int
-        Number of saved planes, spread evenly from 0 to the grid's length.
-
-    Returns
-    -------
-    solprop.output.memory.MemoryOutput
-        An opened handler holding ``n_z`` planes of a general modal run.
-
-    Examples
-    --------
-    >>> from solprop.processing._examples import example_general_output
-    >>> example_general_output().metadata.modal["basis"]
-    'general_modal'
     """
     grid = example_grid("field")
     tau0 = _FWHM / (2.0 * np.sqrt(np.log(2.0)))
@@ -323,19 +278,9 @@ def example_general_run() -> tuple[MemoryOutput, ModalTransformTables, ModalGuid
     ``numpy_ref`` with two saved planes. About a second, most of it the run's
     first compilation of its plans.
 
-    Returns
-    -------
-    tuple
-        The opened in-memory output, the
-        :class:`~solprop.translate.modal_tables.ModalTransformTables` rebuilt from
-        the guide, and the :class:`~solprop.modes.guide.ModalGuide` itself.
-
-    Examples
-    --------
-    >>> from solprop.processing._examples import example_general_run
-    >>> run, tables, guide = example_general_run()
-    >>> run.metadata.modal["basis"]
-    'general_modal'
+    - Returns: the opened in-memory output, the
+      :class:`~solprop.translate.modal_tables.ModalTransformTables` rebuilt from the
+      guide, and the :class:`~solprop.modes.guide.ModalGuide` itself.
     """
     # Imported here: this module is otherwise backend-free, and only this helper
     # solves a provider and runs a propagation.
@@ -403,25 +348,9 @@ def _example_rows(  # noqa: PLR0917 - called positionally
     is what a real run's channel holds -- there the backend evaluates them inside its
     own step loop, here the closed-form propagation stands in for one.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid the run is on.
-    spec : solprop.stats.StatsSpec
-        The statistics to evaluate.
-    seed : numpy.ndarray
-        The input plane.
-    beta2 : float
-        Group-velocity dispersion, s^2/m.
-    start : float
-        Position of the previous plane, m.
-    end : float
-        Position of this plane, m.
-
-    Returns
-    -------
-    solprop.output.schema.StepStats
-        Three rows, the last of them at the plane itself.
+    - ``beta2``: Group-velocity dispersion, s^2/m.
+    - ``start``: position of the previous plane, m.
+    - ``end``: position of this plane, m.
     """
     positions = np.linspace(start, end, _ROWS_PER_PLANE + 1)[1:]
     rows = [
@@ -444,19 +373,8 @@ def _seed_field(
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return the input plane: one Gaussian per mode and polarisation component.
 
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        The grid to build on.
-    n_modes : int
-        Number of propagated modes.
-    n_pol : int
-        Number of polarisation components.
-
-    Returns
-    -------
-    numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal convention.
+    - Returns: stored spectrum, shape ``(n_modes, n_pol, n_omega)``, internal
+      convention.
     """
     pulse = GaussianPulse(wavelength=_WAVELENGTH, fwhm=_FWHM, energy=_ENERGY)
     one = pulse.build(grid)

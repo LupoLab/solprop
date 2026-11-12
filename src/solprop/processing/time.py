@@ -763,23 +763,8 @@ def _energy(
 ) -> Float[np.ndarray, "*shape"]:
     """Return :func:`energy` without its gate, for a caller already gated.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which modes to report.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        A window applied before the measurement.
-
-    Returns
-    -------
-    numpy.ndarray
-        The energy, J.
+    - ``z``: position of the plane wanted, m.
+    - Returns: the energy, J.
     """
     grid, planes, has_z = _planes(output, plane, z, bandpass)
     per_mode = np.stack([np.sum(stats.energy(grid, one), axis=-1) for one in planes])
@@ -797,25 +782,8 @@ def _fwhm_t(
 ) -> Float[np.ndarray, "*shape"]:
     """Return :func:`fwhm_t` without its gate, for a caller already gated.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which modes to report.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        A window applied before the measurement.
-    outer : bool
-        Whether to span every satellite rather than the central feature alone.
-
-    Returns
-    -------
-    numpy.ndarray
-        The width, s.
+    - ``z``: position of the plane wanted, m.
+    - Returns: the width, s.
     """
     measure = stats.fwhm_t_outer if outer else stats.fwhm_t
     grid, planes, has_z = _planes(output, plane, z, bandpass)
@@ -836,23 +804,8 @@ def _fwhm_f(
 ) -> Float[np.ndarray, "*shape"]:
     """Return :func:`fwhm_f` without its gate, for a caller already gated.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which modes to report.
-    outer : bool
-        Whether to span every satellite rather than the central feature alone.
-
-    Returns
-    -------
-    numpy.ndarray
-        The width, Hz.
+    - ``z``: position of the plane wanted, m.
+    - Returns: the width, Hz.
     """
     frequency, density = _spectral_density(output, "f", plane=plane, z=z, modes=modes)
     return _along_last(density, lambda trace: fwhm(frequency, trace, outer=outer))
@@ -868,25 +821,9 @@ def _field_autocorrelation(
 ) -> tuple[Float[np.ndarray, " n_t"], Inexact[np.ndarray, "*shape n_t"]]:
     """Return :func:`field_autocorrelation` without its gate, for a caller gated.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Index of the plane wanted, negative from the end.
-    z : float or None
-        Position of the plane wanted, m.
-    modes : int, sequence of int, 'sum' or None
-        Which modes to report.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        A window applied before the transform.
-
-    Returns
-    -------
-    delay : numpy.ndarray
-        Delay axis, s, centred on zero.
-    correlation : numpy.ndarray
-        The autocorrelation, J.
+    - ``z``: position of the plane wanted, m.
+    - Returns ``delay``: delay axis, s, centred on zero.
+    - Returns ``correlation``: the autocorrelation, J.
     """
     _, t, amplitude = _plane_amplitude(
         output, plane=plane, z=z, oversampling=1, bandpass=bandpass
@@ -907,16 +844,8 @@ def _wiener_khinchin(
 ) -> Inexact[np.ndarray, "*rest n_t"]:
     """Return the circular autocorrelation of a trace, as a sample sum.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The trace, shape ``(..., n_t)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``sum_t conj(v(t)) v(t + tau)``, shape ``(..., n_t)``, with zero delay at the
-        centre of the axis.
+    - Returns: ``sum_t conj(v(t)) v(t + tau)``, shape ``(..., n_t)``, with zero delay at
+      the centre of the axis.
     """
     spectrum = np.fft.fft(values, axis=-1)
     return np.fft.fftshift(np.fft.ifft(np.abs(spectrum) ** 2, axis=-1), axes=-1)
@@ -930,27 +859,11 @@ def _planes(
 ) -> tuple[TimeGrid, list[np.ndarray], bool]:
     """Return the grid, the selected planes and whether a plane axis was asked for.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        An opened output handler.
-    plane : int or None
-        Plane index, negative from the end, or ``None``.
-    z : float or None
-        Plane position, m, or ``None``.
-    bandpass : tuple of float, Passband, numpy.ndarray or None
-        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
-        axis, of an explicit window applied to every plane, or a ready-made window on
-        the stored axis.
-
-    Returns
-    -------
-    grid : solprop.grid.TimeGrid
-        The rebuilt grid.
-    planes : list of numpy.ndarray
-        One ``(n_modes, n_pol, n_omega)`` array per selected plane.
-    has_z : bool
-        Whether the caller asked for every plane.
+    - ``plane``: plane index, negative from the end, or ``None``.
+    - ``z``: plane position, m, or ``None``.
+    - ``bandpass``: wavelength limits, m, or a
+      :class:`~solprop.processing.spectra.Passband` on any axis, of an explicit window
+      applied to every plane, or a ready-made window on the stored axis.
     """
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention="fft")
@@ -962,25 +875,7 @@ def _planes(
 
 
 def _mode_groups(n_modes: int, modes: ModeSelection) -> list[list[int]]:
-    """Return the groups of modes a metric is evaluated over, one result each.
-
-    Parameters
-    ----------
-    n_modes : int
-        Number of propagated modes.
-    modes : int, sequence of int, 'sum' or None
-        The selection.
-
-    Returns
-    -------
-    list of list of int
-        Index lists; a single list of every mode for ``'sum'``.
-
-    Raises
-    ------
-    solprop.exceptions.ModeError
-        If an index is out of range or the selection is not recognised.
-    """
+    """Return the groups of modes a metric is evaluated over, one result each."""
     _check_mode_selection(modes)
     if modes is None:
         return [[index] for index in range(n_modes)]
@@ -999,17 +894,7 @@ def _take_modes(
 ) -> Float[np.ndarray, "*shape"]:
     """Select or sum the trailing mode axis of an already-additive quantity.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        One value per plane and mode, shape ``(n_z, n_modes)``.
-    modes : int, sequence of int, 'sum' or None
-        The selection.
-
-    Returns
-    -------
-    numpy.ndarray
-        The selection, with a trivial mode axis squeezed away.
+    - Returns: the selection, with a trivial mode axis squeezed away.
     """
     if modes == "sum":
         return np.asarray(np.sum(values, axis=-1))
@@ -1022,15 +907,7 @@ def _squeeze_modes(
 ) -> Float[np.ndarray, "*shape"]:
     """Drop the mode axis of a per-mode result when the run has one mode.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        One value per plane and selected mode, shape ``(n_z, n_selected)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values without a trailing axis of length one.
+    - Returns: the same values without a trailing axis of length one.
     """
     return values[:, 0] if values.shape[-1] == 1 else values
 
@@ -1040,17 +917,8 @@ def _finish(
 ) -> Float[np.ndarray, "*shape"]:
     """Drop the plane axis when a single plane was selected.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Results with a leading plane axis.
-    has_z : bool
-        Whether the caller asked for every plane.
-
-    Returns
-    -------
-    numpy.ndarray
-        The results, without the plane axis when only one plane was asked for.
+    - ``values``: results with a leading plane axis.
+    - Returns: the results, without the plane axis when only one plane was asked for.
     """
     # np.asarray keeps a single-plane scalar a zero-dimensional array, as every
     # scalar statistic in solprop.stats is.
@@ -1060,20 +928,7 @@ def _finish(
 def _along_last(
     values: Float[np.ndarray, "*rest n"], measure: Callable[[np.ndarray], float]
 ) -> Float[np.ndarray, "*shape"]:
-    """Apply a scalar measurement to every trace along the last axis.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Traces, shape ``(..., n)``.
-    measure : callable
-        A function of one trace returning a float.
-
-    Returns
-    -------
-    numpy.ndarray
-        The results, shape ``(...)``, zero-dimensional for a single trace.
-    """
+    """Apply a scalar measurement to every trace along the last axis."""
     flat = values.reshape(-1, values.shape[-1])
     out = np.asarray([measure(trace) for trace in flat])
     return out.reshape(values.shape[:-1])

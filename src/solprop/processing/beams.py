@@ -64,23 +64,7 @@ FAR_FIELD_ANGLES = 256
 
 
 def _radial_space(output: Output) -> RadialGrid:
-    """Return a file's radial grid, from its record.
-
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's output.
-
-    Returns
-    -------
-    solprop.grid.RadialGrid
-        The grid.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the run is not on a radial grid.
-    """
+    """Return a file's radial grid, from its record."""
     try:
         space = spatial_grid_of(output)
     except ProcessingError:
@@ -96,24 +80,10 @@ def _measured_plane(
 ) -> tuple[np.ndarray, SpatialFlux]:
     """Return one saved plane's spectrum and its measure, from the file alone.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's output.
-    plane : int or None
-        The plane, negative from the end; the last when neither it nor ``z`` is given.
-    z : float or None
-        Its position, m: the nearest saved plane.
-
-    Returns
-    -------
-    tuple
-        The stored spectrum, ``(n_r, n_pol, n_omega)``, and the plane's measure.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the file's record carries no plane measure.
+    - ``plane``: the plane, negative from the end; the last when neither it nor ``z`` is
+      given.
+    - ``z``: its position, m: the nearest saved plane.
+    - Returns: the stored spectrum, ``(n_r, n_pol, n_omega)``, and the plane's measure.
     """
     positions = np.asarray(output["z"], dtype=float)
     if z is not None:
@@ -145,17 +115,8 @@ def _on_axis(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return the positive frequencies on a spectral axis, ascending.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        The grid's angular frequencies, rad/s.
-    axis : {'f', 'omega', 'wavelength'}
-        The abscissa.
-
-    Returns
-    -------
-    tuple
-        Which bins, the abscissa and the Jacobian from per rad/s, all ascending.
+    - ``omega``: the grid's angular frequencies, rad/s.
+    - Returns: which bins, the abscissa and the Jacobian from per rad/s, all ascending.
     """
     bins = np.flatnonzero(omega > 0)
     x, jacobian = spectral_axis(omega[bins], axis)
@@ -313,21 +274,11 @@ def _per_solid_angle(
     spans :math:`2\pi k_r\,dk_r = k^2\cos\theta\,d\Omega`: its solid angle is
     :math:`2\pi k_r\,dk_r / (k^2\cos\theta)`, which grows towards grazing angles.
 
-    Parameters
-    ----------
-    energy : numpy.ndarray
-        Each column's energy, J per unit of the spectral axis.
-    k_r : numpy.ndarray
-        The columns' transverse wavevectors, 1/m, each below ``omega / C``.
-    widths : numpy.ndarray
-        Their widths in ``k_r``, 1/m.
-    omega : float
-        The angular frequency, rad/s.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The angles, rad, and the energy per steradian there.
+    - ``energy``: each column's energy, J per unit of the spectral axis.
+    - ``k_r``: the columns' transverse wavevectors, 1/m, each below ``omega / C``.
+    - ``widths``: their widths in ``k_r``, 1/m.
+    - ``omega``: the angular frequency, rad/s.
+    - Returns: the angles, rad, and the energy per steradian there.
     """
     sine = C * k_r / omega
     cosine = np.sqrt(1.0 - sine**2)
