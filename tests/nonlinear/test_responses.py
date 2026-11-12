@@ -257,59 +257,47 @@ def test_thg_carrier_rejects_a_non_positive_frequency():
 # ------------------------------------------------------------------- error paths
 
 
-def test_evaluate_rejects_an_unknown_layout():
-    with pytest.raises(GridError, match="kind must be"):
-        _check_evaluate(np.zeros((1, 4)), "spectral", None, needs_carrier=False)
+REAL = np.zeros((1, 4))
+COMPLEX = np.zeros((1, 4), dtype=complex)
 
 
-def test_evaluate_rejects_more_than_two_polarisation_components():
-    with pytest.raises(GridError, match="n_pol must be 1 or 2"):
-        KerrResponse(1.0).evaluate(np.zeros((3, 4)), 1.0, kind="field")
+@pytest.mark.parametrize(
+    ("field", "kind", "carrier", "needs_carrier", "match"),
+    [
+        (REAL, "spectral", None, False, "kind must be"),
+        # Through the guard directly: the jaxtyping hook rejects the rank before the
+        # library's own check is reached, exactly as for `fourier._check_kind`.
+        (np.zeros(4), "field", None, False, "field_t must have shape"),
+        (np.zeros((1, 2, 4)), "field", None, False, "field_t must have shape"),
+        # Through the guard directly, for the same reason as the rank check.
+        (COMPLEX, "envelope", np.ones(5, dtype=complex), True, "carrier has shape"),
+    ],
+)
+def test_the_evaluate_guard_rejects_a_bad_layout(
+    field, kind, carrier, needs_carrier, match
+):
+    with pytest.raises(GridError, match=match):
+        _check_evaluate(field, kind, carrier, needs_carrier=needs_carrier)
 
 
-@pytest.mark.parametrize("shape", [(4,), (1, 2, 4)])
-def test_evaluate_rejects_an_array_that_is_not_two_dimensional(shape):
-    # Through the guard directly: the jaxtyping hook rejects the rank before the
-    # library's own check is reached, exactly as for `fourier._check_kind`.
-    with pytest.raises(GridError, match="field_t must have shape"):
-        _check_evaluate(np.zeros(shape), "field", None, needs_carrier=False)
-
-
-def test_field_layout_rejects_a_complex_array():
-    with pytest.raises(GridError, match="real field"):
-        KerrResponse(1.0).evaluate(np.zeros((1, 4), dtype=complex), 1.0, kind="field")
-
-
-def test_envelope_layout_rejects_a_real_array():
-    with pytest.raises(GridError, match="complex envelope"):
-        KerrResponse(1.0).evaluate(np.zeros((1, 4)), 1.0, kind="envelope")
-
-
-def test_envelope_third_harmonic_needs_a_carrier():
-    with pytest.raises(GridError, match="needs the carrier"):
-        KerrResponse(1.0, thg=True).evaluate(
-            np.zeros((1, 4), dtype=complex), 1.0, kind="envelope"
-        )
-
-
-def test_a_carrier_is_rejected_where_it_would_be_ignored():
-    with pytest.raises(GridError, match="only used on an envelope grid"):
-        KerrResponse(1.0).evaluate(
-            np.zeros((1, 4)), 1.0, kind="field", carrier=np.ones(4, dtype=complex)
-        )
-
-
-def test_a_carrier_of_the_wrong_length_is_rejected():
-    # Through the guard directly, for the same reason as the rank check above.
-    with pytest.raises(GridError, match="carrier has shape"):
-        _check_evaluate(
-            np.zeros((1, 4), dtype=complex),
-            "envelope",
-            np.ones(5, dtype=complex),
-            needs_carrier=True,
-        )
-
-
-def test_a_negative_density_is_rejected():
-    with pytest.raises(GridError, match="density must be non-negative"):
-        KerrResponse(1.0).evaluate(np.zeros((1, 4)), -1.0, kind="field")
+# The Kerr response's own refusals (thg on, its default).
+@pytest.mark.parametrize(
+    ("field", "density", "kind", "carrier", "match"),
+    [
+        (np.zeros((3, 4)), 1.0, "field", None, "n_pol must be 1 or 2"),
+        (COMPLEX, 1.0, "field", None, "real field"),
+        (REAL, 1.0, "envelope", None, "complex envelope"),
+        (COMPLEX, 1.0, "envelope", None, "needs the carrier"),
+        (
+            REAL,
+            1.0,
+            "field",
+            np.ones(4, dtype=complex),
+            "only used on an envelope grid",
+        ),
+        (REAL, -1.0, "field", None, "density must be non-negative"),
+    ],
+)
+def test_evaluate_rejects_a_bad_field(field, density, kind, carrier, match):
+    with pytest.raises(GridError, match=match):
+        KerrResponse(1.0).evaluate(field, density, kind=kind, carrier=carrier)

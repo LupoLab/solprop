@@ -143,11 +143,6 @@ def test_the_embedded_gauss_rule_is_exact_to_its_own_degree(n):
         assert float(np.sum(coarse * nodes**degree)) == pytest.approx(exact, abs=1e-13)
 
 
-def test_the_kronrod_order_must_be_positive():
-    with pytest.raises(ModeError, match="needs n >= 1"):
-        gauss_kronrod(0)
-
-
 @pytest.mark.parametrize("key", sorted(REFERENCE["kronrod"]))
 def test_the_kronrod_rule_matches_quadgks(key):
     """Laurie's algorithm computed here against QuadGK's implementation of it.
@@ -301,24 +296,33 @@ def test_the_cartesian_rule_integrates_a_rectangle():
     assert value == pytest.approx((2.0 * 8.0 / 3.0) * (2.0 / 3.0), rel=1e-14)
 
 
-def test_a_cartesian_rule_cannot_be_azimuthally_symmetric():
-    with pytest.raises(ModeError, match="no azimuthally symmetric form"):
-        quadrature_rule("cartesian", full=False, n_r=8)
-
-
 # ------------------------------------------------------------------ validation
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "message"),
+    ("call", "message"),
     [
-        ({"kind": "polar", "full": False, "n_r": 1}, "n_r >= 2"),
-        ({"kind": "polar", "full": True, "n_r": 8, "n_theta": 1}, "n_theta >= 2"),
+        (lambda: gauss_kronrod(0), "needs n >= 1"),
+        (lambda: quadrature_rule("polar", full=False, n_r=1), "n_r >= 2"),
+        (lambda: quadrature_rule("polar", full=True, n_r=8, n_theta=1), "n_theta >= 2"),
+        (
+            lambda: quadrature_rule("cartesian", full=False, n_r=8),
+            "no azimuthally symmetric form",
+        ),
+        (
+            lambda: quadrature_rule("cartesian", full=True, n_r=8, breaks=(0.5,)),
+            "radial breaks",
+        ),
+        (lambda: transverse_quadrature([], n_r=8), "at least one mode"),
+        (
+            lambda: mode_matrix([], quadrature_rule("polar", full=False, n_r=8)),
+            "at least one mode",
+        ),
     ],
 )
-def test_a_bad_rule_is_refused(kwargs, message):
+def test_a_bad_rule_is_refused(call, message):
     with pytest.raises(ModeError, match=message):
-        quadrature_rule(**kwargs)
+        call()
 
 
 def test_an_unknown_cross_section_is_refused():
@@ -394,11 +398,6 @@ def test_the_full_rule_can_be_forced_either_way():
     assert not transverse_quadrature(modes, n_r=8, n_theta=8, full=False).full
 
 
-def test_a_rule_needs_a_mode():
-    with pytest.raises(ModeError, match="at least one mode"):
-        transverse_quadrature([], n_r=8)
-
-
 # ------------------------------------------------------------ the mode matrices
 
 
@@ -437,12 +436,6 @@ def test_bad_components_are_refused(components):
     rule = transverse_quadrature(modes, n_r=8)
     with pytest.raises(ModeError, match="non-empty subset"):
         mode_matrix(modes, rule, components=components)
-
-
-def test_mode_matrices_need_a_mode():
-    rule = quadrature_rule("polar", full=False, n_r=8)
-    with pytest.raises(ModeError, match="at least one mode"):
-        mode_matrix([], rule)
 
 
 def test_modes_with_different_cross_sections_are_refused():
@@ -908,8 +901,3 @@ def test_the_fixed_rules_are_what_they_were_before_radial_breaks():
 def test_invalid_radial_breaks_are_refused(breaks):
     with pytest.raises(ModeError, match="radial breaks"):
         quadrature_rule("polar", full=False, n_r=8, breaks=breaks)
-
-
-def test_cartesian_radial_breaks_are_refused():
-    with pytest.raises(ModeError, match="radial breaks"):
-        quadrature_rule("cartesian", full=True, n_r=8, breaks=(0.5,))

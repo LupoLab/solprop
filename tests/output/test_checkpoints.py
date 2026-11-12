@@ -60,6 +60,18 @@ def plane(metadata, z, *, history=False):
     )
 
 
+def stopped(metadata, path, z, *, saved=(), history=False):
+    """Write a run that saved the planes `saved`, then failed at `z`, checkpointed."""
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        for one in saved:
+            handler.save(plane(metadata, one))
+        handler.record_outcome(
+            RunOutcome("failed", z),
+            TerminalCheckpoint(plane(metadata, z, history=history), 0),
+        )
+
+
 def test_memory_checkpoint_round_trip_preserves_counts_and_fft(metadata, tmp_path):
     memory = MemoryOutput()
     memory.open(metadata)
@@ -95,13 +107,7 @@ def test_memory_checkpoint_round_trip_preserves_counts_and_fft(metadata, tmp_pat
 
 def test_checkpoint_history_moves_to_next_regular_save_once(metadata, tmp_path):
     path = tmp_path / "resume.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane(metadata, 0.0))
-        handler.record_outcome(
-            RunOutcome("failed", 0.25),
-            TerminalCheckpoint(plane(metadata, 0.25, history=True), 0),
-        )
+    stopped(metadata, path, 0.25, saved=(0.0,), history=True)
     with HDF5Output(path, append=True) as handler:
         handler.open(metadata)
         handler.record_outcome(RunOutcome("running", 0.25))
@@ -119,13 +125,7 @@ def test_checkpoint_history_moves_to_next_regular_save_once(metadata, tmp_path):
 
 def test_second_stop_retains_previous_unsaved_attempts(metadata, tmp_path):
     path = tmp_path / "repeated.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane(metadata, 0.0))
-        handler.record_outcome(
-            RunOutcome("failed", 0.25),
-            TerminalCheckpoint(plane(metadata, 0.25, history=True), 0),
-        )
+    stopped(metadata, path, 0.25, saved=(0.0,), history=True)
     with HDF5Output(path, append=True) as handler:
         handler.open(metadata)
         handler.record_outcome(RunOutcome("running", 0.25))
@@ -140,11 +140,7 @@ def test_second_stop_retains_previous_unsaved_attempts(metadata, tmp_path):
 
 def test_checkpoint_can_exist_before_first_regular_save(metadata, tmp_path):
     path = tmp_path / "entrance-failure.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.record_outcome(
-            RunOutcome("failed", 0.0), TerminalCheckpoint(plane(metadata, 0.0), 0)
-        )
+    stopped(metadata, path, 0.0)
     state = resume(path)
     assert state.n_saved == 0 and state.plane.z == 0.0
     assert state.checkpoint is not None
@@ -398,11 +394,7 @@ def test_read_refuses_malformed_checkpoint_scalar_attributes(
     metadata, tmp_path, name, value
 ):
     path = tmp_path / "malformed-scalar.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.record_outcome(
-            RunOutcome("failed", 0.1), TerminalCheckpoint(plane(metadata, 0.1), 0)
-        )
+    stopped(metadata, path, 0.1)
     with h5py.File(path, "r+") as stored:
         stored["terminal_checkpoint"].attrs[name] = value
     with pytest.raises(OutputError, match="typed scalars"):
@@ -427,12 +419,7 @@ def test_new_checkpoint_replaces_an_interrupted_staging_group(metadata, tmp_path
 
 def test_resume_refuses_checkpoint_older_than_last_regular_save(metadata, tmp_path):
     path = tmp_path / "outdated-checkpoint.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane(metadata, 0.25))
-        handler.record_outcome(
-            RunOutcome("failed", 0.5), TerminalCheckpoint(plane(metadata, 0.5), 0)
-        )
+    stopped(metadata, path, 0.5, saved=(0.25,))
     with h5py.File(path, "r+") as stored:
         stored["terminal_checkpoint"].attrs["z"] = 0.1
     with pytest.raises(OutputError, match="precedes the last saved plane"):
@@ -630,40 +617,21 @@ def test_a_stale_running_checkpoint_is_ignored_rather_than_refused(
         assert_array_equal(stored["step_history/z"], [0.0, 0.125, 0.25])
 
 
-def test_an_appending_writer_keeps_a_disagreeing_closing_checkpoint_as_read(
-    metadata, tmp_path
+@pytest.mark.parametrize("append", [False, True], ids=["read", "appended"])
+def test_a_closing_record_disagreeing_with_its_checkpoint_is_refused(
+    metadata, tmp_path, append
 ):
     # Only a reader refuses the inconsistent state; a writer continuing the file keeps
     # its checkpoint as read, and the next read still refuses it.
-    path = tmp_path / "closing-append.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane(metadata, 0.0))
-        handler.record_outcome(
-            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
-        )
-    with h5py.File(path, "r+") as file:
-        file["terminal_checkpoint"].attrs["z"] = 0.375
-    with HDF5Output(path, append=True) as handler:
-        handler.open(metadata)
-        kept = handler.terminal_checkpoint
-        assert kept is not None
-        assert kept.plane.z == 0.375
-    with pytest.raises(OutputError, match="no matching execution outcome"):
-        resume(path)
-
-
-def test_a_closing_record_disagreeing_with_its_checkpoint_is_still_refused(
-    metadata, tmp_path
-):
     path = tmp_path / "closing.h5"
-    with HDF5Output(path) as handler:
-        handler.open(metadata)
-        handler.save(plane(metadata, 0.0))
-        handler.record_outcome(
-            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
-        )
+    stopped(metadata, path, 0.25, saved=(0.0,))
     with h5py.File(path, "r+") as file:
         file["terminal_checkpoint"].attrs["z"] = 0.375
+    if append:
+        with HDF5Output(path, append=True) as handler:
+            handler.open(metadata)
+            kept = handler.terminal_checkpoint
+            assert kept is not None
+            assert kept.plane.z == 0.375
     with pytest.raises(OutputError, match="no matching execution outcome"):
         resume(path)

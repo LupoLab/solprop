@@ -496,6 +496,21 @@ def test_an_in_flight_failure_poisons_its_member_alone(backend, monkeypatch):
         assert group.finished
 
 
+def assert_drained_after_failure(group, ended):
+    """A failed window's terminals deliver its two fixed steps, once, at its plane."""
+    assert ended.outcome is Outcome.FAILED
+    assert isinstance(ended.error, RuntimeError)
+    for index, events in enumerate(ended.members):
+        (terminal,) = events
+        assert isinstance(terminal, Terminal)
+        assert terminal.history is not None
+        # The first window's two fixed steps, delivered once.
+        assert terminal.history.n_steps == 2
+        assert group.member_status(index).attempts == 2
+        assert terminal.z == pytest.approx(PLANES[0])
+        assert terminal.eligibility is Eligibility.ELIGIBLE
+
+
 @pytest.mark.parametrize("backend", LOCKSTEP)
 def test_a_window_s_failure_delivers_the_attempts_it_drained(backend, monkeypatch):
     available(backend)
@@ -514,17 +529,7 @@ def test_a_window_s_failure_delivers_the_attempts_it_drained(backend, monkeypatc
 
         monkeypatch.setattr(type(owners[0]), "stats", broken)
         ended = group.advance()
-        assert ended.outcome is Outcome.FAILED
-        assert isinstance(ended.error, RuntimeError)
-        for index, events in enumerate(ended.members):
-            (terminal,) = events
-            assert isinstance(terminal, Terminal)
-            assert terminal.history is not None
-            # The first window's two fixed steps, delivered once.
-            assert terminal.history.n_steps == 2
-            assert group.member_status(index).attempts == 2
-            assert terminal.z == pytest.approx(PLANES[0])
-            assert terminal.eligibility is Eligibility.ELIGIBLE
+        assert_drained_after_failure(group, ended)
         group.acknowledge(ended.receipt)
 
 
@@ -675,17 +680,7 @@ def test_a_window_s_statistics_failure_delivers_the_attempts_it_drained(
         monkeypatch.setattr(type(runner_of(group)), "stats", broken)
         ended = group.advance()
         group.acknowledge(ended.receipt)
-    assert ended.outcome is Outcome.FAILED
-    assert isinstance(ended.error, RuntimeError)
-    for index, events in enumerate(ended.members):
-        (terminal,) = events
-        assert isinstance(terminal, Terminal)
-        assert terminal.history is not None
-        # The first window's two fixed steps, delivered once.
-        assert terminal.history.n_steps == 2
-        assert group.member_status(index).attempts == 2
-        assert terminal.z == pytest.approx(PLANES[0])
-        assert terminal.eligibility is Eligibility.ELIGIBLE
+    assert_drained_after_failure(group, ended)
 
 
 @pytest.mark.parametrize("backend", LOCKSTEP)

@@ -29,8 +29,6 @@ from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from sessions.runs import native_source
-from sessions.runs import run as session_run
-from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
@@ -213,38 +211,6 @@ def source(
         return np.array(backend._adams_lab_source(launch[None], 0.0))
     finally:
         backend.close()
-
-
-def run(
-    backend_class: type,
-    problem: PropagationProblem,
-    run_request,
-    grid: TimeGrid,
-    **options: object,
-) -> tuple[np.ndarray, Any]:
-    """Run the session to the last save plane; return the field and the run's summary.
-
-    The summary spans the run, every plane's attempts together
-    (:func:`sessions.runs.summary`).
-    """
-    backend = backend_class(problem, run_request, grid=grid, **options)
-    try:
-        # The step driver's march computed no statistic, which a case's profiles
-        # would be needed for.
-        result = session_run(
-            backend, problem, backend.request.for_run(stats=StatsSpec())
-        )
-        return result.fields[-1], run_summary(result)
-    finally:
-        backend.close()
-
-
-def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
-    """Return the relative L2 difference of two arrays of the same size."""
-    ours, theirs = np.ravel(ours), np.ravel(theirs)
-    scale = float(np.linalg.norm(theirs))
-    assert scale > 0
-    return float(np.linalg.norm(ours - theirs) / scale)
 
 
 def evaluation_bound(problem: PropagationProblem) -> float:

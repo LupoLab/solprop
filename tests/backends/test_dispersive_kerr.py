@@ -17,20 +17,20 @@ modal routes are ``tests/backends/test_dispersive_kerr_routes.py``'s.
 """
 
 import dataclasses
-import warnings
-from collections.abc import Mapping
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
+from backends.dispersive_cases import capillary as dispersive_capillary
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
+from builders import numpy_ref_launch_derivative as stage_derivative
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.boundaries import Absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, MaterialRangeWarning
+from solprop.exceptions import BackendError
 from solprop.grid import FieldGrid, RadialGrid
 from solprop.nonlinear.responses import (
     DispersiveKerrResponse,
@@ -40,7 +40,7 @@ from solprop.nonlinear.responses import (
     mixture_filter,
 )
 from solprop.output import MemoryOutput
-from solprop.physdata import MaterialSelection, Mixture
+from solprop.physdata import Mixture
 from solprop.physdata.nonlinear_data import DispersiveKerrModel, OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -67,31 +67,9 @@ GRID_CASES: dict[str, dict[str, Any]] = {
 }
 
 
-def capillary(
-    policy: str = "gas-polynomial",
-    *,
-    gas: str | Mapping[str, float] = "Ar",
-    **overrides: object,
-) -> Simulation:
-    """Return a short single-mode argon capillary under an electronic policy."""
-    # The keywords of one entry point, of as many types as it takes.
-    arguments: dict[str, Any] = {
-        "wavelength": 800e-9,
-        "wavelength_limits": (150e-9, 4e-6),
-        "trange": 150e-15,
-        "fwhm": 10e-15,
-        "energy": 30e-6,
-        "materials": MaterialSelection(electronic=policy),
-        "plasma": False,
-        "raman": False,
-        "backend": "numpy_ref",
-        "n_save": 2,
-    } | overrides
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(
-            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
-        )
+def capillary(policy: str = "gas-polynomial", **overrides: object) -> Simulation:
+    """Return :func:`backends.dispersive_cases.capillary` with one mode, the HE11."""
+    return dispersive_capillary(policy, **{"modes": 1, **overrides})
 
 
 def node_field(problem, bundle):
@@ -230,21 +208,6 @@ def test_a_symmetric_mixture_is_one_cubic_under_its_mixture_filter():
     )
     bound = dispersive_response_bound(problem.grids.n_to, "symmetric")
     assert_within(got[0], expected, bound, what="polarisation")
-
-
-def stage_derivative(problem, run_request, grid):
-    """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        return backend._nonlinear(
-            backend._require_state(),
-            backend._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )
-    finally:
-        backend.close()
 
 
 @pytest.mark.parametrize("thg", [True, False])

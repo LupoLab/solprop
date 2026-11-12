@@ -33,6 +33,7 @@ import numpy as np
 import pytest
 
 import flow_parity
+from backends.dispersive_cases import disagreement, run
 from backends.dispersive_route_cases import (
     ARGON,
     ARGON_FILL,
@@ -43,13 +44,11 @@ from backends.dispersive_route_cases import (
     HELIUM,
     STEPS,
     STRANDS,
-    disagreement,
     free_grid,
     free_problem,
     general_problem,
     planar_problem,
     raman,
-    run,
     source,
     strand,
 )

@@ -28,7 +28,6 @@ import json
 import logging
 import re
 import runpy
-import subprocess
 import sys
 import textwrap
 import warnings
@@ -42,6 +41,7 @@ import matplotlib.pyplot as plt
 import numpy.random.bit_generator
 import pytest
 
+from builders import run_python
 from solprop.driver.simulation import Simulation
 from solprop.recipe import Recipe
 
@@ -345,12 +345,5 @@ def test_an_example_s_python_export_builds_the_same_run(name, tmp_path, monkeypa
     recipe = Recipe.example(name)
     path = tmp_path / f"{name}.py"
     path.write_text(_PROBE.format(entropy=ENTROPY) + recipe.to_python())
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    result = run_python(path)
     assert json.loads(result.stdout.splitlines()[-1]) == record(built(recipe))
