@@ -1671,9 +1671,6 @@ class FieldGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "field"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
     def from_limits(
         cls,
@@ -1833,9 +1830,6 @@ class EnvelopeGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "envelope"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
     def from_limits(
         cls,

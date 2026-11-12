@@ -57,8 +57,6 @@ def freeze_harness(directory: Path) -> Record:
     return files
 
 
-# The suppression below is for PLR0913: the keyword options are the shared
-# command-line selection, passed through unchanged.
 def plan_rows(
     cases: tuple[Case, ...],
     steppers: tuple[str, ...],

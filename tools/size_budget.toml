@@ -7,8 +7,8 @@
 # a change through (docs/dev/tooling.md, "Size").
 
 [private_docstrings]
-# Private or nested definitions whose docstring has numpydoc sections (Parameters,
-# Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
+# Private definitions (numpydoc's rule) whose docstring has numpydoc sections
+# (Parameters, Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
 # "Docstrings and comments"). Those left are public API defined in a private module and
 # re-exported, which keeps its sections, and the single-precision reference modules.
 max_sectioned = 37
@@ -16,15 +16,23 @@ max_sectioned = 37
 [modules]
 # No module grows past this many lines.
 max_lines = 4000
+# An allowed module's cap is its size plus a headroom of headroom_percent of it, at least
+# headroom_lines, so that a small fix doesn't fail. The check fails when an entry exceeds
+# its module's size by more than three headrooms (or names a module that is gone or now
+# under max_lines): a module that shrinks by more than twice its headroom tightens its
+# entry, to its size plus one headroom, in the same change.
+headroom_percent = 2
+headroom_lines = 50
 
 [modules.allow]
-# The modules already larger, each capped at its present size so it can only shrink.
-# Remove an entry once its module is split below max_lines.
-"src/solprop/driver/simulation.py" = 10741
-"src/solprop/translate/problem.py" = 5701
-"src/solprop/output/schema.py" = 5073
+# The modules already larger. Remove an entry once its module is split below max_lines.
+"src/solprop/driver/simulation.py" = 10956
+"src/solprop/translate/problem.py" = 5816
+"src/solprop/output/schema.py" = 5174
 
 [private_imports]
-# Private names imported from another package (the root's shared private modules, such
-# as solprop._process, count only for their private names).
-max_cross_package = 88
+# Private names imported from another package: a private name, any name from a private
+# module of a subpackage, or a private module itself (`from solprop import _process`).
+# Public names from the root's private modules (`from solprop._process import ...`) are
+# shared by design and do not count.
+max_cross_package = 91
