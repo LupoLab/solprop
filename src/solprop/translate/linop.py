@@ -77,6 +77,8 @@ from solprop.translate.chebyshev import (
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
     _frozen_copy,
+    _held_table,
+    _hold,
     build,
     build_from_paths,
     clenshaw,
@@ -693,14 +695,7 @@ def tabulate(
             if z0 < float(value) < z1
         }
     )
-    table = build(func, z0, z1, tol=tol, mandatory_breakpoints=edges)
-    return PiecewiseChebyshev(
-        _frozen_copy(table.coefficients),
-        _frozen_copy(table.breakpoints),
-        _frozen_copy(table.degrees),
-        _frozen_copy(table.hard_kinks),
-        table.budget_exceeded,
-    )
+    return _held_table(build(func, z0, z1, tol=tol, mandatory_breakpoints=edges))
 
 
 def profile_table(
@@ -762,7 +757,7 @@ def profile_table(
             row[:] = _zero_edges(row, bool(vacuum[index]), bool(vacuum[index + 1]), tol)
     if np.array_equal(coefficients, table.coefficients):
         return table
-    return replace(table, coefficients=_frozen_copy(coefficients))
+    return replace(table, coefficients=_hold(coefficients))
 
 
 def _zero_edges(
@@ -881,7 +876,9 @@ def constant_phi(  # noqa: PLR0913 - the response kinks join the frame record
     'constant'
     """
     span = _checked_span(z_max, margin)
-    values = np.asarray(_value_shape(operator, n_pol), dtype=np.complex128)
+    # The caller's operator, or a view of it: copied once; the tables below are built
+    # here and held in place.
+    values = _frozen_copy(_value_shape(operator, n_pol), np.complex128)
     if not np.all(np.isfinite(values)):
         msg = (
             f"the operator must be finite; {int(np.sum(~np.isfinite(values)))} of "
@@ -909,10 +906,10 @@ def constant_phi(  # noqa: PLR0913 - the response kinks join the frame record
         )
     return LinearOperator(
         phi_representation="constant",
-        phi_breakpoints=edges,
-        phi_coefficients=coefficients,
-        phi_degrees=np.ones(edges.size - 1, dtype=np.intp),
-        hard_kinks=interior,
+        phi_breakpoints=_hold(edges),
+        phi_coefficients=_hold(coefficients),
+        phi_degrees=_hold(np.ones(edges.size - 1, dtype=np.intp)),
+        hard_kinks=_hold(interior),
         phi_constant=values,
         beta0=beta0,
         beta1=beta1,
@@ -1254,7 +1251,7 @@ def _dispersion_phi(  # noqa: PLR0913 - the dispersion builder shares the public
     constant = all(one.z_constant for one in modes)
     if constant and reuse is None:
         table = constant_phi(
-            operator_at(0.0),
+            _hold(operator_at(0.0)),
             z_max,
             margin=margin,
             beta0=beta0,
@@ -1299,7 +1296,7 @@ def _dispersion_phi(  # noqa: PLR0913 - the dispersion builder shares the public
                 )
         if constant:
             return constant_phi(
-                operator_at(0.0),
+                _hold(operator_at(0.0)),
                 z_max,
                 margin=margin,
                 beta0=beta0,
@@ -1416,12 +1413,12 @@ def with_power_weight(
     n_pol = linear.value_shape[2]
     sample = _weight_sampler(modes, grid, n_pol, index)
     if index is not None or all(mode.z_constant for mode in modes):
-        constant = sample(0.0)
+        constant = _hold(sample(0.0))
         table = PiecewiseChebyshev(
-            _frozen_copy(constant[None, None]),
-            _frozen_copy(np.array(linear.z_span)),
-            _frozen_copy(np.array([0], dtype=np.intp)),
-            _frozen_copy(np.array([])),
+            constant[None, None],
+            _hold(np.array(linear.z_span)),
+            _hold(np.array([0], dtype=np.intp)),
+            _hold(np.array([])),
         )
         return replace(
             linear,
@@ -1485,14 +1482,9 @@ def with_power_weight(
         tol=DEFAULT_TOL,
         mandatory_breakpoints=linear.hard_kinks,
     )
-    table = replace(
-        table,
-        coefficients=_frozen_copy(table.coefficients),
-        breakpoints=_frozen_copy(table.breakpoints),
-        degrees=_frozen_copy(table.degrees),
-        hard_kinks=_frozen_copy(table.hard_kinks),
+    return replace(
+        linear, power_weight_representation="table", power_weight=_held_table(table)
     )
-    return replace(linear, power_weight_representation="table", power_weight=table)
 
 
 # Nothing in the package calls isinstance on this, but the test session's beartype hook
@@ -1841,7 +1833,7 @@ def endpoint_phi(
     coefficients = endpoint.coefficients.copy()
     coefficients[:, 0] -= entrance
     endpoint = replace(endpoint, coefficients=coefficients)
-    combined = _add_phi_tables(linear.polynomial, endpoint)
+    combined = _held_table(_add_phi_tables(linear.polynomial, endpoint))
     return replace(
         linear,
         phi_coefficients=combined.coefficients,
@@ -2164,7 +2156,7 @@ def _z_table_operator(  # noqa: PLR0913 - the fallback build's knobs, as `build`
             n_max=n_max,
             max_intervals=max_intervals,
         )
-    phi = resolved.integral()
+    phi = _held_table(resolved.integral())
     if resolved.budget_exceeded:
         logger.warning(
             "Phi: the interval budget of %d is exhausted even at %.1e over [0, %.6g] "

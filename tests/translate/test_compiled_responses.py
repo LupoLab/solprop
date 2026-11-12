@@ -175,6 +175,14 @@ def test_the_multimode_prefactor_leaves_the_area_to_the_transform(envelope_grid,
     assert np.array_equal(compiled.prefactor_constant[0, 0], expected)
 
 
+def test_the_built_prefactor_is_not_copied_again(envelope_grid, mode):
+    # Built for the responses alone, it is frozen in place and adopted as it stands.
+    compiled = compile_for(envelope_grid, mode, mode_averaged=False)
+    assert compiled.prefactor_constant is not None
+    again = replace(compiled)
+    assert again.prefactor_constant is compiled.prefactor_constant
+
+
 def prefactor_kinks(compiled):
     """Return the hard kinks of whichever representation carries the prefactor."""
     if compiled.prefactor_expansion is not None:

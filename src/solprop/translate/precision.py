@@ -37,6 +37,7 @@ import numpy as np
 from solprop import fourier
 from solprop.exceptions import TranslationError
 from solprop.fourier import GridKind
+from solprop.translate.chebyshev import _hold
 
 __all__ = [
     "DOUBLE",
@@ -382,8 +383,7 @@ def narrow(values: np.ndarray) -> Narrowed:
     source = np.asarray(values)
     dtype = np.complex64 if np.iscomplexobj(source) else np.float32
     scaled = source * math.ldexp(1.0, -exponent)
-    result = np.ascontiguousarray(scaled, dtype=dtype)
-    result.setflags(write=False)
+    result = _hold(np.ascontiguousarray(scaled, dtype=dtype))
     return Narrowed(result, exponent)
 
 

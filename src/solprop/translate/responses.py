@@ -91,6 +91,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     PiecewiseChebyshev,
     _frozen_copy,
+    _held_table,
+    _hold,
     build_from_paths,
 )
 from solprop.translate.envelope_plasma import (
@@ -717,13 +719,11 @@ def dispersive_terms(
         labels=tuple(labels),
         coefficients=tuple(float(one.coefficient) for one in responses),
         positive=_frozen_copy(sampled[0].positive),
-        filters=_frozen_copy(np.stack([one.filter for one in sampled])),
-        outputs=_frozen_copy(
-            np.stack([cast("np.ndarray", one.output) for one in sampled])
-        )
+        filters=_hold(np.stack([one.filter for one in sampled])),
+        outputs=_hold(np.stack([cast("np.ndarray", one.output) for one in sampled]))
         if polynomial
         else None,
-        products=_frozen_copy(np.array([one.products for one in sampled], dtype=float))
+        products=_hold(np.array([one.products for one in sampled], dtype=float))
         if polynomial
         else None,
         densities=tuple(densities),
@@ -2473,13 +2473,7 @@ def _prefactor_table(  # noqa: PLR0913 - the build's knobs, as `build_phi` has t
             span,
             tol,
         )
-    return PiecewiseChebyshev(
-        _frozen_copy(table.coefficients),
-        _frozen_copy(table.breakpoints),
-        _frozen_copy(table.degrees),
-        _frozen_copy(table.hard_kinks),
-        table.budget_exceeded,
-    )
+    return _held_table(table)
 
 
 def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:  # noqa: UP037
@@ -2568,7 +2562,9 @@ def _translated_prefactor(
     return _PrefactorRepresentation(
         "constant" if constant else "table",
         table=supplied,
-        constant=np.asarray(supplied(supplied.z_span[0]), dtype=np.complex128)
+        # The table's own read-only value at its start, which only the table refers
+        # to: held where it stands, so a complex128 value is not copied.
+        constant=_frozen_copy(_hold(supplied(supplied.z_span[0])), np.complex128)
         if constant
         else None,
     )
@@ -3412,7 +3408,7 @@ def compile_responses(  # noqa: PLR0913 - the contract's section 5 has this many
         prefactor_constant=(
             supplied.constant
             if supplied is not None
-            else prefactor_at(0.0)
+            else _hold(prefactor_at(0.0))
             if constant and prefactor_at is not None
             else None
         ),
@@ -3799,8 +3795,12 @@ def raman_coefficients(  # noqa: PLR0913 - the leaf needs the grid, the path and
                 "does not oversample enough to hold it"
             )
             raise TranslationError(msg)
+    # Sampled here, the rows are the leaf's alone and are held without a copy; rows
+    # handed in are copied by the leaf unless solprop already holds them.
     samples = (
-        build_raman_kernels(raman, grid).undamped if undamped is None else undamped
+        _hold(build_raman_kernels(raman, grid).undamped)
+        if undamped is None
+        else undamped
     )
     tables = tuple(
         profile_table(path, 0.0, span, tol=tol)
@@ -3814,7 +3814,7 @@ def raman_coefficients(  # noqa: PLR0913 - the leaf needs the grid, the path and
         dtype=np.float64,
     )
     return RamanCoefficients(
-        _frozen_copy(samples),
+        samples,
         tables,
         raman.scale,
         thg=raman.thg,

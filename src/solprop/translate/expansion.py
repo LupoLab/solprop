@@ -67,6 +67,8 @@ from solprop.translate.chebyshev import (
     SAMPLING_NOISE_FACTOR,
     PiecewiseChebyshev,
     _frozen_copy,
+    _held_table,
+    _hold,
     build,
     interleave_axis,
     lobatto_points,
@@ -479,7 +481,9 @@ def build_expansion(  # noqa: PLR0913 - the build's knobs, as `build` has them
         max_intervals=max_intervals,
         integrate=integrate,
     )
-    expansion = ParameterExpansion(names, ranges, degrees, terms, weights)
+    expansion = ParameterExpansion(
+        names, _hold(ranges), _hold(degrees), _hold(terms), weights
+    )
     _log_expansion(expansion)
     return expansion
 
@@ -533,10 +537,10 @@ def _joined_weights(
     )
     return replace(
         table,
-        coefficients=_frozen_copy(table.coefficients),
-        breakpoints=_frozen_copy(table.breakpoints),
-        degrees=_frozen_copy(table.degrees),
-        hard_kinks=_frozen_copy(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
+        coefficients=_hold(table.coefficients),
+        breakpoints=_hold(table.breakpoints),
+        degrees=_hold(table.degrees),
+        hard_kinks=_hold(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
     )
 
 
@@ -592,9 +596,9 @@ def append_endpoint_expansion(
         integral.parameters,
         integral.ranges,
         integral.degrees,
-        np.concatenate((integral.terms, terms)),
+        _hold(np.concatenate((integral.terms, terms))),
         _joined_weights(integral.weights, weights),
-        degrees,
+        _hold(degrees),
     )
 
 
@@ -1087,13 +1091,7 @@ def _weight_tables(  # noqa: PLR0913 - one call site; every argument is a distin
     )
     if integrate:
         table = table.integral()
-    return PiecewiseChebyshev(
-        _frozen_copy(table.coefficients),
-        _frozen_copy(table.breakpoints),
-        _frozen_copy(table.degrees),
-        _frozen_copy(table.hard_kinks),
-        table.budget_exceeded,
-    )
+    return _held_table(table)
 
 
 def _mapping_noise(ranges: Float[np.ndarray, "n_params two"]) -> float:

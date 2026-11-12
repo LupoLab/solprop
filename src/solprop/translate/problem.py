@@ -5398,10 +5398,10 @@ def _general_prefactor(
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(
-        _frozen_copy(values),
-        _frozen_copy(np.asarray(linear.z_span, dtype=np.float64)),
-        _frozen_copy(np.zeros(1, dtype=np.intp)),
-        _frozen_copy(np.zeros(0)),
+        _hold(values),
+        _hold(np.array(linear.z_span, dtype=np.float64)),
+        _hold(np.zeros(1, dtype=np.intp)),
+        _hold(np.zeros(0)),
     )
 
 

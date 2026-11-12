@@ -41,6 +41,7 @@ from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.physdata import Gas, Mixture, as_gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.spatial import SpatialDispersion, SpatialMedium
+from solprop.translate.chebyshev import _hold
 from solprop.translate.linop import DEFAULT_MARGIN, LinearOperator, tabulate
 from solprop.translate.modal import Transform
 from solprop.translate.spatial import SeparableOperator, SpatialGeometry
@@ -157,7 +158,9 @@ def planar_transform(
         inverse_scale=1 / space.n_y,
     )
     return Transform(
-        synthesis=space.synthesis * time.pad_scale,
+        # The product is this transform's own; the projections are the grid's, and
+        # the transform copies them.
+        synthesis=_hold(space.synthesis * time.pad_scale),
         projection=space.projection,
         projection_coarse=space.projection_coarse,
         taper_scale=None,

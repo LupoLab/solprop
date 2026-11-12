@@ -45,6 +45,7 @@ from solprop.nonlinear.tdse import (
     TDSEModel,
     TDSESampling,
 )
+from solprop.translate.chebyshev import _hold
 
 __all__ = [
     "DESCRIPTOR_SCHEMA",
@@ -944,8 +945,7 @@ def _gate_derivative_from_json(
     times = lattice_times(lattice["samples"], lattice["spacing"])
     evaluate = planck_taper_derivative_error if error else planck_taper_derivative
     derivative = evaluate(times, *_breakpoints_from_json(encoded))
-    derivative.setflags(write=False)
-    return derivative
+    return _hold(derivative)
 
 
 @functools.cache
@@ -967,8 +967,7 @@ def _gate_from_json(encoded: str) -> Float[np.ndarray, " n_to"] | None:
         return None
     lattice = json.loads(encoded)["lattice"]
     gate = window.gate_values(lattice_times(lattice["samples"], lattice["spacing"]))
-    gate.setflags(write=False)
-    return gate
+    return _hold(gate)
 
 
 def waveform_identity(fields: Float[np.ndarray, "n_nodes n_to"]) -> str:

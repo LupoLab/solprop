@@ -2051,6 +2051,30 @@ def _hold(values: np.ndarray) -> np.ndarray:
     return values
 
 
+def _held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
+    """Hold the arrays of a table solprop has just built, in place, and return it.
+
+    Parameters
+    ----------
+    table : PiecewiseChebyshev
+        A table no one else refers to, such as what :func:`build` or
+        :meth:`PiecewiseChebyshev.integral` just returned.
+
+    Returns
+    -------
+    PiecewiseChebyshev
+        The same table, its arrays read-only and held.
+    """
+    for values in (
+        table.coefficients,
+        table.breakpoints,
+        table.degrees,
+        table.hard_kinks,
+    ):
+        _hold(values)
+    return table
+
+
 def _is_held(values: object) -> bool:
     """Return whether an array is read-only down to an array :func:`_hold` marked.
 

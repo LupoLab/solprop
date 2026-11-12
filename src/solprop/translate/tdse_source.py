@@ -31,6 +31,7 @@ from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.physdata.species import Species, species
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.translate.chebyshev import _hold
 from solprop.translate.tdse import TDSEDescriptor, lattice_times
 
 __all__ = [
@@ -237,8 +238,7 @@ def current_numerator(grid: TimeGrid) -> Float[np.ndarray, "1 1 n_omega"]:
     """
     values = np.zeros((1, 1, grid.n_omega), dtype=np.float64)
     values[..., grid.active_mask] = -grid.crop_scale / (2 * EPS0 * C)
-    values.setflags(write=False)
-    return values
+    return _hold(values)
 
 
 def steady_current_certificate(

@@ -41,7 +41,12 @@ from solprop.grid import TimeGrid
 from solprop.modes.protocol import GEOMETRY_PATH_NAMES, Mode
 from solprop.modes.quadrature import TransverseQuadrature, mode_matrix, taper_scale
 from solprop.nonlinear.normalisation import sqrtw_to_vm
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev, _frozen_copy
+from solprop.translate.chebyshev import (
+    DEFAULT_TOL,
+    PiecewiseChebyshev,
+    _frozen_copy,
+    _hold,
+)
 from solprop.translate.linop import tabulate
 from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.spatial import SpatialGeometry
@@ -559,8 +564,8 @@ def mode_averaged_transform(
             tol=tol,
         )
     )
-    synthesis = np.array([[sqrtw_to_vm(reference) * grid.pad_scale]])
-    identity = np.array([[1.0]])
+    synthesis = _hold(np.array([[sqrtw_to_vm(reference) * grid.pad_scale]]))
+    identity = _hold(np.array([[1.0]]))
     logger.debug(
         "mode-averaged transform: A_eff(0) = %.6e m^2 over %d intervals, taper %s",
         reference,
@@ -681,10 +686,11 @@ def multimode_transform(  # noqa: PLR0913 - the documented signature takes every
         matrices.n_pol,
         "tabulated" if taper is not None else "absent",
     )
+    # The matrices were built for this transform alone: held in place, not copied.
     return Transform(
-        synthesis=matrices.synthesis * grid.pad_scale,
-        projection=matrices.projection,
-        projection_coarse=matrices.projection_coarse,
+        synthesis=_hold(matrices.synthesis * grid.pad_scale),
+        projection=_hold(matrices.projection),
+        projection_coarse=_hold(matrices.projection_coarse),
         taper_scale=taper,
         aeff=aeff,
         _n_pol=matrices.n_pol,
@@ -759,9 +765,9 @@ def general_modal_transform(
         tables.gauge_id,
     )
     return Transform(
-        synthesis=np.zeros((1, n_modes)),
-        projection=np.zeros((n_modes, 1)),
-        projection_coarse=np.zeros((n_modes, 1)),
+        synthesis=_hold(np.zeros((1, n_modes))),
+        projection=_hold(np.zeros((n_modes, 1))),
+        projection_coarse=_hold(np.zeros((n_modes, 1))),
         taper_scale=None,
         aeff=aeff,
         modal_tables=tables,
