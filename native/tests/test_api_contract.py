@@ -161,7 +161,10 @@ def test_build_info_is_frozen_and_complete() -> None:
     # in the variant the build's target selects (the x86-64 wheel's x86-64-v3 is
     # AVX2), the system libm on Arm by default and always on a device.
     sleef = "SLEEF 3.9.0 u10, "
-    if info.vector_math.startswith(sleef):
+    highway = "Highway 1.4.0, "
+    if info.vector_math.startswith(highway):
+        assert info.device_backend == "none"
+    elif info.vector_math.startswith(sleef):
         assert info.vector_math.removeprefix(sleef) in {
             "AVX-512F",
             "AVX2",
@@ -171,7 +174,7 @@ def test_build_info_is_frozen_and_complete() -> None:
         assert info.device_backend == "none"
     else:
         assert info.vector_math == "scalar libm"
-    if info.cpu_baseline == "x86-64-v3":
+    if info.cpu_baseline == "x86-64-v3" and not info.vector_math.startswith(highway):
         assert info.vector_math == f"{sleef}AVX2"
     if info.device_backend != "none":
         assert info.vector_math == "scalar libm"

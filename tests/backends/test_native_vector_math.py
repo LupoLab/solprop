@@ -36,6 +36,8 @@ TINY = np.finfo(np.float64).smallest_subnormal
 DIGITS = 50
 # One ulp of the result: SLEEF's u10 bound, and the system libm's.
 ULPS = 1.0
+# The Highway route (a prototype): sin and cos are held to an absolute bound instead.
+HIGHWAY = native.build_info().vector_math.startswith("Highway ")
 
 
 def _ulps(computed, exact):
@@ -46,6 +48,16 @@ def _ulps(computed, exact):
         spacing = np.spacing(np.abs(rounded)) if rounded != 0.0 else TINY
         error[i] = float(abs(mp.mpf(float(value)) - reference)) / max(spacing, TINY)
     return error
+
+
+def _absolute(computed, exact):
+    """Each element's absolute error, from mpf values."""
+    return np.array(
+        [
+            float(abs(mp.mpf(float(value)) - reference))
+            for value, reference in zip(computed, exact, strict=True)
+        ]
+    )
 
 
 def _exponents():
@@ -115,8 +127,15 @@ def test_sincos_is_within_one_ulp():
         # mpmath reduces exactly at this precision: 1e15 needs about 16 more digits.
         exact_sine = [mp.sin(mp.mpf(float(value))) for value in x]
         exact_cosine = [mp.cos(mp.mpf(float(value))) for value in x]
-        assert _ulps(sine, exact_sine).max() <= ULPS
-        assert _ulps(cosine, exact_cosine).max() <= ULPS
+        if HIGHWAY:
+            # Highway's SinCos reduces by a three-part pi (Cody-Waite): near a zero of
+            # sin or cos at k pi / 2, k != 0, the component keeps its absolute error
+            # (within one eps of the unit phasor) but not one ulp of its own small value.
+            assert _absolute(sine, exact_sine).max() <= EPS
+            assert _absolute(cosine, exact_cosine).max() <= EPS
+        else:
+            assert _ulps(sine, exact_sine).max() <= ULPS
+            assert _ulps(cosine, exact_cosine).max() <= ULPS
 
 
 def test_complex_exponential_is_within_its_product_bound():

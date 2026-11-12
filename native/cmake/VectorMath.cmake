@@ -29,15 +29,19 @@
 # SLEEF 3.9.0 is fetched like Kokkos (FETCHCONTENT_SOURCE_DIR_SLEEF names a local copy
 # for an offline build) and linked static.
 set(SOLPROP_NATIVE_SLEEF_VERSION "3.9.0")
+# HIGHWAY (a prototype, perf/highway-vmath): Highway's contrib maths behind the same
+# layer, compiled for each target and chosen at run time (src/vmath_highway.cpp).
+set(SOLPROP_NATIVE_HIGHWAY_VERSION "1.4.0")
+set(SOLPROP_NATIVE_HIGHWAY_COMMIT "2607d3b5b0113992fe84d3848859eae13b3b52c1")
 set(SOLPROP_NATIVE_VECTOR_MATH "AUTO" CACHE STRING
-    "Host vector maths for the transcendental passes: AUTO, SLEEF or SCALAR")
-set_property(CACHE SOLPROP_NATIVE_VECTOR_MATH PROPERTY STRINGS AUTO SLEEF SCALAR)
+    "Host vector maths for the transcendental passes: AUTO, SLEEF, HIGHWAY or SCALAR")
+set_property(CACHE SOLPROP_NATIVE_VECTOR_MATH PROPERTY STRINGS AUTO SLEEF HIGHWAY SCALAR)
 option(SOLPROP_NATIVE_VECTOR_MATH_AVX512
        "Take SLEEF's AVX-512F functions where the target has AVX-512F" OFF)
 string(TOUPPER "${SOLPROP_NATIVE_VECTOR_MATH}" _vector_math_request)
-if(NOT _vector_math_request MATCHES "^(AUTO|SLEEF|SCALAR)$")
+if(NOT _vector_math_request MATCHES "^(AUTO|SLEEF|HIGHWAY|SCALAR)$")
   message(FATAL_ERROR
-    "SOLPROP_NATIVE_VECTOR_MATH must be AUTO, SLEEF or SCALAR; "
+    "SOLPROP_NATIVE_VECTOR_MATH must be AUTO, SLEEF, HIGHWAY or SCALAR; "
     "got ${SOLPROP_NATIVE_VECTOR_MATH}.")
 endif()
 set(_vector_math_arm OFF)
@@ -45,9 +49,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
   set(_vector_math_arm ON)
 endif()
 if(_device_build)
-  if(_vector_math_request STREQUAL "SLEEF")
+  if(_vector_math_request MATCHES "^(SLEEF|HIGHWAY)$")
     message(FATAL_ERROR
-      "SOLPROP_NATIVE_VECTOR_MATH=SLEEF is for CPU builds; device kernels keep their "
+      "SOLPROP_NATIVE_VECTOR_MATH=${_vector_math_request} is for CPU builds; device kernels keep their "
       "own functions.")
   endif()
   set(SOLPROP_NATIVE_VECTOR_MATH "SCALAR")
@@ -57,10 +61,10 @@ elseif(_vector_math_request STREQUAL "AUTO")
   else()
     set(SOLPROP_NATIVE_VECTOR_MATH "SCALAR")
   endif()
-elseif(_vector_math_request STREQUAL "SLEEF" AND NOT _x86_processor AND
+elseif(_vector_math_request MATCHES "^(SLEEF|HIGHWAY)$" AND NOT _x86_processor AND
        NOT _vector_math_arm)
   message(FATAL_ERROR
-    "SOLPROP_NATIVE_VECTOR_MATH=SLEEF supports x86-64 and aarch64; this is "
+    "SOLPROP_NATIVE_VECTOR_MATH=${_vector_math_request} supports x86-64 and aarch64; this is "
     "${CMAKE_SYSTEM_PROCESSOR}.")
 else()
   set(SOLPROP_NATIVE_VECTOR_MATH "${_vector_math_request}")
@@ -144,11 +148,40 @@ function(_solprop_native_add_sleef)
   set(sleef_SOURCE_DIR "${sleef_SOURCE_DIR}" PARENT_SCOPE)
 endfunction()
 
+# Highway, fetched at kfft's pinned commit and built static into this project (its
+# `hwy` target alone: no tests, examples, contrib library or install). Its headers are
+# system headers here, so this project's warnings do not reach them.
+function(_solprop_native_add_highway)
+  set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+  set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
+  set(HWY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+  set(HWY_FORCE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+  set(BUILD_SHARED_LIBS OFF)
+  FetchContent_Declare(
+    highway
+    GIT_REPOSITORY https://github.com/google/highway.git
+    GIT_TAG ${SOLPROP_NATIVE_HIGHWAY_COMMIT}
+    GIT_PROGRESS TRUE
+  )
+  FetchContent_MakeAvailable(highway)
+  set_target_properties(hwy PROPERTIES POSITION_INDEPENDENT_CODE ON
+                                       CXX_VISIBILITY_PRESET hidden)
+  get_target_property(_hwy_includes hwy INTERFACE_INCLUDE_DIRECTORIES)
+  set_target_properties(hwy PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_hwy_includes}")
+  set(highway_SOURCE_DIR "${highway_SOURCE_DIR}" PARENT_SCOPE)
+endfunction()
+
 set(SOLPROP_NATIVE_VECTOR_MATH_RECORD "scalar libm")
 if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "SLEEF")
   enable_language(C)
   _solprop_native_add_sleef()
   set(SOLPROP_NATIVE_VECTOR_MATH_RECORD "SLEEF ${SOLPROP_NATIVE_SLEEF_VERSION}")
+endif()
+if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "HIGHWAY")
+  _solprop_native_add_highway()
+  set(SOLPROP_NATIVE_VECTOR_MATH_RECORD "Highway ${SOLPROP_NATIVE_HIGHWAY_VERSION}")
 endif()
 message(STATUS "solprop-native vector maths: ${SOLPROP_NATIVE_VECTOR_MATH_RECORD}")
 
@@ -160,5 +193,25 @@ function(solprop_native_link_vector_math target)
     if(SOLPROP_NATIVE_VECTOR_MATH_AVX512)
       target_compile_definitions(${target} PUBLIC SOLPROP_NATIVE_VECTOR_MATH_AVX512=1)
     endif()
+  endif()
+  if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "HIGHWAY")
+    target_sources(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src/vmath_highway.cpp")
+    # foreach_target re-includes the file by its name; Highway's products and sums
+    # stay as it wrote them.
+    set(_options "")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang)$")
+      set(_options "-ffp-contract=off")
+    endif()
+    set_source_files_properties("${PROJECT_SOURCE_DIR}/src/vmath_highway.cpp"
+      TARGET_DIRECTORY ${target}
+      PROPERTIES INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/src"
+                 COMPILE_OPTIONS "${_options}")
+    target_link_libraries(${target} PUBLIC hwy)
+    target_compile_definitions(${target} PUBLIC SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY=1)
+    # No AVX10.2 target: binutils before 2.43 (RHEL 9's 2.35, for one) cannot assemble
+    # its instructions, and no CPU this project targets has it yet.
+    set_property(SOURCE "${PROJECT_SOURCE_DIR}/src/vmath_highway.cpp"
+      TARGET_DIRECTORY ${target} APPEND PROPERTY COMPILE_DEFINITIONS
+      "HWY_DISABLED_TARGETS=HWY_AVX10_2")
   endif()
 endfunction()

@@ -238,6 +238,27 @@ inline void exp_complex(const double* a, const double* b, double* real, double* 
                        });
 }
 
+#elif defined(SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY)
+// The Highway route (src/vmath_highway.cpp): Highway's contrib maths, wrapped to C99's
+// special values and the system libm outside SinCos's range, chosen at run time for
+// the CPU among the targets the build compiles.
+inline constexpr bool vectorised = true;
+// An upper bound on the dispatched target's lanes (AVX-512: eight doubles).
+inline constexpr std::size_t width = 8;
+inline constexpr const char* route = "Highway";
+
+/** `y_i = exp(x_i)` for `i < n`. */
+void exp(const double* x, double* y, std::size_t n);
+/** `y_i = log(x_i)` for `i < n`. */
+void log(const double* x, double* y, std::size_t n);
+/** `sine_i = sin(x_i)` and `cosine_i = cos(x_i)` for `i < n`. */
+void sincos(const double* x, double* sine, double* cosine, std::size_t n);
+/** `(real_i, imag_i) = e^{a_i} (cos b_i, sin b_i)` for `i < n`. */
+void exp_complex(const double* a, const double* b, double* real, double* imag,
+                 std::size_t n);
+/** The Highway target the CPU dispatches to (for the build record). */
+const char* target();
+
 #else
 inline constexpr bool vectorised = false;
 inline constexpr std::size_t width = 1;

@@ -7482,7 +7482,8 @@ constexpr std::size_t adams_block = adams_lane_width;
 // passes (`vmath::vectorised`); elsewhere (devices, the system libm on Arm) each
 // element forms its own, and the lanes are not compiled.
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP) &&                     \
-    defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
+    (defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) ||                                      \
+     defined(SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY))
 #define SOLPROP_NATIVE_ADAMS_LANES 1
 #endif
 

@@ -143,8 +143,15 @@ TEST(VectorMath, AgreesWithTheSystemLibm) {
     for (std::size_t i = 0; i < n; ++i) {
       // Near a zero of sin or cos one ulp of the result is far below one ulp of the
       // partner value, so each is compared at its own magnitude.
+#ifdef SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY
+      // Highway's three-part pi reduction keeps the absolute error (each side within
+      // one eps of the unit phasor), not one ulp of a component near its zero.
+      EXPECT_LE(std::fabs(s[i] - std::sin((*values)[i])), 4.0 * kUnitRoundoff);
+      EXPECT_LE(std::fabs(c[i] - std::cos((*values)[i])), 4.0 * kUnitRoundoff);
+#else
       expect_within_two_ulps(s[i], std::sin((*values)[i]));
       expect_within_two_ulps(c[i], std::cos((*values)[i]));
+#endif
     }
   }
   vmath::exp_complex(small.data(), phase.data(), re.data(), im.data(), n);
@@ -229,7 +236,8 @@ TEST(VectorMath, SpecialValuesFollowC99) {
 }
 
 TEST(VectorMath, RouteMatchesTheBuild) {
-#ifdef SOLPROP_NATIVE_VECTOR_MATH_SLEEF
+#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) ||                                       \
+    defined(SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY)
   EXPECT_TRUE(vmath::vectorised);
   EXPECT_GE(vmath::width, 2U);
 #else

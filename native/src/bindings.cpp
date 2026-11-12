@@ -2995,10 +2995,15 @@ nb::dict build_record() {
   result["cpu_baseline"] = SOLPROP_NATIVE_CPU_BASELINE;
   // The host kernels' transcendental passes (solprop ADR-059): SLEEF's u10 functions
   // in the variant the build targets, or the system libm.
+#ifdef SOLPROP_NATIVE_VECTOR_MATH_HIGHWAY
+  result["vector_math"] = std::string("Highway ") + SOLPROP_NATIVE_HIGHWAY_VERSION +
+                          ", " + solprop_native::vmath::target();
+#else
   result["vector_math"] = solprop_native::vmath::vectorised
                               ? std::string("SLEEF ") + SOLPROP_NATIVE_SLEEF_VERSION +
                                     " u10, " + solprop_native::vmath::route
                               : std::string(solprop_native::vmath::route);
+#endif
   std::optional<int> blas_threads;
   std::string blas_threading = "provider-managed";
   if (std::string(SOLPROP_NATIVE_BLAS_BACKEND) == "OpenBLAS") {
