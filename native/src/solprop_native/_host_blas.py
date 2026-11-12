@@ -29,7 +29,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from solprop._process import thread_count
+from ._budget import thread_count
 
 logger = logging.getLogger(__name__)
 

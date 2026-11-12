@@ -16,6 +16,10 @@ import pytest
 
 from solprop import _process
 
+NATIVE_BUDGET = (
+    Path(__file__).parents[1] / "native" / "src" / "solprop_native" / "_budget.py"
+)
+
 
 @pytest.fixture(autouse=True)
 def _one_kind_of_core(monkeypatch):
@@ -224,8 +228,109 @@ def test_a_blank_solprop_threads_is_unset(monkeypatch):
     assert _process.thread_count("SOLPROP_THREADS") is None
 
 
-def test_the_processs_own_quota_is_read_once(monkeypatch):
-    reader = _process
+@pytest.fixture
+def native_budget(monkeypatch):
+    """The native package's copy of the reader, loaded without starting its core."""
+    spec = importlib.util.spec_from_file_location("_native_budget", NATIVE_BUDGET)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "_native_budget", module)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "top_tier_cores", lambda: None)
+    return module
+
+
+@pytest.mark.parametrize(("line", "groups", "expected"), CGROUP_CASES)
+def test_the_native_copy_reads_control_groups_alike(
+    tmp_path, native_budget, line, groups, expected
+):
+    root = _cgroup(tmp_path, line, groups)
+    assert native_budget.cgroup_cpus(root) == _process.cgroup_cpus(root) == expected
+
+
+@pytest.mark.parametrize("cores", [None, 6])
+@pytest.mark.parametrize("quota", [None, 3])
+@pytest.mark.parametrize("variable", [None, "2", "64"])
+@pytest.mark.parametrize("oversubscribe", [None, "0", "1"])
+def test_the_native_copy_sets_the_same_budget(
+    monkeypatch, native_budget, cores, quota, variable, oversubscribe
+):
+    """Both backends read the same budget, and clamp an explicit count alike.
+
+    So ``thread_budget`` means the same in every backend's metadata.
+    """
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(8)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: cores)
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: quota)
+    monkeypatch.delenv("SOLPROP_NATIVE_THREADS", raising=False)
+    for name, value in (
+        ("SOLPROP_THREADS", variable),
+        ("SOLPROP_OVERSUBSCRIBE", oversubscribe),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(8, cores)
+    fields = ("threads", "source", "oversubscribe", "requested")
+    assert [getattr(theirs, f) for f in fields] == [getattr(ours, f) for f in fields]
+    for count in (1, 4, 16):
+        assert theirs.explicit(count) == ours.explicit(count)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
+def test_the_native_copy_refuses_the_same_counts(monkeypatch, native_budget, value):
+    monkeypatch.setenv("SOLPROP_THREADS", value)
+    with pytest.raises(ValueError, match="SOLPROP_THREADS") as ours:
+        _process.thread_count("SOLPROP_THREADS")
+    with pytest.raises(ValueError, match="SOLPROP_THREADS") as theirs:
+        native_budget.thread_count("SOLPROP_THREADS")
+    assert str(ours.value) == str(theirs.value)
+
+
+@pytest.mark.parametrize(
+    ("native", "oversubscribe", "expected"),
+    [(None, None, 4), ("8", None, 4), ("2", None, 2), ("16", "1", 16)],
+)
+def test_the_native_count_narrows_unless_oversubscribing(
+    monkeypatch, native_budget, native, oversubscribe, expected
+):
+    """The Kokkos pool is the native count within the budget, which stays the CPUs."""
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    for name, value in (
+        ("SOLPROP_NATIVE_THREADS", native),
+        ("SOLPROP_OVERSUBSCRIBE", oversubscribe),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    budget = native_budget.thread_budget(4)
+    assert (budget.threads, budget.source) == (4, "affinity")
+    assert native_budget.native_threads(budget) == expected
+
+
+def test_oversubscribing_never_passes_solprop_threads(monkeypatch, native_budget):
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", "1")
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
+    monkeypatch.setenv("SOLPROP_NATIVE_THREADS", "16")
+    budget = native_budget.thread_budget(4)
+    assert (budget.threads, budget.source) == (3, "SOLPROP_THREADS")
+    assert native_budget.native_threads(budget) == 3
+    assert (
+        _process.ThreadBudget(4, "affinity", oversubscribe=True, requested=3).explicit(
+            16
+        )
+        == 3
+    )
+
+
+@pytest.mark.parametrize("module", ["solprop", "native"])
+def test_the_processs_own_quota_is_read_once(monkeypatch, native_budget, module):
+    reader = _process if module == "solprop" else native_budget
     reads = []
 
     def read(root):
@@ -242,10 +347,12 @@ def test_the_processs_own_quota_is_read_once(monkeypatch):
 
 
 @pytest.mark.parametrize("value", ["yes", "2"])
-def test_oversubscribe_is_zero_or_one(monkeypatch, value):
+def test_oversubscribe_is_zero_or_one(monkeypatch, native_budget, value):
     monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", value)
     with pytest.raises(ValueError, match="SOLPROP_OVERSUBSCRIBE"):
         _process.oversubscribing()
+    with pytest.raises(ValueError, match="SOLPROP_OVERSUBSCRIBE"):
+        native_budget.oversubscribing()
 
 
 def _topology(root, cpus):
@@ -275,18 +382,20 @@ SMT = {cpu: (cpu % 4 // 2, cpu % 2) for cpu in range(8)}
     ],
 )
 def test_physical_cores_count_package_and_core_pairs(
-    tmp_path, monkeypatch, cpus, expected
+    tmp_path, native_budget, monkeypatch, cpus, expected
 ):
     root = _topology(tmp_path, SMT)
-    monkeypatch.setattr(_process.sys, "platform", "linux")
-    assert _process.physical_cores(tuple(cpus), root) == expected
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module.sys, "platform", "linux")
+        assert module.physical_cores(tuple(cpus), root) == expected
 
 
-def test_windows_cores_count_the_masks_holding_the_cpus():
+def test_windows_cores_count_the_masks_holding_the_cpus(native_budget):
     masks = [0b0001_0001, 0b0010_0010, 0b0100_0100, 0b1000_1000]
-    assert _process.cores_in_masks(masks, range(8)) == 4
-    assert _process.cores_in_masks(masks, (0, 4, 1)) == 2
-    assert _process.cores_in_masks(masks, ()) == 0
+    for module in (_process, native_budget):
+        assert module.cores_in_masks(masks, range(8)) == 4
+        assert module.cores_in_masks(masks, (0, 4, 1)) == 2
+        assert module.cores_in_masks(masks, ()) == 0
 
 
 @pytest.mark.parametrize(
@@ -315,7 +424,7 @@ def test_the_budget_counts_physical_cores_unless_threads_are_asked_for(
 @pytest.fixture
 def native_wait(monkeypatch):
     """The native package's wait-policy module, loaded without starting its core."""
-    path = Path(__file__).parents[1] / "native" / "src" / "solprop_native" / "_wait.py"
+    path = NATIVE_BUDGET.with_name("_wait.py")
     spec = importlib.util.spec_from_file_location("_native_wait", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -380,12 +489,13 @@ def test_a_wait_policy_the_user_chose_is_kept(native_wait, name, value):
 
 @pytest.mark.parametrize(("platform", "expected"), [("win32", 3), ("darwin", None)])
 def test_physical_cores_ask_windows_and_trust_other_platforms(
-    monkeypatch, platform, expected
+    native_budget, monkeypatch, platform, expected
 ):
     """Windows asks its processor table; Apple silicon has one thread per core."""
-    monkeypatch.setattr(_process.sys, "platform", platform)
-    monkeypatch.setattr(_process, "_windows_cores", lambda cpus: 3)
-    assert _process.physical_cores((0, 1, 2, 3)) == expected
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module.sys, "platform", platform)
+        monkeypatch.setattr(module, "_windows_cores", lambda cpus: 3)
+        assert module.physical_cores((0, 1, 2, 3)) == expected
 
 
 @pytest.mark.parametrize(
@@ -479,13 +589,14 @@ def _perf_levels(levels, top):
     ],
 )
 def test_top_tier_cores_read_the_fastest_performance_level(
-    monkeypatch, platform, levels, top, expected
+    native_budget, monkeypatch, platform, levels, top, expected
 ):
-    monkeypatch.undo()
-    monkeypatch.setattr(_process.sys, "platform", platform)
-    monkeypatch.setattr(_process, "sysctl_int", _perf_levels(levels, top))
-    reader = getattr(_process.top_tier_cores, "__wrapped__", _process.top_tier_cores)
-    assert reader() == expected
+    for module in (_process, native_budget):
+        monkeypatch.undo()
+        monkeypatch.setattr(module.sys, "platform", platform)
+        monkeypatch.setattr(module, "_sysctl_int", _perf_levels(levels, top))
+        reader = getattr(module.top_tier_cores, "__wrapped__", module.top_tier_cores)
+        assert reader() == expected
 
 
 @pytest.mark.parametrize(
@@ -497,18 +608,21 @@ def test_top_tier_cores_read_the_fastest_performance_level(
     ],
 )
 def test_the_budget_keeps_to_the_top_tier_unless_threads_are_asked_for(
-    monkeypatch, variable, expected
+    monkeypatch, native_budget, variable, expected
 ):
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(18)))
     monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
-    monkeypatch.setattr(_process, "top_tier_cores", lambda: 6)
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module, "top_tier_cores", lambda: 6)
     if variable is None:
         monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     else:
         monkeypatch.setenv("SOLPROP_THREADS", variable)
-    budget = _process.thread_budget()
-    assert (budget.source, budget.threads) == expected
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(18, None)
+    assert (ours.source, ours.threads) == expected
+    assert (theirs.source, theirs.threads) == expected
 
 
 def test_a_child_takes_the_blas_idle_defaults_unless_it_has_its_own():

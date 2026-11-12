@@ -27,6 +27,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ._bind import proc_bind
+from ._budget import (
+    cgroup_cpus,
+    native_threads,
+    physical_cores,
+    thread_budget,
+    thread_count,
+    top_tier_cores,
+)
 from ._cpu import check_cpu_baseline, select_variant
 from ._execution import ExecutionRecord
 from ._execution import builtin as _builtin_execution
@@ -54,33 +62,14 @@ PROCESS_CPUS: tuple[int, ...] = (
     tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
 )
 
-# solprop's reader of the process's thread budget (ADR-052), imported once those CPUs
-# are recorded, so that its own import-time grant sees them.
-from solprop._process import (  # noqa: E402
-    ThreadBudget,
-    cgroup_cpus,
-    thread_budget,
-    thread_count,
-    top_tier_cores,
+# The process's thread budget (solprop ADR-052): the smallest of those CPUs, their
+# physical cores, its control groups' quota and SOLPROP_THREADS, as solprop reads it.
+# The Kokkos pool is SOLPROP_NATIVE_THREADS within it, or all of it.
+_CPUS = len(PROCESS_CPUS) or os.process_cpu_count() or 1
+THREAD_BUDGET = thread_budget(
+    _CPUS, physical_cores(PROCESS_CPUS or tuple(range(_CPUS)))
 )
-
-
-def _native_threads(budget: ThreadBudget) -> int:
-    """Return the Kokkos pool: ``SOLPROP_NATIVE_THREADS`` within the budget, else it.
-
-    The native count only narrows the budget, unless ``SOLPROP_OVERSUBSCRIBE=1`` lets
-    it exceed the CPUs and the quota (a thread-count invariance test on a small
-    runner); never ``SOLPROP_THREADS``.
-    """
-    native = thread_count("SOLPROP_NATIVE_THREADS")
-    return budget.threads if native is None else budget.explicit(native)
-
-
-# The process's thread budget: the smallest of those CPUs, their physical cores, its
-# control groups' quota and SOLPROP_THREADS. The Kokkos pool is SOLPROP_NATIVE_THREADS
-# within it, or all of it.
-THREAD_BUDGET = thread_budget()
-_BUDGET_THREADS = _native_threads(THREAD_BUDGET)
+_BUDGET_THREADS = native_threads(THREAD_BUDGET)
 
 # A wheel with more than one build registers the chosen one as ``._core`` below.
 _STEM = select_variant(Path(__file__).parent)

@@ -28,7 +28,6 @@ from bounds import assert_within, step_bound
 from conftest import ComplexArray, PhaseACase
 from session_runs import IDENTITY, Plane, launch, load_native, native_trial
 from session_runs import run as run_session
-from solprop import _process  # pyright: ignore[reportPrivateUsage]
 from solprop.backends.events import ObservationReady
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
@@ -628,59 +627,6 @@ def test_the_process_pool_follows_the_affinity_mask(
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["runtime_threads"] == expected
-
-
-@pytest.fixture
-def four_cpus(monkeypatch: pytest.MonkeyPatch) -> None:
-    """solprop's budget reader on four CPUs of one kind, with no quota."""
-    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(4)))
-
-    def no_cores(cpus: object) -> None:
-        return None
-
-    monkeypatch.setattr(_process, "physical_cores", no_cores)
-    monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
-    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
-
-
-@pytest.mark.usefixtures("four_cpus")
-@pytest.mark.parametrize(
-    ("count", "oversubscribe", "expected"),
-    [(None, None, 4), ("8", None, 4), ("2", None, 2), ("16", "1", 16)],
-)
-def test_the_native_count_narrows_unless_oversubscribing(
-    monkeypatch: pytest.MonkeyPatch,
-    count: str | None,
-    oversubscribe: str | None,
-    expected: int,
-) -> None:
-    """The Kokkos pool is the native count within the budget, which stays the CPUs."""
-    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
-    for name, value in (
-        ("SOLPROP_NATIVE_THREADS", count),
-        ("SOLPROP_OVERSUBSCRIBE", oversubscribe),
-    ):
-        if value is None:
-            monkeypatch.delenv(name, raising=False)
-        else:
-            monkeypatch.setenv(name, value)
-    budget = _process.thread_budget()
-    assert (budget.threads, budget.source) == (4, "affinity")
-    threads = native._native_threads(budget)  # pyright: ignore[reportPrivateUsage]
-    assert threads == expected
-
-
-@pytest.mark.usefixtures("four_cpus")
-def test_oversubscribing_never_passes_solprop_threads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", "1")
-    monkeypatch.setenv("SOLPROP_THREADS", "3")
-    monkeypatch.setenv("SOLPROP_NATIVE_THREADS", "16")
-    budget = _process.thread_budget()
-    assert (budget.threads, budget.source) == (3, "SOLPROP_THREADS")
-    threads = native._native_threads(budget)  # pyright: ignore[reportPrivateUsage]
-    assert threads == 3
 
 
 def test_initial_array_contract(
