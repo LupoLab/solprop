@@ -14,6 +14,7 @@ from service.cases import TINY
 from solprop import tools
 from solprop.recipe import Recipe
 from solprop.service.handlers import HANDLERS
+from solprop.service.messages import PROTOCOL
 from solprop.service.sheet import (
     CURVE_POINTS,
     _curve_range,
@@ -316,6 +317,9 @@ def test_the_run_options_are_solprop_s() -> None:
     assert options["backends"] == list(available())
     assert "native" in options["backends"] or "numpy_ref" in options["backends"]
     assert set(options) == {"threads", "limit", "backends"}
+    # The reply's shape changed from protocol 1's `double` and `single`, so a peer of
+    # protocol 1 is refused by version rather than reading a key that is gone.
+    assert PROTOCOL >= 2
 
 
 def test_the_threads_offered_are_a_run_s_not_the_kernel_s(
