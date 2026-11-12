@@ -12,6 +12,11 @@ thread pool sized from that answer runs on one core (measured: an 18-core alloca
 gave a pool sized this way one thread). The affinity is therefore read once, when
 ``solprop`` is imported, before any of its runtimes start, and the later answer is
 believed only when it is not that collapse.
+
+It also says when a process started (:func:`process_stamp`), which tells a process
+from a later one given its number: the scan queue's owners and the front end's runs
+both need it, and this module, which imports nothing from the rest of the package,
+sits below both.
 """
 
 import contextlib
@@ -659,3 +664,77 @@ def oversubscribing() -> bool:
         msg = f"SOLPROP_OVERSUBSCRIBE must be 0 or 1, and is {value!r}"
         raise ValueError(msg)
     return value == "1"
+
+
+def process_stamp(pid: int) -> str | None:
+    """Return when a process started, as its operating system states it.
+
+    A process number is reused once its process has gone; the start time tells a
+    run's own process from a later one with its number.
+
+    - Returns: its start, in the system's own terms; ``None`` where the system does not
+      say or the process does not exist.
+    """
+    if sys.platform == "linux":
+        return _proc_stamp(pid)
+    if sys.platform == "win32":  # pragma: no cover - Windows only
+        return _windows_stamp(pid)
+    return _ps_stamp(pid)  # pragma: no cover - macOS and other POSIX: not the lanes
+
+
+def _proc_stamp(pid: int) -> str | None:
+    """Return a process's start as Linux's ``/proc`` gives it, in clock ticks.
+
+    - Returns: field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not
+      exist, including when it exits while the file is read.
+    """
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError, ProcessLookupError:
+        return None
+    # The command name, field 2, is in parentheses and may itself hold them, so the
+    # fields are counted from the last closing one.
+    return stat.rsplit(")", 1)[1].split()[19]
+
+
+def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
+    """Return a process's start as ``ps`` gives it, off Linux.
+
+    - Returns: its start; ``None`` when it does not exist.
+    """
+    import subprocess  # noqa: PLC0415 - only off Linux
+
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() or None
+
+
+def _windows_stamp(pid: int) -> str | None:  # pragma: no cover - Windows only
+    """Return a Windows process's creation time, or ``None`` when it has gone.
+
+    - Returns: its creation time in 100 ns units, as text.
+    """
+    import ctypes  # noqa: PLC0415 - Windows only
+    from ctypes import wintypes  # noqa: PLC0415 - Windows only
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        code = wintypes.DWORD()
+        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return None
+        if code.value != 259:  # STILL_ACTIVE
+            return None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        created = times[0]
+        return str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        kernel.CloseHandle(handle)

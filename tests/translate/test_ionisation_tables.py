@@ -252,6 +252,16 @@ def test_the_cache_can_be_bypassed():
     assert build_rate_table(rate, span) is not first
 
 
+@pytest.mark.parametrize("use_cache", [True, False])
+def test_a_built_table_is_frozen_before_anyone_holds_it(use_cache):
+    # The memo hands out one table to every response that shares the rate.
+    table = build_rate_table(
+        adk_oracle(Gas.He), default_range(Gas.He), use_cache=use_cache
+    )
+    assert not table.log_rate.flags.writeable
+    assert not table.coefficients.flags.writeable
+
+
 # ------------------------------------------------------------ the table object
 
 

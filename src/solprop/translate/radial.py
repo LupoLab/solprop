@@ -11,6 +11,7 @@ from dataclasses import replace
 import numpy as np
 from jaxtyping import Complex, Float
 
+from solprop._ownership import hold
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import RadialGrid, TimeGrid
@@ -20,6 +21,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
+    _held_table,
     build,
 )
 from solprop.translate.expansion import (
@@ -82,8 +84,10 @@ def radial_transform(
     space.validate()
     hankel = space.hankel
     diagonal = hankel.j1[:, None] / hankel.j1[None, :]
-    synthesis = hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale
-    projection = hankel.forward_scale * diagonal * hankel.matrix
+    # Built here and referred to by nothing else: held in place, so the transform
+    # takes them without a copy (and both projections are the one array).
+    synthesis = hold(hankel.inverse_scale * diagonal * hankel.matrix * time.pad_scale)
+    projection = hold(hankel.forward_scale * diagonal * hankel.matrix)
     rate = np.zeros(space.n_r) if collar_rate is None else collar_rate
     geometry = SpatialGeometry(
         kind="radial",
@@ -240,12 +244,14 @@ def radial_operators(
 
     if not paths and reuse_linear is None and reuse_prefactor is None:
         operator, prefactor = _sampled(dispersion)
-        coefficients = np.ascontiguousarray(prefactor[None, None])
+        # A copy that owns its memory, so that it can be held: the prefactor is a
+        # broadcast view of an array the sampling made.
+        coefficients = np.array(prefactor[None, None], order="C")
         edges = np.array([0.0, span])
         degrees = np.zeros(1, dtype=np.intp)
         kinks = np.empty(0)
         for values in (coefficients, edges, degrees, kinks):
-            values.setflags(write=False)
+            hold(values)
         return (
             constant_phi(operator, z_max, margin=margin, beta0=beta0, beta1=beta1),
             PiecewiseChebyshev(coefficients, edges, degrees, kinks),
@@ -285,14 +291,8 @@ def radial_operators(
             )
         # Frozen, as every array crossing the seam is: the problem's validation
         # refuses a writeable table.
-        for values in (
-            prefactor_table.coefficients,
-            prefactor_table.breakpoints,
-            prefactor_table.degrees,
-            prefactor_table.hard_kinks,
-        ):
-            values.setflags(write=False)
-        phi = linear_table.integral()
+        _held_table(prefactor_table)
+        phi = _held_table(linear_table.integral())
         return adiabatic.add(
             LinearOperator(
                 phi_representation="table",

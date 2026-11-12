@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop import _process
+from solprop._ownership import hold
 from solprop.backends import (
     Backend,
     BackendHistory,
@@ -42,6 +44,23 @@ def test_a_history_counts_its_steps_and_its_rejections():
     assert record.n_steps == 3
     assert record.n_rejected == 1
     assert not record.z.flags.writeable
+
+
+def test_a_history_leaves_the_caller_s_arrays_writeable():
+    # Each is contiguous and of the field's dtype, the case that once froze the
+    # caller's own array in place.
+    mine = {
+        "z": np.array([0.1, 0.2]),
+        "dz": np.array([0.1, 0.1]),
+        "error_norm": np.array([0.4, 0.5]),
+        "accepted": np.array([True, True]),
+        "wall_time": np.array([0.01, 0.02]),
+    }
+    record = BackendHistory(**mine)
+    for name, values in mine.items():
+        assert values.flags.writeable, name
+        assert not getattr(record, name).flags.writeable, name
+        assert not np.shares_memory(getattr(record, name), values), name
 
 
 def test_an_empty_history_is_a_valid_record():
@@ -136,6 +155,17 @@ def test_an_observation_freezes_its_field_and_agrees_with_its_history():
     assert plane.noise_phase is None
 
 
+def test_an_observation_copies_a_caller_s_field_and_takes_a_held_one():
+    mine = np.zeros((1, 1, 8), complex)
+    phase = np.zeros((1, 1, 8))
+    plane = Observation(0.2, mine, phase, history(1), 1, 0)
+    assert mine.flags.writeable and phase.flags.writeable
+    assert not np.shares_memory(plane.require_field(), mine)
+    # What a backend hands over, held, costs nothing.
+    exported = hold(np.zeros((1, 1, 8), complex))
+    assert Observation(0.2, exported, None, history(1), 1, 0).field is exported
+
+
 def test_a_noise_phase_is_carried_in_the_state_layout():
     plane = Observation(
         0.1,
@@ -226,6 +256,44 @@ def test_a_channel_counts_its_rows_and_names_its_statistics():
     assert not channel.z.flags.writeable
     assert not channel.values["energy"].flags.writeable
     assert channel.step.dtype == np.int64
+
+
+def test_a_channel_leaves_the_caller_s_arrays_writeable_and_rewraps_without_a_copy():
+    z, step = np.array([0.05, 0.1]), np.array([0, 1], dtype=np.int64)
+    energy = np.ones((2, 1, 1, 1))
+    channel = StepStats(z=z, step=step, values={"energy": energy})
+    for mine, held in (
+        (z, channel.z),
+        (step, channel.step),
+        (energy, channel.values["energy"]),
+    ):
+        assert mine.flags.writeable
+        assert not held.flags.writeable
+        assert not np.shares_memory(held, mine)
+    # The driver re-wraps a backend's channel: what it already holds is not copied.
+    again = StepStats(z=channel.z, step=channel.step, values=dict(channel.values))
+    assert again.z is channel.z
+    assert again.values["energy"] is channel.values["energy"]
+
+
+def test_a_scalar_position_is_one_row_as_it_always_was():
+    # Production code is not type checked: a scalar z and step are one row, as
+    # numpy.ascontiguousarray made them, while a scalar statistic is still refused.
+    channel = StepStats.__new__(StepStats)
+    unchecked(StepStats.__init__)(
+        channel, np.float64(0.1), np.int64(0), {"energy": np.ones((1, 1, 1, 1))}
+    )
+    assert channel.n_rows == 1
+    assert channel.z.shape == (1,) and channel.step.shape == (1,)
+    history = BackendHistory.__new__(BackendHistory)
+    unchecked(BackendHistory.__init__)(
+        history, np.float64(0.1), 0.1, 0.4, np.bool_(True), 0.01
+    )
+    assert history.n_steps == 1
+    with pytest.raises(BackendError, match="leading axis"):
+        unchecked(StepStats.__init__)(
+            StepStats.__new__(StepStats), np.float64(0.1), np.int64(0), {"energy": 1.0}
+        )
 
 
 def test_an_empty_channel_is_what_a_run_without_a_periodic_subset_carries():

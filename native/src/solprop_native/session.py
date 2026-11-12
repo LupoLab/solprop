@@ -80,6 +80,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import numpy.typing as npt
 from solprop._interrupts import committing
+from solprop._ownership import hold
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -1098,7 +1099,8 @@ class NativeSession:
         if (counters := _counters.active) is not None:
             counters.crossing("export", destination.nbytes)
         if out is None:
-            destination.setflags(write=False)
+            # Held, so the run's consumers take it as it stands, without a copy.
+            hold(destination)
             self._exports[key] = destination
         return destination
 
@@ -1600,13 +1602,15 @@ class NativeSession:
 
     def _chunk_rows(self, batch: _core.SessionBatch) -> StepStats:
         """Return a batch's chunk of periodic rows, its steps indexing the chunk."""
-        z = batch.row_z.reshape(-1)
-        step = batch.row_step.reshape(-1).astype(np.int64)
+        # Each array is made here and held, so the record takes it without a copy.
+        z = hold(np.array(batch.row_z.reshape(-1), dtype=np.float64))
+        step = hold(batch.row_step.reshape(-1).astype(np.int64))
         if z.size == 0:
             return self._no_rows()
         unpacked = [self._row_lowering.unpack(row) for row in batch.row_values]
         values = {
-            name: np.stack([row[name] for row in unpacked]) for name in self._row_names
+            name: hold(np.stack([row[name] for row in unpacked]))
+            for name in self._row_names
         }
         self._row_shapes = {name: value.shape[1:] for name, value in values.items()}
         return StepStats(z, step, values)
@@ -1614,10 +1618,10 @@ class NativeSession:
     def _no_rows(self) -> StepStats:
         """Return no rows: no names before the first row, then each row's shape."""
         return StepStats(
-            np.empty(0),
-            np.empty(0, dtype=np.int64),
+            hold(np.empty(0)),
+            hold(np.empty(0, dtype=np.int64)),
             {
-                name: np.zeros((0, *shape), dtype=np.float64)
+                name: hold(np.zeros((0, *shape), dtype=np.float64))
                 for name, shape in self._row_shapes.items()
             },
         )
@@ -1628,12 +1632,13 @@ class NativeSession:
 
         - ``attempts``: ``(n, 5)`` rows: end, step, norm, acceptance, wall time.
         """
+        # Copies of the columns, held, so the record takes them without a second copy.
         return BackendHistory(
-            z=np.ascontiguousarray(attempts[:, 0]),
-            dz=np.ascontiguousarray(attempts[:, 1]),
-            error_norm=np.ascontiguousarray(attempts[:, 2]),
-            accepted=attempts[:, 3] != 0.0,
-            wall_time=np.ascontiguousarray(attempts[:, 4]),
+            z=hold(attempts[:, 0].copy()),
+            dz=hold(attempts[:, 1].copy()),
+            error_norm=hold(attempts[:, 2].copy()),
+            accepted=hold(attempts[:, 3] != 0.0),
+            wall_time=hold(attempts[:, 4].copy()),
         )
 
     def _tally(

@@ -24,7 +24,7 @@ from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial import EVANESCENT_RATE, SpatialDispersion, SpatialMedium
-from solprop.translate.chebyshev import PiecewiseChebyshev, build
+from solprop.translate.chebyshev import PiecewiseChebyshev, _held_table, build
 from solprop.translate.linop import LinearOperator
 from solprop.translate.planar import planar_kappa, square_residuals
 from solprop.translate.spatial import FluxPlan, SeparableOperator
@@ -170,14 +170,7 @@ def flux_plan(
         tol=tol,
         mandatory_breakpoints=kinks[(kinks > span[0]) & (kinks < span[1])],
     )
-    for values in (
-        material.coefficients,
-        material.breakpoints,
-        material.degrees,
-        material.hard_kinks,
-    ):
-        values.setflags(write=False)
-    return FluxPlan(base, material, admission)
+    return FluxPlan(base, _held_table(material), admission)
 
 
 def admission_record(admission: AdiabaticAdmission) -> dict[str, object]:

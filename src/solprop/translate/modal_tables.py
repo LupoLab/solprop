@@ -17,6 +17,7 @@ from scipy.linalg import svd
 from scipy.optimize import linear_sum_assignment
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes.guide import BASIS_UNITARY_ATOL, ChannelBasis
@@ -594,7 +595,7 @@ class DenseModalTable(Displayed):
             If knots, samples, gauges or validity disagree.
         """
         for name in ("omega", "z"):
-            values = np.array(getattr(self, name), dtype=float, copy=True)
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -604,7 +605,6 @@ class DenseModalTable(Displayed):
                 raise ModeError(
                     "table knots must be finite, non-empty and strictly increasing"
                 )
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
         if (
             len(self.omega) < 4
@@ -1684,9 +1684,7 @@ class ModalTransformTables(Displayed):
         # read-only, and a view the caller still holds could then rewrite the
         # record behind its back. Copy, as every other record here does.
         for name in ("omega", "omega_fine", "z_edges"):
-            values = np.array(
-                getattr(self, name), dtype=np.float64, order="C", copy=True
-            )
+            values = frozen_copy(getattr(self, name), np.float64)
             if (
                 values.ndim != 1
                 or not values.size
@@ -1696,7 +1694,6 @@ class ModalTransformTables(Displayed):
                 raise ModeError(
                     f"{name} must be a finite, non-empty, increasing vector"
                 )
-            values.setflags(write=False)
             object.__setattr__(self, name, values)
         if self.omega[0] < 0 or self.omega_fine[0] < 0:
             raise ModeError("frequency grids must be non-negative")
@@ -1731,7 +1728,7 @@ class ModalTransformTables(Displayed):
             MAX_N_COMPONENTS,
         )
 
-        reference = np.array(self.electric, dtype=np.complex128, order="C", copy=True)
+        reference = frozen_copy(self.electric, np.complex128)
         if reference.ndim != 5 or reference.shape[2] != MAX_N_COMPONENTS:
             raise ModeError(
                 f"electric must have shape (n_z, n_nodes, {MAX_N_COMPONENTS}, "
@@ -1789,12 +1786,11 @@ class ModalTransformTables(Displayed):
             value = reference if name == "electric" else getattr(self, name)
             if value is None:
                 continue
-            array = np.array(value, dtype=dtype, order="C", copy=True)
+            array = frozen_copy(value, dtype)
             if array.shape != shape:
                 raise ModeError(f"{name} must have shape {shape}, got {array.shape}")
             if dtype is not np.bool_ and not np.all(np.isfinite(array)):
                 raise ModeError(f"{name} must be finite")
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
         if np.any(self.weights <= 0):
             raise ModeError("area weights must be positive")
