@@ -361,7 +361,7 @@ public:
     double evanescent{};
   };
 
-  FarFieldPass(const Problem& problem, const ExecutionSpace& execution);
+  FarFieldPass(const Problem& problem, ExecutionSpace execution);
   ~FarFieldPass() = default;
   FarFieldPass(const FarFieldPass&) = delete;
   FarFieldPass& operator=(const FarFieldPass&) = delete;

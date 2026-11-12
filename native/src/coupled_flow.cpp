@@ -12,6 +12,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace solprop_native {
@@ -354,12 +355,11 @@ void require_coupled_flow(const Problem& problem) {
     throw std::invalid_argument("coupled flow residual data must be finite");
 }
 
-CoupledFlowAction::CoupledFlowAction(const Problem& problem,
-                                     const ExecutionSpace& kernels)
+CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kernels)
     : n_modes_(problem.n_modes), n_omega_(problem.n_omega), n_stages_(problem.n_stages),
       active_(problem.flow_active), sections_(problem.flow_sections),
       terms_(problem.flow_terms), identity_(problem.n_stages + 1, 0U),
-      listed_counts_(problem.n_stages, 0U), kernels_(kernels) {
+      listed_counts_(problem.n_stages, 0U), kernels_(std::move(kernels)) {
   require_coupled_flow(problem);
   if (!problem.coupled_flow)
     throw std::invalid_argument("the problem does not declare a coupled flow");

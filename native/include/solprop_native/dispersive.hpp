@@ -274,7 +274,7 @@ public:
   using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
 
-  DispersiveWeights(const Problem& problem, const ExecutionSpace& kernels);
+  DispersiveWeights(const Problem& problem, ExecutionSpace kernels);
   ~DispersiveWeights() = default;
   DispersiveWeights(const DispersiveWeights&) = delete;
   DispersiveWeights& operator=(const DispersiveWeights&) = delete;

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <numbers>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace solprop_native {
@@ -72,8 +73,8 @@ std::size_t far_field_band_count(const std::size_t n_x, const std::size_t n_y,
   return std::max<std::size_t>(1, std::min(units, admitted));
 }
 
-FarFieldPass::FarFieldPass(const Problem& problem, const ExecutionSpace& execution)
-    : execution_(execution), n_x_(problem.n_x), n_y_(problem.n_y),
+FarFieldPass::FarFieldPass(const Problem& problem, ExecutionSpace execution)
+    : execution_(std::move(execution)), n_x_(problem.n_x), n_y_(problem.n_y),
       n_omega_(problem.n_omega), n_pol_(problem.n_pol_state), n_t_(problem.n_t),
       dt_(problem.dt), envelope_(problem.family == FieldFamily::envelope) {
   if (!problem.free_geometry() || problem.spatial_k_x.size() != n_x_ ||

@@ -717,9 +717,8 @@ void dispersive_mixture_rows(
 
 // --- the layout and the stage's weights ----------------------------------------------
 
-DispersiveWeights::DispersiveWeights(const Problem& problem,
-                                     const ExecutionSpace& kernels)
-    : kernels_(kernels) {
+DispersiveWeights::DispersiveWeights(const Problem& problem, ExecutionSpace kernels)
+    : kernels_(std::move(kernels)) {
   require_dispersive(problem);
   if (!problem.dispersive)
     throw std::invalid_argument("the problem does not carry the dispersive response");
