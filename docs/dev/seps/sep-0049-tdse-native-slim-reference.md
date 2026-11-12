@@ -103,8 +103,9 @@ independent of native's, and against which every native kernel is qualified.
   Pyroraptor's publication stay in [#247](https://github.com/LupoLab/solprop/issues/247)
   and [#248](https://github.com/LupoLab/solprop/issues/248). Changes to Pyroraptor that
   the worker of §6.8 calls for are in scope, as companion changes in its repository.
-- **TDSE on device builds of native** (§12, Q2). Pyroraptor may still run its atomic
-  calls on a device; it is solprop's optical side that stays on the CPU build.
+- **TDSE on device builds of native.** There is no use for one: the atomic calls dominate
+  a TDSE run, so the provider takes the GPU (or every CPU core) and solprop's optical side
+  runs on one CPU thread (§6.8). A native device build refuses a TDSE problem by name.
 - **A compiled TDSE source assembly**, or a C++ link to the provider (§10.3).
 - **The batch axis, the route union and the integrator–controller split** of
   [#110](https://github.com/LupoLab/solprop/issues/110), and
@@ -424,9 +425,9 @@ re-raises the stored exception unchanged, so a `ResponseBudgetError` still carri
 accepted position, field and calls. The state stays at the last accepted step, as on the
 reference.
 
-**Device builds.** A device build refuses a TDSE problem by name at preparation; the hook
-is compiled out of device kernels, since a device trial would need a planned fence and a
-host copy per evaluation (§12, Q2).
+**Device builds.** A device build refuses a TDSE problem by name at preparation, and the
+hook is compiled out of device kernels. Nothing is lost: the GPU belongs to the provider
+(§6.8).
 
 **Session.** `NativeSession` constructs the hook from the driver's binding when the problem
 carries a TDSE route, binds it before the march starts and unbinds it on close; it records
@@ -434,11 +435,9 @@ carries a TDSE route, binds it before the march starts and unbinds it on close; 
 does, adds the binding's `tdse_*` memory rows, and restores the call ledgers on resume.
 The registry passes `tdse_binding` to native's factory, which today refuses it.
 
-**Threads.** While the hook runs, native's threads are idle and sleep at once (ADR-056), so
-the provider's threads take the cores; the process's thread budget (ADR-052) is handed to
-both. The provider's threads are a separate process's (§6.8): while the hook waits on the
-worker, native's threads are idle, and the worker takes the run's thread budget, or its
-device.
+**Threads.** A TDSE run gives the machine to the provider (§6.8): solprop's native
+session runs on one thread, and the worker takes the rest of the run's thread budget
+(ADR-052) or its GPU.
 
 #### 6.3 Options for evaluating the TDSE source on native
 
@@ -567,8 +566,12 @@ of its own, never in solprop's process:
   worker that dies, or does not answer within the run's limit, ends the attempt as a
   provider failure with the state at the last accepted step (§6.2); `close` stops the
   worker on every exit path.
-- **Threads and devices.** solprop's native threads are idle while the hook waits. The
-  worker takes the run's thread budget (ADR-052) on the CPU, or its device.
+- **Threads and devices.** The atomic calls dominate a TDSE run, so the provider gets the
+  machine. By default solprop's native session runs a TDSE problem on one thread (its
+  optical side is negligible), and the worker gets every other core of the run's thread
+  budget (ADR-052), or, with a Pyroraptor device build, the whole GPU. A native thread
+  pool that is already wider, started earlier in the process, sleeps while the hook waits
+  (ADR-056). The two never share a device.
 
 **Why a worker.** Only the atomic calculation needs to be fast (§3.2, §6.5). A copy each
 way and a context switch cost milliseconds against calls of minutes. In exchange:
@@ -576,9 +579,9 @@ way and a context switch cost milliseconds against calls of minutes. In exchange
 - two Kokkos and OpenMP runtimes never share an address space, so their initialisation,
   finalisation, symbols, thread pools and exit-time FFTW clean-up cannot interact, and
   need no qualification or care in either package;
-- a Pyroraptor device build runs beside the native CPU wheel. This is likely the common
-  arrangement for real runs (solprop's optical side on the CPU, the atomic calls on a
-  GPU), and it needs no common Kokkos configuration;
+- a Pyroraptor device build runs beside the native CPU wheel, the usual arrangement for
+  real runs (solprop on one CPU thread, the atomic calls on the whole GPU), with no common
+  Kokkos configuration;
 - either package can change its Kokkos version, backend or build without the other.
 
 The cost is about 0.3k lines in `solprop.driver.tdse` and its tests, and one process start
@@ -755,9 +758,9 @@ milestone pull request per phase as for SEP 47 (Q9).
    one attempt for a TDSE run so that the session reserves and books each trial between
    calls. The second keeps the exception to one entry point but moves the reservation's
    cost rule (`_afford`) to the session.
-2. **Q2. Device builds.** Refuse a TDSE problem on a native device build (recommended for
-   this SEP), or admit it with a planned fence and one host copy per evaluation, whose cost
-   is negligible beside an atomic call. If admitted later, it is an issue, not this SEP.
+2. **Q2. Device builds.** *Decided:* a native device build refuses a TDSE problem by
+   name. There is no use for one: the provider takes the GPU or all the CPU cores, and
+   solprop runs on one thread (§6.8).
 3. **Q3. Where the host TDSE source lives**: `solprop.backends.tdse_source` (proposed),
    beside the binding in `solprop.driver.tdse`, or in translation. It must not be under
    `numpy_ref`.
@@ -806,3 +809,6 @@ milestone pull request per phase as for SEP 47 (Q9).
 - 2026-11-12: The maintainer chose the worker process outright: no in-process option, since
   a GPU provider beside the CPU wheel is a likely arrangement and a few milliseconds per
   call are negligible. §6.8, R1, §7.1, phase 0 and Q11 rewritten.
+- 2026-11-12: Q2 decided by the maintainer: no TDSE on native device builds and no shared
+  GPU. A TDSE run gives the provider the GPU or every CPU thread, and solprop's optical
+  side runs on one thread. §2, §6.2 and §6.8 revised to match.
