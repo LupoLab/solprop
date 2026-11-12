@@ -28,6 +28,7 @@ from solprop.modes import MarcatiliMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
+from solprop.translate import problem as problem_module
 from solprop.translate.coupled import (
     CoupledFlowTables,
     ModalMetricTables,
@@ -894,9 +895,17 @@ def furnished(strand, strand_grid, strand_request):
 
 
 def test_four_leaves_on_the_canonical_grids_validate(
-    furnished, strand, strand_grid, strand_request
+    furnished, strand, strand_grid, strand_request, monkeypatch
 ):
-    """Every axis of every leaf is the state's own, so the whole problem validates."""
+    """Every axis of every leaf is the state's own, so the whole problem validates.
+
+    The leaves are structural fixtures, not a combination solprop executes: the
+    general route's policy (``check_general_route``) refuses them by name, and is set
+    aside here so that what is checked is the structure alone.
+    """
+    with pytest.raises(TranslationError, match=r"^solprop executes"):
+        validate_run(furnished, strand_request)
+    monkeypatch.setattr(problem_module, "check_general_route", lambda problem: None)
     tables = furnished.transform.modal_tables
     metric = furnished.linear.modal_metric
     flow = furnished.linear.coupled_flow
