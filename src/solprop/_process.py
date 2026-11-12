@@ -713,16 +713,8 @@ def process_stamp(pid: int) -> str | None:
     A process number is reused once its process has gone; the start time tells a
     run's own process from a later one with its number.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start, in the system's own terms; ``None`` where the system does not say
-        or the process does not exist.
+    - Returns: its start, in the system's own terms; ``None`` where the system does not
+      say or the process does not exist.
     """
     if sys.platform == "linux":
         return _proc_stamp(pid)
@@ -734,16 +726,8 @@ def process_stamp(pid: int) -> str | None:
 def _proc_stamp(pid: int) -> str | None:
     """Return a process's start as Linux's ``/proc`` gives it, in clock ticks.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not exist,
-        including when it exits while the file is read.
+    - Returns: field 22 of ``/proc/<pid>/stat``; ``None`` when the process does not
+      exist, including when it exits while the file is read.
     """
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
@@ -757,15 +741,7 @@ def _proc_stamp(pid: int) -> str | None:
 def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
     """Return a process's start as ``ps`` gives it, off Linux.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its start; ``None`` when it does not exist.
+    - Returns: its start; ``None`` when it does not exist.
     """
     import subprocess  # noqa: PLC0415 - only off Linux
 
@@ -781,15 +757,7 @@ def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see abov
 def _windows_stamp(pid: int) -> str | None:  # pragma: no cover - Windows only
     """Return a Windows process's creation time, or ``None`` when it has gone.
 
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    str or None
-        Its creation time in 100 ns units, as text.
+    - Returns: its creation time in 100 ns units, as text.
     """
     import ctypes  # noqa: PLC0415 - Windows only
     from ctypes import wintypes  # noqa: PLC0415 - Windows only
