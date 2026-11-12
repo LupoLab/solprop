@@ -445,7 +445,7 @@ void Session::progress(Batch& batch) {
   event.kind = EventKind::progress;
   event.z = here();
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::snapshot(Batch& batch) {
@@ -459,7 +459,7 @@ void Session::snapshot(Batch& batch) {
   event.ticket = true;
   event.generation = generation_;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
@@ -473,7 +473,7 @@ void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   event.ticket = outcome != Outcome::completed && !poisoned();
   event.generation = generation_;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 Batch Session::issue(Batch batch, const Outcome outcome) {
@@ -515,7 +515,7 @@ void Session::warning(Batch& batch, const Notice& notice) {
   event.generation = generation_;
   event.notice = notice;
   drain(batch);
-  batch.event = event;
+  batch.event = std::move(event);
 }
 
 void Session::monitor_stop(Batch& batch, const Notice& notice) {
