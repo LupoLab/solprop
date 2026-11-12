@@ -21,7 +21,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, ResponseBudgetError
+from solprop.exceptions import BackendError, ResponseBudgetError, TDSEArchiveError
 from solprop.nonlinear.tdse import (
     TDSEBasis,
     TDSECalibration,
@@ -229,6 +229,63 @@ def test_failed_chunk_is_charged_and_unused_trial_reservation_is_released(
         assert backend.observe().z == 0.0
         assert_array_equal(backend.observe().require_field(), initial)
     finally:
+        backend.close()
+
+
+class _ArchiveFailsOnAcceptance(ManufacturedBinding):
+    """Fail to record an accepted trial, as an archive that cannot write would."""
+
+    def record_trial(self, *, accepted):
+        if accepted:
+            raise TDSEArchiveError("synthetic archive failure")
+
+
+class _ReleaseFails(ManufacturedBinding):
+    """Fail to release a reservation, after releasing it, while ``failing`` is set."""
+
+    failing = True
+
+    def release_reservation(self):
+        super().release_reservation()
+        if self.failing:
+            raise RuntimeError("synthetic release failure")
+
+
+def test_an_archive_failure_after_an_accepted_commit_keeps_the_new_state(
+    march_problem,
+):
+    """The commit is the failure boundary (SEP 49, section 6.3)."""
+    problem, run_request, grid = march_problem
+    binding = _ArchiveFailsOnAcceptance(tdse_descriptor(problem.route), 20)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
+    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    try:
+        with pytest.raises(TDSEArchiveError, match="synthetic archive failure"):
+            backend.propagate_to(1e-5)
+        # The accepted step stands and is booked; nothing stays reserved.
+        assert backend.observe().z > 0.0
+        assert backend._adams is not None
+        assert backend._adams.ledger.accepted_steps == 1
+        assert binding.ledger.reserved == 0
+        # The startup and the predictor, two chunks each, stay charged.
+        assert binding.ledger.attempted == 4
+    finally:
+        backend.close()
+
+
+def test_a_failed_release_is_a_note_on_the_trial_s_own_error(march_problem):
+    problem, run_request, grid = march_problem
+    binding = _ReleaseFails(tdse_descriptor(problem.route), 8, fail_at=2)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
+    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    try:
+        with pytest.raises(BackendError, match="second-chunk failure") as caught:
+            backend.propagate_to(1e-5)
+        assert "synthetic release failure" in "\n".join(caught.value.__notes__)
+        assert binding.ledger.reserved == 0
+        assert backend.observe().z == 0.0
+    finally:
+        binding.failing = False
         backend.close()
 
 

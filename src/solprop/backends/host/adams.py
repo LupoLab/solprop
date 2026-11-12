@@ -17,6 +17,8 @@ The method, its lifecycle and its numbers are those of
 """
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -331,7 +333,7 @@ class HostAdamsMarch:
         while not reached(backend._z, target):
             backend._poll_stop()
             self._afford()
-            try:
+            with _trial(backend):
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
@@ -354,8 +356,6 @@ class HostAdamsMarch:
                     backend._take_step_stats()
                     if backend._natural_stop(target):
                         return
-            finally:
-                backend._release_source_calls()
         if dense and backend._z > target:
             self._ahead = (backend._z, self._engine.hold())
             backend._state = cast("Any", self._observe(target))
@@ -429,7 +429,7 @@ class HostAdamsMarch:
             reject the step.
         """
         self._afford()
-        try:
+        with _trial(self._backend):
             if not self._history:
                 self._start()
             kink = adams_core.replay_kink(self._policy, end, slack)
@@ -447,8 +447,6 @@ class HostAdamsMarch:
                     "controller choose them"
                 )
                 raise ConvergenceError(msg)
-        finally:
-            self._backend._release_source_calls()
         return norm
 
     def _observe(self, position: float) -> object:
@@ -806,6 +804,24 @@ _ENGINE_MEMBERS = (
     "observe",
 )
 """What every march path asks of an engine, beside its own trial and acceptance."""
+
+
+@contextmanager
+def _trial(backend: HostDriver) -> Iterator[None]:
+    """Release a trial's unused source reservation on every exit (SEP 49, 6.3).
+
+    A failure's own error stays the one raised: a release that fails after it is
+    attached to it as a note, never raised in its place.
+    """
+    try:
+        yield
+    except BaseException as error:
+        try:
+            backend._release_source_calls()
+        except Exception as cleanup:
+            error.add_note(f"releasing the source reservation failed: {cleanup}")
+        raise
+    backend._release_source_calls()
 
 
 def _check_engine(engine: object, *, exponential: bool) -> None:
