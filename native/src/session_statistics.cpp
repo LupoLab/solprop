@@ -727,8 +727,7 @@ void Plan::validate() const {
           "lacks the on-axis synthesis its axis row reads");
     check(channel_preionisation.size() == n_channels,
           "lacks the preionisation its axis row reads");
-    check(axis_node < static_cast<std::int64_t>(n_nodes),
-          "has an axis node past the nodes");
+    check(std::cmp_less(axis_node, n_nodes), "has an axis node past the nodes");
     check(std::isfinite(pad_scale) && pad_scale > 0.0,
           "has a pad scale that is not positive");
   }

@@ -965,6 +965,7 @@ ionisation_log_rate(const double log_field, const View& coefficients,
   long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
   if (raw_index < 0)
     raw_index = 0;
+  // NOLINTNEXTLINE(modernize-use-integer-sign-comparison): device code; std::cmp_* is host-only
   if (raw_index >= static_cast<long>(intervals))
     raw_index = static_cast<long>(intervals - 1);
   const auto index = static_cast<std::size_t>(raw_index);
