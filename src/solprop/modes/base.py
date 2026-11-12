@@ -94,20 +94,7 @@ _DECIBEL_PER_NEPER: Final = 10.0 / math.log(10.0)
 def _as_omega(omega: Float[np.ndarray, " n_omega"]) -> Float[np.ndarray, " n_omega"]:
     """Validate an angular-frequency argument for a derived quantity.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies in rad/s, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values as a float array.
-
-    Raises
-    ------
-    ModeError
-        If any value is not finite.
+    - ``omega``: angular frequencies in rad/s, shape ``(n_omega,)``.
     """
     values = np.asarray(omega, dtype=float)
     if not np.all(np.isfinite(values)):
@@ -331,23 +318,11 @@ def _second_difference(
 ) -> Float[np.ndarray, " n_omega"]:
     """Return the central second difference of `beta1` at one step.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-    omega : numpy.ndarray
-        Angular frequencies in rad/s.
-    centre : numpy.ndarray
-        ``beta1`` at `omega`, s/m.
-    step : numpy.ndarray
-        The step at each frequency, rad/s.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The difference, s^3/m.
+    - ``omega``: angular frequencies in rad/s.
+    - ``centre``: ``beta1`` at `omega`, s/m.
+    - ``step``: the step at each frequency, rad/s.
+    - ``z``: position along the waveguide, m.
+    - Returns: the difference, s^3/m.
     """
     above = beta1(mode, omega + step, z)
     below = beta1(mode, omega - step, z)
@@ -404,29 +379,22 @@ def zdw(
     lower = 2.0 * math.pi * C / longest
     upper = 2.0 * math.pi * C / shortest
 
-    def dispersion(value: float) -> float:
+    def _dispersion(value: float) -> float:
         """Return beta2 at one angular frequency, for the root finder.
 
-        Parameters
-        ----------
-        value : float
-            Angular frequency in rad/s.
-
-        Returns
-        -------
-        float
-            ``beta_2`` in s^2/m.
+        - ``value``: angular frequency in rad/s.
+        - Returns: ``beta_2`` in s^2/m.
         """
         return float(beta2(mode, np.array([value]), z)[0])
 
-    at_lower, at_upper = dispersion(lower), dispersion(upper)
+    at_lower, at_upper = _dispersion(lower), _dispersion(upper)
     if at_lower * at_upper > 0.0:
         raise NoZeroDispersionError(
             f"beta2 does not change sign over {shortest * 1e9:.4g}-"
             f"{longest * 1e9:.4g} nm (it is {at_lower:.4g} and {at_upper:.4g} s^2/m at "
             "the ends), so there is no zero-dispersion wavelength in that window"
         )
-    root = brentq(dispersion, lower, upper)
+    root = brentq(_dispersion, lower, upper)
     return 2.0 * math.pi * C / float(root)
 
 

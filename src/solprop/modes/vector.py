@@ -62,10 +62,7 @@ class ModalNodeRule(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         return "ModalNodeRule: Cartesian nodes with declared material ownership", [
             ("nodes", len(self.weights)),
@@ -199,10 +196,7 @@ class ModalSample(Displayed):
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
+        - Returns: the title and ``(key, value)`` rows.
         """
         nodes, _, modes = np.shape(self.electric)
         return "ModalSample: internal-convention E/H on physical nodes", [
@@ -286,15 +280,7 @@ class ModalSample(Displayed):
     def _validate_flux(self, modes: int) -> None:
         """Require positive Hermitian flux and a nonsingular reciprocal pairing.
 
-        Parameters
-        ----------
-        modes : int
-            Validated positive channel count, dimensionless.
-
-        Raises
-        ------
-        ModeError
-            If a physical metric is indefinite or a reciprocal pairing is singular.
+        - ``modes``: validated positive channel count, dimensionless.
         """
         tolerance = 64 * modes * np.finfo(float).eps * np.linalg.norm(self.flux_metric)
         if np.linalg.norm(self.flux_metric - self.flux_metric.conj().T) > tolerance:
