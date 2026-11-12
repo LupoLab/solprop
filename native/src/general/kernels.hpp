@@ -513,9 +513,9 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
   const int depth = std::min(8, execution.concurrency());
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
-  using Shared = Kokkos::View<Complex**, Kokkos::LayoutRight,
-                              ExecutionSpace::scratch_memory_space,
-                              Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+  using Shared =
+      Kokkos::View<Complex**, Kokkos::LayoutRight, ExecutionSpace::scratch_memory_space,
+                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
   const std::size_t row_tiles = (rows + tile - 1) / tile;
   const std::size_t bin_tiles = (width + tile - 1) / tile;
   const auto bytes = Shared::shmem_size(tile, tile + 1);
