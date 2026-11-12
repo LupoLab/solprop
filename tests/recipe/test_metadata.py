@@ -24,6 +24,7 @@ from solprop.driver.interface import (
 )
 from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import DriverError
+from solprop.modes.slab import SlabMode
 from solprop.recipe import metadata
 from solprop.recipe.document import EXECUTION_KEYS, REFUSED_BUILD_KEYS
 from solprop.recipe.quantity import Unit
@@ -284,3 +285,17 @@ def test_a_slab_set_s_energy_is_per_metre_of_y():
     assert set(metadata.PER_WIDTH_KEYWORDS) <= set(metadata.parameters("waveguide"))
     assert "per metre of y" in metadata.parameters("waveguide")["energy"].summary
     assert "per metre" not in metadata.parameters("capillary")["peak_power"].summary
+
+
+@pytest.mark.parametrize(
+    ("modes", "expected"),
+    [
+        (SlabMode(63.5e-6, "Ar", 1.0, order=1), True),
+        ([SlabMode(63.5e-6, "Ar", 1.0, order=1)], True),
+        ("ModeCollection.slab", False),
+        (None, False),
+    ],
+)
+def test_a_waveguide_is_per_unit_width_when_its_modes_hold_a_slab(modes, expected):
+    # A script passes mode objects, a recipe tables; a bare string is no mode set.
+    assert metadata.per_unit_width("waveguide", {"modes": modes}) is expected

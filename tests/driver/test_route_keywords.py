@@ -29,7 +29,9 @@ from solprop.driver import (
     prop_planar,
     prop_waveguide,
 )
+from solprop.driver import interface as interface_module
 from solprop.modes import MarcatiliMode
+from solprop.output.memory import MemoryOutput
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
@@ -242,3 +244,17 @@ def test_polarisation_taper_reaches_the_collar_of_every_modal_route(route, guide
         tapered.translate().grids.omega_window, tapered.grid.omega_window
     )
     assert np.any(tapered.grid.omega_window < 1.0)
+
+
+def test_a_constructor_without_a_parameters_section_is_refused():
+    with pytest.raises(AssertionError, match="no Parameters section"):
+        interface_module._parameters("Summary.\n\nReturns\n-------\nint\n    One.\n")
+
+
+def test_a_run_without_a_docstring_is_left_as_it_is():
+    # As under -OO, in process: the composition has nothing to compose.
+    def run() -> MemoryOutput:
+        return MemoryOutput()
+
+    assert interface_module._propagates(Simulation.from_gnlse)(run) is run
+    assert run.__doc__ is None

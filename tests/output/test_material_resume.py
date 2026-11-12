@@ -210,3 +210,28 @@ def test_a_choice_the_run_does_not_use_does_not_refuse_resume(tmp_path):
     other = run_metadata("Ar", MaterialSelection(ionisation="ppt_ilkov"))
     assert other.configuration_hash() == base.configuration_hash()
     assert check_cache(written(tmp_path / "run.h5", base), other)
+
+
+def test_a_stored_record_without_a_required_entry_is_refused(selected):
+    # A field with no default is refused by name, never read as an absent value.
+    document = json.loads(selected.to_json())
+    del document["simulation_kind"]
+    with pytest.raises(
+        OutputError,
+        match=r"^stored metadata is missing or malformed: 'simulation_kind'$",
+    ):
+        RunMetadata.from_json(json.dumps(document))
+
+
+def test_a_stored_stepper_without_its_tableau_is_refused(selected):
+    document = json.loads(selected.to_json())
+    del document["stepper"]["tableau"]
+    with pytest.raises(OutputError, match=r"^stored metadata lacks stepper\.tableau$"):
+        RunMetadata.from_json(json.dumps(document))
+
+
+def test_a_stored_stepper_without_an_optional_entry_reads_its_default(selected):
+    # Another build of the schema may not write it; absent reads as the default.
+    document = json.loads(selected.to_json())
+    del document["stepper"]["method"]
+    assert RunMetadata.from_json(json.dumps(document)).stepper.method is None
