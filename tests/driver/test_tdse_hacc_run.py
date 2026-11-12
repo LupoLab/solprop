@@ -40,7 +40,7 @@ from solprop.exceptions import (
 )
 from solprop.nonlinear.tdse import TDSEConsistency, TDSEExecution
 from solprop.output import MemoryOutput, open_file, resume
-from solprop.output.schema import SCHEMA_VERSION
+from solprop.output.metadata import SCHEMA_VERSION
 from solprop.stats import StatsSpec
 
 pytestmark = pytest.mark.medium

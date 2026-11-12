@@ -55,7 +55,7 @@ following and refuses every other feature by name before allocating anything
   the march goes on; a latched snapshot waits for the next accepted endpoint, every
   plane its step crossed observed first (SEP 47 sections 5.3 and 5.5);
 - resumed runs: a field restart, restored call ledgers and the Adams method history
-  (:class:`~solprop.output.schema.MarchSnapshot`), which the session exports at every
+  (:class:`~solprop.output.records.MarchSnapshot`), which the session exports at every
   accepted endpoint a ticket names and installs from its start, as the backend's own
   march does;
 - the input and modified noise models, the input draw's vacuum floor read by the
@@ -79,6 +79,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import numpy.typing as npt
 from solprop._interrupts import committing
+from solprop._ownership import hold
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -122,7 +123,7 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stats import weight_refusal_for
 from solprop.stepper.controller import START_GROWTH, ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -288,8 +289,6 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     (:func:`solprop.backends.session.statistics_unavailable`, which every executor
     refuses before it starts, and
     :func:`solprop.backends.populations.axis_refusal`), are refused by name.
-
-    - Returns: the reason, or ``None``.
     """
     names = tuple(spec.names)
     if not names:
@@ -788,36 +787,18 @@ class NativeSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def native(self) -> _core.Session:
-        """Return the native session, for the structural counters of the tests.
-
-        Returns
-        -------
-        solprop_native._core.Session
-            The native session.
-        """
+    def native(self) -> _core.Session:  # numpydoc ignore=RT01
+        """The native session, for the structural counters of the tests."""
         return self._native
 
     @property
-    def finished(self) -> bool:
-        """Return whether the session yielded its terminal event.
-
-        Returns
-        -------
-        bool
-            True once finished.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session yielded its terminal event."""
         return self._native.status().outcome != 0
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         return _STATES[self._native.status().state] is SessionState.CLOSED
 
     def status(self) -> SessionStatus:
@@ -1084,7 +1065,8 @@ class NativeSession:
         if (counters := _counters.active) is not None:
             counters.crossing("export", destination.nbytes)
         if out is None:
-            destination.setflags(write=False)
+            # Held, so the run's consumers take it as it stands, without a copy.
+            hold(destination)
             self._exports[key] = destination
         return destination
 
@@ -1173,7 +1155,7 @@ class NativeSession:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The snapshot, or ``None`` for a Runge-Kutta march, which keeps no history,
             and before the Adams march holds any.
 
@@ -1260,14 +1242,11 @@ class NativeSession:
         return None
 
     @property
-    def march_refusal(self) -> str | None:
-        """Return why the start's method history was not installed, or ``None``.
+    def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
+        """Why the start's method history was not installed.
 
-        Returns
-        -------
-        str or None
-            The march record's reason (``NativeBackend._restore``), or ``None`` when
-            it was installed or none was given.
+        The march record's reason (``NativeBackend._restore``), or ``None`` when it
+        was installed or none was given.
         """
         return self._march_refusal
 
@@ -1495,30 +1474,18 @@ class NativeSession:
         return self.pending_ticket()
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the step a failure left in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """Step a failure left in flight, ``(start, length)`` in m, or ``None``.
 
         A low-storage step overwrites the state in place, so a failure partway leaves
         neither of its ends: the session is poisoned, and the service loop falls back
         to its latest running checkpoint (SEP 47 section 5.5), naming this step.
-
-        Returns
-        -------
-        tuple or None
-            Where the abandoned step started and its length, m, or ``None``.
         """
         return self._abandoned
 
     @property
-    def reads_transverse_edge(self) -> bool:
-        """Return whether the session's backend reads a transverse edge (SEP 40).
-
-        Returns
-        -------
-        bool
-            True: the native session reads the edge from its resident state and
-            judges it natively.
-        """
+    def reads_transverse_edge(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend reads a transverse edge (SEP 40): always, natively."""
         return NativeBackend.reads_transverse_edge
 
     def close(self) -> None:
@@ -1586,13 +1553,15 @@ class NativeSession:
 
     def _chunk_rows(self, batch: _core.SessionBatch) -> StepStats:
         """Return a batch's chunk of periodic rows, its steps indexing the chunk."""
-        z = batch.row_z.reshape(-1)
-        step = batch.row_step.reshape(-1).astype(np.int64)
+        # Each array is made here and held, so the record takes it without a copy.
+        z = hold(np.array(batch.row_z.reshape(-1), dtype=np.float64))
+        step = hold(batch.row_step.reshape(-1).astype(np.int64))
         if z.size == 0:
             return self._no_rows()
         unpacked = [self._row_lowering.unpack(row) for row in batch.row_values]
         values = {
-            name: np.stack([row[name] for row in unpacked]) for name in self._row_names
+            name: hold(np.stack([row[name] for row in unpacked]))
+            for name in self._row_names
         }
         self._row_shapes = {name: value.shape[1:] for name, value in values.items()}
         return StepStats(z, step, values)
@@ -1600,10 +1569,10 @@ class NativeSession:
     def _no_rows(self) -> StepStats:
         """Return no rows: no names before the first row, then each row's shape."""
         return StepStats(
-            np.empty(0),
-            np.empty(0, dtype=np.int64),
+            hold(np.empty(0)),
+            hold(np.empty(0, dtype=np.int64)),
             {
-                name: np.zeros((0, *shape), dtype=np.float64)
+                name: hold(np.zeros((0, *shape), dtype=np.float64))
                 for name, shape in self._row_shapes.items()
             },
         )
@@ -1614,12 +1583,13 @@ class NativeSession:
 
         - ``attempts``: ``(n, 5)`` rows: end, step, norm, acceptance, wall time.
         """
+        # Copies of the columns, held, so the record takes them without a second copy.
         return BackendHistory(
-            z=np.ascontiguousarray(attempts[:, 0]),
-            dz=np.ascontiguousarray(attempts[:, 1]),
-            error_norm=np.ascontiguousarray(attempts[:, 2]),
-            accepted=attempts[:, 3] != 0.0,
-            wall_time=np.ascontiguousarray(attempts[:, 4]),
+            z=hold(attempts[:, 0].copy()),
+            dz=hold(attempts[:, 1].copy()),
+            error_norm=hold(attempts[:, 2].copy()),
+            accepted=hold(attempts[:, 3] != 0.0),
+            wall_time=hold(attempts[:, 4].copy()),
         )
 
     def _tally(
@@ -2090,14 +2060,8 @@ class NativePrepared:
         self._closed = False
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The backend's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         return self._backend.name
 
     def start(

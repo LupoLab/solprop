@@ -272,7 +272,7 @@ def read_file(path, key):
 def test_the_stored_history_holds_start_positions_and_per_attempt_times():
     """The backend records end positions and a running clock; the file does not.
 
-    ``output.schema.StepHistory`` documents ``z`` as the start of each attempt and
+    ``output.records.StepHistory`` documents ``z`` as the start of each attempt and
     ``wall_time`` as the time one attempt took, and the driver converts on the way.
     Exactly representable numbers, so the check is bitwise.
     """

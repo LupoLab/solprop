@@ -35,7 +35,8 @@ from solprop.modes.material import JsonValue
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
 from solprop.output.hdf5 import HDF5Output, ResumeState
-from solprop.output.schema import Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.store import Output
 from solprop.output.tdse_archive import TDSEArchive, TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep

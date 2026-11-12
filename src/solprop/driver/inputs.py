@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Final, cast
 import numpy as np
 from jaxtyping import Complex
 
+from solprop._ownership import borrow, hold, hold_view
 from solprop.coupling import (
     CouplingLaunch,
     CouplingModel,
@@ -51,7 +52,7 @@ from solprop.nonlinear.optmat_rates import (
     bind_reference_field,
 )
 from solprop.nonlinear.responses import PlasmaResponse
-from solprop.output.schema import _recorded_inline
+from solprop.output.serialisation import _recorded_inline
 from solprop.pulses import (
     GaussianPulse,
     PlanarPulse,
@@ -69,7 +70,6 @@ from solprop.translate.problem import (
     PropagationProblem,
     _held_block,
     _held_state,
-    _hold,
     _state,
 )
 
@@ -164,7 +164,7 @@ def _replaced_launch(
     converted = power_amplitude(
         field0, power_weight_at(original, launch_z), inverse=True
     )
-    return _hold(np.asarray(converted, dtype=np.complex128))
+    return hold(np.asarray(converted, dtype=np.complex128))
 
 
 def _check_input_identity(
@@ -199,7 +199,7 @@ def _given_input(
     """
     # The whole dtype, byte order included: the record serialises its exact string.
     source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
-    return _hold(source.view())
+    return hold(source.view())
 
 
 def _check_planar_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
@@ -266,7 +266,9 @@ def _built_state(
     build = getattr(type(pulse), "build", None)
     own = getattr(build, "__module__", None) == _PULSE_MODULE
     if own and spectrum.dtype == np.complex128:
-        return _hold(spectrum)
+        # A build may give a new array its leading axes by indexing: the memory
+        # beneath is what is held.
+        return hold_view(spectrum)
     return _held_state(spectrum)
 
 
@@ -967,16 +969,16 @@ def _borrowed_input(
     inside the call, so an array needs no copy unless the record outlives it: one
     recorded inline stays a copy, in the handler's record.
 
-    - Returns: a read-only view of a complex128 array the record does not hold, marked
-      as held so that nothing copies it; `initial` itself otherwise. The caller's own
-      flags are not touched.
+    - Returns: a read-only view of a complex128 array the record does not hold, borrowed
+      (:func:`solprop._ownership.borrow`) so that nothing copies it; `initial` itself
+      otherwise. The caller's own flags are not touched.
     """
     if (
         isinstance(initial, np.ndarray)
         and initial.dtype == np.complex128
         and (stated or not _recorded_inline(initial))
     ):
-        return _hold(np.asarray(initial).view())
+        return borrow(np.asarray(initial).view())
     return initial
 
 
@@ -987,9 +989,10 @@ def _without_input(problem: PropagationProblem) -> PropagationProblem:
     is replaced by a broadcast of one zero, which holds no volume (:class:`~solprop.
     translate.problem.Initial`). The problem is good for the march alone.
     """
+    # A broadcast of a held zero is itself held, so Initial takes it uncopied.
     placeholder = np.broadcast_to(
-        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+        hold(np.zeros(1, dtype=np.complex128)), problem.initial.field0.shape
     )
     return dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+        problem, initial=dataclasses.replace(problem.initial, field0=placeholder)
     )

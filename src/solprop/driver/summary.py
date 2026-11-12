@@ -6,12 +6,12 @@
 
 Every route reaches :func:`solprop.driver.run.run_problem`, which builds this summary
 from the translated :class:`~solprop.translate.problem.PropagationProblem`, the run's
-:class:`~solprop.output.schema.RunMetadata` (whose ``configuration`` holds the physics
+:class:`~solprop.output.metadata.RunMetadata` (whose ``configuration`` holds the physics
 objects the problem was built from: the responses, the medium, the profiles), the
 backend's own execution record and the output. It hands the text to the progress
 reporter, so it follows the ``progress`` choice exactly as the progress lines do, and
 records it on a plane store as the
-:data:`~solprop.output.schema.RUN_SUMMARY_ANNOTATION`.
+:data:`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`.
 
 The rows are descriptions for a person, not a record: everything in them is also in the
 run's metadata, which is what a program should read. Nothing here evaluates physics.
@@ -30,7 +30,8 @@ from solprop._process import thread_budget
 from solprop.constants import C
 from solprop.log import format_duration
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.store import Output
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor, transverse_of
@@ -125,7 +126,7 @@ def run_summary(
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's request: its method, step control and planes.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record; its ``configuration`` supplies what the problem holds only as
         compiled tables (the medium and the response models).
     backend : str
@@ -133,7 +134,7 @@ def run_summary(
     execution : collections.abc.Mapping
         The backend's ``metadata()``, which says how it sized its thread pools and
         which propagator it chose.
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Where the planes go.
     start_plane : int, optional
         Index of the first save plane beyond the loaded state; above zero the run is a

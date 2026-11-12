@@ -36,6 +36,7 @@ from jaxtyping import Bool, Complex, Float, Int32
 
 from solprop import fourier
 from solprop._display import Displayed, line
+from solprop._ownership import frozen_copy
 from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import (
@@ -248,7 +249,7 @@ class GeneralModalRoute(Displayed):
         :func:`solprop.translate.problem.assemble` takes the leaves apart and the
         guide never reaches a
         :class:`~solprop.translate.problem.PropagationProblem` -- and the run record
-        persists it inside :attr:`solprop.output.schema.RunMetadata.modal`.
+        persists it inside :attr:`solprop.output.metadata.RunMetadata.modal`.
         ``None`` for a record built by hand, which :func:`modal_identity` then
         refuses by name rather than writing a file that cannot say what produced it.
     coupled_generator : numpy.ndarray or None
@@ -457,7 +458,7 @@ class GeneralModalRoute(Displayed):
             ("moving_generator", generator),
             ("moving_connection", link),
         ):
-            array = np.array(value, dtype=np.complex128, order="C", copy=True)
+            array = frozen_copy(value, np.complex128)
             if array.shape != shape or not np.all(np.isfinite(array)):
                 msg = (
                     f"a general modal route's {name} is a finite expansion on the "
@@ -465,7 +466,6 @@ class GeneralModalRoute(Displayed):
                     f"got {array.shape}"
                 )
                 raise TranslationError(msg)
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
 
     @property
@@ -490,7 +490,7 @@ class GeneralModalRoute(Displayed):
                 raise TranslationError(msg)
             return
         modes, bins = self.n_modes, int(self.tables.omega.size)
-        values = np.array(block, dtype=np.complex128, order="C", copy=True)
+        values = frozen_copy(block, np.complex128)
         if values.shape != (modes, modes, bins) or not np.all(np.isfinite(values)):
             msg = (
                 f"a general modal route's coupled_generator must be a finite "
@@ -515,7 +515,6 @@ class GeneralModalRoute(Displayed):
                 "through the cumulative diagonal flow"
             )
             raise TranslationError(msg)
-        values.setflags(write=False)
         object.__setattr__(self, "coupled_generator", values)
         object.__setattr__(self, "reference_channel", int(self.reference_channel))
 
@@ -1598,7 +1597,7 @@ def modal_identity(
     (:data:`solprop.stats.GENERAL_MODAL_ACCESSORS`, which
     :mod:`solprop.output.capability` gates with).
 
-    It goes into :attr:`solprop.output.schema.RunMetadata.modal`, which is inside
+    It goes into :attr:`solprop.output.metadata.RunMetadata.modal`, which is inside
     the resume key, so a run continued against a changed guide, table,
     material or channel order is refused by the field that changed.
 

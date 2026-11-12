@@ -1756,7 +1756,6 @@ class _ProviderBinding:
         """Record an evaluation's exception, keeping the caller's error primary.
 
         - ``evaluation``: the archive's evaluation, or None without an archive.
-        - ``index``: the chunk that raised, or None.
         - ``note``: the error the caller raises, which gains a note if recording fails.
         """
         archive = self._archive
@@ -2361,7 +2360,6 @@ def _diagnostic_archive_result(
 ) -> TDSEArchiveError | None:
     """Store a consistency diagnostic's returned record before its validation.
 
-    - ``evaluation``: the archive's evaluation, or None.
     - Returns: the write failure, if any.
     """
     archive = context.archive
@@ -2385,7 +2383,6 @@ def _diagnostic_archive_failure(
 ) -> None:
     """Record a failed consistency diagnostic, keeping the provider error primary.
 
-    - ``evaluation``: the archive's evaluation, or None.
     - ``primary``: the error raised, which gains a note if recording fails.
     """
     archive = context.archive

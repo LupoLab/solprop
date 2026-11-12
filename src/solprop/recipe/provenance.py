@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from solprop.nonlinear.raman import RamanResponse
-from solprop.output.schema import RecipeFile, RecipeRecord
+from solprop.output.records import RecipeFile, RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
     Document,
@@ -227,7 +227,7 @@ def record(
 
     Returns
     -------
-    solprop.output.schema.RecipeRecord
+    solprop.output.records.RecipeRecord
         The authored and resolved texts, and the data files.
     """
     # A pinned recipe builds through its resolved copy, which remembers the authored

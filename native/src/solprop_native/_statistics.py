@@ -693,8 +693,6 @@ def metric_refusal(problem: PropagationProblem, names: Sequence[str]) -> str | N
     allocated; ``numpy_ref`` computes them (maintainer's decision, SEP 47 phase 4). No
     built-in route builds such a metric (:func:`solprop.translate.coupled.
     dense_metric` is constant on each interval).
-
-    - Returns: the refusal, or ``None``.
     """
     if _route(problem) != "general" or not _metric_varies(problem):
         return None
@@ -1063,7 +1061,6 @@ def lower(
     - ``planes``: every position the plane statistics will be taken at, when the run
       fixes them all before it starts; ``zdw`` is then searched exactly there
       (:func:`_zdw_tables`).
-    - Returns: the plan and the shapes.
     """
     names = tuple(names)
     left = uncovered(problem, [name for name in names if name != NODE_POPULATIONS])

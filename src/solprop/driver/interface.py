@@ -55,8 +55,8 @@ from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.raman import MolecularOptions
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
-from solprop.output.schema import Output
 from solprop.output.snapshots import SnapshotController
+from solprop.output.store import Output
 from solprop.output.tdse_archive import TDSEArchive
 from solprop.physdata import Gas, Mixture
 from solprop.physdata.mixtures import Pressure
@@ -95,7 +95,7 @@ _RUN_CONTROLS: Final = (
 """The keywords of a ``prop_*`` function that are :meth:`Simulation.run`'s."""
 
 _RUN_CONTROLS_DOC: Final = """\
-output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+output : solprop.output.store.Output or pathlib.Path or str or None, optional
     Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
     a :class:`solprop.output.memory.MemoryOutput`.
 snapshots : solprop.output.SnapshotController or None, optional
@@ -224,7 +224,7 @@ def prop_free(  # numpydoc ignore=PR01
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         Saved fields, metadata, statistics and step history.
     """
     return _propagate(Simulation.from_free, locals())
@@ -263,7 +263,7 @@ def prop_planar(  # numpydoc ignore=PR01
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         Saved fields, metadata, statistics and step history.
     """
     return _propagate(Simulation.from_planar, locals())
@@ -340,7 +340,7 @@ def prop_gnlse(  # numpydoc ignore=PR01
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         The handler the run was written to, closed. A
         :class:`solprop.output.memory.MemoryOutput` stays readable; read an HDF5 file
         back with :func:`solprop.output.hdf5.open_file`.
@@ -480,7 +480,7 @@ def prop_capillary(  # numpydoc ignore=PR01
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         The handler the run wrote, closed. A
         :class:`~solprop.output.memory.MemoryOutput` stays readable; read a file back
         with :func:`solprop.output.hdf5.open_file`.
@@ -611,7 +611,7 @@ def prop_waveguide(  # numpydoc ignore=PR01
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         Saved fields, metadata, statistics and step history.
     """
     return _propagate(Simulation.from_waveguide, locals())

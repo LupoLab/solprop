@@ -55,7 +55,7 @@ limits for you.
 
 ## Rebuilding the axes
 
-A saved run records a {py:class}`~solprop.output.schema.GridRecord` — scalars only, so
+A saved run records a {py:class}`~solprop.output.records.GridRecord` — scalars only, so
 that the metadata stays small and its digest cheap — and not the grid object itself.
 {py:func}`~solprop.processing.axes.grid_from_record` puts one back together:
 

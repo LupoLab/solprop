@@ -42,9 +42,10 @@ from dataclasses import dataclass
 import numpy as np
 from jaxtyping import Float
 
+from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
 from solprop.monitor import BoundaryMonitor
-from solprop.output.schema import FieldRetention
+from solprop.output.store import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -172,7 +173,7 @@ class ObservationRequest:
         Observe the endpoint of every ``step_planes``-th accepted step; ``0`` for none.
     stats : solprop.stats.StatsSpec
         The plane statistics, and the periodic subset with its period.
-    retention : solprop.output.schema.FieldRetention
+    retention : solprop.output.store.FieldRetention
         Which observed planes keep their field.
     """
 
@@ -386,7 +387,7 @@ class RunRequest:
         ----------
         stats : solprop.stats.StatsSpec or None, optional
             The statistics; this request's own by default.
-        retention : solprop.output.schema.FieldRetention or None, optional
+        retention : solprop.output.store.FieldRetention or None, optional
             Field retention, already resolved against the planes; every field by
             default.
         start_plane : int, optional
@@ -456,7 +457,7 @@ def describe_run(
         control, itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional
         The statistics; none by default.
-    retention : solprop.output.schema.FieldRetention or None, optional
+    retention : solprop.output.store.FieldRetention or None, optional
         Field retention, already resolved against the planes; every field by default.
     start_plane : int, optional
         The first save plane beyond the starting state.
@@ -499,8 +500,7 @@ def describe_run(
     ('runge_kutta', [1.0])
     """
     settings = stepper
-    planes = np.array(settings.save_planes, dtype=np.float64)
-    planes.setflags(write=False)
+    planes = frozen_copy(settings.save_planes, np.float64)
     if not 0 <= start_plane <= planes.size:
         msg = f"start_plane {start_plane} is not a plane of a run with {planes.size}"
         raise TranslationError(msg)

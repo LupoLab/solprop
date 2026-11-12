@@ -51,13 +51,8 @@ from solprop.nonlinear.optmat_rates import (
 )
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.output.hdf5 import HDF5Output
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
-    FieldRetention,
-    Output,
-    PlaneStore,
-    RunMetadata,
-)
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, RunMetadata
+from solprop.output.store import FieldRetention, Output, PlaneStore
 from solprop.physdata import _optmat
 from solprop.physdata.selection import MaterialLog
 from solprop.pulses import Pulse, SpatialPulse, SpatialPulseSum
@@ -85,11 +80,11 @@ class _LoadedRun:
     start : solprop.backends.session.Start
         The input's start. The run's session takes its field, so that nothing holds
         the input through the march (issue #447).
-    handler : solprop.output.schema.Output
+    handler : solprop.output.store.Output
         Where the planes go.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record.
-    retention : solprop.output.schema.FieldRetention
+    retention : solprop.output.store.FieldRetention
         Which planes keep their field.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None
         The run's monitor of the window's edges.
@@ -283,11 +278,11 @@ class SimulationRunner(Displayed):
         initial : Pulse, SpatialPulse or numpy.ndarray
             The input, as :meth:`~solprop.driver.simulation.Simulation.with_input` takes
             it. An array the record keeps by digest
-            (:func:`~solprop.output.schema.recorded_input`) is not copied: it is read
-            while this call loads it, and the runner holds no reference to it, nor to
-            any copy, once it is loaded, so a caller that keeps none itself has it freed
-            before the first step.
-        output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+            (:func:`~solprop.output.serialisation.recorded_input`) is not copied: it is
+            read while this call loads it, and the runner holds no reference to it, nor
+            to any copy, once it is loaded, so a caller that keeps none itself has it
+            freed before the first step.
+        output : solprop.output.store.Output or pathlib.Path or str or None, optional
             Where this input's planes go: a handler, a path for an HDF5 file, or
             ``None`` for a new :class:`~solprop.output.memory.MemoryOutput`.
         configuration : collections.abc.Mapping or None, optional
@@ -308,7 +303,7 @@ class SimulationRunner(Displayed):
 
         Returns
         -------
-        solprop.output.schema.Output
+        solprop.output.store.Output
             This input's handler, closed; a memory handler stays readable.
 
         Raises

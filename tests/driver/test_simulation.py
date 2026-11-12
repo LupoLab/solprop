@@ -293,7 +293,7 @@ def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
     Every object the configuration carries -- the modes, the pressure and density
     paths, the responses, the rate object and the pulse -- has to serialise to its own
     data rather than to a ``repr`` holding a memory address
-    (:func:`solprop.output.schema.serialise`).
+    (:func:`solprop.output.serialisation.serialise`).
     """
     program = (
         "import warnings, sys\n"

@@ -25,7 +25,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryWarning
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta

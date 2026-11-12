@@ -28,7 +28,7 @@ from solprop.driver.tdse_run import _refined_tdse_collar
 from solprop.exceptions import DriverError, GridError
 from solprop.grid import FieldGrid
 from solprop.nonlinear.tdse import TDSESampling
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.stepper import PIController
 from solprop.translate.masks import temporal_rates
 from solprop.translate.tdse import refine_response_grid

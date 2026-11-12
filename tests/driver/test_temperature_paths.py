@@ -26,7 +26,7 @@ from solprop.exceptions import (
 )
 from solprop.gasflow import steady_fill
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture, species
 from solprop.profiles import Constant, Linear, PressureGradient
 from solprop.spatial import SpatialMedium

@@ -35,6 +35,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 from scipy import interpolate
 
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError, SurrogateAreaWarning
 from solprop.modes.base import alpha, beta, beta1
@@ -109,18 +110,20 @@ class DispersionPath(Protocol):
     """
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the positions in m where the path kinks; may be empty."""
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """The positions in m where the path kinks; may be empty."""
         ...
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval in m the path is declared over, ``(start, end)``."""
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval in m the path is declared over, ``(start, end)``."""
         ...
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path takes the same value at every position."""
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path takes the same value at every position."""
         ...
 
     def __call__(
@@ -296,7 +299,7 @@ class InterpolatedDispersion:
         ModeError
             Naming what is wrong with the declaration.
         """
-        nodes = np.ascontiguousarray(self.positions, dtype=np.float64).reshape(-1)
+        nodes = frozen_copy(np.reshape(self.positions, -1), np.float64)
         members = tuple(self.members)
         if nodes.size < 2:
             msg = (
@@ -313,7 +316,6 @@ class InterpolatedDispersion:
                 "positions: a path carries one set per position"
             )
             raise ModeError(msg)
-        nodes.setflags(write=False)
         object.__setattr__(self, "positions", nodes)
         object.__setattr__(self, "members", members)
 
@@ -571,8 +573,8 @@ class TaylorDispersion:
 
     The instance is callable and stands where a closure would. That is what makes a mode
     built from it **reproducible in a run's metadata**:
-    :func:`solprop.output.schema.serialise` records a closure as its ``repr``, which
-    carries the function's memory address, so a configuration holding one hashes
+    :func:`solprop.output.serialisation.serialise` records a closure as its ``repr``,
+    which carries the function's memory address, so a configuration holding one hashes
     differently in every process and the run could never be resumed from its own file.
     A frozen dataclass records its fields instead.
 
@@ -626,7 +628,7 @@ class TaylorDispersion:
         ModeError
             Naming what is wrong with the series.
         """
-        coefficients = np.ascontiguousarray(self.betas, dtype=np.float64).reshape(-1)
+        coefficients = frozen_copy(np.reshape(self.betas, -1), np.float64)
         if coefficients.size == 0:
             msg = "betas must hold at least the zeroth-order coefficient"
             raise ModeError(msg)
@@ -639,7 +641,6 @@ class TaylorDispersion:
         if self.derivative < 0:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
-        coefficients.setflags(write=False)
         object.__setattr__(self, "betas", coefficients)
         orders = np.arange(coefficients.size)
         # betas[n] is the n-th derivative at omega_ref, so the polynomial coefficient is
@@ -735,8 +736,8 @@ class TabulatedDispersion:
         ModeError
             Naming what is wrong with the table.
         """
-        nodes = np.ascontiguousarray(self.omega, dtype=np.float64)
-        values = np.ascontiguousarray(self.beta, dtype=np.float64)
+        nodes = frozen_copy(self.omega, np.float64)
+        values = frozen_copy(self.beta, np.float64)
         if nodes.shape != values.shape:
             msg = f"omega and beta have shapes {nodes.shape} and {values.shape}"
             raise ModeError(msg)
@@ -753,7 +754,6 @@ class TabulatedDispersion:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
         for name, array in (("omega", nodes), ("beta", values)):
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
         spline = interpolate.CubicSpline(nodes, values, extrapolate=False)
         object.__setattr__(
@@ -1175,7 +1175,7 @@ class SpecifiedMode:
 
     @property
     def area_path(self) -> ZProfile:  # numpydoc ignore=RT01
-        """Declared effective-area path in m^2, m^2.
+        """Declared effective-area path, m^2.
 
         The path, a :class:`~solprop.profiles.Constant` when the area is a
         number. It is the path the transform's kink walk and

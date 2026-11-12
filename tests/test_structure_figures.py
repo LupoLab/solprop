@@ -30,7 +30,8 @@ import pytest
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import passes
 from solprop.backends.protocol import Backend
-from solprop.output import schema
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import HISTORY_FIELDS
 from solprop.stats import CATALOGUE
 from solprop.stepper import schedule as schedule_module
 from solprop.stepper.controller import PIController
@@ -207,14 +208,14 @@ def test_every_statistic_drawn_is_in_the_catalogue(name):
 
 
 def test_the_output_figure_names_the_history_columns_the_schema_defines():
-    """The ``step_history/`` box lists exactly `schema.HISTORY_FIELDS`."""
+    """The ``step_history/`` box lists exactly `HISTORY_FIELDS`."""
     line = next(
         line
         for group in build.OUTPUT_GROUPS
         if group.name == "step_history/"
         for line in group.lines
     )
-    for column in schema.HISTORY_FIELDS:
+    for column in HISTORY_FIELDS:
         assert column in line
 
 
@@ -229,7 +230,7 @@ def test_the_output_figure_names_the_datasets_the_writer_creates():
 def test_the_resume_key_is_the_method_the_schema_defines():
     """Figure 6 names the digest by the method that computes it."""
     _, method = build.RESUME_KEY.rsplit(".", 1)
-    assert hasattr(schema.RunMetadata, method)
+    assert hasattr(RunMetadata, method)
 
 
 def test_the_page_shows_exactly_the_figures_the_script_draws():

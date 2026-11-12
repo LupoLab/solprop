@@ -21,7 +21,7 @@ from march_bounds import STATISTIC_FACTOR, assert_matched, simulation_bound
 from solprop.driver._scan_run import _Capture, _Options, _retained
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import OutputError
-from solprop.output.schema import FieldsChoice
+from solprop.output.store import FieldsChoice
 from solprop.processing import scans
 
 

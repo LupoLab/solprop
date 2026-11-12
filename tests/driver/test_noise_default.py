@@ -16,7 +16,8 @@ from solprop.driver.summary import _noise
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.noise import photons_per_bin
-from solprop.output.schema import NoiseResolution, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import NoiseResolution
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController

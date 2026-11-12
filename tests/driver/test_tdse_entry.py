@@ -36,7 +36,7 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.output import MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.stats import StatsSpec
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS

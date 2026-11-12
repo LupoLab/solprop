@@ -251,7 +251,7 @@ energy = {target = "soliton_order", order = 4}
 | `soliton_order` | `order` | a pulse's `energy` or `peak_power`, as `energy` or `pulses[0].energy` |
 
 A pin on the guide or fill needs `search`, the range its solver
-({py:func}`solprop.tools.solve_parameter`) samples, in the keyword's unit; it is solved
+({py:func}`solprop.tools.design.solve_parameter`) samples, in the keyword's unit; it is solved
 on the launch mode (the first) at the entrance. A soliton-order pin is closed form, on
 that mode with the fill's Kerr coefficient, after the guide's pin. So at most one
 parameter of the guide or fill is pinned, then the pulses; a pinned value is not also
@@ -260,7 +260,7 @@ pinned. `root` chooses among several roots: `"lowest"` (the default), `"highest"
 index.
 
 `recipe.resolve()` returns the recipe with each pin replaced by its value, and
-`recipe.pin_roots("pressure")` the solver's {py:class}`~solprop.tools.DesignRoots`: every
+`recipe.pin_roots("pressure")` the solver's {py:class}`~solprop.tools.design.DesignRoots`: every
 root, or none with the range the target does reach, for a front end to offer. A target
 not met in its range is an issue of `check()` on the pinned path. A build solves the pins
 (each scan point solves its own), a run records both the authored recipe and the
@@ -268,7 +268,7 @@ resolved one, and `to_python()` writes the solver calls
 ({py:func}`~solprop.recipe.pins.solve_pin`,
 {py:func}`~solprop.recipe.pins.solve_pulse`) before the route's. Solving a guide's pin
 costs a few hundred evaluations of one mode, about a second for a capillary. A design that
-sets two values at once, such as {py:func}`~solprop.tools.capillary_design`, is not a pin:
+sets two values at once, such as {py:func}`~solprop.tools.capillary.capillary_design`, is not a pin:
 call it and write its values in `[build]`.
 
 ## Previews

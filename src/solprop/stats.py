@@ -62,7 +62,7 @@ from solprop.grid import TimeGrid
 from solprop.modes import base as modes_base
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
-from solprop.output.schema import SavedPlane, SimulationKind
+from solprop.output.records import SavedPlane, SimulationKind
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
@@ -208,43 +208,6 @@ def species_statistics(
         "peak_ionisation_rate": np.asarray(np.max(peak_rates)),
     }
 
-
-PROFILE_STATISTICS = ("density", "pressure", "core_radius")
-"""Statistics that read a :class:`solprop.profiles.ZProfile` at the plane's position."""
-
-ON_AXIS_PLASMA_STATISTICS = (
-    "on_axis_electron_density",
-    "on_axis_peak_ionisation_rate",
-    "on_axis_species_electron_density",
-    "on_axis_species_peak_ionisation_rate",
-)
-"""The plasma statistics evaluated on the waveguide's axis (SEP 19, section 5.2).
-
-Opt-in and saved-plane only. The axis field is synthesised from the mode profiles, as
-for ``peak_intensity``, and its populations are scanned with exactly the rate tables,
-preionisation, densities and running-integral rule of the node scan, once per
-observation; a rule with a node on the axis supplies that row instead. They sit beside
-the unchanged node reductions -- ``electron_density`` is the densest node's -- because a
-few-node field-scale rule may have no node near the axis, and a multimode field's
-largest density need not lie on it. Defined on resolved modal routes; the spatial
-routes, general modal guides, the mode-averaged route and TDSE refuse them by name.
-"""
-
-PLASMA_INTEGRATION_STATISTICS = (
-    "plasma_undershoot",
-    "plasma_work_defect",
-    "plasma_boundary_level",
-)
-"""The field plasma column's run-time integration diagnostics (SEP 18, section 4.5).
-
-Evaluated with the other plasma statistics at each save plane. Each is a ratio of two
-maxima over every sample, node and population, so that a node the field barely
-ionises cannot set it: the undershoot ``max(-dS) / max(dS)`` of the exposure
-increments; the work defect ``max |paid - freed| / max freed``, the loss current's work
-per ionisation potential against the fraction it freed; and the boundary level, the
-free-current integrand's largest magnitude in the ``2K`` samples the filter reads past
-the window's start against its largest anywhere.
-"""
 
 DEFAULT_ZDW_RANGE = (100e-9, 3e-6)
 """Search window of :func:`zdw` when no narrower one is given, m."""
@@ -1212,9 +1175,6 @@ class StatDefinition:
         tables ``'apertures'`` and ``'regions'`` of the spec, or
         ``'separable_operator'``, the run's linear operator, which only a backend
         holds.
-    implemented : bool
-        Whether the statistic exists yet. A reserved name is in the catalogue so that a
-        spec asking for it is refused now instead of silently returning nothing.
     backend : bool
         Whether only a backend can compute it. These are the statistics of quantities
         the saved field does not carry -- the electron density, the ionisation rate, the
@@ -1229,6 +1189,29 @@ class StatDefinition:
         would cost a large share of the step; ``peak_intensity`` is in the subset
         because its on-axis matrix is built once and rescaled rather than rebuilt.
         :class:`StatsSpec` refuses a periodic name without it, by name.
+    evaluate : collections.abc.Callable or None
+        The function :func:`collect` forms it with from a saved plane's field: called
+        ``(grid, field)``, with the spec's windows when it requires them, or with
+        ``metric=`` when it is metric-weighted; ``None`` for one formed otherwise.
+    metric : bool
+        Whether its value depends on the basis's flux metric
+        (:data:`METRIC_WEIGHTED_STATISTICS`).
+    weight : {'poynting', 'unit'} or None
+        How it depends on the modal power weight: ``'poynting'`` for one a backend
+        forms in its weighted Poynting pass, ``'unit'`` for a general modal statistic
+        valid only under the constant weight (:func:`weight_refusal_for`).
+    profile : bool
+        Whether it reads the z-profile of its own name (:data:`PROFILE_STATISTICS`).
+    plasma : {'on_axis', 'integration'} or None
+        Its family of plasma statistics (:data:`ON_AXIS_PLASMA_STATISTICS`,
+        :data:`PLASMA_INTEGRATION_STATISTICS`).
+    general : {'admitted', 'no_flow', 'diagnostic', 'medium'} or None
+        How a general modal basis treats it: admitted, admitted unless the block
+        couples (:data:`WITHHELD_WITH_A_FLOW`), a step diagnostic the basis does not
+        decide, refused because the guide has no gas fill or spatial geometry, or
+        (``None``) refused because of the basis.
+    advice : str or None
+        What to use instead on a general modal basis (:data:`ACCESSOR_ADVICE`).
 
     Examples
     --------
@@ -1246,9 +1229,23 @@ class StatDefinition:
     shape: str
     units: str
     requires: tuple[str, ...] = ()
-    implemented: bool = True
     backend: bool = False
     between_planes: bool = False
+    evaluate: Callable[..., np.ndarray] | None = field(
+        default=None, repr=False, compare=False
+    )
+    metric: bool = False
+    weight: Literal["poynting", "unit"] | None = None
+    profile: bool = False
+    plasma: Literal["on_axis", "integration"] | None = None
+    general: Literal["admitted", "no_flow", "diagnostic", "medium"] | None = None
+    advice: str | None = None
+
+
+_DETECTOR_ADVICE = (
+    "analytic_flux or reconstructed E/H with an explicit detector definition"
+)
+"""What replaces a peak power or intensity on a general modal basis."""
 
 
 def _catalogue() -> dict[str, StatDefinition]:
@@ -1260,6 +1257,10 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_modes, n_pol)",
             units="rad/s",
             between_planes=True,
+            evaluate=omega0,
+            metric=True,
+            weight="poynting",
+            general="admitted",
         ),
         StatDefinition(
             name="energy",
@@ -1267,6 +1268,11 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_modes, n_pol); () for spatial beams",
             units="J",
             between_planes=True,
+            evaluate=energy,
+            weight="poynting",
+            advice=(
+                "physical_energy, which integrates the same-frequency metric product"
+            ),
         ),
         StatDefinition(
             name="energy_window",
@@ -1275,6 +1281,12 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="J",
             requires=("windows",),
             between_planes=True,
+            evaluate=energy_window,
+            weight="poynting",
+            advice=(
+                "physical_energy with an explicit band, or the reconstructed E/H of a "
+                "saved plane"
+            ),
         ),
         StatDefinition(
             name="peak_power",
@@ -1282,6 +1294,9 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_modes,)",
             units="W",
             between_planes=True,
+            evaluate=peak_power,
+            weight="poynting",
+            advice=_DETECTOR_ADVICE,
         ),
         StatDefinition(
             name="peak_power_window",
@@ -1290,6 +1305,9 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="W",
             requires=("windows",),
             between_planes=True,
+            evaluate=peak_power_window,
+            weight="poynting",
+            advice=_DETECTOR_ADVICE,
         ),
         StatDefinition(
             name="peak_power_total",
@@ -1297,6 +1315,9 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="W",
             between_planes=True,
+            evaluate=peak_power_total,
+            weight="poynting",
+            advice=_DETECTOR_ADVICE,
         ),
         StatDefinition(
             name="physical_energy",
@@ -1304,12 +1325,20 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="J",
             between_planes=True,
+            evaluate=physical_energy,
+            metric=True,
+            weight="unit",
+            general="admitted",
         ),
         StatDefinition(
             name="spectral_flux",
             summary="Spectral density of a general modal basis's physical energy.",
             shape="(n_omega,)",
             units="J/(rad/s)",
+            evaluate=spectral_flux,
+            metric=True,
+            weight="unit",
+            general="admitted",
         ),
         StatDefinition(
             name="analytic_flux",
@@ -1317,6 +1346,10 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="W",
             between_planes=True,
+            evaluate=analytic_flux,
+            metric=True,
+            weight="unit",
+            general="admitted",
         ),
         StatDefinition(
             name="fwhm_t",
@@ -1324,6 +1357,10 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="s",
             between_planes=True,
+            evaluate=fwhm_t,
+            metric=True,
+            weight="poynting",
+            general="admitted",
         ),
         StatDefinition(
             name="fwhm_t_outer",
@@ -1331,6 +1368,10 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="s",
             between_planes=True,
+            evaluate=fwhm_t_outer,
+            metric=True,
+            weight="poynting",
+            general="admitted",
         ),
         StatDefinition(
             name="density",
@@ -1339,6 +1380,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             requires=("density",),
             between_planes=True,
+            profile=True,
+            general="medium",
         ),
         StatDefinition(
             name="pressure",
@@ -1347,6 +1390,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="bar",
             requires=("pressure",),
             between_planes=True,
+            profile=True,
+            general="medium",
         ),
         StatDefinition(
             name="core_radius",
@@ -1355,6 +1400,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="m",
             requires=("core_radius",),
             between_planes=True,
+            profile=True,
+            general="medium",
         ),
         StatDefinition(
             name="zdw",
@@ -1362,6 +1409,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_modes,)",
             units="m",
             requires=("modes",),
+            general="no_flow",
         ),
         StatDefinition(
             name="species_ionisation",
@@ -1370,6 +1418,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1",
             backend=True,
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="species_electron_density",
@@ -1378,6 +1427,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             backend=True,
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="species_peak_ionisation_rate",
@@ -1386,6 +1436,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/s",
             backend=True,
             between_planes=False,
+            general="medium",
         ),
         StatDefinition(
             name="species_density",
@@ -1394,6 +1445,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             backend=True,
             between_planes=False,
+            general="medium",
         ),
         StatDefinition(
             name="species_ionisation_energy",
@@ -1402,6 +1454,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="J/m",
             backend=True,
             between_planes=False,
+            general="medium",
         ),
         StatDefinition(
             name="electron_density",
@@ -1410,6 +1463,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             backend=True,
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="peak_ionisation_rate",
@@ -1418,6 +1472,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/s",
             backend=True,
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="on_axis_electron_density",
@@ -1426,6 +1481,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             backend=True,
             between_planes=False,
+            plasma="on_axis",
         ),
         StatDefinition(
             name="on_axis_peak_ionisation_rate",
@@ -1434,6 +1490,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/s",
             backend=True,
             between_planes=False,
+            plasma="on_axis",
         ),
         StatDefinition(
             name="on_axis_species_electron_density",
@@ -1442,6 +1499,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/m^3",
             backend=True,
             between_planes=False,
+            plasma="on_axis",
         ),
         StatDefinition(
             name="on_axis_species_peak_ionisation_rate",
@@ -1450,6 +1508,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1/s",
             backend=True,
             between_planes=False,
+            plasma="on_axis",
         ),
         StatDefinition(
             name="plasma_undershoot",
@@ -1458,6 +1517,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1",
             backend=True,
             between_planes=False,
+            plasma="integration",
+            general="medium",
         ),
         StatDefinition(
             name="plasma_work_defect",
@@ -1466,6 +1527,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1",
             backend=True,
             between_planes=False,
+            plasma="integration",
+            general="medium",
         ),
         StatDefinition(
             name="plasma_boundary_level",
@@ -1474,6 +1537,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="1",
             backend=True,
             between_planes=False,
+            plasma="integration",
+            general="medium",
         ),
         StatDefinition(
             name="peak_intensity",
@@ -1482,6 +1547,8 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="W/m^2",
             backend=True,
             between_planes=True,
+            weight="poynting",
+            advice=_DETECTOR_ADVICE,
         ),
         StatDefinition(
             name="fwhm_r",
@@ -1489,6 +1556,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="()",
             units="m",
             requires=("spatial_geometry",),
+            general="medium",
         ),
         StatDefinition(
             name="on_axis_intensity",
@@ -1497,6 +1565,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="W/m^2",
             requires=("spatial_geometry",),
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="on_axis_spectrum",
@@ -1504,6 +1573,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_omega,)",
             units="J s/m^2",
             requires=("spatial_geometry",),
+            general="medium",
         ),
         StatDefinition(
             name="beam_radius",
@@ -1511,6 +1581,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(2,)",
             units="m",
             requires=("spatial_geometry",),
+            general="medium",
         ),
         StatDefinition(
             name="aperture_spectrum",
@@ -1518,6 +1589,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_apertures, n_omega)",
             units="J/(rad/s)",
             requires=("apertures", "spatial_geometry"),
+            general="medium",
         ),
         StatDefinition(
             name="aperture_on_axis_spectrum",
@@ -1525,6 +1597,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_apertures, n_omega)",
             units="J s/m^2",
             requires=("apertures", "spatial_geometry"),
+            general="medium",
         ),
         StatDefinition(
             name="region_spectrum",
@@ -1532,6 +1605,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_regions, n_omega)",
             units="J/(rad/s)",
             requires=("regions", "spatial_geometry"),
+            general="medium",
         ),
         StatDefinition(
             name="beam_spectrum",
@@ -1539,6 +1613,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             shape="(n_omega,)",
             units="J/(rad/s)",
             requires=("spatial_geometry",),
+            general="medium",
         ),
         StatDefinition(
             name="absorbed_power",
@@ -1548,6 +1623,7 @@ def _catalogue() -> dict[str, StatDefinition]:
             requires=("spatial_geometry", "separable_operator"),
             backend=True,
             between_planes=True,
+            general="medium",
         ),
         StatDefinition(
             name="quadrature_error",
@@ -1556,25 +1632,22 @@ def _catalogue() -> dict[str, StatDefinition]:
             units="dimensionless",
             backend=True,
             between_planes=True,
+            general="diagnostic",
         ),
     )
     return {entry.name: entry for entry in entries}
 
 
 CATALOGUE: Mapping[str, StatDefinition] = _catalogue()
-"""Every statistic solprop knows about, implemented or reserved, keyed by name."""
+"""Every statistic solprop knows about, keyed by name."""
 
 GENERAL_MODAL_ACCESSORS: frozenset[str] = frozenset(
-    {
-        # Statistics of the general basis, from the catalogue above.
-        "omega0",
-        "physical_energy",
-        "spectral_flux",
-        "analytic_flux",
-        "fwhm_t",
-        "fwhm_t_outer",
-        "zdw",
-        # Processing accessors of the general basis (solprop.processing.modal).
+    name
+    for name, entry in CATALOGUE.items()
+    if entry.general in ("admitted", "no_flow")
+) | frozenset(
+    # Processing accessors of the general basis (solprop.processing.modal).
+    (
         "reconstructed_flux",
         "channel_labels",
         "coordinate_intensity",
@@ -1582,7 +1655,7 @@ GENERAL_MODAL_ACCESSORS: frozenset[str] = frozenset(
         "electric_field",
         "magnetic_field",
         "plane_nodes",
-    }
+    )
 )
 """Every accessor a three-component general modal basis admits, by name.
 
@@ -1619,7 +1692,9 @@ direction that could be reached -- an ordinary run asked for it -- would be refu
 for the right reason.
 """
 
-WITHHELD_WITH_A_FLOW: frozenset[str] = frozenset({"zdw"})
+WITHHELD_WITH_A_FLOW: frozenset[str] = frozenset(
+    name for name, entry in CATALOGUE.items() if entry.general == "no_flow"
+)
 """The general-basis accessors a route withholds when its block couples, by name.
 
 A declared change of basis over channels whose propagation constants differ executes
@@ -1631,23 +1706,7 @@ every accessor door refuses them with :func:`solprop.output.capability.refusal_f
 """
 
 ACCESSOR_ADVICE: Mapping[str, str] = {
-    "energy": "physical_energy, which integrates the same-frequency metric product",
-    "energy_window": (
-        "physical_energy with an explicit band, or the reconstructed E/H of a saved "
-        "plane"
-    ),
-    "peak_power": (
-        "analytic_flux or reconstructed E/H with an explicit detector definition"
-    ),
-    "peak_power_total": (
-        "analytic_flux or reconstructed E/H with an explicit detector definition"
-    ),
-    "peak_power_window": (
-        "analytic_flux or reconstructed E/H with an explicit detector definition"
-    ),
-    "peak_intensity": (
-        "analytic_flux or reconstructed E/H with an explicit detector definition"
-    ),
+    name: entry.advice for name, entry in CATALOGUE.items() if entry.advice is not None
 }
 """What to use instead of each legacy name on a general modal basis.
 
@@ -1656,16 +1715,8 @@ A name with no entry here gets the generic advice of
 ``analytic_flux`` and the reconstruction accessors, and nothing else of that family.
 """
 
-_GAS_OR_SPATIAL_NAMES: frozenset[str] = (
-    frozenset({"electron_density", "peak_ionisation_rate"})
-    | frozenset(PLASMA_INTEGRATION_STATISTICS)
-    | frozenset(PROFILE_STATISTICS)
-    | frozenset(name for name in CATALOGUE if name.startswith("species_"))
-    | frozenset(
-        name
-        for name, entry in CATALOGUE.items()
-        if "spatial_geometry" in entry.requires
-    )
+_GAS_OR_SPATIAL_NAMES: frozenset[str] = frozenset(
+    name for name, entry in CATALOGUE.items() if entry.general == "medium"
 )
 """Names a general modal guide fails for a reason that is not its basis at all.
 
@@ -1675,7 +1726,9 @@ up; advising a reader to use ``analytic_flux`` instead of ``electron_density`` w
 be nonsense. The gate names that reason instead.
 """
 
-_STEP_DIAGNOSTICS: frozenset[str] = frozenset({"quadrature_error"})
+_STEP_DIAGNOSTICS: frozenset[str] = frozenset(
+    name for name, entry in CATALOGUE.items() if entry.general == "diagnostic"
+)
 """Diagnostics of the step, which are the same quantity in any basis.
 
 Basis-independent step diagnostics are admitted on a general basis, so the gate never
@@ -1687,34 +1740,9 @@ a statement about the rule, not about the basis -- and it is deliberately not in
 same record's run refuses.
 """
 
-_FIELD_STATISTICS: Mapping[
-    str, Callable[[TimeGrid, Complex[np.ndarray, "n_modes n_pol n_omega"]], np.ndarray]
-] = {
-    "energy": energy,
-    "peak_power": peak_power,
-    "peak_power_total": peak_power_total,
-}
-"""Statistics of the saved field alone, each taking the grid and the field."""
-
-_METRIC_STATISTICS: Mapping[
-    str,
-    Callable[..., np.ndarray],
-] = {
-    "omega0": omega0,
-    "physical_energy": physical_energy,
-    "spectral_flux": spectral_flux,
-    "analytic_flux": analytic_flux,
-    "fwhm_t": fwhm_t,
-    "fwhm_t_outer": fwhm_t_outer,
-}
-"""Statistics of the saved field that also take the basis's flux metric.
-
-The annotation is ``Callable[..., ndarray]`` rather than the exact signature because
-a keyword-only parameter cannot be written in a ``Callable`` at all; every member's
-signature is ``(grid, field, *, metric=None)`` and :func:`collect` calls them that way.
-"""
-
-METRIC_WEIGHTED_STATISTICS: frozenset[str] = frozenset(_METRIC_STATISTICS)
+METRIC_WEIGHTED_STATISTICS: frozenset[str] = frozenset(
+    name for name, entry in CATALOGUE.items() if entry.metric
+)
 """Statistics whose value depends on the basis's flux metric, by name.
 
 These are the functionals of the physical same-frequency flux
@@ -1732,18 +1760,39 @@ constants and of no basis at all, and a unitary change of basis of an exactly
 degenerate block leaves every one of them unchanged.
 """
 
-_WINDOW_STATISTICS: Mapping[
-    str,
-    Callable[
-        [
-            TimeGrid,
-            Complex[np.ndarray, "n_modes n_pol n_omega"],
-            Float[np.ndarray, "n_windows 2"],
-        ],
-        np.ndarray,
-    ],
-] = {"energy_window": energy_window, "peak_power_window": peak_power_window}
-"""Statistics that also take the spectral windows of the spec."""
+PROFILE_STATISTICS: tuple[str, ...] = tuple(
+    name for name, entry in CATALOGUE.items() if entry.profile
+)
+"""Statistics that read a :class:`solprop.profiles.ZProfile` at the plane's position."""
+
+ON_AXIS_PLASMA_STATISTICS: tuple[str, ...] = tuple(
+    name for name, entry in CATALOGUE.items() if entry.plasma == "on_axis"
+)
+"""The plasma statistics evaluated on the waveguide's axis (SEP 19, section 5.2).
+
+Opt-in and saved-plane only. The axis field is synthesised from the mode profiles, as
+for ``peak_intensity``, and its populations are scanned with exactly the rate tables,
+preionisation, densities and running-integral rule of the node scan, once per
+observation; a rule with a node on the axis supplies that row instead. They sit beside
+the unchanged node reductions -- ``electron_density`` is the densest node's -- because a
+few-node field-scale rule may have no node near the axis, and a multimode field's
+largest density need not lie on it. Defined on resolved modal routes; the spatial
+routes, general modal guides, the mode-averaged route and TDSE refuse them by name.
+"""
+
+PLASMA_INTEGRATION_STATISTICS: tuple[str, ...] = tuple(
+    name for name, entry in CATALOGUE.items() if entry.plasma == "integration"
+)
+"""The field plasma column's run-time integration diagnostics (SEP 18, section 4.5).
+
+Evaluated with the other plasma statistics at each save plane. Each is a ratio of two
+maxima over every sample, node and population, so that a node the field barely
+ionises cannot set it: the undershoot ``max(-dS) / max(dS)`` of the exposure
+increments; the work defect ``max |paid - freed| / max freed``, the loss current's work
+per ionisation potential against the fraction it freed; and the boundary level, the
+free-current integrand's largest magnitude in the ``2K`` samples the filter reads past
+the window's start against its largest anywhere.
+"""
 
 
 ApertureWeighting = Literal["amplitude", "quadrature"]
@@ -2298,7 +2347,9 @@ def _no_regions() -> Float[np.ndarray, "n_regions 4"]:
     return np.empty((0, 4))
 
 
-_APERTURE_NAMES = frozenset({"aperture_spectrum", "aperture_on_axis_spectrum"})
+_APERTURE_NAMES = frozenset(
+    name for name, entry in CATALOGUE.items() if "apertures" in entry.requires
+)
 """The statistics that read :attr:`StatsSpec.apertures`."""
 
 
@@ -2458,17 +2509,10 @@ class StatsSpec:
 
 
 def _check_names(names: Sequence[str]) -> None:
-    """Check that every requested statistic exists, is implemented and appears once."""
+    """Check that every requested statistic exists and appears once."""
     unknown = sorted(set(names) - set(CATALOGUE))
     if unknown:
         msg = f"unknown statistics {unknown}; the catalogue holds {sorted(CATALOGUE)}"
-        raise OutputError(msg)
-    reserved = sorted(name for name in names if not CATALOGUE[name].implemented)
-    if reserved:
-        msg = (
-            f"the statistics {reserved} are reserved but not implemented: they need "
-            "physics that is not on main yet"
-        )
         raise OutputError(msg)
     repeated = sorted({name for name in names if list(names).count(name) > 1})
     if repeated:
@@ -2606,7 +2650,7 @@ def collect(
         Which statistics to evaluate, and the windows they need.
     grid : solprop.grid.TimeGrid
         The grid the plane's field lives on.
-    plane : solprop.output.schema.SavedPlane
+    plane : solprop.output.records.SavedPlane
         The plane, whose field is in the internal FFT convention.
     modes : collections.abc.Sequence, optional
         The propagated modes, in state order. Needed by ``zdw``.
@@ -2652,7 +2696,7 @@ def collect(
     --------
     >>> import numpy as np
     >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.output.schema import SavedPlane
+    >>> from solprop.output.records import SavedPlane
     >>> from solprop.pulses import GaussianPulse
     >>> from solprop.stats import collect, default_spec
     >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 1e-12)
@@ -2680,36 +2724,37 @@ def collect(
         else {}
     )
     for name in spec.names:
-        if flux is not None and name not in PROFILE_STATISTICS:
+        entry = CATALOGUE[name]
+        if flux is not None and not entry.profile:
             values[name] = (
                 far_field[name]
                 if name in far_field
                 else _spatial_statistic(name, flux, field)
             )
-        elif "spatial_geometry" in CATALOGUE[name].requires:
+        elif "spatial_geometry" in entry.requires:
             msg = f"the {name!r} statistic requires spatial geometry"
             raise OutputError(msg)
-        elif name in _METRIC_STATISTICS:
-            values[name] = _METRIC_STATISTICS[name](grid, field, metric=metric)
-        elif name in _FIELD_STATISTICS:
-            values[name] = _FIELD_STATISTICS[name](grid, field)
-        elif name in _WINDOW_STATISTICS:
+        elif entry.evaluate is not None and entry.metric:
+            values[name] = entry.evaluate(grid, field, metric=metric)
+        elif entry.evaluate is not None and "windows" in entry.requires:
             if spec.n_windows == 0:
                 msg = f"the {name!r} statistic needs at least one energy window"
                 raise OutputError(msg)
-            values[name] = _WINDOW_STATISTICS[name](grid, field, spec.energy_windows)
-        elif CATALOGUE[name].backend:
+            values[name] = entry.evaluate(grid, field, spec.energy_windows)
+        elif entry.evaluate is not None:
+            values[name] = entry.evaluate(grid, field)
+        elif entry.backend:
             msg = (
                 f"the {name!r} statistic is computed by the backend from its own "
                 "buffers, not from a saved plane; ask for it in the run's "
                 "statistics (a StatsSpec)"
             )
             raise OutputError(msg)
-        elif name in PROFILE_STATISTICS:
+        elif entry.profile:
             values[name] = profile_value(_profile_for(profiles, name), plane.z)
         else:
             # Only "zdw" is left: the spec has already checked every name against the
-            # catalogue, and every other implemented entry is routed above.
+            # catalogue, and every other entry is routed above.
             if modes is None:
                 msg = "the 'zdw' statistic needs the propagated modes"
                 raise OutputError(msg)
@@ -2719,21 +2764,12 @@ def collect(
 
 
 _POYNTING_STATISTICS = frozenset(
-    (
-        "energy",
-        "energy_window",
-        "omega0",
-        "peak_power",
-        "peak_power_total",
-        "peak_power_window",
-        "fwhm_t",
-        "fwhm_t_outer",
-        "peak_intensity",
-    )
+    name for name, entry in CATALOGUE.items() if entry.weight == "poynting"
 )
+"""The statistics a backend forms in its weighted Poynting pass."""
 
 _GENERAL_FLUX_STATISTICS = frozenset(
-    ("physical_energy", "spectral_flux", "analytic_flux")
+    name for name, entry in CATALOGUE.items() if entry.weight == "unit"
 )
 """The three general modal statistics, which are **not** in `_POYNTING_STATISTICS`.
 

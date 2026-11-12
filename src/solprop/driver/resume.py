@@ -28,7 +28,9 @@ from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output.hdf5 import HDF5Output, ResumeState, _stored_metadata, check_cache
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
-from solprop.output.schema import MarchSnapshot, Output, RunMetadata
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import MarchSnapshot
+from solprop.output.store import Output
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import power_weight_at
@@ -345,8 +347,6 @@ def _open_output(
 
     The resume gate (ADR-066): the file's configuration hash must equal `metadata`'s.
     Whether work is left is decided by :func:`_continues`.
-
-    - Returns: the handler, and the state to resume from or ``None``.
     """
     if resume and metadata.configuration.get("_benchmark_plasma_source"):
         raise DriverError("gated plasma benchmark output cannot be resumed")

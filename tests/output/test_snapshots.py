@@ -25,7 +25,8 @@ from solprop.output import (
 )
 from solprop.output import snapshots as module
 from solprop.output._writer_lock import WriterLock
-from solprop.output.schema import GitProvenance, _example_metadata
+from solprop.output.metadata import _example_metadata
+from solprop.output.provenance import GitProvenance
 
 
 @pytest.fixture

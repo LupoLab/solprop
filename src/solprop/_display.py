@@ -133,7 +133,10 @@ def phase_text(coefficients: Iterable[float]) -> str:
 
 
 def tail(text: str, width: int = 68) -> str:
-    """Return the end of a long text, which for a path is the part that matters."""
+    """Return the end of a long text, which for a path is the part that matters.
+
+    `width` counts the leading ellipsis that marks a cut.
+    """
     return text if len(text) <= width else "..." + text[-(width - 3) :]
 
 

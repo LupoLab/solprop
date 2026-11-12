@@ -14,12 +14,12 @@ from solprop.modes.base import beta1, beta2, beta3, zdw
 from solprop.recipe import Recipe, RecipeError
 from solprop.recipe.preview import _phase_matching, _pump
 from solprop.tools import (
-    _fill_n2,
     lambda_rdw_all,
     nonlinear_coefficient,
     phase_mismatch,
     pulse_peak_power,
 )
+from solprop.tools.waveguide import _fill_n2
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +76,7 @@ def test_a_mode_without_a_fill_or_kerr_data_has_no_gamma(monkeypatch):
     def refuse(*_args):
         raise ToolsError("no Kerr data")
 
-    monkeypatch.setattr("solprop.tools._fill_n2", refuse)
+    monkeypatch.setattr("solprop.tools.waveguide._fill_n2", refuse)
     linear = Recipe.example("rdw").modes()
     assert linear.modes[0].gamma is None
     # Without the fill's Kerr data the phase matching is the linear condition.

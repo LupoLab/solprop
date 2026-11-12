@@ -257,7 +257,7 @@ def test_spatial_defaults_give_the_default_temporal_collar() -> None:
 def test_the_modal_interfaces_take_the_boundary_check() -> None:
     """``boundary_check=None`` on ``prop_gnlse`` runs with nothing watched (SEP 21)."""
     from solprop.driver import prop_gnlse  # noqa: PLC0415
-    from solprop.output.schema import PlaneStore  # noqa: PLC0415
+    from solprop.output.store import PlaneStore  # noqa: PLC0415
 
     run = prop_gnlse(
         0.1, 0.01, [0.0, 0.0, -1e-26], wavelength=1e-6, fwhm=100e-15, peak_power=1.0,

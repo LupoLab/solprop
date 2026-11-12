@@ -342,7 +342,7 @@ plane, {py:func}`~solprop.processing.beams.radial_spectrum` and
 {py:func}`~solprop.processing.beams.far_field` its energy per solid angle against wavelength,
 where conical emission shows as rings. The angle is the one outside the medium. The
 [filament reader example](../../auto_tutorials/free_space/plot_11_radial_filament.rst) uses them,
-and {py:func}`~solprop.tools.beam_params` gives a beam's Rayleigh range, critical power and
+and {py:func}`~solprop.tools.beam.beam_params` gives a beam's Rayleigh range, critical power and
 Marburger distance.
 
 ## Where it runs

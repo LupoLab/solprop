@@ -14,7 +14,7 @@ import pytest
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import DriverError, OutputError, PulseError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec, collect, default_spec

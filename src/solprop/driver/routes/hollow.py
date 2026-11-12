@@ -91,7 +91,7 @@ from solprop.nonlinear.responses import (
     PlasmaResponse,
 )
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
-from solprop.output.schema import ModeRecord
+from solprop.output.records import ModeRecord
 from solprop.physdata import Gas, Mixture, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
@@ -191,7 +191,6 @@ class _HollowRequest:
       way to reach ``dt``, ``ffac`` or the transform size.
     - ``fwhm``: pulse duration at half maximum, s.
     - ``width``: natural width of a sech pulse, s; give this or `fwhm`.
-    - ``shape``: Transform-limited shape of the input.
     - ``energy``: pulse energy, J. Give this or `peak_power`.
     - ``peak_power``: peak power, W, realised after the spectral phases.
     - ``phases``: Taylor spectral phases about `wavelength`, optics convention: CEP

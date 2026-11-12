@@ -37,7 +37,8 @@ from solprop.driver.run import plane_from_observation
 from solprop.exceptions import OutputError
 from solprop.fourier import power_amplitude
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import PlaneStore, SavedPlane, _adopted
+from solprop.output.records import SavedPlane, _adopted
+from solprop.output.store import PlaneStore
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at

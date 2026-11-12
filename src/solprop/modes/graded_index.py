@@ -99,18 +99,18 @@ class RadialPermittivity(Protocol):
         ...
 
     @property
-    def material(self) -> PermittivityLaw:
-        """Return the material owning core responses."""
+    def material(self) -> PermittivityLaw:  # numpydoc ignore=RT01
+        """Material owning the core responses."""
         ...
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the law's physical and approximation identity."""
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """The law's physical and approximation identity."""
         ...
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the material frequency interval in rad/s."""
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Material frequency interval ``(lower, upper)``, rad/s."""
         ...
 
 

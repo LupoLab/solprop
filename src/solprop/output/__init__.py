@@ -5,7 +5,7 @@
 """Output handlers and the metadata schema.
 
 In-memory and HDF5 outputs sharing one save protocol
-(:class:`solprop.output.schema.PlaneStore`), one metadata schema and one sign convention
+(:class:`solprop.output.store.PlaneStore`), one metadata schema and one sign convention
 on the way out: stored fields are in the optics convention and carry the attribute
 ``spectral_convention = "optics"`` (see ``docs/dev/decisions.md``). The manual page is
 ``docs/guide/results/output.md``. A run reduced plane by plane stores nothing, and gives
@@ -27,35 +27,25 @@ from solprop.output.hdf5 import (
     resume,
 )
 from solprop.output.memory import MemoryOutput
-from solprop.output.resumable import Resumability, resumability
-from solprop.output.schema import (
+from solprop.output.metadata import SCHEMA_VERSION, RunMetadata, resolve_metadata_write
+from solprop.output.provenance import BackendRecord, GitProvenance, package_versions
+from solprop.output.records import (
     FIELD_LAYOUT,
     HISTORY_FIELDS,
     INTERNAL_CONVENTION,
-    SCHEMA_VERSION,
     SPECTRAL_CONVENTION,
-    BackendRecord,
-    CheckpointOutput,
-    GitProvenance,
     GridRecord,
     ModeRecord,
     NoiseRecord,
-    Output,
-    PlaneLayout,
-    PlaneStore,
-    RetainingOutput,
-    RunMetadata,
     RunOutcome,
     SavedPlane,
-    StatedInput,
     StepHistory,
     StepLimits,
     StepperRecord,
     TerminalCheckpoint,
-    package_versions,
-    resolve_metadata_write,
-    serialise,
 )
+from solprop.output.resumable import Resumability, resumability
+from solprop.output.serialisation import StatedInput, serialise
 from solprop.output.snapshots import (
     SnapshotController,
     SnapshotFiles,
@@ -63,6 +53,13 @@ from solprop.output.snapshots import (
     SnapshotResult,
     read_snapshot,
     restore_snapshot,
+)
+from solprop.output.store import (
+    CheckpointOutput,
+    Output,
+    PlaneLayout,
+    PlaneStore,
+    RetainingOutput,
 )
 from solprop.output.tdse_archive import (
     TDSE_ARCHIVE_SCHEMA,

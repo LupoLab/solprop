@@ -51,14 +51,10 @@ from solprop.log import (
 )
 from solprop.output.hdf5 import HDF5Output, _dataset, open_file
 from solprop.output.memory import MemoryOutput
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import RecipeRecord, SavedPlane
 from solprop.output.scan import PointResult, ScanWriter
-from solprop.output.schema import (
-    FieldRetention,
-    RecipeRecord,
-    RunMetadata,
-    SavedPlane,
-    field_retention_refusal,
-)
+from solprop.output.store import FieldRetention, field_retention_refusal
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_of

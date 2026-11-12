@@ -9,7 +9,7 @@ the input, the noise and the numerical settings -- translates it **once** into a
 :class:`solprop.translate.problem.PropagationProblem`, and can then be run as often as
 one likes, into memory or into a file. It owns three things the loop of
 :mod:`solprop.driver.run` does not: the translation and its cache, the
-:class:`solprop.output.schema.RunMetadata` that says what produced a file, and the
+:class:`solprop.output.metadata.RunMetadata` that says what produced a file, and the
 resume decision.
 
 **Resume.** Given a path, a run checks the file that is already there with
@@ -194,20 +194,15 @@ from solprop.nonlinear.raman import (
 )
 from solprop.nonlinear.responses import DispersiveKerrResponse, PlasmaResponse
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
-from solprop.output.schema import (
+from solprop.output.metadata import (
     INTERPOLATED_RESUMES_ANNOTATION,
     PEAK_FIELDS_ANNOTATION,
-    CheckpointOutput,
-    ModeRecord,
-    NoiseResolution,
-    Output,
-    PlaneStore,
     RunMetadata,
-    StatedInput,
-    recorded_input,
-    serialise,
 )
+from solprop.output.records import ModeRecord, NoiseResolution
+from solprop.output.serialisation import StatedInput, recorded_input, serialise
 from solprop.output.snapshots import SnapshotController
+from solprop.output.store import CheckpointOutput, Output, PlaneStore
 from solprop.output.tdse_archive import TDSEArchive, TDSEArchiveWriter
 from solprop.physdata import Gas, Mixture, _optmat
 from solprop.physdata.mixtures import Pressure
@@ -307,7 +302,7 @@ class Simulation(Displayed):
         step schedule.
     noise : solprop.noise.NoiseRealisation or None, optional
         A shot-noise realisation to carry along the run (``docs/guide/media/noise.md``).
-    noise_resolution : solprop.output.schema.NoiseResolution or None, optional
+    noise_resolution : solprop.output.records.NoiseResolution or None, optional
         How the noise model was chosen, as the constructors record it (SEP 37); ``None``
         records the realisation as asked for explicitly.
     profiles : collections.abc.Mapping, optional
@@ -853,14 +848,14 @@ class Simulation(Displayed):
     ) -> "Simulation":
         """Replace the input while sharing the translated propagation problem.
 
-        Only what changed is validated (SEP 22 section 5.2): the replaced input's
-        shape, dtype and one finiteness pass, and the replaced noise's, with every
-        other leaf of the translated problem shared by identity rather than scanned
-        again. A new `initial_z`, which changes the save planes, also keeps the
-        stepper's checks: the launch before the first plane, and a replayed schedule
-        containing every plane. An array input above
-        :data:`~solprop.output.schema.INLINE_ARRAY_LIMIT` elements is recorded by its
-        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline, unless its
+        Only what changed is validated (SEP 22 section 5.2): the replaced input's shape,
+        dtype and one finiteness pass, and the replaced noise's, with every other leaf
+        of the translated problem shared by identity rather than scanned again. A new
+        `initial_z`, which changes the save planes, also keeps the stepper's checks: the
+        launch before the first plane, and a replayed schedule containing every plane.
+        An array input above :data:`~solprop.output.serialisation.INLINE_ARRAY_LIMIT`
+        elements is recorded by its digest
+        (:class:`~solprop.output.serialisation.ArrayDigest`), not inline, unless its
         identity is stated (`input_identity`).
 
         Parameters
@@ -894,11 +889,11 @@ class Simulation(Displayed):
         input_identity : str or None, optional
             What an array input is, stated by the caller who already knows: the record
             then holds this string, the dtype and the shape
-            (:class:`~solprop.output.schema.StatedInput`) in place of the array's own
-            record, and its bytes are not digested. **It is not checked**: two
-            different arrays stated alike have one configuration hash, so a resume or
-            a scan's cache accepts one for the other. ``None``, the default, records
-            the array as itself or by its digest. Refused for anything but an array.
+            (:class:`~solprop.output.serialisation.StatedInput`) in place of the array's
+            own record, and its bytes are not digested. **It is not checked**: two
+            different arrays stated alike have one configuration hash, so a resume or a
+            scan's cache accepts one for the other. ``None``, the default, records the
+            array as itself or by its digest. Refused for anything but an array.
 
         Returns
         -------
@@ -1295,7 +1290,7 @@ class Simulation(Displayed):
 
         Returns
         -------
-        solprop.output.schema.RunMetadata
+        solprop.output.metadata.RunMetadata
             What produced the run, and the key a resume is checked against.
 
         Examples
@@ -1413,7 +1408,7 @@ class Simulation(Displayed):
         carries the post-run diagnostic of each optmat ionisation rate
         (``peak_fields``), which the file's record, written before the run, does not:
         the run writes it beside the record instead, as the output's post-run
-        annotation :data:`~solprop.output.schema.PEAK_FIELDS_ANNOTATION`, outside the
+        annotation :data:`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`, outside the
         configuration hash.
 
         Returns
@@ -1618,13 +1613,13 @@ class Simulation(Displayed):
 
         Parameters
         ----------
-        output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+        output : solprop.output.store.Output or pathlib.Path or str or None, optional
             Where the planes go: a handler, a path to write an HDF5 file at, or ``None``
             for a :class:`solprop.output.memory.MemoryOutput`. The handler is closed
             when the run ends, so a file handler is returned closed and is read back
             with :func:`solprop.output.hdf5.open_file`; a memory handler stays readable.
             A run with optmat ionisation rates then annotates it with their peak-field
-            report (:data:`~solprop.output.schema.PEAK_FIELDS_ANNOTATION`).
+            report (:data:`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`).
         progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
             Where progress goes; ``None`` takes the process default: a
             :class:`solprop.log.BarReporter` on a terminal or in a notebook, a
@@ -1644,7 +1639,7 @@ class Simulation(Displayed):
             its file. A file whose last plane was interpolated inside a step is refused
             unless this is ``"interpolated"``: it then continues afresh from the
             interpolated field, and the position is recorded in the annotation
-            :data:`~solprop.output.schema.INTERPOLATED_RESUMES_ANNOTATION`.
+            :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION`.
         tdse_archive : solprop.output.TDSEArchive or None, optional
             Archive every raw TDSE provider evaluation of a run with a TDSE
             response in this separate HDF5 file (SEP 20 section 5.8); ``None``
@@ -1673,7 +1668,7 @@ class Simulation(Displayed):
 
         Returns
         -------
-        solprop.output.schema.Output
+        solprop.output.store.Output
             The handler the run was written to, complete or, after `stop` was set,
             holding the state where it stopped.
 

@@ -38,7 +38,7 @@ from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialRegion
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import ModeRecord
+from solprop.output.records import ModeRecord
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import Pulse, SpatialPulse
 from solprop.stats import StatsSpec

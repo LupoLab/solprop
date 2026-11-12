@@ -52,7 +52,9 @@ from solprop.output import (
     resume,
 )
 from solprop.output.hdf5 import ResumeState
-from solprop.output.schema import Convention, RunMetadata, serialise
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import Convention
+from solprop.output.serialisation import serialise
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -180,13 +182,15 @@ def test_a_replaced_modal_input_is_copied_once_by_its_conversion(state_copies):
 def state_copies(monkeypatch):
     """Record the shape of every copy the problem's initial arrays take."""
     copies = []
-    original_copy = problem_module._held_copy
+    original_copy = problem_module.frozen_copy
 
-    def counted(values, dtype):
-        copies.append(values.shape)
-        return original_copy(values, dtype)
+    def counted(values, dtype=None):
+        result = original_copy(values, dtype)
+        if result is not values:
+            copies.append(np.shape(values))
+        return result
 
-    monkeypatch.setattr(problem_module, "_held_copy", counted)
+    monkeypatch.setattr(problem_module, "frozen_copy", counted)
     return copies
 
 

@@ -17,7 +17,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import GasFlowWarning, ProcessingError
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.physdata import Mixture
 from solprop.processing._examples import example_output
 from solprop.processing.fields import _spectral_density

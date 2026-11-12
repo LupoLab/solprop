@@ -13,7 +13,7 @@ hands them to an output handler.
 **What this module does not do.** It never conjugates a spectrum and never touches the
 state between planes: the backend owns the step loop and the output handler owns the
 sign convention on disk (``docs/dev/conventions.md`` section 2, boundary place 2). A
-plane is carried across as a :class:`solprop.output.schema.SavedPlane` in the internal
+plane is carried across as a :class:`solprop.output.records.SavedPlane` in the internal
 FFT convention, with modal amplitudes converted to true-power units.
 
 Progress is reported through :class:`solprop.log.ProgressReporter` -- the run's summary
@@ -62,22 +62,24 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.hdf5 import HDF5Output
-from solprop.output.schema import (
-    BackendRecord,
-    CheckpointOutput,
-    FieldRetention,
-    FieldsChoice,
+from solprop.output.metadata import RunMetadata
+from solprop.output.provenance import BackendRecord
+from solprop.output.records import (
     MarchSnapshot,
-    Output,
     RecipeRecord,
-    RetainingOutput,
-    RunMetadata,
     SavedPlane,
     StepHistory,
     StepStats,
-    field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
+from solprop.output.store import (
+    CheckpointOutput,
+    FieldRetention,
+    FieldsChoice,
+    Output,
+    RetainingOutput,
+    field_retention_refusal,
+)
 from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -112,7 +114,7 @@ def history_of(history: BackendHistory) -> StepHistory:
     on the two sides of the seam: the backend's ``z`` is the position at the *end* of
     each attempt and its ``wall_time`` is the clock reading since the previous
     observation, which is what a stepper measures cheaply, while
-    :class:`solprop.output.schema.StepHistory` stores the position at the *start* of
+    :class:`solprop.output.records.StepHistory` stores the position at the *start* of
     each attempt and the time that one attempt took, which is what a reader wants per
     row. The conversion is made here: the start is the end less the length, to
     round-off, and the per-attempt times are the differences of the clock, the first
@@ -125,7 +127,7 @@ def history_of(history: BackendHistory) -> StepHistory:
 
     Returns
     -------
-    solprop.output.schema.StepHistory
+    solprop.output.records.StepHistory
         The same attempts, each starting at its ``z``, with per-attempt times.
     """
     return StepHistory(
@@ -169,7 +171,7 @@ def plane_from_observation(
 
     Returns
     -------
-    solprop.output.schema.SavedPlane
+    solprop.output.records.SavedPlane
         The position, the field, the statistics and the step history.
 
     Examples
@@ -244,7 +246,7 @@ class SessionFacts:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The session's snapshot
             (:meth:`~solprop.backends.session.RunSession.march_snapshot`), or
             ``None`` without one or with no batch pending, for which the session's
@@ -333,7 +335,7 @@ def run_problem(
         retention, statistics, monitor and history
         (:meth:`~solprop.translate.run_request.RunRequest.for_run`). The run loads
         `start` into it and leaves it open.
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Where the planes go. Closed when the loop ends, whether or not it succeeded.
     start : solprop.backends.session.Start
         Where the run starts: :meth:`~solprop.backends.session.Start.entrance` for a
@@ -342,7 +344,7 @@ def run_problem(
         terminal checkpoint at its actual absolute position; the launch plane is
         written when the handler holds no regular observations, so a resumed run never
         stores it twice. The session takes the start's field.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The record of the run, written when the handler opens.
         :func:`solprop.driver.metadata.metadata_for` builds one.
     stats_spec : solprop.stats.StatsSpec, optional
@@ -400,7 +402,7 @@ def run_problem(
         ``interrupted``, and raises
         :class:`~solprop.exceptions.StopRequested`, which
         :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
-    recipe : solprop.output.schema.RecipeRecord or None, optional
+    recipe : solprop.output.records.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
         the first run start and never rewritten; ``None`` records none.
     restoration : collections.abc.Mapping or None, optional
@@ -621,7 +623,7 @@ def field_retention(
 ) -> FieldRetention:
     """Return a run's field retention, resolved against its saved planes.
 
-    The driver's door to :func:`solprop.output.schema.field_retention_refusal`, the
+    The driver's door to :func:`solprop.output.store.field_retention_refusal`, the
     validator :class:`~solprop.driver.settings.SimulationSettings` and
     :func:`~solprop.driver.scan.run_scan` share.
 
@@ -636,7 +638,7 @@ def field_retention(
 
     Returns
     -------
-    solprop.output.schema.FieldRetention
+    solprop.output.store.FieldRetention
         The rule, its indices counted from the entrance.
 
     Raises
@@ -680,7 +682,7 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
     """Refuse a field-free rule for an output that cannot hold one.
 
     Checked before the output is opened. An output can hold one when it has ``retain``
-    (:class:`~solprop.output.schema.RetainingOutput`).
+    (:class:`~solprop.output.store.RetainingOutput`).
     """
     if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (
@@ -702,9 +704,9 @@ def open_run(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         The handler, not yet open.
-    metadata : solprop.output.schema.RunMetadata
+    metadata : solprop.output.metadata.RunMetadata
         The run's record, without its backend.
     backend : solprop.backends.protocol.Backend or SessionFacts
         What executes the run, whose metadata the record's backend section takes.
@@ -713,7 +715,7 @@ def open_run(
 
     Returns
     -------
-    solprop.output.schema.CheckpointOutput or None
+    solprop.output.store.CheckpointOutput or None
         The handler's checkpoint interface, or ``None`` for a handler without one.
     """
     # A session that holds its monitor from the start (the native session) reports
@@ -779,7 +781,7 @@ def retention_at(
     Parameters
     ----------
     execution : collections.abc.Mapping or None
-        An execution record (:attr:`solprop.output.schema.RunOutcome.execution`).
+        An execution record (:attr:`solprop.output.records.RunOutcome.execution`).
     z : float
         The position a resume starts from, m.
 

@@ -52,10 +52,10 @@ plane out without touching the rest. They are created at the first save for ever
 the run will save, and the file's `n_saved` attribute counts the planes written (below).
 
 The run loop tells either store how many planes to expect with
-{py:meth}`~solprop.output.schema.PlaneStore.reserve`; a handler driven by hand works
+{py:meth}`~solprop.output.store.PlaneStore.reserve`; a handler driven by hand works
 without it, growing as it goes.
 
-Both are {py:class}`~solprop.output.schema.PlaneStore` subclasses, and everything that
+Both are {py:class}`~solprop.output.store.PlaneStore` subclasses, and everything that
 must not differ between them lives in that base class: the conversion applied on save,
 the metadata overwrite rule, the accessor keys, the step-history layout, and the check
 that every plane fits the layout the first one fixed (the field's shape, the statistic
@@ -91,7 +91,7 @@ vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 | `"none"` | the statistics and step history alone |
 
 A run is **homogeneous**: it keeps its fields by one rule, declared to the output before
-its first plane ({py:meth}`~solprop.output.schema.PlaneStore.retain`), and a plane that
+its first plane ({py:meth}`~solprop.output.store.PlaneStore.retain`), and a plane that
 breaks it is refused by name. A plane without its field is not copied, converted or
 stored, and an in-memory output allocates no field block for it: a statistics-only run
 holds its statistics. The march is unchanged — the statistics are computed from
@@ -131,8 +131,8 @@ output["field_planes"]                  # the saved planes that kept a field: no
 
 Reading a field that was not kept is refused, naming the run's `fields`:
 `output["field"]`, `output["noise_phase"]` and
-{py:meth}`~solprop.output.schema.PlaneStore.fields` need every plane's field and answer
-only for an `"all"` run; {py:meth}`~solprop.output.schema.PlaneStore.plane_field` reads
+{py:meth}`~solprop.output.store.PlaneStore.fields` need every plane's field and answer
+only for an `"all"` run; {py:meth}`~solprop.output.store.PlaneStore.plane_field` reads
 one saved plane's field and works for any plane that kept one; `output["field_planes"]`
 lists them. {py:mod}`solprop.processing` reads one plane through `plane_field`, so a
 processing function asked for a kept plane works and one asked for another plane is
@@ -141,8 +141,8 @@ refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 
 A handler of your own takes field-free planes by declaring
-{py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
-{py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
+{py:class}`~solprop.output.store.RetainingOutput`, one method beside the
+{py:class}`~solprop.output.store.Output` protocol; a run that keeps fewer than every field
 refuses a handler without it, by name. To reduce each plane and keep nothing, no class is
 needed: {py:class}`~solprop.output.callback.CallbackOutput` is built from a callable
 ([a scan that reduces each plane](../setup/running.md#a-scan-that-reduces-each-plane)).
@@ -165,7 +165,7 @@ class Energies:
     ...  # the rest of the Output protocol
 ```
 
-`retain` is given a {py:class}`~solprop.output.schema.FieldRetention` whose indices are
+`retain` is given a {py:class}`~solprop.output.store.FieldRetention` whose indices are
 already counted from the entrance, and the shape `(n_modes, n_pol, n_omega)` of the state,
 known even when no plane will carry a field. A handler already holding planes
 under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
@@ -178,7 +178,7 @@ observation itself can skip the field.
 
 ## What goes in, and in which convention
 
-A {py:class}`~solprop.output.schema.SavedPlane` is what a driver hands over: the position
+A {py:class}`~solprop.output.records.SavedPlane` is what a driver hands over: the position
 `z`, the field there as `(n_modes, n_pol, n_omega)` in the **internal** FFT convention
 (or `None` on a plane that keeps no field), the statistics evaluated at that plane, the
 step history since the previous plane, and the accumulated noise phase when a noise
@@ -203,26 +203,26 @@ $$ \tilde E_{\text{optics},k} = (-1)^k\,\overline{\tilde E_k} $$
 and a stored spectral phase uses the declared optics convention and time origin.
 An ordinary intensity spectrometer does not itself measure that phase. The `field` dataset
 and the file itself carry the attribute `spectral_convention = "optics"` to say so.
-{py:meth}`~solprop.output.schema.PlaneStore.fields` with `convention="fft"` converts
+{py:meth}`~solprop.output.store.PlaneStore.fields` with `convention="fft"` converts
 back, to the form a backend works in.
 
 A run makes that conversion only once per kept plane, and where the field is kept. Rather
 than handing a store a plane with its field and having the store convert it into a second
 volume, the run's session converts the field straight into the stored form, into the room
-the store gives it ({py:meth}`~solprop.output.schema.PlaneStore.field_destination`):
+the store gives it ({py:meth}`~solprop.output.store.PlaneStore.field_destination`):
 `MemoryOutput`'s own row for the plane, so the field is written once, where it stays, or a
 new array that `HDF5Output` writes into the plane's chunk without a copy. The store then
 takes the plane with
-{py:meth}`~solprop.output.schema.PlaneStore.save_exported`, its field beside it as a
-{py:class}`~solprop.output.schema.StoredField`. What is stored is bit for bit what
-{py:meth}`~solprop.output.schema.PlaneStore.save` stores for the same field. A store
+{py:meth}`~solprop.output.store.PlaneStore.save_exported`, its field beside it as a
+{py:class}`~solprop.output.records.StoredField`. What is stored is bit for bit what
+{py:meth}`~solprop.output.store.PlaneStore.save` stores for the same field. A store
 subclass that overrides `save` is still given every plane, with its field in the internal
 convention, through its `save`
-({py:attr}`~solprop.output.schema.PlaneStore.takes_exports`); so is any output that is not
+({py:attr}`~solprop.output.store.PlaneStore.takes_exports`); so is any output that is not
 a `PlaneStore`.
 
 Two things stay internal, and are marked so rather than converted: the **noise
-realisation** in {py:class}`~solprop.output.schema.NoiseRecord` and the per-plane
+realisation** in {py:class}`~solprop.output.records.NoiseRecord` and the per-plane
 **noise phase**. Neither is a user-facing spectrum — they are the object the stepper adds
 at every stage and the phase that advances it (see [noise](../media/noise.md)) — and
 conjugating them would make them disagree with the state they have to be added to.
@@ -236,7 +236,7 @@ and that is exactly what the boundary exists to get right.
 ## The metadata overwrite rule
 
 Metadata is written once.
-{py:func}`~solprop.output.schema.resolve_metadata_write` is the single rule both handlers
+{py:func}`~solprop.output.metadata.resolve_metadata_write` is the single rule both handlers
 obey: a second record describing the same run — the same configuration hash — is a no-op;
 one describing a different run raises and names what changed; `force=True` replaces it
 and logs a warning.
@@ -510,7 +510,8 @@ absent from the stored record. A run with no custom rate keeps its record.
 import numpy as np
 from solprop.grid import EnvelopeGrid
 from solprop.output import HDF5Output, MemoryOutput, resume
-from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, SavedPlane, StepperRecord
 from solprop.stepper import DOPRI5, PIController
 
 grid = EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)

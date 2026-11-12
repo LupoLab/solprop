@@ -64,7 +64,7 @@ from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     ABSORBED_CHANNELS,
@@ -496,37 +496,22 @@ class NativeBackend:
         )
 
     @property
-    def request(self) -> RunRequest:
-        """Return the run request this backend was built for (solprop SEP 47 5.2).
+    def request(self) -> RunRequest:  # numpydoc ignore=RT01
+        """Run request this backend was built for (solprop SEP 47 5.2).
 
-        Returns
-        -------
-        solprop.translate.run_request.RunRequest
-            Its method, error control, itinerary, planes and statistics; a run adapts
-            it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
+        Its method, error control, itinerary, planes and statistics; a run adapts
+        it with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
         """
         return self._request
 
     @property
-    def chunk_plan(self) -> NodeChunkPlan:
-        """Return the host rule's node-chunk plan, made at construction (SEP 47 6.5).
-
-        Returns
-        -------
-        solprop.backends.node_chunk.NodeChunkPlan
-            The plan, which :attr:`node_chunk` lowers for this build.
-        """
+    def chunk_plan(self) -> NodeChunkPlan:  # numpydoc ignore=RT01
+        """Host rule's node-chunk plan, made at construction (SEP 47 6.5)."""
         return self._chunk_plan
 
     @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers.
-
-        Returns
-        -------
-        bool
-            ``True`` once :meth:`close` ran: it can run no other input.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend has released its buffers and can run no other input."""
         return self._closed
 
     @property
@@ -1491,14 +1476,8 @@ class NativeBackend:
         }
 
     @property
-    def node_chunk(self) -> int:
-        """Return the nodes a native response pass holds at once.
-
-        Returns
-        -------
-        int
-            The host plan lowered by :func:`native_node_chunk`.
-        """
+    def node_chunk(self) -> int:  # numpydoc ignore=RT01
+        """The nodes a native response pass holds at once: the host plan, lowered."""
         return self._node_chunk
 
     def available_device_memory(self) -> int | None:

@@ -37,7 +37,7 @@ from solprop.nonlinear.gnlse import (
     attenuation_from_db,
 )
 from solprop.output import HDF5Output, MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule

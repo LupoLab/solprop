@@ -4,7 +4,7 @@
 
 """The record that says what produced a run, and whether it may be resumed.
 
-:func:`metadata_for` builds a run's :class:`solprop.output.schema.RunMetadata`: its
+:func:`metadata_for` builds a run's :class:`solprop.output.metadata.RunMetadata`: its
 grid, modes, configuration, stepper, plane bases and recipe. The manual page is
 ``docs/guide/setup/running.md``.
 """
@@ -29,14 +29,14 @@ from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import (
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import (
     DefaultsResolution,
     GridRecord,
     ModeRecord,
     NoiseRecord,
     NoiseResolution,
     RecipeRecord,
-    RunMetadata,
     StepLimits,
     StepperRecord,
 )
@@ -75,7 +75,7 @@ class RecipeSource(Protocol):
 
         Returns
         -------
-        solprop.output.schema.RecipeRecord
+        solprop.output.records.RecipeRecord
             The record its output keeps.
         """
         ...
@@ -123,11 +123,11 @@ def metadata_for(
     """Build the record that says what produced a run, and whether it may be resumed.
 
     Everything that describes *what is computed* goes into the digest
-    :meth:`solprop.output.schema.RunMetadata.configuration_hash` takes -- the grid, the
-    modes, the configuration, the noise and the stepper settings, plus the save planes
-    and the statistics, which are read off the run's request here -- and nothing that
-    describes *when* or *with which build*, so a resume survives an unrelated commit or
-    a NumPy upgrade.
+    :meth:`solprop.output.metadata.RunMetadata.configuration_hash` takes -- the grid,
+    the modes, the configuration, the noise and the stepper settings, plus the save
+    planes and the statistics, which are read off the run's request here -- and nothing
+    that describes *when* or *with which build*, so a resume survives an unrelated
+    commit or a NumPy upgrade.
 
     Parameters
     ----------
@@ -143,10 +143,10 @@ def metadata_for(
         The propagated modes, in state order.
     configuration : collections.abc.Mapping, optional
         The physics objects that built the run -- responses, the input, profiles,
-        boundaries -- recorded by :func:`solprop.output.schema.serialise`. Nothing is
-        dropped: a callable is recorded as its ``repr`` and marked unreproducible, which
-        also makes the digest unstable across processes, so prefer objects that carry
-        their data (``docs/guide/setup/running.md``).
+        boundaries -- recorded by :func:`solprop.output.serialisation.serialise`.
+        Nothing is dropped: a callable is recorded as its ``repr`` and marked
+        unreproducible, which also makes the digest unstable across processes, so prefer
+        objects that carry their data (``docs/guide/setup/running.md``).
     noise : solprop.noise.NoiseRealisation or None, optional
         The realisation the run carries, recorded with its seed.
     modal : collections.abc.Mapping or None, optional
@@ -168,15 +168,15 @@ def metadata_for(
         The run's frame, whose reference frequency is the origin of the linear frame
         term on an envelope grid; ``None`` is the grid's co-moving frame. It enters
         the plane-reference record (SEP 31), not the hash.
-    noise_resolution : solprop.output.schema.NoiseResolution or None, optional
+    noise_resolution : solprop.output.records.NoiseResolution or None, optional
         How the noise model was chosen (SEP 37). Outside the hash.
-    defaults : solprop.output.schema.DefaultsResolution or None, optional
+    defaults : solprop.output.records.DefaultsResolution or None, optional
         Which stepping choices took the route's default. Outside the hash.
 
     Returns
     -------
-    solprop.output.schema.RunMetadata
-        The record, ready for :meth:`solprop.output.schema.Output.open`.
+    solprop.output.metadata.RunMetadata
+        The record, ready for :meth:`solprop.output.store.Output.open`.
 
     Examples
     --------
@@ -367,7 +367,7 @@ def _plane_reference_record(
       transverse basis.
     - ``frame``: the run's frame, or ``None`` for the co-moving one.
     - Returns: ``carrier``, ``origin``, ``parent``, ``frame`` and ``basis``, as
-      :attr:`solprop.output.schema.RunMetadata.reference` documents them.
+      :attr:`solprop.output.metadata.RunMetadata.reference` documents them.
     """
     # The co-moving frame keeps the carrier phase exactly when a harmonic term is
     # present, and then measures its delay from zero frequency (`frame_origin`).

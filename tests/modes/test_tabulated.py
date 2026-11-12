@@ -18,7 +18,7 @@ from bounds import assert_within
 from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes import IndexTable, MarcatiliMode, TabulatedHollowMode, TabulatedMode
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import Constant, Linear, PressureGradient

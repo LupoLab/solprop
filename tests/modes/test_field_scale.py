@@ -388,7 +388,7 @@ def capillary_simulation(radial_rule, n_r):
 
 
 def test_the_run_records_its_rule_and_a_changed_rule_changes_the_resume_key():
-    from solprop.output.schema import RunMetadata  # noqa: PLC0415 - the output layer
+    from solprop.output.metadata import RunMetadata  # noqa: PLC0415 - the output layer
 
     field_scale = capillary_simulation("field_scale_radau", 5).metadata()
     default = capillary_simulation("gauss_kronrod", 32).metadata()

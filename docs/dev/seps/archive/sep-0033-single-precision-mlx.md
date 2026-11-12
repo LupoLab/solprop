@@ -1638,7 +1638,7 @@ points are pending; the earlier decisions on Q1–Q11 have not been reinterprete
    compatibility with the private scale.** A restart's peak can differ from the
    launch's, so choosing $s$ in each `set_initial` call can change it. A
    `MarchSnapshot` contains state, source/history rows and compensated rows, not
-   only an observed field. The current `output.schema.RunMetadata` also preserves
+   only an observed field. The current `output.metadata.RunMetadata` also preserves
    historical configuration hashes through explicit schema guards, while backend
    provenance is outside the hash. **Recommended change/question:** state whether
    the scale is retained or recomputed and how every restored row is converted;

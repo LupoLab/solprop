@@ -31,6 +31,7 @@ from jaxtyping import Bool, Complex, Float
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop.constants import C
 from solprop.exceptions import GridError
 from solprop.fourier import GridKind
@@ -1275,9 +1276,7 @@ class TimeGrid(Displayed):
     def __post_init__(self) -> None:
         """Replace the axes with private read-only copies, so the grid is frozen."""
         for name in ("t", "omega", "t_fine", "omega_fine"):
-            axis = np.array(getattr(self, name), dtype=np.float64, copy=True)
-            axis.setflags(write=False)
-            object.__setattr__(self, name, axis)
+            object.__setattr__(self, name, frozen_copy(getattr(self, name), np.float64))
 
     # --- sizes ---------------------------------------------------------------------
 
@@ -1671,9 +1670,6 @@ class FieldGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "field"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
     def from_limits(
         cls,
@@ -1833,9 +1829,6 @@ class EnvelopeGrid(TimeGrid):
 
     kind: ClassVar[GridKind] = "envelope"
 
-    # The suppression below is for PLR0913: the arguments are the grid's physical
-    # specification, each named separately in conventions.md §3, so grouping them into a
-    # dataclass would hide the API rather than clarify it.
     @classmethod
     def from_limits(
         cls,

@@ -56,6 +56,7 @@ import numpy as np
 from jaxtyping import Float, Inexact, Int
 from numpy.polynomial import chebyshev as chebyshev_basis
 
+from solprop._ownership import frozen_copy, hold
 from solprop.exceptions import TranslationError
 from solprop.profiles import ZProfile
 from solprop.translate.chebyshev import (
@@ -66,6 +67,7 @@ from solprop.translate.chebyshev import (
     INITIAL_DEGREE,
     SAMPLING_NOISE_FACTOR,
     PiecewiseChebyshev,
+    _held_table,
     build,
     interleave_axis,
     lobatto_points,
@@ -200,12 +202,8 @@ class ParameterExpansion:
             Naming the offending field.
         """
         for name, dtype in (("ranges", np.float64), ("degrees", np.intp)):
-            values = np.ascontiguousarray(getattr(self, name), dtype=dtype)
-            values.setflags(write=False)
-            object.__setattr__(self, name, values)
-        terms = np.ascontiguousarray(self.terms)
-        terms.setflags(write=False)
-        object.__setattr__(self, "terms", terms)
+            object.__setattr__(self, name, frozen_copy(getattr(self, name), dtype))
+        object.__setattr__(self, "terms", frozen_copy(self.terms))
         n_params = len(self.parameters)
         if self.ranges.shape != (n_params, 2) or self.degrees.size != n_params:
             msg = (
@@ -222,7 +220,7 @@ class ParameterExpansion:
             raise TranslationError(msg)
         expected = int(np.prod(self.degrees + 1))
         if self.endpoint_degrees is not None:
-            endpoint = _readonly(np.asarray(self.endpoint_degrees, dtype=np.intp))
+            endpoint = frozen_copy(self.endpoint_degrees, np.intp)
             object.__setattr__(self, "endpoint_degrees", endpoint)
             if endpoint.shape != self.degrees.shape or np.any(endpoint < 0):
                 msg = (
@@ -464,7 +462,9 @@ def build_expansion(
         max_intervals=max_intervals,
         integrate=integrate,
     )
-    expansion = ParameterExpansion(names, ranges, degrees, terms, weights)
+    expansion = ParameterExpansion(
+        names, hold(ranges), hold(degrees), hold(terms), weights
+    )
     _log_expansion(expansion)
     return expansion
 
@@ -497,10 +497,10 @@ def _joined_weights(
     )
     return replace(
         table,
-        coefficients=_readonly(table.coefficients),
-        breakpoints=_readonly(table.breakpoints),
-        degrees=_readonly(table.degrees),
-        hard_kinks=_readonly(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
+        coefficients=hold(table.coefficients),
+        breakpoints=hold(table.breakpoints),
+        degrees=hold(table.degrees),
+        hard_kinks=hold(np.union1d(integral.hard_kinks, endpoint.hard_kinks)),
     )
 
 
@@ -556,9 +556,9 @@ def append_endpoint_expansion(
         integral.parameters,
         integral.ranges,
         integral.degrees,
-        np.concatenate((integral.terms, terms)),
+        hold(np.concatenate((integral.terms, terms))),
         _joined_weights(integral.weights, weights),
-        degrees,
+        hold(degrees),
     )
 
 
@@ -969,13 +969,7 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
     )
     if integrate:
         table = table.integral()
-    return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
-        table.budget_exceeded,
-    )
+    return _held_table(table)
 
 
 def _mapping_noise(ranges: Float[np.ndarray, "n_params two"]) -> float:
@@ -1024,16 +1018,6 @@ def _mapped(
         )
         raise TranslationError(msg)
     return np.clip(mapped, -1.0, 1.0)
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    - Returns: the same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
 
 
 def _log_expansion(expansion: ParameterExpansion) -> None:

@@ -19,6 +19,7 @@ import numpy as np
 from jaxtyping import Float
 
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._ownership import frozen_copy
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import ExecutionOptions, positive_count
@@ -36,11 +37,8 @@ from solprop.grid import TimeGrid
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.tdse import TDSEExecution
-from solprop.output.schema import (
-    DefaultsResolution,
-    FieldsChoice,
-    field_retention_refusal,
-)
+from solprop.output.records import DefaultsResolution
+from solprop.output.store import FieldsChoice, field_retention_refusal
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
@@ -111,7 +109,7 @@ NoiseSetting = Literal["default", "input", "modified"] | None
 
 A model, ``None`` for a noiseless run, or ``"default"``, the keyword's default, which
 resolves to ``"input"`` wherever the run can carry noise and to none where it cannot,
-recording which in the run's :class:`~solprop.output.schema.NoiseResolution`.
+recording which in the run's :class:`~solprop.output.records.NoiseResolution`.
 """
 
 
@@ -484,7 +482,7 @@ class SimulationSettings(Displayed):
         DriverError
             If the planes are empty, not increasing, or not positive.
         """
-        planes = np.ascontiguousarray(self.save_planes, dtype=np.float64).reshape(-1)
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         if (
             planes.size == 0
             or not np.all(np.isfinite(planes))
@@ -496,7 +494,6 @@ class SimulationSettings(Displayed):
                 "at z = 0 is saved anyway and is not one of them"
             )
             raise DriverError(msg, parameter="save_planes")
-        planes.setflags(write=False)
         object.__setattr__(self, "save_planes", planes)
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:
@@ -628,7 +625,7 @@ class SimulationSettings(Displayed):
 
         Returns
         -------
-        solprop.output.schema.DefaultsResolution
+        solprop.output.records.DefaultsResolution
             The route, and which of the integrator, the relative tolerance and the
             collar scheme came from its row of the defaults table.
 
@@ -974,7 +971,6 @@ def _scheme(settings: SimulationSettings) -> AbsorberScheme:
 def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
     """Give a spatial run's settings the route's defaults (SEP 37, SEP 21).
 
-    - ``route``: the interface they are for.
     - Returns: `settings`, reading the route's row of
       :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` for whatever the caller left: the
       controller (:data:`~solprop.driver.defaults.SPATIAL_RTOL` for radial and planar

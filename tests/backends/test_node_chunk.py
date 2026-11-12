@@ -33,6 +33,7 @@ from solprop.backends.node_chunk import (
     DEFAULT_NODE_BUDGET,
     DEFAULT_SPATIAL_NODE_BUDGET,
     NodeChunkPlan,
+    _even_chunk,
     default_node_budget,
     general_planned_chunk,
     plan_node_chunk,
@@ -251,6 +252,14 @@ def test_the_chunk_follows_the_memory_budget(multimode, nodes, chunk):
     per_node = BUFFERS_PER_NODE * multimode.transform.n_pol * multimode.grids.n_to * 16
     options = ExecutionOptions(node_budget=nodes * per_node)
     assert plan_node_chunk(multimode, options).chunk == chunk
+
+
+@pytest.mark.parametrize(
+    ("count", "limit", "chunk"), [(33, 32, 17), (33, 33, 33), (100, 30, 25)]
+)
+def test_an_even_chunk_covers_the_count_in_the_fewest_passes(count, limit, chunk):
+    """33 items under a limit of 32 take two passes, so 17 each, not 32 and 1."""
+    assert _even_chunk(count, limit) == chunk
 
 
 def test_the_chunk_never_falls_below_one(multimode):

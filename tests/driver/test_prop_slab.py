@@ -49,7 +49,7 @@ from solprop.modes import (
 )
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.output.hdf5 import open_file
-from solprop.output.schema import RunMetadata
+from solprop.output.metadata import RunMetadata
 from solprop.physdata import n2
 from solprop.physdata.selection import MaterialSelection
 from solprop.plotting import plot_energy, plot_stats, spec_1d, time_1d

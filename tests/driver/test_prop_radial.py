@@ -21,7 +21,7 @@ from solprop.fourier import spectral_density
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.noise import spatial_noise
 from solprop.output.hdf5 import check_cache
-from solprop.output.schema import RunMetadata
+from solprop.output.metadata import RunMetadata
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stepper import PIController

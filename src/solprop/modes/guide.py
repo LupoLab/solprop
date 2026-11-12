@@ -13,6 +13,7 @@ import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop._display import Displayed, engineering, line
+from solprop._ownership import frozen_copy
 from solprop._process import host_blas
 from solprop.constants import C
 from solprop.exceptions import ModeError
@@ -1200,8 +1201,8 @@ class ProviderChannelMode(Displayed):
     five-point differences on the reference parabolic sector it is 4.4e-13 relative
     at nine knots over a +-2 % band. ``beta_2`` -- what
     :func:`solprop.modes.base.beta2` differences out of that derivative, and so what
-    :func:`solprop.modes.base.zdw`, :func:`solprop.tools.dispersion_length` and
-    :func:`solprop.tools.soliton_order` are given for this channel -- is
+    :func:`solprop.modes.base.zdw`, :func:`solprop.tools.soliton.dispersion_length` and
+    :func:`solprop.tools.soliton.soliton_order` are given for this channel -- is
     **diagnostic only and uncertified**: on the same sector and the same held-out
     frequencies it is 2.8e-2 relative at nine knots, 3.2e-3 at seventeen and 2.1e-3
     at thirty-three over +-2 %, and worse than unity over a +-20 % band at any knot
@@ -1776,7 +1777,7 @@ class ModalSampling(Displayed):
         ModeError
             Naming what is out of range.
         """
-        knots = np.ascontiguousarray(self.omega, dtype=np.float64).reshape(-1)
+        knots = frozen_copy(np.reshape(self.omega, -1), np.float64)
         if (
             knots.size < 4
             or not np.all(np.isfinite(knots))
@@ -1787,7 +1788,6 @@ class ModalSampling(Displayed):
                 "a guide's sampling knots must be at least four increasing "
                 f"positive finite frequencies, got {knots}"
             )
-        knots.setflags(write=False)
         object.__setattr__(self, "omega", knots)
         if not np.isfinite(self.z):
             raise ModeError(f"a guide's snapshot position must be finite, got {self.z}")

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 import numpy as np
 
 from solprop.exceptions import SolpropError, SolpropWarning
-from solprop.output.schema import RecipeRecord
+from solprop.output.records import RecipeRecord
 from solprop.recipe.document import (
     FORMAT,
     NONE,
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
     from solprop.grid import TimeGrid
     from solprop.log import ProgressChoice, ProgressReporter, StopFlag
-    from solprop.output.schema import Output
+    from solprop.output.store import Output
     from solprop.recipe.pins import Pin
     from solprop.recipe.preview import InputPreview, ModeSetPreview
     from solprop.tools import DesignRoots
@@ -923,7 +923,7 @@ class Recipe:
 
         Returns
         -------
-        solprop.output.schema.RecipeRecord
+        solprop.output.records.RecipeRecord
             The authored and resolved texts, and the data files
             (:mod:`solprop.recipe.provenance`).
         """
@@ -968,7 +968,7 @@ class Recipe:
 
         Returns
         -------
-        solprop.output.schema.Output
+        solprop.output.store.Output
             The run's output.
         """
         return self.build().run(output, **run_keywords)  # type: ignore[arg-type]
@@ -1336,7 +1336,7 @@ def resume_file(
 
     Returns
     -------
-    solprop.output.schema.Output
+    solprop.output.store.Output
         The handler the run continued in.
 
     Raises

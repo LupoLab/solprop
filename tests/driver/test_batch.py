@@ -24,7 +24,7 @@ from solprop.driver.batch import (
 )
 from solprop.driver.scan import Scan
 from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError
+from solprop.exceptions import BackendError, DriverError
 from solprop.grid import RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -124,11 +124,10 @@ def test_batch_groups_by_the_planned_node_chunk_not_the_budget(monkeypatch):
 
 @pytest.mark.parametrize("backend", ["jax", "numba", "unregistered_backend"])
 def test_batch_refuses_unsupported_backends_by_name(backend):
-    # On the Runge-Kutta march: the default Adams integrator refuses a backend that
-    # does not implement it when the settings are built, before a batch is formed.
-    point = member(0, backend=backend, integrator=RungeKutta())
-    with pytest.raises(DriverError, match=backend):
-        list(compatible_groups([point], 2))
+    # A name that is neither backend is refused by the registry when the member's
+    # settings are built (ADR-077), so no batch is ever formed for it.
+    with pytest.raises(BackendError, match=rf"^'{backend}' is not a backend"):
+        member(0, backend=backend, integrator=RungeKutta())
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])

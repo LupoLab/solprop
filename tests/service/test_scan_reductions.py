@@ -16,7 +16,7 @@ from service.test_service import Collector
 from solprop.driver.scan import run_scan
 from solprop.recipe import Recipe
 from solprop.service import results
-from solprop.service.run import _plain
+from solprop.service.run import _point_value
 from solprop.service.scan_reductions import (
     AXIS_POINTS,
     reduction_axis,
@@ -114,7 +114,7 @@ def test_a_range_is_written_as_numbers_and_reductions_reach_the_worker(
     collector.collect(until="point", then="stop")
     started = next(e.data for e in collector.events if e.kind == "scan_started")
     assert started["values"] == [["5e-05", "0.0001"]]
-    assert _plain("x") == "x"
+    assert _point_value("x") == "x"
 
 
 def test_a_beam_s_scan_is_refused_the_readers_of_a_guided_run() -> None:

@@ -999,6 +999,16 @@ def test_the_initial_group_keeps_a_broadcast_as_its_repeated_block():
     assert Initial(held, None, "none").field0 is held
 
 
+def test_a_strided_view_of_a_held_state_is_copied_to_a_contiguous_one():
+    # Read-only and over held memory, but not C-contiguous as the seam requires.
+    held = Initial(np.arange(16, dtype=complex).reshape(1, 1, 16), None, "none").field0
+    strided = held[..., ::2]
+    taken = Initial(strided, None, "none").field0
+    assert taken.flags.c_contiguous and not taken.flags.writeable
+    assert not np.shares_memory(taken, held)
+    np.testing.assert_array_equal(taken, strided)
+
+
 @pytest.mark.parametrize("dtype", [np.complex64, np.float64])
 def test_a_broadcast_of_another_dtype_converts_its_block_alone(dtype):
     # A real field comes from a simulation's input (`_built`), not from `Initial`.
@@ -1098,6 +1108,27 @@ def test_the_stepper_group_refuses_planes_that_do_not_increase():
             [1.0, 0.5],
             "tabulate",
         )
+
+
+def test_the_stepper_group_leaves_the_caller_s_planes_writeable():
+    planes = np.array([0.5, 1.0])
+    settings = StepperSettings(
+        DOPRI5,
+        PIController(rtol=1e-8, atol=1e-14),
+        1e-9,
+        0.1,
+        1e-3,
+        1.1,
+        None,
+        planes,
+        "tabulate",
+    )
+    held = cast("np.ndarray", settings.save_planes)
+    assert planes.flags.writeable
+    assert not held.flags.writeable
+    # Not a view either: writing the caller's array later leaves the settings alone.
+    planes[0] = 0.25
+    assert held[0] == 0.5
 
 
 def _stepper(controller, integrator):

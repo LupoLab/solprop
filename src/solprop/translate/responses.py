@@ -65,6 +65,7 @@ from jaxtyping import Bool, Complex, Float, Int32
 
 from solprop._display import Displayed, line
 from solprop._helpers import Helpers
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import Absorber
 from solprop.constants import CHARGE_MASS_RATIO, EPS0
 from solprop.exceptions import TranslationError
@@ -91,6 +92,7 @@ from solprop.translate.chebyshev import (
     DEFAULT_MAX_INTERVALS,
     DEFAULT_TOL,
     PiecewiseChebyshev,
+    _held_table,
     build_from_paths,
 )
 from solprop.translate.envelope_plasma import (
@@ -104,7 +106,7 @@ from solprop.translate.expansion import (
     build_expansion,
     reweight_expansion,
 )
-from solprop.translate.ionisation import RateTable, build_rate_table
+from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     PhiRepresentation,
@@ -714,18 +716,16 @@ def dispersive_terms(
         carrier=envelope and first.thg,
         labels=tuple(labels),
         coefficients=tuple(float(one.coefficient) for one in responses),
-        positive=_readonly(sampled[0].positive),
-        filters=_readonly(np.stack([one.filter for one in sampled])),
-        outputs=_readonly(np.stack([cast("np.ndarray", one.output) for one in sampled]))
+        positive=frozen_copy(sampled[0].positive),
+        filters=hold(np.stack([one.filter for one in sampled])),
+        outputs=hold(np.stack([cast("np.ndarray", one.output) for one in sampled]))
         if polynomial
         else None,
-        products=_readonly(np.array([one.products for one in sampled], dtype=float))
+        products=hold(np.array([one.products for one in sampled], dtype=float))
         if polynomial
         else None,
         densities=tuple(densities),
-        regions=None
-        if regions is None
-        else _readonly(np.asarray(regions, dtype=np.int32)),
+        regions=None if regions is None else frozen_copy(regions, np.int32),
     )
 
 
@@ -860,8 +860,8 @@ def plasma_coefficients(
                 "already carries a RateTable; the table states its own span"
             )
             raise TranslationError(msg)
-        # A table the caller built is the builder's memoised object, whose arrays are
-        # writeable; everything crossing the seam is frozen, so freeze a copy.
+        # A table the builder made is frozen and held already and crosses as it
+        # stands; one made any other way crosses as a frozen copy.
         table = _frozen_table(rate)
     elif not isinstance(rate, IonisationRate):
         # A bare callable satisfies the response's own EvaluableRate, but a table needs
@@ -1130,7 +1130,7 @@ class RamanCoefficients:
         TranslationError
             Naming the offending field.
         """
-        rows = _readonly(np.asarray(self.undamped, dtype=np.float64))
+        rows = frozen_copy(self.undamped, np.float64)
         object.__setattr__(self, "undamped", rows)
         object.__setattr__(self, "decay_rates", tuple(self.decay_rates))
         if rows.ndim != 2 or rows.shape[0] < 1:
@@ -1148,7 +1148,7 @@ class RamanCoefficients:
             raise TranslationError(msg)
         if not np.all(np.isfinite(rows)):
             raise TranslationError("undamped Raman kernels must be finite")
-        weights = _readonly(np.asarray(self.tensor_weights, dtype=np.float64))
+        weights = frozen_copy(self.tensor_weights, np.float64)
         if weights.shape != (rows.shape[0], 2):
             raise TranslationError("tensor_weights must have shape (n_terms, 2)")
         if not np.all(
@@ -1337,14 +1337,13 @@ class RegionalResponseTables(Displayed):
         if not (self.model_id and self.policy_id):
             msg = "regional_responses: model_id and policy_id must be non-empty"
             raise TranslationError(msg)
-        regions = np.array(self.response_region, dtype=np.int32, order="C", copy=True)
+        regions = frozen_copy(self.response_region, np.int32)
         if regions.ndim != 1 or not regions.size or np.any(regions < 0):
             msg = (
                 "regional_responses.response_region must be a non-empty vector of "
                 f"non-negative region indices, got {regions}"
             )
             raise TranslationError(msg)
-        regions.setflags(write=False)
         object.__setattr__(self, "response_region", regions)
         self._validate_tensors()
         self._validate_tables()
@@ -1359,9 +1358,7 @@ class RegionalResponseTables(Displayed):
         )
 
         responses = self.n_responses
-        instant = np.array(
-            self.instantaneous_tensor, dtype=np.float64, order="C", copy=True
-        )
+        instant = frozen_copy(self.instantaneous_tensor, np.float64)
         admitted = tuple(range(1, MAX_N_COMPONENTS + 1))
         if (
             instant.ndim != 5
@@ -1378,10 +1375,9 @@ class RegionalResponseTables(Displayed):
         if not np.all(np.isfinite(instant)):
             msg = "regional_responses.instantaneous_tensor must be finite"
             raise TranslationError(msg)
-        instant.setflags(write=False)
         object.__setattr__(self, "instantaneous_tensor", instant)
         components = int(instant.shape[1])
-        delayed = np.array(self.delayed_tensor, dtype=np.float64, order="C", copy=True)
+        delayed = frozen_copy(self.delayed_tensor, np.float64)
         if (
             delayed.ndim != 6
             or delayed.shape[0] != responses
@@ -1404,14 +1400,13 @@ class RegionalResponseTables(Displayed):
                 f"traceless rank-two one -- on {MAX_N_COMPONENTS} Cartesian components"
             )
             raise TranslationError(msg)
-        delayed.setflags(write=False)
         object.__setattr__(self, "delayed_tensor", delayed)
 
     def _validate_tables(self) -> None:
         """Check the susceptibility, the kernels and the temporal weight."""
         responses = self.n_responses
         terms = int(self.delayed_tensor.shape[1])
-        chi3 = np.array(self.chi3, dtype=np.float64, order="C", copy=True)
+        chi3 = frozen_copy(self.chi3, np.float64)
         if chi3.ndim != 3 or not chi3.shape[0] or chi3.shape[2] != responses:
             msg = (
                 "regional_responses.chi3 must have shape (n_intervals, n_deg, "
@@ -1429,18 +1424,16 @@ class RegionalResponseTables(Displayed):
         if not np.all(np.isfinite(chi3)):
             msg = "regional_responses.chi3 must be finite"
             raise TranslationError(msg)
-        chi3.setflags(write=False)
         object.__setattr__(self, "chi3", chi3)
-        weight = np.array(self.temporal_weight, dtype=np.float64, order="C", copy=True)
+        weight = frozen_copy(self.temporal_weight, np.float64)
         if weight.ndim != 1 or not weight.size or np.any(weight < 0):
             msg = (
                 "regional_responses.temporal_weight must be a non-empty vector of "
                 "non-negative seconds"
             )
             raise TranslationError(msg)
-        weight.setflags(write=False)
         object.__setattr__(self, "temporal_weight", weight)
-        kernel = np.array(self.delayed_kernel, dtype=np.float64, order="C", copy=True)
+        kernel = frozen_copy(self.delayed_kernel, np.float64)
         expected = (chi3.shape[0], chi3.shape[1], responses, terms, 2 * weight.size)
         if kernel.shape != expected:
             msg = (
@@ -1448,18 +1441,14 @@ class RegionalResponseTables(Displayed):
                 f"{kernel.shape}"
             )
             raise TranslationError(msg)
-        kernel.setflags(write=False)
         object.__setattr__(self, "delayed_kernel", kernel)
-        support = np.array(
-            self.kernel_valid_samples, dtype=np.int32, order="C", copy=True
-        )
+        support = frozen_copy(self.kernel_valid_samples, np.int32)
         if support.shape != (responses, terms) or np.any(support < 0):
             msg = (
                 "regional_responses.kernel_valid_samples must have shape "
                 f"{(responses, terms)} with non-negative counts, got {support.shape}"
             )
             raise TranslationError(msg)
-        support.setflags(write=False)
         object.__setattr__(self, "kernel_valid_samples", support)
 
 
@@ -1911,10 +1900,7 @@ class CompiledResponses:
         if not self.species_densities:
             object.__setattr__(self, "species_densities", (self.density,))
         if self.prefactor_constant is not None:
-            constant = np.ascontiguousarray(
-                self.prefactor_constant, dtype=np.complex128
-            )
-            constant.setflags(write=False)
+            constant = frozen_copy(self.prefactor_constant, np.complex128)
             object.__setattr__(self, "prefactor_constant", constant)
             if constant.shape != self.prefactor_value_shape:
                 msg = (
@@ -2331,13 +2317,7 @@ def _prefactor_table(
             span,
             tol,
         )
-    return PiecewiseChebyshev(
-        _readonly(table.coefficients),
-        _readonly(table.breakpoints),
-        _readonly(table.degrees),
-        _readonly(table.hard_kinks),
-        table.budget_exceeded,
-    )
+    return _held_table(table)
 
 
 def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
@@ -2414,7 +2394,9 @@ def _translated_prefactor(
     return _PrefactorRepresentation(
         "constant" if constant else "table",
         table=supplied,
-        constant=np.asarray(supplied(supplied.z_span[0]), dtype=np.complex128)
+        # The table's own read-only value at its start, which only the table refers
+        # to: held where it stands, so a complex128 value is not copied.
+        constant=frozen_copy(hold(supplied(supplied.z_span[0])), np.complex128)
         if constant
         else None,
     )
@@ -2556,7 +2538,6 @@ def _compile_dispersive_components(
 
     - ``densities``: density tables in m^-3, keyed by component label.
     - ``build``: grid, span in m, interpolation tolerance and ionisation field range.
-    - ``regional``: a general modal guide's compiled gas channels, or ``None``.
     - Returns: the compiled leaf, channels in species order, or ``None`` with none
       declared.
     """
@@ -3102,7 +3083,7 @@ def compile_responses(
         prefactor_constant=(
             supplied.constant
             if supplied is not None
-            else prefactor_at(0.0)
+            else hold(prefactor_at(0.0))
             if constant and prefactor_at is not None
             else None
         ),
@@ -3273,37 +3254,6 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
     return _frozen_table(build_rate_table(rate, field_range))
 
 
-def _frozen_table(table: RateTable) -> RateTable:
-    """Return the same table with read-only arrays.
-
-    The builder memoises its tables and hands out the originals, so a table that
-    crosses the seam is a frozen copy: the contract promises read-only arrays and
-    ``validate`` checks it.
-    """
-    if (
-        not table.log_rate.flags.writeable
-        and not table.coefficients.flags.writeable
-        and table.log_rate.flags.c_contiguous
-        and table.coefficients.flags.c_contiguous
-    ):
-        return table
-    return replace(
-        table,
-        log_rate=_readonly(table.log_rate),
-        coefficients=_readonly(table.coefficients),
-    )
-
-
-def _readonly(values: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous, read-only copy of an array.
-
-    - Returns: the same values, C-contiguous and not writeable.
-    """
-    frozen = np.ascontiguousarray(values)
-    frozen.setflags(write=False)
-    return frozen
-
-
 def raman_coefficients(
     raman: RamanResponse | None,
     kerr: KerrResponse | DispersiveKerrResponse | None,
@@ -3406,8 +3356,12 @@ def raman_coefficients(
                 "does not oversample enough to hold it"
             )
             raise TranslationError(msg)
+    # Sampled here, the rows are the leaf's alone and are held without a copy; rows
+    # handed in are copied by the leaf unless solprop already holds them.
     samples = (
-        build_raman_kernels(raman, grid).undamped if undamped is None else undamped
+        hold(build_raman_kernels(raman, grid).undamped)
+        if undamped is None
+        else undamped
     )
     tables = tuple(
         profile_table(path, 0.0, span, tol=tol)
@@ -3421,7 +3375,7 @@ def raman_coefficients(
         dtype=np.float64,
     )
     return RamanCoefficients(
-        _readonly(samples),
+        samples,
         tables,
         raman.scale,
         thg=raman.thg,

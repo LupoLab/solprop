@@ -416,4 +416,4 @@ prefix instead: `plot_energy` and `plot_stats`.
 
 Two classes with similar columns but different meanings do not share a name:
 `backends.protocol.BackendHistory` holds each attempt's end and a running clock, and
-`output.schema.StepHistory` each attempt's start and its own time.
+`output.records.StepHistory` each attempt's start and its own time.

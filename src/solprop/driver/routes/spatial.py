@@ -75,7 +75,6 @@ def _from_spatial(  # noqa: PLR0917 - called positionally
       backend. Absolute tolerance has the input spectrum's units.
     - ``frame``: moving frame. None uses the declared responses' THG choice.
     - ``seed``: random generator seed; None draws and records system entropy.
-    - Returns: cached translation and the ordinary resumable execution interface.
     """
     chosen_frame = frame
     if chosen_frame is None:

@@ -208,7 +208,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 |---|---|---|
 | `__init__.py`, `exceptions.py`, `constants.py` | Lazy public imports, package logging, exception hierarchy and SI constants | package / P |
 | `grid.py`, `fourier.py`, `hankel.py`, `spatial.py`, `adiabatic.py` | Temporal and spatial grids (radial, the Cartesian plane, and `LineGrid`, its x axis uniform in y per unit width), Fourier conventions, raw Hankel transforms, spatial media, the axial-flux measure of a plane (`SpatialFlux`, SEP 34) and the adiabatic path certificate of a z-varying medium | P |
-| `profiles.py`, `gasflow.py`, `pulses.py`, `noise.py`, `polarisation.py`, `optics.py`, `tools.py` | Longitudinal paths, steady gas flow in a hollow fibre (the taper- and temperature-aware, choked, regime-checked fill, its flow report and calculators), temporal/spatial inputs, noise, polarisation algebra, linear optical elements as transfer functions, and the soliton and phase-matching design calculators | P |
+| `profiles.py`, `gasflow.py`, `pulses.py`, `noise.py`, `polarisation.py`, `optics.py`, `tools/` | Longitudinal paths, steady gas flow in a hollow fibre (the taper- and temperature-aware, choked, regime-checked fill, its flow report and calculators), temporal/spatial inputs, noise, polarisation algebra, linear optical elements as transfer functions, and the design calculators: pulse shape numbers (`tools/pulse.py`), soliton numbers (`soliton.py`), beam numbers (`beam.py`), the fill and zero-dispersion search a design evaluates (`waveguide.py`), dispersive-wave phase matching (`phase_matching.py`), the parameter solvers (`design.py`) and the soliton parameters and designs of a capillary (`capillary.py`), all re-exported from `solprop.tools` | P |
 | `coupling/` | Coupling simulations through a coherent field at a reference plane (SEP 31): the field plane with its reference, geometry, metric, basis identity and provenance (`plane.py`), the input port of a receiving simulation and its bound launch (`port.py`), temporal remapping (`remap.py`), the coupling models, their scalar mode profiles and the recorded pair envelopes (`models.py`, `envelopes.py`), `couple` with its admission budget and report (`coupler.py`), and the synthesis of a guide's exit field (`outcouple.py`), and the transport core: the linear elements between planes (`elements.py`) and the ordered transport of a plane with its ledger (`transport.py`); NumPy, SciPy and other P modules only | P |
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/routes/`, `driver/executors/`, `scan.py` | The `Simulation` object (`simulation.py`) with its settings and their admission (`settings.py`), its input, launch, noise and peak field (`inputs.py`), its run record (`metadata.py`), resume (`resume.py`), many-input runner (`runner.py`) and TDSE run glue (`tdse_run.py`); the keyword routes behind its constructors, one module per family (`routes/`: GNLSE, hollow guides, general modal guides, spatial grids, and the material selection and keyword attribution they share); the convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
-| `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
+| `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts; the run record in five modules: serialising configuration objects (`serialisation.py`), what executed a run (`provenance.py`), the record types of a saved run and its planes (`records.py`), `RunMetadata` and the resume key (`metadata.py`), and the save protocol, `PlaneStore` and field retention (`store.py`) | D |
 | `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 | `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, each run as a job that keeps its record in its folder, and the helper and connection that reach a machine's runs over SSH ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
 
@@ -242,7 +242,17 @@ directly, without a contract, a backend or an output handler, which is what make
 cross-check of the reference backend. `processing/windows.py` is a candidate
 module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
-any layer and importing none.
+any layer and importing none. `_validation.py` is private too: the plain refusals
+(`positive`, `finite`, `choice`, `shape`) in one wording, each raising the caller's own
+exception class, imported by any layer and importing only `exceptions.py`.
+`_ownership.py` is private in the same way: it records which arrays solprop holds,
+so that an array solprop has just made is frozen where it stands (`hold`) and anything
+a caller hands in is copied before it is frozen (`frozen_copy`), in every layer. So is
+`_identity.py`: the canonical JSON text of a record and its SHA-256, which every stored
+identity is (a run's resume key, a scan's common record, a coupling plane's basis, a
+TDSE basis or descriptor, a material population), and `_durable.py`: a small file
+replaced whole, which the scan queue's state, the front end's run records and the TDSE
+consistency cache are written with.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy
@@ -606,7 +616,7 @@ qualified, and §11 its current limits.
 
 `MemoryOutput` (everything in RAM: fast, small problems, batch scans) and `HDF5Output`
 (streaming to disk, chunked per saved plane, optional compression, cache/resume) implement one
-save protocol and one metadata schema (`output/schema.py`): grid, modes, simulation type,
+save protocol (`output/store.py`) and one metadata schema (`output/metadata.py`, its record types in `output/records.py`): grid, modes, simulation type,
 the full configuration that built the `Simulation` (serialised physics objects), package and
 dependency versions, git provenance of the running code when available, the noise seed and
 realisation, the stepper settings and the step schedule actually taken (z, h, error norm,

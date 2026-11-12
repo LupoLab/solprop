@@ -40,8 +40,10 @@ from solprop.driver.executors.pool import _memory_limit, peak_rss
 from solprop.driver.run import history_of
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
+from solprop.output.metadata import RunMetadata
+from solprop.output.provenance import BackendRecord
+from solprop.output.records import SavedPlane, StepStats
 from solprop.output.scan import PointResult
-from solprop.output.schema import BackendRecord, RunMetadata, SavedPlane, StepStats
 from solprop.processing.scans import _provenance
 
 logger = logging.getLogger(__name__)

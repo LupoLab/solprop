@@ -4,7 +4,7 @@
 
 """Post-processing of saved runs.
 
-Read a run back through the :class:`solprop.output.schema.Output` protocol -- a memory
+Read a run back through the :class:`solprop.output.store.Output` protocol -- a memory
 handler or an HDF5 file, through the same accessors -- and get fields, spectra, spectral
 densities, pulse metrics and the coherence of an ensemble, in the optics convention and
 in SI units. The manual page is ``docs/guide/results/processing.md``.

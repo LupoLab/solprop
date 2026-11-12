@@ -8,13 +8,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop._validation import choice
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output import MemoryOutput
-from solprop.output.schema import GridRecord, ModeRecord, RunMetadata, StepperRecord
+from solprop.output.metadata import RunMetadata
+from solprop.output.records import GridRecord, ModeRecord, StepperRecord
 from solprop.plotting import style
 from solprop.processing._examples import example_grid, example_output
-from solprop.processing.axes import _check_choice
 
 
 def test_cmap_white_starts_at_white():
@@ -137,8 +138,10 @@ def test_corner_text_places_a_label_in_each_corner(corner):
 
 
 def test_corner_text_refuses_an_unknown_corner():
-    with pytest.raises(ProcessingError, match="corner must be one of"):
-        _check_choice("middle", style.CORNERS, "corner")
+    with pytest.raises(
+        ProcessingError, match="corner must be 'ul', 'ur', 'll' or 'lr', got 'middle'"
+    ):
+        choice("middle", "corner", style.CORNERS, ProcessingError)
 
 
 def test_fwhm_arrows_marks_the_width():
