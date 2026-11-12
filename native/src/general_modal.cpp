@@ -459,9 +459,6 @@ void GeneralModalSource::plan() {
   }
 }
 
-std::string GeneralModalSource::delayed_fft_provider() const {
-  return drive_plan_ ? drive_plan_->provider() : "none";
-}
 
 void GeneralModalSource::evaluate() {
   if (!inverse_plan_ && !signal_plan_)

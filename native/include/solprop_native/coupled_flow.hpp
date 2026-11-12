@@ -135,9 +135,6 @@ public:
   [[nodiscard]] const ComplexView4& frozen() const noexcept { return frozen_; }
   [[nodiscard]] std::size_t n_terms() const noexcept { return terms_; }
   [[nodiscard]] std::size_t n_active() const noexcept { return active_; }
-  [[nodiscard]] std::size_t n_sections() const noexcept { return sections_; }
-  /** Whether every section's every bin is on the eigenbasis route. */
-  [[nodiscard]] bool full_route() const noexcept { return forms_ && fallback_ == 0; }
   // The bins off the eigenbasis route (solprop SEP 47 phase 4): each section's bin's
   // one-based index among them in row-major (section, bin) order, zero on the route,
   // and their Schur factors `Z` and `T`, which the exponential Adams formulation forms

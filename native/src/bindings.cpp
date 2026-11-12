@@ -159,16 +159,6 @@ std::vector<std::size_t> index_vector(const IndexInput values) {
   return result;
 }
 
-native::FieldFamily field_family(const std::string& name) {
-  if (name == "field_real")
-    return native::FieldFamily::field_real;
-  if (name == "field_analytic")
-    return native::FieldFamily::field_analytic;
-  if (name == "envelope")
-    return native::FieldFamily::envelope;
-  throw std::invalid_argument("unknown field family " + name);
-}
-
 native::TableKind table_kind(const std::string& name) {
   if (name == "phi")
     return native::TableKind::phi;

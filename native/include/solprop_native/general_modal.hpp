@@ -170,8 +170,6 @@ public:
   void combine(std::size_t stage);
   /** Create the persistent FFT plans over the chunk buffers. */
   void plan();
-  /** The provider of the delayed pair transforms, or "none" without them. */
-  [[nodiscard]] std::string delayed_fft_provider() const;
   /** Evaluate the source of the state in `scaled()` into `source()`. */
   void evaluate();
   /** Persistent allocations, by role, in bytes. */
