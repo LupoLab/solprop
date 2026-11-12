@@ -117,7 +117,9 @@ binding from its step record. It changes no numerical step and adds no call; the
 optical file records the archive's run UUID and relative path.
 
 Plan lifetime, allocation admission and attempted-call budgets
-belong to the driver/binding; modal synthesis to the nodes, the assembly of the
+belong to the driver/binding, which runs the provider in a worker process of its own
+(`driver/_source_worker.py`, provider-agnostic, with `driver/_pyroraptor.py` as the
+provider's adapter): framed pipes, no pickle, cancellation while waiting; modal synthesis to the nodes, the assembly of the
 macroscopic sources and their projection belong to `backends/tdse_source.py`, which
 imports neither backend and which a backend calls from its source evaluation
 ([SEP 49](seps/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).

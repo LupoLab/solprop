@@ -86,7 +86,10 @@ from pyroraptor import hacc
 from tests.hacc_cases import A0
 
 control = tiny_basis(gauge_radius=1.0 * A0)
-atom, native, gauge = tdse._hacc_objects(tdse._load_provider(), hacc, control)
+from solprop.driver import _pyroraptor
+
+provider = _pyroraptor._load_provider()
+atom, native, gauge = _pyroraptor._hacc_objects(provider, hacc, control)
 with hacc.prepare(atom, native, gauge=gauge, cut_energy=control.cut_energy) as model:
     try:
         hacc.ResponsePlan(

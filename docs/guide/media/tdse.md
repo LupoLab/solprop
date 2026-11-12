@@ -13,9 +13,11 @@ electrons and the atomic resonances that a rate model omits. The physics in outl
 :class: note
 
 The atomic engine, Pyroraptor, is a separate, optional package. It is not yet publicly
-available; it is planned to be. solprop declares no dependency on it and imports it only
-when a TDSE response is prepared; without it, preparing a TDSE response raises a
-`BackendError` naming the missing provider. The records, their validation, identities
+available; it is planned to be. solprop declares no dependency on it and never imports
+it into its own process: preparing a TDSE response starts it in a worker process of its
+own, the same interpreter, given the run's whole thread budget (or, for a GPU build, its
+device). Without it, preparing a TDSE response raises a `BackendError` naming the missing
+provider. The records, their validation, identities
 and descriptors work without it. The TDSE response is a research feature, not a
 qualified replacement for the rate models.
 ```
@@ -250,7 +252,10 @@ responses](../waveguides/radial-quadrature.md)). With `tdse=`, every accepted st
 saved and only the final plane is requested by default, so saving never forces an extra
 atomic call; an explicit `n_save`, `save_planes` or `step_planes` is honoured. Every
 attempted provider call is charged against `max_atomic_calls` before it is made, failures
-included. A capped or interrupted run resumes; the gate and window are part of the resume
+included. Ctrl-C, SIGTERM and a run's stop flag stop it during an atomic call as well as
+between steps: the worker is ended at once, the call in flight stays charged, and the run
+ends at its last accepted step with a terminal checkpoint. A call has no time limit. A
+capped or interrupted run resumes; the gate and window are part of the resume
 identity, so a run never resumes under another one.
 
 ## The raw response archive

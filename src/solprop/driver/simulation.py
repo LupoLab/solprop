@@ -3196,6 +3196,7 @@ class Simulation(Displayed):
                         problem,
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
+                        stop,
                     )
                 backend = kept or select(
                     self.settings.backend,
@@ -3344,8 +3345,11 @@ class Simulation(Displayed):
         problem: PropagationProblem,
         context: _AtomicContext,
         tdse_archive: TDSEArchive | None,
+        stop: StopFlag | None = None,
     ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
         """Open a TDSE run's archive and prepare its binding.
+
+        The binding's waits on its provider worker poll `stop` (SEP 49).
 
         - Returns: the binding and the open archive session, or None without a request.
           A failure closes the archive before it propagates.
@@ -3375,6 +3379,7 @@ class Simulation(Displayed):
                 problem.transform.n_nodes,
                 defer_plans=descriptor.model == "hacc",
                 archive=archive,
+                stop=stop,
             )
         except BaseException as error:
             _close_tdse_archive(archive, error)

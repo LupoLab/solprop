@@ -704,12 +704,11 @@ class FakeHaccProvider:
 
 
 def install(monkeypatch, fake=None):
-    """Make ``solprop.driver.tdse`` load a fake provider; return it."""
-    from solprop.driver import tdse as runtime  # noqa: PLC0415 - keep tests importable
+    """Make ``solprop.driver.tdse`` serve a fake provider in this process; return it."""
+    import source_channel  # noqa: PLC0415 - keep tests importable
 
     fake = FakeHaccProvider() if fake is None else fake
-    monkeypatch.setattr(runtime, "_load_provider", lambda: fake)
-    return fake
+    return source_channel.install(monkeypatch, fake)
 
 
 def helium_alpha(omega):

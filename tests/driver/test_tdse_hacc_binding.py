@@ -32,6 +32,7 @@ from tests.hacc_cases import (
     tiny_basis,
 )
 
+import source_channel
 from solprop.constants import EPS0, C
 from solprop.driver import tdse
 from solprop.exceptions import (
@@ -850,7 +851,7 @@ def test_sae_binding_has_no_consistency_diagnostic(monkeypatch):
     from tests.driver.test_tdse_binding import _Provider  # noqa: PLC0415
 
     provider = _Provider()
-    monkeypatch.setattr(tdse, "_load_provider", lambda: provider)
+    source_channel.install(monkeypatch, provider)
     binding: Any = tdse.prepare_binding(sae("tdse_native"), TDSEExecution(), 1)
     field, spacing = _protocol()
     with pytest.raises(BackendError, match="needs a haCC binding"):
@@ -988,7 +989,7 @@ def test_defer_plans_must_be_a_bool_and_is_ignored_for_sae(monkeypatch):
     from tests.driver.test_tdse_binding import _Provider  # noqa: PLC0415
 
     provider = _Provider()
-    monkeypatch.setattr(tdse, "_load_provider", lambda: provider)
+    source_channel.install(monkeypatch, provider)
     binding: Any = tdse.prepare_binding(
         sae("tdse_native"), TDSEExecution(), 1, defer_plans=True
     )

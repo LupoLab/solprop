@@ -15,7 +15,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from solprop.driver import tdse
+import source_channel
+from solprop.driver import _pyroraptor, tdse
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -304,7 +305,8 @@ class _Provider:
 @pytest.fixture
 def pinned_python(monkeypatch):
     """Pass the provider's interpreter gate: these tests fake the provider itself."""
-    monkeypatch.setattr(tdse.sys, "version_info", (3, 14, 0))
+    monkeypatch.setattr(_pyroraptor.sys, "version_info", (3, 14, 0))
+    source_channel.in_process(monkeypatch)
 
 
 def _basis():
@@ -335,9 +337,7 @@ def _descriptor(model: TDSEKerrModel = "optmat_cubic", basis: TDSEBasis | None =
 
 @pytest.fixture
 def provider(monkeypatch):
-    fake = _Provider()
-    monkeypatch.setattr(tdse, "_load_provider", lambda: cast("tdse._Provider", fake))
-    return fake
+    return source_channel.install(monkeypatch, _Provider())
 
 
 @pytest.mark.parametrize("model", ["optmat_cubic", "tdse_shadow", "tdse_native"])
@@ -435,10 +435,10 @@ def test_binding_admits_memory_before_native_setup(provider):
 
 
 def test_binding_memory_estimate_does_not_import_native_engine(monkeypatch):
-    def unexpected_import():
-        pytest.fail("memory estimate imported the optional provider")
+    def unexpected_start(**options):
+        pytest.fail("memory estimate started the provider's worker")
 
-    monkeypatch.setattr(tdse, "_load_provider", unexpected_import)
+    monkeypatch.setattr(tdse, "_open_provider", unexpected_start)
     assert (
         sum(tdse.estimate_binding_memory(_descriptor(), TDSEExecution(), 2).values())
         > 0
@@ -490,7 +490,7 @@ def test_binding_missing_optional_provider_is_actionable(monkeypatch, pinned_pyt
     def missing(name):
         raise ImportError("synthetic missing dependency")
 
-    monkeypatch.setattr(tdse.importlib, "import_module", missing)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", missing)
     with pytest.raises(BackendError, match="optional pyroraptor"):
         tdse.basis_from_preset("helium", "production")
 
@@ -518,7 +518,8 @@ def test_binding_module_import_does_not_load_optional_engine():
 
 
 def test_binding_rejects_unsupported_interpreter_before_native_import(monkeypatch):
-    monkeypatch.setattr(tdse.sys, "version_info", (3, 15, 0))
+    monkeypatch.setattr(_pyroraptor.sys, "version_info", (3, 15, 0))
+    source_channel.in_process(monkeypatch)
     with pytest.raises(BackendError, match=r"Python 3\.14"):
         tdse.basis_from_preset("helium", "production")
 
@@ -527,12 +528,12 @@ def test_binding_without_distribution_metadata_still_records_native_identity(
     monkeypatch, pinned_python
 ):
     provider = _Provider()
-    monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", lambda name: provider)
 
     def missing_distribution(name):
-        raise tdse.PackageNotFoundError(name)
+        raise _pyroraptor.PackageNotFoundError(name)
 
-    monkeypatch.setattr(tdse, "distribution", missing_distribution)
+    monkeypatch.setattr(_pyroraptor, "distribution", missing_distribution)
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
     metadata = _saved_metadata(binding)
     assert metadata["build"]["distribution"] is None
@@ -548,7 +549,7 @@ def test_binding_records_an_installed_distribution(
 ):
     """The optional extra, when installed, adds its version and source to the record."""
     provider = _Provider()
-    monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", lambda name: provider)
 
     class _Distribution:
         version = "1.2.3"
@@ -557,7 +558,7 @@ def test_binding_records_an_installed_distribution(
             assert name == "direct_url.json"
             return direct_url
 
-    monkeypatch.setattr(tdse, "distribution", lambda name: _Distribution())
+    monkeypatch.setattr(_pyroraptor, "distribution", lambda name: _Distribution())
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
     build = _saved_metadata(binding)["build"]
     assert build["distribution"] == "1.2.3"

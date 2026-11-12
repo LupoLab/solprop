@@ -125,10 +125,10 @@ def test_lower_level_construction_refuses_an_unresolved_window_before_any_provid
 ):
     parent = _capillary(tdse=_sae())
 
-    def unexpected():
-        pytest.fail("the provider was loaded")
+    def unexpected(**options):
+        pytest.fail("the provider's worker was started")
 
-    monkeypatch.setattr(runtime, "_load_provider", unexpected)
+    monkeypatch.setattr(runtime, "_open_provider", unexpected)
     simulation = Simulation(
         parent.grid,
         parent.modes,

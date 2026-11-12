@@ -5,8 +5,11 @@
 """Own the optional TDSE runtime behind the provider-free response seam.
 
 The provider's whole-electron currents and shadow dipoles remain unscaled SI
-arrays. Source assembly applies the calibration and density separately. Native
-imports, persistent plans, resource admission and call accounting live here.
+arrays. Source assembly applies the calibration and density separately. Resource
+admission, call accounting, the archive and the validation of every returned record
+live here; the provider itself runs in a worker process of its own
+(:mod:`solprop.driver._source_worker`, with :mod:`solprop.driver._pyroraptor` as its
+adapter, SEP 49), and solprop's process never imports it.
 
 Two atomic models are bound (SEP 12, SEP 20): the single-active-electron (SAE)
 response plan, and the helium haCC response plan, either from one of the
@@ -16,31 +19,43 @@ by the window's gate and pads the returned currents with zeros, so a
 :class:`~solprop.translate.tdse.TDSEResult` always spans the full lattice.
 """
 
+import contextlib
 import dataclasses
-import importlib
 import json
 import math
-import sys
+import os
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, is_dataclass
-from importlib.metadata import PackageNotFoundError, distribution
 from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Float
 
+from solprop import exceptions
+from solprop._process import thread_budget
 from solprop.constants import AU_TIME, EPS0, C
+from solprop.driver._pyroraptor import _admit_memory, check_info
+from solprop.driver._source_worker import (
+    CONTROL_LIMIT,
+    Record,
+    RemoteError,
+    Worker,
+    WorkerError,
+    worker_environment,
+)
 from solprop.exceptions import (
     BackendError,
-    DriverError,
     MaterialError,
+    RunTerminated,
     SolpropError,
+    StopRequested,
     TDSEArchiveError,
     TDSEDomainWarning,
     TDSEUnqualifiedModelWarning,
 )
+from solprop.log import StopFlag
 from solprop.nonlinear.tdse import (
     HaccBasis,
     TDSEBasis,
@@ -54,7 +69,6 @@ from solprop.output.tdse_archive import (
     writer_memory,
 )
 from solprop.translate.tdse import (
-    HACC_NORM_GROWTH_LIMIT,
     AtomicCallBudget,
     AtomicCallLedger,
     AtomicWindowRecord,
@@ -80,9 +94,9 @@ __all__ = [
 _PROVIDER_REVISION = "876b72d10b5286478125b842ea45548a5051b033"
 _Preset = Literal["production", "high_accuracy", "strong_field"]
 _HaccVariant = Literal["standard", "fast"]
-# Native classes cannot occur in runtime annotations: optional-package-free test
-# collection resolves every annotation through beartype. Confine their dynamic
-# typing to this adapter; the seam's scientific records and arrays remain typed.
+# The adapter module the worker runs (SEP 49 section 6.5).
+_ADAPTER = "solprop.driver._pyroraptor"
+# Native classes never reach this process; what the worker returns are records.
 _Native = Any
 # The archive role of each evaluation purpose (SEP 20 section 5.8); a predictor or
 # corrector of a rejected trial reads back as "rejected".
@@ -92,47 +106,42 @@ _ARCHIVE_ROLES: dict[str, str] = {
     "corrected": "corrector",
     "diagnostic": "diagnostic",
 }
-# The haCC consumer surface of the provider (SEP 20 section 5.7, C1 to C5).
-_HACC_SURFACE = (
-    "AngularLimit",
-    "Argon",
-    "Basis",
-    "GridResponse",
-    "Helium",
-    "MixedGauge",
-    "ResponsePlan",
-    "TotalCurrentResponse",
-    "VelocityGauge",
-    "helium_preset",
-    "prepare",
-)
 # A preset's calibration admission band: from 20 eV (hc / 20 eV = 62 nm), the
 # presets' below-threshold bound, to 1.6 um, the band the 800 nm qualifying drive and
 # run_short's grid occupy (SEP 20 section 5.1). Not an independent qualification.
 _PRESET_WAVELENGTH_RANGE = (62e-9, 1.6e-6)
+# The preset records a run's provenance carries (the provider's evidence apart).
+_PRESET_RECORD = (
+    "identity",
+    "variant",
+    "step_margin",
+    "accuracy",
+    "box_sensitivity",
+    "gauge_sensitivity",
+    "max_peak_intensity",
+    "wavelength",
+    "window",
+    "device_admissible",
+)
 
 
 @runtime_checkable
-class _Provider(Protocol):
-    """Type the optional module at its single dynamic-import boundary."""
+class _Channel(Protocol):
+    """The worker the binding talks to, a ``_source_worker.Worker``."""
 
-    AngularBasis: Callable[..., _Native]
-    ComplexScaling: Callable[..., _Native]
-    Discretization: Callable[..., _Native]
-    DrivenError: type[Exception]
-    GridResponse: type
-    RadialBasis: Callable[..., _Native]
-    ResponsePlan: Callable[..., _Native]
-    SpectralOptions: Callable[..., _Native]
-    SpectralSetup: Callable[..., _Native]
-    StateSelection: Callable[..., _Native]
-    TotalCurrentResponse: type
-    atomic_model: Callable[[str], _Native]
-    build_info: Callable[[], _Native]
-    # The haCC namespace is looked up by name (`_hacc_surface`): an SAE-only
-    # provider is still a provider, and is refused only when haCC is asked for.
-    solve_preset: Callable[[str, _Preset], _Native]
-    unit_scale: Callable[[str], _Native]
+    identity: Mapping[str, object]
+
+    def request(self, kind: str, value: object = None) -> object:
+        """Send one request and return its reply."""
+        ...
+
+    def close(self) -> None:
+        """End the worker between calls."""
+        ...
+
+    def kill(self) -> None:
+        """End the worker at once."""
+        ...
 
 
 def pinned_revision() -> str:
@@ -146,68 +155,98 @@ def pinned_revision() -> str:
     return _PROVIDER_REVISION
 
 
-def _load_provider() -> _Provider:
-    """Load the optional package only when an atomic operation is requested."""
-    if sys.version_info[:2] != (3, 14):
-        raise BackendError("the pinned TDSE provider requires Python 3.14")
+def _open_provider(
+    *, stop: StopFlag | None = None, limit: int = CONTROL_LIMIT
+) -> _Channel:
+    """Start a worker running the provider's adapter and wait for its handshake.
+
+    The worker gets the process's whole thread budget (SEP 49 section 6.6) and the
+    parent's environment less native's own OpenMP wait settings.
+
+    - ``stop``: the run's flag, polled while the worker is awaited.
+    - ``limit``: the bound on any frame, bytes.
+    """
+    environment = worker_environment(
+        os.environ, {"PYRORAPTOR_THREADS": str(thread_budget().threads)}
+    )
+    worker = Worker(_ADAPTER, environment=environment, limit=limit, stop=stop)
     try:
-        return cast("_Provider", importlib.import_module("pyroraptor"))
-    except (ImportError, OSError) as error:
-        raise BackendError(
-            "TDSE response requires the optional pyroraptor dependency; "
-            "install the pinned Pyroraptor revision into the environment, "
-            "with a matching CPU, CUDA or HIP build"
-        ) from error
+        worker.start()
+    except RemoteError as error:
+        raise _local_error(error, "TDSE provider start failed") from error
+    return worker
+
+
+def _local_error(error: RemoteError, context: str) -> SolpropError:
+    """Return the worker's exception as this process raises it.
+
+    solprop's own exceptions keep their class and message; any other becomes a
+    :class:`BackendError` naming `context`, the message and its classification.
+    """
+    module, _, name = error.type_name.rpartition(".")
+    kind = getattr(exceptions, name, None) if module == "solprop.exceptions" else None
+    if isinstance(kind, type) and issubclass(kind, SolpropError):
+        try:
+            local = kind(error.detail)
+        except TypeError:
+            pass
+        else:
+            local.add_note(
+                f"raised in the TDSE provider worker:\n{error.remote_traceback}"
+            )
+            return local
+    wrapped = BackendError(f"{context}: {error.detail} [{error.classification}]")
+    wrapped.add_note(f"the worker's traceback:\n{error.remote_traceback}")
+    return wrapped
 
 
 def _build_record(
-    provider: _Provider, execution: TDSEExecution | None
+    identity: Mapping[str, object], execution: TDSEExecution | None
 ) -> dict[str, object]:
-    """Refuse stale native extensions and execution-space mismatches before setup.
+    """Refuse a stale provider or an execution-space mismatch the worker reported.
 
+    - ``identity``: the handshake's provider identity: its build and distribution.
     - ``execution``: required device family, or None when only resolving a preset.
     - Returns: serializable native build and installed distribution identities.
     """
-    build = provider.build_info()
-    revision = build.source_revision
+    build = cast("Mapping[str, object]", identity["native"])
+    revision = str(build["source_revision"])
     if len(revision) < 7 or not _PROVIDER_REVISION.startswith(revision):
         raise BackendError(
             f"TDSE native source {revision!r} does not match pinned "
             f"{_PROVIDER_REVISION}"
         )
-    space = build.execution_space.lower()
+    space = str(build["execution_space"]).lower()
     devices = {"cpu": {"openmp", "serial", "threads"}, "cuda": {"cuda"}, "hip": {"hip"}}
     if execution is not None and space not in devices[execution.device]:
         raise BackendError(
             f"TDSE requested device={execution.device!r}, but the native build uses "
-            f"{build.execution_space!r}"
+            f"{build['execution_space']!r}"
         )
     record: dict[str, object] = {
-        "native": asdict(build),
+        "native": dict(build),
         "source_pin": _PROVIDER_REVISION,
+        "distribution": identity.get("distribution"),
     }
-    try:
-        package = distribution("pyroraptor")
-    except PackageNotFoundError:
-        record["distribution"] = None
-    else:
-        record["distribution"] = package.version
-        source = package.read_text("direct_url.json")
-        record["direct_url"] = None if source is None else json.loads(source)
+    if "direct_url" in identity:
+        record["direct_url"] = identity["direct_url"]
     return record
 
 
-def _hacc_surface(provider: _Provider) -> _Native:
-    """Return the provider's haCC namespace, refusing a build without it."""
-    hacc = getattr(provider, "hacc", None)
-    missing = [name for name in _HACC_SURFACE if not hasattr(hacc, name)]
-    if missing:
-        raise BackendError(
-            "the installed TDSE provider has no haCC consumer surface "
-            f"(missing {', '.join(missing)}); install Pyroraptor at the pinned "
-            f"revision {_PROVIDER_REVISION}"
-        )
-    return hacc
+def _query(kind: str, request: Mapping[str, object], *, checked: bool) -> Any:
+    """Ask a short-lived worker one question (a preset, a basis) and end it.
+
+    - ``checked``: refuse a stale provider first, as resolving a preset does.
+    """
+    worker = _open_provider()
+    try:
+        if checked:
+            _build_record(worker.identity, None)
+        return worker.request(kind, {**request, "revision": _PROVIDER_REVISION})
+    except RemoteError as error:
+        raise _local_error(error, "TDSE provider query failed") from error
+    finally:
+        worker.close()
 
 
 def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
@@ -239,125 +278,16 @@ def basis_from_preset(target: str, preset: _Preset) -> TDSEBasis:
         "strong_field",
     ):
         raise MaterialError("TDSE requires helium and a supported provider preset")
-    provider = _load_provider()
-    _build_record(provider, None)
-    selected = provider.solve_preset(target, preset)
-    basis = selected.discretization
-    scaling = basis.scaling
+    fields = dict(
+        _query("basis_from_preset", {"target": target, "preset": preset}, checked=True)
+    )
+    provider_source = fields.pop("provider_source")
     return TDSEBasis(
-        name=selected.name,
-        radial_edges=basis.radial.edges,
-        radial_orders=basis.radial.orders,
-        lmax=basis.angular.lmax,
-        cut_energy=selected.cut_energy,
-        source=f"pyroraptor@{_PROVIDER_REVISION}: {selected.source}",
-        m=basis.angular.m,
-        potential=basis.model.name,
-        potential_version=basis.model.version,
-        scaling_radius=None if scaling is None else scaling.radius,
-        scaling_angle=None if scaling is None else scaling.angle,
-        infinite_order=None if scaling is None else scaling.infinite_order,
-        decay=None if scaling is None else scaling.decay,
-        cuts=basis.cuts,
+        **fields, source=f"pyroraptor@{_PROVIDER_REVISION}: {provider_source}"
     )
 
 
 # ------------------------------------------------------------------- haCC records
-
-
-def _hacc_fields(  # noqa: PLR0917 - called positionally
-    hacc: _Native,
-    atom: _Native,
-    basis: _Native,
-    gauge: _Native,
-    cut_energy: float,
-    max_step_au: float,
-) -> dict[str, object]:
-    """Convert provider haCC objects into the numeric fields of a ``HaccBasis``.
-
-    - ``basis``: ``hacc.Basis``: radial axis, irECS and angular limit, SI.
-    - ``gauge``: ``hacc.MixedGauge`` or ``hacc.VelocityGauge``.
-    - ``cut_energy``: spectral cut in J.
-    - ``max_step_au``: RK4 step ceiling in atomic units of time.
-    - Returns: every ``HaccBasis`` field but ``source`` and ``preset``.
-    """
-    if isinstance(atom, hacc.Argon):
-        raise MaterialError(
-            "argon TDCIS is not representable as a HaccBasis: the haCC target is "
-            "helium only"
-        )
-    if not isinstance(atom, hacc.Helium):
-        raise MaterialError("a HaccBasis needs a provider hacc.Helium atom")
-    if atom.ions not in (1, 2):
-        raise MaterialError(
-            f"Helium(ions={atom.ions}) is not representable: HaccBasis admits "
-            "haCC(1) (ions=1) and haCC(5) (ions=2)"
-        )
-    if isinstance(gauge, hacc.MixedGauge):
-        gauge_radius: float | None = float(gauge.radius)
-    elif isinstance(gauge, hacc.VelocityGauge):
-        gauge_radius = None
-    else:
-        raise MaterialError("a HaccBasis gauge must be MixedGauge or VelocityGauge")
-    angular = basis.angular
-    limit = "particle" if angular.particle is not None else "total"
-    scaling = basis.scaling
-    return {
-        "ions": atom.ions,
-        "neutral_square": atom.neutral_square,
-        "radial_edges": tuple(float(edge) for edge in basis.radial.edges),
-        "radial_orders": tuple(basis.radial.orders),
-        "angular_limit": limit,
-        "angular_order": angular.particle if limit == "particle" else angular.total,
-        "scaling_radius": float(scaling.radius),
-        "scaling_angle": float(scaling.angle),
-        "infinite_order": scaling.infinite_order,
-        "decay": float(scaling.decay),
-        "gauge_radius": gauge_radius,
-        "cut_energy": float(cut_energy),
-        "max_step_au": float(max_step_au),
-    }
-
-
-def _numeric_fields(basis: HaccBasis) -> dict[str, object]:
-    """Return a ``HaccBasis``'s fields without its provenance and preset identity.
-
-    - Returns: the model and numerical fields compared against the provider.
-    """
-    record = asdict(basis)
-    del record["source"], record["preset"]
-    return record
-
-
-def _hacc_objects(
-    provider: _Provider, hacc: _Native, basis: HaccBasis
-) -> tuple[_Native, _Native, _Native]:
-    """Build the provider's atom, basis and gauge from a ``HaccBasis``.
-
-    - Returns: ``hacc.Helium``, ``hacc.Basis`` and the gauge.
-    """
-    angular = (
-        hacc.AngularLimit(particle=basis.angular_order)
-        if basis.angular_limit == "particle"
-        else hacc.AngularLimit(total=basis.angular_order)
-    )
-    atom = hacc.Helium(ions=basis.ions, neutral_square=basis.neutral_square)
-    native = hacc.Basis(
-        provider.RadialBasis(basis.radial_edges, basis.radial_orders),
-        provider.ComplexScaling(
-            basis.scaling_radius,
-            basis.scaling_angle,
-            basis.infinite_order,
-            basis.decay,
-        ),
-        angular,
-    )
-    gauge = (
-        hacc.VelocityGauge()
-        if basis.gauge_radius is None
-        else hacc.MixedGauge(basis.gauge_radius)
-    )
-    return atom, native, gauge
 
 
 @dataclass(frozen=True)
@@ -506,49 +436,37 @@ def hacc_preset(ions: Literal[1, 2], variant: _HaccVariant = "standard") -> Hacc
         raise MaterialError("hacc_preset needs ions=1 (haCC(1)) or ions=2 (haCC(5))")
     if not isinstance(variant, str) or variant not in ("standard", "fast"):
         raise MaterialError("hacc_preset needs variant='standard' or variant='fast'")
-    provider = _load_provider()
-    _build_record(provider, None)
-    hacc = _hacc_surface(provider)
-    preset = hacc.helium_preset(ions, variant)
-    if preset.variant != variant:
+    reply = _query("hacc_preset", {"ions": ions, "variant": variant}, checked=True)
+    preset = cast("Mapping[str, Any]", reply["preset"])
+    if preset["variant"] != variant:
         raise BackendError(
-            f"the provider returned the {preset.variant!r} haCC preset for the "
+            f"the provider returned the {preset['variant']!r} haCC preset for the "
             f"{variant!r} variant"
         )
-    source = f"pyroraptor@{_PROVIDER_REVISION}: {preset.source}"
+    source = f"pyroraptor@{_PROVIDER_REVISION}: {preset['source']}"
     basis = HaccBasis(
-        **cast(
-            "dict[str, Any]",
-            _hacc_fields(
-                hacc,
-                preset.atom,
-                preset.basis,
-                preset.gauge,
-                preset.cut_energy,
-                preset.max_step_au,
-            ),
-        ),
+        **cast("dict[str, Any]", reply["fields"]),
         source=source,
-        preset=preset.identity,
+        preset=preset["identity"],
     )
     if basis.variant != variant:
         raise BackendError(
-            f"the provider's {variant!r} preset identity {preset.identity!r} does "
+            f"the provider's {variant!r} preset identity {preset['identity']!r} does "
             "not name that variant"
         )
     return HaccPreset(
         basis=basis,
         variant=variant,
-        step_margin=float(preset.step_margin),
+        step_margin=float(preset["step_margin"]),
         max_atomic_step=basis.max_step_au * AU_TIME,
-        accuracy=float(preset.accuracy),
-        box_sensitivity=float(preset.box_sensitivity),
-        gauge_sensitivity=float(preset.gauge_sensitivity),
-        max_peak_intensity=float(preset.max_peak_intensity),
-        wavelength=float(preset.wavelength),
-        window=float(preset.window),
-        device_admissible=bool(preset.device_admissible),
-        identity=preset.identity,
+        accuracy=float(preset["accuracy"]),
+        box_sensitivity=float(preset["box_sensitivity"]),
+        gauge_sensitivity=float(preset["gauge_sensitivity"]),
+        max_peak_intensity=float(preset["max_peak_intensity"]),
+        wavelength=float(preset["wavelength"]),
+        window=float(preset["window"]),
+        device_admissible=bool(preset["device_admissible"]),
+        identity=preset["identity"],
         source=source,
     )
 
@@ -598,8 +516,19 @@ def hacc_basis(
     BackendError
         If the optional provider is missing or has no haCC surface.
     """
-    hacc = _hacc_surface(_load_provider())
-    fields = _hacc_fields(hacc, atom, basis, gauge, cut_energy, max_step_au)
+    # The objects travel to the worker as records of their fields, and are checked
+    # there against the provider's own classes (SEP 49 section 6.5).
+    fields = _query(
+        "hacc_basis",
+        {
+            "atom": atom,
+            "basis": basis,
+            "gauge": gauge,
+            "cut_energy": cut_energy,
+            "max_step_au": max_step_au,
+        },
+        checked=False,
+    )
     return HaccBasis(**cast("dict[str, Any]", fields), source=source)
 
 
@@ -650,14 +579,20 @@ def _estimated_memory(
       descriptor's; None takes ``descriptor.outputs``.
     - Returns: named conservative atomic storage estimates in bytes; vendor setup
       workspaces and allocator overhead are not hard bounded. The haCC provider offers
-      no estimate before preparation (SEP 20, C7), so only its host histories are
-      estimated; its model and plans are admitted from their measured ledgers.
+      no estimate before preparation (SEP 20, C7), so only its host histories and the
+      transport copies are estimated; its model and plans are admitted from their
+      measured ledgers.
     """
     samples = _atomic_samples(descriptor)
     outputs = descriptor.outputs if native_outputs is None else native_outputs
     histories = 48 if outputs == "full" else 20
+    transport = _transport_bytes(
+        descriptor, max(chunk.rows for chunk in chunks), outputs
+    )
     host = {
-        "estimate.host_histories": 8 * histories * chunks[-1].stop * descriptor.samples
+        "estimate.host_histories": 8 * histories * chunks[-1].stop * descriptor.samples,
+        # A call's copies on the pipe, in this process and in the worker (SEP 49).
+        "estimate.transport": 2 * transport,
     }
     basis = descriptor.response.basis
     if not isinstance(basis, TDSEBasis):
@@ -679,23 +614,13 @@ def _estimated_memory(
     }
 
 
-def _admit_memory(ledger: Mapping[str, int], limit: int | None) -> None:
-    """Apply the declared atomic byte limit.
-
-    - ``ledger``: named persistent allocations or estimates in bytes.
-    - ``limit``: positive byte ceiling, or None for an unrestricted allocation.
-    """
-    total = sum(ledger.values())
-    if limit is not None and total > limit:
-        raise DriverError(
-            f"TDSE persistent data requires {total} bytes, exceeding {limit} bytes"
-        )
-
-
 def _json_default(value: object) -> object:
     """Convert a public native record or array into JSON-compatible containers."""
     if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
+    if isinstance(value, Record):
+        # A provider record from the worker: its fields, as the dataclass gave them.
+        return dict(vars(value))
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, np.generic):
@@ -768,20 +693,51 @@ def _row_chunks(execution: TDSEExecution, n_nodes: int) -> tuple[_Chunk, ...]:
     )
 
 
-def _classify(error: BaseException, provider: _Provider) -> str:
-    """Classify a provider-side exception for the failure record (SEP 20, 5.6).
+def _classify(error: BaseException) -> str:
+    """Classify an evaluation's failure for its record (SEP 20, 5.6).
 
-    - Returns: ``native`` for a provider ``DrivenError``, ``interface`` for a
-      ``ValueError`` or ``TypeError`` from the provider, ``contract`` for a solprop
-      validation of the returned record, ``unexpected`` otherwise.
+    - Returns: the worker's classification of a provider exception (``native``,
+      ``interface``, ``contract`` or ``unexpected``); ``worker`` for a worker that
+      exited or broke the protocol; for this process's own validation, ``contract``
+      for a solprop refusal, ``interface`` for a ``ValueError`` or ``TypeError`` and
+      ``unexpected`` otherwise.
     """
-    if isinstance(error, provider.DrivenError):
-        return "native"
+    if isinstance(error, RemoteError):
+        return error.classification
+    if isinstance(error, WorkerError):
+        return "worker"
     if isinstance(error, SolpropError):
         return "contract"
     if isinstance(error, ValueError | TypeError):
         return "interface"
     return "unexpected"
+
+
+def _described(error: BaseException) -> tuple[str, str]:
+    """Return an error's type name and message, the worker's own for a remote one."""
+    if isinstance(error, RemoteError):
+        return error.type_name.rpartition(".")[2], error.detail
+    return type(error).__name__, str(error)
+
+
+def _frame_limit(descriptor: TDSEDescriptor, chunks: tuple[_Chunk, ...]) -> int:
+    """Bound one worker frame by the prepared shapes (SEP 49 section 6.5).
+
+    The largest array either way is a chunk's shadow record, three float64 orders
+    of every row on the lattice; four orders' worth, twice over, is the bound.
+    """
+    rows = max(chunk.rows for chunk in chunks)
+    return max(CONTROL_LIMIT, 2 * 4 * 8 * rows * descriptor.samples)
+
+
+def _transport_bytes(descriptor: TDSEDescriptor, rows: int, outputs: str) -> int:
+    """Return one process's transport copies of the largest chunk's call.
+
+    The drive twice (its frame is built whole before it is written) and the result
+    once (its arrays are read into their own buffers), in bytes.
+    """
+    histories = 48 if outputs == "full" else 20
+    return 8 * rows * _atomic_samples(descriptor) * (2 + histories)
 
 
 def _peak_intensity(fields: Float[np.ndarray, "n_nodes n_samples"]) -> list[float]:
@@ -845,8 +801,12 @@ def prepare_binding(
     *,
     defer_plans: bool = False,
     archive: TDSEArchiveWriter | None = None,
+    stop: StopFlag | None = None,
 ) -> TDSEBinding:
     """Prepare persistent, stably chunked atomic plans for one response lattice.
+
+    The provider runs in a worker process the binding starts here and owns until it
+    is closed (SEP 49): every wait on it is cancelled by Ctrl-C, SIGTERM and `stop`.
 
     Parameters
     ----------
@@ -867,6 +827,9 @@ def prepare_binding(
         written to it, input first and raw result before validation; a full
         archive builds the plans with the provider's full record. The caller owns
         and closes it. Its buffers are admitted with the binding's memory.
+    stop : solprop.log.StopFlag or None, optional
+        The run's stop flag, polled while an atomic call is awaited; setting it ends
+        the call at once, the worker killed, with :class:`StopRequested`.
 
     Returns
     -------
@@ -893,174 +856,65 @@ def prepare_binding(
         n_nodes,
         defer_plans=defer_plans,
         archive=archive,
+        stop=stop,
     )
 
 
 # ------------------------------------------------------------------ haCC model
 
 
-class _HaccModel:
-    """Prepare one haCC model, verify it and build its response plans.
+@dataclass
+class _HaccView:
+    """The binding's record of the haCC model the worker prepared (SEP 20, C1).
 
-    The model is entered into the caller's stack first, so it closes after every
-    plan built on it (SEP 20, C1). A preset is checked against the installed
-    provider's identity and fields; a custom basis is admitted as unqualified.
-
-    - ``archive``: ``"full"`` builds every plan with the provider's full record for a
-      full archive; the source still reads the same total and order-one currents.
+    Attributes
+    ----------
+    basis : HaccBasis
+        The model's record.
+    outputs : {'full', 'total_current'} or None
+        The plans' native output mode; None for a custom mixed-gauge basis before
+        its first plan decides it.
+    closure_known : bool or None
+        Whether the plans carry the escaped-electron closure; None until known.
+    preset : mapping or None
+        The verified preset's records (its identity, variant, accuracy and domain), or
+        None for a custom basis.
     """
 
-    def __init__(
-        self,
-        provider: _Provider,
-        basis: HaccBasis,
-        execution: TDSEExecution,
-        stack: ExitStack,
-        *,
-        archive: ArchiveOutputs = "required",
-    ) -> None:
-        if execution.complement == "vendor_blas":
-            raise BackendError(
-                "haCC response plans have no complement option; use the default "
-                "TDSEExecution(complement='deterministic'), recorded as not "
-                "applicable"
-            )
-        self.hacc = _hacc_surface(provider)
-        self.basis = basis
-        self.atom, self.native_basis, self.gauge = _hacc_objects(
-            provider, self.hacc, basis
-        )
-        self.preset: _Native = None
-        if basis.preset is not None:
-            self.preset = self._verified_preset(execution)
-            prepared = self.preset.prepare()
-        else:
-            prepared = self.hacc.prepare(
-                self.atom,
-                self.native_basis,
-                gauge=self.gauge,
-                cut_energy=basis.cut_energy,
-            )
-        self.model = stack.enter_context(prepared)
-        self.memory = {
-            f"model.{entry.name}": entry.bytes
-            for entry in self.model.memory_ledger().entries
-        }
-        # The native output mode: compact with the escaped-electron closure,
-        # full without it (the provider refuses compact order one then, C3), and
-        # full throughout for a full archive. Whether the plans carry the closure
-        # is known beforehand for a preset (always) and for the velocity gauge
-        # (never); a custom mixed gauge learns it from its first plan.
-        self.outputs: Literal["full", "total_current"] | None = (
-            "total_current" if basis.preset is not None else None
-        )
-        self._closure: bool | None = True if basis.preset is not None else None
-        if basis.gauge_radius is None:
-            self.outputs = "full"
-            self._closure = False
-        if archive == "full":
-            self.outputs = "full"
+    basis: HaccBasis
+    outputs: str | None
+    closure_known: bool | None
+    preset: Mapping[str, Any] | None
 
-    def _verified_preset(self, execution: TDSEExecution) -> _Native:
-        """Refuse a preset the installed provider does not reproduce."""
-        preset = self.hacc.helium_preset(self.basis.ions, self.basis.variant)
-        if preset.identity != self.basis.preset:
-            raise BackendError(
-                f"the installed provider's haCC preset is {preset.identity!r}, not "
-                f"the expected {self.basis.preset!r}; regenerate the record"
-            )
-        fields = _hacc_fields(
-            self.hacc,
-            preset.atom,
-            preset.basis,
-            preset.gauge,
-            preset.cut_energy,
-            preset.max_step_au,
-        )
-        if fields != _numeric_fields(self.basis):
-            raise BackendError(
-                f"the installed provider's preset {preset.identity!r} does not "
-                "reproduce the record's fields"
-            )
-        if execution.device != "cpu" and not preset.device_admissible:
-            raise BackendError(
-                f"the haCC preset {preset.identity!r} is not admitted on the "
-                f"{execution.device} device route"
-            )
-        return preset
+    @classmethod
+    def from_reply(cls, basis: HaccBasis, reply: Mapping[str, Any]) -> "_HaccView":
+        """Return the view of the model a ``prepare`` reply describes."""
+        return cls(basis, reply["outputs"], reply["closure"], reply["preset"])
+
+    def update(self, reply: Mapping[str, Any]) -> None:
+        """Take the output mode and closure a plan decided, from a reply's record."""
+        self.outputs, self.closure_known = reply["outputs"], reply["closure"]
 
     @property
     def closure(self) -> bool:
-        """Return whether the plans carry the escaped-electron closure."""
-        return self._closure is True
-
-    def plan(self, *, rows: int, spacing: float, samples: int) -> _Native:
-        """Construct one response plan, choosing the native output mode once.
-
-        A custom mixed-gauge basis is first asked for the compact closed current;
-        the provider refuses it with ``ValueError`` when the gauge radius admits no
-        closure, and the full record is then used, as for the velocity gauge. For
-        a full archive every plan is full, and a custom mixed-gauge basis takes its
-        closure from the first plan's ``total_current_qualified``.
-
-        - ``spacing``: response spacing in s.
-        """
-        arguments = {
-            "rows": rows,
-            "spacing": float(spacing),
-            "samples": samples,
-            "max_step_au": float(self.basis.max_step_au),
-            "field": "electric_field",
-            "shadow_order": 1,
-            "norm_growth_limit": HACC_NORM_GROWTH_LIMIT,
-        }
-        if self.outputs is None:
-            try:
-                plan = self.hacc.ResponsePlan(
-                    self.model, outputs="total_current", **arguments
-                )
-            except ValueError as error:
-                if "closure" not in str(error):
-                    raise
-                self.outputs = "full"
-                self._closure = False
-            else:
-                self.outputs = "total_current"
-                self._closure = True
-                return plan
-        plan = self.hacc.ResponsePlan(self.model, outputs=self.outputs, **arguments)
-        if self._closure is None:
-            self._closure = bool(plan.info.total_current_qualified)
-        return plan
+        """Whether the plans carry the escaped-electron closure."""
+        return self.closure_known is True
 
     def check_info(
-        self, info: _Native, *, rows: int, samples: int, spacing: float
+        self, raw: _Native, *, rows: int, samples: int, spacing: float
     ) -> None:
-        """Require a plan or result's ``info`` to describe exactly this model.
-
-        - ``spacing``: expected spacing in s.
-        """
-        if (
-            info.rows != rows
-            or info.samples != samples
-            or info.spacing != spacing
-            or info.shadow_order != 1
-            or info.outputs != self.outputs
-            or info.atom != self.atom
-            or info.basis != self.native_basis
-            or info.gauge != self.gauge
-            or info.cut_energy != self.basis.cut_energy
-        ):
-            raise BackendError(
-                "haCC plan metadata disagree with the prepared model or contract"
-            )
-        if bool(info.total_current_qualified) != self.closure:
-            if self.preset is not None:
-                raise BackendError(
-                    "provider contract violation: a haCC preset reports no "
-                    "escaped-electron closure"
-                )
-            raise BackendError("haCC plan closure flag disagrees with its output mode")
+        """Require a result's ``info`` to describe exactly this model."""
+        check_info(
+            raw.info,
+            rows=rows,
+            samples=samples,
+            spacing=spacing,
+            outputs=self.outputs,
+            cut_energy=self.basis.cut_energy,
+            closure=self.closure,
+            preset=self.preset is not None,
+            model_match=_matches(raw),
+        )
 
     def record(self) -> dict[str, object]:
         """Return the model's provenance for run metadata.
@@ -1080,19 +934,59 @@ class _HaccModel:
             "complement": "not_applicable",
             "preset_record": None
             if preset is None
-            else {
-                "identity": preset.identity,
-                "variant": preset.variant,
-                "step_margin": preset.step_margin,
-                "accuracy": preset.accuracy,
-                "box_sensitivity": preset.box_sensitivity,
-                "gauge_sensitivity": preset.gauge_sensitivity,
-                "max_peak_intensity": preset.max_peak_intensity,
-                "wavelength": preset.wavelength,
-                "window": preset.window,
-                "device_admissible": preset.device_admissible,
-            },
+            else {name: preset[name] for name in _PRESET_RECORD},
         }
+
+
+def _returned(reply: object) -> _Native:
+    """Return an atomic call's record, typed by the worker's name for it.
+
+    The record's ``record_type`` becomes ``sae.grid_response``, ``hacc.total_current_
+    response`` and so on, or ``other:<type>``; the worker's comparison of a haCC
+    result's atom, basis and gauge with the model rides beside its fields.
+    """
+    answer = cast("Mapping[str, Any]", reply)
+    raw = answer["raw"]
+    if isinstance(raw, Record):
+        raw.computed["provider_type"] = raw.record_type.rpartition(".")[2]
+        raw.record_type = answer["kind"]
+        raw.computed["model_match"] = answer["model_match"]
+    return raw
+
+
+def _kind(raw: object) -> str:
+    """Return a returned record's type name (:func:`_returned`)."""
+    return raw.record_type if isinstance(raw, Record) else "other"
+
+
+def _matches(raw: object) -> bool:
+    """Whether the worker found a haCC result's model to be the prepared one."""
+    return isinstance(raw, Record) and raw.computed.get("model_match") is True
+
+
+def _fields_of(value: object) -> dict[str, Any]:
+    """Return a returned record's fields."""
+    if isinstance(value, Record):
+        return dict(vars(value))
+    return asdict(cast("Any", value))
+
+
+def _component(shadow: _Native, quantity: str, order: int) -> np.ndarray:
+    """Return one shadow component, as the provider's ``component`` returned it.
+
+    The worker evaluated the provider's method (``_pyroraptor``); a component it
+    refused raises here as the provider raised it.
+    """
+    components = cast("Mapping[str, Any]", shadow.components)
+    found = components.get(f"{quantity}:{order}")
+    if found is None:
+        raise ValueError(f"order must be one of {shadow.orders}")
+    if isinstance(found, Mapping):
+        refusal = cast("Mapping[str, str]", found)
+        if refusal["type"] == "ValueError":
+            raise ValueError(refusal["error"])
+        raise RuntimeError(f"{refusal['type']}: {refusal['error']}")
+    return cast("np.ndarray", found)
 
 
 # --------------------------------------------------------------------- binding
@@ -1113,6 +1007,7 @@ class _ProviderBinding:
         *,
         defer_plans: bool = False,
         archive: TDSEArchiveWriter | None = None,
+        stop: StopFlag | None = None,
     ) -> None:
         self._archive = archive
         # A full archive widens the provider's selection, never the descriptor's,
@@ -1132,7 +1027,6 @@ class _ProviderBinding:
         self._chunks = _row_chunks(execution, n_nodes)
         self._budget = AtomicCallBudget(execution.max_atomic_calls, len(self._chunks))
         self._stack = ExitStack()
-        self._plans: dict[int, _Native] = {}
         self._plan_records: dict[str, object] = {}
         self._closed = False
         self._cached: TDSEResult | None = None
@@ -1140,7 +1034,7 @@ class _ProviderBinding:
         self._diagnostic_cache_hits = 0
         self._last_call: dict[str, object] = {}
         self._failures: list[object] = []
-        self._hacc: _HaccModel | None = None
+        self._hacc: _HaccView | None = None
         self._window: AtomicWindowRecord | None = descriptor.atomic_window
         self._gate = descriptor.source_gate()
         self._samples = _atomic_samples(descriptor)
@@ -1161,20 +1055,22 @@ class _ProviderBinding:
                 rows=self._chunks[0].rows, samples=descriptor.samples
             )
         )
-        self._provider = _load_provider()
-        self._build = _build_record(self._provider, execution)
+        # The worker is the binding's from here to close: its stack ends it.
+        self._worker = _open_provider(
+            stop=stop, limit=_frame_limit(descriptor, self._chunks)
+        )
+        self._stack.callback(self._worker.close)
         try:
+            self._build = _build_record(self._worker.identity, execution)
             self._prepare()
             _admit_memory(
                 self._memory,
                 execution.memory_limit,
             )
         except BaseException as error:
+            self._worker.kill()
             self._stack.close()
-            if not isinstance(error, Exception) or isinstance(error, SolpropError):
-                raise
-            kind = _classify(error, self._provider)
-            raise BackendError(f"TDSE preparation failed: {error} [{kind}]") from error
+            raise _preparation_error(error) from error
 
     @property
     def native_outputs(self) -> str | None:
@@ -1190,152 +1086,88 @@ class _ProviderBinding:
     # -- preparation ---------------------------------------------------------------
 
     def _prepare(self) -> None:
-        """Dispatch on the descriptor's model and admit the measured memory."""
+        """Prepare the model and its plans in the worker; admit the measured memory."""
         basis = self._descriptor.response.basis
+        reply = cast(
+            "Mapping[str, Any]",
+            self._worker.request("prepare", self._prepare_request(basis)),
+        )
+        self._absorb(reply)
         if isinstance(basis, HaccBasis):
-            self._prepare_hacc(basis)
-        else:
-            self._prepare_sae(basis)
+            self._hacc = _HaccView.from_reply(basis, reply["hacc"])
+            if basis.preset is not None:
+                self._preset_domain_at_start(self._hacc)
+            if not self._defer_plans:
+                self._warn_custom()
         # Include the simultaneously live provider histories, normalized chunks,
-        # concatenated result and exact-input diagnostic cache in host admission.
+        # concatenated result and exact-input diagnostic cache in host admission, and
+        # a call's copies on the pipe in each process (SEP 49 section 6.5).
         self._memory["host.result_and_cache_reserve"] = self._estimate[
             "estimate.host_histories"
         ]
+        transport = _transport_bytes(
+            self._descriptor,
+            max(chunk.rows for chunk in self._chunks),
+            self._native_outputs,
+        )
+        self._memory["transport.solprop"] = transport
+        self._memory["transport.worker"] = transport
 
-    def _prepare_sae(self, basis: TDSEBasis) -> None:
-        """Allocate shared SAE resources and one plan per distinct batch size."""
-        provider = self._provider
-        model = provider.atomic_model(basis.potential)
-        if model.version != basis.potential_version:
-            raise BackendError(
-                "TDSE atomic potential revision differs from its descriptor"
-            )
-        scaling = None
-        if basis.scaling_radius is not None:
-            assert basis.scaling_angle is not None and basis.infinite_order is not None
-            assert basis.decay is not None
-            scaling = provider.ComplexScaling(
-                basis.scaling_radius,
-                basis.scaling_angle,
-                basis.infinite_order,
-                basis.decay,
-            )
-        discretization = provider.Discretization(
-            provider.RadialBasis(basis.radial_edges, basis.radial_orders),
-            provider.AngularBasis(basis.lmax, basis.m),
-            model,
-            scaling,
-            basis.cuts,
-        )
-        operators = self._stack.enter_context(discretization.assemble())
-        descriptor = self._descriptor
-        initial = provider.StateSelection(
-            descriptor.initial_l, descriptor.initial_index
-        )
-        setup = self._stack.enter_context(
-            provider.SpectralSetup(
-                operators,
-                provider.SpectralOptions(
-                    cut_energy=basis.cut_energy,
-                    states=(initial,),
-                    growing=cast("Literal['remove']", descriptor.growing),
-                    growth_tolerance=descriptor.growth_tolerance,
-                    window_duration=descriptor.window_duration,
-                    accept_removed_component=descriptor.accept_removed_component,
-                ),
-            )
-        )
-        for label, ledger in (
-            ("operators", operators.memory_ledger()),
-            ("setup", setup.memory_ledger()),
-        ):
-            for entry in ledger.entries:
-                self._memory[f"{label}.{entry.name}"] = entry.bytes
-        for rows in sorted({chunk.rows for chunk in self._chunks}):
-            plan = self._stack.enter_context(
-                provider.ResponsePlan(
-                    setup,
-                    rows=rows,
-                    spacing=descriptor.spacing,
-                    samples=self._samples,
-                    max_step_au=(
-                        descriptor.max_atomic_step
-                        / provider.unit_scale("time").si_per_atomic_unit
-                    ),
-                    initial=initial,
-                    field="electric_field",
-                    shadow_order=descriptor.shadow_order,
-                    complement=self._execution.complement,
-                    outputs=self._native_outputs,
-                )
-            )
-            self._plans[rows] = plan
-            for entry in plan.memory_ledger().entries:
-                if not entry.shared:
-                    self._memory[f"plan.{rows}.{entry.name}"] = entry.bytes
-        self._plan_records = {
-            str(rows): asdict(plan.info) for rows, plan in self._plans.items()
+    def _prepare_request(self, basis: TDSEBasis | HaccBasis) -> dict[str, object]:
+        """Return the plain records the worker builds the model and plans from."""
+        descriptor, execution = self._descriptor, self._execution
+        return {
+            "model": "hacc" if isinstance(basis, HaccBasis) else "sae",
+            "basis": asdict(basis),
+            "rows": sorted({chunk.rows for chunk in self._chunks}),
+            "samples": self._samples,
+            "spacing": float(descriptor.spacing),
+            "max_atomic_step": descriptor.max_atomic_step,
+            "shadow_order": descriptor.shadow_order,
+            "complement": execution.complement,
+            "outputs": self._native_outputs,
+            "archive_outputs": "required"
+            if self._archive is None
+            else self._archive.outputs,
+            "initial": (descriptor.initial_l, descriptor.initial_index),
+            "growing": descriptor.growing,
+            "growth_tolerance": descriptor.growth_tolerance,
+            "window_duration": descriptor.window_duration,
+            "accept_removed_component": descriptor.accept_removed_component,
+            "device": execution.device,
+            "memory": dict(self._memory),
+            "memory_limit": execution.memory_limit,
+            "defer_plans": self._defer_plans,
+            "revision": _PROVIDER_REVISION,
         }
 
-    def _prepare_hacc(self, basis: HaccBasis) -> None:
-        """Prepare the haCC model, admit its ledger and build the chunk plans."""
-        model = _HaccModel(
-            self._provider,
-            basis,
-            self._execution,
-            self._stack,
-            archive="required" if self._archive is None else self._archive.outputs,
-        )
-        self._hacc = model
-        self._memory.update(model.memory)
-        # Admit the model's measured ledger before any plan is built (C7).
-        _admit_memory(
-            self._memory,
-            self._execution.memory_limit,
-        )
-        if basis.preset is not None:
-            self._preset_domain_at_start(model)
-        if not self._defer_plans:
-            self._build_hacc_plans()
+    def _absorb(self, reply: Mapping[str, Any]) -> None:
+        """Take the worker's measured memory and plan records."""
+        self._memory.update(cast("Mapping[str, int]", reply["memory"]))
+        self._plan_records = dict(cast("Mapping[str, object]", reply["plans"]))
+        if self._hacc is not None and reply["hacc"] is not None:
+            self._hacc.update(reply["hacc"])
 
-    def _build_hacc_plans(self) -> None:
-        """Build one haCC plan per chunk size, then warn for a custom basis.
-
-        The custom-basis warning waits for the plans because whether the model
-        has the escaped-electron closure is known only once a plan exists.
-        """
+    def _warn_custom(self) -> None:
+        """Warn that a custom basis is unqualified, once its plans know the closure."""
         model = self._hacc
         assert model is not None
         basis = model.basis
-        spacing = float(self._descriptor.spacing)
-        for rows in sorted({chunk.rows for chunk in self._chunks}):
-            plan = self._stack.enter_context(
-                model.plan(rows=rows, spacing=spacing, samples=self._samples)
-            )
-            model.check_info(
-                plan.info, rows=rows, samples=self._samples, spacing=spacing
-            )
-            self._plans[rows] = plan
-            for entry in plan.memory_ledger().entries:
-                if not entry.shared:
-                    self._memory[f"plan.{rows}.{entry.name}"] = entry.bytes
-        self._plan_records = {
-            str(rows): asdict(plan.info) for rows, plan in self._plans.items()
-        }
-        if basis.preset is None:
-            missing = (
-                ""
-                if model.closure
-                else "; its total current lacks the escaped-electron closure, so the "
-                "source uses the in-box first order and a total that omits the "
-                "momentum carried out through R0"
-            )
-            warnings.warn(
-                f"{basis.label} is a custom haCC basis with no qualified accuracy "
-                f"and no preset domain; it is recorded as unqualified{missing}",
-                TDSEUnqualifiedModelWarning,
-                stacklevel=5,
-            )
+        if basis.preset is not None:
+            return
+        missing = (
+            ""
+            if model.closure
+            else "; its total current lacks the escaped-electron closure, so the "
+            "source uses the in-box first order and a total that omits the "
+            "momentum carried out through R0"
+        )
+        warnings.warn(
+            f"{basis.label} is a custom haCC basis with no qualified accuracy "
+            f"and no preset domain; it is recorded as unqualified{missing}",
+            TDSEUnqualifiedModelWarning,
+            stacklevel=5,
+        )
 
     @property
     def plans_built(self) -> bool:
@@ -1344,7 +1176,7 @@ class _ProviderBinding:
         - Returns: False only for a haCC binding prepared with ``defer_plans`` before
           :meth:`build_plans`.
         """
-        return self._hacc is None or bool(self._plans)
+        return self._hacc is None or bool(self._plan_records)
 
     def build_plans(self) -> None:
         """Build and admit a deferred haCC binding's propagation plans.
@@ -1356,41 +1188,48 @@ class _ProviderBinding:
         if self.plans_built:
             raise BackendError("the TDSE binding's plans are already built")
         try:
-            self._build_hacc_plans()
+            reply = self._worker.request(
+                "build_plans",
+                {
+                    "memory": dict(self._memory),
+                    "memory_limit": self._execution.memory_limit,
+                },
+            )
+            self._absorb(cast("Mapping[str, Any]", reply))
             _admit_memory(
                 self._memory,
                 self._execution.memory_limit,
             )
         except BaseException as error:
+            self._worker.kill()
             self.close()
-            if not isinstance(error, Exception) or isinstance(error, SolpropError):
-                raise
-            kind = _classify(error, self._provider)
-            raise BackendError(f"TDSE preparation failed: {error} [{kind}]") from error
+            raise _preparation_error(error) from error
+        self._warn_custom()
 
-    def _preset_domain_at_start(self, model: _HaccModel) -> None:
+    def _preset_domain_at_start(self, model: _HaccView) -> None:
         """Flag a preset run's duration or carrier beyond its qualification."""
         preset = model.preset
+        assert preset is not None
         configuration = json.loads(self._descriptor.configuration_json)
         lattice = configuration["lattice"]
         duration = lattice["atomic_duration"]
-        if duration > preset.window:
+        if duration > preset["window"]:
             self._flag_domain(
                 "duration",
-                {"atomic_duration": duration, "preset_window": preset.window},
+                {"atomic_duration": duration, "preset_window": preset["window"]},
                 f"the atomic duration {duration:.6g} s exceeds the preset's tested "
-                f"window {preset.window:.6g} s",
+                f"window {preset['window']:.6g} s",
             )
         carrier = lattice["reference_wavelength"]
-        if not math.isclose(carrier, preset.wavelength, rel_tol=1e-12):
+        if not math.isclose(carrier, preset["wavelength"], rel_tol=1e-12):
             self._flag_domain(
                 "carrier",
                 {
                     "reference_wavelength": carrier,
-                    "preset_wavelength": preset.wavelength,
+                    "preset_wavelength": preset["wavelength"],
                 },
                 f"the reference wavelength {carrier:.6g} m differs from the preset's "
-                f"qualifying carrier {preset.wavelength:.6g} m",
+                f"qualifying carrier {preset['wavelength']:.6g} m",
             )
 
     def _flag_domain(self, reason: str, record: object, message: str) -> None:
@@ -1602,22 +1441,33 @@ class _ProviderBinding:
             archived: TDSEArchiveError | None = None
             try:
                 # Public evaluate always resets every row to the prepared state.
-                raw = self._plans[chunk.rows].evaluate(drive)
+                raw = _returned(
+                    self._worker.request(
+                        "evaluate", {"rows": chunk.rows, "drive": drive}
+                    )
+                )
                 # Captured as returned, before any validation (SEP 20, 5.8).
                 archived = self._archive_result(evaluation, index, raw)
                 self._validate_diagnostics(raw, chunk.rows, self._samples)
                 chunk_records.append(self._native_record(raw, chunk))
                 results.append(self._normalize(raw, chunk, identity))
+            except (KeyboardInterrupt, RunTerminated, StopRequested) as stopping:
+                # A user's stop during the call: the worker is already killed, the
+                # call stays charged, and it is no provider failure (SEP 49, 6.7).
+                self._budget.release_reservation()
+                self._archive_failure(evaluation, index, stopping, "interrupted")
+                raise
             except Exception as error:
                 self._budget.record_failure()
-                classification = _classify(error, self._provider)
+                classification = _classify(error)
+                name, detail = _described(error)
                 failure = {
                     "z": z,
                     "row_start": chunk.start,
                     "row_stop": chunk.stop,
                     "input_identity": identity,
                     "classification": classification,
-                    "error": f"{type(error).__name__}: {error}",
+                    "error": f"{name}: {detail}",
                     "native": None
                     if raw is None
                     else self._failed_native_record(raw, chunk),
@@ -1627,8 +1477,9 @@ class _ProviderBinding:
                 wrapped = BackendError(
                     f"TDSE failure at z={z:.17g} m, "
                     f"rows [{chunk.start}, {chunk.stop}), "
-                    f"input={identity}: {error} [{classification}]"
+                    f"input={identity}: {detail} [{classification}]"
                 )
+                _attach_remote(wrapped, error)
                 if archived is not None:
                     wrapped.add_note(
                         f"the TDSE archive could not store this result: {archived}"
@@ -1791,7 +1642,7 @@ class _ProviderBinding:
         model = self._hacc
         if model is None or model.preset is None:
             return None
-        bound = float(model.preset.max_peak_intensity)
+        bound = float(model.preset["max_peak_intensity"])
         before = _peak_intensity(fields)
         after = _peak_intensity(np.concatenate(drives, axis=0))
         outside = max(before) > bound
@@ -1816,7 +1667,7 @@ class _ProviderBinding:
 
         - Returns: the bound array, or None for a haCC model without the closure.
         """
-        if self._hacc is None and isinstance(raw, self._provider.GridResponse):
+        if self._hacc is None and _kind(raw) == "sae.grid_response":
             return raw.plasma.neglected_current_bound
         return raw.neglected_current_bound
 
@@ -1834,7 +1685,8 @@ class _ProviderBinding:
                 }
             )
         except (AttributeError, TypeError, ValueError) as error:
-            return {"unreadable_native_record": type(raw).__name__, "error": str(error)}
+            name = raw.computed["provider_type"] if isinstance(raw, Record) else "None"
+            return {"unreadable_native_record": name, "error": str(error)}
 
     def _validate_diagnostics(self, raw: _Native, rows: int, samples: int) -> None:
         """Reject malformed diagnostics before reducing or labelling row arrays."""
@@ -1859,7 +1711,7 @@ class _ProviderBinding:
         # The haCC monitors carry a bool non_finite flag beside float64 norms and
         # the int64 step index (SEP 20, C4).
         kinds = {"monitored_step": np.int64, "non_finite": np.bool_}
-        for name, vector in asdict(raw.monitors).items():
+        for name, vector in _fields_of(raw.monitors).items():
             if vector is None:
                 continue
             dtype = np.dtype(kinds.get(name, np.float64))
@@ -1918,13 +1770,13 @@ class _ProviderBinding:
         model = self._hacc
         assert model is not None
         model.check_info(
-            raw.info,
+            raw,
             rows=rows,
             samples=samples,
             spacing=float(self._descriptor.spacing),
         )
         if model.outputs == "total_current":
-            if not isinstance(raw, model.hacc.TotalCurrentResponse):
+            if _kind(raw) != "hacc.total_current_response":
                 raise BackendError(
                     "TDSE compact contract returned a different result type"
                 )
@@ -1937,14 +1789,16 @@ class _ProviderBinding:
                     "TDSE compact response has incorrect shadow array extents"
                 )
             return raw.total_current, raw.shadow_total_current[:, 0, :]
-        if not isinstance(raw, model.hacc.GridResponse) or raw.shadow is None:
+        if _kind(raw) != "hacc.grid_response" or raw.shadow is None:
             raise BackendError("haCC full output requires a response with shadows")
         if raw.shadow.orders != (1,):
             raise BackendError("TDSE full response has incorrect shadow-order labels")
         # With the closure the total's order one is returned; without it the
         # in-box order one is the first order of the field-impulse total, whose
         # added term is at least third order (SEP 20, 4.3).
-        first = raw.shadow.component("total_current" if model.closure else "current", 1)
+        first = _component(
+            raw.shadow, "total_current" if model.closure else "current", 1
+        )
         return raw.total_current, first
 
     def _sae_currents(
@@ -1972,7 +1826,7 @@ class _ProviderBinding:
                 "TDSE result metadata disagree with the prepared contract"
             )
         if self._native_outputs == "full":
-            if not isinstance(raw, self._provider.GridResponse) or raw.shadow is None:
+            if _kind(raw) != "sae.grid_response" or raw.shadow is None:
                 raise BackendError(
                     "TDSE shadow model requires a full response with shadow products"
                 )
@@ -1985,14 +1839,14 @@ class _ProviderBinding:
             # record; only a descriptor that needs it takes the third-order dipole.
             return (
                 raw.plasma.total_current,
-                raw.shadow.component("total_current", 1),
-                raw.shadow.component("total_current", 3) if 3 in orders else None,
-                raw.shadow.component("charge_dipole", 3)
+                _component(raw.shadow, "total_current", 1),
+                _component(raw.shadow, "total_current", 3) if 3 in orders else None,
+                _component(raw.shadow, "charge_dipole", 3)
                 if descriptor.outputs == "full"
                 else None,
                 orders,
             )
-        if not isinstance(raw, self._provider.TotalCurrentResponse):
+        if _kind(raw) != "sae.total_current_response":
             raise BackendError("TDSE compact contract returned a different result type")
         orders = raw.shadow_orders
         if orders != expected_orders or raw.shadow_total_current is None:
@@ -2041,7 +1895,7 @@ class _ProviderBinding:
             monitors_json=_encoded(self._native_record(raw, chunk)),
             outcomes_json=_encoded(
                 [
-                    {"row": chunk.start + index, **asdict(value)}
+                    {"row": chunk.start + index, **_fields_of(value)}
                     for index, value in enumerate(raw.outcomes)
                 ]
             ),
@@ -2108,7 +1962,7 @@ class _ProviderBinding:
             model,
             self._budget,
             self._failures,
-            self._provider,
+            self._worker,
             self._memory,
             self._execution.memory_limit,
             archive=self._archive,
@@ -2168,7 +2022,10 @@ class _ProviderBinding:
         return dict(self._memory)
 
     def close(self) -> None:
-        """Close plans before setup, preserving metadata and attempted-call counts."""
+        """End the worker, which closes the plans before the setup, keeping records.
+
+        Metadata and attempted-call counts survive; so does a worker already killed.
+        """
         if not self._closed:
             self._budget.release_reservation()
             self._stack.close()
@@ -2183,14 +2040,14 @@ class _DiagnosticContext:
 
     Attributes
     ----------
-    model : _HaccModel
-        Open prepared model.
+    model : _HaccView
+        The open prepared model's record.
     budget : AtomicCallBudget
         Ledger the call is charged to, as ``diagnostic``.
     failures : list
         Failure records the call appends to.
-    provider : _Provider
-        Loaded provider, for error classification.
+    worker : _Channel
+        The worker holding the model.
     memory : mapping
         Memory already held, in bytes.
     limit : int or None
@@ -2202,10 +2059,10 @@ class _DiagnosticContext:
         for a standalone check) and the build and execution records.
     """
 
-    model: _HaccModel
+    model: _HaccView
     budget: AtomicCallBudget
     failures: list[object]
-    provider: _Native
+    worker: _Channel
     memory: Mapping[str, int]
     limit: int | None
     archive: TDSEArchiveWriter | None = None
@@ -2217,13 +2074,13 @@ def _diagnostic(
     field: Float[np.ndarray, "1 n_samples"],
     spacing: float,
 ) -> tuple[Float[np.ndarray, " n_samples"], Float[np.ndarray, " n_samples"]]:
-    """Run one charged one-row haCC diagnostic on a temporary plan.
+    """Run one charged one-row haCC diagnostic on a temporary plan in the worker.
 
     - ``field``: finite float64 field in V/m, shape ``(1, n_samples)``.
     - ``spacing``: protocol spacing in s.
     - Returns: owning ``j_tot`` and ``j_1`` in C m/s.
     """
-    model, budget, provider = context.model, context.budget, context.provider
+    model, budget, worker = context.model, context.budget, context.worker
     if (
         not isinstance(field, np.ndarray)
         or field.dtype != np.dtype(np.float64)
@@ -2234,24 +2091,16 @@ def _diagnostic(
     ):
         raise BackendError("the consistency field must be finite float64 (1, samples)")
     samples = int(field.shape[1])
-    with ExitStack() as stack:
-        try:
-            plan = stack.enter_context(
-                model.plan(rows=1, spacing=spacing, samples=samples)
-            )
-            model.check_info(plan.info, rows=1, samples=samples, spacing=spacing)
-            extra = {
-                f"diagnostic.{entry.name}": entry.bytes
-                for entry in plan.memory_ledger().entries
-                if not entry.shared
-            }
-        except SolpropError:
-            raise
-        except Exception as error:
-            kind = _classify(error, provider)
-            raise BackendError(
-                f"TDSE diagnostic preparation failed: {error} [{kind}]"
-            ) from error
+    try:
+        prepared = cast(
+            "Mapping[str, Any]",
+            worker.request("diagnostic_plan", {"samples": samples, "spacing": spacing}),
+        )
+    except RemoteError as error:
+        raise _local_error(error, "TDSE diagnostic preparation failed") from error
+    try:
+        model.update(prepared["hacc"])
+        extra = cast("Mapping[str, int]", prepared["memory"])
         # The temporary plan overlaps the propagation plans: admit their sum.
         _admit_memory(
             {**context.memory, **extra, "diagnostic.host": 8 * 20 * samples},
@@ -2259,49 +2108,68 @@ def _diagnostic(
         )
         budget.reserve(1, calls=1)
         try:
-            drive = np.ascontiguousarray(field)
-            evaluation = _diagnostic_archive_begin(context, drive, spacing)
-            budget.begin_evaluation(purpose="diagnostic", calls=1)
-            budget.charge(purpose="diagnostic")
-            raw: _Native = None
-            archived: TDSEArchiveError | None = None
-            try:
-                raw = plan.evaluate(drive)
-                archived = _diagnostic_archive_result(context, evaluation, raw)
-                binding_view = _DiagnosticView(model, provider, spacing)
-                binding_view.validate(raw, samples)
-                total, first = binding_view.currents(raw, samples)
-            except Exception as error:
-                budget.record_failure()
-                kind = _classify(error, provider)
-                context.failures.append(
-                    _failure_safe(
-                        {
-                            "purpose": "diagnostic",
-                            "classification": kind,
-                            "error": f"{type(error).__name__}: {error}",
-                        }
-                    )
-                )
-                wrapped = BackendError(
-                    f"TDSE consistency diagnostic failed: {error} [{kind}]"
-                )
-                if archived is not None:
-                    wrapped.add_note(
-                        f"the TDSE archive could not store this result: {archived}"
-                    )
-                _diagnostic_archive_failure(context, evaluation, error, kind, wrapped)
-                raise wrapped from error
-            if archived is not None:
-                raise archived
-            if context.archive is not None and evaluation is not None:
-                context.archive.finish_evaluation(evaluation, "returned")
+            total, first = _diagnostic_call(context, field, spacing)
         finally:
             budget.release_reservation()
+    finally:
+        with contextlib.suppress(RemoteError, WorkerError):
+            worker.request("diagnostic_close", {})
     return (
         np.array(total[0], dtype=np.float64, copy=True),
         np.array(first[0], dtype=np.float64, copy=True),
     )
+
+
+def _diagnostic_call(
+    context: _DiagnosticContext,
+    field: Float[np.ndarray, "1 n_samples"],
+    spacing: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Make, archive and validate the diagnostic's one charged atomic call."""
+    model, budget = context.model, context.budget
+    samples = int(field.shape[1])
+    drive = np.ascontiguousarray(field)
+    evaluation = _diagnostic_archive_begin(context, drive, spacing)
+    budget.begin_evaluation(purpose="diagnostic", calls=1)
+    budget.charge(purpose="diagnostic")
+    archived: TDSEArchiveError | None = None
+    try:
+        raw = _returned(context.worker.request("diagnostic_evaluate", {"drive": drive}))
+        archived = _diagnostic_archive_result(context, evaluation, raw)
+        binding_view = _DiagnosticView(model, spacing)
+        binding_view.validate(raw, samples)
+        total, first = binding_view.currents(raw, samples)
+    except (KeyboardInterrupt, RunTerminated, StopRequested) as stopping:
+        _diagnostic_archive_failure(
+            context, evaluation, stopping, "interrupted", stopping
+        )
+        raise
+    except Exception as error:
+        budget.record_failure()
+        kind = _classify(error)
+        name, detail = _described(error)
+        context.failures.append(
+            _failure_safe(
+                {
+                    "purpose": "diagnostic",
+                    "classification": kind,
+                    "error": f"{name}: {detail}",
+                }
+            )
+        )
+        wrapped = BackendError(f"TDSE consistency diagnostic failed: {detail} [{kind}]")
+        _attach_remote(wrapped, error)
+        if archived is not None:
+            wrapped.add_note(
+                f"the TDSE archive could not store this result: {archived}"
+            )
+        _diagnostic_archive_failure(context, evaluation, error, kind, wrapped)
+        raise wrapped from error
+    if archived is not None:
+        raise archived
+    if context.archive is not None and evaluation is not None:
+        context.archive.finish_evaluation(evaluation, "returned")
+    return total, first
 
 
 def _diagnostic_archive_begin(
@@ -2403,9 +2271,8 @@ class _DiagnosticView:
     - ``spacing``: protocol spacing in s.
     """
 
-    def __init__(self, model: _HaccModel, provider: _Provider, spacing: float) -> None:
+    def __init__(self, model: _HaccView, spacing: float) -> None:
         self._model = model
-        self._provider = provider
         self._spacing = spacing
 
     def validate(self, raw: _Native, samples: int) -> None:
@@ -2431,10 +2298,10 @@ class _DiagnosticView:
         - Returns: ``(1, samples)`` currents in C m/s.
         """
         model = self._model
-        model.check_info(raw.info, rows=1, samples=samples, spacing=self._spacing)
+        model.check_info(raw, rows=1, samples=samples, spacing=self._spacing)
         if model.outputs == "total_current":
             if (
-                not isinstance(raw, model.hacc.TotalCurrentResponse)
+                _kind(raw) != "hacc.total_current_response"
                 or raw.shadow_orders != (1,)
                 or raw.shadow_total_current is None
                 or raw.shadow_total_current.shape != (1, 1, samples)
@@ -2442,12 +2309,14 @@ class _DiagnosticView:
                 raise BackendError("haCC compact diagnostic result is malformed")
             return raw.total_current, raw.shadow_total_current[:, 0, :]
         if (
-            not isinstance(raw, model.hacc.GridResponse)
+            _kind(raw) != "hacc.grid_response"
             or raw.shadow is None
             or raw.shadow.orders != (1,)
         ):
             raise BackendError("haCC full diagnostic result is malformed")
-        first = raw.shadow.component("total_current" if model.closure else "current", 1)
+        first = _component(
+            raw.shadow, "total_current" if model.closure else "current", 1
+        )
         return raw.total_current, first
 
 
@@ -2465,6 +2334,8 @@ class DiagnosticSession:
         Device, memory limit and the explicit call budget of the check.
     archive : TDSEArchiveWriter or None, optional
         Archive session receiving the diagnostic call, labelled ``diagnostic``.
+    stop : solprop.log.StopFlag or None, optional
+        A flag polled while the provider's worker is awaited.
     """
 
     def __init__(
@@ -2473,32 +2344,43 @@ class DiagnosticSession:
         execution: TDSEExecution,
         *,
         archive: TDSEArchiveWriter | None = None,
+        stop: StopFlag | None = None,
     ) -> None:
         self._execution = execution
         self._archive = archive
         self._budget = AtomicCallBudget(execution.max_atomic_calls, 1)
         self._failures: list[object] = []
-        self._stack = ExitStack()
-        self._provider = _load_provider()
-        self.build = _build_record(self._provider, execution)
+        self._worker = _open_provider(stop=stop)
         try:
-            self._model = _HaccModel(
-                self._provider,
-                basis,
-                execution,
-                self._stack,
-                archive="required" if archive is None else archive.outputs,
+            self.build = _build_record(self._worker.identity, execution)
+            reply = cast(
+                "Mapping[str, Any]",
+                self._worker.request(
+                    "prepare",
+                    {
+                        "model": "hacc",
+                        "basis": asdict(basis),
+                        "rows": [],
+                        "complement": execution.complement,
+                        "archive_outputs": "required"
+                        if archive is None
+                        else archive.outputs,
+                        "device": execution.device,
+                        "memory": {},
+                        "memory_limit": execution.memory_limit,
+                        "defer_plans": True,
+                        "revision": _PROVIDER_REVISION,
+                    },
+                ),
             )
-            self._memory = dict(self._model.memory)
+            self._model = _HaccView.from_reply(basis, reply["hacc"])
+            self._memory = dict(cast("Mapping[str, int]", reply["memory"]))
             if archive is not None:
                 self._memory.update(archive.memory_ledger(rows=1, samples=1))
             _admit_memory(self._memory, execution.memory_limit)
         except BaseException as error:
-            self._stack.close()
-            if not isinstance(error, Exception) or isinstance(error, SolpropError):
-                raise
-            kind = _classify(error, self._provider)
-            raise BackendError(f"TDSE preparation failed: {error} [{kind}]") from error
+            self._worker.kill()
+            raise _preparation_error(error) from error
 
     @property
     def ledger(self) -> AtomicCallLedger:  # numpydoc ignore=RT01
@@ -2529,7 +2411,7 @@ class DiagnosticSession:
             self._model,
             self._budget,
             self._failures,
-            self._provider,
+            self._worker,
             self._memory,
             self._execution.memory_limit,
             archive=self._archive,
@@ -2571,5 +2453,26 @@ class DiagnosticSession:
         )
 
     def close(self) -> None:
-        """Close the model; repeated calls are harmless."""
-        self._stack.close()
+        """End the worker and its model; repeated calls are harmless."""
+        self._worker.close()
+
+
+def _preparation_error(error: BaseException) -> BaseException:
+    """Return a preparation failure as the binding raises it.
+
+    solprop's own refusals and interruptions as they are; a provider exception the
+    worker reported as solprop's class or ``TDSE preparation failed: ... [kind]``.
+    """
+    if isinstance(error, RemoteError):
+        return _local_error(error, "TDSE preparation failed")
+    if not isinstance(error, Exception) or isinstance(error, SolpropError):
+        return error
+    return BackendError(f"TDSE preparation failed: {error} [{_classify(error)}]")
+
+
+def _attach_remote(wrapped: BaseException, error: BaseException) -> None:
+    """Attach a worker's traceback or its standard error to the error raised."""
+    if isinstance(error, RemoteError):
+        wrapped.add_note(f"the provider worker's traceback:\n{error.remote_traceback}")
+    for note in getattr(error, "__notes__", ()):
+        wrapped.add_note(note)
