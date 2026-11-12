@@ -4,8 +4,9 @@
 
 name: Native deep checks
 
-# Weekly, and by hand: the native checks too slow for every pull request. Each job
-# reports (an artifact and the job summary) and gates nothing.
+# Weekly, by hand, and on a pull request that changes this file: the native checks too
+# slow for every pull request. Each job reports (an artifact and the job summary) and
+# gates nothing.
 #
 # - coverage: Clang source coverage of the native code over the GoogleTest suite and
 #   the native pytest suite (SOLPROP_NATIVE_ENABLE_COVERAGE). Its uncovered lines are
@@ -20,6 +21,11 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+  # A pull request that changes this workflow runs it, so that a change is seen to work
+  # before the next weekly run (dispatch needs the workflow on the default branch).
+  pull_request:
+    paths:
+      - .github/workflows/native-deep.yml
 
 permissions:
   contents: read
