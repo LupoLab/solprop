@@ -159,7 +159,7 @@ TEST(LagrangeBasis, TrialTablesOnEqualSteps) {
   EXPECT_EQ(corrector[1], 0.5);
   EXPECT_EQ(corrector[2], 0.5);
   for (std::size_t column = 0; column < 4; ++column) {
-    EXPECT_EQ(corrector[3 * 4 + column], 0.0); // past its nodes
+    EXPECT_EQ(corrector[std::size_t{3} * 4 + column], 0.0); // past its nodes
     EXPECT_EQ(corrector[column * 4 + 3], 0.0);
   }
   const std::array<double, 8> first_order{1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0};

@@ -626,7 +626,7 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
   const std::size_t width = highest + 1;
   std::array<double, most * most> predictor{};
   std::array<double, most * most> corrector{};
-  std::array<double, 3 * 2 * most> factored{};
+  std::array<double, std::size_t{3} * 2 * most> factored{};
   std::array<double, most> spans{};
   std::array<double, most> carried{};
   std::array<double, most + 1> endpoint{};

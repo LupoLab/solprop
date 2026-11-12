@@ -2836,9 +2836,9 @@ TEST(CpuThreadPolicy, CoupledMatrixWindowRetainsFullWidth) {
                               .raman_tail_fft = 72,
                               .band_tiles = -1};
   // Active bins * modes^3 in the measured three-mode wall, independent of runtime.
-  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
-                                      native::CpuPool::kernels,
-                                      native::CpuOperation::flow, 1433 * 3 * 3 * 3),
+  EXPECT_EQ(native::operation_threads(
+                policy, native::test::table(), native::CpuPool::kernels,
+                native::CpuOperation::flow, std::size_t{1433} * 3 * 3 * 3),
             72);
 }
 
