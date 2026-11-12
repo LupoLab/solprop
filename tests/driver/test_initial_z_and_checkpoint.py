@@ -1214,7 +1214,7 @@ def test_interior_atomic_budget_message_matches_terminal_checkpoint(
 
 def test_spatial_resume_retains_physical_field_without_modal_normalisation(monkeypatch):
     grid = FieldGrid.from_limits(1e-5, 800e-9, (600e-9, 1.2e-6), 60e-15)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 8),
         SpatialMedium(),

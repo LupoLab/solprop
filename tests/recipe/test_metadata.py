@@ -20,7 +20,6 @@ from solprop.driver.interface import (
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.driver.settings import SimulationSettings
@@ -36,7 +35,7 @@ BUILDERS = {
     "gnlse": Simulation.from_gnlse,
     "capillary": Simulation.from_capillary,
     "waveguide": Simulation.from_waveguide,
-    "radial": Simulation.from_radial,
+    "radial": Simulation.from_free,
     "free": Simulation.from_free,
     "planar": Simulation.from_planar,
 }
@@ -44,7 +43,7 @@ PROPS = {
     "gnlse": prop_gnlse,
     "capillary": prop_capillary,
     "waveguide": prop_waveguide,
-    "radial": prop_radial,
+    "radial": prop_free,
     "free": prop_free,
     "planar": prop_planar,
 }

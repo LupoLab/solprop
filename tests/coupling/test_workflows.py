@@ -268,7 +268,7 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         ("linear", []),
         ("kerr", [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)]),
     ):
-        gas = Simulation.from_radial(
+        gas = Simulation.from_free(
             grid,
             RadialGrid(4e-4, 96),
             ARGON,
@@ -328,7 +328,7 @@ def test_a_field_grid_kerr_plasma_thg_entrance_is_transferred_with_its_harmonic(
         PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)),
     ]
     medium = SpatialMedium("Ar", 1.0)
-    gas = Simulation.from_radial(
+    gas = Simulation.from_free(
         grid,
         RadialGrid(3e-4, 64),
         medium,

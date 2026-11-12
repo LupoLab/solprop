@@ -61,7 +61,7 @@ def _case(
         adiabatic_accuracy=accuracy,
         absorber=bare_absorber(grid),
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None
     )
 

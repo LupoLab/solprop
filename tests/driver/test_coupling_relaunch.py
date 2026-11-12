@@ -138,7 +138,7 @@ def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium("Ar", pressure),

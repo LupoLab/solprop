@@ -70,7 +70,7 @@ def _run(
         if steps is None
         else FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, list(responses), initial, settings=settings, noise=None
     )
     output = simulation.run()

@@ -151,7 +151,7 @@ def test_batch_refuses_implicit_adaptive_execution():
 
 def test_batch_refuses_spatial_geometry_before_selecting_a_backend():
     base = member(0, backend="numpy_ref").simulation
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         base.grid,
         RadialGrid(0.6e-3, 8),
         SpatialMedium(),

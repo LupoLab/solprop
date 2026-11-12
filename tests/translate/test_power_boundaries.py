@@ -155,10 +155,10 @@ def test_spatial_contract_refuses_a_modal_weight(grid):
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    problem = Simulation.from_radial(
+    problem = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     simulation.translate()

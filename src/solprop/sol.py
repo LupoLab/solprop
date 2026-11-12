@@ -47,7 +47,6 @@ from solprop.driver.interface import (
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.driver.scan import Scan, ScanPoint, run_scan
@@ -466,7 +465,6 @@ __all__ = [
     "prop_free",
     "prop_gnlse",
     "prop_planar",
-    "prop_radial",
     "prop_waveguide",
     "pulse_energy",
     "pulse_peak_power",

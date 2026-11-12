@@ -203,7 +203,7 @@ def _polarised(route: str) -> Simulation:
     medium = SpatialMedium("Ar", 1.0)
     settings = _case(route).settings
     if route == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             SPATIAL_GRID,
             RadialGrid(3e-4, 16, collar_fraction=0),
             medium,
@@ -640,7 +640,7 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
     )
     medium = SpatialMedium("Ar", 1.0)
     simulations = [
-        Simulation.from_radial(
+        Simulation.from_free(
             grid,
             RadialGrid(6e-4, 32),
             medium,

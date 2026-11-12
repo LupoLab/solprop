@@ -212,7 +212,7 @@ def fluence_map(
     >>> from solprop.pulses import GaussianPulse, SpatialPulse
     >>> from solprop.spatial import SpatialMedium
     >>> from solprop.stepper import PIController
-    >>> simulation = Simulation.from_radial(
+    >>> simulation = Simulation.from_free(
     ...     EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 400e-15),
     ...     RadialGrid(1e-3, 16),
     ...     SpatialMedium(),

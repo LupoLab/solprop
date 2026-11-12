@@ -49,7 +49,7 @@ def kerr_suite(
     index = float(np.real(medium.index(np.array([2 * math.pi * C / 800e-9]))[0]))
     power = 0.9 * critical_power(800e-9, chi3 * density, index=index)
     energy = power * 30e-15 * math.sqrt(math.pi / (4 * math.log(2)))
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         medium,

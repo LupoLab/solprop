@@ -389,7 +389,7 @@ def radial(
     space = RadialGrid(4e-6, 16)
     pulse = evanescent_beam(grid, space, SpatialMedium())
     planes = [length]
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium(),

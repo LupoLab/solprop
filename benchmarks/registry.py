@@ -321,7 +321,7 @@ _TRACKED = (
         "radial_filament_256",
         2,
         ("tracking", "free-space"),
-        "prop_radial",
+        "prop_free",
         "spatial",
         0.03,
         (384, 864, 1728),
@@ -439,7 +439,7 @@ _FREE = (
         "radial_filament_512",
         2,
         ("free-space",),
-        "prop_radial",
+        "prop_free",
         "spatial",
         0.03,
         (768, 864, 1728),
@@ -495,7 +495,7 @@ _FREE = (
         "spatial_absorber",
         2,
         ("free-space",),
-        "prop_radial",
+        "prop_free",
         "spatial",
         0.08,
         (230, 576, 1152),
@@ -704,7 +704,7 @@ _SEP47 = (
             output=output,
         )
         for base, interface, length, dimensions in (
-            ("radial_filament_256", "prop_radial", 3e-3, (384, 864, 1728)),
+            ("radial_filament_256", "prop_free", 3e-3, (384, 864, 1728)),
             ("cartesian_filament_128", "prop_free", 1e-3, (128, 128, 864, 1728)),
         )
         for kept in ("saved", "free")

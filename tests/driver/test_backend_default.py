@@ -23,7 +23,6 @@ from solprop.driver import (
     prop_capillary,
     prop_free,
     prop_gnlse,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.exceptions import (
@@ -133,7 +132,7 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
             )
         else:
             interface = (
-                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8), noise=None)
+                partial(prop_free, narrow_grid, RadialGrid(6e-4, 8), noise=None)
                 if kind == "radial"
                 else partial(
                     prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8), noise=None

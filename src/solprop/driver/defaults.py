@@ -4,8 +4,9 @@
 
 """The route defaults: one table, and the pure functions that resolve a default.
 
-Each interface (``prop_gnlse``, ``prop_capillary``, ``prop_waveguide``, ``prop_radial``,
-``prop_free`` and ``prop_planar``, and their ``Simulation.from_*`` constructors) steps
+Each interface (``prop_gnlse``, ``prop_capillary``, ``prop_waveguide``, ``prop_free`` on
+a radial or a Cartesian grid, and ``prop_planar``, and their ``Simulation.from_*``
+constructors) steps
 with its own integrator and tolerances, carries its own noise and applies the temporal
 collar in its own scheme, each qualified separately (SEP 37, SEP 21). This module holds
 those choices in one frozen table, :data:`ROUTE_DEFAULTS`, and resolves them in one

@@ -88,7 +88,7 @@ def spatial(
     )
     medium = SpatialMedium("Ar", pressure)
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid, space, medium, [], pulse, settings=settings, noise=None
         )
     return Simulation.from_free(

@@ -445,7 +445,7 @@ class Simulation(Displayed):
         self.settings = settings
         if settings.controller is None:
             msg = (
-                "settings.controller is None: Simulation.from_radial and "
+                "settings.controller is None: Simulation.from_free and "
                 "Simulation.from_planar supply their interface's default tolerance, "
                 "but a Simulation built directly needs a PIController"
             )
@@ -2001,117 +2001,10 @@ class Simulation(Displayed):
 
     @classmethod
     @_one_material_context
-    def from_radial(
-        cls,
-        grid: TimeGrid,
-        space: RadialGrid,
-        medium: SpatialMedium,
-        responses: Sequence[object],
-        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
-        *,
-        settings: SimulationSettings,
-        frame: Frame | None = None,
-        noise: NoiseSetting = "default",
-        seed: int | None = None,
-        materials: MaterialSelection | None = None,
-        absorber: Absorber | Literal[False] | None = None,
-        absorber_scheme: AbsorberScheme | None = None,
-        boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
-        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
-    ) -> "Simulation":
-        """Build a radial propagation using physical fields and the scalar QDHT.
-
-        Parameters
-        ----------
-        grid : solprop.grid.TimeGrid
-            Field or envelope time grid, in SI units.
-        space : solprop.grid.RadialGrid
-            Radial nodes, outer radius and spatial collar.
-        medium : solprop.spatial.SpatialMedium
-            Homogeneous transverse material; gas density may vary along z.
-        responses : collections.abc.Sequence
-            Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
-            Beam specification or internal Hankel spectrum in V m, with shape
-            ``(n_r, n_pol, n_omega)``.
-        settings : SimulationSettings
-            Step tolerances, positive save positions in m, statistics and backend.
-            Absolute tolerance has the input spectrum's units, V m.
-        frame : solprop.linear.Frame or None, optional
-            Moving frame. None uses the declared responses' THG choice.
-        noise : {'default', None, 'input', 'modified'}, optional
-            One photon per transverse column, polarisation and active bin.
-            ``"default"``, the default, resolves to ``"input"`` wherever the run can
-            carry noise, and records the resolution (SEP 37).
-        seed : int or None, optional
-            Random generator seed; None draws and records system entropy.
-        materials : solprop.physdata.selection.MaterialSelection or None, optional
-            Take the medium's gas from optmat under this selection: a
-            :class:`~solprop.spatial.SpatialMedium` naming a built-in gas becomes the
-            one-population :class:`~solprop.physdata.mixtures.Mixture` of that gas
-            under the selection at the same pressure and temperature (a supplied
-            susceptibility is kept). A mixture, glass or constant index is taken as
-            it is. An optmat rate's energy per event is bound to the input's peak
-            field (SEP 3, Q14); every response, a
-            :class:`~solprop.nonlinear.responses.KerrResponse` included, is the
-            caller's (``gamma3("Ar", wavelength=...)`` is optmat's coefficient at a
-            carrier). The run records its material manifest.
-            ``None`` (the default) is ``MaterialSelection()``.
-        absorber : solprop.boundaries.Absorber, False or None, optional
-            Overrides `settings`' absorber, which must then declare none. ``False``
-            switches the temporal and spectral collars off and keeps the hard band
-            mask; the transverse collars keep their own settings (SEP 21 section 5).
-        absorber_scheme : {'nonlinear', 'split_step'} or None, optional
-            Overrides `settings`' temporal scheme, which must then be the default.
-        boundary_check : solprop.monitor.BoundaryCheck or None, optional
-            How the run watches its time window's edges (SEP 21), when `settings`
-            name the default check: the default warns, then stops, when light above
-            the shot-noise floor reaches them; ``None`` watches nothing. Refused
-            beside settings that name another check.
-
-        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
-            The transverse boundary (SEP 40), when `settings` declare none: ``None``
-            keeps the settings' own, by default the safety ramp alone; a
-            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
-            the grid's room outside its requested size; ``False`` carries no ramp.
-
-        Returns
-        -------
-        Simulation
-            Cached translation and the ordinary resumable execution interface.
-
-        Raises
-        ------
-        DriverError
-            If a noise seed is given without noise or the input shape is invalid.
-        """
-        materials = MaterialSelection() if materials is None else materials
-        return _from_spatial(
-            cls,
-            grid,
-            space,
-            _selected_medium(medium, materials),
-            responses,
-            initial,
-            settings=settings.with_boundaries(
-                grid,
-                absorber=absorber,
-                absorber_scheme=absorber_scheme,
-                boundary_check=boundary_check,
-                spatial_absorber=spatial_absorber,
-            ),
-            frame=frame,
-            noise=noise,
-            seed=seed,
-            materials=materials,
-        )
-
-    @classmethod
-    @_one_material_context
     def from_free(
         cls,
         grid: TimeGrid,
-        space: FreeGrid,
+        space: RadialGrid | FreeGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
         initial: SpatialPulse | SpatialPulseSum | np.ndarray,
@@ -2126,36 +2019,43 @@ class Simulation(Displayed):
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":
-        """Build a Cartesian propagation with constant media and transverse FFTs.
+        """Build a free-space propagation of physical fields, radial or Cartesian.
 
-        A :class:`solprop.grid.LineGrid` runs the same transform with one y column:
-        the beam is uniform in y, the run records ``transverse_measure =
+        The transverse grid chooses the transform: a :class:`solprop.grid.RadialGrid`
+        propagates a cylindrically symmetric beam with the scalar QDHT, a
+        :class:`solprop.grid.FreeGrid` a beam on Cartesian axes with transverse FFTs,
+        and a :class:`solprop.grid.LineGrid` the same transform with one y column: the
+        beam is uniform in y, the run records ``transverse_measure =
         "per_unit_width"``, and its energies and powers are per metre of y.
 
         Parameters
         ----------
         grid : solprop.grid.TimeGrid
             Field or envelope time grid, in SI units.
-        space : solprop.grid.FreeGrid
-            Cartesian axes, area measure and spatial collar, or a
-            :class:`solprop.grid.LineGrid`.
+        space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or solprop.grid.LineGrid
+            Radial nodes, outer radius and spatial collar; or Cartesian axes, area
+            measure and spatial collar.
         medium : solprop.spatial.SpatialMedium
-            Constant bulk material; varying profiles are refused.
+            Homogeneous transverse material. Its gas density may vary along z on a
+            radial grid; on a Cartesian or line grid it must be constant.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
         initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
-            Beam specification or internal Cartesian DFT spectrum in V/m, with shape
-            ``(n_x*n_y, n_pol, n_omega)``.
+            Beam specification or internal spectrum of shape
+            ``(n_columns, n_pol, n_omega)``: a Hankel spectrum in V m, ``n_r``
+            columns, on a radial grid; a Cartesian DFT spectrum in V/m, ``n_x*n_y``
+            columns, otherwise.
         settings : SimulationSettings
             Step tolerances, positive save positions in m, statistics and backend.
-            Absolute tolerance has the input spectrum's units, V/m.
+            Absolute tolerance has the input spectrum's units.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
         noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
-            ``"default"``, the default, resolves to no noise on a Cartesian or line
-            grid and records why (:data:`~solprop.driver.defaults.FREE_NOISE`, SEP
-            37); pass ``"input"`` or ``"modified"`` for a noise model.
+            ``"default"``, the default, resolves to ``"input"`` on a radial grid; on a
+            Cartesian or line grid it resolves to no noise and records why
+            (:data:`~solprop.driver.defaults.FREE_NOISE`, SEP 37), so pass ``"input"``
+            or ``"modified"`` there for a noise model.
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -2181,7 +2081,6 @@ class Simulation(Displayed):
             name the default check: the default warns, then stops, when light above
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
-
         spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
             The transverse boundary (SEP 40), when `settings` declare none: ``None``
             keeps the settings' own, by default the safety ramp alone; a
@@ -2196,11 +2095,12 @@ class Simulation(Displayed):
         Raises
         ------
         DriverError
-            If a noise seed is given without noise or the input shape is invalid.
+            If a noise seed is given without noise, the input shape is invalid, or the
+            density varies along z on a Cartesian or line grid.
         """
         materials = MaterialSelection() if materials is None else materials
         medium = _selected_medium(medium, materials)
-        if not medium.density.is_constant:
+        if not isinstance(space, RadialGrid) and not medium.density.is_constant:
             msg = (
                 "Cartesian free propagation requires constant media; "
                 "varying density profiles are unsupported"
@@ -2412,67 +2312,78 @@ class Simulation(Displayed):
     ) -> "Simulation":
         """Build a simulation of a GNLSE fibre from its coefficients.
 
-        The constructor :func:`solprop.driver.interface.prop_gnlse` calls; its docstring
-        documents every keyword, and this method takes them unchanged. The GNLSE is not
-        a separate solver path: it is the mode-averaged envelope problem with a
-        dispersion-specified mode, ``density = 1``, ``prefactor_index = 1`` and the
-        shock term supplied by the prefactor's ``omega`` dependence
-        (``docs/guide/waveguides/gnlse.md``).
+        The constructor :func:`solprop.driver.interface.prop_gnlse` calls, with these
+        keywords and its run controls. The GNLSE is not a separate solver path: it is
+        the mode-averaged envelope problem with a dispersion-specified mode,
+        ``density = 1``, ``prefactor_index = 1`` and the shock term supplied by the
+        prefactor's ``omega`` dependence (``docs/guide/waveguides/gnlse.md``).
 
         Parameters
         ----------
         gamma : float or None
-            Nonlinear coefficient in 1/(W m).
+            Nonlinear coefficient in 1/(W m), positive for a self-focusing medium.
         length : float
             Fibre length, m, positive.
         betas : array_like, optional
-            Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``
-            in s^n/m. Give exactly one of this, `beta` or `fibre`.
+            Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``,
+            in s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no
+            physics. Give exactly one of this, `beta` or `fibre`.
         wavelength : float
-            Reference wavelength, m: the ``gamma`` mapping's, the Taylor expansion's,
-            the grid's and the pulse's centre.
+            Reference wavelength, m, positive: the ``gamma`` mapping's reference, the
+            centre of the Taylor expansion, the grid's reference and the pulse's centre
+            wavelength.
         wavelength_limits : tuple of float, optional
-            Shortest and longest wavelength of the frequency window, m. Required unless
-            `grid` is given.
+            Shortest and longest wavelength of the frequency window, m, increasing and
+            positive. Required unless `grid` is given.
         trange : float, optional
             Extent of the time window, s. Required unless `grid` is given.
         grid : solprop.grid.TimeGrid, optional
-            An envelope grid to use instead of building one. A field grid is refused.
+            An envelope grid to propagate on instead of building one from `length`,
+            `wavelength`, `wavelength_limits` and `trange`. This is the way to choose
+            the sample spacing, the oversampling factor or the transform size. A field
+            grid is refused: the GNLSE mapping is the envelope Kerr response.
         beta : tuple or callable, optional
-            The propagation constant as data: a pair of arrays ``(omega, beta)`` in
-            rad/s and 1/m, or a callable of ``omega`` sampled onto the grid's active
-            band. Both go through :class:`solprop.nonlinear.gnlse.TabulatedDispersion`.
+            The propagation constant as data instead of a series: a pair of arrays
+            ``(omega, beta)`` in rad/s and 1/m with strictly increasing frequencies, or
+            a callable of ``omega`` which is sampled on the grid's active band. Either
+            is interpolated by a cubic spline and differentiated exactly in the spline
+            basis (:class:`solprop.nonlinear.gnlse.TabulatedDispersion`); evaluation
+            outside the data raises rather than extrapolating.
         fibre : Mode or IndexTable, optional
             Whole dispersion and loss instead of `betas` or `beta`. A mode goes
             through :meth:`solprop.nonlinear.gnlse.SpecifiedMode.from_mode`, so one
-            whose geometry moves along z -- a tapered mode, a moving guide's
-            provider channel, a ``SpecifiedMode`` with dispersion and area paths --
-            hands over its dispersion and its area along z; only the fixed-step
-            scaffold requires a z-constant fibre. Its fill is ignored as a
-            nonlinear material: the GNLSE uses gamma or n2, retaining the mode only
-            for dispersion, loss and area. A table's area is evaluated at
-            `wavelength`, and so is a provider channel's, by a fresh solve there (along
-            the path of a moving guide); without an area column a table requires
-            `gamma` and uses the 1 m^2 convention.
+            whose geometry moves along z -- a tapered mode, a moving guide's provider
+            channel, a ``SpecifiedMode`` with dispersion and area paths -- hands over
+            its dispersion and its area along z; only the fixed-step scaffold requires
+            a z-constant fibre. Its fill, if present, is ignored as a nonlinear
+            material because the GNLSE uses gamma or n2. The mode supplies only
+            dispersion, loss and area; use
+            :meth:`~solprop.driver.simulation.Simulation.from_capillary` for its
+            material responses.
+            A table's area is evaluated at `wavelength`, and so is a provider channel's,
+            by a fresh solve there (along the path of a moving guide); without an area
+            column a table requires `gamma` and uses the 1 m^2 convention.
         n2 : float or str, optional
             Nonlinear index in m^2/W, requiring `fibre` and ``gamma=None``.
             Exactly one of `gamma` and `n2` is required. The mapping is
             ``gamma = n2 omega0 / (c A_eff)``, with unit prefactor index. Under
-            `materials`, ``"recommended"`` takes optmat's silica bundle's total
-            ``n2`` at `wavelength`.
+            `materials`, ``"recommended"`` takes optmat's silica bundle's total ``n2``
+            (``kerr/SiO2``) at `wavelength`.
         fwhm : float, optional
-            Intensity full width at half maximum of the input, s.
+            Intensity full width at half maximum of the input pulse, s. Give this or,
+            for a ``sech`` pulse, `width`.
         width : float, optional
-            Natural width of a ``sech**2`` input, s. Give this or `fwhm`.
+            Natural width of a ``sech**2`` input, s, which is
+            ``fwhm / (2 ln(1 + sqrt(2)))``. Only for ``shape="sech"``.
         shape : {'gauss', 'sech'}, optional
-            Shape of the input.
+            Shape of the input pulse.
         energy : float, optional
             Pulse energy, J. Give this or `peak_power`.
         peak_power : float, optional
-            Peak power, W.
+            Peak power, W, realised after the spectral phase is applied.
         phases : array_like, optional
-            Optics-convention spectral phase about `wavelength`: CEP in rad, then group
-            delay, GDD, TOD, ... in s^n.
+            Optics-convention spectral phase as Taylor coefficients about `wavelength`:
+            ``[CEP (rad), group delay (s), GDD (s**2), TOD (s**3), ...]``.
         pulses : sequence of solprop.pulses.Pulse or None, optional
             Several pulses launched together, for two-colour and multi-colour
             inputs: each a :mod:`solprop.pulses` object with its own wavelength,
@@ -2483,42 +2394,60 @@ class Simulation(Displayed):
             sets the grid's reference wavelength.
         loss_db_per_m : float or None, optional
             Omitted means zero loss on the coefficient routes. Refused beside
-            `fibre`, which carries its own loss. Power loss in dB/m, converted by
+            `fibre`, which carries its own loss. Power loss in dB/m; negative values
+            describe gain. Converted by
             :func:`solprop.nonlinear.gnlse.attenuation_from_db`.
         shock : bool, optional
-            Keep the prefactor's ``omega`` dependence, which is the shock term.
+            Keep the ``omega`` dependence of the normalisation prefactor, which is the
+            optical shock term. Default ``True``.
         raman : bool, optional
-            Whether a fused-silica Raman response takes `raman_fraction` of ``gamma``.
+            Whether a fused-silica Raman response takes `raman_fraction` of ``gamma``,
+            the rest staying with the Kerr term
+            (:func:`solprop.nonlinear.gnlse.raman_susceptibility`). Default ``False``,
+            which gives the whole of ``gamma`` to the Kerr term.
         raman_fraction : float or None, optional
             Share of ``gamma`` held back from the Kerr term, between 0 and 1. Omitted,
-            the silica bundle's ``f_R`` with `raman` true and 0 with it false; given,
-            held back either way.
+            it is the silica bundle's own ``f_R`` with `raman` true -- 0.2188 for
+            optmat's default (SEP 3, D4) -- and 0 with it false. Given, it is held back
+            whatever `raman` is, so a pair of runs with the same fraction that switches
+            only `raman` isolates the delayed response.
         noise : {'default', None, 'input', 'modified'}, optional
-            Which shot-noise model to carry (``docs/guide/media/noise.md``).
-            ``"default"``, the default, resolves to ``"input"`` wherever the run can
-            carry noise, and records the resolution (SEP 37).
+            Which shot-noise model to carry: ``'input'`` adds one photon per bin to the
+            input field once, ``'modified'`` keeps the realisation apart and injects it
+            at every stage, advanced by the unitary part of the linear operator
+            (``docs/guide/media/noise.md``). ``"default"``, the default, resolves to
+            ``"input"`` wherever the run can carry noise, and records the resolution
+            (SEP 37).
         seed : int, optional
-            Entropy of the generator the realisation is drawn from, recorded in the
-            output so a run is reproducible.
+            Entropy of the generator the realisation is drawn from. Recorded in the
+            output, so a run is reproducible; ``None`` draws from the operating system
+            and records what it drew.
         rtol : float or None, optional
-            Relative tolerance of the step controller.
+            Relative tolerance of the step controller, dimensionless and positive.
+            ``None`` takes :data:`~solprop.driver.defaults.DEFAULT_RTOL`, ``1e-7``. The
+            map from this local tolerance to the global error at the output is problem
+            dependent and misses by one to three orders either way, so calibrate rather
+            than assume (``docs/dev/stepper.md`` section 3).
         atol : float, optional
-            Absolute tolerance, in the square root of watts.
+            Absolute tolerance, in the square root of watts, non-negative; ``1e-14`` by
+            default (:data:`~solprop.driver.defaults.DEFAULT_ATOL`).
         dz_max : float, optional
-            Cap on the controller's proposal, m; ``None`` uses half the length.
+            Cap on the controller's step proposal, m; ``None`` uses half the length.
         dz_init : float, optional
             First step, m; ``None`` uses a ten-thousandth of the length.
         schedule : solprop.stepper.schedule.FixedSchedule, optional
-            A fixed schedule to replay instead of stepping adaptively
-            (``docs/dev/stepper.md`` section 8).
+            A fixed schedule to replay instead of stepping adaptively, which makes a run
+            bit-identical on re-running (``docs/dev/stepper.md`` section 8). Its edges
+            must contain every save plane, which
+            :meth:`solprop.stepper.schedule.FixedSchedule.uniform` guarantees.
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
-            (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``RungeKutta()``, the interaction-picture
-            DOPRI5 march, which SEP 37 measured fastest at matched accuracy on the
-            GNLSE. ``Multistep()`` is the low-call exponential Adams method, one
-            response evaluation per step. ``LowStorageRungeKutta()`` replays
-            `schedule` in three registers (SEP 24).
+            (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default,
+            takes ``RungeKutta()``, the interaction-picture DOPRI5 march, which SEP 37
+            measured fastest at matched accuracy on the GNLSE (with noise all the
+            more). ``Multistep()`` is the low-call exponential Adams method, one
+            response evaluation per step, for an expensive response.
+            ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
@@ -2528,17 +2457,21 @@ class Simulation(Displayed):
             march's own positions, beside the requested planes (SEP 14);
             ``None``, the default, and ``0`` save the requested planes only.
         save_planes : array_like, optional
-            Positions to save at, m. Give this or `n_save`.
+            Positions along the fibre to save at, m, increasing and positive; the plane
+            at ``z = 0`` is saved as well. Give this or `n_save`.
         n_save : int, optional
             Number of planes to store, counting the one at ``z = 0``, spread evenly over
             the fibre. Default 201.
         stats : solprop.stats.StatsSpec, optional
-            Which statistics to record; ``None`` records
-            :func:`solprop.stats.default_spec` of a mode-averaged run.
+            Which statistics to record at every plane; ``None`` records
+            :func:`solprop.stats.default_spec` of a mode-averaged run. A ``periodic``
+            subset is also recorded between the planes.
         polarisation_taper : bool, optional
-            Whether the spectral collar tapers the nonlinear polarisation. Default
-            ``False``: the taper costs a systematic error of the size of the field's
-            content in the collar, and the rate absorber acts either way.
+            Whether the spectral collar tapers the nonlinear polarisation as well as
+            absorbing the field through the linear operator. Default ``False``: the
+            taper costs a systematic error of the size of the field's content in the
+            collar, and the rate absorber acts either way
+            (``docs/guide/numerics/boundaries.md``).
         absorber : solprop.boundaries.Absorber, False or None, optional
             The collar rates; ``None`` builds the default collar of the grid
             (:func:`~solprop.driver.settings.default_collar`), and ``False`` switches
@@ -2555,14 +2488,15 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
+            :func:`solprop.backends.registry.available` lists what can be used.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
-            Take fused silica's nonlinear response from optmat's silica bundle
-            (:class:`~solprop.physdata.glasses.SilicaBundle`): with `raman` on, an
-            omitted fraction is the bundle's ``f_R`` and the response its sampled
-            shape; ``n2="recommended"`` is its total ``n2``. The fibre's dispersion,
-            area and a given ``gamma`` or ``n2`` are the caller's. The run records
-            its manifest, the held-back fraction and its origin
-            included. ``None`` (the default) is ``MaterialSelection()``.
+            Take fused silica's nonlinear response from optmat's silica bundle under
+            this selection: with `raman` on, an omitted fraction is the bundle's ``f_R``
+            and the response its sampled shape, and ``n2="recommended"`` is its total
+            ``n2``. The fibre's dispersion and a given ``gamma`` or ``n2`` are the
+            caller's. The run records its material manifest, with the held-back fraction
+            and its origin. ``None`` (the default) is ``MaterialSelection()``, optmat's
+            recommended models.
 
         Returns
         -------
@@ -2840,13 +2774,13 @@ class Simulation(Displayed):
             every mode's own, or the call is refused by name rather than the argument
             ignored.
         mode_average : bool, optional
-            Propagate the one mode **mode-averaged**, as a uniform disc of its
-            effective area, instead of resolving it on the radial rule
-            (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
-            area-mean field, below the on-axis one (``HE_11``'s axis intensity is
-            1.768 times ``P/A_eff``), and ``peak_intensity`` stays on the axis.
-            ``False``, the default, resolves the mode. Refused beside more than one
-            mode and beside `n_r`, `n_theta` or a `radial_rule`.
+            Propagate the one mode **mode-averaged**, as a uniform disc of its effective
+            area, instead of resolving it on the transverse rule, as Luna.jl's default
+            does (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+            area-mean field, below the on-axis one (``HE_11``'s axis intensity is 1.768
+            times ``P/A_eff``), and ``peak_intensity`` stays on the axis. ``False``, the
+            default, resolves the mode. Refused beside more than one mode and beside
+            `n_r`, `n_theta` or a `radial_rule`.
         lattice : TubeLattice or None, optional
             Tube geometry for an integer mode count, selecting Vincetti modes.
             Refused with supplied modes, which carry their own geometry, and with
@@ -2956,8 +2890,8 @@ class Simulation(Displayed):
             :func:`solprop.driver.inputs.default_field_range`.
         absorber : solprop.boundaries.Absorber, False or None, optional
             The collar rates; ``None`` builds the default collar of the grid, and
-            ``False`` switches both soft collars off and keeps the hard band mask
-            (:func:`solprop.boundaries.no_absorber`; SEP 21).
+            ``False`` switches both soft collars, temporal and spectral, off and keeps
+            the hard band mask (:func:`solprop.boundaries.no_absorber`; SEP 21).
         absorber_scheme : {'nonlinear', 'split_step'} or None, optional
             How the temporal collar is applied (ADR-025): inside every stage, the
             default, or once per accepted step. The low-call Adams methods of
@@ -2978,7 +2912,8 @@ class Simulation(Displayed):
             :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, the capillary default.
             Calibrate it for a production run (``docs/dev/stepper.md`` section 3).
         atol : float, optional
-            Absolute step tolerance, in the square root of watts.
+            Absolute step tolerance, in the square root of watts; ``1e-10`` by default
+            (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
         dz_max : float or None, optional
             Cap on the step, m; ``None`` takes half the capillary.
         dz_init : float or None, optional
@@ -2987,13 +2922,12 @@ class Simulation(Displayed):
             A fixed schedule to replay instead of stepping adaptively.
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
-            (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``Multistep()``: the low-call exponential
-            Adams method, one response evaluation per step. ``RungeKutta()`` is the
-            interaction-picture DOPRI5 march, for a cheap response or a state too
-            large for the Adams history, and faster on a long run with Raman or
-            plasma (SEP 37). ``LowStorageRungeKutta()`` replays
-            `schedule` in three registers (SEP 24).
+            (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default,
+            takes ``Multistep()``: the low-call exponential Adams method, one response
+            evaluation per step. ``RungeKutta()`` is the interaction-picture DOPRI5
+            march, for a cheap response or a state too large for the Adams history; it
+            is also faster on a long run with Raman or plasma (SEP 37).
+            ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
@@ -3010,9 +2944,9 @@ class Simulation(Displayed):
             How many planes to save, counting ``z = 0``.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
-            :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-            or for a mode-averaged one under `mode_average`, plus every statistic
-            only a backend can compute.
+            :func:`solprop.stats.default_spec` with the profiles, for a multimode run
+            or, under ``mode_average=True``, a mode-averaged one without the quadrature
+            estimate, plus every statistic only a backend can compute.
         polarisation_taper : bool, optional
             Whether the spectral collar tapers the nonlinear polarisation as well as
             absorbing the field through the linear operator. Default ``False``: the
@@ -3394,13 +3328,13 @@ class Simulation(Displayed):
             :class:`~solprop.physdata.raman_types.MolecularOptions` select components
             and terms, and a named unavailable model fails explicitly.
         mode_average : bool, optional
-            Propagate the one mode **mode-averaged**, as a uniform disc of its
-            effective area, instead of resolving it on the transverse rule
-            (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
-            area-mean field, below the on-axis one (``HE_11``'s axis intensity is
-            1.768 times ``P/A_eff``), and ``peak_intensity`` stays on the axis.
-            ``False``, the default, resolves the mode. Refused beside more than one
-            mode and beside `n_r`, `n_theta` or a `radial_rule`.
+            Propagate the one mode **mode-averaged**, as a uniform disc of its effective
+            area, instead of resolving it on the transverse rule, as Luna.jl's default
+            does (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+            area-mean field, below the on-axis one (``HE_11``'s axis intensity is 1.768
+            times ``P/A_eff``), and ``peak_intensity`` stays on the axis. ``False``, the
+            default, resolves the mode. Refused beside more than one mode and beside
+            `n_r`, `n_theta` or a `radial_rule`.
             Refused beside `provider`.
         n_r : int or None, optional
             Radial nodes of the fixed rule, or the x-axis nodes of a Cartesian product
@@ -3426,8 +3360,8 @@ class Simulation(Displayed):
             :func:`solprop.driver.inputs.default_field_range`.
         absorber : solprop.boundaries.Absorber, False or None, optional
             The collar rates; ``None`` builds the default collar of the grid, and
-            ``False`` switches both soft collars off and keeps the hard band mask
-            (:func:`solprop.boundaries.no_absorber`; SEP 21).
+            ``False`` switches both soft collars, temporal and spectral, off and keeps
+            the hard band mask (:func:`solprop.boundaries.no_absorber`; SEP 21).
         absorber_scheme : {'nonlinear', 'split_step'} or None, optional
             How the temporal collar is applied (ADR-025); ``None`` is the default,
             inside every stage.
@@ -3447,7 +3381,8 @@ class Simulation(Displayed):
             default. Calibrate it for a production run (``docs/dev/stepper.md``
             section 3).
         atol : float, optional
-            Absolute step tolerance, in the square root of watts.
+            Absolute step tolerance, in the square root of watts; ``1e-10`` by default
+            (:data:`~solprop.driver.defaults.WAVEGUIDE_ATOL`).
         dz_max : float or None, optional
             Cap on the step, m; ``None`` takes half the waveguide.
         dz_init : float or None, optional
@@ -3456,10 +3391,12 @@ class Simulation(Displayed):
             A fixed schedule to replay instead of stepping adaptively.
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
-            (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``RungeKutta()``, the interaction-picture
-            DOPRI5 march (SEP 37). ``Multistep()`` is the low-call exponential Adams
-            method. ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+            (``docs/guide/numerics/choosing-a-stepper.md``). ``None``, the default,
+            takes ``RungeKutta()``, the interaction-picture DOPRI5 march, which SEP 37
+            measured fastest at matched accuracy among the methods every route of this
+            constructor admits. ``Multistep()`` is the low-call exponential Adams
+            method, and ``LowStorageRungeKutta()`` replays `schedule` in three
+            registers.
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
@@ -3474,9 +3411,9 @@ class Simulation(Displayed):
             How many planes to save, counting ``z = 0``.
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
-            :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-            or for a mode-averaged one under `mode_average`, plus every statistic
-            only a backend can compute.
+            :func:`solprop.stats.default_spec` with the profiles, for a multimode run
+            or, under ``mode_average=True``, a mode-averaged one without the quadrature
+            estimate, plus every statistic only a backend can compute.
         polarisation_taper : bool, optional
             Whether the spectral collar tapers the nonlinear polarisation as well as
             absorbing the field through the linear operator. Default ``False``: the
@@ -3494,9 +3431,9 @@ class Simulation(Displayed):
             Refused; this path is scalar.
         taper_coupling : bool, optional
             Carry the taper coupling of a supplied capillary set on a varying radius, as
-            :meth:`from_capillary` does; ``False`` is the opt-out to the adiabatic
-            route. Refused as ``False`` beside a `provider`, whose moving guide carries
-            its own connection.
+            :meth:`~solprop.driver.simulation.Simulation.from_capillary` does; ``False``
+            is the opt-out to the adiabatic route. Refused as ``False`` beside a
+            `provider`, whose moving guide carries its own connection.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the fill from optmat under this selection: a gas or fraction mapping
             of built-in gases, ``"air"`` and ``Gas.Air`` resolve through

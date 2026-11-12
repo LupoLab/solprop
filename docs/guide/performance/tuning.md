@@ -56,8 +56,8 @@ compares the backends by problem.
 
 Each interface has its own default integrator
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` on
-`prop_capillary`, `prop_radial` and `prop_planar`, `RungeKutta()` on `prop_gnlse`,
-`prop_waveguide` and `prop_free`. `Multistep()` evaluates the nonlinear response once
+`prop_capillary`, `prop_free` on a radial grid and `prop_planar`, `RungeKutta()` on
+`prop_gnlse`, `prop_waveguide` and `prop_free` on a Cartesian or line grid. `Multistep()` evaluates the nonlinear response once
 per step; `RungeKutta()` usually six times, in fewer, longer steps. `Multistep()` tends
 to gain where the response dominates a step's cost, `RungeKutta()` where it is cheap.
 Compare the two on a short stretch of your own problem when it matters: the call counts

@@ -15,7 +15,7 @@ from flux_oracles import admittance
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.registry import available
 from solprop.constants import EPS0, HBAR, C
-from solprop.driver import Simulation, SimulationSettings, prop_radial
+from solprop.driver import Simulation, SimulationSettings, prop_free
 from solprop.exceptions import DriverError, NoiseError, OutputError
 from solprop.fourier import spectral_density
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -65,7 +65,7 @@ def case(request):
 def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     grid, space, pulse, settings = case
     settings = dataclasses.replace(settings, backend=backend)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     assert simulation.translate() is simulation.translate()
@@ -82,7 +82,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
         RunMetadata.from_json(metadata.to_json()).configuration_hash()
         == metadata.configuration_hash()
     )
-    handler = prop_radial(
+    handler = prop_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     fields = handler.fields("fft")
@@ -162,7 +162,7 @@ def test_spatial_noise_has_one_photon_in_every_column_bin(case, model, n_pol, re
 def test_radial_simulation_records_noise_model_and_seed(case, model, backend, request):
     grid, space, pulse, settings = case
     settings = dataclasses.replace(settings, backend=backend)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=model, seed=33
     )
     assert simulation.noise is not None
@@ -197,14 +197,14 @@ def test_radial_simulation_records_noise_model_and_seed(case, model, backend, re
 def test_spatial_resume_refuses_geometry_changes(case, tmp_path):
     grid, space, pulse, settings = case
     settings = dataclasses.replace(settings, backend="numpy_ref")
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     path = tmp_path / "radial.h5"
     simulation.run(path)
     assert check_cache(path, simulation.metadata())
     simulation.run(path, resume=True)
-    changed = Simulation.from_radial(
+    changed = Simulation.from_free(
         grid,
         dataclasses.replace(space, radius=space.radius * 2),
         SpatialMedium(),
@@ -220,7 +220,7 @@ def test_spatial_resume_refuses_geometry_changes(case, tmp_path):
 def test_radial_input_rejects_ambiguous_noise_and_shape(case):
     grid, space, pulse, settings = case
     with pytest.raises(DriverError, match="seed"):
-        Simulation.from_radial(
+        Simulation.from_free(
             grid,
             space,
             SpatialMedium(),
@@ -231,7 +231,7 @@ def test_radial_input_rejects_ambiguous_noise_and_shape(case):
             noise=None,
         )
     with pytest.raises(DriverError, match="shape"):
-        Simulation.from_radial(
+        Simulation.from_free(
             grid,
             space,
             SpatialMedium(),

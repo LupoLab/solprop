@@ -229,7 +229,7 @@ def _split(
 def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simulation:
     """Return a 1 pJ radial pulse at 1150 nm whose group delay walks out of 400 fs."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),

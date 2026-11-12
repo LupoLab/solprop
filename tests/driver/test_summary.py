@@ -232,7 +232,7 @@ def spatial_case(grid_kind="field"):
 
 def test_radial_cartesian_and_line_routes():
     grid, pulse, settings = spatial_case()
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium(),
@@ -484,7 +484,7 @@ def test_representation_of_a_general_guide_and_of_two_polarisations():
     assert _representation(problem, general) == "general guide, 1 channels, scalar"
     grid, pulse, settings = spatial_case()
     circular = dataclasses.replace(pulse, jones=(1.0 + 0.0j, 1.0j))
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium(),

@@ -55,8 +55,8 @@ The names in `[build]` are the keywords of
 {py:meth}`~solprop.driver.simulation.Simulation.from_capillary`,
 {py:meth}`~solprop.driver.simulation.Simulation.from_gnlse`,
 {py:meth}`~solprop.driver.simulation.Simulation.from_waveguide`,
-{py:meth}`~solprop.driver.simulation.Simulation.from_radial`,
-{py:meth}`~solprop.driver.simulation.Simulation.from_free` and
+{py:meth}`~solprop.driver.simulation.Simulation.from_free` (the `radial` and the `free`
+routes) and
 {py:meth}`~solprop.driver.simulation.Simulation.from_planar`, with their meanings and
 defaults. A keyword left out takes solprop's default when the recipe is built, so a recipe
 follows solprop's improvements; the output records what ran. Keys that choose files,
@@ -182,7 +182,7 @@ stats = { type = "StatsSpec", names = ["energy"] }
 
 A recipe holds the `from_*` form, so the temporal absorber and its scheme are keywords
 of the `settings` table, `absorber = { type = "absorber" }` built on the `grid`, and not
-of `[build]`, although `prop_radial`, `prop_free` and `prop_planar` take them as
+of `[build]`, although `prop_free` and `prop_planar` take them as
 keywords too. The settings table takes the stepping, the planes, the statistics, the
 absorber and the backend; `fields`, `field_planes` and `resume_history` stay in
 `[execution]`, and the fields a route's builder sets (the density, the

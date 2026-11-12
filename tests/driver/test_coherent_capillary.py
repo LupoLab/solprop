@@ -809,7 +809,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
     constructors and the attribute `from_capillary` sets -- rather than through a
     hand-built assembly, because that is the path the leak was on.
     """
-    spatial = Simulation.from_radial(
+    spatial = Simulation.from_free(
         capillary().grid,
         RadialGrid(0.6e-3, 8),
         SpatialMedium(),

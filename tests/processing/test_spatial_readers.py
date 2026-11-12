@@ -136,8 +136,7 @@ def _simulation(route: str) -> Simulation:
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY), 6e-5
     )
-    build = Simulation.from_radial if route == "radial" else Simulation.from_free
-    return build(
+    return Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", 1.0),

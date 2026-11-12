@@ -78,8 +78,8 @@ not a converged answer.
 ## 2. The Runge–Kutta pairs
 
 This section is the tableau theory of `RungeKutta()`, the explicit march and the default
-integrator of `prop_gnlse`, `prop_waveguide` and `prop_free`. `Multistep()`, the default
-of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-055), is the low-call
+integrator of `prop_gnlse`, `prop_waveguide` and `prop_free` on a Cartesian grid. `Multistep()`, the default
+of `prop_capillary`, `prop_free` on a radial grid and `prop_planar` (ADR-055), is the low-call
 exponential Adams method: its formulation and history management are in the
 [solver guide](../guide/numerics/adams.md) and the
 [stepper design](stepper.md#low-call-adams-methods).

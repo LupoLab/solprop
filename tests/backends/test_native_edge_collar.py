@@ -150,7 +150,7 @@ def _case(
         )
     pulse = SpatialPulse(temporal, waist, propz=propz)
     if route == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid,
             RadialGrid(300e-6, 48, collar_fraction=1.0),
             medium,

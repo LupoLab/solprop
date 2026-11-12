@@ -83,7 +83,7 @@ def case(request):
             else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
         )
         if isinstance(space, RadialGrid):
-            simulation = Simulation.from_radial(
+            simulation = Simulation.from_free(
                 grid,
                 space,
                 SpatialMedium(material),
@@ -309,7 +309,7 @@ def test_a_spatial_record_without_its_plane_measure_is_refused(case):
 def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
     material, grid, _, _, (_, run_request) = mixture_translation()
     space = RadialGrid(6e-4, 8, collar_fraction=0.0)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         space,
         SpatialMedium(material),

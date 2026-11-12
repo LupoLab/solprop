@@ -113,7 +113,7 @@ recipe writes each as a table under its keyword's name.
 SETTINGS_KEYWORDS: Final = ("absorber", "absorber_scheme")
 """Keywords of an object route's constructor that a recipe writes under ``settings``.
 
-``prop_radial``, ``prop_free`` and ``prop_planar`` apply them to their settings; a
+``prop_free`` and ``prop_planar`` apply them to their settings; a
 recipe holds the ``from_*`` form, so they are keywords of its ``settings`` table
 (SEP 41 section 5.1), and the route's table does not list them.
 """
@@ -1453,7 +1453,8 @@ def surface(route: str) -> "Callable[..., Simulation]":
     -------
     callable
         The route's ``Simulation.from_*``: ``from_gnlse``, ``from_capillary``,
-        ``from_waveguide``, ``from_radial``, ``from_free`` or ``from_planar``.
+        ``from_waveguide``, ``from_free`` (the radial and the free routes) or
+        ``from_planar``.
 
     Raises
     ------
@@ -1472,7 +1473,7 @@ def surface(route: str) -> "Callable[..., Simulation]":
         "gnlse": Simulation.from_gnlse,
         "capillary": Simulation.from_capillary,
         "waveguide": Simulation.from_waveguide,
-        "radial": Simulation.from_radial,
+        "radial": Simulation.from_free,
         "free": Simulation.from_free,
         "planar": Simulation.from_planar,
     }

@@ -155,7 +155,7 @@ def radial_collar(
         backend=backend,
         spatial_absorber=SpatialAbsorber(kappa=8e4),
     )
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(300e-6, 48, collar_fraction=1.0),
         SpatialMedium(1.0),

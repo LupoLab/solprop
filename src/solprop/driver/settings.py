@@ -144,11 +144,12 @@ class SimulationSettings(Displayed):
         when an interface builds the run: the
         :data:`~solprop.driver.defaults.SPATIAL_RTOL` and
         :data:`~solprop.driver.defaults.SPATIAL_ATOL` of
-        :meth:`~solprop.driver.simulation.Simulation.from_radial` and
-        :meth:`~solprop.driver.simulation.Simulation.from_planar`, the
+        :meth:`~solprop.driver.simulation.Simulation.from_free` on a radial grid and
+        of :meth:`~solprop.driver.simulation.Simulation.from_planar`, the
         :data:`~solprop.driver.defaults.FREE_RTOL` and
         :data:`~solprop.driver.defaults.FREE_ATOL` of
-        :meth:`~solprop.driver.simulation.Simulation.from_free`. An explicit controller
+        :meth:`~solprop.driver.simulation.Simulation.from_free` on a Cartesian or line
+        grid. An explicit controller
         always wins, and a default copied into another route takes that route's default.
         The other fields are keyword-only.
     save_planes : numpy.ndarray

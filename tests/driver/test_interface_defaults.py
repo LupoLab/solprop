@@ -126,10 +126,6 @@ def _spatial(space, controller=None, integrator=None, noise=None, copied=False):
         [],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 60e-6),
     )
-    if isinstance(space, RadialGrid):
-        return Simulation.from_radial(
-            grid, space, *arguments, settings=settings, noise=noise
-        )
     return Simulation.from_free(grid, space, *arguments, settings=settings, noise=noise)
 
 
@@ -261,7 +257,7 @@ def _build(route, through):  # noqa: PLR0911 - one return per route family
             "gnlse": Simulation.from_gnlse,
             "capillary": Simulation.from_capillary,
             "waveguide": Simulation.from_waveguide,
-            "radial": Simulation.from_radial,
+            "radial": Simulation.from_free,
             "free": Simulation.from_free,
             "planar": Simulation.from_planar,
         },
@@ -269,7 +265,7 @@ def _build(route, through):  # noqa: PLR0911 - one return per route family
             "gnlse": interface.prop_gnlse,
             "capillary": interface.prop_capillary,
             "waveguide": interface.prop_waveguide,
-            "radial": interface.prop_radial,
+            "radial": interface.prop_free,
             "free": interface.prop_free,
             "planar": interface.prop_planar,
         },
@@ -424,13 +420,11 @@ ENTRY_POINTS = [
     Simulation.from_gnlse,
     Simulation.from_capillary,
     Simulation.from_waveguide,
-    Simulation.from_radial,
     Simulation.from_free,
     Simulation.from_planar,
     interface.prop_gnlse,
     interface.prop_capillary,
     interface.prop_waveguide,
-    interface.prop_radial,
     interface.prop_free,
     interface.prop_planar,
 ]
@@ -460,12 +454,12 @@ def _with_check(route, through, check):
         # The spatial entry points take it beside their settings.
         entry = {
             "from": {
-                "radial": Simulation.from_radial,
+                "radial": Simulation.from_free,
                 "free": Simulation.from_free,
                 "planar": Simulation.from_planar,
             },
             "prop": {
-                "radial": interface.prop_radial,
+                "radial": interface.prop_free,
                 "free": interface.prop_free,
                 "planar": interface.prop_planar,
             },
@@ -512,7 +506,7 @@ def test_a_spatial_keyword_and_settings_naming_two_checks_are_refused():
     relaxed = BoundaryCheck(budget=1.0, stop_factor=2.0)
     settings = dataclasses.replace(_settings(SPATIAL), boundary_check=None)
     with pytest.raises(DriverError, match="already declare a boundary_check"):
-        Simulation.from_radial(
+        Simulation.from_free(
             SPATIAL,
             RadialGrid(6e-4, 16),
             SpatialMedium(),
@@ -522,7 +516,7 @@ def test_a_spatial_keyword_and_settings_naming_two_checks_are_refused():
             boundary_check=relaxed,
         )
     # The same check named twice is no conflict, and settings' own stands alone.
-    same = Simulation.from_radial(
+    same = Simulation.from_free(
         SPATIAL,
         RadialGrid(6e-4, 16),
         SpatialMedium(),

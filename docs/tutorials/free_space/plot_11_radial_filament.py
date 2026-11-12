@@ -8,7 +8,7 @@ Reading a radial filament from its file
 
 A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about
 three times the critical power: it collapses, the plasma arrests the collapse, and a
-filament forms. The run is a plain :func:`~solprop.driver.interface.prop_radial`, every
+filament forms. The run is a plain :func:`~solprop.driver.interface.prop_free`, every
 argument an object a recipe writes as a table, and it is the call the filament's example
 recipe mirrors (``Recipe.example("filament")``). The lesson
 :doc:`/introduction/lessons/plot_03_filament` explains the physics; this page shows what
@@ -22,7 +22,7 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solprop.driver import SimulationSettings, prop_radial
+from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
@@ -63,7 +63,7 @@ settings = SimulationSettings(
     ),
     ionisation_field_range=(1e8, 1e11),
 )
-result = prop_radial(
+result = prop_free(
     grid,
     space,
     SpatialMedium("Ar", pressure=1.0),

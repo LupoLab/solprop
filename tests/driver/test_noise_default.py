@@ -108,7 +108,7 @@ def test_the_capillary_and_radial_routes_default_to_input_noise():
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium(),

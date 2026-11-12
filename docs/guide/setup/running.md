@@ -29,8 +29,7 @@ There are three ways in, and they are the same machinery underneath:
   physics objects directly.
 
 Free-space and planar propagation have entry points of their own,
-{py:func}`~solprop.driver.interface.prop_radial`,
-{py:func}`~solprop.driver.interface.prop_free` and
+{py:func}`~solprop.driver.interface.prop_free` (radial or Cartesian) and
 {py:func}`~solprop.driver.interface.prop_planar`, described on
 [the free-space chapter](../free-space/model.md). They use the same output,
 continuation, progress and resource controls linked above.

@@ -1003,7 +1003,7 @@ def test_a_spatial_simulation_names_its_space():
         dz_max=grid.length,
         dz_init=grid.length,
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     assert "RadialGrid" in repr(simulation)

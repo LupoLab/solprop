@@ -149,7 +149,7 @@ settings = SimulationSettings(
     backend="numpy_ref",
     spatial_absorber=False,
 )
-run = Simulation.from_radial(
+run = Simulation.from_free(
     grid, space, medium, [], pulse, settings=settings, noise=None
 ).run(progress="none")
 plane = list(run.planes())[-1]

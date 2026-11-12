@@ -1596,7 +1596,7 @@ def radial_problem():
     pulse = SpatialPulse(
         GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-9), 60e-6
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium("Ar", pressure=1.0),

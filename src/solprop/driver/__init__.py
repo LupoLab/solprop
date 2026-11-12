@@ -19,7 +19,6 @@ from solprop.driver.interface import (
     prop_free,
     prop_gnlse,
     prop_planar,
-    prop_radial,
     prop_waveguide,
 )
 from solprop.driver.metadata import metadata_for
@@ -52,7 +51,6 @@ __all__ = [
     "prop_free",
     "prop_gnlse",
     "prop_planar",
-    "prop_radial",
     "prop_waveguide",
     "run_problem",
 ]

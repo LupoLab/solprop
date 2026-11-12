@@ -6,8 +6,8 @@ problem. A small local error estimate does not establish that the full simulatio
 or a weak generated band is accurate.
 
 Start with the interface's default integrator, `Multistep()` on `prop_capillary`,
-`prop_radial` and `prop_planar` and `RungeKutta()` on `prop_gnlse`, `prop_waveguide` and
-`prop_free` ([the defaults](choosing-a-stepper.md#the-defaults)), then use
+`prop_free` on a radial grid and `prop_planar`, and `RungeKutta()` on `prop_gnlse`,
+`prop_waveguide` and `prop_free` on a Cartesian or line grid ([the defaults](choosing-a-stepper.md#the-defaults)), then use
 [stepper selection](choosing-a-stepper.md) when source cost, memory or dynamics
 motivate a comparison. This chapter explains
 `rtol`, `atol`, `dz_init` and `dz_max`, the interaction picture and the error norm.

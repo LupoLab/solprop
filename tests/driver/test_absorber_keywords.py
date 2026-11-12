@@ -135,7 +135,7 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
 
 
 def _radial(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid, RadialGrid(radius=600e-6, n_r=16), SpatialMedium(), [], _beam(),
         noise=None, **keywords,
     )  # fmt: skip
