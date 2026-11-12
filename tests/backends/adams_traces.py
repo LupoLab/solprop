@@ -155,9 +155,11 @@ class _Engine:
     def reset(self) -> None:
         """Forget nothing: the script holds no state."""
 
-    def start(self, z: float, *, stored: bool) -> None:
+    def start(self, z: float) -> None:
         """Record a startup evaluation; a resident engine keeps the sample itself."""
-        self.harness.events.append({"start": z, "stored": stored})
+        # Every startup sample is stored since the comparison variants went, as the
+        # native march logs it.
+        self.harness.events.append({"start": z, "stored": True})
 
     def value(self, slot: int) -> None:
         """Return no host sample, as a resident engine does."""
