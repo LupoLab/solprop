@@ -22,7 +22,7 @@ from solprop.exceptions import (
     SolpropWarning,
 )
 
-__all__ = []
+__all__ = ["keyword_request"]
 
 
 @contextlib.contextmanager
@@ -129,8 +129,21 @@ def keyword_request[R](
 ) -> R:
     """Build a route's request from its constructor's locals.
 
-    Each field of `kind` the constructor's `scope` holds is taken from it, then
-    `given` overrides or adds fields; a field in neither keeps its default.
+    Parameters
+    ----------
+    kind : type
+        The request, a frozen dataclass whose fields are keywords of the route.
+    scope : collections.abc.Mapping
+        The public constructor's ``locals()``: each field of `kind` it holds is taken
+        from it, and anything else in it is ignored.
+    **given : object
+        Fields set otherwise than the constructor took them, overriding `scope`. A
+        field in neither keeps its default.
+
+    Returns
+    -------
+    object
+        The request, an instance of `kind`.
     """
     # `kind` is a dataclass; the type variable cannot say so.
     names = {field.name for field in dataclasses.fields(cast("Any", kind))}
