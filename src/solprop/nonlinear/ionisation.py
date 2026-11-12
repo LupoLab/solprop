@@ -748,20 +748,7 @@ def ionisation_fraction(
 
 
 def _validate_positive(name: str, value: float) -> None:
-    """Raise unless ``value`` is a positive, finite number.
-
-    Parameters
-    ----------
-    name : str
-        The name to quote in the message.
-    value : float
-        The number to check.
-
-    Raises
-    ------
-    MaterialError
-        Naming the offending argument.
-    """
+    """Raise unless ``value`` is a positive, finite number."""
     if not math.isfinite(value) or value <= 0.0:
         msg = f"{name} must be positive and finite, got {value!r}"
         raise MaterialError(msg)
@@ -770,20 +757,7 @@ def _validate_positive(name: str, value: float) -> None:
 def _finite_field(field_amplitude: ArrayLike | float) -> Float[np.ndarray, " *shape"]:
     """Return ``|field_amplitude|`` as a float array, rejecting anything not finite.
 
-    Parameters
-    ----------
-    field_amplitude : array_like or float
-        Field amplitude in V/m.
-
-    Returns
-    -------
-    numpy.ndarray
-        The absolute value as float64, with the shape of the argument.
-
-    Raises
-    ------
-    MaterialError
-        If any element is a NaN or an infinity.
+    - ``field_amplitude``: field amplitude in V/m.
     """
     # np.abs on a zero-dimensional array returns a numpy scalar rather than an array,
     # so the result is wrapped again: every public rate returns an ndarray, including

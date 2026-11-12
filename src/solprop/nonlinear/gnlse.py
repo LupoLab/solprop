@@ -236,15 +236,8 @@ class _UniformLoss:
     ) -> Float[np.ndarray, " n_omega"]:
         """Return the same attenuation at every frequency.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies, rad/s, shape ``(n_omega,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``alpha`` in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies, rad/s, shape ``(n_omega,)``.
+        - Returns: ``alpha`` in 1/m, shape ``(n_omega,)``.
         """
         return np.full(omega.shape, self.value)
 
@@ -840,15 +833,8 @@ class _TableBeta:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the propagation constant or its analytic first derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the table.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the table.
+        - Returns: values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
         """
         return (
             self.table.beta(omega)
@@ -868,15 +854,8 @@ class _TableAlpha:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the table's power attenuation.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the table.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power attenuation in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the table.
+        - Returns: power attenuation in 1/m, shape ``(n_omega,)``.
         """
         return self.table.alpha(omega)
 
@@ -889,16 +868,6 @@ def _source_paths(mode: Mode) -> tuple[ZProfile, ...]:
     mode declares under :data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES`, which
     is the same tuple the transform's kink walk reads. Only the ones that move are
     kept.
-
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode.
-
-    Returns
-    -------
-    tuple of solprop.profiles.ZProfile
-        The varying declared paths, in declaration order.
     """
     declared: tuple[ZProfile | None, ...]
     if isinstance(mode, ParameterisedMode):
@@ -911,22 +880,8 @@ def _source_paths(mode: Mode) -> tuple[ZProfile, ...]:
 def _source_geometry(mode: Mode) -> tuple[tuple[float, float], Float[np.ndarray, " n"]]:
     """Return the span and the breakpoints a moving source mode declares.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode, which moves along z.
-
-    Returns
-    -------
-    tuple
-        ``((start, end), breakpoints)`` in m: the tightest interval every varying
-        path covers, and the union of their kinks inside it.
-
-    Raises
-    ------
-    ModeError
-        If the mode moves but declares no varying path to say where, or the paths
-        it declares have no interval in common.
+    - Returns: ``((start, end), breakpoints)`` in m: the tightest interval every varying
+      path covers, and the union of their kinks inside it.
     """
     paths = _source_paths(mode)
     if not paths:
@@ -959,23 +914,9 @@ def _area_path(
 ) -> ZProfile:
     """Return the effective-area path declared beside a dispersion path.
 
-    Parameters
-    ----------
-    aeff : array_like or solprop.profiles.ZProfile
-        One positive area in m^2 per declared position, or a path already.
-    positions : numpy.ndarray
-        The dispersion path's declared positions in m, shape ``(n_positions,)``.
-
-    Returns
-    -------
-    solprop.profiles.ZProfile
-        A :class:`solprop.profiles.PiecewiseLinear` through the declared areas, or
-        the supplied path unchanged.
-
-    Raises
-    ------
-    ModeError
-        If a sequence of areas does not carry one value per declared position.
+    - ``aeff``: one positive area in m^2 per declared position, or a path already.
+    - ``positions``: the dispersion path's declared positions in m, shape
+      ``(n_positions,)``.
     """
     if isinstance(aeff, ZProfile):
         return aeff
@@ -1001,15 +942,7 @@ def _dispersion_moves(mode: Mode) -> bool:
     frequency-only dispersion into a path, or the cumulative operator would leave
     the parameter expansion for the z table and the compiled routes with it.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The source mode.
-
-    Returns
-    -------
-    bool
-        ``True`` when the source's propagation constant depends on z.
+    - Returns: ``True`` when the source's propagation constant depends on z.
     """
     declared = getattr(mode, "dispersion_is_constant", None)
     return not mode.z_constant if declared is None else not bool(declared)
@@ -1018,13 +951,8 @@ def _dispersion_moves(mode: Mode) -> bool:
 def _warn_surrogate_area(label: str, omega: object) -> None:
     """Warn that a provider channel's area is its median-knot surrogate.
 
-    Parameters
-    ----------
-    label : str
-        The display label of the channel handed to a scalar model with no area and
-        no wavelength.
-    omega : object
-        The frequency its table records the surrogate at, rad/s, if it records one.
+    - ``omega``: the frequency its table records the surrogate at, rad/s, if it records
+      one.
     """
     where = (
         f"{omega:.6e} rad/s ({2.0 * math.pi * C / omega * 1e9:.2f} nm)"
@@ -1050,15 +978,8 @@ class _ModeArea:
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Sample the source mode's effective area.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions in m, shape ``(n_z,)``.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``A_eff(z)`` in m^2, shape ``(n_z,)``.
+        - ``z``: positions in m, shape ``(n_z,)``.
+        - Returns: ``A_eff(z)`` in m^2, shape ``(n_z,)``.
         """
         return np.array([self.mode.aeff(float(one)) for one in z], dtype=float)
 
@@ -1080,10 +1001,7 @@ class _ModeBeta:
     def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
         """Return the source mode's declared breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, empty for a source whose dispersion is fixed.
+        - Returns: the positions in m, empty for a source whose dispersion is fixed.
         """
         if not _dispersion_moves(self.mode):
             return np.empty(0, dtype=float)
@@ -1093,11 +1011,8 @@ class _ModeBeta:
     def z_span(self) -> tuple[float, float]:
         """Return the interval the source mode's declared paths cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m, ``(0, inf)`` for a source whose dispersion is
-            fixed.
+        - Returns: ``(start, end)`` in m, ``(0, inf)`` for a source whose dispersion is
+          fixed.
         """
         if not _dispersion_moves(self.mode):
             return 0.0, math.inf
@@ -1107,10 +1022,7 @@ class _ModeBeta:
     def is_constant(self) -> bool:
         """Return whether the source mode's dispersion moves.
 
-        Returns
-        -------
-        bool
-            ``True`` unless the source's propagation constant depends on z.
+        - Returns: ``True`` unless the source's propagation constant depends on z.
         """
         return not _dispersion_moves(self.mode)
 
@@ -1119,17 +1031,9 @@ class _ModeBeta:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the propagation constant or its analytic first derivative.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the source mode's support.
-        z : float, optional
-            Position along the fibre, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the source mode's support.
+        - ``z``: position along the fibre, m.
+        - Returns: values in rad/m, or s/m for derivative one, shape ``(n_omega,)``.
         """
         return (
             beta(self.mode, omega, z)
@@ -1151,10 +1055,7 @@ class _ModeAlpha:
     def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
         """Return the source mode's declared breakpoints.
 
-        Returns
-        -------
-        numpy.ndarray
-            The positions in m, empty for a source that does not move.
+        - Returns: the positions in m, empty for a source that does not move.
         """
         return _ModeBeta(self.mode).breakpoints
 
@@ -1162,10 +1063,7 @@ class _ModeAlpha:
     def z_span(self) -> tuple[float, float]:
         """Return the interval the source mode's declared paths cover.
 
-        Returns
-        -------
-        tuple of float
-            ``(start, end)`` in m.
+        - Returns: ``(start, end)`` in m.
         """
         return _ModeBeta(self.mode).z_span
 
@@ -1173,10 +1071,7 @@ class _ModeAlpha:
     def is_constant(self) -> bool:
         """Return whether the source mode's loss moves.
 
-        Returns
-        -------
-        bool
-            ``True`` unless the source's attenuation depends on z.
+        - Returns: ``True`` unless the source's attenuation depends on z.
         """
         return not _dispersion_moves(self.mode)
 
@@ -1185,17 +1080,9 @@ class _ModeAlpha:
     ) -> Float[np.ndarray, " n_omega"]:
         """Evaluate the supplied mode's power attenuation.
 
-        Parameters
-        ----------
-        omega : numpy.ndarray
-            Angular frequencies in rad/s, inside the source mode's support.
-        z : float, optional
-            Position along the fibre, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power attenuation in 1/m, shape ``(n_omega,)``.
+        - ``omega``: angular frequencies in rad/s, inside the source mode's support.
+        - ``z``: position along the fibre, m.
+        - Returns: power attenuation in 1/m, shape ``(n_omega,)``.
         """
         return alpha(self.mode, omega, z)
 
@@ -1474,11 +1361,6 @@ class SpecifiedMode:
         declared in the loss alone would otherwise be a corner nothing lands on.
         It is also what makes a fibre whose **loss** alone moves constructible: its
         value path is constant and declares no position at all.
-
-        Raises
-        ------
-        ModeError
-            Naming which of the three disagreements it is.
         """
         value, derivative = self.dispersion_path, self.derivative_path
         if value.is_constant != derivative.is_constant:
@@ -2352,20 +2234,7 @@ class SpecifiedMode:
 def _positive(omega: Float[np.ndarray, " n_omega"]) -> Float[np.ndarray, " n_omega"]:
     """Return the frequencies as a float array, refusing non-positive ones.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        Angular frequencies, rad/s, shape ``(n_omega,)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values as float64, shape ``(n_omega,)``.
-
-    Raises
-    ------
-    ModeError
-        If any value is not strictly positive.
+    - ``omega``: angular frequencies, rad/s, shape ``(n_omega,)``.
     """
     values = np.asarray(omega, dtype=float)
     if values.size and values.min() <= 0.0:
@@ -2677,19 +2546,9 @@ def _held_back_fraction(
     a given fraction is always held back; an omitted one is the silica bundle's
     ``f_R`` with Raman on (SEP 3, D4) and zero with Raman off.
 
-    Parameters
-    ----------
-    raman : bool
-        Whether a Raman response takes the fraction.
-    raman_fraction : float or None
-        The fraction given, or ``None``.
-    bundle : SilicaBundle or None
-        The selection's silica bundle, resolved when Raman is on.
-
-    Returns
-    -------
-    tuple
-        The fraction and ``"user"``, ``"bundle"`` or ``"raman-off"``.
+    - ``raman_fraction``: the fraction given, or ``None``.
+    - ``bundle``: the selection's silica bundle, resolved when Raman is on.
+    - Returns: the fraction and ``"user"``, ``"bundle"`` or ``"raman-off"``.
     """
     if raman_fraction is not None:
         return float(raman_fraction), "user"
