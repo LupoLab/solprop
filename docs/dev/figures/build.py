@@ -681,6 +681,9 @@ MODULES = {
             "translate/",
             (
                 "problem",
+                "assembly",
+                "walls",
+                "validation",
                 "routes",
                 "stage",
                 "linop",

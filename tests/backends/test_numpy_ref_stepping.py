@@ -27,7 +27,7 @@ from solprop.nonlinear.normalisation import mode_average_prefactor, sqrtw_to_vm
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController, observed_order
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 SPACING = 1e-4  # m between save planes in the stretch test
 N_PLANES = 200

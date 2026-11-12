@@ -1323,7 +1323,7 @@ class ProviderChannelMode(Displayed):
         What a moving guide's cumulative ``Phi`` is carried by: the run puts one
         reference channel's entrance dispersion in ``Phi`` and every channel's
         departure from it, the motion included, in the coupled flow
-        (``solprop.translate.problem._general_assembly``).
+        (``solprop.translate.assembly._general_assembly``).
 
         Returns
         -------

@@ -21,10 +21,10 @@ from solprop.profiles import FromCallable, Linear
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate import radial
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import DEFAULT_TOL
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import assemble
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,

@@ -68,6 +68,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.admission import check_general_route
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables, metric_at
 from solprop.translate.general import (
     metric_departure,
@@ -76,7 +77,7 @@ from solprop.translate.general import (
     node_kerr_tensor,
 )
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import Translation, _walk_arrays, assemble
+from solprop.translate.problem import Translation, _walk_arrays
 from solprop.translate.responses import (
     RegionalResponseTables,
     isotropic_kerr_tensor,

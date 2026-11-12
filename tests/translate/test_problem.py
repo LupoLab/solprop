@@ -33,6 +33,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, PIController, default_dz_min
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import LinearOperator, constant_phi, profile_table
@@ -46,7 +47,6 @@ from solprop.translate.problem import (
     StepperSettings,
     _held_state,
     _walk_arrays,
-    assemble,
     validate_run,
 )
 from solprop.translate.responses import CompiledResponses, prefactor_at

@@ -41,7 +41,7 @@ from solprop.output import HDF5Output, MemoryOutput
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.run_request import RunRequest
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which

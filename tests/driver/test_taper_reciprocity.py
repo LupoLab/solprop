@@ -46,7 +46,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-import solprop.translate.problem as problem_module
+import solprop.translate.walls as walls_module
 from driver.test_coherent_capillary import LENGTH, linear_launch, varying
 from driver.test_flow_collar import backend_class
 from sessions.runs import bare, final_field
@@ -207,7 +207,7 @@ def test_with_the_wall_block_placed_in_true_power_the_flow_is_reciprocal(
     differences, the Kerr coupling (1e-12) and the rounding of four ``numpy_ref``
     runs (1e-12), exactly as in the test above with its placement term removed.
     """
-    original = problem_module._wall_generator_at
+    original = walls_module._wall_generator_at
 
     def placed_in_true_power(
         block, grid, z, sampled, impedance: WallImpedance = "mean"
@@ -219,7 +219,7 @@ def test_with_the_wall_block_placed_in_true_power_the_flow_is_reciprocal(
         ratio[:, :, grid.active_mask] = np.sqrt(weight[None] / weight[:, None])
         return generator * ratio
 
-    monkeypatch.setattr(problem_module, "_wall_generator_at", placed_in_true_power)
+    monkeypatch.setattr(walls_module, "_wall_generator_at", placed_in_true_power)
     forward = {
         steps: transfer((WIDE, WIDE, NARROW, NARROW), steps)[0] for steps in (5, 10)
     }

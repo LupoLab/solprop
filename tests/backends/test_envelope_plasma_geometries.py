@@ -27,7 +27,7 @@ from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.profiles import Linear
 from solprop.stats import StatsSpec
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.stage import scalars
 
 PROBE = Path(__file__).with_name("host_cases_envelope_plasma.py")

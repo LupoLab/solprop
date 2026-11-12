@@ -79,12 +79,13 @@ from solprop.profiles import Linear, PiecewiseLinear, ZProfile
 from solprop.stats import analytic_field
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.admission import check_general_route
+from solprop.translate.assembly import _carrier
 from solprop.translate.coupled import flow_weights, residual_truncation
 from solprop.translate.general import general_modal_route
 from solprop.translate.modal_path import path_rule, path_snapshot
 from solprop.translate.modal_tables import apply_channel_basis, channel_area
-from solprop.translate.problem import MOVING_FLOW_CERTIFICATE, _carrier
 from solprop.translate.stage import scalars
+from solprop.translate.validation import MOVING_FLOW_CERTIFICATE
 
 LENGTH = 1e-3
 """Length of every run here, m: a millimetre."""

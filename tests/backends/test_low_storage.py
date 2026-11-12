@@ -73,12 +73,12 @@ from solprop.stepper import (
     calibrate,
 )
 from solprop.stepper.schedule import LANDING_ULPS
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     Translation,
-    assemble,
     validate_run,
 )
 from solprop.translate.routes import TDSESource

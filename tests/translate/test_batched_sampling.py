@@ -30,8 +30,8 @@ from solprop.linear import Frame
 from solprop.modes import MarcatiliMode
 from solprop.modes import capillary as capillary_module
 from solprop.profiles import PressureGradient
+from solprop.translate import assembly as assembly_module
 from solprop.translate import chebyshev
-from solprop.translate import problem as problem_module
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.linop import build_phi
 
@@ -49,7 +49,7 @@ def _unbatched(monkeypatch):
 def _unshared(monkeypatch):
     """Sample every mode's terms afresh: no frozen copy shares, no scope shares."""
     monkeypatch.setattr(capillary_module, "_same_rows", lambda first, second: False)
-    monkeypatch.setattr(problem_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
 
 
 def _assert_coefficients_close(one, other, what: str):

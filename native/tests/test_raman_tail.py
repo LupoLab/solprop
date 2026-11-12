@@ -25,7 +25,8 @@ from solprop.physdata import Gas
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, build_info

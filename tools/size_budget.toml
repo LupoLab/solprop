@@ -27,7 +27,6 @@ headroom_lines = 50
 
 [modules.allow]
 # The modules already larger. Remove an entry once its module is split below max_lines.
-"src/solprop/translate/problem.py" = 5444
 
 [private_imports]
 # Private names imported from another package: a private name, any name from a private

@@ -51,7 +51,7 @@ from solprop.stats import (
     _power,
 )
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 native_session = pytest.importorskip("solprop_native.session")
 native_statistics = pytest.importorskip("solprop_native._statistics")

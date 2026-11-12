@@ -16,8 +16,8 @@ from solprop.linear import Frame
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
 
 EPS = np.finfo(float).eps
