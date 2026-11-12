@@ -17,6 +17,7 @@
 #endif
 
 #include "solprop_native/core.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/statistics_plan.hpp"
 
 #include <algorithm>
@@ -61,11 +62,11 @@ std::string scientific(const double value) {
 
 /** `solprop.backends.spatial._negative_fluence`. */
 std::invalid_argument negative_fluence(const double value, const std::size_t node) {
-  return std::invalid_argument(
+  return std::invalid_argument(concat(
       "beam_radius and fwhm_r need a nonnegative fluence profile, and the signed "
-      "axial flux is " +
-      scientific(value) + " J/m^2 at node " + std::to_string(node) +
-      ", beyond its rounding budget; the width is undefined for it");
+      "axial flux is ",
+      scientific(value), " J/m^2 at node ", node,
+      ", beyond its rounding budget; the width is undefined for it"));
 }
 
 /** `fluence_budget`'s one value: eight rounding units a term of the largest

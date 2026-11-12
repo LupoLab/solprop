@@ -99,7 +99,7 @@ The relevant current code is:
   admits `MaterialKerr` and `SilicaTensorResponse`; those types do not already
   provide arbitrary complex susceptibility or TPA.
 - In `solprop-kokkos`, `src/solprop_kokkos/backend.py`,
-  `include/solprop_kokkos/core.hpp`, `src/core.cpp`, `src/general.cpp` and
+  `include/solprop_kokkos/core.hpp`, `src/core.cpp`, `src/general/` and
   `include/solprop_kokkos/envelope_plasma.hpp`: admission, native data and resident
   execution. A source cannot be added solely to the Python oracle.
 

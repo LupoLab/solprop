@@ -22,7 +22,7 @@ translated table, and each test checks that they occur:
   first knot to zero.
 - **An index past either end of the table.** A table whose stored ``log_field_min`` is
   moved, so that every live sample's index is negative, or past the last interval, while
-  its fields stay within the table's range: ``general.cpp``'s two clamps.
+  its fields stay within the table's range: ``src/general/kernels.hpp``'s two clamps.
 
 **Where this is weaker than the original.** A 1e-170 sample beside samples of order
 one is out of reach, because a transform would round it away: the tiny sample here

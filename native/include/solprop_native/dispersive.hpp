@@ -314,7 +314,6 @@ public:
   [[nodiscard]] const RealView2& weights() const noexcept { return weights_; }
   /** The bytes of every table and staging buffer, the ledger's multipliers row. */
   [[nodiscard]] std::size_t bytes() const;
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   /** Weigh the channels at a stage; a no-op when its densities are the last ones. */
@@ -419,8 +418,6 @@ public:
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   /** The same rows, all zero, for a problem without the response. */
   [[nodiscard]] static std::map<std::string, std::size_t> empty_ledger();
-  /** Release plans before Views; repeated calls have no effect. */
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   void synthesise(std::size_t field, std::size_t first_node, std::size_t node_count,
@@ -439,7 +436,7 @@ private:
   std::size_t spectrum_bins_{};
   DispersiveForm form_{DispersiveForm::real};
   bool analytic_{}, embedded_{}, alone_{}, lone_{}, in_place_{};
-  bool borrowed_{}, shifted_{}, coarse_pending_{}, closed_{};
+  bool borrowed_{}, shifted_{}, coarse_pending_{};
   ExecutionSpace kernels_, response_, tail_response_, dense_, tail_dense_, matrix_copy_;
   std::size_t response_chunk_{};
   [[nodiscard]] const ExecutionSpace& response_for(std::size_t count) const {
@@ -535,7 +532,6 @@ public:
   void combine();
 
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   void slab_offsets(std::size_t units);
@@ -549,7 +545,6 @@ private:
   std::size_t n_x_{}, n_p_{};
   DispersiveForm form_{DispersiveForm::real};
   bool slab_{}, analytic_{}, alone_{}, lone_{}, in_place_{}, borrowed_{}, shifted_{};
-  bool closed_{};
   ExecutionSpace kernels_, tail_kernels_, response_, tail_response_, dense_,
       tail_dense_;
   std::size_t tail_rows_{}, active_rows_{};
@@ -630,7 +625,6 @@ public:
   void combine(bool overwrite);
 
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   template <bool Real, std::size_t Components>
@@ -641,7 +635,7 @@ private:
   using ForwardRealPlan = KokkosFFT::Plan<ExecutionSpace, RealView2, ComplexView2>;
 
   std::size_t rows_{}, components_{}, n_to_{}, spectrum_bins_{};
-  bool real_{}, shifted_{}, closed_{};
+  bool real_{}, shifted_{};
   ExecutionSpace kernels_, tail_kernels_, response_, tail_response_;
   std::size_t tail_rows_{}, active_rows_{}, last_chunk_{};
   bool active_tail_{};

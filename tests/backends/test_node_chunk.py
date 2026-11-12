@@ -552,14 +552,16 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
     assert general_planned_chunk(problem, forced) == 2
     whole = _general_maps(problem, automatic)
     assert whole is not None and whole.node_chunk > 1
-    payload = native_backend._native_problem(
-        problem, run_request, terms(problem), general_chunk=2
+    payload = native_backend._lower(
+        problem,
+        run_request,
+        native_backend._LowerPlan(terms=terms(problem), general_chunk=2),
     )
-    assert payload["general_node_chunk"] == 2
+    assert payload.general.node_chunk == 2
     assert (
-        native_backend._native_problem(problem, run_request, terms(problem))[
-            "general_node_chunk"
-        ]
+        native_backend._lower(
+            problem, run_request, native_backend._LowerPlan(terms=terms(problem))
+        ).general.node_chunk
         == whole.node_chunk
     )
 

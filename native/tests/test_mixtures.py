@@ -22,7 +22,8 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
 
 
@@ -96,14 +97,15 @@ def test_native_channel_payload_refusals(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        payload = _native_problem(
+        payload = _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
-        parameters = np.array(payload["channel_parameters"], dtype=float, copy=True)
+        plasma = payload.plasma
+        parameters = plasma.channel_parameters.reshape(plasma.n_channels, 9)
         if damage == "zero_channels":
-            payload["n_channels"] = 0
+            plasma.n_channels = 0
         elif damage == "parameter_extent":
             parameters = parameters[:, :-1].copy()
         elif damage == "nonfinite":
@@ -113,8 +115,8 @@ def test_native_channel_payload_refusals(
         elif damage == "interval":
             parameters[1, 5] = -1
         else:
-            payload["channel_coefficients"] = np.empty(0)
-        payload["channel_parameters"] = parameters
+            plasma.channel_coefficients = np.empty(0)
+        plasma.channel_parameters = parameters
         with pytest.raises(ValueError, match=r"channel|Channel|plasma"):
             _core.State(payload)
     finally:

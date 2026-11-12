@@ -461,10 +461,6 @@ public:
   /** The next operation cannot be in a graph: issue what the region holds, stop. */
   void refuse();
 
-  /** Runs that launched the recorded graph, and runs that captured one. */
-  [[nodiscard]] std::size_t replays() const noexcept { return replays_; }
-  [[nodiscard]] std::size_t captures() const noexcept { return captures_; }
-  [[nodiscard]] bool disabled() const noexcept { return disabled_; }
   /** Drop the graph and its records, as when the views they name change. */
   void reset() noexcept {
     if (exec_ != nullptr)
@@ -501,8 +497,6 @@ private:
   bool disabled_ = false;
   std::size_t next_ = 0;
   std::vector<Operation> operations_;
-  std::size_t replays_ = 0;
-  std::size_t captures_ = 0;
 };
 
 // The run departs from the recorded sequence after `next_` matched operations: they
@@ -572,7 +566,6 @@ inline void Region::finish() {
       detail::destroy(detail::end_capture(stream_));
       mode_ = Mode::off;
       detail::launch(exec_, stream_);
-      ++replays_;
       return;
     }
     // The run ended before the recorded sequence: its matched part is the graph.
@@ -586,7 +579,6 @@ inline void Region::finish() {
   exec_ = nullptr;
   exec_ = detail::instantiate(graph);
   detail::launch(exec_, stream_);
-  ++captures_;
 }
 
 // A run that throws: what it issued before the throw still runs, as without a graph,

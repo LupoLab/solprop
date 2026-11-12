@@ -1474,7 +1474,7 @@ grows as an attempt gets cheaper, and it is above 0.1 % on the two smallest grid
 
 The exponential Adams trial's predict and correct passes on a host block of 32 elements
 held as lanes (`include/solprop_native/adams_phi.hpp`, `adams_lanes_*` in
-`src/general.cpp`) against the element-by-element form, at 740b24d. Before the change
+`src/general/trial.cpp`) against the element-by-element form, at 740b24d. Before the change
 the passes ran each element through latency-bound scalar strict code (the
 phi-functions' series, Horner pass and squarings, the compensation and the defects),
 GCC calling every strict helper out of line from the contracting kernels; per element

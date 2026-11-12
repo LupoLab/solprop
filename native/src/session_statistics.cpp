@@ -5,6 +5,7 @@
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/far_field.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/statistics_plan.hpp"
 
 #include <algorithm>
@@ -649,9 +650,8 @@ template <class Value> std::vector<Value> Table<Value>::at(const double z) const
       chebyshev::clenshaw_points(&z, 1, edges.data(), edges.size(), lower, upper,
                                  coefficients.data(), n_terms, n_values, out.data());
   if (refused >= 0)
-    throw std::out_of_range(
-        "z = " + std::to_string(z) + " m is outside a statistics table's span [" +
-        std::to_string(edges.front()) + ", " + std::to_string(edges.back()) + "] m");
+    refuse<std::out_of_range>("z = ", z, " m is outside a statistics table's span [",
+                              edges.front(), ", ", edges.back(), "] m");
   return out;
 }
 
@@ -853,8 +853,8 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
   for (const Stat stat : plan.outputs) {
     const auto& values = results[static_cast<std::size_t>(stat)];
     if (values.size() != plan.width(stat))
-      throw std::logic_error("statistic " + std::to_string(static_cast<int>(stat)) +
-                             " is not evaluated on this route");
+      refuse<std::logic_error>("statistic ", static_cast<int>(stat),
+                               " is not evaluated on this route");
     packed.insert(packed.end(), values.begin(), values.end());
   }
   return packed;
