@@ -23,7 +23,7 @@ import dataclasses
 import math
 import warnings
 from collections.abc import Iterator
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -47,15 +47,22 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-from solprop_native import NativeBackend
+from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
-    _flow_payload,  # pyright: ignore[reportPrivateUsage]
     _host_flow,  # pyright: ignore[reportPrivateUsage]
+    _lower_flow,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop_native.group import refusal as group_refusal
 
 type ComplexArray = npt.NDArray[np.complex128]
 type RealArray = npt.NDArray[np.float64]
+
+
+def _flow_rows(flow: Any) -> _core.Problem.Flow:
+    """The native problem's coupled flow group as the adapter fills it."""
+    native = _core.Problem()
+    _lower_flow(native, flow)
+    return native.flow
 
 
 def _norms(stack: ComplexArray | RealArray, *, spectral: bool = True) -> RealArray:
@@ -460,9 +467,9 @@ def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> No
     scored = problem.grids.inband_mask[flow.active]
     assert np.any(~scored)
     assert np.any(scored)
-    payload = _flow_payload(flow)
-    frozen = cast("ComplexArray", payload["flow_frozen"])
-    terms = cast("ComplexArray", payload["flow_residual_terms"])
+    payload = _flow_rows(flow)
+    frozen = payload.frozen.reshape(flow.frozen.shape)
+    terms = payload.residual_terms.reshape(flow.residual_terms.shape)
     assert np.all(frozen[:, ~scored] == 0.0)
     assert np.all(terms[:, ~scored] == 0.0)
     assert np.array_equal(frozen[:, scored], flow.frozen[:, scored])
@@ -475,8 +482,8 @@ def test_the_residual_s_data_are_zero_exactly_outside_the_requested_band() -> No
     )
     full = _host_flow(everywhere)
     assert full is not None
-    unmasked = _flow_payload(full)
-    assert np.array_equal(cast("ComplexArray", unmasked["flow_frozen"]), flow.frozen)
+    unmasked = _flow_rows(full)
+    assert np.array_equal(unmasked.frozen.reshape(flow.frozen.shape), flow.frozen)
     assert np.array_equal(
-        cast("ComplexArray", unmasked["flow_residual_terms"]), flow.residual_terms
+        unmasked.residual_terms.reshape(flow.residual_terms.shape), flow.residual_terms
     )

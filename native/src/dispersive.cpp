@@ -574,50 +574,50 @@ template <bool Real, std::size_t Components> struct GeneralPairs {
 } // namespace
 
 void require_dispersive(const Problem& problem) {
-  if (!problem.dispersive) {
-    if (!problem.dispersive_inputs.empty() ||
-        !problem.dispersive_coefficients.empty() ||
-        !problem.dispersive_term_rows.empty() ||
-        !problem.dispersive_group_offsets.empty() ||
-        !problem.dispersive_group_keys.empty() ||
-        !problem.dispersive_node_region.empty())
+  if (!problem.dispersive.enabled) {
+    if (!problem.dispersive.inputs.empty() ||
+        !problem.dispersive.coefficients.empty() ||
+        !problem.dispersive.term_rows.empty() ||
+        !problem.dispersive.group_offsets.empty() ||
+        !problem.dispersive.group_keys.empty() ||
+        !problem.dispersive.node_region.empty())
       throw std::invalid_argument(
           "dispersive data were supplied while the dispersive response is disabled");
     return;
   }
-  if (problem.dispersive_form < 0 || problem.dispersive_form > 2)
+  if (problem.dispersive.form < 0 || problem.dispersive.form > 2)
     throw std::invalid_argument("dispersive_form must be 0, 1 or 2");
-  const auto form = static_cast<DispersiveForm>(problem.dispersive_form);
-  const bool general = problem.general_modal;
+  const auto form = static_cast<DispersiveForm>(problem.dispersive.form);
+  const bool general = problem.general.enabled;
   // The general route synthesises its own analytic signal on the real field family;
   // elsewhere the family follows the sector.
-  const bool family_fits = general
-                               ? problem.family == FieldFamily::field_real &&
-                                     form != DispersiveForm::harmonic
-                               : (problem.family == FieldFamily::field_real &&
-                                  form == DispersiveForm::real) ||
-                                     (problem.family == FieldFamily::field_analytic &&
-                                      form == DispersiveForm::conserving) ||
-                                     (problem.family == FieldFamily::envelope &&
-                                      form != DispersiveForm::real);
+  const bool family_fits =
+      general ? problem.dims.family == FieldFamily::field_real &&
+                    form != DispersiveForm::harmonic
+              : (problem.dims.family == FieldFamily::field_real &&
+                 form == DispersiveForm::real) ||
+                    (problem.dims.family == FieldFamily::field_analytic &&
+                     form == DispersiveForm::conserving) ||
+                    (problem.dims.family == FieldFamily::envelope &&
+                     form != DispersiveForm::real);
   if (!family_fits)
     throw std::invalid_argument(
         "the dispersive form does not fit the field family: a field grid's full cubic "
         "takes the real family, its number-conserving sector the analytic one (the "
         "general modal route's both the real one), and an envelope's both sectors the "
         "envelope family");
-  const std::size_t bins = problem.family == FieldFamily::envelope && !general
-                               ? problem.n_to
-                               : problem.n_to / 2 + 1;
-  const std::size_t channels = problem.dispersive_coefficients.size();
+  const std::size_t bins = problem.dims.family == FieldFamily::envelope && !general
+                               ? problem.dims.n_to
+                               : problem.dims.n_to / 2 + 1;
+  const std::size_t channels = problem.dispersive.coefficients.size();
   if (channels == 0)
     throw std::invalid_argument("the dispersive response needs a channel");
-  require_size(problem.dispersive_input_scale.size(), bins, "input_scale");
-  require_size(problem.dispersive_output_scale.size(), bins, "output_scale");
-  require_size(problem.dispersive_pair_constants.size(),
+  require_size(problem.dispersive.input_scale.size(), bins, "input_scale");
+  require_size(problem.dispersive.output_scale.size(), bins, "output_scale");
+  require_size(problem.dispersive.pair_constants.size(),
                product_of(2, channels, "pair constants"), "pair_constants");
-  const auto& offsets = problem.dispersive_group_offsets;
-  const auto& members = problem.dispersive_group_members;
+  const auto& offsets = problem.dispersive.group_offsets;
+  const auto& members = problem.dispersive.group_members;
   if (offsets.size() < 2 || offsets.front() != 0 || offsets.back() != members.size() ||
       members.size() != channels)
     throw std::invalid_argument(
@@ -632,18 +632,18 @@ void require_dispersive(const Problem& problem) {
   for (std::size_t group = 0; group + 1 < offsets.size(); ++group) {
     if (offsets[group + 1] <= offsets[group])
       throw std::invalid_argument("every dispersive group needs a channel");
-    if (problem.dispersive_symmetric && offsets[group + 1] - offsets[group] > 1)
+    if (problem.dispersive.symmetric && offsets[group + 1] - offsets[group] > 1)
       ++mixtures;
   }
   const std::size_t groups = offsets.size() - 1;
   // Keys and node regions belong to the general route, where a channel acts at its own
   // region's nodes; elsewhere every channel acts at every node.
-  const auto& keys = problem.dispersive_group_keys;
+  const auto& keys = problem.dispersive.group_keys;
   if (general) {
     require_size(keys.size(), groups, "group_keys");
-    require_size(problem.dispersive_node_region.size(), problem.general_nodes,
+    require_size(problem.dispersive.node_region.size(), problem.general.nodes,
                  "node_region");
-  } else if (!keys.empty() || !problem.dispersive_node_region.empty()) {
+  } else if (!keys.empty() || !problem.dispersive.node_region.empty()) {
     throw std::invalid_argument(
         "dispersive group keys and node regions belong to the general modal route");
   }
@@ -653,35 +653,36 @@ void require_dispersive(const Problem& problem) {
     if (std::ranges::find(distinct, key) == distinct.end())
       distinct.push_back(key);
   }
-  const std::size_t fields = problem.dispersive_symmetric ? groups : 2 * groups;
+  const std::size_t fields = problem.dispersive.symmetric ? groups : 2 * groups;
   const std::size_t products =
-      problem.dispersive_symmetric ? groups : distinct.size() + 2 * groups;
-  require_size(problem.dispersive_inputs.size(), product_of(fields, bins, "inputs"),
+      problem.dispersive.symmetric ? groups : distinct.size() + 2 * groups;
+  require_size(problem.dispersive.inputs.size(), product_of(fields, bins, "inputs"),
                "inputs");
-  const std::size_t terms = problem.dispersive_term_rows.size();
+  const std::size_t terms = problem.dispersive.term_rows.size();
   if (terms == 0)
     throw std::invalid_argument("the dispersive response needs an output term");
-  require_size(problem.dispersive_term_channels.size(), terms, "term_channels");
-  require_size(problem.dispersive_term_multipliers.size(),
+  require_size(problem.dispersive.term_channels.size(), terms, "term_channels");
+  require_size(problem.dispersive.term_multipliers.size(),
                product_of(terms, bins, "term multipliers"), "term_multipliers");
   for (std::size_t term = 0; term < terms; ++term)
-    if (problem.dispersive_term_rows[term] >= products ||
-        problem.dispersive_term_channels[term] > channels + mixtures)
+    if (problem.dispersive.term_rows[term] >= products ||
+        problem.dispersive.term_channels[term] > channels + mixtures)
       throw std::invalid_argument("a dispersive term names no product or factor");
-  require_size(problem.dispersive_quartics.size(),
+  require_size(problem.dispersive.quartics.size(),
                mixtures == 0 ? 0 : product_of(channels, bins, "quartics"), "quartics");
   // The products and their spectra, and the node slots: the general route's chunk, or
   // at most the modal columns.
-  const auto rows = general ? product_of(problem.general_node_chunk,
-                                         problem.general_components, "dispersive rows")
+  const auto rows = general ? product_of(problem.general.node_chunk,
+                                         problem.general.components, "dispersive rows")
                             : problem.n_columns();
   const auto field =
       product_of(product_of(products + fields, rows, "dispersive products"),
-                 problem.n_to, "dispersive products");
+                 problem.dims.n_to, "dispersive products");
   static_cast<void>(product_of(field, sizeof(Complex), "dispersive product bytes"));
   static_cast<void>(product_of(
-      product_of(2 * problem.node_chunk, problem.effective_node_pol(), "slots"),
-      product_of(problem.n_to, sizeof(Complex), "slot bytes"), "dispersive slots"));
+      product_of(2 * problem.dims.node_chunk, problem.effective_node_pol(), "slots"),
+      product_of(problem.dims.n_to, sizeof(Complex), "slot bytes"),
+      "dispersive slots"));
 }
 
 void dispersive_mixture_rows(
@@ -720,19 +721,19 @@ void dispersive_mixture_rows(
 DispersiveWeights::DispersiveWeights(const Problem& problem, ExecutionSpace kernels)
     : kernels_(std::move(kernels)) {
   require_dispersive(problem);
-  if (!problem.dispersive)
+  if (!problem.dispersive.enabled)
     throw std::invalid_argument("the problem does not carry the dispersive response");
-  channels_ = problem.dispersive_coefficients.size();
-  bins_ = problem.dispersive_input_scale.size();
-  n_stages_ = problem.n_stages;
-  symmetric_ = problem.dispersive_symmetric;
-  coefficients_ = problem.dispersive_coefficients;
-  pair_constants_ = problem.dispersive_pair_constants;
-  group_offsets_ = problem.dispersive_group_offsets;
-  group_members_ = problem.dispersive_group_members;
+  channels_ = problem.dispersive.coefficients.size();
+  bins_ = problem.dispersive.input_scale.size();
+  n_stages_ = problem.stepper.n_stages;
+  symmetric_ = problem.dispersive.symmetric;
+  coefficients_ = problem.dispersive.coefficients;
+  pair_constants_ = problem.dispersive.pair_constants;
+  group_offsets_ = problem.dispersive.group_offsets;
+  group_members_ = problem.dispersive.group_members;
   groups_ = group_offsets_.size() - 1;
-  keys_ = problem.dispersive_group_keys.empty() ? std::vector<std::size_t>(groups_, 0)
-                                                : problem.dispersive_group_keys;
+  keys_ = problem.dispersive.group_keys.empty() ? std::vector<std::size_t>(groups_, 0)
+                                                : problem.dispersive.group_keys;
   if (!symmetric_) {
     // One cube per distinct key, in the order the groups first name it (solprop
     // `dispersive_terms_layout`).
@@ -753,7 +754,7 @@ DispersiveWeights::DispersiveWeights(const Problem& problem, ExecutionSpace kern
   mixtures_ = mixture_groups_.size();
   static_inputs_ = RealView2("solprop_native.dispersive.static_inputs", fields_, bins_);
   inputs_ = RealView2("solprop_native.dispersive.inputs", fields_, bins_);
-  const auto terms = problem.dispersive_term_rows.size();
+  const auto terms = problem.dispersive.term_rows.size();
   term_multipliers_ =
       RealView2("solprop_native.dispersive.term_multipliers", terms, bins_);
   outputs_ = RealView2("solprop_native.dispersive.outputs", terms, bins_);
@@ -768,17 +769,17 @@ DispersiveWeights::DispersiveWeights(const Problem& problem, ExecutionSpace kern
   term_rows_ = IndexView("solprop_native.dispersive.term_rows", terms);
   term_channels_ = IndexView("solprop_native.dispersive.term_channels", terms);
   members_ = IndexView("solprop_native.dispersive.members", channels_);
-  upload(kernels_, static_inputs_, problem.dispersive_inputs);
+  upload(kernels_, static_inputs_, problem.dispersive.inputs);
   graph::deep_copy(kernels_, inputs_, static_inputs_);
-  upload(kernels_, term_multipliers_, problem.dispersive_term_multipliers);
+  upload(kernels_, term_multipliers_, problem.dispersive.term_multipliers);
   graph::deep_copy(kernels_, outputs_, term_multipliers_);
   if (mixtures_ != 0)
-    upload(kernels_, quartics_, problem.dispersive_quartics);
-  upload(kernels_, input_scale_, problem.dispersive_input_scale);
-  upload(kernels_, output_scale_, problem.dispersive_output_scale);
-  upload(kernels_, term_rows_, problem.dispersive_term_rows);
-  upload(kernels_, term_channels_, problem.dispersive_term_channels);
-  upload(kernels_, members_, problem.dispersive_group_members);
+    upload(kernels_, quartics_, problem.dispersive.quartics);
+  upload(kernels_, input_scale_, problem.dispersive.input_scale);
+  upload(kernels_, output_scale_, problem.dispersive.output_scale);
+  upload(kernels_, term_rows_, problem.dispersive.term_rows);
+  upload(kernels_, term_channels_, problem.dispersive.term_channels);
+  upload(kernels_, members_, problem.dispersive.group_members);
   pairs_.assign(2 * groups_, 0.0);
   densities_.assign(n_stages_ * channels_, 0.0);
   last_.assign(channels_, 0.0);
@@ -909,16 +910,18 @@ void DispersiveWeights::close() noexcept {
 
 DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool& pool,
                                        StageViews views)
-    : n_modes_(problem.n_modes), n_pol_state_(problem.n_pol_state),
-      n_pol_transform_(problem.n_pol_transform),
+    : n_modes_(problem.dims.n_modes), n_pol_state_(problem.dims.n_pol_state),
+      n_pol_transform_(problem.dims.n_pol_transform),
       components_(problem.effective_node_pol()), columns_(problem.n_columns()),
-      n_nodes_(problem.n_nodes), node_chunk_(problem.node_chunk),
-      n_chunks_((problem.n_nodes + problem.node_chunk - 1) / problem.node_chunk),
-      n_to_(problem.n_to), form_(static_cast<DispersiveForm>(problem.dispersive_form)),
+      n_nodes_(problem.dims.n_nodes), node_chunk_(problem.dims.node_chunk),
+      n_chunks_((problem.dims.n_nodes + problem.dims.node_chunk - 1) /
+                problem.dims.node_chunk),
+      n_to_(problem.dims.n_to),
+      form_(static_cast<DispersiveForm>(problem.dispersive.form)),
       stage_(std::move(views)),
       weights_(problem,
-               pool.get(CpuOperation::stage, problem.dispersive_inputs.size())) {
-  if (problem.general_modal || problem.separable_geometry())
+               pool.get(CpuOperation::stage, problem.dispersive.inputs.size())) {
+  if (problem.general.enabled || problem.separable_geometry())
     throw std::invalid_argument(
         "the fused dispersive response runs on the legacy transform's node path");
   const bool complex = form_ != DispersiveForm::real;
@@ -927,8 +930,8 @@ DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool&
   const auto fields = weights_.fields();
   const auto products = weights_.products();
   kernels_ = pool.get(CpuOperation::stage, products * columns_ * n_to_);
-  response_chunk_ = problem.node_chunk;
-  const auto tail = problem.n_nodes % response_chunk_;
+  response_chunk_ = problem.dims.node_chunk;
+  const auto tail = problem.dims.n_nodes % response_chunk_;
   response_ =
       pool.get(CpuOperation::response, response_chunk_ * components_ * n_to_, n_to_);
   tail_response_ = pool.get(CpuOperation::response, tail * components_ * n_to_, n_to_);
@@ -939,14 +942,14 @@ DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool&
   matrix_copy_ = pool.get(CpuOperation::copy, n_modes_ * n_nodes_ * n_pol_transform_);
   dense_ = pool.get(CpuOperation::dense, dense_elements);
   tail_dense_ = pool.get(CpuOperation::dense, tail_dense_elements);
-  analytic_ = problem.family == FieldFamily::field_analytic;
-  embedded_ = !problem.projection_coarse_matrix.empty();
+  analytic_ = problem.dims.family == FieldFamily::field_analytic;
+  embedded_ = !problem.transform.projection_coarse_matrix.empty();
   // Alone, nothing else is projected or transformed beside the response; a lone one is
   // also a single product, which reads the stage's own node buffer.
-  alone_ = !problem.nonlinear && !problem.plasma && !problem.raman &&
-           !problem.envelope_plasma;
+  alone_ = !problem.kerr.nonlinear && !problem.plasma.enabled &&
+           !problem.raman.enabled && !problem.plasma.envelope;
   lone_ = alone_ && symmetric && products == 1;
-  in_place_ = lone_ && !problem.in_stage_absorber;
+  in_place_ = lone_ && !problem.absorber.in_stage;
   borrowed_ = lone_ && !analytic_;
   shifted_ = analytic_ && !symmetric;
 
@@ -1327,19 +1330,19 @@ void DispersiveResponse::close() noexcept {
 
 SeparableDispersive::SeparableDispersive(const Problem& problem, CpuExecutionPool& pool,
                                          StageViews views)
-    : n_to_(problem.n_to), n_x_(problem.n_x), n_p_(problem.n_p),
-      form_(static_cast<DispersiveForm>(problem.dispersive_form)),
+    : n_to_(problem.dims.n_to), n_x_(problem.spatial.n_x), n_p_(problem.spatial.n_p),
+      form_(static_cast<DispersiveForm>(problem.dispersive.form)),
       slab_(problem.slab_geometry()), stage_(std::move(views)),
       weights_(problem,
-               pool.get(CpuOperation::stage, problem.dispersive_inputs.size())) {
+               pool.get(CpuOperation::stage, problem.dispersive.inputs.size())) {
   if (!problem.separable_geometry())
     throw std::invalid_argument("the separable dispersive response runs on the "
                                 "Cartesian free-space, line and planar routes");
   // A chunk's temporal rows: a free-space chunk's nodes times their components, a
   // planar block's (p, y) rows; and the rows of its node buffer.
   components_ = problem.effective_node_pol();
-  node_rows_ = problem.node_chunk * components_;
-  rows_ = slab_ ? (problem.node_chunk / n_x_) * n_p_ : node_rows_;
+  node_rows_ = problem.dims.node_chunk * components_;
+  rows_ = slab_ ? (problem.dims.node_chunk / n_x_) * n_p_ : node_rows_;
   require_size(stage_.fine_spectrum.extent(0), rows_, "chunk rows");
   const bool complex = form_ != DispersiveForm::real;
   spectrum_bins_ = complex ? n_to_ : n_to_ / 2 + 1;
@@ -1347,8 +1350,8 @@ SeparableDispersive::SeparableDispersive(const Problem& problem, CpuExecutionPoo
   const auto fields = weights_.fields();
   const auto products = weights_.products();
   kernels_ = pool.get(CpuOperation::stage, products * rows_ * n_to_);
-  response_chunk_ = problem.node_chunk;
-  const auto tail = problem.n_nodes % response_chunk_;
+  response_chunk_ = problem.dims.node_chunk;
+  const auto tail = problem.dims.n_nodes % response_chunk_;
   active_rows_ = rows_;
   if constexpr (cpu_size_policy_enabled)
     tail_rows_ = slab_ ? (tail / n_x_) * n_p_ : tail * components_;
@@ -1358,9 +1361,9 @@ SeparableDispersive::SeparableDispersive(const Problem& problem, CpuExecutionPoo
   tail_response_ = pool.get(CpuOperation::response, tail * components_ * n_to_, n_to_);
   dense_ = pool.get(CpuOperation::dense, response_chunk_ * components_ * n_to_ * n_p_);
   tail_dense_ = pool.get(CpuOperation::dense, tail * components_ * n_to_ * n_p_);
-  analytic_ = problem.family == FieldFamily::field_analytic;
-  alone_ = !problem.nonlinear && !problem.plasma && !problem.raman &&
-           !problem.envelope_plasma;
+  analytic_ = problem.dims.family == FieldFamily::field_analytic;
+  alone_ = !problem.kerr.nonlinear && !problem.plasma.enabled &&
+           !problem.raman.enabled && !problem.plasma.envelope;
   lone_ = alone_ && symmetric && products == 1;
   // The in-stage absorber is a pass of its own here, which packs the chunk afresh.
   in_place_ = lone_;
@@ -1708,14 +1711,14 @@ void SeparableDispersive::close() noexcept {
 
 GeneralDispersive::GeneralDispersive(const Problem& problem, CpuExecutionPool& pool,
                                      StageViews views)
-    : rows_(problem.general_node_chunk * problem.general_components),
-      components_(problem.general_components), n_to_(problem.n_to),
-      real_(static_cast<DispersiveForm>(problem.dispersive_form) ==
+    : rows_(problem.general.node_chunk * problem.general.components),
+      components_(problem.general.components), n_to_(problem.dims.n_to),
+      real_(static_cast<DispersiveForm>(problem.dispersive.form) ==
             DispersiveForm::real),
       stage_(std::move(views)),
       weights_(problem,
-               pool.get(CpuOperation::stage, problem.dispersive_inputs.size())) {
-  if (!problem.general_modal)
+               pool.get(CpuOperation::stage, problem.dispersive.inputs.size())) {
+  if (!problem.general.enabled)
     throw std::invalid_argument(
         "the general dispersive response runs on the general modal route");
   require_size(stage_.spectrum.extent(0), rows_, "chunk rows");
@@ -1724,10 +1727,10 @@ GeneralDispersive::GeneralDispersive(const Problem& problem, CpuExecutionPool& p
   const auto fields = weights_.fields() * rows_;
   const auto products = weights_.products() * rows_;
   kernels_ = pool.get(CpuOperation::stage, products * n_to_);
-  response_chunk_ = problem.general_node_chunk;
-  const auto tail = problem.general_nodes % response_chunk_;
+  response_chunk_ = problem.general.node_chunk;
+  const auto tail = problem.general.nodes % response_chunk_;
   active_rows_ = rows_;
-  last_chunk_ = problem.general_nodes / response_chunk_;
+  last_chunk_ = problem.general.nodes / response_chunk_;
   if constexpr (cpu_size_policy_enabled)
     tail_rows_ = tail * components_;
   tail_kernels_ =
@@ -1748,13 +1751,13 @@ GeneralDispersive::GeneralDispersive(const Problem& problem, CpuExecutionPool& p
   if (shifted_)
     dc_ = ComplexView("solprop_native.dispersive.zero_frequency", rows_);
   node_region_ =
-      IndexView("solprop_native.dispersive.node_region", problem.general_nodes);
-  upload(kernels_, node_region_, problem.dispersive_node_region);
+      IndexView("solprop_native.dispersive.node_region", problem.general.nodes);
+  upload(kernels_, node_region_, problem.dispersive.node_region);
   // Which chunks have a node of any channel's region, decided once.
-  const auto& region = problem.dispersive_node_region;
-  const auto chunk = problem.general_node_chunk;
-  for (std::size_t first = 0; first < problem.general_nodes; first += chunk) {
-    const auto last = std::min(first + chunk, problem.general_nodes);
+  const auto& region = problem.dispersive.node_region;
+  const auto chunk = problem.general.node_chunk;
+  for (std::size_t first = 0; first < problem.general.nodes; first += chunk) {
+    const auto last = std::min(first + chunk, problem.general.nodes);
     bool any = false;
     for (std::size_t node = first; node < last && !any; ++node)
       for (std::size_t group = 0; group < weights_.groups() && !any; ++group)

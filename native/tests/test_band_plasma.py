@@ -62,7 +62,8 @@ from conftest import PhaseACase
 from plasma_bounds import assert_regression_guard, plasma_stage_bound, rate_roundoff
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
-    _native_problem,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
+    _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
 
 INFO = solprop_native.build_info()
@@ -756,24 +757,25 @@ def test_native_taps_are_validated(damage: str) -> None:
     grid, problem, run_request = modal("mode_averaged", "band")
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        payload = _native_problem(
+        payload = _lower(
             problem,
             run_request,
-            backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
+            _LowerPlan(terms=backend._terms),  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
     finally:
         backend.close()
-    taps = np.array(payload["plasma_taps"], dtype=float, copy=True)
+    plasma = payload.plasma
+    taps = plasma.taps
     if damage == "too_many":
-        payload["plasma_taps"] = np.ones(10)
+        plasma.taps = np.ones(10)
     elif damage == "nonfinite":
         taps[1] = np.nan
-        payload["plasma_taps"] = taps
+        plasma.taps = taps
     elif damage == "empty":
-        payload["plasma_taps"] = np.empty(0)
+        plasma.taps = np.empty(0)
     else:
         # The trapezoid is the one identity tap and nothing else.
-        payload["plasma_band"] = False
+        plasma.band = False
     with pytest.raises(ValueError, match=r"taps|trapezoid|band"):
         _core.State(payload)
 

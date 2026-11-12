@@ -74,17 +74,18 @@ std::size_t far_field_band_count(const std::size_t n_x, const std::size_t n_y,
 }
 
 FarFieldPass::FarFieldPass(const Problem& problem, ExecutionSpace execution)
-    : execution_(std::move(execution)), n_x_(problem.n_x), n_y_(problem.n_y),
-      n_omega_(problem.n_omega), n_pol_(problem.n_pol_state), n_t_(problem.n_t),
-      dt_(problem.dt), envelope_(problem.family == FieldFamily::envelope) {
-  if (!problem.free_geometry() || problem.spatial_k_x.size() != n_x_ ||
-      problem.spatial_k_y.size() != n_y_)
+    : execution_(std::move(execution)), n_x_(problem.spatial.n_x),
+      n_y_(problem.spatial.n_y), n_omega_(problem.dims.n_omega),
+      n_pol_(problem.dims.n_pol_state), n_t_(problem.dims.n_t), dt_(problem.grid.dt),
+      envelope_(problem.dims.family == FieldFamily::envelope) {
+  if (!problem.free_geometry() || problem.spatial.k_x.size() != n_x_ ||
+      problem.spatial.k_y.size() != n_y_)
     throw std::invalid_argument(
         "the far-field pass needs a Cartesian or line grid and its column axes");
-  for (const double value : problem.spatial_k_x)
+  for (const double value : problem.spatial.k_x)
     if (!std::isfinite(value))
       throw std::invalid_argument("spatial_k_x must be finite");
-  for (const double value : problem.spatial_k_y)
+  for (const double value : problem.spatial.k_y)
     if (!std::isfinite(value))
       throw std::invalid_argument("spatial_k_y must be finite");
   k_x_ = RealView("solprop_native.far_field.k_x", n_x_);
@@ -92,13 +93,13 @@ FarFieldPass::FarFieldPass(const Problem& problem, ExecutionSpace execution)
   const auto host_x = Kokkos::create_mirror_view(k_x_);
   const auto host_y = Kokkos::create_mirror_view(k_y_);
   for (std::size_t index = 0; index < n_x_; ++index)
-    host_x(index) = problem.spatial_k_x[index];
+    host_x(index) = problem.spatial.k_x[index];
   for (std::size_t index = 0; index < n_y_; ++index)
-    host_y(index) = problem.spatial_k_y[index];
+    host_y(index) = problem.spatial.k_y[index];
   Kokkos::deep_copy(execution_, k_x_, host_x);
   Kokkos::deep_copy(execution_, k_y_, host_y);
-  if (problem.spatial_far_field_slots != 0) {
-    const auto slots = problem.spatial_far_field_slots;
+  if (problem.spatial.far_field_slots != 0) {
+    const auto slots = problem.spatial.far_field_slots;
     const auto bands = far_field_band_count(n_x_, n_y_, slots, n_omega_);
     partials_ = RealView("solprop_native.far_field.partials", bands * slots * n_omega_);
   }

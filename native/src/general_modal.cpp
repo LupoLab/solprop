@@ -135,8 +135,8 @@ static_assert(symmetric_monomials(3) == 10 && symmetric_monomial(3, 2, 0, 1) == 
               symmetric_monomial(2, 1, 0, 1) == 2);
 
 bool general_crop_is_contiguous(const Problem& problem) {
-  const auto& crop = problem.crop_index;
-  if (crop.size() != problem.n_omega || crop.empty())
+  const auto& crop = problem.grid.crop_index;
+  if (crop.size() != problem.dims.n_omega || crop.empty())
     return false;
   for (std::size_t omega = 0; omega < crop.size(); ++omega)
     if (crop[omega] != crop.front() + omega)
@@ -159,31 +159,32 @@ int general_team_lanes() {
 } // namespace
 
 void require_general_modal(const Problem& problem) {
-  if (!problem.general_modal) {
-    if (!problem.general_synthesis.empty() || !problem.general_projection.empty() ||
-        !problem.general_tensor.empty() || !problem.general_frequency_factor.empty() ||
-        !problem.general_delayed_tensor.empty() ||
-        !problem.general_delayed_spectrum.empty() ||
-        !problem.general_node_response.empty())
+  if (!problem.general.enabled) {
+    if (!problem.general.synthesis.empty() || !problem.general.projection.empty() ||
+        !problem.general.tensor.empty() || !problem.general.frequency_factor.empty() ||
+        !problem.general.delayed_tensor.empty() ||
+        !problem.general.delayed_spectrum.empty() ||
+        !problem.general.node_response.empty())
       throw std::invalid_argument("general modal arrays require general_modal");
     return;
   }
-  const auto components = problem.general_components;
-  const auto nodes = problem.general_nodes;
+  const auto components = problem.general.components;
+  const auto nodes = problem.general.nodes;
   if (components == 0 || components > max_components)
     throw std::invalid_argument("the general modal route resolves one to three "
                                 "Cartesian components");
-  if (nodes == 0 || problem.general_node_chunk == 0 ||
-      problem.general_node_chunk > nodes)
+  if (nodes == 0 || problem.general.node_chunk == 0 ||
+      problem.general.node_chunk > nodes)
     throw std::invalid_argument("general_node_chunk must lie in [1, general_nodes]");
-  if (problem.family != FieldFamily::field_real || problem.n_pol_state != 1 ||
-      problem.n_pol_transform != 1 || problem.separable_geometry())
+  if (problem.dims.family != FieldFamily::field_real || problem.dims.n_pol_state != 1 ||
+      problem.dims.n_pol_transform != 1 || problem.separable_geometry())
     throw std::invalid_argument("the general modal route runs one channel axis on a "
                                 "field grid with no polarisation axis");
-  if (problem.nonlinear || problem.plasma || problem.raman || problem.envelope_plasma)
+  if (problem.kerr.nonlinear || problem.plasma.enabled || problem.raman.enabled ||
+      problem.plasma.envelope)
     throw std::invalid_argument("the general modal route carries its own regional "
                                 "responses and no legacy nonlinear term");
-  if (problem.n_to == 0 || problem.n_to % 2 != 0)
+  if (problem.dims.n_to == 0 || problem.dims.n_to % 2 != 0)
     throw std::invalid_argument("the general modal route needs an even fine grid");
   // A field grid's coarse bins are the leading bins of the fine spectrum (solprop
   // `fourier.crop_index`), so the source reads and writes them as one contiguous
@@ -191,41 +192,42 @@ void require_general_modal(const Problem& problem) {
   if (!general_crop_is_contiguous(problem))
     throw std::invalid_argument("the general modal route needs the coarse bins to be "
                                 "one contiguous block of the fine spectrum");
-  if (!std::isfinite(problem.general_pad_scale) || problem.general_pad_scale <= 0.0 ||
-      !std::isfinite(problem.general_epsilon0) || problem.general_epsilon0 <= 0.0)
+  if (!std::isfinite(problem.general.pad_scale) || problem.general.pad_scale <= 0.0 ||
+      !std::isfinite(problem.general.epsilon0) || problem.general.epsilon0 <= 0.0)
     throw std::invalid_argument(
         "general modal pad scale and vacuum permittivity must be finite and positive");
-  if (problem.general_map_intervals == 0 || problem.general_map_n_deg == 0)
+  if (problem.general.map_intervals == 0 || problem.general.map_n_deg == 0)
     throw std::invalid_argument("general modal maps carry at least one section of at "
                                 "least one Chebyshev term along z");
   const auto map_terms =
-      product(problem.general_map_intervals, problem.general_map_n_deg, "map terms");
-  if (map_terms > 1 && problem.n_stages == 0)
+      product(problem.general.map_intervals, problem.general.map_n_deg, "map terms");
+  if (map_terms > 1 && problem.stepper.n_stages == 0)
     throw std::invalid_argument("moving general modal maps need at least one stage");
   const auto rows = product(nodes, components, "node rows");
-  const auto maps =
-      product(product(rows, problem.n_modes, "maps"), problem.n_omega, "maps");
-  require_size(problem.general_synthesis.size(), product(map_terms, maps, "map terms"),
+  const auto maps = product(product(rows, problem.dims.n_modes, "maps"),
+                            problem.dims.n_omega, "maps");
+  require_size(problem.general.synthesis.size(), product(map_terms, maps, "map terms"),
                "synthesis");
-  require_size(problem.general_projection.size(), product(map_terms, maps, "map terms"),
+  require_size(problem.general.projection.size(), product(map_terms, maps, "map terms"),
                "projection");
   if (map_terms > 1)
-    static_cast<void>(product(product(problem.n_stages, map_terms, "map weights"),
-                              sizeof(double), "map weight bytes"));
-  require_size(problem.general_tensor.size(),
+    static_cast<void>(
+        product(product(problem.stepper.n_stages, map_terms, "map weights"),
+                sizeof(double), "map weight bytes"));
+  require_size(problem.general.tensor.size(),
                product(nodes, fourth_power(components), "tensor"), "tensor");
-  require_size(problem.general_frequency_factor.size(), problem.n_omega,
+  require_size(problem.general.frequency_factor.size(), problem.dims.n_omega,
                "frequency factor");
-  if (!finite(problem.general_synthesis) || !finite(problem.general_projection) ||
-      !finite(problem.general_tensor) || !finite(problem.general_frequency_factor))
+  if (!finite(problem.general.synthesis) || !finite(problem.general.projection) ||
+      !finite(problem.general.tensor) || !finite(problem.general.frequency_factor))
     throw std::invalid_argument("general modal maps must be finite");
-  const auto chunk_rows = product(problem.general_node_chunk, components, "chunk rows");
-  static_cast<void>(product(product(chunk_rows, problem.n_to, "chunk buffers"),
+  const auto chunk_rows = product(problem.general.node_chunk, components, "chunk rows");
+  static_cast<void>(product(product(chunk_rows, problem.dims.n_to, "chunk buffers"),
                             sizeof(Complex), "chunk bytes"));
-  if (problem.general_terms == 0) {
-    if (problem.general_responses != 0 || !problem.general_delayed_tensor.empty() ||
-        !problem.general_delayed_spectrum.empty() ||
-        !problem.general_node_response.empty())
+  if (problem.general.terms == 0) {
+    if (problem.general.responses != 0 || !problem.general.delayed_tensor.empty() ||
+        !problem.general.delayed_spectrum.empty() ||
+        !problem.general.node_response.empty())
       throw std::invalid_argument("a general modal problem with no delayed term "
                                   "carries no delayed arrays");
     return;
@@ -233,44 +235,46 @@ void require_general_modal(const Problem& problem) {
   if (components != max_components)
     throw std::invalid_argument(
         "a delayed general modal response needs the three Cartesian components");
-  if (problem.general_responses == 0)
+  if (problem.general.responses == 0)
     throw std::invalid_argument("a delayed general modal term needs a response");
   const auto channels =
-      product(problem.general_responses, problem.general_terms, "delayed channels");
-  require_size(problem.general_delayed_tensor.size(),
+      product(problem.general.responses, problem.general.terms, "delayed channels");
+  require_size(problem.general.delayed_tensor.size(),
                product(channels, fourth_power(components), "delayed tensor"),
                "delayed tensor");
-  require_size(problem.general_delayed_spectrum.size(),
-               product(channels, problem.n_to + 1, "delayed spectrum"),
+  require_size(problem.general.delayed_spectrum.size(),
+               product(channels, problem.dims.n_to + 1, "delayed spectrum"),
                "delayed spectrum");
-  require_size(problem.general_node_response.size(), nodes, "node response");
-  if (!finite(problem.general_delayed_tensor) ||
-      !finite(problem.general_delayed_spectrum))
+  require_size(problem.general.node_response.size(), nodes, "node response");
+  if (!finite(problem.general.delayed_tensor) ||
+      !finite(problem.general.delayed_spectrum))
     throw std::invalid_argument("general modal delayed data must be finite");
-  for (const auto owner : problem.general_node_response)
-    if (owner > problem.general_responses)
+  for (const auto owner : problem.general.node_response)
+    if (owner > problem.general.responses)
       throw std::invalid_argument("general modal node response names no response");
   static_cast<void>(product(
-      product(product(problem.general_node_chunk, general_pair_histories, "pairs"),
-              2 * problem.n_to, "pair buffers"),
+      product(product(problem.general.node_chunk, general_pair_histories, "pairs"),
+              2 * problem.dims.n_to, "pair buffers"),
       sizeof(Complex), "pair bytes"));
 }
 
 GeneralModalSource::GeneralModalSource(const Problem& problem)
-    : n_modes_(problem.n_modes), n_omega_(problem.n_omega), n_to_(problem.n_to),
-      components_(problem.general_components), nodes_(problem.general_nodes),
-      chunk_(problem.general_node_chunk), terms_(problem.general_terms),
-      map_terms_(problem.general_map_intervals * problem.general_map_n_deg),
-      map_n_deg_(problem.general_map_n_deg), n_stages_(problem.n_stages),
-      crop_offset_(problem.crop_index.empty() ? 0 : problem.crop_index.front()),
-      real_form_(problem.general_real_form), epsilon0_(problem.general_epsilon0),
+    : n_modes_(problem.dims.n_modes), n_omega_(problem.dims.n_omega),
+      n_to_(problem.dims.n_to), components_(problem.general.components),
+      nodes_(problem.general.nodes), chunk_(problem.general.node_chunk),
+      terms_(problem.general.terms),
+      map_terms_(problem.general.map_intervals * problem.general.map_n_deg),
+      map_n_deg_(problem.general.map_n_deg), n_stages_(problem.stepper.n_stages),
+      crop_offset_(problem.grid.crop_index.empty() ? 0
+                                                   : problem.grid.crop_index.front()),
+      real_form_(problem.general.real_form), epsilon0_(problem.general.epsilon0),
       kernel_pool_(CpuPool::kernels, problem.cpu_execution),
       fft_pool_(CpuPool::fft, problem.cpu_execution),
       raman_pool_(CpuPool::raman_fft, problem.cpu_execution),
       raman_tail_pool_(CpuPool::raman_tail_fft, problem.cpu_execution) {
   require_general_modal(problem);
   require_cpu_execution(problem.cpu_execution);
-  if (!problem.general_modal)
+  if (!problem.general.enabled)
     throw std::invalid_argument("the problem does not declare the general modal route");
   kernels_ = kernel_pool_.get(CpuOperation::stage, n_modes_ * n_omega_);
   response_ =
@@ -287,20 +291,20 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   // zero; with no regional tensor and no delayed response the contraction is
   // identically zero, and it and its transform are skipped.
   const bool tensor = std::ranges::any_of(
-      problem.general_tensor, [](const double value) { return value != 0.0; });
+      problem.general.tensor, [](const double value) { return value != 0.0; });
   regional_ = tensor || terms_ != 0;
-  responds_ = tensor || problem.dispersive;
+  responds_ = tensor || problem.dispersive.enabled;
   const auto chunk_rows = chunk_ * components_;
   if (moving()) {
     // A moving guide holds every coefficient of both maps and one evaluated map of
     // each, which `combine` rewrites per stage; the weights and their host copy are
     // allocated here so that a trial allocates nothing.
-    const auto one_map = problem.general_synthesis.size() / map_terms_;
+    const auto one_map = problem.general.synthesis.size() / map_terms_;
     maps_ = kernel_pool_.get(CpuOperation::modal, 2 * one_map * map_n_deg_);
     synthesis_terms_ = ComplexView("solprop_native.general.synthesis_terms",
-                                   problem.general_synthesis.size());
+                                   problem.general.synthesis.size());
     projection_terms_ = ComplexView("solprop_native.general.projection_terms",
-                                    problem.general_projection.size());
+                                    problem.general.projection.size());
     synthesis_ = ComplexView("solprop_native.general.stage_synthesis", one_map);
     projection_ = ComplexView("solprop_native.general.stage_projection", one_map);
     map_weights_ =
@@ -309,18 +313,19 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
     stage_sections_.assign(n_stages_, 0);
   } else {
     synthesis_ = ComplexView("solprop_native.general.synthesis",
-                             problem.general_synthesis.size());
+                             problem.general.synthesis.size());
     projection_ = ComplexView("solprop_native.general.projection",
-                              problem.general_projection.size());
+                              problem.general.projection.size());
   }
   frequency_factor_ = ComplexView("solprop_native.general.frequency_factor", n_omega_);
-  tensor_ = RealView("solprop_native.general.tensor", problem.general_tensor.size());
+  tensor_ = RealView("solprop_native.general.tensor", problem.general.tensor.size());
   scaled_ = ComplexView2("solprop_native.general.scaled_state", n_modes_, n_omega_);
   source_ = ComplexView2("solprop_native.general.source", n_modes_, n_omega_);
   node_spectrum_ =
       ComplexView2("solprop_native.general.node_spectrum", chunk_rows, n_to_);
   node_field_ = ComplexView2("solprop_native.general.node_field", chunk_rows, n_to_);
-  real_signal_ = general_real_signal_enabled && real_form_ && !problem.dispersive;
+  real_signal_ =
+      general_real_signal_enabled && real_form_ && !problem.dispersive.enabled;
   if (real_signal_) {
     half_spectrum_ =
         AliasComplexView2(node_spectrum_.data(), chunk_rows, n_to_ / 2 + 1);
@@ -334,9 +339,9 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   if (terms_ != 0) {
     const auto pair_rows = chunk_ * general_pair_histories;
     delayed_tensor_ = RealView("solprop_native.general.delayed_tensor",
-                               problem.general_delayed_tensor.size());
+                               problem.general.delayed_tensor.size());
     delayed_spectrum_ = ComplexView("solprop_native.general.delayed_spectrum",
-                                    problem.general_delayed_spectrum.size());
+                                    problem.general.delayed_spectrum.size());
     node_response_ = IndexView("solprop_native.general.node_response", nodes_);
     node_drive_ = RealView2("solprop_native.general.node_drive", pair_rows, 2 * n_to_);
     node_drive_spectrum_ = ComplexView2("solprop_native.general.node_drive_spectrum",
@@ -346,16 +351,16 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
     node_histories_ =
         RealView2("solprop_native.general.node_histories", pair_rows, 2 * n_to_);
     node_delayed_ = RealView2("solprop_native.general.node_delayed", chunk_rows, n_to_);
-    upload(kernels_, delayed_tensor_, problem.general_delayed_tensor);
-    upload(kernels_, delayed_spectrum_, problem.general_delayed_spectrum);
-    upload(kernels_, node_response_, problem.general_node_response);
+    upload(kernels_, delayed_tensor_, problem.general.delayed_tensor);
+    upload(kernels_, delayed_spectrum_, problem.general.delayed_spectrum);
+    upload(kernels_, node_response_, problem.general.node_response);
   }
-  upload(kernels_, moving() ? synthesis_terms_ : synthesis_, problem.general_synthesis);
+  upload(kernels_, moving() ? synthesis_terms_ : synthesis_, problem.general.synthesis);
   upload(kernels_, moving() ? projection_terms_ : projection_,
-         problem.general_projection);
-  upload(kernels_, frequency_factor_, problem.general_frequency_factor);
-  upload(kernels_, tensor_, problem.general_tensor);
-  if (problem.dispersive)
+         problem.general.projection);
+  upload(kernels_, frequency_factor_, problem.general.frequency_factor);
+  upload(kernels_, tensor_, problem.general.tensor);
+  if (problem.dispersive.enabled)
     dispersive_ = std::make_unique<GeneralDispersive>(
         problem, kernel_pool_,
         GeneralDispersive::StageViews{

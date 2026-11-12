@@ -299,43 +299,43 @@ TEST(DispersiveMixture, TheRowsAreTheReferenceArithmetic) {
 native::Problem dispersive_problem() {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = 4;
-  problem.n_to = 8;
-  problem.n_omega = 3;
-  problem.n_stages = 1;
-  problem.family = native::FieldFamily::field_real;
-  problem.crop_index = {0, 1, 2};
-  problem.active_mask = {1, 1, 1};
-  problem.norm_mask = {1, 1, 1};
-  problem.omega_window = {1.0, 1.0, 1.0};
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.carrier.assign(problem.n_to, Complex{1.0, 0.0});
-  problem.phi_terms.assign(problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(problem.n_omega, Complex{1.0, 0.0});
-  problem.n_phi_terms = 1;
-  problem.n_prefactor_terms = 1;
-  problem.tableau_matrix = {0.0};
-  problem.tableau_nodes = {0.0};
-  problem.solution_weights = {1.0};
-  problem.error_weights = {0.0};
-  problem.synthesis_matrix = {1.0};
-  problem.projection_matrix = {1.0};
-  problem.synthesis = 1.0;
-  problem.projection = 1.0;
-  const std::size_t bins = problem.n_to / 2 + 1;
-  problem.dispersive = true;
-  problem.dispersive_symmetric = true;
-  problem.dispersive_form = 0;
-  problem.dispersive_inputs.assign(bins, 1.0);
-  problem.dispersive_term_multipliers.assign(bins, 1.0);
-  problem.dispersive_term_rows = {0};
-  problem.dispersive_term_channels = {0};
-  problem.dispersive_coefficients = {2.0};
-  problem.dispersive_pair_constants = {0.0, 0.0};
-  problem.dispersive_group_offsets = {0, 1};
-  problem.dispersive_group_members = {0};
-  problem.dispersive_input_scale.assign(bins, 1.0);
-  problem.dispersive_output_scale.assign(bins, 1.0);
+  problem.dims.n_t = 4;
+  problem.dims.n_to = 8;
+  problem.dims.n_omega = 3;
+  problem.stepper.n_stages = 1;
+  problem.dims.family = native::FieldFamily::field_real;
+  problem.grid.crop_index = {0, 1, 2};
+  problem.grid.active_mask = {1, 1, 1};
+  problem.grid.norm_mask = {1, 1, 1};
+  problem.grid.omega_window = {1.0, 1.0, 1.0};
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex{1.0, 0.0});
+  problem.linear.phi_terms.assign(problem.dims.n_omega, Complex{});
+  problem.linear.prefactor_terms.assign(problem.dims.n_omega, Complex{1.0, 0.0});
+  problem.linear.n_phi_terms = 1;
+  problem.linear.n_prefactor_terms = 1;
+  problem.stepper.tableau_matrix = {0.0};
+  problem.stepper.tableau_nodes = {0.0};
+  problem.stepper.solution_weights = {1.0};
+  problem.stepper.error_weights = {0.0};
+  problem.transform.synthesis_matrix = {1.0};
+  problem.transform.projection_matrix = {1.0};
+  problem.transform.synthesis = 1.0;
+  problem.transform.projection = 1.0;
+  const std::size_t bins = problem.dims.n_to / 2 + 1;
+  problem.dispersive.enabled = true;
+  problem.dispersive.symmetric = true;
+  problem.dispersive.form = 0;
+  problem.dispersive.inputs.assign(bins, 1.0);
+  problem.dispersive.term_multipliers.assign(bins, 1.0);
+  problem.dispersive.term_rows = {0};
+  problem.dispersive.term_channels = {0};
+  problem.dispersive.coefficients = {2.0};
+  problem.dispersive.pair_constants = {0.0, 0.0};
+  problem.dispersive.group_offsets = {0, 1};
+  problem.dispersive.group_members = {0};
+  problem.dispersive.input_scale.assign(bins, 1.0);
+  problem.dispersive.output_scale.assign(bins, 1.0);
   return problem;
 }
 
@@ -360,7 +360,7 @@ TEST(DispersiveResponse, AUnitFilterIsTheConstantCubicOfOneNode) {
   static_cast<void>(state.trial_step(0.0, scalars));
   const auto projected = state.projected_to_host(false);
   // The field in time, cubed, transformed back.
-  const std::size_t n_to = problem.n_to;
+  const std::size_t n_to = problem.dims.n_to;
   std::vector<double> time(n_to, 0.0);
   for (std::size_t sample = 0; sample < n_to; ++sample) {
     double value = field[0].real() / static_cast<double>(n_to);
@@ -414,45 +414,45 @@ TEST(DispersiveResponse, ATrialNeedsEachStageSDensities) {
 TEST(DispersiveResponse, MalformedLayoutsAreRefusedBeforeAllocation) {
   {
     auto problem = dispersive_problem();
-    problem.dispersive_form = 1; // the conserving sector on the real family
+    problem.dispersive.form = 1; // the conserving sector on the real family
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
   {
     auto problem = dispersive_problem();
-    problem.dispersive_input_scale.pop_back();
+    problem.dispersive.input_scale.pop_back();
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
   {
     auto problem = dispersive_problem();
-    problem.dispersive_term_rows = {1}; // a product the layout does not have
+    problem.dispersive.term_rows = {1}; // a product the layout does not have
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
   {
     auto problem = dispersive_problem();
-    problem.dispersive_group_members = {1};
+    problem.dispersive.group_members = {1};
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
   {
     auto problem = dispersive_problem();
-    problem.dispersive = false; // data without the response
+    problem.dispersive.enabled = false; // data without the response
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
 }
 
 TEST(DispersiveResponse, AProblemWithoutItNamesTheRowsAtZero) {
   auto problem = dispersive_problem();
-  problem.dispersive = false;
-  problem.dispersive_inputs.clear();
-  problem.dispersive_term_multipliers.clear();
-  problem.dispersive_term_rows.clear();
-  problem.dispersive_term_channels.clear();
-  problem.dispersive_coefficients.clear();
-  problem.dispersive_pair_constants.clear();
-  problem.dispersive_group_offsets.clear();
-  problem.dispersive_group_members.clear();
-  problem.dispersive_input_scale.clear();
-  problem.dispersive_output_scale.clear();
-  problem.nonlinear = true;
+  problem.dispersive.enabled = false;
+  problem.dispersive.inputs.clear();
+  problem.dispersive.term_multipliers.clear();
+  problem.dispersive.term_rows.clear();
+  problem.dispersive.term_channels.clear();
+  problem.dispersive.coefficients.clear();
+  problem.dispersive.pair_constants.clear();
+  problem.dispersive.group_offsets.clear();
+  problem.dispersive.group_members.clear();
+  problem.dispersive.input_scale.clear();
+  problem.dispersive.output_scale.clear();
+  problem.kerr.nonlinear = true;
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
   for (const auto& [name, bytes] : native::DispersiveResponse::empty_ledger())
@@ -465,39 +465,39 @@ native::Problem general_problem(const bool symmetric) {
   // krypton in region 5, as solprop's leaf groups them.
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_to = 8;
-  problem.n_stages = 1;
-  problem.family = native::FieldFamily::field_real;
-  problem.general_modal = true;
-  problem.general_nodes = 5;
-  problem.general_node_chunk = 2;
-  problem.general_components = 3;
-  const std::size_t bins = problem.n_to / 2 + 1;
-  problem.dispersive = true;
-  problem.dispersive_symmetric = symmetric;
-  problem.dispersive_form = 1;
-  problem.dispersive_coefficients = {1.0, 2.0, 3.0};
-  problem.dispersive_pair_constants.assign(6, 0.5);
-  problem.dispersive_input_scale.assign(bins, 1.0);
-  problem.dispersive_output_scale.assign(bins, 0.125);
-  problem.dispersive_node_region = {5, 5, 3, 0, 3};
+  problem.dims.n_to = 8;
+  problem.stepper.n_stages = 1;
+  problem.dims.family = native::FieldFamily::field_real;
+  problem.general.enabled = true;
+  problem.general.nodes = 5;
+  problem.general.node_chunk = 2;
+  problem.general.components = 3;
+  const std::size_t bins = problem.dims.n_to / 2 + 1;
+  problem.dispersive.enabled = true;
+  problem.dispersive.symmetric = symmetric;
+  problem.dispersive.form = 1;
+  problem.dispersive.coefficients = {1.0, 2.0, 3.0};
+  problem.dispersive.pair_constants.assign(6, 0.5);
+  problem.dispersive.input_scale.assign(bins, 1.0);
+  problem.dispersive.output_scale.assign(bins, 0.125);
+  problem.dispersive.node_region = {5, 5, 3, 0, 3};
   if (symmetric) {
-    problem.dispersive_group_offsets = {0, 1, 3};
-    problem.dispersive_group_members = {0, 1, 2};
-    problem.dispersive_group_keys = {3, 5};
-    problem.dispersive_inputs.assign(2 * bins, 1.0);
-    problem.dispersive_term_rows = {0, 1};
-    problem.dispersive_term_channels = {0, 4};
-    problem.dispersive_term_multipliers.assign(2 * bins, 0.125);
-    problem.dispersive_quartics.assign(3 * bins, 1.0);
+    problem.dispersive.group_offsets = {0, 1, 3};
+    problem.dispersive.group_members = {0, 1, 2};
+    problem.dispersive.group_keys = {3, 5};
+    problem.dispersive.inputs.assign(2 * bins, 1.0);
+    problem.dispersive.term_rows = {0, 1};
+    problem.dispersive.term_channels = {0, 4};
+    problem.dispersive.term_multipliers.assign(2 * bins, 0.125);
+    problem.dispersive.quartics.assign(3 * bins, 1.0);
   } else {
-    problem.dispersive_group_offsets = {0, 1, 2, 3};
-    problem.dispersive_group_members = {0, 1, 2};
-    problem.dispersive_group_keys = {3, 5, 5};
-    problem.dispersive_inputs.assign(6 * bins, 1.0);
-    problem.dispersive_term_rows = {0, 2, 3, 1, 4, 5, 1, 6, 7};
-    problem.dispersive_term_channels = {0, 0, 3, 1, 1, 3, 2, 2, 3};
-    problem.dispersive_term_multipliers.assign(9 * bins, 0.125);
+    problem.dispersive.group_offsets = {0, 1, 2, 3};
+    problem.dispersive.group_members = {0, 1, 2};
+    problem.dispersive.group_keys = {3, 5, 5};
+    problem.dispersive.inputs.assign(6 * bins, 1.0);
+    problem.dispersive.term_rows = {0, 2, 3, 1, 4, 5, 1, 6, 7};
+    problem.dispersive.term_channels = {0, 0, 3, 1, 1, 3, 2, 2, 3};
+    problem.dispersive.term_multipliers.assign(9 * bins, 0.125);
   }
   return problem;
 }
@@ -524,28 +524,28 @@ TEST(DispersiveWeights, ThePolynomialFormsOneCubePerRegion) {
 TEST(DispersiveWeights, RegionsBelongToTheGeneralRouteAlone) {
   {
     auto problem = general_problem(false);
-    problem.dispersive_node_region.pop_back();
+    problem.dispersive.node_region.pop_back();
     EXPECT_THROW(native::require_dispersive(problem), std::invalid_argument);
   }
   {
     auto problem = general_problem(false);
-    problem.dispersive_group_keys.pop_back();
+    problem.dispersive.group_keys.pop_back();
     EXPECT_THROW(native::require_dispersive(problem), std::invalid_argument);
   }
   {
     auto problem = general_problem(false);
-    problem.dispersive_form = 2; // an envelope's harmonic groups
+    problem.dispersive.form = 2; // an envelope's harmonic groups
     EXPECT_THROW(native::require_dispersive(problem), std::invalid_argument);
   }
   {
     auto problem = general_problem(false);
-    problem.dispersive_term_rows.back() = 8; // one product past the layout
+    problem.dispersive.term_rows.back() = 8; // one product past the layout
     EXPECT_THROW(native::require_dispersive(problem), std::invalid_argument);
   }
   {
     // Off the general route every channel acts at every node.
     auto problem = dispersive_problem();
-    problem.dispersive_group_keys = {0};
+    problem.dispersive.group_keys = {0};
     EXPECT_THROW(native::GeneralState{problem}, std::invalid_argument);
   }
   EXPECT_NO_THROW(native::require_dispersive(general_problem(true)));

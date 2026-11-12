@@ -316,6 +316,24 @@ nb::dict fft_planning_dict(const native::FftPlanning& planning) {
   return result;
 }
 
+// The planning a workspace is asked for, as `fft_planning_from` reads it back.
+nb::dict fft_request_dict(const native::FftPlanning& planning) {
+  static constexpr std::array<const char*, 3> modes{"legacy", "profile", "capture"};
+  nb::dict efforts;
+  efforts["rows"] = planning.rows;
+  efforts["threaded_rows"] = planning.threaded_rows;
+  efforts["planes"] = planning.planes;
+  nb::dict result;
+  result["mode"] = modes[static_cast<std::size_t>(planning.mode)];
+  result["efforts"] = efforts;
+  result["wisdom"] = planning.wisdom;
+  result["capture_effort"] = planning.capture_effort;
+  result["time_limit"] = planning.time_limit;
+  result["stored"] = planning.stored;
+  result["keep"] = planning.keep;
+  return result;
+}
+
 nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
   nb::dict result;
   for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
@@ -334,390 +352,349 @@ nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
   return result;
 }
 
-native::Problem problem_from(const nb::dict& values) {
-  native::Problem result;
-  if (!values.contains("cpu_execution"))
-    throw std::invalid_argument("a native problem needs its CPU execution record "
-                                "(cpu_execution, solprop SEP 46)");
-  try {
-    result.cpu_execution =
-        cpu_execution_from(nb::cast<nb::dict>(values["cpu_execution"]));
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("a native problem's cpu_execution must be a dict");
+// ------------------------------------------------------------- the problem's fields
+// A vector field of a bound struct crosses as an exact NumPy array: float64,
+// complex128, uint64 or bool, C-contiguous on the CPU and of any rank, copied in, and
+// out as a one-dimensional copy. Anything else is refused, naming the field.
+
+template <class Element> struct ExactArray;
+template <> struct ExactArray<double> {
+  using Input = RealInput;
+  using Output = nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::c_contig>;
+  using Stored = double;
+  static constexpr const char* dtype = "float64";
+  static constexpr const char* scalar = "numpy.float64";
+};
+template <> struct ExactArray<native::Complex> {
+  using Input = ComplexInput;
+  using Output =
+      nb::ndarray<nb::numpy, std::complex<double>, nb::ndim<1>, nb::c_contig>;
+  using Stored = std::complex<double>;
+  static constexpr const char* dtype = "complex128";
+  static constexpr const char* scalar = "numpy.complex128";
+};
+template <> struct ExactArray<std::size_t> {
+  using Input = IndexInput;
+  using Output = nb::ndarray<nb::numpy, std::uint64_t, nb::ndim<1>, nb::c_contig>;
+  using Stored = std::uint64_t;
+  static constexpr const char* dtype = "uint64";
+  static constexpr const char* scalar = "numpy.uint64";
+};
+template <> struct ExactArray<unsigned char> {
+  using Input = BoolInput;
+  using Output = nb::ndarray<nb::numpy, bool, nb::ndim<1>, nb::c_contig>;
+  using Stored = bool;
+  static constexpr const char* dtype = "bool";
+  static constexpr const char* scalar = "numpy.bool_";
+};
+
+template <class Element>
+std::vector<Element> exact_vector(const nb::handle value, const std::string& field,
+                                  const std::size_t rank) {
+  typename ExactArray<Element>::Input array;
+  if (!nb::try_cast(value, array, false) || (rank != 0 && array.ndim() != rank))
+    native::refuse(field, " must be a C-contiguous ", ExactArray<Element>::dtype,
+                   " array", rank == 0 ? "" : native::concat(" of rank ", rank));
+  if constexpr (std::is_same_v<Element, double>)
+    return real_vector(array);
+  else if constexpr (std::is_same_v<Element, native::Complex>)
+    return complex_vector(array);
+  else if constexpr (std::is_same_v<Element, std::size_t>)
+    return index_vector(array);
+  else
+    return bool_vector(array);
+}
+
+template <class Element>
+ExactArray<Element>::Output array_of(const std::vector<Element>& values) {
+  using Stored = ExactArray<Element>::Stored;
+  auto storage = std::make_unique<Stored[]>(values.size());
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if constexpr (std::is_same_v<Element, native::Complex>)
+      storage[index] = {values[index].real(), values[index].imag()};
+    else
+      storage[index] = static_cast<Stored>(values[index]);
   }
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  if (values.contains("fft_planning")) {
-    try {
-      result.fft_planning =
-          fft_planning_from(nb::cast<nb::dict>(values["fft_planning"]));
-    } catch (const nb::cast_error&) {
-      throw std::invalid_argument("a native problem's fft_planning must be a dict");
+  nb::capsule owner(storage.get(), [](void* held) noexcept {
+    const std::unique_ptr<Stored[]> owned(static_cast<Stored*>(held));
+  });
+  const std::array<std::size_t, 1> shape{values.size()};
+  return {storage.release(), 1, shape.data(), owner};
+}
+
+template <class T> struct IsVector : std::false_type {};
+template <class T> struct IsVector<std::vector<T>> : std::true_type {};
+
+/** One group of the problem's fields, bound as a nested class: scalars read and
+    written as they are, vectors as exact arrays (`exact_vector`). */
+template <class Group> class Fields {
+public:
+  Fields(nb::handle scope, const char* name, std::string path)
+      : class_(scope, name), path_(std::move(path)) {
+    class_.def(nb::init<>());
+  }
+  /** Bind `member` as `name`; a vector field of a nonzero `rank` takes arrays of that
+      rank alone, as the extents a count beside it gives are laid out. */
+  template <class Value>
+  Fields& field(const char* name, Value Group::* member, const std::size_t rank = 0) {
+    if constexpr (IsVector<Value>::value) {
+      using Element = Value::value_type;
+      // The setter's stub names the one dtype it takes.
+      const std::string setter =
+          native::concat("def ", name, "(self, arg: numpy.typing.NDArray[",
+                         ExactArray<Element>::scalar, "], /) -> None");
+      class_.def_prop_rw(
+          name, [member](const Group& self) { return array_of(self.*member); },
+          [member, rank, path = path_ + "." + name](Group& self,
+                                                    const nb::handle value) {
+            self.*member = exact_vector<Element>(value, path, rank);
+          },
+          nb::for_getter(nb::rv_policy::automatic),
+          nb::for_setter(nb::sig(setter.c_str())));
+    } else {
+      static_cast<void>(rank);
+      class_.def_rw(name, member);
     }
+    return *this;
   }
-#endif
-  try {
-    if (values.contains("n_x")) {
-      result.n_x = nb::cast<std::size_t>(values["n_x"]);
-      result.n_y = nb::cast<std::size_t>(values["n_y"]);
-      if (values.contains("n_p"))
-        result.n_p = nb::cast<std::size_t>(values["n_p"]);
-      if (values.contains("spatial_far_field_slots"))
-        result.spatial_far_field_slots =
-            nb::cast<std::size_t>(values["spatial_far_field_slots"]);
-    }
-    result.n_omega = nb::cast<std::size_t>(values["n_omega"]);
-    result.n_t = nb::cast<std::size_t>(values["n_t"]);
-    result.n_to = nb::cast<std::size_t>(values["n_to"]);
-    result.n_stages = nb::cast<std::size_t>(values["n_stages"]);
-    if (values.contains("n_modes")) {
-      result.n_modes = nb::cast<std::size_t>(values["n_modes"]);
-      result.n_pol_state = nb::cast<std::size_t>(values["n_pol_state"]);
-      result.n_pol_transform = nb::cast<std::size_t>(values["n_pol_transform"]);
-      result.n_nodes = nb::cast<std::size_t>(values["n_nodes"]);
-      result.node_chunk = nb::cast<std::size_t>(values["node_chunk"]);
-    }
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("problem dimensions must be integers");
-  }
-  try {
-    result.family = field_family(nb::cast<std::string>(values["family"]));
-    result.nonlinear = nb::cast<bool>(values["nonlinear"]);
-    result.modified_noise = nb::cast<bool>(values["modified_noise"]);
-    result.in_stage_absorber = nb::cast<bool>(values["in_stage_absorber"]);
-    result.split_step_absorber = nb::cast<bool>(values["split_step_absorber"]);
-    result.first_same_as_last = nb::cast<bool>(values["first_same_as_last"]);
-    if (values.contains("low_storage")) {
-      result.low_storage = nb::cast<bool>(values["low_storage"]);
-      result.low_storage_stage_register =
-          nb::cast<bool>(values["low_storage_stage_register"]);
-      result.low_storage_flows = nb::cast<std::size_t>(values["low_storage_flows"]);
-      result.low_storage_tiled_input =
-          nb::cast<bool>(values["low_storage_tiled_input"]);
-    }
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("problem family and flags have wrong types");
-  }
-  try {
-    result.crop_index = index_vector(exact_array<IndexInput>(values["crop_index"]));
-    result.active_mask = bool_vector(exact_array<BoolInput>(values["active_mask"]));
-    result.norm_mask = bool_vector(exact_array<BoolInput>(values["norm_mask"]));
-    result.omega_window = real_vector(exact_array<RealInput>(values["omega_window"]));
-    if (values.contains("omega"))
-      result.omega = real_vector(exact_array<RealInput>(values["omega"]));
-    if (values.contains("power_weight"))
-      result.power_weight = real_vector(exact_array<RealInput>(values["power_weight"]));
-    result.time_window = real_vector(exact_array<RealInput>(values["time_window"]));
-    result.time_window_derivative =
-        real_vector(exact_array<RealInput>(values["time_window_derivative"]));
-    result.absorber_fine = real_vector(exact_array<RealInput>(values["absorber_fine"]));
-    result.absorber_coarse =
-        real_vector(exact_array<RealInput>(values["absorber_coarse"]));
-    if (result.separable_geometry()) {
-      result.spatial_evanescent_rate =
-          nb::cast<double>(values["spatial_evanescent_rate"]);
-      result.spatial_k_squared =
-          complex_vector(exact_array<ComplexInput>(values["spatial_k_squared"]));
-      result.spatial_k_squared_low =
-          complex_vector(exact_array<ComplexInput>(values["spatial_k_squared_low"]));
-      result.spatial_numerator =
-          complex_vector(exact_array<ComplexInput>(values["spatial_numerator"]));
-      result.spatial_clamped =
-          complex_vector(exact_array<ComplexInput>(values["spatial_clamped"]));
-      result.spatial_kperp_sq =
-          real_vector(exact_array<RealInput>(values["spatial_kperp_sq"]));
-      result.spatial_kperp_sq_low =
-          real_vector(exact_array<RealInput>(values["spatial_kperp_sq_low"]));
-      result.spatial_frame =
-          real_vector(exact_array<RealInput>(values["spatial_frame"]));
-      result.spatial_spectral_rate =
-          real_vector(exact_array<RealInput>(values["spatial_spectral_rate"]));
-      result.spatial_user_rate =
-          real_vector(exact_array<RealInput>(values["spatial_user_rate"]));
-      result.spatial_absorber_rate =
-          real_vector(exact_array<RealInput>(values["spatial_absorber_rate"]));
-      result.spatial_kperp_rate =
-          real_vector(exact_array<RealInput>(values["spatial_kperp_rate"]));
-      if (result.slab_geometry())
-        result.spatial_kappa_sq =
-            complex_vector(exact_array<ComplexInput>(values["spatial_kappa_sq"]));
-      if (result.free_geometry()) {
-        result.spatial_k_x = real_vector(exact_array<RealInput>(values["spatial_k_x"]));
-        result.spatial_k_y = real_vector(exact_array<RealInput>(values["spatial_k_y"]));
-      }
-    }
-    if (values.contains("spatial_absorber_matrix"))
-      result.spatial_absorber_matrix =
-          real_vector(exact_array<RealInput>(values["spatial_absorber_matrix"]));
-    if (values.contains("spatial_spectral_weights")) {
-      result.spatial_spectral_weights =
-          real_vector(exact_array<RealInput>(values["spatial_spectral_weights"]));
-      result.spatial_on_axis =
-          complex_vector(exact_array<ComplexInput>(values["spatial_on_axis"]));
-    }
-    if (values.contains("flux_k_squared")) {
-      result.flux_k_squared =
-          complex_vector(exact_array<ComplexInput>(values["flux_k_squared"]));
-      result.flux_k_squared_low =
-          complex_vector(exact_array<ComplexInput>(values["flux_k_squared_low"]));
-      result.flux_kperp_sq =
-          real_vector(exact_array<RealInput>(values["flux_kperp_sq"]));
-      result.flux_kperp_sq_low =
-          real_vector(exact_array<RealInput>(values["flux_kperp_sq_low"]));
-      result.flux_table = nb::cast<bool>(values["flux_table"]);
-    }
-    if (values.contains("flux_closure"))
-      result.flux_closure = nb::cast<bool>(values["flux_closure"]);
-    result.carrier = complex_vector(exact_array<ComplexInput>(values["carrier"]));
-    if (values.contains("synthesis_matrix")) {
-      result.synthesis_matrix =
-          real_vector(exact_array<RealInput>(values["synthesis_matrix"]));
-      result.projection_matrix =
-          real_vector(exact_array<RealInput>(values["projection_matrix"]));
-      result.projection_coarse_matrix =
-          real_vector(exact_array<RealInput>(values["projection_coarse_matrix"]));
-    }
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("problem masks and transform arrays have wrong dtypes");
-  }
-  ComplexInput phi;
-  ComplexInput prefactor;
-  try {
-    phi = exact_array<ComplexInput>(values["phi_terms"]);
-    prefactor = exact_array<ComplexInput>(values["prefactor_terms"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("fixed terms must be complex128 arrays");
-  }
-  if ((phi.ndim() != 2 && phi.ndim() != 3) ||
-      (prefactor.ndim() != 2 && prefactor.ndim() != 3)) {
-    throw std::invalid_argument("fixed terms must be rank-two or rank-three arrays");
-  }
-  result.n_phi_terms = phi.shape(0);
-  result.n_prefactor_terms = prefactor.shape(0);
-  result.phi_terms = complex_vector(phi);
-  result.prefactor_terms = complex_vector(prefactor);
-  // solprop SEP 29 G1: a z table's terms are slots its evaluation fills; the leading
-  // extent of an empty terms array names how many.
-  try {
-    if (values.contains("phi_table"))
-      result.phi_table = nb::cast<bool>(values["phi_table"]);
-    if (values.contains("prefactor_table"))
-      result.prefactor_table = nb::cast<bool>(values["prefactor_table"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("z table flags must be booleans");
-  }
-  try {
-    result.tableau_matrix =
-        real_vector(exact_array<RealInput>(values["tableau_matrix"]));
-    result.tableau_nodes = real_vector(exact_array<RealInput>(values["tableau_nodes"]));
-    result.solution_weights =
-        real_vector(exact_array<RealInput>(values["solution_weights"]));
-    result.error_weights = real_vector(exact_array<RealInput>(values["error_weights"]));
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("tableau values must be float64 arrays");
-  }
-  try {
-    result.synthesis = nb::cast<double>(values["synthesis"]);
-    result.projection = nb::cast<double>(values["projection"]);
-    result.kerr_coefficient = nb::cast<double>(values["kerr_coefficient"]);
-    result.self_factor = nb::cast<double>(values["self_factor"]);
-    result.conjugate_factor = nb::cast<double>(values["conjugate_factor"]);
-    result.harmonic_factor = nb::cast<double>(values["harmonic_factor"]);
-    result.take_real = nb::cast<bool>(values["take_real"]);
-    if (values.contains("plasma")) {
-      result.plasma = nb::cast<bool>(values["plasma"]);
-      result.raman = nb::cast<bool>(values["raman"]);
-      result.raman_thg = nb::cast<bool>(values["raman_thg"]);
-      result.stash_plasma = nb::cast<bool>(values["stash_plasma"]);
-      result.weighted_controller = nb::cast<bool>(values["weighted_controller"]);
-      result.dt_fine = nb::cast<double>(values["dt_fine"]);
-      result.dt = nb::cast<double>(values["dt"]);
-      result.raman_fraction = nb::cast<double>(values["raman_fraction"]);
-      result.raman_epsilon0 = nb::cast<double>(values["raman_epsilon0"]);
-      const auto raman_undamped = exact_array<RealInput>(values["raman_undamped"]);
-      if (result.raman && (raman_undamped.ndim() != 2 || raman_undamped.shape(0) == 0 ||
-                           result.n_to > std::numeric_limits<std::size_t>::max() / 2 ||
-                           raman_undamped.shape(1) != 2 * result.n_to))
-        throw std::invalid_argument(
-            "raman_undamped must have shape (n_terms, 2 * n_to)");
-      result.n_raman_terms = result.raman ? raman_undamped.shape(0) : 0;
-      if (result.raman) {
-        result.raman_undamped = real_vector(raman_undamped);
-        result.raman_tensor_capable = nb::cast<bool>(values["raman_tensor_capable"]);
-        const auto weights = exact_array<RealInput>(values["raman_tensor_weights"]);
-        if (weights.ndim() != 2 || weights.shape(0) != result.n_raman_terms ||
-            weights.shape(1) != 2)
-          throw std::invalid_argument(
-              "raman_tensor_weights must have shape (n_terms, 2)");
-        result.raman_tensor_weights = real_vector(weights);
-      }
-      result.charge_mass_ratio = nb::cast<double>(values["charge_mass_ratio"]);
-      result.ionisation_potential = nb::cast<double>(values["ionisation_potential"]);
-      result.log_field_min = nb::cast<double>(values["log_field_min"]);
-      result.d_log_field = nb::cast<double>(values["d_log_field"]);
-      result.field_min = nb::cast<double>(values["field_min"]);
-      result.field_max = nb::cast<double>(values["field_max"]);
-      result.rate_max = nb::cast<double>(values["rate_max"]);
-      const auto coefficients = exact_array<RealInput>(values["rate_coefficients"]);
-      if (coefficients.ndim() != 2 || coefficients.shape(0) != 4)
-        throw std::invalid_argument(
-            "rate_coefficients must have shape (4, n_intervals)");
-      result.rate_intervals = coefficients.shape(1);
-      result.rate_coefficients = real_vector(coefficients);
-      // solprop SEP 18: the running-integral rule. Translation designed and
-      // certified the taps; the core checks their extent, finiteness and the
-      // trapezoid's one identity tap.
-      if (values.contains("plasma_gated"))
-        result.plasma_gated = nb::cast<bool>(values["plasma_gated"]);
-      if (values.contains("plasma_band")) {
-        result.plasma_band = nb::cast<bool>(values["plasma_band"]);
-        const auto taps = exact_array<RealInput>(values["plasma_taps"]);
-        if (taps.ndim() != 1)
-          throw std::invalid_argument("plasma_taps must be one-dimensional");
-        result.plasma_taps = real_vector(taps);
-      }
-      if (values.contains("n_channels")) {
-        result.n_channels = nb::cast<std::size_t>(values["n_channels"]);
-        result.channel_parameters =
-            real_vector(exact_array<RealInput>(values["channel_parameters"]));
-        result.channel_coefficients =
-            real_vector(exact_array<RealInput>(values["channel_coefficients"]));
-        result.n_raman_components = nb::cast<std::size_t>(values["n_raman_components"]);
-        result.raman_row_component =
-            real_vector(exact_array<RealInput>(values["raman_row_component"]));
-        result.raman_component_fraction =
-            real_vector(exact_array<RealInput>(values["raman_component_fraction"]));
-      }
-      if (values.contains("envelope_plasma")) {
-        result.envelope_plasma = nb::cast<bool>(values["envelope_plasma"]);
-        if (result.envelope_plasma) {
-          const auto nodes = exact_array<RealInput>(values["envelope_rule_nodes"]);
-          const auto weights = exact_array<RealInput>(values["envelope_rule_weights"]);
-          for (const auto& rule : {nodes, weights})
-            if (rule.ndim() != 3 || rule.shape(0) != result.n_channels ||
-                rule.shape(1) != 4 || rule.shape(2) != 512)
+
+private:
+  nb::class_<Group> class_;
+  std::string path_;
+};
+
+void bind_problem(nb::module_& module_) {
+  using P = native::Problem;
+  nb::enum_<native::FieldFamily>(module_, "FieldFamily")
+      .value("field_real", native::FieldFamily::field_real)
+      .value("field_analytic", native::FieldFamily::field_analytic)
+      .value("envelope", native::FieldFamily::envelope);
+  nb::class_<P> problem(module_, "Problem");
+  Fields<P::Dims>(problem, "Dims", "dims")
+      .field("n_omega", &P::Dims::n_omega)
+      .field("n_t", &P::Dims::n_t)
+      .field("n_to", &P::Dims::n_to)
+      .field("n_modes", &P::Dims::n_modes)
+      .field("n_pol_state", &P::Dims::n_pol_state)
+      .field("n_pol_transform", &P::Dims::n_pol_transform)
+      .field("n_nodes", &P::Dims::n_nodes)
+      .field("node_chunk", &P::Dims::node_chunk)
+      .field("family", &P::Dims::family);
+  Fields<P::Grid>(problem, "Grid", "grid")
+      .field("crop_index", &P::Grid::crop_index)
+      .field("active_mask", &P::Grid::active_mask)
+      .field("norm_mask", &P::Grid::norm_mask)
+      .field("omega_window", &P::Grid::omega_window)
+      .field("omega", &P::Grid::omega)
+      .field("power_weight", &P::Grid::power_weight)
+      .field("time_window", &P::Grid::time_window)
+      .field("time_window_derivative", &P::Grid::time_window_derivative)
+      .field("carrier", &P::Grid::carrier)
+      .field("dt_fine", &P::Grid::dt_fine)
+      .field("dt", &P::Grid::dt);
+  Fields<P::Spatial>(problem, "Spatial", "spatial")
+      .field("n_x", &P::Spatial::n_x)
+      .field("n_y", &P::Spatial::n_y)
+      .field("k_squared", &P::Spatial::k_squared)
+      .field("k_squared_low", &P::Spatial::k_squared_low)
+      .field("numerator", &P::Spatial::numerator)
+      .field("clamped", &P::Spatial::clamped)
+      .field("kperp_sq", &P::Spatial::kperp_sq)
+      .field("kperp_sq_low", &P::Spatial::kperp_sq_low)
+      .field("frame", &P::Spatial::frame)
+      .field("spectral_rate", &P::Spatial::spectral_rate)
+      .field("user_rate", &P::Spatial::user_rate)
+      .field("absorber_rate", &P::Spatial::absorber_rate)
+      .field("kperp_rate", &P::Spatial::kperp_rate)
+      .field("evanescent_rate", &P::Spatial::evanescent_rate)
+      .field("k_x", &P::Spatial::k_x)
+      .field("k_y", &P::Spatial::k_y)
+      .field("far_field_slots", &P::Spatial::far_field_slots)
+      .field("n_p", &P::Spatial::n_p)
+      .field("kappa_sq", &P::Spatial::kappa_sq)
+      .field("absorber_matrix", &P::Spatial::absorber_matrix)
+      .field("spectral_weights", &P::Spatial::spectral_weights)
+      .field("on_axis", &P::Spatial::on_axis);
+  Fields<P::Flux>(problem, "Flux", "flux")
+      .field("k_squared", &P::Flux::k_squared)
+      .field("k_squared_low", &P::Flux::k_squared_low)
+      .field("kperp_sq", &P::Flux::kperp_sq)
+      .field("kperp_sq_low", &P::Flux::kperp_sq_low)
+      .field("table", &P::Flux::table)
+      .field("closure", &P::Flux::closure);
+  Fields<P::Stepper>(problem, "Stepper", "stepper")
+      .field("n_stages", &P::Stepper::n_stages)
+      .field("tableau_matrix", &P::Stepper::tableau_matrix)
+      .field("tableau_nodes", &P::Stepper::tableau_nodes)
+      .field("solution_weights", &P::Stepper::solution_weights)
+      .field("error_weights", &P::Stepper::error_weights)
+      .field("first_same_as_last", &P::Stepper::first_same_as_last)
+      .field("weighted_controller", &P::Stepper::weighted_controller)
+      .field("modified_noise", &P::Stepper::modified_noise)
+      .field("low_storage", &P::Stepper::low_storage)
+      .field("low_storage_stage_register", &P::Stepper::low_storage_stage_register)
+      .field("low_storage_flows", &P::Stepper::low_storage_flows)
+      .field("low_storage_tiled_input", &P::Stepper::low_storage_tiled_input);
+  Fields<P::Linear>(problem, "Linear", "linear")
+      .field("n_phi_terms", &P::Linear::n_phi_terms)
+      .field("n_prefactor_terms", &P::Linear::n_prefactor_terms)
+      .field("phi_table", &P::Linear::phi_table)
+      .field("prefactor_table", &P::Linear::prefactor_table)
+      .field("phi_terms", &P::Linear::phi_terms)
+      .field("prefactor_terms", &P::Linear::prefactor_terms);
+  Fields<P::Absorber>(problem, "Absorber", "absorber")
+      .field("in_stage", &P::Absorber::in_stage)
+      .field("split_step", &P::Absorber::split_step)
+      .field("fine", &P::Absorber::fine)
+      .field("coarse", &P::Absorber::coarse);
+  Fields<P::Transform>(problem, "Transform", "transform")
+      .field("synthesis_matrix", &P::Transform::synthesis_matrix)
+      .field("projection_matrix", &P::Transform::projection_matrix)
+      .field("projection_coarse_matrix", &P::Transform::projection_coarse_matrix)
+      .field("synthesis", &P::Transform::synthesis)
+      .field("projection", &P::Transform::projection);
+  Fields<P::Kerr>(problem, "Kerr", "kerr")
+      .field("nonlinear", &P::Kerr::nonlinear)
+      .field("coefficient", &P::Kerr::coefficient)
+      .field("self_factor", &P::Kerr::self_factor)
+      .field("conjugate_factor", &P::Kerr::conjugate_factor)
+      .field("harmonic_factor", &P::Kerr::harmonic_factor)
+      .field("take_real", &P::Kerr::take_real);
+  Fields<P::Plasma>(problem, "Plasma", "plasma")
+      .field("enabled", &P::Plasma::enabled)
+      .field("envelope", &P::Plasma::envelope)
+      .field("gated", &P::Plasma::gated)
+      .field("stash", &P::Plasma::stash)
+      .field("envelope_rule_nodes", &P::Plasma::envelope_rule_nodes, 3)
+      .field("envelope_rule_weights", &P::Plasma::envelope_rule_weights, 3)
+      .field("envelope_drude_factor", &P::Plasma::envelope_drude_factor, 1)
+      .field("envelope_loss_factor", &P::Plasma::envelope_loss_factor, 1)
+      .field("charge_mass_ratio", &P::Plasma::charge_mass_ratio)
+      .field("ionisation_potential", &P::Plasma::ionisation_potential)
+      .field("log_field_min", &P::Plasma::log_field_min)
+      .field("d_log_field", &P::Plasma::d_log_field)
+      .field("field_min", &P::Plasma::field_min)
+      .field("field_max", &P::Plasma::field_max)
+      .field("rate_max", &P::Plasma::rate_max)
+      .field("rate_intervals", &P::Plasma::rate_intervals)
+      .field("rate_coefficients", &P::Plasma::rate_coefficients, 2)
+      .field("n_channels", &P::Plasma::n_channels)
+      .field("band", &P::Plasma::band)
+      .field("taps", &P::Plasma::taps, 1)
+      .field("channel_parameters", &P::Plasma::channel_parameters)
+      .field("channel_coefficients", &P::Plasma::channel_coefficients);
+  Fields<P::Raman>(problem, "Raman", "raman")
+      .field("enabled", &P::Raman::enabled)
+      .field("thg", &P::Raman::thg)
+      .field("tensor_capable", &P::Raman::tensor_capable)
+      .field("n_terms", &P::Raman::n_terms)
+      .field("fraction", &P::Raman::fraction)
+      .field("epsilon0", &P::Raman::epsilon0)
+      .field("undamped", &P::Raman::undamped, 2)
+      .field("tensor_weights", &P::Raman::tensor_weights, 2)
+      .field("n_components", &P::Raman::n_components)
+      .field("row_component", &P::Raman::row_component)
+      .field("component_fraction", &P::Raman::component_fraction);
+  Fields<P::General>(problem, "General", "general")
+      .field("enabled", &P::General::enabled)
+      .field("real_form", &P::General::real_form)
+      .field("map_intervals", &P::General::map_intervals)
+      .field("map_n_deg", &P::General::map_n_deg)
+      .field("components", &P::General::components)
+      .field("nodes", &P::General::nodes)
+      .field("node_chunk", &P::General::node_chunk)
+      .field("responses", &P::General::responses)
+      .field("terms", &P::General::terms)
+      .field("pad_scale", &P::General::pad_scale)
+      .field("epsilon0", &P::General::epsilon0)
+      .field("synthesis", &P::General::synthesis)
+      .field("projection", &P::General::projection)
+      .field("frequency_factor", &P::General::frequency_factor)
+      .field("delayed_spectrum", &P::General::delayed_spectrum)
+      .field("tensor", &P::General::tensor)
+      .field("delayed_tensor", &P::General::delayed_tensor)
+      .field("node_response", &P::General::node_response);
+  Fields<P::Flow>(problem, "Flow", "flow")
+      .field("enabled", &P::Flow::enabled)
+      .field("active", &P::Flow::active)
+      .field("sections", &P::Flow::sections)
+      .field("terms", &P::Flow::terms)
+      .field("slot", &P::Flow::slot)
+      .field("frozen", &P::Flow::frozen)
+      .field("residual_terms", &P::Flow::residual_terms)
+      .field("left", &P::Flow::left)
+      .field("right", &P::Flow::right)
+      .field("eigenvalues", &P::Flow::eigenvalues)
+      .field("route", &P::Flow::route)
+      .field("fallback_vectors", &P::Flow::fallback_vectors)
+      .field("fallback_triangular", &P::Flow::fallback_triangular);
+  Fields<P::Dispersive>(problem, "Dispersive", "dispersive")
+      .field("enabled", &P::Dispersive::enabled)
+      .field("symmetric", &P::Dispersive::symmetric)
+      .field("form", &P::Dispersive::form)
+      .field("inputs", &P::Dispersive::inputs)
+      .field("term_multipliers", &P::Dispersive::term_multipliers)
+      .field("coefficients", &P::Dispersive::coefficients)
+      .field("pair_constants", &P::Dispersive::pair_constants)
+      .field("quartics", &P::Dispersive::quartics)
+      .field("input_scale", &P::Dispersive::input_scale)
+      .field("output_scale", &P::Dispersive::output_scale)
+      .field("term_rows", &P::Dispersive::term_rows)
+      .field("term_channels", &P::Dispersive::term_channels)
+      .field("group_offsets", &P::Dispersive::group_offsets)
+      .field("group_members", &P::Dispersive::group_members)
+      .field("group_keys", &P::Dispersive::group_keys)
+      .field("node_region", &P::Dispersive::node_region);
+  problem.def(nb::init<>())
+      .def_rw("dims", &P::dims)
+      .def_rw("grid", &P::grid)
+      .def_rw("spatial", &P::spatial)
+      .def_rw("flux", &P::flux)
+      .def_rw("stepper", &P::stepper)
+      .def_rw("linear", &P::linear)
+      .def_rw("absorber", &P::absorber)
+      .def_rw("transform", &P::transform)
+      .def_rw("kerr", &P::kerr)
+      .def_rw("plasma", &P::plasma)
+      .def_rw("raman", &P::raman)
+      .def_rw("general", &P::general)
+      .def_rw("flow", &P::flow)
+      .def_rw("dispersive", &P::dispersive)
+      // solprop SEP 46: the CPU execution record and the FFT planning cross as the
+      // records solprop_native's `_execution` and `_wisdom` write.
+      .def_prop_rw(
+          "cpu_execution",
+          [](const P& self) { return cpu_execution_dict(self.cpu_execution); },
+          [](P& self, const nb::handle values) {
+            if (!nb::isinstance<nb::dict>(values))
               throw std::invalid_argument(
-                  "envelope rules require (n_channels, 4, 512)");
-          const auto drude = exact_array<RealInput>(values["envelope_drude_factor"]);
-          const auto loss = exact_array<ComplexInput>(values["envelope_loss_factor"]);
-          if (drude.ndim() != 1 || drude.shape(0) != result.n_omega ||
-              loss.ndim() != 1 || loss.shape(0) != result.n_omega)
-            throw std::invalid_argument("envelope current factors require (n_omega,)");
-          result.envelope_rule_nodes = real_vector(nodes);
-          result.envelope_rule_weights = real_vector(weights);
-          result.envelope_drude_factor = real_vector(drude);
-          result.envelope_loss_factor = complex_vector(loss);
-        }
-      }
-    }
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("response scalars have wrong types");
-  }
-  if (values.contains("dispersive")) {
-    try {
-      result.dispersive = nb::cast<bool>(values["dispersive"]);
-      if (result.dispersive) {
-        result.dispersive_symmetric = nb::cast<bool>(values["dispersive_symmetric"]);
-        result.dispersive_form = nb::cast<int>(values["dispersive_form"]);
-        result.dispersive_inputs =
-            real_vector(exact_array<RealInput>(values["dispersive_inputs"]));
-        result.dispersive_term_multipliers =
-            real_vector(exact_array<RealInput>(values["dispersive_term_multipliers"]));
-        result.dispersive_term_rows =
-            index_vector(exact_array<IndexInput>(values["dispersive_term_rows"]));
-        result.dispersive_term_channels =
-            index_vector(exact_array<IndexInput>(values["dispersive_term_channels"]));
-        result.dispersive_coefficients =
-            real_vector(exact_array<RealInput>(values["dispersive_coefficients"]));
-        result.dispersive_pair_constants =
-            real_vector(exact_array<RealInput>(values["dispersive_pair_constants"]));
-        result.dispersive_group_offsets =
-            index_vector(exact_array<IndexInput>(values["dispersive_group_offsets"]));
-        result.dispersive_group_members =
-            index_vector(exact_array<IndexInput>(values["dispersive_group_members"]));
-        result.dispersive_quartics =
-            real_vector(exact_array<RealInput>(values["dispersive_quartics"]));
-        result.dispersive_input_scale =
-            real_vector(exact_array<RealInput>(values["dispersive_input_scale"]));
-        result.dispersive_output_scale =
-            real_vector(exact_array<RealInput>(values["dispersive_output_scale"]));
-        // The general modal route's group keys and node regions; absent elsewhere.
-        if (values.contains("dispersive_group_keys"))
-          result.dispersive_group_keys =
-              index_vector(exact_array<IndexInput>(values["dispersive_group_keys"]));
-        if (values.contains("dispersive_node_region"))
-          result.dispersive_node_region =
-              index_vector(exact_array<IndexInput>(values["dispersive_node_region"]));
-      }
-    } catch (const nb::cast_error&) {
-      throw std::invalid_argument("dispersive response data have wrong types");
-    }
-  }
-  if (values.contains("general_modal")) {
-    try {
-      result.general_modal = nb::cast<bool>(values["general_modal"]);
-      if (result.general_modal) {
-        result.general_real_form = nb::cast<bool>(values["general_real_form"]);
-        result.general_map_intervals =
-            nb::cast<std::size_t>(values["general_map_intervals"]);
-        result.general_map_n_deg = nb::cast<std::size_t>(values["general_map_n_deg"]);
-        result.general_components = nb::cast<std::size_t>(values["general_components"]);
-        result.general_nodes = nb::cast<std::size_t>(values["general_nodes"]);
-        result.general_node_chunk = nb::cast<std::size_t>(values["general_node_chunk"]);
-        result.general_responses = nb::cast<std::size_t>(values["general_responses"]);
-        result.general_terms = nb::cast<std::size_t>(values["general_terms"]);
-        result.general_pad_scale = nb::cast<double>(values["general_pad_scale"]);
-        result.general_epsilon0 = nb::cast<double>(values["general_epsilon0"]);
-        result.general_synthesis =
-            complex_vector(exact_array<ComplexInput>(values["general_synthesis"]));
-        result.general_projection =
-            complex_vector(exact_array<ComplexInput>(values["general_projection"]));
-        result.general_tensor =
-            real_vector(exact_array<RealInput>(values["general_tensor"]));
-        result.general_frequency_factor = complex_vector(
-            exact_array<ComplexInput>(values["general_frequency_factor"]));
-        result.general_delayed_tensor =
-            real_vector(exact_array<RealInput>(values["general_delayed_tensor"]));
-        result.general_delayed_spectrum = complex_vector(
-            exact_array<ComplexInput>(values["general_delayed_spectrum"]));
-        result.general_node_response =
-            index_vector(exact_array<IndexInput>(values["general_node_response"]));
-      }
-    } catch (const nb::cast_error&) {
-      throw std::invalid_argument("general modal data have wrong types");
-    }
-  }
-  if (values.contains("coupled_flow")) {
-    try {
-      result.coupled_flow = nb::cast<bool>(values["coupled_flow"]);
-      if (result.coupled_flow) {
-        result.flow_active = nb::cast<std::size_t>(values["flow_active"]);
-        result.flow_sections = nb::cast<std::size_t>(values["flow_sections"]);
-        result.flow_terms = nb::cast<std::size_t>(values["flow_terms"]);
-        result.flow_slot = index_vector(exact_array<IndexInput>(values["flow_slot"]));
-        result.flow_frozen =
-            complex_vector(exact_array<ComplexInput>(values["flow_frozen"]));
-        result.flow_residual_terms =
-            complex_vector(exact_array<ComplexInput>(values["flow_residual_terms"]));
-        if (values.contains("flow_left")) {
-          result.flow_left =
-              complex_vector(exact_array<ComplexInput>(values["flow_left"]));
-          result.flow_right =
-              complex_vector(exact_array<ComplexInput>(values["flow_right"]));
-          result.flow_eigenvalues =
-              complex_vector(exact_array<ComplexInput>(values["flow_eigenvalues"]));
-          result.flow_route =
-              index_vector(exact_array<IndexInput>(values["flow_route"]));
-          result.flow_fallback_vectors = complex_vector(
-              exact_array<ComplexInput>(values["flow_fallback_vectors"]));
-          result.flow_fallback_triangular = complex_vector(
-              exact_array<ComplexInput>(values["flow_fallback_triangular"]));
-        }
-      }
-    } catch (const nb::cast_error&) {
-      throw std::invalid_argument("coupled flow data have wrong types");
-    }
-  }
-  return result;
+                  "a native problem's cpu_execution must be a dict");
+            self.cpu_execution = cpu_execution_from(nb::borrow<nb::dict>(values));
+          },
+          nb::for_getter(nb::sig("def cpu_execution(self) -> dict[str, int | bool]")),
+          nb::for_setter(nb::sig(
+              "def cpu_execution(self, arg: dict[str, int | bool], /) -> None")),
+          nb::for_setter(nb::arg("values").none()))
+      .def_prop_rw(
+          "fft_planning",
+          [](const P& self) { return fft_request_dict(self.fft_planning); },
+          [](P& self, const nb::handle values) {
+            if (!nb::isinstance<nb::dict>(values))
+              throw std::invalid_argument(
+                  "a native problem's fft_planning must be a dict");
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+            self.fft_planning = fft_planning_from(nb::borrow<nb::dict>(values));
+#else
+            // A device build plans its transforms with the vendor's FFT alone.
+            static_cast<void>(self);
+            static_cast<void>(values);
+#endif
+          },
+          nb::for_getter(nb::sig("def fft_planning(self) -> dict[str, object]")),
+          nb::for_setter(
+              nb::sig("def fft_planning(self, arg: dict[str, object], /) -> None")),
+          nb::for_setter(nb::arg("values").none()))
+      .def("validate", &P::validate);
 }
 
 native::TrialScalars trial_from(const RealInput phi_delta, const RealInput phi_at,
@@ -1623,11 +1600,12 @@ private:
 
 class BoundState {
 public:
-  explicit BoundState(const nb::dict& problem) : BoundState(problem_from(problem)) {}
   explicit BoundState(native::Problem problem)
-      : columns_(problem.n_columns()), elements_(problem.n_columns() * problem.n_omega),
-        stages_(problem.n_stages), raman_terms_(problem.n_raman_terms),
-        raman_(problem.raman) {
+      : columns_(problem.n_columns()),
+        elements_(problem.n_columns() * problem.dims.n_omega),
+        stages_(problem.stepper.n_stages), raman_terms_(problem.raman.n_terms),
+        raman_(problem.raman.enabled) {
+    problem.validate();
     general_state_ = std::make_shared<native::GeneralState>(std::move(problem));
     const std::scoped_lock lock(runtime_state.mutex);
     runtime_state.states.push_back(this);
@@ -3357,6 +3335,7 @@ NB_MODULE(_core, module_) {
       },
       "text"_a);
   native::bindings::bind_helpers(module_);
+  bind_problem(module_);
   native::bindings::bind_transverse(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
       .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
@@ -3371,7 +3350,7 @@ NB_MODULE(_core, module_) {
       .def("log", &ScriptedRkMarch::log)
       .def("used", &ScriptedRkMarch::used);
   nb::class_<BoundState>(module_, "State")
-      .def(nb::init<const nb::dict&>())
+      .def(nb::init<const native::Problem&>(), "problem"_a)
       .def(
           "set_initial",
           [](BoundState& self, const ComplexInput field, const ComplexInput noise) {

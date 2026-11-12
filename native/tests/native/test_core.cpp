@@ -93,52 +93,54 @@ std::vector<double> real_time(const std::vector<Complex>& spectrum,
 native::Problem base_problem(const native::FieldFamily family) {
   native::Problem problem;
   problem.cpu_execution = native::test::table();
-  problem.n_t = 4;
-  problem.n_to = family == native::FieldFamily::envelope ? 4 : 8;
-  problem.n_omega = family == native::FieldFamily::envelope ? 4 : 3;
-  problem.n_stages = 1;
-  problem.n_phi_terms = 1;
-  problem.n_prefactor_terms = 1;
-  problem.family = family;
-  problem.crop_index = {0, 1, 2};
+  problem.dims.n_t = 4;
+  problem.dims.n_to = family == native::FieldFamily::envelope ? 4 : 8;
+  problem.dims.n_omega = family == native::FieldFamily::envelope ? 4 : 3;
+  problem.stepper.n_stages = 1;
+  problem.linear.n_phi_terms = 1;
+  problem.linear.n_prefactor_terms = 1;
+  problem.dims.family = family;
+  problem.grid.crop_index = {0, 1, 2};
   if (family == native::FieldFamily::envelope)
-    problem.crop_index.push_back(3);
-  problem.active_mask.assign(problem.n_omega, 1U);
-  problem.norm_mask.assign(problem.n_omega, 1U);
-  problem.omega_window.assign(problem.n_omega, 1.0);
-  for (std::size_t index = 0; index < problem.n_omega; ++index)
-    problem.omega.push_back(static_cast<double>(index + 1));
-  problem.dt = 0.25;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.time_window_derivative.assign(problem.n_to, 0.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
-  problem.phi_terms.assign(problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(problem.n_omega, Complex(1.0, 0.0));
-  problem.tableau_matrix = {0.0};
-  problem.tableau_nodes = {0.0};
-  problem.solution_weights = {1.0};
-  problem.error_weights = {0.25};
-  problem.synthesis = 2.0;
-  problem.projection = 0.5;
-  problem.kerr_coefficient = 0.125;
-  problem.self_factor = 0.5;
-  problem.conjugate_factor = 0.25;
-  problem.harmonic_factor = 0.0;
-  problem.take_real = family != native::FieldFamily::envelope;
+    problem.grid.crop_index.push_back(3);
+  problem.grid.active_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.norm_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.omega_window.assign(problem.dims.n_omega, 1.0);
+  for (std::size_t index = 0; index < problem.dims.n_omega; ++index)
+    problem.grid.omega.push_back(static_cast<double>(index + 1));
+  problem.grid.dt = 0.25;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.time_window_derivative.assign(problem.dims.n_to, 0.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
+  problem.linear.phi_terms.assign(problem.dims.n_omega, Complex{});
+  problem.linear.prefactor_terms.assign(problem.dims.n_omega, Complex(1.0, 0.0));
+  problem.stepper.tableau_matrix = {0.0};
+  problem.stepper.tableau_nodes = {0.0};
+  problem.stepper.solution_weights = {1.0};
+  problem.stepper.error_weights = {0.25};
+  problem.transform.synthesis = 2.0;
+  problem.transform.projection = 0.5;
+  problem.kerr.coefficient = 0.125;
+  problem.kerr.self_factor = 0.5;
+  problem.kerr.conjugate_factor = 0.25;
+  problem.kerr.harmonic_factor = 0.0;
+  problem.kerr.take_real = family != native::FieldFamily::envelope;
   return problem;
 }
 
 native::TrialScalars trial(const native::Problem& problem, const double taper = 1.0) {
   return {
-      .phi_delta =
-          std::vector<double>((problem.n_stages + 1) * problem.n_phi_terms, 0.0),
-      .phi_at = std::vector<double>(problem.n_stages * problem.n_phi_terms, 0.0),
-      .prefactor =
-          std::vector<double>(problem.n_stages * problem.n_prefactor_terms, 1.0),
-      .density = std::vector<double>(problem.n_stages, 1.0),
-      .taper = std::vector<double>(problem.n_stages, taper),
+      .phi_delta = std::vector<double>(
+          (problem.stepper.n_stages + 1) * problem.linear.n_phi_terms, 0.0),
+      .phi_at = std::vector<double>(
+          problem.stepper.n_stages * problem.linear.n_phi_terms, 0.0),
+      .prefactor = std::vector<double>(
+          problem.stepper.n_stages * problem.linear.n_prefactor_terms, 1.0),
+      .density = std::vector<double>(problem.stepper.n_stages, 1.0),
+      .taper = std::vector<double>(problem.stepper.n_stages, taper),
       .preionisation = {},
-      .raman_rates = std::vector<double>(problem.n_stages * problem.n_raman_terms, 0.0),
+      .raman_rates =
+          std::vector<double>(problem.stepper.n_stages * problem.raman.n_terms, 0.0),
       .kerr_density = {},
       .plasma_densities = {},
       .plasma_preionisation = {},
@@ -152,64 +154,66 @@ native::TrialScalars trial(const native::Problem& problem, const double taper = 
 
 native::Problem multimode_problem(const std::size_t node_chunk = 2) {
   auto problem = base_problem(native::FieldFamily::field_real);
-  problem.n_modes = 2;
-  problem.n_pol_state = 1;
-  problem.n_pol_transform = 1;
-  problem.n_nodes = 2;
-  problem.node_chunk = node_chunk;
-  problem.nonlinear = true;
-  problem.synthesis_matrix = {1.0, 0.5, -0.25, 1.5};
-  problem.projection_matrix = {0.75, -0.5, 0.25, 1.25};
-  problem.projection_coarse_matrix = {0.5, -0.25, 0.125, 1.0};
-  problem.phi_terms.assign(problem.n_modes * problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(problem.n_modes * problem.n_omega, Complex(1.0, 0.0));
+  problem.dims.n_modes = 2;
+  problem.dims.n_pol_state = 1;
+  problem.dims.n_pol_transform = 1;
+  problem.dims.n_nodes = 2;
+  problem.dims.node_chunk = node_chunk;
+  problem.kerr.nonlinear = true;
+  problem.transform.synthesis_matrix = {1.0, 0.5, -0.25, 1.5};
+  problem.transform.projection_matrix = {0.75, -0.5, 0.25, 1.25};
+  problem.transform.projection_coarse_matrix = {0.5, -0.25, 0.125, 1.0};
+  problem.linear.phi_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                  Complex{});
+  problem.linear.prefactor_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                        Complex(1.0, 0.0));
   return problem;
 }
 
 native::Problem general_problem(const native::FieldFamily family) {
   auto problem = base_problem(family);
-  problem.nonlinear = true;
-  problem.synthesis_matrix = {problem.synthesis};
-  problem.projection_matrix = {problem.projection};
+  problem.kerr.nonlinear = true;
+  problem.transform.synthesis_matrix = {problem.transform.synthesis};
+  problem.transform.projection_matrix = {problem.transform.projection};
   return problem;
 }
 
 native::Problem plasma_problem() {
   auto problem = general_problem(native::FieldFamily::field_real);
-  problem.nonlinear = false;
-  problem.plasma = true;
-  problem.stash_plasma = true;
-  problem.dt_fine = 0.125;
-  problem.charge_mass_ratio = 2.0;
-  problem.ionisation_potential = 3.0;
-  problem.log_field_min = std::log(0.01);
-  problem.d_log_field = std::log(1000.0);
-  problem.field_min = 0.01;
-  problem.field_max = 10.0;
-  problem.rate_max = 0.5;
-  problem.rate_intervals = 1;
-  problem.rate_coefficients = {0.0, 0.0, 0.0, std::log(0.5)};
+  problem.kerr.nonlinear = false;
+  problem.plasma.enabled = true;
+  problem.plasma.stash = true;
+  problem.grid.dt_fine = 0.125;
+  problem.plasma.charge_mass_ratio = 2.0;
+  problem.plasma.ionisation_potential = 3.0;
+  problem.plasma.log_field_min = std::log(0.01);
+  problem.plasma.d_log_field = std::log(1000.0);
+  problem.plasma.field_min = 0.01;
+  problem.plasma.field_max = 10.0;
+  problem.plasma.rate_max = 0.5;
+  problem.plasma.rate_intervals = 1;
+  problem.plasma.rate_coefficients = {0.0, 0.0, 0.0, std::log(0.5)};
   return problem;
 }
 
 native::Problem raman_problem(const native::FieldFamily family) {
   auto problem = general_problem(family);
-  problem.nonlinear = false;
-  problem.raman = true;
-  problem.raman_thg = family == native::FieldFamily::field_real;
-  problem.n_raman_terms = 2;
-  problem.raman_tensor_weights = {1.0, 0.0, 1.0, 0.0};
-  problem.raman_fraction = 0.4;
-  problem.raman_epsilon0 = 2.0;
-  problem.dt_fine = 0.125;
-  problem.raman_undamped.assign(problem.n_raman_terms * 2 * problem.n_to, 0.0);
-  problem.raman_undamped[1] = 1.0;
-  problem.raman_undamped[2] = 0.5;
-  problem.raman_undamped[3] = -0.25;
-  const auto second = 2 * problem.n_to;
-  problem.raman_undamped[second + 1] = 0.2;
-  problem.raman_undamped[second + 2] = 0.1;
-  problem.raman_undamped[second + 3] = 0.05;
+  problem.kerr.nonlinear = false;
+  problem.raman.enabled = true;
+  problem.raman.thg = family == native::FieldFamily::field_real;
+  problem.raman.n_terms = 2;
+  problem.raman.tensor_weights = {1.0, 0.0, 1.0, 0.0};
+  problem.raman.fraction = 0.4;
+  problem.raman.epsilon0 = 2.0;
+  problem.grid.dt_fine = 0.125;
+  problem.raman.undamped.assign(problem.raman.n_terms * 2 * problem.dims.n_to, 0.0);
+  problem.raman.undamped[1] = 1.0;
+  problem.raman.undamped[2] = 0.5;
+  problem.raman.undamped[3] = -0.25;
+  const auto second = 2 * problem.dims.n_to;
+  problem.raman.undamped[second + 1] = 0.2;
+  problem.raman.undamped[second + 2] = 0.1;
+  problem.raman.undamped[second + 3] = 0.05;
   return problem;
 }
 
@@ -217,94 +221,95 @@ std::vector<Complex> raman_reference(const native::Problem& problem,
                                      const std::vector<Complex>& spectrum,
                                      const std::vector<double>& rates) {
   std::vector<Complex> modal;
-  if (problem.family == native::FieldFamily::field_real) {
-    for (const double value : real_time(spectrum, problem.n_to))
+  if (problem.dims.family == native::FieldFamily::field_real) {
+    for (const double value : real_time(spectrum, problem.dims.n_to))
       modal.emplace_back(value, 0.0);
-  } else if (problem.family == native::FieldFamily::field_analytic) {
-    auto analytic = std::vector<Complex>(problem.n_to);
+  } else if (problem.dims.family == native::FieldFamily::field_analytic) {
+    auto analytic = std::vector<Complex>(problem.dims.n_to);
     analytic[0] = spectrum[0];
     for (std::size_t index = 1; index < spectrum.size(); ++index)
       analytic[index] = 2.0 * spectrum[index];
-    modal = envelope_time(analytic, problem.n_to);
+    modal = envelope_time(analytic, problem.dims.n_to);
   } else {
-    modal = envelope_time(spectrum, problem.n_to);
+    modal = envelope_time(spectrum, problem.dims.n_to);
   }
 
-  const auto doubled = 2 * problem.n_to;
+  const auto doubled = 2 * problem.dims.n_to;
   std::vector<double> kernel(doubled);
   for (std::size_t time = 0; time < doubled; ++time) {
     double total = 0.0;
-    const double delay = static_cast<double>(time) * problem.dt_fine;
-    for (std::size_t term = 0; term < problem.n_raman_terms; ++term)
-      total += problem.raman_undamped[term * doubled + time] *
+    const double delay = static_cast<double>(time) * problem.grid.dt_fine;
+    for (std::size_t term = 0; term < problem.raman.n_terms; ++term)
+      total += problem.raman.undamped[term * doubled + time] *
                std::exp(-rates[term] * delay);
-    kernel[time] = problem.raman_fraction * total;
+    kernel[time] = problem.raman.fraction * total;
   }
 
-  std::vector<Complex> projected(problem.n_to);
-  for (std::size_t node = 0; node < problem.n_nodes; ++node) {
-    const double synthesis = problem.synthesis_matrix[node];
-    const double projection = problem.projection_matrix[node];
-    std::vector<Complex> field(problem.n_to);
-    std::vector<double> drive(problem.n_to);
-    for (std::size_t time = 0; time < problem.n_to; ++time) {
+  std::vector<Complex> projected(problem.dims.n_to);
+  for (std::size_t node = 0; node < problem.dims.n_nodes; ++node) {
+    const double synthesis = problem.transform.synthesis_matrix[node];
+    const double projection = problem.transform.projection_matrix[node];
+    std::vector<Complex> field(problem.dims.n_to);
+    std::vector<double> drive(problem.dims.n_to);
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
       field[time] = synthesis * modal[time];
-      drive[time] = problem.raman_thg ? field[time].real() * field[time].real()
+      drive[time] = problem.raman.thg ? field[time].real() * field[time].real()
                                       : 0.5 * (field[time].real() * field[time].real() +
                                                field[time].imag() * field[time].imag());
     }
-    for (std::size_t time = 0; time < problem.n_to; ++time) {
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
       double convolved = 0.0;
       for (std::size_t previous = 0; previous <= time; ++previous)
         convolved += drive[previous] * kernel[time - previous];
-      convolved *= problem.dt_fine;
-      const Complex multiplier = problem.family == native::FieldFamily::envelope
+      convolved *= problem.grid.dt_fine;
+      const Complex multiplier = problem.dims.family == native::FieldFamily::envelope
                                      ? field[time]
                                      : Complex(field[time].real(), 0.0);
-      projected[time] += projection * problem.raman_epsilon0 * multiplier * convolved *
-                         problem.time_window[time];
+      projected[time] += projection * problem.raman.epsilon0 * multiplier * convolved *
+                         problem.grid.time_window[time];
     }
   }
   const auto transformed = dft(projected);
   return {transformed.begin(),
-          transformed.begin() + static_cast<std::ptrdiff_t>(problem.n_omega)};
+          transformed.begin() + static_cast<std::ptrdiff_t>(problem.dims.n_omega)};
 }
 
 std::vector<Complex> multimode_reference(const native::Problem& problem,
                                          const std::vector<Complex>& spectrum,
                                          const bool coarse = false) {
-  std::vector<std::vector<double>> modal(problem.n_modes);
-  for (std::size_t mode = 0; mode < problem.n_modes; ++mode) {
+  std::vector<std::vector<double>> modal(problem.dims.n_modes);
+  for (std::size_t mode = 0; mode < problem.dims.n_modes; ++mode) {
     const auto first =
-        spectrum.begin() + static_cast<std::ptrdiff_t>(mode * problem.n_omega);
+        spectrum.begin() + static_cast<std::ptrdiff_t>(mode * problem.dims.n_omega);
     const std::vector<Complex> one(
-        first, first + static_cast<std::ptrdiff_t>(problem.n_omega));
-    modal[mode] = real_time(one, problem.n_to);
+        first, first + static_cast<std::ptrdiff_t>(problem.dims.n_omega));
+    modal[mode] = real_time(one, problem.dims.n_to);
   }
-  std::vector<std::vector<double>> polarisation(problem.n_nodes,
-                                                std::vector<double>(problem.n_to));
-  for (std::size_t node = 0; node < problem.n_nodes; ++node) {
-    for (std::size_t time = 0; time < problem.n_to; ++time) {
+  std::vector<std::vector<double>> polarisation(problem.dims.n_nodes,
+                                                std::vector<double>(problem.dims.n_to));
+  for (std::size_t node = 0; node < problem.dims.n_nodes; ++node) {
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
       double value = 0.0;
-      for (std::size_t mode = 0; mode < problem.n_modes; ++mode)
+      for (std::size_t mode = 0; mode < problem.dims.n_modes; ++mode)
         value +=
-            problem.synthesis_matrix[node * problem.n_modes + mode] * modal[mode][time];
-      polarisation[node][time] = problem.kerr_coefficient * value * value * value;
+            problem.transform.synthesis_matrix[node * problem.dims.n_modes + mode] *
+            modal[mode][time];
+      polarisation[node][time] = problem.kerr.coefficient * value * value * value;
     }
   }
-  std::vector<Complex> result(problem.n_modes * problem.n_omega);
-  const auto& projection =
-      coarse ? problem.projection_coarse_matrix : problem.projection_matrix;
-  for (std::size_t mode = 0; mode < problem.n_modes; ++mode) {
-    std::vector<Complex> projected(problem.n_to);
-    for (std::size_t time = 0; time < problem.n_to; ++time) {
-      for (std::size_t node = 0; node < problem.n_nodes; ++node)
+  std::vector<Complex> result(problem.dims.n_modes * problem.dims.n_omega);
+  const auto& projection = coarse ? problem.transform.projection_coarse_matrix
+                                  : problem.transform.projection_matrix;
+  for (std::size_t mode = 0; mode < problem.dims.n_modes; ++mode) {
+    std::vector<Complex> projected(problem.dims.n_to);
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
+      for (std::size_t node = 0; node < problem.dims.n_nodes; ++node)
         projected[time] +=
-            projection[mode * problem.n_nodes + node] * polarisation[node][time];
+            projection[mode * problem.dims.n_nodes + node] * polarisation[node][time];
     }
     const auto transformed = dft(projected);
-    for (std::size_t index = 0; index < problem.n_omega; ++index)
-      result[mode * problem.n_omega + index] = transformed[index];
+    for (std::size_t index = 0; index < problem.dims.n_omega; ++index)
+      result[mode * problem.dims.n_omega + index] = transformed[index];
   }
   return result;
 }
@@ -313,38 +318,40 @@ std::vector<Complex> nonlinear_reference(const native::Problem& problem,
                                          const std::vector<Complex>& spectrum,
                                          const double taper) {
   std::vector<Complex> time;
-  if (problem.family == native::FieldFamily::envelope) {
-    time = envelope_time(spectrum, problem.n_to);
-  } else if (problem.family == native::FieldFamily::field_real) {
-    const auto real = real_time(spectrum, problem.n_to);
+  if (problem.dims.family == native::FieldFamily::envelope) {
+    time = envelope_time(spectrum, problem.dims.n_to);
+  } else if (problem.dims.family == native::FieldFamily::field_real) {
+    const auto real = real_time(spectrum, problem.dims.n_to);
     for (const auto value : real)
       time.emplace_back(value, 0.0);
   } else {
-    std::vector<Complex> analytic(problem.n_to);
+    std::vector<Complex> analytic(problem.dims.n_to);
     analytic[0] = spectrum[0];
     for (std::size_t index = 1; index < spectrum.size(); ++index) {
       analytic[index] = 2.0 * spectrum[index];
     }
-    time = envelope_time(analytic, problem.n_to);
+    time = envelope_time(analytic, problem.dims.n_to);
   }
-  std::vector<Complex> projected(problem.n_to);
-  for (std::size_t index = 0; index < problem.n_to; ++index) {
-    const Complex node = problem.synthesis * taper * time[index];
+  std::vector<Complex> projected(problem.dims.n_to);
+  for (std::size_t index = 0; index < problem.dims.n_to; ++index) {
+    const Complex node = problem.transform.synthesis * taper * time[index];
     Complex polarisation;
-    if (problem.family == native::FieldFamily::field_real) {
-      polarisation = problem.kerr_coefficient * node.real() * node.real() *
+    if (problem.dims.family == native::FieldFamily::field_real) {
+      polarisation = problem.kerr.coefficient * node.real() * node.real() *
                      Complex(node.real(), 0.0);
     } else {
       const double modulus = node.real() * node.real() + node.imag() * node.imag();
-      polarisation = problem.kerr_coefficient *
-                     (problem.self_factor + problem.conjugate_factor) * modulus * node;
+      polarisation = problem.kerr.coefficient *
+                     (problem.kerr.self_factor + problem.kerr.conjugate_factor) *
+                     modulus * node;
     }
-    polarisation *= problem.projection / taper;
+    polarisation *= problem.transform.projection / taper;
     projected[index] =
-        problem.take_real ? Complex(polarisation.real(), 0.0) : polarisation;
+        problem.kerr.take_real ? Complex(polarisation.real(), 0.0) : polarisation;
   }
   const auto full = dft(projected);
-  return {full.begin(), full.begin() + static_cast<std::ptrdiff_t>(problem.n_omega)};
+  return {full.begin(),
+          full.begin() + static_cast<std::ptrdiff_t>(problem.dims.n_omega)};
 }
 
 void expect_complex_near(const Complex actual, const Complex expected,
@@ -404,19 +411,19 @@ TEST(MultiplyPhase, AppliesQuarterTurnAndPreservesMagnitude) {
 
 TEST(GeneralState, MasksAndAppliesCombinedWholeStepPropagator) {
   auto problem = general_problem(native::FieldFamily::envelope);
-  problem.n_phi_terms = 2;
-  problem.phi_terms.clear();
+  problem.linear.n_phi_terms = 2;
+  problem.linear.phi_terms.clear();
   for (std::size_t term = 0; term < 2; ++term) {
-    for (std::size_t index = 0; index < problem.n_omega; ++index) {
-      problem.phi_terms.emplace_back(0.0, static_cast<double>(term + 1) *
-                                              static_cast<double>(index + 1));
+    for (std::size_t index = 0; index < problem.dims.n_omega; ++index) {
+      problem.linear.phi_terms.emplace_back(0.0, static_cast<double>(term + 1) *
+                                                     static_cast<double>(index + 1));
     }
   }
-  problem.nonlinear = false;
-  problem.active_mask[2] = 0U;
+  problem.kerr.nonlinear = false;
+  problem.grid.active_mask[2] = 0U;
   auto scalars = trial(problem);
   scalars.phi_delta = {0.1, 0.2, 0.3, 0.4};
-  const std::vector<Complex> initial(problem.n_omega, {1.0, -0.5});
+  const std::vector<Complex> initial(problem.dims.n_omega, {1.0, -0.5});
   native::GeneralState state(problem);
   state.set_initial(initial, {});
   const auto partials = state.trial_step(0.25, scalars);
@@ -439,12 +446,12 @@ TEST(GeneralState, KerrFamiliesMatchStraightforwardHostTransforms) {
         native::FieldFamily::envelope}) {
     SCOPED_TRACE(static_cast<int>(family));
     auto problem = general_problem(family);
-    problem.nonlinear = true;
-    std::vector<Complex> initial(problem.n_omega);
+    problem.kerr.nonlinear = true;
+    std::vector<Complex> initial(problem.dims.n_omega);
     initial[0] = Complex(1.0, 0.0);
     initial[1] = Complex(0.25, -0.125);
     initial[2] = Complex(-0.1, 0.05);
-    if (problem.n_omega == 4)
+    if (problem.dims.n_omega == 4)
       initial[3] = Complex(0.05, 0.025);
     constexpr double taper = 1.5;
     constexpr double dz = 0.02;
@@ -459,7 +466,7 @@ TEST(GeneralState, KerrFamiliesMatchStraightforwardHostTransforms) {
       const Complex expected = initial[index] + dz * derivative[index];
       magnitude = std::max(magnitude, Kokkos::abs(expected));
       const double tolerance =
-          512.0 * kEpsilon * static_cast<double>(problem.n_to) * magnitude;
+          512.0 * kEpsilon * static_cast<double>(problem.dims.n_to) * magnitude;
       expect_complex_near(result[index], expected, tolerance);
     }
     EXPECT_GT(partials[2], 0.0);
@@ -477,7 +484,7 @@ TEST(GeneralState, MultimodeTransformMatchesStraightforwardHostImplementation) {
   EXPECT_THROW(static_cast<void>(state.stage_to_host(0)), std::logic_error);
   const auto partials = state.trial_step(dz, trial(problem));
   const auto stage = state.stage_to_host(0);
-  EXPECT_THROW(static_cast<void>(state.stage_to_host(problem.n_stages)),
+  EXPECT_THROW(static_cast<void>(state.stage_to_host(problem.stepper.n_stages)),
                std::out_of_range);
   ASSERT_EQ(stage.size(), derivative.size());
   for (std::size_t index = 0; index < stage.size(); ++index) {
@@ -487,7 +494,7 @@ TEST(GeneralState, MultimodeTransformMatchesStraightforwardHostImplementation) {
   }
   state.finish(dz);
   const auto result = state.field_to_host();
-  ASSERT_EQ(partials.size(), 3 * problem.n_modes);
+  ASSERT_EQ(partials.size(), 3 * problem.dims.n_modes);
   ASSERT_EQ(result.size(), initial.size());
   for (std::size_t index = 0; index < result.size(); ++index) {
     const Complex expected = initial[index] + dz * derivative[index];
@@ -518,7 +525,7 @@ TEST(GeneralState, NodeChunkingPreservesTheMultimodeResult) {
 
 TEST(GeneralState, QuadratureErrorUsesFineAndCoarseProjectionOfTheSameResponse) {
   auto problem = multimode_problem();
-  problem.first_same_as_last = false;
+  problem.stepper.first_same_as_last = false;
   const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
                                      {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
   const auto fine = multimode_reference(problem, initial);
@@ -536,18 +543,19 @@ TEST(GeneralState, QuadratureErrorUsesFineAndCoarseProjectionOfTheSameResponse) 
   static_cast<void>(state.trial_step(0.01, trial(problem)));
   state.promote_fsal();
   EXPECT_NEAR(state.quadrature_error(), expected,
-              512.0 * static_cast<double>(problem.n_to) * kEpsilon);
+              512.0 * static_cast<double>(problem.dims.n_to) * kEpsilon);
 }
 
 TEST(GeneralState, WeightedResidualDividesEachBinBeforeReducing) {
   auto problem = multimode_problem();
-  problem.weighted_controller = true;
+  problem.stepper.weighted_controller = true;
   const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
                                      {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
   native::GeneralState state(problem);
   state.set_initial(initial, {});
   const auto ordinary = state.trial_step(0.01, trial(problem));
-  const auto weighted = state.weighted_error(std::vector<double>(problem.n_omega, 2.0));
+  const auto weighted =
+      state.weighted_error(std::vector<double>(problem.dims.n_omega, 2.0));
   ASSERT_EQ(weighted.size(), problem.n_columns());
   for (std::size_t column = 0; column < problem.n_columns(); ++column)
     EXPECT_NEAR(weighted[column], ordinary[2 * problem.n_columns() + column] / 4.0,
@@ -556,19 +564,19 @@ TEST(GeneralState, WeightedResidualDividesEachBinBeforeReducing) {
 
 TEST(GeneralState, PackedStatisticsMatchStraightforwardHostReductions) {
   auto problem = multimode_problem();
-  problem.family = native::FieldFamily::envelope;
-  problem.n_t = 4;
-  problem.n_to = 4;
-  problem.n_omega = 4;
-  problem.crop_index = {0, 1, 2, 3};
-  problem.active_mask.assign(4, 1U);
-  problem.norm_mask.assign(4, 1U);
-  problem.omega_window.assign(4, 1.0);
-  problem.omega = {1.0, 2.0, 3.0, 4.0};
-  problem.time_window.assign(4, 1.0);
-  problem.carrier.assign(4, Complex(1.0, 0.0));
-  problem.phi_terms.assign(8, Complex{});
-  problem.prefactor_terms.assign(8, Complex(1.0, 0.0));
+  problem.dims.family = native::FieldFamily::envelope;
+  problem.dims.n_t = 4;
+  problem.dims.n_to = 4;
+  problem.dims.n_omega = 4;
+  problem.grid.crop_index = {0, 1, 2, 3};
+  problem.grid.active_mask.assign(4, 1U);
+  problem.grid.norm_mask.assign(4, 1U);
+  problem.grid.omega_window.assign(4, 1.0);
+  problem.grid.omega = {1.0, 2.0, 3.0, 4.0};
+  problem.grid.time_window.assign(4, 1.0);
+  problem.grid.carrier.assign(4, Complex(1.0, 0.0));
+  problem.linear.phi_terms.assign(8, Complex{});
+  problem.linear.prefactor_terms.assign(8, Complex(1.0, 0.0));
   const std::vector<Complex> initial{{1.0, 0.0},  {0.5, 0.25}, {0.0, 0.0}, {0.0, 0.0},
                                      {0.25, 0.0}, {0.0, 0.5},  {0.0, 0.0}, {0.0, 0.0}};
   constexpr auto flags =
@@ -588,10 +596,10 @@ TEST(GeneralState, PackedStatisticsMatchStraightforwardHostReductions) {
       const double one = std::norm(std::complex<double>(
           initial[mode * 4 + index].real(), initial[mode * 4 + index].imag()));
       power += one;
-      weighted += problem.omega[index] * one;
+      weighted += problem.grid.omega[index] * one;
     }
     EXPECT_NEAR(values[mode], weighted / power, 32.0 * kEpsilon);
-    EXPECT_NEAR(values[2 + mode], problem.dt / 4.0 * power, 32.0 * kEpsilon);
+    EXPECT_NEAR(values[2 + mode], problem.grid.dt / 4.0 * power, 32.0 * kEpsilon);
   }
   std::array<std::vector<Complex>, 2> time{
       envelope_time(std::vector<Complex>(initial.begin(), initial.begin() + 4), 4),
@@ -625,11 +633,11 @@ TEST(GeneralState, EveryFieldFamilyMatchesTheStraightforwardHostResponse) {
         native::FieldFamily::envelope}) {
     SCOPED_TRACE(static_cast<int>(family));
     auto problem = general_problem(family);
-    std::vector<Complex> initial(problem.n_omega);
+    std::vector<Complex> initial(problem.dims.n_omega);
     initial[0] = Complex(1.0, 0.0);
     initial[1] = Complex(0.25, -0.125);
     initial[2] = Complex(-0.1, 0.05);
-    if (problem.n_omega == 4)
+    if (problem.dims.n_omega == 4)
       initial[3] = Complex(0.05, 0.025);
     constexpr double taper = 1.5;
     constexpr double dz = 0.02;
@@ -641,7 +649,8 @@ TEST(GeneralState, EveryFieldFamilyMatchesTheStraightforwardHostResponse) {
     const auto result = state.field_to_host();
     for (std::size_t index = 0; index < result.size(); ++index) {
       const Complex expected = initial[index] + dz * derivative[index];
-      const double tolerance = 512.0 * kEpsilon * static_cast<double>(problem.n_to) *
+      const double tolerance = 512.0 * kEpsilon *
+                               static_cast<double>(problem.dims.n_to) *
                                std::max(1.0, Kokkos::abs(expected));
       expect_complex_near(result[index], expected, tolerance);
     }
@@ -655,11 +664,11 @@ TEST(GeneralState, RamanMatchesDirectCausalConvolutionForEveryDriveForm) {
         native::FieldFamily::envelope}) {
     SCOPED_TRACE(static_cast<int>(family));
     auto problem = raman_problem(family);
-    std::vector<Complex> initial(problem.n_omega);
+    std::vector<Complex> initial(problem.dims.n_omega);
     initial[0] = Complex(1.0, 0.0);
     initial[1] = Complex(0.25, -0.125);
     initial[2] = Complex(-0.1, 0.05);
-    if (problem.n_omega == 4)
+    if (problem.dims.n_omega == 4)
       initial[3] = Complex(0.05, 0.025);
     const auto derivative = raman_reference(problem, initial, rates);
     auto scalars = trial(problem);
@@ -673,7 +682,7 @@ TEST(GeneralState, RamanMatchesDirectCausalConvolutionForEveryDriveForm) {
     for (std::size_t index = 0; index < result.size(); ++index) {
       const Complex expected = initial[index] + dz * derivative[index];
       const double tolerance = 512.0 * kEpsilon *
-                               std::log2(2.0 * static_cast<double>(problem.n_to)) *
+                               std::log2(2.0 * static_cast<double>(problem.dims.n_to)) *
                                std::max(1.0, Kokkos::abs(expected));
       expect_complex_near(result[index], expected, tolerance);
     }
@@ -682,10 +691,10 @@ TEST(GeneralState, RamanMatchesDirectCausalConvolutionForEveryDriveForm) {
 
 TEST(GeneralState, RamanMatchesDirectConvolutionForAShortFinalNodeChunk) {
   auto problem = raman_problem(native::FieldFamily::field_real);
-  problem.n_nodes = 3;
-  problem.node_chunk = 2;
-  problem.synthesis_matrix = {1.0, 0.75, -0.5};
-  problem.projection_matrix = {0.5, 0.25, -0.75};
+  problem.dims.n_nodes = 3;
+  problem.dims.node_chunk = 2;
+  problem.transform.synthesis_matrix = {1.0, 0.75, -0.5};
+  problem.transform.projection_matrix = {0.5, 0.25, -0.75};
   const std::vector<double> rates{0.125, 0.25};
   const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05}};
   const auto derivative = raman_reference(problem, initial, rates);
@@ -700,7 +709,7 @@ TEST(GeneralState, RamanMatchesDirectConvolutionForAShortFinalNodeChunk) {
   for (std::size_t index = 0; index < result.size(); ++index) {
     const Complex expected = initial[index] + dz * derivative[index];
     const double tolerance = 512.0 * kEpsilon *
-                             std::log2(2.0 * static_cast<double>(problem.n_to)) *
+                             std::log2(2.0 * static_cast<double>(problem.dims.n_to)) *
                              std::max(1.0, Kokkos::abs(expected));
     expect_complex_near(result[index], expected, tolerance);
   }
@@ -725,44 +734,44 @@ std::vector<Complex> vector_raman_reference(const native::Problem& problem,
                                             const bool isotropic_only) {
   std::array<std::vector<Complex>, 2> modal;
   for (std::size_t pol = 0; pol < 2; ++pol) {
-    const auto offset = static_cast<std::ptrdiff_t>(pol * problem.n_omega);
+    const auto offset = static_cast<std::ptrdiff_t>(pol * problem.dims.n_omega);
     std::vector<Complex> input(spectrum.begin() + offset,
                                spectrum.begin() + offset +
-                                   static_cast<std::ptrdiff_t>(problem.n_omega));
-    if (problem.family == native::FieldFamily::field_real) {
-      for (const double value : real_time(input, problem.n_to))
+                                   static_cast<std::ptrdiff_t>(problem.dims.n_omega));
+    if (problem.dims.family == native::FieldFamily::field_real) {
+      for (const double value : real_time(input, problem.dims.n_to))
         modal[pol].emplace_back(value, 0.0);
     } else {
-      if (problem.family == native::FieldFamily::field_analytic) {
+      if (problem.dims.family == native::FieldFamily::field_analytic) {
         for (std::size_t j = 1; j < input.size(); ++j)
           input[j] *= 2.0;
       }
-      modal[pol] = envelope_time(input, problem.n_to);
+      modal[pol] = envelope_time(input, problem.dims.n_to);
     }
   }
-  std::array<std::vector<Complex>, 2> projected{std::vector<Complex>(problem.n_to),
-                                                std::vector<Complex>(problem.n_to)};
-  for (std::size_t node = 0; node < problem.n_nodes; ++node) {
-    const double synthesis = problem.synthesis_matrix[node];
-    for (std::size_t time = 0; time < problem.n_to; ++time) {
+  std::array<std::vector<Complex>, 2> projected{
+      std::vector<Complex>(problem.dims.n_to), std::vector<Complex>(problem.dims.n_to)};
+  for (std::size_t node = 0; node < problem.dims.n_nodes; ++node) {
+    const double synthesis = problem.transform.synthesis_matrix[node];
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
       std::array<Complex, 2> field{synthesis * modal[0][time],
                                    synthesis * modal[1][time]};
-      if (problem.family != native::FieldFamily::envelope)
+      if (problem.dims.family != native::FieldFamily::envelope)
         for (auto& value : field)
           value = Complex(value.real(), 0.0);
       for (std::size_t previous = 0; previous <= time; ++previous) {
         const Complex x = synthesis * modal[0][previous];
         const Complex y = synthesis * modal[1][previous];
-        const double half = problem.raman_thg ? 1.0 : 0.5;
+        const double half = problem.raman.thg ? 1.0 : 0.5;
         const double xx = half * (x.real() * x.real() + x.imag() * x.imag());
         const double yy = half * (y.real() * y.real() + y.imag() * y.imag());
         const double xy = half * (x.real() * y.real() + x.imag() * y.imag());
         const std::array<std::array<double, 2>, 2> q{{{xx, xy}, {xy, yy}}};
         const auto lag = time - previous;
-        const double delay = static_cast<double>(lag) * problem.dt_fine;
-        double hv = problem.raman_undamped[2 * problem.n_to + lag] *
+        const double delay = static_cast<double>(lag) * problem.grid.dt_fine;
+        double hv = problem.raman.undamped[2 * problem.dims.n_to + lag] *
                     std::exp(-rates[1] * delay);
-        double hr = problem.raman_undamped[lag] * std::exp(-rates[0] * delay);
+        double hr = problem.raman.undamped[lag] * std::exp(-rates[0] * delay);
         if (isotropic_only) {
           hv += hr;
           hr = 0.0;
@@ -772,9 +781,10 @@ std::vector<Complex> vector_raman_reference(const native::Problem& problem,
           for (std::size_t other = 0; other < 2; ++other)
             value += 0.5 * hr * (3.0 * q[pol][other] - (pol == other ? xx + yy : 0.0)) *
                      field[other];
-          projected[pol][time] += problem.projection_matrix[node] *
-                                  problem.raman_epsilon0 * problem.raman_fraction *
-                                  problem.dt_fine * problem.time_window[time] * value;
+          projected[pol][time] += problem.transform.projection_matrix[node] *
+                                  problem.raman.epsilon0 * problem.raman.fraction *
+                                  problem.grid.dt_fine *
+                                  problem.grid.time_window[time] * value;
         }
       }
     }
@@ -784,7 +794,7 @@ std::vector<Complex> vector_raman_reference(const native::Problem& problem,
     const auto transformed = dft(component);
     derivative.insert(derivative.end(), transformed.begin(),
                       transformed.begin() +
-                          static_cast<std::ptrdiff_t>(problem.n_omega));
+                          static_cast<std::ptrdiff_t>(problem.dims.n_omega));
   }
   return derivative;
 }
@@ -796,29 +806,30 @@ TEST(GeneralState, VectorRamanMatchesPhysicalCausalSumsAndRepeatsWithTailPlans) 
     for (const std::size_t count : {8U, 12U, 16U}) {
       for (const bool isotropic_only : {false, true}) {
         auto problem = raman_problem(family);
-        const auto old_count = problem.n_to;
-        const auto old_rows = problem.raman_undamped;
-        problem.n_to = count;
-        problem.time_window.assign(count, 1.0);
-        problem.carrier.assign(count, Complex(1.0, 0.0));
-        problem.raman_undamped.assign(problem.n_raman_terms * 2 * count, 0.0);
-        for (std::size_t term = 0; term < problem.n_raman_terms; ++term)
+        const auto old_count = problem.dims.n_to;
+        const auto old_rows = problem.raman.undamped;
+        problem.dims.n_to = count;
+        problem.grid.time_window.assign(count, 1.0);
+        problem.grid.carrier.assign(count, Complex(1.0, 0.0));
+        problem.raman.undamped.assign(problem.raman.n_terms * 2 * count, 0.0);
+        for (std::size_t term = 0; term < problem.raman.n_terms; ++term)
           for (std::size_t sample = 0; sample < old_count; ++sample)
-            problem.raman_undamped[term * 2 * count + sample] =
+            problem.raman.undamped[term * 2 * count + sample] =
                 old_rows[term * 2 * old_count + sample];
-        problem.n_pol_state = 2;
-        problem.raman_tensor_capable = true;
-        problem.raman_tensor_weights = isotropic_only
+        problem.dims.n_pol_state = 2;
+        problem.raman.tensor_capable = true;
+        problem.raman.tensor_weights = isotropic_only
                                            ? std::vector<double>{1.0, 0.0, 1.0, 0.0}
                                            : std::vector<double>{0.25, 0.75, 1.0, 0.0};
-        problem.n_nodes = 3;
-        problem.node_chunk = 2;
-        problem.synthesis_matrix = {1.0, 0.75, -0.5};
-        problem.projection_matrix = {0.5, 0.25, -0.75};
-        problem.phi_terms.assign(2 * problem.n_omega, Complex{});
-        problem.prefactor_terms.assign(2 * problem.n_omega, Complex(1.0, 0.0));
+        problem.dims.n_nodes = 3;
+        problem.dims.node_chunk = 2;
+        problem.transform.synthesis_matrix = {1.0, 0.75, -0.5};
+        problem.transform.projection_matrix = {0.5, 0.25, -0.75};
+        problem.linear.phi_terms.assign(2 * problem.dims.n_omega, Complex{});
+        problem.linear.prefactor_terms.assign(2 * problem.dims.n_omega,
+                                              Complex(1.0, 0.0));
         const std::vector<double> rates{0.125, 0.25};
-        std::vector<Complex> initial(2 * problem.n_omega);
+        std::vector<Complex> initial(2 * problem.dims.n_omega);
         for (std::size_t j = 0; j < initial.size(); ++j)
           initial[j] = Complex(std::cos(static_cast<double>(j)),
                                0.25 * std::sin(0.7 * static_cast<double>(j)));
@@ -829,8 +840,8 @@ TEST(GeneralState, VectorRamanMatchesPhysicalCausalSumsAndRepeatsWithTailPlans) 
         // cancellation in an individual spectral sample; real and imaginary input
         // components <= 1.
         const double tolerance =
-            (3.0 * 512.0 * std::log2(2.0 * static_cast<double>(problem.n_to)) +
-             64.0 * static_cast<double>(problem.n_to * problem.n_nodes)) *
+            (3.0 * 512.0 * std::log2(2.0 * static_cast<double>(problem.dims.n_to)) +
+             64.0 * static_cast<double>(problem.dims.n_to * problem.dims.n_nodes)) *
             kEpsilon;
         ASSERT_GT(tolerance, 0.0);
         native::GeneralState state(problem);
@@ -850,11 +861,11 @@ TEST(GeneralState, VectorRamanMatchesPhysicalCausalSumsAndRepeatsWithTailPlans) 
         for (std::size_t j = 0; j < actual.size(); ++j)
           expect_complex_near(repeated[j], actual[j], tolerance);
         const auto ledger = state.memory_ledger();
-        EXPECT_EQ(ledger.at("node_raman_drive"), problem.node_chunk *
-                                                     problem.raman_drives() * 2 *
-                                                     problem.n_to * sizeof(double));
+        EXPECT_EQ(ledger.at("node_raman_drive"),
+                  problem.dims.node_chunk * problem.raman_drives() * 2 *
+                      problem.dims.n_to * sizeof(double));
         EXPECT_EQ(ledger.at("raman_tensor_weights"),
-                  problem.n_raman_terms * 2 * sizeof(double));
+                  problem.raman.n_terms * 2 * sizeof(double));
       }
     }
   }
@@ -865,7 +876,7 @@ TEST(GeneralState, RamanTensorWeightsAreValidatedBeforeAllocation) {
        {std::vector<double>{1.0}, std::vector<double>{1.0, 0.5, 1.0, 0.0},
         std::vector<double>{1.0, 0.0, std::numeric_limits<double>::quiet_NaN(), 0.0}}) {
     auto problem = raman_problem(native::FieldFamily::envelope);
-    problem.raman_tensor_weights = weights;
+    problem.raman.tensor_weights = weights;
     EXPECT_THROW(static_cast<void>(native::GeneralState(std::move(problem))),
                  std::invalid_argument);
   }
@@ -873,20 +884,20 @@ TEST(GeneralState, RamanTensorWeightsAreValidatedBeforeAllocation) {
 
 TEST(GeneralState, RamanValidationPrecedesFieldAllocation) {
   auto vector = raman_problem(native::FieldFamily::field_real);
-  vector.n_pol_state = 2;
-  vector.phi_terms.assign(2 * vector.n_omega, Complex{});
-  vector.prefactor_terms.assign(2 * vector.n_omega, Complex(1.0, 0.0));
+  vector.dims.n_pol_state = 2;
+  vector.linear.phi_terms.assign(2 * vector.dims.n_omega, Complex{});
+  vector.linear.prefactor_terms.assign(2 * vector.dims.n_omega, Complex(1.0, 0.0));
   EXPECT_THROW(static_cast<void>(native::GeneralState(std::move(vector))),
                std::invalid_argument);
 
   auto wrong = raman_problem(native::FieldFamily::field_real);
-  wrong.raman_undamped.pop_back();
+  wrong.raman.undamped.pop_back();
   EXPECT_THROW(static_cast<void>(native::GeneralState(std::move(wrong))),
                std::invalid_argument);
 
   auto valid = raman_problem(native::FieldFamily::field_real);
   native::GeneralState state(valid);
-  state.set_initial(std::vector<Complex>(valid.n_omega), {});
+  state.set_initial(std::vector<Complex>(valid.dims.n_omega), {});
   auto rates = trial(valid);
   rates.raman_rates = {-1.0, 0.0};
   EXPECT_THROW(static_cast<void>(state.trial_step(0.01, rates)), std::invalid_argument);
@@ -894,26 +905,27 @@ TEST(GeneralState, RamanValidationPrecedesFieldAllocation) {
 
 TEST(GeneralState, TwoStatePolarisationsUseTheSharedVectorModulus) {
   auto problem = general_problem(native::FieldFamily::field_real);
-  problem.n_pol_state = 2;
-  problem.phi_terms.assign(2 * problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(2 * problem.n_omega, Complex(1.0, 0.0));
+  problem.dims.n_pol_state = 2;
+  problem.linear.phi_terms.assign(2 * problem.dims.n_omega, Complex{});
+  problem.linear.prefactor_terms.assign(2 * problem.dims.n_omega, Complex(1.0, 0.0));
   const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
                                      {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
   std::array<std::vector<double>, 2> time{
       real_time(std::vector<Complex>(initial.begin(), initial.begin() + 3),
-                problem.n_to),
+                problem.dims.n_to),
       real_time(std::vector<Complex>(initial.begin() + 3, initial.end()),
-                problem.n_to)};
+                problem.dims.n_to)};
   std::array<std::vector<Complex>, 2> derivative;
   for (std::size_t pol = 0; pol < 2; ++pol) {
-    std::vector<Complex> response(problem.n_to);
-    for (std::size_t sample = 0; sample < problem.n_to; ++sample) {
-      const double first = problem.synthesis * time[0][sample];
-      const double second = problem.synthesis * time[1][sample];
+    std::vector<Complex> response(problem.dims.n_to);
+    for (std::size_t sample = 0; sample < problem.dims.n_to; ++sample) {
+      const double first = problem.transform.synthesis * time[0][sample];
+      const double second = problem.transform.synthesis * time[1][sample];
       const double modulus = first * first + second * second;
-      response[sample] = Complex(problem.projection * problem.kerr_coefficient *
-                                     modulus * (pol == 0 ? first : second),
-                                 0.0);
+      response[sample] =
+          Complex(problem.transform.projection * problem.kerr.coefficient * modulus *
+                      (pol == 0 ? first : second),
+                  0.0);
     }
     const auto transformed = dft(response);
     derivative[pol] = {transformed.begin(), transformed.begin() + 3};
@@ -925,50 +937,56 @@ TEST(GeneralState, TwoStatePolarisationsUseTheSharedVectorModulus) {
   state.finish(dz);
   const auto result = state.field_to_host();
   for (std::size_t pol = 0; pol < 2; ++pol) {
-    for (std::size_t index = 0; index < problem.n_omega; ++index) {
-      const auto flat = pol * problem.n_omega + index;
+    for (std::size_t index = 0; index < problem.dims.n_omega; ++index) {
+      const auto flat = pol * problem.dims.n_omega + index;
       const Complex expected = initial[flat] + dz * derivative[pol][index];
       expect_complex_near(result[flat], expected,
-                          1024.0 * static_cast<double>(problem.n_to) * kEpsilon);
+                          1024.0 * static_cast<double>(problem.dims.n_to) * kEpsilon);
     }
   }
 }
 
 TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   auto problem = plasma_problem();
-  problem.stash_plasma = false;
+  problem.plasma.stash = false;
   const double theta =
-      2.0 * std::numbers::pi_v<double> / static_cast<double>(problem.n_to);
-  problem.omega = {0.0, theta / problem.dt_fine, 2.0 * theta / problem.dt_fine};
-  problem.active_mask[0] = 0;
-  problem.field_min = 1e6;
-  problem.field_max = 1e7;
-  problem.log_field_min = std::log(problem.field_min);
-  problem.d_log_field = std::numbers::ln10;
+      2.0 * std::numbers::pi_v<double> / static_cast<double>(problem.dims.n_to);
+  problem.grid.omega = {0.0, theta / problem.grid.dt_fine,
+                        2.0 * theta / problem.grid.dt_fine};
+  problem.grid.active_mask[0] = 0;
+  problem.plasma.field_min = 1e6;
+  problem.plasma.field_max = 1e7;
+  problem.plasma.log_field_min = std::log(problem.plasma.field_min);
+  problem.plasma.d_log_field = std::numbers::ln10;
   constexpr double population = 0.25;
   // The unit mode at bin one produces E_n = 2*synthesis/N*cos(n theta).
   // The exact finite trapezoid sum of cos is dt*cot(theta/2)*sin(n theta)/2.
-  const double amplitude = 2.0 * problem.synthesis / static_cast<double>(problem.n_to);
-  const double current_scale = population * problem.charge_mass_ratio * amplitude *
-                               problem.dt_fine / (2.0 * std::tan(theta / 2.0));
-  std::vector<Complex> product(problem.n_to);
-  std::vector<Complex> edge(problem.n_to);
+  const double amplitude =
+      2.0 * problem.transform.synthesis / static_cast<double>(problem.dims.n_to);
+  const double current_scale = population * problem.plasma.charge_mass_ratio *
+                               amplitude * problem.grid.dt_fine /
+                               (2.0 * std::tan(theta / 2.0));
+  std::vector<Complex> product(problem.dims.n_to);
+  std::vector<Complex> edge(problem.dims.n_to);
   double operand = 0.0;
-  for (std::size_t time = 0; time < problem.n_to; ++time) {
+  for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
     const double angle = theta * static_cast<double>(time);
-    problem.time_window[time] = 0.5 * (1.0 - std::cos(angle));
-    problem.time_window_derivative[time] =
-        0.5 * theta / problem.dt_fine * std::sin(angle);
+    problem.grid.time_window[time] = 0.5 * (1.0 - std::cos(angle));
+    problem.grid.time_window_derivative[time] =
+        0.5 * theta / problem.grid.dt_fine * std::sin(angle);
     const double current = current_scale * std::sin(angle);
-    product[time] = problem.projection * problem.time_window[time] * current;
-    edge[time] = problem.projection * problem.time_window_derivative[time] * current;
-    operand += Kokkos::abs(product[time]) / problem.omega[1] +
-               Kokkos::abs(edge[time]) / (problem.omega[1] * problem.omega[1]);
+    product[time] =
+        problem.transform.projection * problem.grid.time_window[time] * current;
+    edge[time] = problem.transform.projection *
+                 problem.grid.time_window_derivative[time] * current;
+    operand +=
+        Kokkos::abs(product[time]) / problem.grid.omega[1] +
+        Kokkos::abs(edge[time]) / (problem.grid.omega[1] * problem.grid.omega[1]);
   }
   // Independent trigonometric sums, N trapezoids and three transforms. The bound
   // uses both absolute operands before their cancellation, fixed before execution.
   const double tolerance =
-      512.0 * static_cast<double>(problem.n_to) * kEpsilon * operand;
+      512.0 * static_cast<double>(problem.dims.n_to) * kEpsilon * operand;
   ASSERT_GT(tolerance, 0.0);
   const auto x = dft(product);
   const auto z = dft(edge);
@@ -979,13 +997,13 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   static_cast<void>(state.trial_step(0.0, scalars));
   const auto actual = state.stage_to_host(0);
   EXPECT_EQ(actual[0], Complex{});
-  for (std::size_t bin = 1; bin < problem.n_omega; ++bin) {
-    const double omega = problem.omega[bin];
+  for (std::size_t bin = 1; bin < problem.dims.n_omega; ++bin) {
+    const double omega = problem.grid.omega[bin];
     const Complex expected =
         Complex(0.0, -1.0 / omega) * x[bin] + z[bin] / (omega * omega);
     expect_complex_near(actual[bin], expected, tolerance);
   }
-  state.set_initial(std::vector<Complex>(problem.n_omega), {});
+  state.set_initial(std::vector<Complex>(problem.dims.n_omega), {});
   static_cast<void>(state.trial_step(0.0, scalars));
   for (const auto value : state.stage_to_host(0))
     EXPECT_EQ(value, Complex{});
@@ -993,15 +1011,15 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
 
 TEST(GeneralState, HeldCurrentRefusesMissingDerivativeAndNonpositiveActiveFrequency) {
   auto problem = plasma_problem();
-  problem.time_window_derivative.clear();
+  problem.grid.time_window_derivative.clear();
   EXPECT_THROW(native::GeneralState state(problem), std::invalid_argument);
   problem = plasma_problem();
-  problem.time_window_derivative[0] = std::numeric_limits<double>::infinity();
+  problem.grid.time_window_derivative[0] = std::numeric_limits<double>::infinity();
   EXPECT_THROW(native::GeneralState state(problem), std::invalid_argument);
   problem = plasma_problem();
-  problem.omega[0] = 0.0;
+  problem.grid.omega[0] = 0.0;
   EXPECT_THROW(native::GeneralState state(problem), std::invalid_argument);
-  problem.active_mask[0] = 0;
+  problem.grid.active_mask[0] = 0;
   EXPECT_NO_THROW(native::GeneralState state(problem));
 }
 
@@ -1013,8 +1031,8 @@ TEST(GeneralState, RejectedPlasmaTrialCannotReplaceTheAcceptedStash) {
   auto rejected = trial(problem);
   rejected.preionisation = {0.7};
   constexpr double density = 4.0;
-  const double exposure =
-      problem.rate_max * problem.dt_fine * static_cast<double>(problem.n_to - 1);
+  const double exposure = problem.plasma.rate_max * problem.grid.dt_fine *
+                          static_cast<double>(problem.dims.n_to - 1);
   const auto final_fraction = [exposure](const double preionisation) {
     return 1.0 - (1.0 - preionisation) * std::exp(-exposure);
   };
@@ -1029,7 +1047,7 @@ TEST(GeneralState, RejectedPlasmaTrialCannotReplaceTheAcceptedStash) {
   const auto retained = state.statistics(flags, {}, {}, density, 1.0, 0.7, 1.0);
   ASSERT_EQ(retained.size(), 2);
   EXPECT_NEAR(retained[0], density * final_fraction(0.1), 64.0 * kEpsilon);
-  EXPECT_NEAR(retained[1], problem.rate_max, 32.0 * kEpsilon);
+  EXPECT_NEAR(retained[1], problem.plasma.rate_max, 32.0 * kEpsilon);
   state.clear_fsal();
   const auto rescanned = state.statistics(flags, {}, {}, density, 1.0, 0.7, 1.0);
   EXPECT_NEAR(rescanned[0], density * final_fraction(0.7), 64.0 * kEpsilon);
@@ -1040,23 +1058,24 @@ TEST(GeneralState, RejectedPlasmaTrialCannotReplaceTheAcceptedStash) {
 
 TEST(GeneralState, IndependentChannelStashesSurviveRejectedTrials) {
   auto problem = plasma_problem();
-  problem.n_channels = 2;
+  problem.plasma.n_channels = 2;
   const std::array<double, 2> rates{0.125, 0.25};
   for (std::size_t channel = 0; channel < 2; ++channel) {
-    const std::array<double, 9> parameters{problem.log_field_min,
-                                           problem.d_log_field,
-                                           problem.field_min,
-                                           problem.field_max,
+    const std::array<double, 9> parameters{problem.plasma.log_field_min,
+                                           problem.plasma.d_log_field,
+                                           problem.plasma.field_min,
+                                           problem.plasma.field_max,
                                            rates[channel],
                                            1.0,
                                            4.0 * static_cast<double>(channel),
-                                           problem.charge_mass_ratio,
-                                           problem.ionisation_potential};
-    problem.channel_parameters.insert(problem.channel_parameters.end(),
-                                      parameters.begin(), parameters.end());
+                                           problem.plasma.charge_mass_ratio,
+                                           problem.plasma.ionisation_potential};
+    problem.plasma.channel_parameters.insert(problem.plasma.channel_parameters.end(),
+                                             parameters.begin(), parameters.end());
     const std::array<double, 4> coefficients{0.0, 0.0, 0.0, std::log(rates[channel])};
-    problem.channel_coefficients.insert(problem.channel_coefficients.end(),
-                                        coefficients.begin(), coefficients.end());
+    problem.plasma.channel_coefficients.insert(
+        problem.plasma.channel_coefficients.end(), coefficients.begin(),
+        coefficients.end());
   }
   auto accepted = trial(problem);
   accepted.preionisation = {0.0};
@@ -1068,8 +1087,8 @@ TEST(GeneralState, IndependentChannelStashesSurviveRejectedTrials) {
   // operations enter each fraction, including exp, before statistics are read.
   constexpr double tolerance = 64.0 * kEpsilon;
   const auto expected = [&](const double initial, const std::size_t channel) {
-    return 1.0 - (1.0 - initial) * std::exp(-rates[channel] * problem.dt_fine *
-                                            static_cast<double>(problem.n_to - 1));
+    return 1.0 - (1.0 - initial) * std::exp(-rates[channel] * problem.grid.dt_fine *
+                                            static_cast<double>(problem.dims.n_to - 1));
   };
   native::GeneralState state(problem);
   state.set_initial(std::vector<Complex>{{2.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}}, {});
@@ -1096,65 +1115,66 @@ TEST(GeneralState, IndependentChannelStashesSurviveRejectedTrials) {
 
 TEST(GeneralState, MemoryLedgerMatchesConditionalAllocationFormulae) {
   auto problem = multimode_problem();
-  problem.weighted_controller = true;
-  problem.plasma = true;
-  problem.stash_plasma = true;
-  problem.dt_fine = 0.125;
-  problem.charge_mass_ratio = 2.0;
-  problem.ionisation_potential = 3.0;
-  problem.log_field_min = std::log(0.01);
-  problem.d_log_field = std::log(1000.0);
-  problem.field_min = 0.01;
-  problem.field_max = 10.0;
-  problem.rate_max = 0.5;
-  problem.rate_intervals = 1;
-  problem.rate_coefficients = {0.0, 0.0, 0.0, std::log(0.5)};
+  problem.stepper.weighted_controller = true;
+  problem.plasma.enabled = true;
+  problem.plasma.stash = true;
+  problem.grid.dt_fine = 0.125;
+  problem.plasma.charge_mass_ratio = 2.0;
+  problem.plasma.ionisation_potential = 3.0;
+  problem.plasma.log_field_min = std::log(0.01);
+  problem.plasma.d_log_field = std::log(1000.0);
+  problem.plasma.field_min = 0.01;
+  problem.plasma.field_max = 10.0;
+  problem.plasma.rate_max = 0.5;
+  problem.plasma.rate_intervals = 1;
+  problem.plasma.rate_coefficients = {0.0, 0.0, 0.0, std::log(0.5)};
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
   const std::size_t real = sizeof(double);
   const std::size_t complex = sizeof(Complex);
-  EXPECT_EQ(ledger.at("state"), problem.n_columns() * problem.n_omega * complex);
-  EXPECT_EQ(ledger.at("stages"),
-            problem.n_stages * problem.n_columns() * problem.n_omega * complex);
+  EXPECT_EQ(ledger.at("state"), problem.n_columns() * problem.dims.n_omega * complex);
+  EXPECT_EQ(ledger.at("stages"), problem.stepper.n_stages * problem.n_columns() *
+                                     problem.dims.n_omega * complex);
   EXPECT_EQ(ledger.at("transform_matrices"),
-            (problem.synthesis_matrix.size() + problem.projection_matrix.size() +
-             problem.projection_coarse_matrix.size()) *
+            (problem.transform.synthesis_matrix.size() +
+             problem.transform.projection_matrix.size() +
+             problem.transform.projection_coarse_matrix.size()) *
                 real);
   EXPECT_EQ(ledger.at("stacked_projection"),
-            2 * problem.n_columns() * problem.n_to * real);
+            2 * problem.n_columns() * problem.dims.n_to * real);
   EXPECT_EQ(ledger.at("scaled_transform_matrices"),
-            5 * problem.n_modes * problem.n_nodes * real);
+            5 * problem.dims.n_modes * problem.dims.n_nodes * real);
   EXPECT_EQ(ledger.at("plasma_stash"),
-            2 * problem.n_nodes * (1 + 2 * problem.n_channels) * real);
+            2 * problem.dims.n_nodes * (1 + 2 * problem.plasma.n_channels) * real);
   // The device column's rows; on the host the band statistics' three rows per team
   // slot, at most one slot per thread (a trapezoid problem keeps no band rows).
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  const auto chunk_rows = problem.node_chunk * problem.effective_node_pol();
+  const auto chunk_rows = problem.dims.node_chunk * problem.effective_node_pol();
   // With the trapezoid's binary64 tile totals, a row's tiles of 1,024 samples.
-  const auto tiles = (problem.n_to + 1023) / 1024;
+  const auto tiles = (problem.dims.n_to + 1023) / 1024;
   EXPECT_EQ(ledger.at("plasma_device_scan"),
-            (3 * problem.node_chunk * problem.n_to + 3 * chunk_rows * problem.n_to +
-             chunk_rows * tiles) *
+            (3 * problem.dims.node_chunk * problem.dims.n_to +
+             3 * chunk_rows * problem.dims.n_to + chunk_rows * tiles) *
                 real);
 #else
   // One slot per thread of the response operation's own width (problem-size policy).
   const auto response_elements =
-      problem.node_chunk * problem.effective_node_pol() * problem.n_to;
+      problem.dims.node_chunk * problem.effective_node_pol() * problem.dims.n_to;
   const int width = native::cpu_size_policy_enabled
                         ? native::operation_threads(
                               native::thread_policy(), native::test::table(),
                               native::CpuPool::kernels, native::CpuOperation::response,
-                              response_elements, problem.n_to)
+                              response_elements, problem.dims.n_to)
                         : native::ExecutionSpace().concurrency();
   const auto slots =
-      std::min(problem.node_chunk, static_cast<std::size_t>(std::max(1, width)));
-  EXPECT_EQ(ledger.at("plasma_device_scan"), 3 * slots * problem.n_to * real);
+      std::min(problem.dims.node_chunk, static_cast<std::size_t>(std::max(1, width)));
+  EXPECT_EQ(ledger.at("plasma_device_scan"), 3 * slots * problem.dims.n_to * real);
 #endif
   EXPECT_EQ(ledger.at("weighted_control"),
-            (problem.n_omega + problem.n_columns()) * real);
+            (problem.dims.n_omega + problem.n_columns()) * real);
   EXPECT_EQ(ledger.at("error_partials"), 3 * problem.n_columns() * real);
   EXPECT_EQ(ledger.at("statistics_spectrum"),
-            problem.n_columns() * problem.n_t * complex);
+            problem.n_columns() * problem.dims.n_t * complex);
 }
 
 TEST(GeneralState, RamanMemoryLedgerMatchesTheConditionalViewFormulae) {
@@ -1164,18 +1184,18 @@ TEST(GeneralState, RamanMemoryLedgerMatchesTheConditionalViewFormulae) {
   const auto real = sizeof(double);
   const auto complex = sizeof(Complex);
   EXPECT_EQ(ledger.at("node_raman_drive"),
-            problem.node_chunk * 2 * problem.n_to * real);
+            problem.dims.node_chunk * 2 * problem.dims.n_to * real);
   EXPECT_EQ(ledger.at("node_raman_spectrum"),
-            problem.node_chunk * (problem.n_to + 1) * complex);
+            problem.dims.node_chunk * (problem.dims.n_to + 1) * complex);
   EXPECT_EQ(ledger.at("node_raman_convolved"),
-            problem.node_chunk * 2 * problem.n_to * real);
+            problem.dims.node_chunk * 2 * problem.dims.n_to * real);
   EXPECT_EQ(ledger.at("raman_undamped"),
-            problem.n_raman_terms * 2 * problem.n_to * real);
-  EXPECT_EQ(ledger.at("raman_kernel_time"), 2 * problem.n_to * real);
-  EXPECT_EQ(ledger.at("raman_kernel_spectrum"), (problem.n_to + 1) * complex);
+            problem.raman.n_terms * 2 * problem.dims.n_to * real);
+  EXPECT_EQ(ledger.at("raman_kernel_time"), 2 * problem.dims.n_to * real);
+  EXPECT_EQ(ledger.at("raman_kernel_spectrum"), (problem.dims.n_to + 1) * complex);
   // Two slots of the packed stage scalars, the trial's step and its sample.
   EXPECT_EQ(ledger.at("stage_raman_rates"),
-            2 * problem.n_stages * problem.n_raman_terms * real);
+            2 * problem.stepper.n_stages * problem.raman.n_terms * real);
 
   native::GeneralState ordinary(multimode_problem());
   const auto absent = ordinary.memory_ledger();
@@ -1422,35 +1442,39 @@ struct SynthesisCapture {
 // with the whole transform.
 void check_radial_analytic_chunks(const bool absorber, const char* expected_region) {
   auto problem = general_problem(native::FieldFamily::field_analytic);
-  problem.n_modes = 5;
-  problem.n_nodes = 5;
-  problem.node_chunk = 3;
-  problem.spatial_spectral_weights.assign(problem.n_modes, 1.0);
-  problem.spatial_on_axis.assign(problem.n_modes, 1.0);
-  problem.phi_terms.assign(problem.n_modes * problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(problem.n_modes * problem.n_omega, Complex(1.0, 0.0));
-  problem.in_stage_absorber = absorber;
+  problem.dims.n_modes = 5;
+  problem.dims.n_nodes = 5;
+  problem.dims.node_chunk = 3;
+  problem.spatial.spectral_weights.assign(problem.dims.n_modes, 1.0);
+  problem.spatial.on_axis.assign(problem.dims.n_modes, 1.0);
+  problem.linear.phi_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                  Complex{});
+  problem.linear.prefactor_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                        Complex(1.0, 0.0));
+  problem.absorber.in_stage = absorber;
   if (absorber) {
-    problem.absorber_fine.resize(problem.n_to);
-    for (std::size_t time = 0; time < problem.n_to; ++time)
-      problem.absorber_fine[time] = 0.01 * static_cast<double>(time % 3);
+    problem.absorber.fine.resize(problem.dims.n_to);
+    for (std::size_t time = 0; time < problem.dims.n_to; ++time)
+      problem.absorber.fine[time] = 0.01 * static_cast<double>(time % 3);
   }
-  problem.synthesis_matrix.resize(problem.n_nodes * problem.n_modes);
-  problem.projection_matrix.resize(problem.n_modes * problem.n_nodes);
-  for (std::size_t row = 0; row < problem.n_nodes; ++row) {
-    for (std::size_t column = 0; column < problem.n_modes; ++column) {
-      const auto index = row * problem.n_modes + column;
-      problem.synthesis_matrix[index] =
+  problem.transform.synthesis_matrix.resize(problem.dims.n_nodes *
+                                            problem.dims.n_modes);
+  problem.transform.projection_matrix.resize(problem.dims.n_modes *
+                                             problem.dims.n_nodes);
+  for (std::size_t row = 0; row < problem.dims.n_nodes; ++row) {
+    for (std::size_t column = 0; column < problem.dims.n_modes; ++column) {
+      const auto index = row * problem.dims.n_modes + column;
+      problem.transform.synthesis_matrix[index] =
           row == column ? 1.0 : 0.125 * static_cast<double>(row + 1);
-      problem.projection_matrix[index] =
+      problem.transform.projection_matrix[index] =
           row == column ? 0.75 : -0.0625 * static_cast<double>(column + 1);
     }
   }
-  std::vector<Complex> initial(problem.n_modes * problem.n_omega);
+  std::vector<Complex> initial(problem.dims.n_modes * problem.dims.n_omega);
   for (std::size_t index = 0; index < initial.size(); ++index)
     initial[index] = Complex(0.01 * static_cast<double>(index + 1), -0.02);
   auto whole_problem = problem;
-  whole_problem.node_chunk = whole_problem.n_nodes;
+  whole_problem.dims.node_chunk = whole_problem.dims.n_nodes;
   native::GeneralState whole(whole_problem);
   whole.set_initial(initial, {});
   static_cast<void>(whole.trial_step(0.01, trial(whole_problem)));
@@ -1476,9 +1500,9 @@ void check_radial_analytic_chunks(const bool absorber, const char* expected_regi
   // Both computations have one inverse/forward FFT and two length-five products;
   // carry their rounding through the cubic and the stage's scaled increment.
   const double tolerance =
-      512.0 * kEpsilon * static_cast<double>(problem.n_to) +
-      4.0 * (static_cast<double>(problem.n_modes) * kEpsilon /
-             (1.0 - static_cast<double>(problem.n_modes) * kEpsilon));
+      512.0 * kEpsilon * static_cast<double>(problem.dims.n_to) +
+      4.0 * (static_cast<double>(problem.dims.n_modes) * kEpsilon /
+             (1.0 - static_cast<double>(problem.dims.n_modes) * kEpsilon));
   ASSERT_GT(tolerance, 0.0);
   for (std::size_t index = 0; index < actual.size(); ++index)
     expect_complex_near(actual[index], expected[index],
@@ -1498,21 +1522,24 @@ TEST(GeneralState, SquareRadialAnalyticChunksSynthesiseRetainedSpectra) {
 
 TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
   auto problem = multimode_problem(3);
-  problem.n_to = 1024;
-  problem.n_nodes = 8;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
-  problem.synthesis_matrix.assign(problem.n_nodes * problem.n_modes, 0.5);
-  problem.projection_matrix.assign(problem.n_modes * problem.n_nodes, 0.25);
-  problem.projection_coarse_matrix.assign(problem.n_modes * problem.n_nodes, 0.125);
+  problem.dims.n_to = 1024;
+  problem.dims.n_nodes = 8;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
+  problem.transform.synthesis_matrix.assign(problem.dims.n_nodes * problem.dims.n_modes,
+                                            0.5);
+  problem.transform.projection_matrix.assign(
+      problem.dims.n_modes * problem.dims.n_nodes, 0.25);
+  problem.transform.projection_coarse_matrix.assign(
+      problem.dims.n_modes * problem.dims.n_nodes, 0.125);
 
   native::GeneralState state(problem);
   const auto ledger = state.memory_ledger();
   EXPECT_EQ(ledger.at("chunk_transform_buffers"),
-            (3U + 2U) * problem.n_modes * 3U * sizeof(double));
+            (3U + 2U) * problem.dims.n_modes * 3U * sizeof(double));
 
   auto whole_problem = problem;
-  whole_problem.node_chunk = whole_problem.n_nodes;
+  whole_problem.dims.node_chunk = whole_problem.dims.n_nodes;
   const std::vector<Complex> initial{{1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05},
                                      {0.5, 0.0}, {-0.2, 0.1},    {0.05, -0.025}};
   native::GeneralState whole(whole_problem);
@@ -1524,10 +1551,10 @@ TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
   state.finish(0.01);
   const auto reference = whole.field_to_host();
   const auto chunked = state.field_to_host();
-  const auto dot_length = static_cast<double>(problem.n_nodes);
+  const auto dot_length = static_cast<double>(problem.dims.n_nodes);
   const double dot_gamma = dot_length * kEpsilon / (1.0 - dot_length * kEpsilon);
   const double tolerance =
-      512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.n_to))) +
+      512.0 * kEpsilon * std::ceil(std::log2(static_cast<double>(problem.dims.n_to))) +
       4.0 * dot_gamma;
   for (std::size_t index = 0; index < chunked.size(); ++index)
     expect_complex_near(chunked[index], reference[index],
@@ -1537,56 +1564,62 @@ TEST(GeneralState, ChunkedBlasBuffersHaveExactPersistentByteCost) {
 #ifdef SOLPROP_NATIVE_TPL_BLAS_OPENBLAS
 TEST(GeneralState, OpenBlasEnvelopePolicyAllocatesAndExecutesComplexTransforms) {
   auto problem = multimode_problem(8);
-  problem.family = native::FieldFamily::envelope;
-  problem.n_t = 1024;
-  problem.n_to = 1024;
-  problem.n_omega = 1024;
-  problem.n_nodes = 8;
-  problem.crop_index.clear();
-  for (std::size_t index = 0; index < problem.n_omega; ++index)
-    problem.crop_index.push_back(index);
-  problem.active_mask.assign(problem.n_omega, 1U);
-  problem.norm_mask.assign(problem.n_omega, 1U);
-  problem.omega_window.assign(problem.n_omega, 1.0);
-  problem.omega.assign(problem.n_omega, 1.0);
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
-  problem.phi_terms.assign(problem.n_modes * problem.n_omega, Complex{});
-  problem.prefactor_terms.assign(problem.n_modes * problem.n_omega, Complex(1.0, 0.0));
-  problem.synthesis_matrix.assign(problem.n_nodes * problem.n_modes, 0.5);
-  problem.projection_matrix.assign(problem.n_modes * problem.n_nodes, 0.25);
-  problem.projection_coarse_matrix.assign(problem.n_modes * problem.n_nodes, 0.125);
+  problem.dims.family = native::FieldFamily::envelope;
+  problem.dims.n_t = 1024;
+  problem.dims.n_to = 1024;
+  problem.dims.n_omega = 1024;
+  problem.dims.n_nodes = 8;
+  problem.grid.crop_index.clear();
+  for (std::size_t index = 0; index < problem.dims.n_omega; ++index)
+    problem.grid.crop_index.push_back(index);
+  problem.grid.active_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.norm_mask.assign(problem.dims.n_omega, 1U);
+  problem.grid.omega_window.assign(problem.dims.n_omega, 1.0);
+  problem.grid.omega.assign(problem.dims.n_omega, 1.0);
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
+  problem.linear.phi_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                  Complex{});
+  problem.linear.prefactor_terms.assign(problem.dims.n_modes * problem.dims.n_omega,
+                                        Complex(1.0, 0.0));
+  problem.transform.synthesis_matrix.assign(problem.dims.n_nodes * problem.dims.n_modes,
+                                            0.5);
+  problem.transform.projection_matrix.assign(
+      problem.dims.n_modes * problem.dims.n_nodes, 0.25);
+  problem.transform.projection_coarse_matrix.assign(
+      problem.dims.n_modes * problem.dims.n_nodes, 0.125);
 
   native::GeneralState state(problem);
   // Scalar envelopes use a real GEMM over the complex samples' interleaved view.
   EXPECT_EQ(state.synthesis_provider(), "kokkosblas-tpl-interleaved-real");
   EXPECT_EQ(state.projection_provider(), "kokkosblas-tpl-interleaved-real");
   const auto ledger = state.memory_ledger();
-  const auto real_matrix_values = 3 * problem.n_modes * problem.n_nodes;
-  const auto complex_matrix_values = 5 * problem.n_modes * problem.n_nodes;
+  const auto real_matrix_values = 3 * problem.dims.n_modes * problem.dims.n_nodes;
+  const auto complex_matrix_values = 5 * problem.dims.n_modes * problem.dims.n_nodes;
   EXPECT_EQ(ledger.at("scaled_transform_matrices"),
             real_matrix_values * sizeof(double) +
                 complex_matrix_values * sizeof(Complex));
   EXPECT_EQ(ledger.at("stacked_projection"),
-            2 * problem.n_modes * problem.n_to * sizeof(Complex));
+            2 * problem.dims.n_modes * problem.dims.n_to * sizeof(Complex));
 
-  state.set_initial(std::vector<Complex>(problem.n_modes * problem.n_omega), {});
+  state.set_initial(std::vector<Complex>(problem.dims.n_modes * problem.dims.n_omega),
+                    {});
   const auto partials = state.trial_step(0.01, trial(problem));
   // Exact: a zero field has zero norms and a zero error.
-  EXPECT_EQ(partials, std::vector<double>(3 * problem.n_modes, 0.0));
+  EXPECT_EQ(partials, std::vector<double>(3 * problem.dims.n_modes, 0.0));
 }
 #endif
 
 TEST(GeneralState, RejectsOverflowingExtentsBeforeAllocation) {
   auto column_overflow = general_problem(native::FieldFamily::field_real);
-  column_overflow.n_modes = std::numeric_limits<std::size_t>::max();
-  column_overflow.n_pol_state = 2;
+  column_overflow.dims.n_modes = std::numeric_limits<std::size_t>::max();
+  column_overflow.dims.n_pol_state = 2;
   EXPECT_THROW(static_cast<void>(native::GeneralState(std::move(column_overflow))),
                std::length_error);
 
   auto field_overflow = general_problem(native::FieldFamily::field_real);
-  field_overflow.n_modes =
-      std::numeric_limits<std::size_t>::max() / field_overflow.n_omega + 1;
+  field_overflow.dims.n_modes =
+      std::numeric_limits<std::size_t>::max() / field_overflow.dims.n_omega + 1;
   EXPECT_THROW(static_cast<void>(native::GeneralState(std::move(field_overflow))),
                std::length_error);
 }
@@ -1596,35 +1629,35 @@ TEST(GeneralState, RejectsOverflowingExtentsBeforeAllocation) {
 // (x, y) are ix + 3 iy, and each column's operator subtracts its channel's wall term.
 native::Problem planar_problem(const std::size_t rows_per_chunk) {
   auto problem = base_problem(native::FieldFamily::field_real);
-  problem.n_p = 2;
-  problem.n_x = 3;
-  problem.n_y = 4;
-  problem.n_modes = problem.n_p * problem.n_y;
-  problem.n_nodes = problem.n_x * problem.n_y;
-  problem.node_chunk = rows_per_chunk * problem.n_x;
-  problem.nonlinear = true;
-  problem.phi_terms.clear();
-  problem.prefactor_terms.clear();
-  problem.synthesis_matrix = {1.0, 0.5, -0.25, 1.5, 0.75, -0.5};
-  problem.projection_matrix = {0.5, 0.25, -0.125, 0.375, 0.625, -0.25};
-  problem.spatial_k_squared = {{40.0, 0.5}, {60.0, 1.0}, {90.0, 1.5}};
-  problem.spatial_k_squared_low = {{1e-15, 0.0}, {-2e-15, 0.0}, {0.0, 1e-16}};
-  problem.spatial_numerator = {{0.0, -1.0}, {0.0, -2.0}, {0.0, -3.0}};
-  problem.spatial_clamped = {{0.0, -0.25}, {0.0, -0.5}, {0.0, -0.75}};
-  problem.spatial_frame = {5.0, 6.0, 7.0};
-  problem.spatial_spectral_rate = {0.0, 0.25, 0.5};
-  problem.spatial_user_rate = {0.0, 0.0, 0.0};
+  problem.spatial.n_p = 2;
+  problem.spatial.n_x = 3;
+  problem.spatial.n_y = 4;
+  problem.dims.n_modes = problem.spatial.n_p * problem.spatial.n_y;
+  problem.dims.n_nodes = problem.spatial.n_x * problem.spatial.n_y;
+  problem.dims.node_chunk = rows_per_chunk * problem.spatial.n_x;
+  problem.kerr.nonlinear = true;
+  problem.linear.phi_terms.clear();
+  problem.linear.prefactor_terms.clear();
+  problem.transform.synthesis_matrix = {1.0, 0.5, -0.25, 1.5, 0.75, -0.5};
+  problem.transform.projection_matrix = {0.5, 0.25, -0.125, 0.375, 0.625, -0.25};
+  problem.spatial.k_squared = {{40.0, 0.5}, {60.0, 1.0}, {90.0, 1.5}};
+  problem.spatial.k_squared_low = {{1e-15, 0.0}, {-2e-15, 0.0}, {0.0, 1e-16}};
+  problem.spatial.numerator = {{0.0, -1.0}, {0.0, -2.0}, {0.0, -3.0}};
+  problem.spatial.clamped = {{0.0, -0.25}, {0.0, -0.5}, {0.0, -0.75}};
+  problem.spatial.frame = {5.0, 6.0, 7.0};
+  problem.spatial.spectral_rate = {0.0, 0.25, 0.5};
+  problem.spatial.user_rate = {0.0, 0.0, 0.0};
   // k_y^2 per column, the channel fastest; the last row is evanescent in the first
   // bin, so both branches of the operator are exercised.
   const std::vector<double> ky_squared{0.0, 4.0, 45.0, 4.0};
-  for (std::size_t column = 0; column < problem.n_modes; ++column) {
-    problem.spatial_kperp_sq.push_back(ky_squared[column / problem.n_p]);
-    problem.spatial_kperp_sq_low.push_back(column == 3 ? 1e-16 : 0.0);
+  for (std::size_t column = 0; column < problem.dims.n_modes; ++column) {
+    problem.spatial.kperp_sq.push_back(ky_squared[column / problem.spatial.n_p]);
+    problem.spatial.kperp_sq_low.push_back(column == 3 ? 1e-16 : 0.0);
   }
-  problem.spatial_absorber_rate.assign(problem.n_modes, 0.0);
-  problem.spatial_kperp_rate.assign(problem.n_modes, 0.0);
-  problem.spatial_evanescent_rate = 200.0;
-  problem.spatial_kappa_sq = {{1.0, 0.25}, {2.0, 0.5},  {3.0, 0.75},
+  problem.spatial.absorber_rate.assign(problem.dims.n_modes, 0.0);
+  problem.spatial.kperp_rate.assign(problem.dims.n_modes, 0.0);
+  problem.spatial.evanescent_rate = 200.0;
+  problem.spatial.kappa_sq = {{1.0, 0.25}, {2.0, 0.5},  {3.0, 0.75},
                               {9.0, 1.0},  {12.0, 1.5}, {15.0, 2.0}};
   return problem;
 }
@@ -1636,20 +1669,21 @@ struct PlanarElement {
 PlanarElement planar_element(const native::Problem& problem, const std::size_t column,
                              const std::size_t omega) {
   const Complex square =
-      (problem.spatial_k_squared[omega] - problem.spatial_kperp_sq[column]) +
-      (problem.spatial_k_squared_low[omega] - problem.spatial_kperp_sq_low[column]) -
-      problem.spatial_kappa_sq[(column % problem.n_p) * problem.n_omega + omega];
+      (problem.spatial.k_squared[omega] - problem.spatial.kperp_sq[column]) +
+      (problem.spatial.k_squared_low[omega] - problem.spatial.kperp_sq_low[column]) -
+      problem.spatial
+          .kappa_sq[(column % problem.spatial.n_p) * problem.dims.n_omega + omega];
   const std::complex<double> root =
       std::sqrt(std::complex<double>(square.real(), square.imag()));
   const bool propagating = square.real() > 0.0;
   const double attenuation =
       propagating ? root.imag()
-                  : std::min(std::abs(root.imag()), problem.spatial_evanescent_rate);
+                  : std::min(std::abs(root.imag()), problem.spatial.evanescent_rate);
   return {.linear =
-              Complex(-attenuation, -(root.real() - problem.spatial_frame[omega])) -
-              0.5 * problem.spatial_spectral_rate[omega],
-          .prefactor = propagating ? problem.spatial_numerator[omega] / root.real()
-                                   : problem.spatial_clamped[omega]};
+              Complex(-attenuation, -(root.real() - problem.spatial.frame[omega])) -
+              0.5 * problem.spatial.spectral_rate[omega],
+          .prefactor = propagating ? problem.spatial.numerator[omega] / root.real()
+                                   : problem.spatial.clamped[omega]};
 }
 
 // The stage straight from the definitions: the inverse DFT in y, each row's real time
@@ -1657,10 +1691,10 @@ PlanarElement planar_element(const native::Problem& problem, const std::size_t c
 // and each column's prefactor.
 std::vector<Complex> planar_reference(const native::Problem& problem,
                                       const std::vector<Complex>& columns) {
-  const auto n_p = problem.n_p;
-  const auto n_x = problem.n_x;
-  const auto n_y = problem.n_y;
-  const auto n = problem.n_omega;
+  const auto n_p = problem.spatial.n_p;
+  const auto n_x = problem.spatial.n_x;
+  const auto n_y = problem.spatial.n_y;
+  const auto n = problem.dims.n_omega;
   std::vector<std::vector<double>> rows(n_p * n_y);
   for (std::size_t iy = 0; iy < n_y; ++iy)
     for (std::size_t p = 0; p < n_p; ++p) {
@@ -1672,25 +1706,26 @@ std::vector<Complex> planar_reference(const native::Problem& problem,
               cis(2.0 * std::numbers::pi_v<double> * static_cast<double>(ky * iy) /
                   static_cast<double>(n_y)) /
               static_cast<double>(n_y);
-      rows[p + n_p * iy] = real_time(spectrum, problem.n_to);
+      rows[p + n_p * iy] = real_time(spectrum, problem.dims.n_to);
     }
   std::vector<Complex> projected(n_p * n_y * n);
   for (std::size_t iy = 0; iy < n_y; ++iy) {
-    std::vector<std::vector<double>> polarisation(n_x,
-                                                  std::vector<double>(problem.n_to));
+    std::vector<std::vector<double>> polarisation(
+        n_x, std::vector<double>(problem.dims.n_to));
     for (std::size_t ix = 0; ix < n_x; ++ix)
-      for (std::size_t time = 0; time < problem.n_to; ++time) {
+      for (std::size_t time = 0; time < problem.dims.n_to; ++time) {
         double field = 0.0;
         for (std::size_t p = 0; p < n_p; ++p)
-          field += problem.synthesis_matrix[ix * n_p + p] * rows[p + n_p * iy][time];
-        polarisation[ix][time] = problem.kerr_coefficient * field * field * field;
+          field += problem.transform.synthesis_matrix[ix * n_p + p] *
+                   rows[p + n_p * iy][time];
+        polarisation[ix][time] = problem.kerr.coefficient * field * field * field;
       }
     for (std::size_t p = 0; p < n_p; ++p) {
-      std::vector<Complex> signal(problem.n_to);
-      for (std::size_t time = 0; time < problem.n_to; ++time)
+      std::vector<Complex> signal(problem.dims.n_to);
+      for (std::size_t time = 0; time < problem.dims.n_to; ++time)
         for (std::size_t ix = 0; ix < n_x; ++ix)
-          signal[time] +=
-              problem.projection_matrix[p * n_x + ix] * polarisation[ix][time];
+          signal[time] += problem.transform.projection_matrix[p * n_x + ix] *
+                          polarisation[ix][time];
       const auto spectrum = dft(signal);
       for (std::size_t omega = 0; omega < n; ++omega)
         projected[(p + n_p * iy) * n + omega] = spectrum[omega];
@@ -1707,7 +1742,7 @@ std::vector<Complex> planar_reference(const native::Problem& problem,
                      static_cast<double>(n_y));
         const auto column = p + n_p * ky;
         result[column * n + omega] = planar_element(problem, column, omega).prefactor *
-                                     problem.omega_window[omega] * sum;
+                                     problem.grid.omega_window[omega] * sum;
       }
   return result;
 }
@@ -1722,7 +1757,7 @@ TEST(GeneralState, HybridPlanarStageMatchesStraightforwardHostImplementation) {
   // One y row per chunk (a partial chunk nowhere), then three (a partial last one).
   for (const std::size_t rows_per_chunk : {std::size_t{1}, std::size_t{3}}) {
     const auto problem = planar_problem(rows_per_chunk);
-    ASSERT_EQ(initial.size(), problem.n_modes * problem.n_omega);
+    ASSERT_EQ(initial.size(), problem.dims.n_modes * problem.dims.n_omega);
     const auto derivative = planar_reference(problem, initial);
     constexpr double dz = 0.01;
     auto scalars = trial(problem);
@@ -1740,9 +1775,9 @@ TEST(GeneralState, HybridPlanarStageMatchesStraightforwardHostImplementation) {
     // weighted update (one stage, unit weight), which carries the wall terms.
     state.finish(dz);
     const auto result = state.field_to_host();
-    for (std::size_t column = 0; column < problem.n_modes; ++column)
-      for (std::size_t omega = 0; omega < problem.n_omega; ++omega) {
-        const auto index = column * problem.n_omega + omega;
+    for (std::size_t column = 0; column < problem.dims.n_modes; ++column)
+      for (std::size_t omega = 0; omega < problem.dims.n_omega; ++omega) {
+        const auto index = column * problem.dims.n_omega + omega;
         const Complex exponent = dz * planar_element(problem, column, omega).linear;
         const Complex expected = std::exp(exponent.real()) * cis(exponent.imag()) *
                                  (initial[index] + dz * derivative[index]);
@@ -1754,22 +1789,22 @@ TEST(GeneralState, HybridPlanarStageMatchesStraightforwardHostImplementation) {
 
 TEST(GeneralState, HybridPlanarProblemsAreValidatedBeforeAllocation) {
   auto partial_row = planar_problem(1);
-  partial_row.node_chunk = 4;
+  partial_row.dims.node_chunk = 4;
   EXPECT_THROW(native::GeneralState state(partial_row), std::invalid_argument);
   auto short_kappa = planar_problem(1);
-  short_kappa.spatial_kappa_sq.pop_back();
+  short_kappa.spatial.kappa_sq.pop_back();
   EXPECT_THROW(native::GeneralState state(short_kappa), std::invalid_argument);
   auto coarse = planar_problem(1);
-  coarse.projection_coarse_matrix = coarse.projection_matrix;
+  coarse.transform.projection_coarse_matrix = coarse.transform.projection_matrix;
   EXPECT_THROW(native::GeneralState state(coarse), std::invalid_argument);
   auto vector = planar_problem(1);
-  vector.n_pol_state = 2;
+  vector.dims.n_pol_state = 2;
   EXPECT_THROW(native::GeneralState state(vector), std::invalid_argument);
   auto columns = planar_problem(1);
-  columns.n_p = 3;
+  columns.spatial.n_p = 3;
   EXPECT_THROW(native::GeneralState state(columns), std::invalid_argument);
   auto modal = general_problem(native::FieldFamily::field_real);
-  modal.spatial_kappa_sq = {{1.0, 0.0}};
+  modal.spatial.kappa_sq = {{1.0, 0.0}};
   EXPECT_THROW(native::GeneralState state(modal), std::invalid_argument);
 }
 
@@ -2436,7 +2471,7 @@ TEST(PlasmaBandScan, FilteringPreservesShortRowsBlockTailsAndDynamicRange) {
 
 TEST(GeneralState, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
   auto problem = general_problem(native::FieldFamily::envelope);
-  problem.nonlinear = true;
+  problem.kerr.nonlinear = true;
   const std::vector<Complex> initial = {
       {1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05}, {0.05, 0.025}};
   native::GeneralState state(problem);
@@ -2453,7 +2488,7 @@ TEST(GeneralState, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
     largest = std::max(largest, std::abs(value));
   ASSERT_GT(largest, 0.0);
   const double tolerance =
-      2.0 * 512.0 * kEpsilon * static_cast<double>(problem.n_to) * largest;
+      2.0 * 512.0 * kEpsilon * static_cast<double>(problem.dims.n_to) * largest;
   for (std::size_t index = 0; index < first.size(); ++index)
     EXPECT_NEAR(second[index], first[index], tolerance) << index;
   // Exact: a trial never writes the accepted state.
@@ -2462,16 +2497,16 @@ TEST(GeneralState, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
 
 TEST(GeneralState, RejectsDuplicateCropBins) {
   auto problem = general_problem(native::FieldFamily::envelope);
-  problem.crop_index[1] = problem.crop_index[0];
+  problem.grid.crop_index[1] = problem.grid.crop_index[0];
   EXPECT_THROW(native::GeneralState state(problem), std::invalid_argument);
 }
 
 TEST(GeneralState, SplitStepAbsorberDampsOnlyAcceptedState) {
   auto problem = general_problem(native::FieldFamily::envelope);
-  problem.nonlinear = false;
-  problem.split_step_absorber = true;
-  problem.absorber_coarse.assign(problem.n_t, 2.0);
-  const std::vector<Complex> initial(problem.n_omega, {1.0, -0.25});
+  problem.kerr.nonlinear = false;
+  problem.absorber.split_step = true;
+  problem.absorber.coarse.assign(problem.dims.n_t, 2.0);
+  const std::vector<Complex> initial(problem.dims.n_omega, {1.0, -0.25});
   constexpr double dz = 0.1;
   native::GeneralState state(problem);
   state.set_initial(initial, {});
@@ -2491,11 +2526,11 @@ TEST(GeneralState, SplitStepAbsorberDampsOnlyAcceptedState) {
 
 TEST(GeneralState, InStageAbsorberPreservesFirstSameAsLastEligibility) {
   auto problem = general_problem(native::FieldFamily::envelope);
-  problem.nonlinear = false;
-  problem.in_stage_absorber = true;
-  problem.first_same_as_last = true;
-  problem.absorber_fine.assign(problem.n_to, 2.0);
-  const std::vector<Complex> initial(problem.n_omega, {1.0, 0.0});
+  problem.kerr.nonlinear = false;
+  problem.absorber.in_stage = true;
+  problem.stepper.first_same_as_last = true;
+  problem.absorber.fine.assign(problem.dims.n_to, 2.0);
+  const std::vector<Complex> initial(problem.dims.n_omega, {1.0, 0.0});
   constexpr double dz = 0.1;
   native::GeneralState state(problem);
   state.set_initial(initial, {});
@@ -2516,17 +2551,17 @@ TEST(GeneralState, InStageAbsorberPreservesFirstSameAsLastEligibility) {
 // source (`multimode_reference`) and the exact half-step flows.
 native::Problem low_storage_problem(const std::size_t flows) {
   auto problem = multimode_problem();
-  problem.n_stages = 3;
-  problem.tableau_matrix.assign(9, 0.0);
-  problem.tableau_nodes = {0.0, 0.5, 1.0};
-  problem.solution_weights = {1.0, 0.0, 0.0};
-  problem.error_weights = {0.25, 0.0, -0.25};
-  problem.projection_coarse_matrix.clear();
-  problem.low_storage = true;
-  problem.low_storage_flows = flows;
-  for (std::size_t mode = 0; mode < problem.n_modes; ++mode)
-    for (std::size_t index = 0; index < problem.n_omega; ++index)
-      problem.phi_terms[mode * problem.n_omega + index] =
+  problem.stepper.n_stages = 3;
+  problem.stepper.tableau_matrix.assign(9, 0.0);
+  problem.stepper.tableau_nodes = {0.0, 0.5, 1.0};
+  problem.stepper.solution_weights = {1.0, 0.0, 0.0};
+  problem.stepper.error_weights = {0.25, 0.0, -0.25};
+  problem.transform.projection_coarse_matrix.clear();
+  problem.stepper.low_storage = true;
+  problem.stepper.low_storage_flows = flows;
+  for (std::size_t mode = 0; mode < problem.dims.n_modes; ++mode)
+    for (std::size_t index = 0; index < problem.dims.n_omega; ++index)
+      problem.linear.phi_terms[mode * problem.dims.n_omega + index] =
           Complex(-0.3 * static_cast<double>(index), 2.0 + static_cast<double>(mode));
   return problem;
 }
@@ -2546,7 +2581,7 @@ std::vector<Complex> low_storage_reference(const native::Problem& problem,
   const auto size = state.size();
   std::vector<Complex> flow(size);
   for (std::size_t element = 0; element < size; ++element) {
-    const Complex exponent = 0.5 * dz * problem.phi_terms[element];
+    const Complex exponent = 0.5 * dz * problem.linear.phi_terms[element];
     flow[element] = std::exp(exponent.real()) *
                     Complex(std::cos(exponent.imag()), std::sin(exponent.imag()));
   }
@@ -2621,8 +2656,8 @@ TEST(GeneralState, LowStoragePassesMatchTheHostInteractionPictureStep) {
 
 TEST(GeneralState, LowStorageStepsAreRefusedOutsideTheirState) {
   auto runge_kutta = low_storage_problem(1);
-  runge_kutta.low_storage = false;
-  runge_kutta.low_storage_flows = 0;
+  runge_kutta.stepper.low_storage = false;
+  runge_kutta.stepper.low_storage_flows = 0;
   native::GeneralState state(runge_kutta);
   state.set_initial(std::vector<Complex>(6), {});
   EXPECT_THROW(static_cast<void>(state.low_storage_step(
@@ -2631,7 +2666,7 @@ TEST(GeneralState, LowStorageStepsAreRefusedOutsideTheirState) {
   auto three = low_storage_problem(3);
   EXPECT_THROW(native::GeneralState too_many(three), std::invalid_argument);
   auto elided = low_storage_problem(0);
-  elided.low_storage_stage_register = false;
+  elided.stepper.low_storage_stage_register = false;
   EXPECT_THROW(native::GeneralState modal(elided), std::invalid_argument);
   native::GeneralState march(low_storage_problem(0));
   march.set_initial(std::vector<Complex>(6), {});
@@ -2657,20 +2692,20 @@ std::string construction_refusal(const native::Problem& problem) {
 // with no slab channels.
 native::Problem low_storage_free_problem() {
   auto problem = planar_problem(1);
-  problem.n_p = 0;
-  problem.n_modes = problem.n_x * problem.n_y;
-  problem.n_nodes = problem.n_modes;
-  problem.synthesis_matrix.clear();
-  problem.projection_matrix.clear();
-  problem.spatial_kappa_sq.clear();
+  problem.spatial.n_p = 0;
+  problem.dims.n_modes = problem.spatial.n_x * problem.spatial.n_y;
+  problem.dims.n_nodes = problem.dims.n_modes;
+  problem.transform.synthesis_matrix.clear();
+  problem.transform.projection_matrix.clear();
+  problem.spatial.kappa_sq.clear();
   // Construction only: the unit transverse square is k_x = 1, k_y = 0.
-  problem.spatial_k_x.assign(problem.n_x, 1.0);
-  problem.spatial_k_y.assign(problem.n_y, 0.0);
-  problem.spatial_kperp_sq.assign(problem.n_modes, 1.0);
-  problem.spatial_kperp_sq_low.assign(problem.n_modes, 0.0);
-  problem.spatial_absorber_rate.assign(problem.n_modes, 0.0);
-  problem.spatial_kperp_rate.assign(problem.n_modes, 0.0);
-  problem.low_storage = true;
+  problem.spatial.k_x.assign(problem.spatial.n_x, 1.0);
+  problem.spatial.k_y.assign(problem.spatial.n_y, 0.0);
+  problem.spatial.kperp_sq.assign(problem.dims.n_modes, 1.0);
+  problem.spatial.kperp_sq_low.assign(problem.dims.n_modes, 0.0);
+  problem.spatial.absorber_rate.assign(problem.dims.n_modes, 0.0);
+  problem.spatial.kperp_rate.assign(problem.dims.n_modes, 0.0);
+  problem.stepper.low_storage = true;
   return problem;
 }
 
@@ -2678,23 +2713,23 @@ TEST(GeneralState, LowStorageRefusesRegistersItsFoldsCannotRead) {
   // The exchange fold of an in-stage absorber re-forms its input from the stage
   // register, so it is never elided there.
   auto elided = low_storage_free_problem();
-  elided.low_storage_stage_register = false;
+  elided.stepper.low_storage_stage_register = false;
   EXPECT_EQ(construction_refusal(elided), "");
-  elided.in_stage_absorber = true;
-  elided.absorber_fine.assign(elided.n_to, 1.0);
+  elided.absorber.in_stage = true;
+  elided.absorber.fine.assign(elided.dims.n_to, 1.0);
   EXPECT_NE(construction_refusal(elided).find("beside an in-stage absorber"),
             std::string::npos);
   // A separable fold applies one flow volume, a constant operator's table.
   auto table = low_storage_free_problem();
-  table.low_storage_flows = 1;
+  table.stepper.low_storage_flows = 1;
   EXPECT_EQ(construction_refusal(table), "");
   auto pair = low_storage_free_problem();
-  pair.low_storage_flows = 2;
+  pair.stepper.low_storage_flows = 2;
   EXPECT_NE(construction_refusal(pair).find("at most one flow volume"),
             std::string::npos);
   auto planar = planar_problem(1);
-  planar.low_storage = true;
-  planar.low_storage_flows = 2;
+  planar.stepper.low_storage = true;
+  planar.stepper.low_storage_flows = 2;
   EXPECT_NE(construction_refusal(planar).find("at most one flow volume"),
             std::string::npos);
 }
@@ -3084,25 +3119,25 @@ TEST(CpuThreadPolicy, CompactProblemsHaveOneColumnOnOneNode) {
   const auto base = general_problem(native::FieldFamily::field_real);
   EXPECT_TRUE(native::compact_problem(base));
   auto nodes = base;
-  nodes.n_nodes = 2;
+  nodes.dims.n_nodes = 2;
   EXPECT_FALSE(native::compact_problem(nodes));
   auto modes = base;
-  modes.n_modes = 2;
+  modes.dims.n_modes = 2;
   EXPECT_FALSE(native::compact_problem(modes));
   auto pairs = base;
-  pairs.n_pol_transform = 2;
+  pairs.dims.n_pol_transform = 2;
   EXPECT_FALSE(native::compact_problem(pairs));
   auto long_column = base;
-  long_column.n_to = native::test::table().compact_max_fine_samples;
+  long_column.dims.n_to = native::test::table().compact_max_fine_samples;
   EXPECT_FALSE(native::compact_problem(long_column));
   auto modal = base;
-  modal.general_modal = true;
+  modal.general.enabled = true;
   EXPECT_FALSE(native::compact_problem(modal));
   auto flow = base;
-  flow.coupled_flow = true;
+  flow.flow.enabled = true;
   EXPECT_FALSE(native::compact_problem(flow));
   auto free_space = base;
-  free_space.n_x = 2;
+  free_space.spatial.n_x = 2;
   EXPECT_FALSE(native::compact_problem(free_space));
 }
 
@@ -3123,15 +3158,15 @@ TEST(CpuThreadPolicy, MetadataDistinguishesEqualWorkWithDifferentResponseShapes)
 
 TEST(CpuThreadPolicy, MatrixPackingDoesNotInheritTheDenseWorkWidth) {
   auto problem = general_problem(native::FieldFamily::field_real);
-  problem.n_to = 32768;
-  problem.n_nodes = 35;
-  problem.node_chunk = 33;
-  problem.synthesis_matrix.assign(problem.n_nodes, 1.0);
-  problem.projection_matrix.assign(problem.n_nodes, 1.0 / 35.0);
-  problem.projection_coarse_matrix = problem.projection_matrix;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.time_window_derivative.assign(problem.n_to, 0.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
+  problem.dims.n_to = 32768;
+  problem.dims.n_nodes = 35;
+  problem.dims.node_chunk = 33;
+  problem.transform.synthesis_matrix.assign(problem.dims.n_nodes, 1.0);
+  problem.transform.projection_matrix.assign(problem.dims.n_nodes, 1.0 / 35.0);
+  problem.transform.projection_coarse_matrix = problem.transform.projection_matrix;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.time_window_derivative.assign(problem.dims.n_to, 0.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
   native::GeneralState state(problem);
   const auto sizing = state.execution_sizing();
   // Full and tail matrices contain 33 and 2 entries, or twice those counts
@@ -3152,21 +3187,21 @@ TEST(CpuThreadPolicy, WorkspacesKeepIndependentChoicesAndReleaseTheirPools) {
   auto problem = general_problem(native::FieldFamily::envelope);
   native::GeneralState small(problem);
   // One long row, past the compact bound: its transforms thread by shape.
-  problem.n_to = 65536;
-  problem.time_window.assign(problem.n_to, 1.0);
-  problem.time_window_derivative.assign(problem.n_to, 0.0);
-  problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
+  problem.dims.n_to = 65536;
+  problem.grid.time_window.assign(problem.dims.n_to, 1.0);
+  problem.grid.time_window_derivative.assign(problem.dims.n_to, 0.0);
+  problem.grid.carrier.assign(problem.dims.n_to, Complex(1.0, 0.0));
   native::GeneralState large(problem);
   native::GeneralState another_small(general_problem(native::FieldFamily::envelope));
   const auto small_sizing = small.execution_sizing();
   EXPECT_EQ(small_sizing, another_small.execution_sizing());
-  const auto key = "fft.fft." + std::to_string(problem.n_to) + ".samples." +
-                   std::to_string(problem.n_to);
-  EXPECT_EQ(large.execution_sizing().at(key).at("elements"), problem.n_to);
+  const auto key = "fft.fft." + std::to_string(problem.dims.n_to) + ".samples." +
+                   std::to_string(problem.dims.n_to);
+  EXPECT_EQ(large.execution_sizing().at(key).at("elements"), problem.dims.n_to);
   EXPECT_EQ(large.execution_sizing().at(key).at("threads"),
             static_cast<std::size_t>(native::operation_threads(
                 native::thread_policy(), native::test::table(), native::CpuPool::fft,
-                native::CpuOperation::fft, problem.n_to, problem.n_to)));
+                native::CpuOperation::fft, problem.dims.n_to, problem.dims.n_to)));
   large.close();
   EXPECT_EQ(small.execution_sizing(), small_sizing);
   small.close();

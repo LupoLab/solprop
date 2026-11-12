@@ -54,8 +54,8 @@ KOKKOS_INLINE_FUNCTION Complex flow_exponential(const Complex value) {
 
 std::size_t block_size(const std::size_t count, const Problem& problem,
                        const char* name) {
-  return product(product(count, problem.flow_active, name),
-                 product(problem.n_modes, problem.n_modes, name), name);
+  return product(product(count, problem.flow.active, name),
+                 product(problem.dims.n_modes, problem.dims.n_modes, name), name);
 }
 
 using ComplexView3 = CoupledFlowAction::ComplexView3;
@@ -262,26 +262,26 @@ namespace {
 
 std::size_t fallback_count(const Problem& problem) {
   return static_cast<std::size_t>(
-      std::count_if(problem.flow_route.begin(), problem.flow_route.end(),
+      std::count_if(problem.flow.route.begin(), problem.flow.route.end(),
                     [](const std::size_t value) { return value != 0; }));
 }
 
 void require_flow_eigenbasis(const Problem& problem) {
-  if (problem.flow_left.empty() && problem.flow_right.empty() &&
-      problem.flow_eigenvalues.empty() && problem.flow_route.empty() &&
-      problem.flow_fallback_vectors.empty() && problem.flow_fallback_triangular.empty())
+  if (problem.flow.left.empty() && problem.flow.right.empty() &&
+      problem.flow.eigenvalues.empty() && problem.flow.route.empty() &&
+      problem.flow.fallback_vectors.empty() && problem.flow.fallback_triangular.empty())
     return;
-  const auto sections = problem.flow_sections;
-  require_size(problem.flow_left.size(), block_size(sections, problem, "eigenbasis"),
+  const auto sections = problem.flow.sections;
+  require_size(problem.flow.left.size(), block_size(sections, problem, "eigenbasis"),
                "left eigenbasis");
-  require_size(problem.flow_right.size(), block_size(sections, problem, "eigenbasis"),
+  require_size(problem.flow.right.size(), block_size(sections, problem, "eigenbasis"),
                "right eigenbasis");
-  const auto bins = product(sections, problem.flow_active, "route");
-  require_size(problem.flow_eigenvalues.size(),
-               product(bins, problem.n_modes, "eigenvalues"), "eigenvalues");
-  require_size(problem.flow_route.size(), bins, "route");
+  const auto bins = product(sections, problem.flow.active, "route");
+  require_size(problem.flow.eigenvalues.size(),
+               product(bins, problem.dims.n_modes, "eigenvalues"), "eigenvalues");
+  require_size(problem.flow.route.size(), bins, "route");
   std::size_t expected = 1;
-  for (const auto route : problem.flow_route) {
+  for (const auto route : problem.flow.route) {
     if (route == 0)
       continue;
     if (route != expected)
@@ -290,43 +290,44 @@ void require_flow_eigenbasis(const Problem& problem) {
     ++expected;
   }
   const auto fallback = expected - 1;
-  const auto blocks = product(
-      fallback, product(problem.n_modes, problem.n_modes, "fallback"), "fallback");
-  require_size(problem.flow_fallback_vectors.size(), blocks, "fallback vectors");
-  require_size(problem.flow_fallback_triangular.size(), blocks, "fallback triangular");
-  if (!finite(problem.flow_left) || !finite(problem.flow_right) ||
-      !finite(problem.flow_eigenvalues) || !finite(problem.flow_fallback_vectors) ||
-      !finite(problem.flow_fallback_triangular))
+  const auto blocks =
+      product(fallback, product(problem.dims.n_modes, problem.dims.n_modes, "fallback"),
+              "fallback");
+  require_size(problem.flow.fallback_vectors.size(), blocks, "fallback vectors");
+  require_size(problem.flow.fallback_triangular.size(), blocks, "fallback triangular");
+  if (!finite(problem.flow.left) || !finite(problem.flow.right) ||
+      !finite(problem.flow.eigenvalues) || !finite(problem.flow.fallback_vectors) ||
+      !finite(problem.flow.fallback_triangular))
     throw std::invalid_argument("coupled flow eigenbasis data must be finite");
 }
 
 } // namespace
 
 void require_coupled_flow(const Problem& problem) {
-  if (!problem.coupled_flow) {
-    if (problem.flow_active != 0 || problem.flow_sections != 0 ||
-        problem.flow_terms != 0 || !problem.flow_slot.empty() ||
-        !problem.flow_frozen.empty() || !problem.flow_residual_terms.empty() ||
-        !problem.flow_left.empty() || !problem.flow_route.empty())
+  if (!problem.flow.enabled) {
+    if (problem.flow.active != 0 || problem.flow.sections != 0 ||
+        problem.flow.terms != 0 || !problem.flow.slot.empty() ||
+        !problem.flow.frozen.empty() || !problem.flow.residual_terms.empty() ||
+        !problem.flow.left.empty() || !problem.flow.route.empty())
       throw std::invalid_argument("coupled flow arrays require coupled_flow");
     return;
   }
   // The action contracts the channel axis of a scalar state; the synthesis may resolve
   // two transverse components, which the flow never reads.
-  if (problem.n_pol_state != 1 || problem.separable_geometry())
+  if (problem.dims.n_pol_state != 1 || problem.separable_geometry())
     throw std::invalid_argument("a coupled flow mixes one channel axis of a scalar "
                                 "modal state, with no polarisation axis");
-  if (problem.modified_noise)
+  if (problem.stepper.modified_noise)
     throw std::invalid_argument("a coupled flow carries no noise model");
-  if (problem.n_stages == 0)
+  if (problem.stepper.n_stages == 0)
     throw std::invalid_argument("a coupled flow needs a tableau");
-  if (problem.flow_active == 0 || problem.flow_active > problem.n_omega)
+  if (problem.flow.active == 0 || problem.flow.active > problem.dims.n_omega)
     throw std::invalid_argument("flow_active must lie in [1, n_omega]");
-  if (problem.flow_sections == 0)
+  if (problem.flow.sections == 0)
     throw std::invalid_argument("a coupled flow has at least one section");
-  require_size(problem.flow_slot.size(), problem.n_omega, "slot");
+  require_size(problem.flow.slot.size(), problem.dims.n_omega, "slot");
   std::size_t expected = 1;
-  for (const auto slot : problem.flow_slot) {
+  for (const auto slot : problem.flow.slot) {
     if (slot == 0)
       continue;
     if (slot != expected)
@@ -334,33 +335,34 @@ void require_coupled_flow(const Problem& problem) {
                                   "in increasing frequency");
     ++expected;
   }
-  if (expected - 1 != problem.flow_active)
+  if (expected - 1 != problem.flow.active)
     throw std::invalid_argument("flow_slot names a different number of active bins "
                                 "than flow_active");
-  static_cast<void>(block_size(problem.n_stages + 1, problem, "actions"));
+  static_cast<void>(block_size(problem.stepper.n_stages + 1, problem, "actions"));
   require_flow_eigenbasis(problem);
-  if (problem.flow_terms == 0) {
-    if (!problem.flow_frozen.empty() || !problem.flow_residual_terms.empty())
+  if (problem.flow.terms == 0) {
+    if (!problem.flow.frozen.empty() || !problem.flow.residual_terms.empty())
       throw std::invalid_argument("a coupled flow with no explicit residual carries "
                                   "no frozen blocks or residual terms");
     return;
   }
-  require_size(problem.flow_frozen.size(),
-               block_size(problem.flow_sections, problem, "frozen"), "frozen");
-  require_size(problem.flow_residual_terms.size(),
-               block_size(problem.flow_terms, problem, "residual terms"),
+  require_size(problem.flow.frozen.size(),
+               block_size(problem.flow.sections, problem, "frozen"), "frozen");
+  require_size(problem.flow.residual_terms.size(),
+               block_size(problem.flow.terms, problem, "residual terms"),
                "residual terms");
-  if (!finite(problem.flow_frozen) || !finite(problem.flow_residual_terms))
+  if (!finite(problem.flow.frozen) || !finite(problem.flow.residual_terms))
     throw std::invalid_argument("coupled flow residual data must be finite");
 }
 
 CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kernels)
-    : n_modes_(problem.n_modes), n_omega_(problem.n_omega), n_stages_(problem.n_stages),
-      active_(problem.flow_active), sections_(problem.flow_sections),
-      terms_(problem.flow_terms), identity_(problem.n_stages + 1, 0U),
-      listed_counts_(problem.n_stages, 0U), kernels_(std::move(kernels)) {
+    : n_modes_(problem.dims.n_modes), n_omega_(problem.dims.n_omega),
+      n_stages_(problem.stepper.n_stages), active_(problem.flow.active),
+      sections_(problem.flow.sections), terms_(problem.flow.terms),
+      identity_(problem.stepper.n_stages + 1, 0U),
+      listed_counts_(problem.stepper.n_stages, 0U), kernels_(std::move(kernels)) {
   require_coupled_flow(problem);
-  if (!problem.coupled_flow)
+  if (!problem.flow.enabled)
     throw std::invalid_argument("the problem does not declare a coupled flow");
   const auto slots = n_stages_ + 1;
   slot_ = IndexView("solprop_native.flow.slot", n_omega_);
@@ -386,11 +388,11 @@ CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kern
     host_active_terms_ = Kokkos::create_mirror_view(active_terms_);
     host_active_counts_ = Kokkos::create_mirror_view(active_counts_);
     lab_ = ComplexView2("solprop_native.flow.lab", n_modes_, n_omega_);
-    upload(kernels_, frozen_, problem.flow_frozen);
-    upload(kernels_, terms_view_, problem.flow_residual_terms);
+    upload(kernels_, frozen_, problem.flow.frozen);
+    upload(kernels_, terms_view_, problem.flow.residual_terms);
   }
-  upload(kernels_, slot_, problem.flow_slot);
-  forms_ = !problem.flow_left.empty();
+  upload(kernels_, slot_, problem.flow.slot);
+  forms_ = !problem.flow.left.empty();
   if (forms_) {
     fallback_ = fallback_count(problem);
     left_ = ComplexView4("solprop_native.flow.left", sections_, active_, n_modes_,
@@ -413,16 +415,16 @@ CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kern
     host_fractions_ = Kokkos::create_mirror_view(fractions_);
     host_measured_ = Kokkos::create_mirror_view(measured_);
     measured_host_.assign(active_, 0.0);
-    upload(kernels_, left_, problem.flow_left);
-    upload(kernels_, right_, problem.flow_right);
-    upload(kernels_, eigenvalues_, problem.flow_eigenvalues);
-    upload(kernels_, route_, problem.flow_route);
+    upload(kernels_, left_, problem.flow.left);
+    upload(kernels_, right_, problem.flow.right);
+    upload(kernels_, eigenvalues_, problem.flow.eigenvalues);
+    upload(kernels_, route_, problem.flow.route);
     section_fallback_.assign(sections_, 0U);
-    for (std::size_t index = 0; index < problem.flow_route.size(); ++index)
-      if (problem.flow_route[index] != 0)
+    for (std::size_t index = 0; index < problem.flow.route.size(); ++index)
+      if (problem.flow.route[index] != 0)
         section_fallback_[index / active_] = 1U;
-    upload(kernels_, fallback_vectors_, problem.flow_fallback_vectors);
-    upload(kernels_, fallback_triangular_, problem.flow_fallback_triangular);
+    upload(kernels_, fallback_vectors_, problem.flow.fallback_vectors);
+    upload(kernels_, fallback_triangular_, problem.flow.fallback_triangular);
   }
   kernels_.fence("solprop_native coupled flow upload");
 }

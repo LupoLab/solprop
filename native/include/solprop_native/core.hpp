@@ -471,238 +471,303 @@ inline constexpr std::size_t plasma_max_taps = 9;
 /** The six parts of SEP 18's run diagnostics, in solprop's order. */
 inline constexpr std::size_t plasma_diagnostic_parts = 6;
 
-/** Fixed, Python-free problem data uploaded once by a native state. */
+/** Fixed, Python-free problem data uploaded once by a native state, grouped as
+   solprop's kernel contract groups it. The adapter fills it field by field (`lower` in
+    solprop_native's backend); `validate` checks presence and extents before a state
+    allocates anything. */
 struct Problem {
-  std::size_t n_x{}, n_y{};
-  std::vector<Complex> spatial_k_squared, spatial_k_squared_low, spatial_numerator,
-      spatial_clamped;
-  std::vector<double> spatial_kperp_sq, spatial_kperp_sq_low, spatial_frame,
-      spatial_spectral_rate;
-  // solprop kernel schema 45 (#231): the user's share of the spectral rate, read only
-  // by `absorbed_power`; the operator takes the total.
-  std::vector<double> spatial_user_rate;
-  std::vector<double> spatial_absorber_rate;
-  // solprop kernel schema 31 (SEP 22 phase 2): a transverse collar's power rate per
-  // column, added to the field attenuation on active bins; zeros leave the operator.
-  std::vector<double> spatial_kperp_rate;
-  double spatial_evanescent_rate{};
-  // solprop SEP 23 (free space only): the stored transverse axes k_x (n_x) and k_y
-  // (n_y) in rad/m, FFT order, column ix + n_x iy, which the far-field statistics read;
-  // and the slots of the problem's own far-field request, which size the band partials
-  // at construction (zero for none). Empty and zero elsewhere.
-  std::vector<double> spatial_k_x, spatial_k_y;
-  std::size_t spatial_far_field_slots{};
-  // solprop's hybrid planar kind (kernel schema 15): n_p slab
-  // channels in x on the real (n_x, n_p) synthesis and (n_p, n_x) projection, times a
-  // raw DFT in y. Columns are (p, k_y) with the channel fastest, n_modes = n_p * n_y,
-  // and nodes (x, y) with x fastest, n_nodes = n_x * n_y; node_chunk holds whole y
-  // rows. Row-major (n_p, n_omega) wall terms kappa_p^2 enter the separable operator,
-  // and spatial_absorber_rate is then per column. Zero n_p and empty kappa elsewhere.
-  std::size_t n_p{};
-  std::vector<Complex> spatial_kappa_sq;
-  // solprop kernel schema 35 (SEP 34): a non-separable spatial run's plane measure,
-  // the entrance's material squares (n_omega) and transverse squares (n_modes) whose
-  // root is solprop's `longitudinal_root`; `flux_table` when the material square
-  // varies along z and is uploaded as a `TableKind::flux` table of n_omega values. A
-  // separable run's measure is its own operator's (these stay empty). `flux_closure`
-  // allocates the magnetic closure's buffers at construction, for a request with a
-  // local flux statistic.
-  std::vector<Complex> flux_k_squared, flux_k_squared_low;
-  std::vector<double> flux_kperp_sq, flux_kperp_sq_low;
-  bool flux_table{};
-  bool flux_closure{};
-  /** Free space or the hybrid planar kind: the separable operator and a y FFT. */
-  [[nodiscard]] bool separable_geometry() const noexcept { return n_x != 0; }
-  [[nodiscard]] bool slab_geometry() const noexcept { return n_p != 0; }
-  [[nodiscard]] bool free_geometry() const noexcept { return n_x != 0 && n_p == 0; }
-  std::size_t n_omega{};
-  std::size_t n_t{};
-  std::size_t n_to{};
-  std::size_t n_modes{1};
-  std::size_t n_pol_state{1};
-  std::size_t n_pol_transform{1};
-  std::size_t n_nodes{1};
-  std::size_t node_chunk{1};
+  /** The state's extents and field family. */
+  struct Dims {
+    std::size_t n_omega{};
+    std::size_t n_t{};
+    std::size_t n_to{};
+    std::size_t n_modes{1};
+    std::size_t n_pol_state{1};
+    std::size_t n_pol_transform{1};
+    std::size_t n_nodes{1};
+    std::size_t node_chunk{1};
+    FieldFamily family{FieldFamily::field_real};
+  };
+  /** The frequency and time grids, their windows and masks. */
+  struct Grid {
+    std::vector<std::size_t> crop_index;
+    std::vector<unsigned char> active_mask;
+    std::vector<unsigned char> norm_mask;
+    std::vector<double> omega_window;
+    std::vector<double> omega;
+    std::vector<double> power_weight;
+    std::vector<double> time_window;
+    std::vector<double> time_window_derivative;
+    std::vector<Complex> carrier;
+    double dt_fine{};
+    double dt{};
+  };
+  /** The separable geometries' operator (free space and the hybrid planar kind) and a
+      radial run's absorber and on-axis rows. */
+  struct Spatial {
+    std::size_t n_x{}, n_y{};
+    std::vector<Complex> k_squared, k_squared_low, numerator, clamped;
+    std::vector<double> kperp_sq, kperp_sq_low, frame, spectral_rate;
+    // solprop kernel schema 45 (#231): the user's share of the spectral rate, read only
+    // by `absorbed_power`; the operator takes the total.
+    std::vector<double> user_rate;
+    std::vector<double> absorber_rate;
+    // solprop kernel schema 31 (SEP 22 phase 2): a transverse collar's power rate per
+    // column, added to the field attenuation on active bins; zeros leave the operator.
+    std::vector<double> kperp_rate;
+    double evanescent_rate{};
+    // solprop SEP 23 (free space only): the stored transverse axes k_x (n_x) and k_y
+    // (n_y) in rad/m, FFT order, column ix + n_x iy, which the far-field statistics
+    // read; and the slots of the problem's own far-field request, which size the band
+    // partials at construction (zero for none). Empty and zero elsewhere.
+    std::vector<double> k_x, k_y;
+    std::size_t far_field_slots{};
+    // solprop's hybrid planar kind (kernel schema 15): n_p slab channels in x on the
+    // real (n_x, n_p) synthesis and (n_p, n_x) projection, times a raw DFT in y.
+    // Columns are (p, k_y) with the channel fastest, n_modes = n_p * n_y, and nodes
+    // (x, y) with x fastest, n_nodes = n_x * n_y; node_chunk holds whole y rows.
+    // Row-major (n_p, n_omega) wall terms kappa_p^2 enter the separable operator, and
+    // absorber_rate is then per column. Zero n_p and empty kappa elsewhere.
+    std::size_t n_p{};
+    std::vector<Complex> kappa_sq;
+    // A radial run's spatial absorber and its on-axis statistics' rows.
+    std::vector<double> absorber_matrix;
+    std::vector<double> spectral_weights;
+    std::vector<Complex> on_axis;
+  };
+  /** solprop kernel schema 35 (SEP 34): a non-separable spatial run's plane measure,
+      the entrance's material squares (n_omega) and transverse squares (n_modes) whose
+      root is solprop's `longitudinal_root`; `table` when the material square varies
+      along z and is uploaded as a `TableKind::flux` table of n_omega values. A
+      separable run's measure is its own operator's (these stay empty). `closure`
+      allocates the magnetic closure's buffers at construction, for a request with a
+      local flux statistic. */
+  struct Flux {
+    std::vector<Complex> k_squared, k_squared_low;
+    std::vector<double> kperp_sq, kperp_sq_low;
+    bool table{};
+    bool closure{};
+  };
+  /** The Runge-Kutta tableau and the march's own choices. */
+  struct Stepper {
+    std::size_t n_stages{};
+    std::vector<double> tableau_matrix;
+    std::vector<double> tableau_nodes;
+    std::vector<double> solution_weights;
+    std::vector<double> error_weights;
+    bool first_same_as_last{};
+    bool weighted_controller{};
+    bool modified_noise{};
+    // solprop SEP 24 phase 3 (kernel schema 32): the low-storage RK4IP march. With it
+    // no Runge-Kutta view is allocated (stages, accumulators, accept buffer, residual,
+    // recycled stage, whole-step propagator, stage inverse); the accumulator register
+    // is, the stage register unless it is elided (solprop's
+    // `low_storage_stage_register`), and `low_storage_flows` flow volumes (0
+    // recomputed, 1 a constant operator's table, 2 a varying operator's step pair).
+    bool low_storage{};
+    bool low_storage_stage_register{true};
+    std::size_t low_storage_flows{};
+    // Whether a separable route's first input crosses to the transverse scratch
+    // through tiles of team scratch, as a device's does.
+    bool low_storage_tiled_input{};
+  };
+  /** The linear operator's fixed terms, row-major (terms, columns, n_omega). solprop
+     SEP 29 G1: Phi or the prefactor is the general z table when `phi_table`
+      (`prefactor_table`); its terms are then `n_phi_terms` (`n_prefactor_terms`) slots
+      that `table_evaluate` fills with the table's values at a trial's positions, and
+      `phi_terms` (`prefactor_terms`) is empty. */
+  struct Linear {
+    std::size_t n_phi_terms{};
+    std::size_t n_prefactor_terms{};
+    bool phi_table{};
+    bool prefactor_table{};
+    std::vector<Complex> phi_terms;
+    std::vector<Complex> prefactor_terms;
+  };
+  /** The temporal absorber, applied in each stage or split around the step. */
+  struct Absorber {
+    bool in_stage{};
+    bool split_step{};
+    std::vector<double> fine;
+    std::vector<double> coarse;
+  };
+  /** The modal synthesis and projection onto the nodes. */
+  struct Transform {
+    std::vector<double> synthesis_matrix;
+    std::vector<double> projection_matrix;
+    std::vector<double> projection_coarse_matrix;
+    double synthesis{};
+    double projection{};
+  };
+  /** The instantaneous Kerr response. */
+  struct Kerr {
+    bool nonlinear{};
+    double coefficient{};
+    double self_factor{};
+    double conjugate_factor{};
+    double harmonic_factor{};
+    bool take_real{};
+  };
+  /** The field and envelope plasma columns and their rate tables. */
+  struct Plasma {
+    bool enabled{};
+    bool envelope{};
+    // solprop's private, test-only gated plasma benchmark: the field plasma's current
+    // enters as w(t) times its running integral, added to the local polarisation,
+    // instead of the held current's two collared spectra. Never set by a user run.
+    bool gated{};
+    bool stash{};
+    // Channel-major 4 x 512 split angular rules and coarse-axis current factors.
+    std::vector<double> envelope_rule_nodes, envelope_rule_weights,
+        envelope_drude_factor;
+    std::vector<Complex> envelope_loss_factor;
+    double charge_mass_ratio{};
+    double ionisation_potential{};
+    double log_field_min{};
+    double d_log_field{};
+    double field_min{};
+    double field_max{};
+    double rate_max{};
+    std::size_t rate_intervals{};
+    // Row-major (4, rate_intervals).
+    std::vector<double> rate_coefficients;
+    std::size_t n_channels{1};
+    // solprop SEP 18 (kernel schema 25): the field plasma column's running-integral
+    // rule, one per problem and shared by every channel. Each running integral is the
+    // cumulative trapezoid of the integrand filtered by the symmetric taps
+    // (c_0, ..., c_K), centre first, with the window's ends closed by point
+    // reflection, and the exposure floored at zero where the fraction is formed. The
+    // trapezoid rule is `band == false` with the one identity tap, and runs the
+    // version-24 column unchanged.
+    bool band{};
+    std::vector<double> taps{1.0};
+    [[nodiscard]] std::size_t half_width() const noexcept {
+      return taps.empty() ? 0 : taps.size() - 1;
+    }
+    // Channel-major rows: log_min, d_log, field_min, field_max, rate_max,
+    // interval count, coefficient offset, charge/mass ratio, ionisation potential.
+    std::vector<double> channel_parameters, channel_coefficients;
+  };
+  /** The delayed Raman response. */
+  struct Raman {
+    bool enabled{};
+    bool thg{};
+    bool tensor_capable{};
+    std::size_t n_terms{};
+    double fraction{};
+    double epsilon0{};
+    // Row-major (n_terms, 2 n_to) and (n_terms, 2).
+    std::vector<double> undamped;
+    std::vector<double> tensor_weights;
+    std::size_t n_components{1};
+    std::vector<double> row_component, component_fraction;
+  };
+  /** solprop's general modal route. Row-major: synthesis (map terms, nodes,
+      components, modes, n_omega); projection (map terms, modes, nodes, components,
+      n_omega); tensor (nodes, C, C, C, C); delayed tensor (responses, terms, C, C, C,
+      C); delayed spectrum (responses, terms, n_to + 1); node response (nodes), the
+      owning response plus one and zero for none. Empty otherwise. The map terms are
+      map_intervals x map_n_deg Chebyshev coefficients along z, one for a constant
+      guide; a moving guide's are combined per stage over
+      TrialScalars::transform_weights. */
+  struct General {
+    bool enabled{};
+    bool real_form{};
+    std::size_t map_intervals{1}, map_n_deg{1};
+    std::size_t components{}, nodes{}, node_chunk{};
+    std::size_t responses{}, terms{};
+    double pad_scale{}, epsilon0{};
+    std::vector<Complex> synthesis, projection, frequency_factor, delayed_spectrum;
+    std::vector<double> tensor, delayed_tensor;
+    std::vector<std::size_t> node_response;
+  };
+  /** solprop's linear.coupled_flow. `slot` (n_omega) numbers the bins a section's
+      generator is non-zero at 1, 2, ... in increasing frequency, zero elsewhere. With
+      an explicit residual (terms > 0), row-major frozen blocks (sections, active,
+      modes, modes) and residual terms (terms, active, modes, modes); both empty
+      otherwise. The actions are loaded per step.
+
+      The actions' native formation, all present or all empty: each section's
+      eigenbasis of its Schur factor, row-major left `W` and right `Y` (sections,
+      active, modes, modes) and eigenvalues (sections, active, modes); the route
+      (sections, active), zero where a bin takes its eigenbasis and 1, 2, ...
+      numbering in row-major order the bins formed by scaling and squaring, whose Schur
+      factors `Z` and `T` are the rows of the fallback arrays (fallback, modes,
+      modes). */
+  struct Flow {
+    bool enabled{};
+    std::size_t active{}, sections{}, terms{};
+    std::vector<std::size_t> slot;
+    std::vector<Complex> frozen, residual_terms;
+    std::vector<Complex> left, right, eigenvalues;
+    std::vector<std::size_t> route;
+    std::vector<Complex> fallback_vectors, fallback_triangular;
+  };
+  /** solprop SEP 6's frequency-dependent electronic response
+      (`responses.dispersive_kerr`, kernel schema 24) on the fused node path, laid out
+      by the adapter as solprop's `dispersive_terms_layout` lays it out
+      (`dispersive.hpp`). The form is 0 (a field grid's full cubic), 1 (the
+      number-conserving sector) or 2 (an envelope's full cubic). Row-major on the
+      leaf's spectral layout of `bins` (n_to / 2 + 1 on a field grid, n_to on an
+      envelope): the input multipliers (fields, bins), each output term's multiplier
+      (terms, bins) with its product row and factor, the static coefficients and the
+      polynomial's pair constants (channels, 2) per channel, the groups as offsets
+      (groups + 1) into members (channels), each symmetric mixture's channels' `g^4`
+      (channels, bins) and the input and output scales (bins). On the general modal
+      route (SEP 6 Phase 3b) each group's key is its node region (groups), the
+      polynomial forms one cube per distinct key, and every general node's region
+      (general nodes) says where a channel acts; both are empty elsewhere, where every
+      channel acts at every node. Empty otherwise. */
+  struct Dispersive {
+    bool enabled{};
+    bool symmetric{};
+    int form{};
+    std::vector<double> inputs, term_multipliers, coefficients, pair_constants,
+        quartics, input_scale, output_scale;
+    std::vector<std::size_t> term_rows, term_channels, group_offsets, group_members,
+        group_keys, node_region;
+  };
+
+  Dims dims;
+  Grid grid;
+  Spatial spatial;
+  Flux flux;
+  Stepper stepper;
+  Linear linear;
+  Absorber absorber;
+  Transform transform;
+  Kerr kerr;
+  Plasma plasma;
+  Raman raman;
+  General general;
+  Flow flow;
+  Dispersive dispersive;
   // How the workspace's CPU operations thread (solprop SEP 46): set by the caller,
   // refused when unset (`require_cpu_execution`).
   CpuExecution cpu_execution{};
   // How the workspace plans its host transforms (solprop SEP 46 phase 3).
   FftPlanning fft_planning{};
-  std::size_t n_stages{};
-  // solprop SEP 24 phase 3 (kernel schema 32): the low-storage RK4IP march. With it no
-  // Runge-Kutta view is allocated (stages, accumulators, accept buffer, residual,
-  // recycled stage, whole-step propagator, stage inverse); the accumulator register
-  // is, the stage register unless it is elided (solprop's
-  // `low_storage_stage_register`), and `low_storage_flows` flow volumes (0
-  // recomputed, 1 a constant operator's table, 2 a varying operator's step pair).
-  bool low_storage{};
-  bool low_storage_stage_register{true};
-  std::size_t low_storage_flows{};
-  // Whether a separable route's first input crosses to the transverse scratch through
-  // tiles of team scratch, as a device's does.
-  bool low_storage_tiled_input{};
-  std::size_t n_phi_terms{};
-  std::size_t n_prefactor_terms{};
-  // solprop SEP 29 G1: Phi or the prefactor is the general z table. Its terms are then
-  // `n_phi_terms` (or `n_prefactor_terms`) slots that `table_evaluate` fills with the
-  // table's values at a trial's positions, and `phi_terms` (`prefactor_terms`) is
-  // empty.
-  bool phi_table{};
-  bool prefactor_table{};
-  FieldFamily family{FieldFamily::field_real};
-  bool nonlinear{};
-  bool modified_noise{};
-  bool in_stage_absorber{};
-  bool split_step_absorber{};
-  bool first_same_as_last{};
-  std::vector<std::size_t> crop_index;
-  std::vector<unsigned char> active_mask;
-  std::vector<unsigned char> norm_mask;
-  std::vector<double> omega_window;
-  std::vector<double> omega;
-  std::vector<double> power_weight;
-  std::vector<double> time_window;
-  std::vector<double> time_window_derivative;
-  std::vector<double> absorber_fine;
-  std::vector<double> absorber_coarse;
-  std::vector<double> spatial_absorber_matrix;
-  std::vector<double> spatial_spectral_weights;
-  std::vector<Complex> spatial_on_axis;
-  std::vector<Complex> carrier;
-  std::vector<Complex> phi_terms;
-  std::vector<Complex> prefactor_terms;
-  std::vector<double> synthesis_matrix;
-  std::vector<double> projection_matrix;
-  std::vector<double> projection_coarse_matrix;
-  std::vector<double> tableau_matrix;
-  std::vector<double> tableau_nodes;
-  std::vector<double> solution_weights;
-  std::vector<double> error_weights;
-  double synthesis{};
-  double projection{};
-  double kerr_coefficient{};
-  double self_factor{};
-  double conjugate_factor{};
-  double harmonic_factor{};
-  bool take_real{};
-  bool plasma{};
-  bool envelope_plasma{};
-  // solprop's private, test-only gated plasma benchmark: the field plasma's current
-  // enters as w(t) times its running integral, added to the local polarisation,
-  // instead of the held current's two collared spectra. Never set by a user run.
-  bool plasma_gated{};
-  // Channel-major 4 x 512 split angular rules and coarse-axis current factors.
-  std::vector<double> envelope_rule_nodes, envelope_rule_weights, envelope_drude_factor;
-  std::vector<Complex> envelope_loss_factor;
-  bool raman{};
-  bool raman_thg{};
-  bool raman_tensor_capable{};
-  bool stash_plasma{};
-  bool weighted_controller{};
-  double dt_fine{};
-  double dt{};
-  std::size_t n_raman_terms{};
-  double raman_fraction{};
-  double raman_epsilon0{};
-  std::vector<double> raman_undamped;
-  std::vector<double> raman_tensor_weights;
-  double charge_mass_ratio{};
-  double ionisation_potential{};
-  double log_field_min{};
-  double d_log_field{};
-  double field_min{};
-  double field_max{};
-  double rate_max{};
-  std::size_t rate_intervals{};
-  std::vector<double> rate_coefficients;
-  std::size_t n_channels{1};
-  // solprop SEP 18 (kernel schema 25): the field plasma column's running-integral
-  // rule, one per problem and shared by every channel. Each running integral is the
-  // cumulative trapezoid of the integrand filtered by the symmetric taps
-  // (c_0, ..., c_K), centre first, with the window's ends closed by point reflection,
-  // and the exposure floored at zero where the fraction is formed. The trapezoid rule
-  // is `plasma_band == false` with the one identity tap, and runs the version-24
-  // column unchanged.
-  bool plasma_band{};
-  std::vector<double> plasma_taps{1.0};
-  [[nodiscard]] std::size_t plasma_half_width() const noexcept {
-    return plasma_taps.empty() ? 0 : plasma_taps.size() - 1;
+
+  /** Refuse, naming the field, data whose presence or extents disagree with the
+      problem's own flags and extents: the checks that need no execution space. */
+  void validate() const;
+
+  /** Free space or the hybrid planar kind: the separable operator and a y FFT. */
+  [[nodiscard]] bool separable_geometry() const noexcept { return spatial.n_x != 0; }
+  [[nodiscard]] bool slab_geometry() const noexcept { return spatial.n_p != 0; }
+  [[nodiscard]] bool free_geometry() const noexcept {
+    return spatial.n_x != 0 && spatial.n_p == 0;
   }
-  // Channel-major rows: log_min, d_log, field_min, field_max, rate_max,
-  // interval count, coefficient offset, charge/mass ratio, ionisation potential.
-  std::vector<double> channel_parameters, channel_coefficients;
-  std::size_t n_raman_components{1};
-  std::vector<double> raman_row_component, raman_component_fraction;
-  // solprop's general modal route. Row-major: synthesis (map terms,
-  // nodes, components, modes, n_omega); projection (map terms, modes, nodes,
-  // components, n_omega); tensor (nodes, C, C, C, C); delayed tensor (responses,
-  // terms, C, C, C, C); delayed spectrum (responses, terms, n_to + 1); node response
-  // (nodes), the owning response plus one and zero for none. Empty otherwise. The
-  // map terms are general_map_intervals x general_map_n_deg Chebyshev coefficients
-  // along z, one for a constant guide; a moving guide's are combined per stage over
-  // TrialScalars::transform_weights.
-  bool general_modal{};
-  bool general_real_form{};
-  std::size_t general_map_intervals{1}, general_map_n_deg{1};
-  std::size_t general_components{}, general_nodes{}, general_node_chunk{};
-  std::size_t general_responses{}, general_terms{};
-  double general_pad_scale{}, general_epsilon0{};
-  std::vector<Complex> general_synthesis, general_projection, general_frequency_factor,
-      general_delayed_spectrum;
-  std::vector<double> general_tensor, general_delayed_tensor;
-  std::vector<std::size_t> general_node_response;
-  // solprop's linear.coupled_flow. flow_slot (n_omega)
-  // numbers the bins a section's generator is non-zero at 1, 2, ... in increasing
-  // frequency, zero elsewhere. With an explicit residual (flow_terms > 0), row-major
-  // frozen blocks (sections, active, modes, modes) and residual terms (terms, active,
-  // modes, modes); both empty otherwise. The actions are loaded per step.
-  bool coupled_flow{};
-  std::size_t flow_active{}, flow_sections{}, flow_terms{};
-  std::vector<std::size_t> flow_slot;
-  std::vector<Complex> flow_frozen, flow_residual_terms;
-  // The actions' native formation, all present or all
-  // empty: each section's eigenbasis of its Schur factor, row-major left `W` and
-  // right `Y` (sections, active, modes, modes) and eigenvalues (sections, active,
-  // modes); the route (sections, active), zero where a bin takes its eigenbasis and
-  // 1, 2, ... numbering in row-major order the bins formed by scaling and squaring,
-  // whose Schur factors `Z` and `T` are the rows of the fallback arrays (fallback,
-  // modes, modes).
-  std::vector<Complex> flow_left, flow_right, flow_eigenvalues;
-  std::vector<std::size_t> flow_route;
-  std::vector<Complex> flow_fallback_vectors, flow_fallback_triangular;
-
-  // solprop SEP 6's frequency-dependent electronic response
-  // (`responses.dispersive_kerr`, kernel schema 24) on the fused node path, laid out by
-  // the adapter as solprop's `dispersive_terms_layout` lays it out (`dispersive.hpp`).
-  // The form is 0 (a field grid's full cubic), 1 (the number-conserving sector) or 2
-  // (an envelope's full cubic). Row-major on the leaf's spectral layout of `bins` (n_to
-  // / 2 + 1 on a field grid, n_to on an envelope): the input multipliers (fields,
-  // bins), each output term's multiplier (terms, bins) with its product row and factor,
-  // the static coefficients and the polynomial's pair constants (channels, 2) per
-  // channel, the groups as offsets (groups + 1) into members (channels), each symmetric
-  // mixture's channels' `g^4` (channels, bins) and the input and output scales (bins).
-  // On the general modal route (SEP 6 Phase 3b) each group's key is its node region
-  // (groups), the polynomial forms one cube per distinct key, and every general node's
-  // region (general_nodes) says where a channel acts; both are empty elsewhere, where
-  // every channel acts at every node. Empty otherwise.
-  bool dispersive{};
-  bool dispersive_symmetric{};
-  int dispersive_form{};
-  std::vector<double> dispersive_inputs, dispersive_term_multipliers,
-      dispersive_coefficients, dispersive_pair_constants, dispersive_quartics,
-      dispersive_input_scale, dispersive_output_scale;
-  std::vector<std::size_t> dispersive_term_rows, dispersive_term_channels,
-      dispersive_group_offsets, dispersive_group_members, dispersive_group_keys,
-      dispersive_node_region;
-
-  [[nodiscard]] std::size_t n_columns() const noexcept { return n_modes * n_pol_state; }
+  [[nodiscard]] std::size_t n_columns() const noexcept {
+    return dims.n_modes * dims.n_pol_state;
+  }
   [[nodiscard]] std::size_t effective_node_pol() const noexcept {
-    return n_pol_transform * n_pol_state;
+    return dims.n_pol_transform * dims.n_pol_state;
   }
   [[nodiscard]] std::size_t raman_drives() const noexcept {
     if (effective_node_pol() == 2)
-      for (std::size_t index = 1; index < raman_tensor_weights.size(); index += 2)
-        if (raman_tensor_weights[index] != 0.0)
+      for (std::size_t index = 1; index < raman.tensor_weights.size(); index += 2)
+        if (raman.tensor_weights[index] != 0.0)
           return 3;
     return 1;
   }
