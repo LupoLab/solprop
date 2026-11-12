@@ -11,9 +11,9 @@ them once (:meth:`SessionBackend.prepare`, which every backend offers as
 ``Backend.prepare``), and the prepared execution starts one
 :class:`RunSession` per trajectory. The session is the only owner of that trajectory's
 mutable numerical state: the field, the method's history, the controller and monitor,
-the counters and cursors, and the pending events. Python's service loop
-(:mod:`solprop.driver.service`) advances it, services the events it yields -- files,
-callbacks, warnings, progress -- and acknowledges them::
+the counters and cursors, and the pending events. Python's session loop
+(:mod:`solprop.driver.session_loop`) advances it, services the events it yields --
+files, callbacks, warnings, progress -- and acknowledges them::
 
     prepared = backend.prepare(problem, request)
     with prepared.start(start, stop=token) as session:

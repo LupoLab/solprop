@@ -21,6 +21,7 @@ import h5py
 import pytest
 
 import solprop.driver.run as run_module
+import solprop.driver.session_loop as session_loop_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
@@ -130,7 +131,7 @@ def test_a_kept_history_set_aside_on_resume_is_recorded_without_a_warning(
 def test_a_history_over_the_automatic_limit_warns_once_on_resume(
     build_simulation, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
     build = soliton(build_simulation, "numpy_ref")
     path = tmp_path / "run.h5"
     z = interrupted(build, path)
@@ -269,7 +270,7 @@ def test_a_resumed_monitor_states_its_reconstruction(build_simulation, tmp_path)
 def test_a_required_snapshot_records_its_retention(tmp_path, monkeypatch):
     from driver.test_snapshots import ordinary  # noqa: PLC0415 - its case
 
-    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
+    monkeypatch.setattr(session_loop_module, "MARCH_SNAPSHOT_AUTO_BYTES", 0)
     controller = SnapshotController(tmp_path / "snapshots")
     controller.request()
     ordinary(integrator=Multistep()).run(

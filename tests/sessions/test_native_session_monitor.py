@@ -490,7 +490,7 @@ def _through_serve(simulation: Simulation, kind: str, *, error: bool = False) ->
     """
     from solprop.driver.metadata import metadata_for  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.driver.session_loop import ServiceContext, serve  # noqa: PLC0415
     from solprop.log import resolve_reporter  # noqa: PLC0415
     from solprop.output import MemoryOutput  # noqa: PLC0415
 

@@ -396,7 +396,7 @@ def _served(
 ) -> Any:
     """Serve a native session into `output`; return the session's status."""
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.driver.session_loop import ServiceContext, serve  # noqa: PLC0415
     from solprop.log import resolve_reporter  # noqa: PLC0415
 
     request = run_request.for_run(stats=StatsSpec())

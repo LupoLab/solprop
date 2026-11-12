@@ -31,8 +31,8 @@ from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
 from solprop.driver.executors import Batch, Local
-from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
+from solprop.driver.session_loop import _earlier_execution
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter

@@ -819,7 +819,7 @@ MODULES = {
                 "defaults",
                 "estimate",
                 "plane_view",
-                "service",
+                "session_loop",
             ),
         ),
         Module(

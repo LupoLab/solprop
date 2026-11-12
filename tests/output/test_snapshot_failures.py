@@ -324,7 +324,9 @@ def test_flush_failure_is_a_fatal_suspend_error(
 
 
 def test_missing_backend_history_stops_clearly(working):
-    from solprop.driver.run import _MarchKeeper  # noqa: PLC0415 - failure seam only
+    from solprop.driver.session_loop import (  # noqa: PLC0415 - failure seam only
+        _MarchKeeper,
+    )
 
     keeper = object.__new__(_MarchKeeper)
     keeper._kept_z = None

@@ -28,21 +28,18 @@ summary and the closing line on its stream; the line reporter logs them, and
 The manual page is ``docs/guide/setup/running.md``.
 """
 
-import dataclasses
 import logging
 import warnings
 from collections.abc import Mapping, Sequence
-from typing import Literal, cast
+from typing import cast
 
 import numpy as np
 
-from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled
+from solprop._interrupts import handled
 from solprop.backends.populations import axis_refusal
-from solprop.backends.protocol import Backend, BackendHistory, HostStepping, Observation
+from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import RunSession, Start, statistics_unavailable
-from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -55,10 +52,9 @@ from solprop.log import (
     ProgressChoice,
     ProgressReporter,
     StopFlag,
-    SummarisingReporter,
     resolve_reporter,
 )
-from solprop.monitor import BoundaryCheck, BoundaryMonitor
+from solprop.monitor import BoundaryMonitor
 from solprop.output.capability import (
     capability_of,
     declared_capability,
@@ -67,22 +63,18 @@ from solprop.output.capability import (
 )
 from solprop.output.hdf5 import HDF5Output
 from solprop.output.schema import (
-    RUN_SUMMARY_ANNOTATION,
     BackendRecord,
     CheckpointOutput,
     FieldRetention,
     FieldsChoice,
     MarchSnapshot,
     Output,
-    PlaneStore,
     RecipeRecord,
     RetainingOutput,
     RunMetadata,
-    RunOutcome,
     SavedPlane,
     StepHistory,
     StepStats,
-    TerminalCheckpoint,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -91,18 +83,19 @@ from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.routes import tdse_descriptor, transverse_of
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import HistoryPolicy, RunRequest
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
-    "MARCH_SNAPSHOT_AUTO_BYTES",
     "RESTART_RECORD",
     "LogReporter",
     "ProgressReporter",
     "SessionFacts",
     "check_snapshot_request",
     "field_retention",
+    "history_of",
+    "open_run",
     "open_run_record",
     "plane_from_observation",
     "retention_at",
@@ -111,16 +104,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-MARCH_SNAPSHOT_AUTO_BYTES = 256 * 2**20
-"""The largest Adams march snapshot a run keeps when ``resume_history`` is ``None``.
 
-The snapshot -- the state and the history's rows, a few to sixty copies of the state --
-is rewritten at every save plane; a state too large for that to be cheap keeps none
-unless asked to, and its resume starts the history afresh.
-"""
-
-
-def _history_of(history: BackendHistory) -> StepHistory:
+def history_of(history: BackendHistory) -> StepHistory:
     """Return a backend's step history in the form an output handler stores.
 
     The two records carry the same five columns, and two of them mean different things
@@ -132,6 +117,16 @@ def _history_of(history: BackendHistory) -> StepHistory:
     row. The conversion is made here: the start is the end less the length, to
     round-off, and the per-attempt times are the differences of the clock, the first
     from zero.
+
+    Parameters
+    ----------
+    history : solprop.backends.protocol.BackendHistory
+        The attempts a backend reports, each ending at its ``z``.
+
+    Returns
+    -------
+    solprop.output.schema.StepHistory
+        The same attempts, each starting at its ``z``, with per-attempt times.
     """
     return StepHistory(
         z=history.z - history.dz,
@@ -195,7 +190,7 @@ def plane_from_observation(
         z=observation.z,
         field=observation.field if field else None,
         stats={name: np.asarray(value) for name, value in values.items()},
-        step_history=_history_of(observation.step_history),
+        step_history=history_of(observation.step_history),
         step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
         noise_phase=observation.noise_phase if field else None,
     )
@@ -375,7 +370,7 @@ def run_problem(
         Whether an output that can keep it (``save_march``) keeps the Adams march's
         state at every save plane and terminal checkpoint, so that a resume continues
         the history instead of starting it afresh. ``None`` keeps it while it is at
-        most :data:`MARCH_SNAPSHOT_AUTO_BYTES`.
+        most :data:`~solprop.driver.session_loop.MARCH_SNAPSHOT_AUTO_BYTES`.
     fields : {'all', 'planes', 'none'}, optional
         Which saved planes keep their field (SEP 22): every one (the default), those
         of `field_planes`, or none. A plane that keeps none stores its position, its
@@ -486,7 +481,7 @@ def run_problem(
     # The session and its service loop (SEP 47): imported here, since the service
     # loop builds on this module's output transactions.
     from solprop.backends.sessions import start_session  # noqa: PLC0415
-    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.driver.session_loop import ServiceContext, serve  # noqa: PLC0415
 
     request = prepared.for_run(
         stats=spec,
@@ -567,50 +562,6 @@ def _restored(
         f"the Adams history starts afresh: {refusal}", SolpropWarning, stacklevel=4
     )
     return {**restoration, "state": "reset", "reason": "incompatible_representation"}
-
-
-def _announce(  # noqa: PLR0917 - called positionally
-    problem: PropagationProblem,
-    metadata: RunMetadata,
-    backend: Backend | SessionFacts,
-    output: Output,
-    reporter: ProgressReporter,
-    start: tuple[int, float],
-    *,
-    request: RunRequest,
-    boundary_check: BoundaryCheck | None = None,
-) -> None:
-    """Show the run's summary through the reporter and record it on a plane store.
-
-    - ``reporter``: where progress goes; only a :class:`solprop.log.SummarisingReporter`
-      is shown the summary.
-    - ``start``: the first save plane beyond the loaded state, and the position the run
-      starts from, m.
-    - ``boundary_check``: the thresholds the window's edges are watched with, or
-      ``None``.
-    """
-    start_plane, z_start = start
-    summary = run_summary(
-        problem,
-        request,
-        metadata,
-        backend=backend.name,
-        execution=backend.metadata(),
-        output=output,
-        start_plane=start_plane,
-        z_start=z_start,
-        boundary_check=boundary_check,
-    )
-    if isinstance(reporter, SummarisingReporter):
-        reporter.summary(summary.text())
-    if isinstance(output, PlaneStore):
-        # An annotation stays outside the record and its hash, so a summary needs no
-        # schema of its own; a resume adds its continuation's to the list.
-        earlier = output.annotations.get(RUN_SUMMARY_ANNOTATION, [])
-        output.annotate(
-            RUN_SUMMARY_ANNOTATION,
-            [*cast("list[object]", earlier), summary.record()],
-        )
 
 
 def check_snapshot_request(
@@ -725,20 +676,6 @@ def field_retention(
         raise DriverError(str(error)) from error
 
 
-def _retain(
-    output: Output, retention: FieldRetention, field_shape: tuple[int, ...]
-) -> None:
-    """Tell an output that can hold it which planes keep their field.
-
-    Called once the output is open, so that a file being continued compares the rule
-    with the one it holds.
-
-    - ``field_shape``: ``(n_modes, n_pol, n_omega)`` of the run's state.
-    """
-    if isinstance(output, RetainingOutput):
-        output.retain(retention, field_shape)
-
-
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
     """Refuse a field-free rule for an output that cannot hold one.
 
@@ -755,120 +692,29 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
         raise DriverError(msg)
 
 
-def _resume_position(
-    output: Output,
-    checkpoint_output: CheckpointOutput | None,
-    problem: PropagationProblem,
-    request: RunRequest,
-) -> tuple[float, bool]:
-    """Resolve the actual checkpoint position and any scheduled observation owed.
-
-    - ``checkpoint_output``: Checkpoint-capable handler, if available, holding any
-      terminal state.
-    - ``problem``: translated problem with the absolute launch position, m.
-    - ``request``: the run's request, with the scheduled save positions, m.
-    - Returns: actual restart position in m and whether its scheduled observation still
-      needs saving because failure occurred before the regular save completed.
-    """
-    reached = float(output["z"][-1]) if output.n_saved else problem.initial.z
-    if (
-        checkpoint_output is not None
-        and checkpoint_output.terminal_checkpoint is not None
-    ):
-        reached = checkpoint_output.terminal_checkpoint.plane.z
-    missing_current_save = (
-        checkpoint_output is not None
-        and checkpoint_output.terminal_checkpoint is not None
-        and bool(np.any(request.observation.save_planes == reached))
-        and (output.n_saved == 0 or float(output["z"][-1]) < reached)
-    )
-    return reached, missing_current_save
-
-
-def _refuse_unread_collar(
-    problem: PropagationProblem, backend: Backend | SessionFacts
-) -> None:
-    """Refuse a requested collar on a backend that does not read its return (SEP 40).
-
-    A requested real-space collar is judged by what it returns, which the monitor's
-    transverse edge reads; a backend that does not read it refuses the collar by name
-    before the first step (SEP 40 section 6). Its in-stage rate is not the reason:
-    the backends compute it alike.
-    """
-    design = transverse_of(problem.route)
-    if design is None or not design.has_collar:
-        return
-    if backend.reads_transverse_edge:
-        return
-    msg = (
-        f"the {backend.name} backend does not carry a requested real-space collar "
-        "(SpatialAbsorber with real_space=True): run it on one of solprop's own "
-        "backends, or ask for the safety ramp alone"
-    )
-    raise BackendError(msg)
-
-
-def _earlier_execution(
-    output: Output, checkpoint_output: CheckpointOutput | None
-) -> tuple[bool, Mapping[str, object] | None, tuple[tuple[float, float], ...]]:
-    """Return whether this execution resumes another, and the monitor record to go on.
-
-    - ``checkpoint_output``: Checkpoint-capable handler, if available, holding the
-      earlier outcome.
-    - Returns ``record``: the latest earlier execution's boundary-monitor record,
-      searching back past executions that kept none, or ``None`` when none did.
-    - Returns ``unwatched``: the stretches, ``(start, end)`` in m, that executions after
-      that record ran without a monitor; from the launch when no execution kept one.
-    """
-    outcome = None if checkpoint_output is None else checkpoint_output.outcome
-    resumed = output.n_saved > 0 or outcome is not None
-    if outcome is None:
-        return resumed, None, ()
-    # Earliest first: each earlier execution's closing record, then the latest.
-    chain: list[tuple[float, Mapping[str, object]]] = []
-    for previous in outcome.previous_executions:
-        execution = previous.get("execution")
-        reached = previous.get("z")
-        chain.append(
-            (
-                float(reached) if isinstance(reached, int | float) else 0.0,
-                cast("Mapping[str, object]", execution)
-                if isinstance(execution, Mapping)
-                else {},
-            )
-        )
-    chain.append((float(outcome.z), outcome.execution))
-    # The latest record that holds a monitor; executions after it ran unwatched,
-    # each from where the one before it stopped to where it stopped itself, which is
-    # where the next resumed. A hard kill before the monitor is attached
-    # leaves a record without one and an empty stretch, and is passed over.
-    found = -1
-    for index in range(len(chain) - 1, -1, -1):
-        if isinstance(chain[index][1].get("boundary_monitor"), Mapping):
-            found = index
-            break
-    unwatched: list[tuple[float, float]] = []
-    start = 0.0 if found < 0 else chain[found][0]
-    for reached, _ in chain[found + 1 :]:
-        if reached > start:
-            unwatched.append((start, reached))
-        start = max(start, reached)
-    if found < 0:
-        return resumed, None, tuple(unwatched)
-    record = cast("Mapping[str, object]", chain[found][1]["boundary_monitor"])
-    return resumed, record, tuple(unwatched)
-
-
-def _open_run(
+def open_run(
     output: Output,
     metadata: RunMetadata,
     backend: Backend | SessionFacts,
     binding: TDSEBinding | None,
 ) -> CheckpointOutput | None:
-    """Attach actual runtime facts outside the scientific resume identity.
+    """Open a run's output with the runtime facts outside its scientific identity.
 
-    - Returns: the handler's checkpoint interface, or ``None`` for a handler without
-      one.
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        The handler, not yet open.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, without its backend.
+    backend : solprop.backends.protocol.Backend or SessionFacts
+        What executes the run, whose metadata the record's backend section takes.
+    binding : solprop.translate.tdse.TDSEBinding or None
+        A TDSE response's binding, whose metadata the record carries too.
+
+    Returns
+    -------
+    solprop.output.schema.CheckpointOutput or None
+        The handler's checkpoint interface, or ``None`` for a handler without one.
     """
     # A session that holds its monitor from the start (the native session) reports
     # the launch's zeros here. The execution record carries the monitor instead
@@ -909,19 +755,7 @@ def open_run_record(
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
     """
-    _open_run(output, metadata, backend, binding)
-
-
-@dataclasses.dataclass(frozen=True)
-class _FailedObservation:
-    """Retain drained history and writer progress when a scheduled save fails."""
-
-    pending: SavedPlane | None
-    already_saved: bool
-    error: BaseException
-    reached: float
-    clock: RunClock
-    last_kept_field: bool
+    open_run(output, metadata, backend, binding)
 
 
 RESTART_RECORD = "restart"
@@ -930,27 +764,11 @@ RESTART_RECORD = "restart"
 Optional, under the output compatibility rules: ``"retention"``, what the run kept of
 its method history at the record's position (``_MarchKeeper``), and, in a resumed
 execution, ``"restoration"`` (what it restored,
-``Simulation._continue_march``) and ``"monitor"`` (how
+``solprop.driver.resume._continue_march``) and ``"monitor"`` (how
 the boundary monitor was restored). Each decision is a mapping with a ``"state"`` and
 a ``"reason"``. A file written before this record has none, which a reader takes as
 unknown, never as a reason (``retention_at``).
 """
-
-
-def _method_history(
-    request: RunRequest,
-) -> Literal["adams", "rk", "low_storage"]:
-    """Return which kind of method history a run's march keeps.
-
-    An Adams history a resume can continue; Runge-Kutta controller memory (the proposal
-    and the norm memory), which a resume resets; or none at all.
-    """
-    integrator = request.integration.method
-    if isinstance(integrator, Multistep):
-        return "adams"
-    if isinstance(integrator, LowStorageRungeKutta):
-        return "low_storage"
-    return "rk"
 
 
 def retention_at(
@@ -982,310 +800,6 @@ def retention_at(
         return None
     retention = cast("Mapping[str, object]", retention)
     return retention if retention.get("z") == z else None
-
-
-class _MarchKeeper:
-    """Keep the Adams march's state beside each save, and record what was kept.
-
-    Every persisted plane and checkpoint states whether its method history was
-    retained, omitted or is not applicable, and why (SEP 47 section 5.5); the run's
-    execution record carries the latest decision (:meth:`record`).
-
-    - ``output``: the run's handler; only one with ``save_march`` keeps a snapshot.
-    - ``retention``: the decision already recorded at the position the run starts
-      from, carried into this execution's record until it persists a position of its
-      own.
-    """
-
-    def __init__(
-        self,
-        output: Output,
-        backend: HostStepping | SessionFacts,
-        policy: bool | None,
-        *,
-        method: Literal["adams", "rk", "low_storage"] = "adams",
-        retention: Mapping[str, object] | None = None,
-    ) -> None:
-        """Hold what keeping a snapshot needs."""
-        self._save = getattr(output, "save_march", None)
-        self._snapshot = backend.march_snapshot
-        self._snapshot_nbytes = backend.march_snapshot_nbytes
-        self._refusal = backend.march_export_refusal
-        self._policy = policy
-        self._method = method
-        # Measured once against the automatic limit: kept from then on, or not.
-        self._over_limit = False
-        self._within_limit = False
-        self._kept_z: float | None = None
-        self._decision: dict[str, object] | None = (
-            None if retention is None else dict(retention)
-        )
-
-    def record(self) -> dict[str, object] | None:
-        """Return the latest retention decision, for the execution record.
-
-        - Returns: ``"state"`` (``"retained"``, ``"omitted"`` or ``"not_applicable"``),
-          ``"reason"`` and ``"z"``, m, with ``"nbytes"`` where the size was measured;
-          ``None`` before anything was persisted.
-        """
-        return None if self._decision is None else dict(self._decision)
-
-    def _decide(self, z: float, state: str, reason: str, **sizes: int) -> None:
-        """Record a retention decision at `z`.
-
-        - ``z``: the persisted position, m.
-        - ``state``: ``"retained"``, ``"omitted"`` or ``"not_applicable"``.
-        - ``**sizes``: ``nbytes``, the history's size where it was measured, and
-          ``limit``, the automatic limit it was held to, bytes.
-        """
-        self._decision = {"state": state, "reason": reason, "z": z, **sizes}
-
-    def keep(self, z: float, *, required: bool = False) -> None:  # noqa: PLR0911, PLR0912 - one return per decision
-        """Keep the march's state if it stands at `z`, the position just saved.
-
-        - ``z``: the saved plane's or the checkpoint's position, m.
-        - ``required``: an immutable snapshot needs the full Adams state, so the
-          automatic retention-size cutoff is ignored and a history that cannot be
-          persisted here is refused.
-        """
-        if required and self._kept_z == z:
-            return
-        if self._method == "low_storage":
-            self._decide(z, "not_applicable", "no_method_history")
-            return
-        if self._method == "rk":
-            # The proposal and the norm memory are not persisted (issue #596).
-            self._decide(z, "omitted", "unsupported_method")
-            return
-        if self._save is None:
-            self._decide(z, "omitted", "output_cannot_store")
-            if required:
-                raise OutputError(
-                    "snapshot requires a backend and output with Adams history"
-                )
-            return
-        if self._policy is False and not required:
-            self._decide(z, "omitted", "explicit_policy")
-            return
-        if self._over_limit and not required:
-            self._decide(
-                z, "omitted", "automatic_size_limit", limit=MARCH_SNAPSHOT_AUTO_BYTES
-            )
-            return
-        if self._policy is None and not required and not self._within_limit:
-            # Before any copy: the snapshot over the limit is the state and the whole
-            # history, on the host.
-            nbytes = self._snapshot_nbytes(z)
-            if nbytes is None:
-                self._omit_unavailable(z)
-                return
-            if nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
-                logger.info(
-                    "the Adams march's state is not kept for a resume: %d bytes is "
-                    "over the %d kept by default (resume_history=True keeps it)",
-                    nbytes,
-                    MARCH_SNAPSHOT_AUTO_BYTES,
-                )
-                self._over_limit = True
-                self._decide(
-                    z,
-                    "omitted",
-                    "automatic_size_limit",
-                    nbytes=nbytes,
-                    limit=MARCH_SNAPSHOT_AUTO_BYTES,
-                )
-                return
-            self._within_limit = True
-        snapshot = self._snapshot()
-        if snapshot is None or snapshot.z != z:
-            self._omit_unavailable(z)
-            if required:
-                raise OutputError(
-                    "snapshot requires Adams history at the accepted endpoint"
-                )
-            return
-        try:
-            self._save(snapshot)
-        except BaseException:
-            # A torn write reads as no snapshot (`_write_march`): expected, and lost.
-            self._decide(z, "omitted", "write_failed")
-            raise
-        self._kept_z = z
-        self._decide(
-            z,
-            "retained",
-            "snapshot_required"
-            if required
-            else "explicit_policy"
-            if self._policy
-            else "automatic_policy",
-            nbytes=snapshot.nbytes,
-        )
-
-    def _omit_unavailable(self, z: float) -> None:
-        """Record history that could not be had at `z`, naming an engine's refusal.
-
-        - ``z``: the persisted position, m.
-        """
-        refused = self._refusal() is not None
-        self._decide(
-            z,
-            "omitted",
-            "incompatible_representation" if refused else "unavailable_history",
-        )
-
-
-def _record_abandoned_step(
-    backend: Backend | SessionFacts,
-    output: CheckpointOutput,
-    binding: TDSEBinding | None,
-    failure: _FailedObservation,
-    step: tuple[float, float],
-    *,
-    restart: Mapping[str, object] | None = None,
-) -> float | None:
-    """Record a failure that left a low-storage step in flight, with no new checkpoint.
-
-    The low-storage march accepts each step in place (SEP 24 section 6.2), so a step
-    abandoned between its start and its commit leaves a state that is neither of the
-    step's ends, which the backend refuses to observe, so nothing honest can be written
-    as a terminal checkpoint. The file falls back to the latest state it holds beyond
-    its last saved plane, a running checkpoint (SEP 47 section 5.5) or the checkpoint
-    this execution resumed from, which is kept; without one it ends at its last saved
-    plane: a resume continues from one that kept its field, to rounding, with
-    ``step_planes`` bounding what is lost, and refuses one that did not.
-
-    - ``step``: where the abandoned step started and its length, m.
-    - Returns: the position of the checkpoint fallen back to, m, or ``None`` without
-      one.
-    """
-    z, dz = step
-    fallback = output.terminal_checkpoint
-    if fallback is not None:
-        ending = (
-            f"the file falls back to its latest checkpoint, z = "
-            f"{fallback.plane.z:.6g} m, "
-            + (
-                "from which resume=True continues"
-                if fallback.landed
-                else "an interpolated field, from which only "
-                "resume='interpolated' continues"
-            )
-        )
-    else:
-        kept = (
-            "from which resume=True continues"
-            if failure.last_kept_field
-            else "which kept no field, so this file cannot be resumed; rerun it, "
-            "keeping a plane's field"
-        )
-        ending = (
-            f"the file ends at its last saved plane, z = {failure.reached:.6g} m, "
-            f"{kept}"
-        )
-    reason = (
-        f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "
-        f"z = {z:.6g} m was abandoned in flight, so the state holds neither end of "
-        f"it; {ending}"
-    )
-    failure.error.add_note(reason)
-    logger.warning("%s", reason)
-    try:
-        with committing(deliver=False):
-            _record_execution(
-                output,
-                backend,
-                binding,
-                _Status(
-                    "failed",
-                    failure.reached if fallback is None else fallback.plane.z,
-                    f"{type(failure.error).__name__}: {failure.error}; {reason}",
-                ),
-                clock=failure.clock,
-                checkpoint=fallback,
-                restart=restart,
-            )
-    except Exception as record_error:
-        failure.error.add_note(f"the failure could not be recorded: {record_error}")
-        logger.exception("could not record the failure")
-        return None
-    return None if fallback is None else fallback.plane.z
-
-
-@dataclasses.dataclass(frozen=True)
-class _Status:
-    """What an execution record says of the run, before its accounting is added.
-
-    Attributes
-    ----------
-    status : {'running', 'complete', 'budget_exhausted', 'failed'}
-        The run's status (:class:`~solprop.output.schema.RunOutcome`).
-    z : float
-        Last accepted or saved position, m.
-    message : str
-        Explanation of a stop or failure; empty on ordinary progress.
-    """
-
-    status: Literal["running", "complete", "budget_exhausted", "failed"]
-    z: float
-    message: str = ""
-
-
-def _record_execution(
-    output: CheckpointOutput | None,
-    backend: Backend | SessionFacts,
-    binding: TDSEBinding | None,
-    status: _Status,
-    *,
-    clock: RunClock,
-    checkpoint: TerminalCheckpoint | None = None,
-    restart: Mapping[str, object] | None = None,
-) -> None:
-    """Snapshot call accounting without requesting any diagnostic evaluation.
-
-    The record also names the machine (:func:`solprop._host.machine`) and what the run
-    has spent so far (:func:`solprop._host.usage`): written at every save plane, it
-    keeps the wall time and peak memory of a run that is killed between them.
-
-    - ``status``: requested status, absolute position in m and any error message.
-    - ``restart``: the execution's restart record (:data:`RESTART_RECORD`); ``None`` or
-      an empty one records none.
-    """
-    if output is None:
-        return
-    record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
-    if restart:
-        record[RESTART_RECORD] = dict(restart)
-    monitor = record.get("boundary_monitor")
-    if status.status == "running" and isinstance(monitor, Mapping):
-        # The monitor's per-plane rows go out with the closing record alone: rewritten
-        # at every plane, the record grew with them and the file with their square.
-        record["boundary_monitor"] = {
-            name: value for name, value in monitor.items() if name != "planes"
-        }
-    if binding is not None:
-        record = {**record, "tdse": dict(binding.metadata())}
-    calls = record.get("response_calls", {})
-    logical = cast("Mapping[str, object]", calls) if isinstance(calls, Mapping) else {}
-    atomic = (
-        record.get("atomic_calls", {})
-        if binding is None
-        else dataclasses.asdict(binding.ledger)
-    )
-    # Built once, so that a saved plane validates its record once (RunOutcome).
-    output.record_outcome(
-        RunOutcome(
-            status.status,
-            status.z,
-            status.message,
-            logical_calls=logical,
-            atomic_calls=cast("Mapping[str, object]", atomic)
-            if isinstance(atomic, Mapping)
-            else {},
-            execution=record,
-        ),
-        checkpoint,
-    )
 
 
 def _replayed_steps(request: RunRequest, start_plane: int) -> int | None:

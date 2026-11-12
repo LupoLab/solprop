@@ -32,7 +32,7 @@ from solprop.backends.protocol import (
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
-from solprop.driver.run import _history_of, plane_from_observation
+from solprop.driver.run import history_of, plane_from_observation
 from solprop.exceptions import BackendError, DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -735,7 +735,7 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
         )
 
 
-def test_history_of_stores_start_positions_and_per_attempt_times():
+def testhistory_of_stores_start_positions_and_per_attempt_times():
     history = BackendHistory(
         np.array([0.5, 1.0]),
         np.array([0.5, 0.5]),
@@ -743,6 +743,6 @@ def test_history_of_stores_start_positions_and_per_attempt_times():
         np.array([True, True]),
         np.array([0.25, 0.75]),
     )
-    stored = _history_of(history)
+    stored = history_of(history)
     assert stored.z.tolist() == [0.0, 0.5]
     assert stored.wall_time.tolist() == [0.25, 0.5]

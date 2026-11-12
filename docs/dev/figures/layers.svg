@@ -240,7 +240,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="571.4" y="1344.0" font-size="12" class="dim">material_output · tdse</text>
 <text x="571.4" y="1359.5" font-size="12" class="dim">tdse_consistency · scan · batch</text>
 <text x="571.4" y="1375.0" font-size="12" class="dim">defaults · estimate · plane_view</text>
-<text x="571.4" y="1390.5" font-size="12" class="dim">service</text>
+<text x="571.4" y="1390.5" font-size="12" class="dim">session_loop</text>
 <rect x="802.6" y="1244.5" width="237.8" height="159.0" rx="7" ry="7" class="fill-d" />
 <text x="812.6" y="1266.5" font-size="15" class="bold ink-d">recipe/</text>
 <text x="812.6" y="1282.0" font-size="12" class="dim">core · document · errors · export</text>

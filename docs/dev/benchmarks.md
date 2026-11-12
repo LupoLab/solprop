@@ -2330,7 +2330,7 @@ backend's host copy, which every kept plane makes):
 | driver session, file | the observation and a new stored array | the observation, converted where it is |
 
 **Through the service loop.** Each `sep47` saved case run to its end through
-`solprop.driver.service.serve` (a warm-up, three timed runs, one under `tracemalloc`),
+`solprop.driver.session_loop.serve` (a warm-up, three timed runs, one under `tracemalloc`),
 timing each kept plane from its export to the end of its store, and tracing the bytes
 allocated in that window above its start (NumPy's allocations; the native observation is
 outside the tracer's sight). The median over planes 2 to 5; the first allocates the

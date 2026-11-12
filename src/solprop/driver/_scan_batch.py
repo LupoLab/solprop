@@ -37,7 +37,7 @@ from solprop.driver._scan_run import (
 from solprop.driver.batch import BatchMember, compatible_groups, shared_table_bytes
 from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.pool import _memory_limit, peak_rss
-from solprop.driver.run import _history_of
+from solprop.driver.run import history_of
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
 from solprop.output.scan import PointResult
@@ -196,7 +196,7 @@ def _plane(
         z=event.z,
         field=session.export(member, event.ticket, _CONSUMER) if keep else None,
         stats=dict(event.stats),
-        step_history=_history_of(event.history),
+        step_history=history_of(event.history),
         step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
         noise_phase=session.noise_phase(member, event.ticket) if keep else None,
     )

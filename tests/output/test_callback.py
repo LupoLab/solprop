@@ -32,7 +32,7 @@ from solprop import capabilities, sol
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.driver import service as service_module
+from solprop.driver import session_loop as service_module
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import (

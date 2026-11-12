@@ -274,9 +274,9 @@ class SimulationSettings(Displayed):
         terminal checkpoint, so that a resume continues the history -- its samples, its
         order and its proposed step -- as the uninterrupted run would, instead of
         starting it afresh at order one. ``None``, the default, keeps it while it is at
-        most :data:`solprop.driver.run.MARCH_SNAPSHOT_AUTO_BYTES`; it is outside the
-        resume key. Every backend's fused and exponential Adams engines, the native
-        backend's resident one included, export and install their history.
+        most :data:`solprop.driver.session_loop.MARCH_SNAPSHOT_AUTO_BYTES`; it is
+        outside the resume key. Every backend's fused and exponential Adams engines, the
+        native backend's resident one included, export and install their history.
     fields : {'all', 'planes', 'none'}
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane
