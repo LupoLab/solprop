@@ -75,10 +75,8 @@ from solprop.translate.general import GeneralModalRoute
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     LinearOperator,
-    build_phi,
     power_weight_row,
     walk_off_buckets,
-    with_power_weight,
 )
 from solprop.translate.masks import (
     DEFAULT_ABSORBER_SCHEME,
@@ -154,6 +152,7 @@ from solprop.translate.validation import (
     _validated,
 )
 from solprop.translate.walls import (
+    _coupled_assembly,
     _taper_assembly,
     _wall_assembly,
 )
@@ -485,25 +484,14 @@ def _general_assembly(
         if route.moving
         else (modes[route.reference_channel],) * len(modes)
     )
-    linear = with_power_weight(
-        build_phi(
-            carried,
-            grid,
-            frame,
-            z_max=build.z_max,
-            n_pol=build.n_pol,
-            absorber_rate=None
-            if build.absorber is None
-            else build.absorber.spectral_rate,
-            loss=build.loss,
-            margin=build.margin,
-            tol=build.tol,
-            reuse=None if build.reuse is None else build.reuse.phi_expansion,
-            index=_GENERAL_INDEX,
-        ),
+    _, linear = _coupled_assembly(
+        carried,
         modes,
         grid,
-        _GENERAL_INDEX,
+        frame,
+        build,
+        index=_GENERAL_INDEX,
+        reuse=None if build.reuse is None else build.reuse.phi_expansion,
     )
     transform = general_modal_transform(
         modes,
@@ -860,23 +848,17 @@ def _modal_linear(
     # read would sample its fill and wall again (SEP 3, Q22): once per frequency
     # vector here too.
     with _shared_sampling():
-        linear = build_phi(
+        _, linear = _coupled_assembly(
+            modes,
             modes,
             grid,
             frame,
-            z_max=build.z_max,
-            n_pol=build.n_pol,
-            absorber_rate=None
-            if build.absorber is None
-            else build.absorber.spectral_rate,
-            loss=build.loss,
-            margin=build.margin,
-            tol=build.tol,
-            reuse=None if build.reuse is None else build.reuse.phi_expansion,
+            build,
             index=build.prefactor_index,
+            reuse=None if build.reuse is None else build.reuse.phi_expansion,
             kinks=[z for z, _ in build.kinks],
         )
-    return with_power_weight(linear, modes, grid, build.prefactor_index)
+    return linear
 
 
 def _general_prefactor(

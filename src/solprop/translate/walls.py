@@ -47,6 +47,7 @@ from solprop.translate.coupled import (
     frozen_residual_flow,
     section_expansion,
 )
+from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import (
     LinearOperator,
     build_phi,
@@ -63,6 +64,48 @@ from solprop.translate.validation import (
 __all__: list[str] = []
 
 logger = logging.getLogger(__name__)
+
+
+def _coupled_assembly(
+    carried: Sequence[Mode],
+    modes: Sequence[Mode],
+    grid: TimeGrid,
+    frame: Frame,
+    build: _Assembly,
+    *,
+    index: float | None,
+    reuse: ParameterExpansion | None = None,
+    kinks: Sequence[float] = (),
+) -> tuple[LinearOperator, LinearOperator]:
+    """Return ``Phi`` of the carried channels, and it with the modes' power weight.
+
+    The one table-to-operator site of every mode-set route: the run's span, axis,
+    collar, loss policy and tolerances come from `build`. Beside a coupled flow the
+    carried channels are copies of one channel, so that ``Phi`` is a multiple of the
+    identity in the channel axis and commutes with the flow, while the power weight is
+    always each mode's own.
+
+    - ``index``: the constant index override of the operator and the weight, or
+      ``None`` for each mode's ``Re n_eff``.
+    - ``reuse``: a prequalified expansion of the same operator function, or ``None``.
+    - ``kinks``: response positions in m that ``Phi`` must land on.
+    - Returns: ``Phi`` alone, and the operator carrying the power weight.
+    """
+    carrier = build_phi(
+        carried,
+        grid,
+        frame,
+        z_max=build.z_max,
+        n_pol=build.n_pol,
+        absorber_rate=None if build.absorber is None else build.absorber.spectral_rate,
+        loss=build.loss,
+        margin=build.margin,
+        tol=build.tol,
+        reuse=reuse,
+        index=index,
+        kinks=kinks,
+    )
+    return carrier, with_power_weight(carrier, modes, grid, index)
 
 
 def _wall_assembly(
@@ -112,17 +155,8 @@ def _wall_assembly(
         scored=grid.inband_mask,
         validity_limit=wall.validity_limit,
     )
-    carrier = build_phi(
-        (block[0],) * len(block),
-        grid,
-        frame,
-        z_max=build.z_max,
-        n_pol=build.n_pol,
-        absorber_rate=None if build.absorber is None else build.absorber.spectral_rate,
-        loss=build.loss,
-        margin=build.margin,
-        tol=build.tol,
-        index=build.prefactor_index,
+    carrier, linear = _coupled_assembly(
+        (block[0],) * len(block), block, grid, frame, build, index=build.prefactor_index
     )
     # The carrier is built from N copies of one channel this function has already
     # established to be `z_constant` -- a varying one took `_varying_wall_assembly`
@@ -132,7 +166,6 @@ def _wall_assembly(
     # the refusal; the varying route's own carrier is checked where it is built.
     assert carrier.phi_representation == "constant"
     assert carrier.phi_constant is not None
-    linear = with_power_weight(carrier, block, grid, build.prefactor_index)
     generator = _wall_shifted_generator(
         operator.generator, cast("MarcatiliMode", block[0]), grid
     )
@@ -200,23 +233,13 @@ def _vector_wall_assembly(
         scored=grid.inband_mask,
         validity_limit=wall.validity_limit,
     )
-    carrier = build_phi(
-        (first,) * len(block),
-        grid,
-        frame,
-        z_max=build.z_max,
-        n_pol=build.n_pol,
-        absorber_rate=None if build.absorber is None else build.absorber.spectral_rate,
-        loss=build.loss,
-        margin=build.margin,
-        tol=build.tol,
-        index=build.prefactor_index,
+    carrier, linear = _coupled_assembly(
+        (first,) * len(block), block, grid, frame, build, index=build.prefactor_index
     )
     # As on the constant scalar route: the carrier is N copies of a channel already
     # established to be `z_constant`, and `build_phi` takes `constant_phi` for such a
     # set whatever else it is asked for, so this is an invariant and not a condition.
     assert carrier.phi_representation == "constant"
-    linear = with_power_weight(carrier, block, grid, build.prefactor_index)
     generator = _wall_shifted_generator(operator.generator, first, grid)
     _check_wall_total(generator, linear, len(block))
     flow = constant_schur_flow(
@@ -291,19 +314,9 @@ def _varying_wall_assembly(
       azimuthal order of the capillary for ``wall.impedance == "te_tm"``.
     """
     first = cast("MarcatiliMode", block[0])
-    carrier = build_phi(
-        (first,) * len(block),
-        grid,
-        frame,
-        z_max=build.z_max,
-        n_pol=build.n_pol,
-        absorber_rate=None if build.absorber is None else build.absorber.spectral_rate,
-        loss=build.loss,
-        margin=build.margin,
-        tol=build.tol,
-        index=build.prefactor_index,
+    carrier, linear = _coupled_assembly(
+        (first,) * len(block), block, grid, frame, build, index=build.prefactor_index
     )
-    linear = with_power_weight(carrier, block, grid, build.prefactor_index)
     edges = _section_edges(np.asarray(carrier.phi_breakpoints, dtype=float), wall)
     sampled: list[tuple[float, WallLimits]] = []
     coefficients, tail = section_expansion(
@@ -408,20 +421,15 @@ def _taper_assembly(
     # names an unslope-able radius or disagreeing channels, and the opt-out.
     taper_connection(block)
     first = block[0]
-    carrier = build_phi(
+    carrier, linear = _coupled_assembly(
         (first,) * len(block),
+        block,
         grid,
         frame,
-        z_max=build.z_max,
-        n_pol=build.n_pol,
-        absorber_rate=None if build.absorber is None else build.absorber.spectral_rate,
-        loss=build.loss,
-        margin=build.margin,
-        tol=build.tol,
+        build,
         index=build.prefactor_index,
         kinks=[z for z, _ in build.kinks],
     )
-    linear = with_power_weight(carrier, block, grid, build.prefactor_index)
     edges = np.asarray(carrier.phi_breakpoints, dtype=float)
     coefficients, tail = section_expansion(
         lambda positions: np.stack(
