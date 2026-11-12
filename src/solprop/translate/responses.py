@@ -727,9 +727,7 @@ def dispersive_terms(
         if polynomial
         else None,
         densities=tuple(densities),
-        regions=None
-        if regions is None
-        else _frozen_copy(np.asarray(regions, dtype=np.int32)),
+        regions=None if regions is None else _frozen_copy(regions, np.int32),
     )
 
 
@@ -1141,7 +1139,7 @@ class RamanCoefficients:
         TranslationError
             Naming the offending field.
         """
-        rows = _frozen_copy(np.asarray(self.undamped, dtype=np.float64))
+        rows = _frozen_copy(self.undamped, np.float64)
         object.__setattr__(self, "undamped", rows)
         object.__setattr__(self, "decay_rates", tuple(self.decay_rates))
         if rows.ndim != 2 or rows.shape[0] < 1:
@@ -1159,7 +1157,7 @@ class RamanCoefficients:
             raise TranslationError(msg)
         if not np.all(np.isfinite(rows)):
             raise TranslationError("undamped Raman kernels must be finite")
-        weights = _frozen_copy(np.asarray(self.tensor_weights, dtype=np.float64))
+        weights = _frozen_copy(self.tensor_weights, np.float64)
         if weights.shape != (rows.shape[0], 2):
             raise TranslationError("tensor_weights must have shape (n_terms, 2)")
         if not np.all(
