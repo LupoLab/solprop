@@ -15,7 +15,7 @@
 | **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–4, the manual check of §7.4 pending |
+| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–4, with the manual check of §7.4 done |
 | **Manual pages** | [TDSE response](../../guide/media/tdse.md), [Choosing a backend](../../guide/performance/backends.md) |
 
 ## Part I — Proposal
@@ -1303,9 +1303,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 ### Phase 4 — Qualification and documentation
 
 - **Scope.** Phase 4, 2026-11-12, Opus 5.5 (AI): the review's two follow-ups to phase 3,
-  the ADR, the remaining pages of §8, the size report against §6.8, and the procedure
-  for the manual check of §7.4, which is pending. The SEP stays `In progress`: it
-  becomes `Final` after CI, an A/B and the manual check.
+  the ADR, the remaining pages of §8, the size report against §6.8, and the manual
+  check of §7.4, its procedure and its results. The SEP stays `In progress`: it
+  becomes `Final` after CI and an A/B.
 - **Delivered.**
   - Phase 3 follow-ups:
     - `NativeBackend.close` now drops the host source once the state is closed
@@ -1415,8 +1415,10 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
      python sep49_check.py compare DEVICE   one short haCC(1) fast segment on both backends
      python sep49_check.py cancel DEVICE    native, Ctrl-C (SIGINT) during an atomic call
+     python sep49_check.py refuse DEVICE    native, a device the build does not have: refused
 
-     DEVICE is cpu, cuda or hip, matching the installed Pyroraptor build.
+     DEVICE is cpu, cuda or hip, matching the installed Pyroraptor build (for refuse, one
+     it does not match).
      """
 
      import json
@@ -1431,9 +1433,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
      import numpy as np
 
-     from solprop.driver import Simulation
+     from solprop.driver import Simulation, tdse
      from solprop.driver.tdse import hacc_preset
-     from solprop.exceptions import ResponseBudgetError
+     from solprop.exceptions import BackendError, ResponseBudgetError
      from solprop.nonlinear.tdse import (
          TDSEConsistency,
          TDSEExecution,
@@ -1445,7 +1447,7 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
      LENGTH = 2.0**-24  # one step of 60 nm: a startup and a predictor call, then a retry
      BUDGET = 3  # atomic calls, at most (SEP 49 section 7.4)
      RTOL = 0.1  # loose: the one step is accepted, a check of the plumbing, not accuracy
-     BUSY = float(os.environ.get("SEP49_BUSY_SECONDS", "5"))  # worker CPU time in a call
+     DELAY = float(os.environ.get("SEP49_DELAY", "5"))  # seconds into the first call
 
 
      def simulation(backend, device, budget, length):
@@ -1475,12 +1477,15 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
      def run(backend, device, budget=BUDGET, length=LENGTH):
          path = Path(f"sep49-{backend}-{device}.h5")
          path.unlink(missing_ok=True)
+         started = time.monotonic()
          with warnings.catch_warnings():
              warnings.simplefilter("ignore")
              try:
                  simulation(backend, device, budget, length).run(path, progress="none")
              except ResponseBudgetError as error:  # the budget ends the segment
                  print(f"{backend}: {error}")
+             finally:
+                 print(f"{backend}: {time.monotonic() - started:.1f} s", flush=True)
          return path
 
 
@@ -1536,21 +1541,25 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
      def cancel(device):
          sent = {}
-
          output = Path(f"sep49-native-{device}.h5")
          output.unlink(missing_ok=True)
 
+         # The binding's evaluation in this process is where an atomic call is in flight
+         # (a private name: this script checks solprop, it is not an API).
+         calling = threading.Event()
+         evaluate = tdse._ProviderBinding.evaluate
+
+         def marked(self, *args, **kwargs):
+             calling.set()
+             return evaluate(self, *args, **kwargs)
+
+         tdse._ProviderBinding.evaluate = marked
+
          def watch():
-             # A worker of the run (its file is open) that has computed for BUSY seconds
-             # is inside an atomic call.
-             while True:
-                 busy = {pid: cpu for pid, cpu in workers().items() if cpu >= BUSY}
-                 if busy and output.exists():
-                     time.sleep(float(os.environ.get("SEP49_DELAY", "1")))
-                     sent.update(worker=next(iter(busy)), at=time.monotonic())
-                     os.kill(os.getpid(), signal.SIGINT)
-                     return
-                 time.sleep(0.5)
+             calling.wait()
+             time.sleep(DELAY)
+             sent.update(worker=next(iter(workers()), None), at=time.monotonic())
+             os.kill(os.getpid(), signal.SIGINT)
 
          threading.Thread(target=watch, daemon=True).start()
          try:
@@ -1565,16 +1574,31 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
          alive = sent["worker"] in workers()
          print("worker", sent["worker"], "still running" if alive else "gone")
          result = summary(output)
+         print("provider:", result["provider"])
          print(result["status"], result["z"], result["atomic_calls"], result["logical_calls"])
-         return 0 if not alive and result["atomic_calls"].get("reserved") == 0 else 1
+         charged = result["atomic_calls"].get("attempted", 0) >= 1
+         reserved = result["atomic_calls"].get("reserved")
+         return 0 if not alive and charged and reserved == 0 else 1
+
+
+     def refuse(device):
+         try:
+             run("native", device)
+         except BackendError as error:
+             print("refused:", error)
+             return 0 if "device=" in str(error) else 1
+         print(f"device={device!r} was not refused")
+         return 1
 
 
      if __name__ == "__main__":
          mode, device = sys.argv[1], sys.argv[2]
-         sys.exit({"compare": compare, "cancel": cancel}[mode](device))
+         sys.exit({"compare": compare, "cancel": cancel, "refuse": refuse}[mode](device))
      ```
 
-  4. Run it from that directory. With the GPU build, replace `cpu` with `cuda` or `hip`.
+  4. Run it from that directory. On the CPU build, `compare cpu` and `cancel cpu`; on a
+     GPU build, `refuse cpu` and `cancel cuda` (or `hip`), and `compare` only on a GPU
+     whose FP64 rate makes an atomic call short (not an A40).
 
      ```sh
      uv run --no-sync --project <solprop checkout> python sep49_check.py compare cpu
@@ -1589,12 +1613,14 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
        relative.
      - It also prints the difference against the segment's own change.
 
-     `cancel` runs native over a longer segment. It sends itself SIGINT once a worker
-     of the run has computed for 5 s (`SEP49_BUSY_SECONDS`). On a GPU build, whose
-     worker may wait rather than compute, lower that threshold. It passes when:
+     `cancel` runs native over a longer segment and sends itself SIGINT 5 s
+     (`SEP49_DELAY`) into its first atomic call. It passes when:
      - the run raises `KeyboardInterrupt` within about a second;
      - the worker is gone and nothing is reserved;
      - the file records the call as charged and the last accepted step's position.
+
+     `refuse` asks for a device the installed build does not have (`cpu` with a CUDA
+     build, say) and passes when the run is refused by name.
   5. Record here, for each run:
      - the provider revision and build (the `provider:` line);
      - the machine;
@@ -1612,12 +1638,63 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     run stood at its one accepted step.
 
   This checks the script and the plumbing, not Pyroraptor.
+- **The manual check of §7.4: results** (2026-11-12, run by Opus 5.5 at the
+  maintainer's request, on a shared HPC cluster through Slurm). Done with this
+  procedure's script, and with `refuse` on the GPU.
+  - **Code.** solprop `7a5ca1f9a7e25c28007c8ee4768f834b6ffa4d51` (this branch).
+    Pyroraptor `7658b615ef99e169d30ff0b12526d2a8d8b638a8` (the latest `main`; reports
+    `source_revision='7658b61'`, version `0.0.1.dev26+g7658b615e`).
+  - **CPU builds.**
+    - solprop's native CPU wheel: LOCAL profile, Release, GCC 16.2, FFTW 3.3.11 with
+      OpenMP threads, OpenMP OpenBLAS, `-march=znver3`.
+    - Pyroraptor's OpenMP build: GCC 16.2, LOCAL, `x86-64-v3`, Kokkos 5.2.1. It was
+      installed into the same environment, so the worker ran the same interpreter.
+  - **CPU machine.** A node with two AMD EPYC 7763; a Slurm job with 32 cores
+    (`-c 32 --hint=nomultithread`). The worker reported `requested_threads=32`, the
+    run's whole budget.
+  - **`compare cpu`**: exit 0, wall 1,422 s.
+    - Both backends ended `complete` at z = 5.96e-8 m (2^-24 m). Each took one
+      accepted order-1 step: a startup call and a predictor call, 2 atomic calls,
+      none reserved. The call ledgers were equal.
+    - Native's final field was 4.1e-13 from `numpy_ref`'s, relative, and 1.4e-8 of
+      the segment's own change.
+    - Each backend's run took 707 s (`numpy_ref`) and 712 s (native). About 8.4 min of
+      that was the provider's model preparation in the worker; each atomic call took
+      about 100 s at 32 cores, below the 10 min bound set beforehand. The problem
+      therefore did not need reducing.
+  - **`cancel cpu`**: exit 0, wall 550 s.
+    - SIGINT came 5 s into the first atomic call (after the same preparation), and
+      `KeyboardInterrupt` was raised 0.13 s later.
+    - The worker was gone. The file records status `failed` at z = 0, with the startup
+      call charged (`attempted` 1) and nothing reserved.
+  - **GPU builds.**
+    - Pyroraptor's CUDA wheel: `PYRORAPTOR_EXECUTION_SPACE=CUDA`, `AMPERE86`, CUDA
+      12.8.1 with `nvcc_wrapper` over system GCC 11.5, Kokkos 5.2.1. It was compiled on
+      the login node with 4 jobs, in 26 min.
+    - It was installed into a second environment beside the same solprop native CPU
+      wheel, whose `execution_space` is `OpenMP`.
+  - **GPU machine.** A node with NVIDIA A40s; a Slurm job with one A40, 16 cores and a
+    20 min cap. The worker reported `execution_space='Cuda'`.
+  - **`refuse cpu`**: exit 0, wall 9.4 s. The run was refused by name ("TDSE requested
+    device='cpu', but the native build uses 'Cuda'"), and no worker remained.
+  - **`cancel cuda`**: exit 0, wall 681 s.
+    - The provider's model preparation on the A40 took about 11 min. SIGINT came 5 s
+      into the first atomic call, and `KeyboardInterrupt` was raised 0.47 s later.
+    - The worker was gone, and the device released: `nvidia-smi` listed no compute
+      process and 0 MiB used afterwards.
+    - The file records the startup call charged (`attempted` 1) and nothing reserved.
+  - **No GPU `compare`.** The A40's FP64 rate is about 1/64 of its FP32, so an A40
+    atomic call could take hours, and SEP 49 does not change Pyroraptor's GPU
+    numerics. The GPU numerical comparison of native against `numpy_ref` is to be done
+    by hand when the provider is next used on a production GPU (Q10).
+  - **Logs.** The build logs, and both runs' logs with every command's output, are
+    kept with the maintainer's campaign records.
 - **Verification.** `tests/backends/test_tdse_native.py`: 23 passed. The held-signal test
   no longer produces nanobind's leak report, and with the unbind removed it fails its
   weak-reference check. The non-TDSE bitwise check is unaffected, because phase 4
   changes the native extension's comments only.
-- **Handoff.** Next are the maintainer's manual check (above), CI and an A/B; then
-  `Final`.
+- **Handoff.** Next are CI and an A/B; then `Final`. The GPU numerical comparison stays
+  manual, for the provider's next production GPU use (Q10).
 
 ## Part III — History
 
@@ -1668,7 +1745,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 - 2026-11-12: Phase 2 (the provider worker) reported in Part II; implementation pull
   request opened as a draft.
 - 2026-11-12: Phase 3 (the native hook) reported in Part II.
-- 2026-11-12: Phase 4 reported in Part II. ADR-078 accepted by John Travers. The
+- 2026-11-12: Phase 4 reported in Part II, with the manual check of §7.4 on the CPU
+  (compare and cancel) and on an A40 (device refusal and cancel). ADR-078 accepted by
+  John Travers. The
   maintainer decided that solprop pins no Pyroraptor revision until Pyroraptor has a
   release: the installed provider is used, by default the latest `main`, and its
   reported revision recorded; §6.5, §7.2, §7.4, §9.3 and Q10 revised to match.
