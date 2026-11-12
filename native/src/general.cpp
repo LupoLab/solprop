@@ -43,6 +43,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #ifdef __APPLE__
@@ -2691,7 +2692,7 @@ public:
   static bool host_forward_pack() noexcept {
     static const bool enabled = [] {
       const char* text = std::getenv("SOLPROP_NATIVE_FORWARD_PACK");
-      return text == nullptr || std::string(text) != "0";
+      return text == nullptr || std::string_view(text) != "0";
     }();
     return enabled;
   }
@@ -9677,7 +9678,8 @@ void GeneralWorkspace::rk_dense_release() noexcept {
   rk_dense_coefficients_ = {};
   rk_dense_stiff_ = {};
   rk_dense_held_ = {};
-  rk_dense_weights_ = {};
+  // A moved-in empty vector releases the storage and cannot throw (`= {}` may).
+  rk_dense_weights_ = std::vector<double>();
   rk_dense_ready_ = false;
 }
 
