@@ -9,6 +9,7 @@ import pytest
 
 from runtime_types import unchecked
 from solprop import _process
+from solprop._ownership import hold
 from solprop.backends import (
     Backend,
     BackendHistory,
@@ -152,6 +153,17 @@ def test_an_observation_freezes_its_field_and_agrees_with_its_history():
     assert not plane.require_field().flags.writeable
     assert plane.require_field().flags.c_contiguous
     assert plane.noise_phase is None
+
+
+def test_an_observation_copies_a_caller_s_field_and_takes_a_held_one():
+    mine = np.zeros((1, 1, 8), complex)
+    phase = np.zeros((1, 1, 8))
+    plane = Observation(0.2, mine, phase, history(1), 1, 0)
+    assert mine.flags.writeable and phase.flags.writeable
+    assert not np.shares_memory(plane.require_field(), mine)
+    # What a backend hands over, held, costs nothing.
+    exported = hold(np.zeros((1, 1, 8), complex))
+    assert Observation(0.2, exported, None, history(1), 1, 0).field is exported
 
 
 def test_a_noise_phase_is_carried_in_the_state_layout():

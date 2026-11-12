@@ -31,6 +31,7 @@ import numpy as np
 
 from solprop._host import RunClock, usage
 from solprop._interrupts import committing, poll
+from solprop._ownership import hold
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
@@ -270,7 +271,8 @@ class _Exports:
                 field = spectrum_to_internal(self._stored, kind=self._kind)
             else:
                 field = self._session.export(ticket, _CONSUMER)
-            field.setflags(write=False)
+            # A new array or a view of a held observation: held, so nothing copies it.
+            hold(field)
             self._field = field
         return self._field
 
@@ -297,7 +299,13 @@ class _Exports:
         self._hold(ticket)
         assert self._field is None and self._stored is None, "a plane's first export"
         stored = self._session.export(ticket, _STORED, out=out)
-        stored.setflags(write=False)
+        if out is None:
+            # A new array, this plane's own: held, so nothing copies it.
+            hold(stored)
+        else:
+            # The plane store's room, which the store owns and writes again: frozen
+            # but not held.
+            stored.setflags(write=False)
         self._stored = stored
         return stored
 

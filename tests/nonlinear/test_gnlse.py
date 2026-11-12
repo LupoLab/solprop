@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation
 from solprop.exceptions import ModeError
@@ -611,3 +612,5 @@ def test_a_dispersion_leaves_the_caller_s_arrays_writeable():
         assert mine.flags.writeable
         assert not held.flags.writeable
         assert not np.shares_memory(mine, held)
+        # Copied once and held, so translation takes it without a second copy.
+        assert frozen_copy(held) is held

@@ -9,6 +9,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID
 from solprop import fourier
+from solprop._ownership import is_held
 from solprop.boundaries import absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -77,6 +78,9 @@ def test_the_crop_index_selects_the_coarse_bins_of_the_fine_spectrum(grid):
 
 def test_the_arrays_are_frozen(grid):
     masks = build_masks(grid)
+    # The grid holds its axis and evaluates its masks afresh: none is copied again.
+    assert masks.omega is grid.omega
+    assert is_held(masks.active_mask) and is_held(masks.crop_index)
     for name in (
         "omega",
         "crop_index",

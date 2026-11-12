@@ -442,7 +442,7 @@ class Observation:
     field_owned: bool = False
 
     def __post_init__(self) -> None:
-        """Freeze the arrays, as given when already contiguous, and check the plane.
+        """Freeze the arrays, copying any solprop does not already hold, and check.
 
         Raises
         ------
@@ -456,12 +456,9 @@ class Observation:
             object.__setattr__(self, "field_owned", False)
             self._check_counts()
             return
-        # Taken as given, not copied: only a backend makes an observation, and it hands
-        # over an export of its own or a view of its held state, which it froze so
-        # that the next step replaces the state rather than writing in place. A copy
-        # here would add a state-sized copy at every saved plane.
-        state = np.ascontiguousarray(self.field, dtype=np.complex128)
-        state.setflags(write=False)
+        # A backend holds what it hands over (solprop._ownership.hold), which is then
+        # taken as it stands; anything else, as from a caller, is copied.
+        state = frozen_copy(self.field, np.complex128)
         object.__setattr__(self, "field", state)
         if not _all_finite(state):
             bad = int(np.sum(~np.isfinite(state)))
@@ -471,8 +468,7 @@ class Observation:
             )
             raise BackendError(msg)
         if self.noise_phase is not None:
-            phase = np.ascontiguousarray(self.noise_phase, dtype=np.float64)
-            phase.setflags(write=False)
+            phase = frozen_copy(self.noise_phase, np.float64)
             object.__setattr__(self, "noise_phase", phase)
             if phase.shape != state.shape:
                 msg = (

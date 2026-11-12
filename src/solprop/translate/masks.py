@@ -28,7 +28,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
-from solprop._ownership import frozen_copy
+from solprop._ownership import frozen_copy, hold
 from solprop.boundaries import Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import TimeGrid
@@ -305,10 +305,14 @@ def build_masks(
     >>> masks.carrier_2w0 is None
     True
     """
-    window = (
+    # The grid evaluates its masks and windows afresh at every access, so each is
+    # this group's own: held in place rather than copied again by the group. The
+    # frequency axis is the grid's, which it already holds.
+    window = hold(
         grid.omega_window if polarisation_taper else np.ones_like(grid.omega_window)
     )
-    carrier = thg_carrier(grid.omega0, grid.t_fine) if harmonic_carrier else None
+    carrier = hold(thg_carrier(grid.omega0, grid.t_fine)) if harmonic_carrier else None
+    active, inband = hold(grid.active_mask), hold(grid.inband_mask)
     masks = Grids(
         omega=grid.omega,
         omega0=grid.omega0,
@@ -317,15 +321,15 @@ def build_masks(
         n_t=grid.n_t,
         n_to=grid.n_to,
         ffac=grid.ffac,
-        crop_index=grid.crop_index,
+        crop_index=hold(grid.crop_index),
         pad_scale=grid.pad_scale,
         crop_scale=grid.crop_scale,
-        inband_mask=grid.inband_mask,
-        active_mask=grid.active_mask,
-        norm_mask=grid.active_mask if region == "active" else grid.inband_mask,
+        inband_mask=inband,
+        active_mask=active,
+        norm_mask=active if region == "active" else inband,
         omega_window=window,
-        t_window_fine=grid.t_window_fine,
-        t_window_fine_derivative=grid.t_collar.window_derivative(grid.t_fine),
+        t_window_fine=hold(grid.t_window_fine),
+        t_window_fine_derivative=hold(grid.t_collar.window_derivative(grid.t_fine)),
         carrier_2w0=carrier,
     )
     logger.debug(

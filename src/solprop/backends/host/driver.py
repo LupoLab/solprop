@@ -35,6 +35,7 @@ from jaxtyping import Complex, Float
 
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
+from solprop._ownership import hold
 from solprop.backends import rk_core
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
@@ -1615,10 +1616,13 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         )
         whole = self._observed_field(state) if field else None
         if whole is not None and not self.observes_fresh_field:
-            # The observation is a view of the held state without its leading axis:
-            # the state itself is frozen, as an observed array always was, so that
-            # the next step replaces it rather than accepting in place.
-            whole.setflags(write=False)
+            # The state itself, frozen as an observed array always was so that the
+            # next step replaces it rather than accepting in place, and held, so the
+            # observation takes a view of it without a copy. A state that only views
+            # memory the march owns is frozen but not held, and the observation copies
+            # it. A fresh export stays writeable beneath the observation, which copies
+            # it once: the session converts that copy in place (SEP 47 section 5.4).
+            hold(whole)
         plane = Observation(
             z=self._z,
             field=None if whole is None else whole[0],
