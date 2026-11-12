@@ -52,6 +52,7 @@
 #endif
 
 namespace solprop_native {
+namespace {
 /** The three squared norms an accepted step reports, as one reduction value. */
 struct NormSums {
   double old_sum = 0.0;
@@ -64,6 +65,7 @@ struct NormSums {
     return *this;
   }
 };
+} // namespace
 } // namespace solprop_native
 
 template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
@@ -71,6 +73,7 @@ template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
 };
 
 namespace solprop_native {
+namespace {
 /** A plane's scaled fluence, one reduction value: its sum and its index moments. */
 struct FluenceMoments {
   double total = 0.0;
@@ -83,6 +86,7 @@ struct FluenceMoments {
     return *this;
   }
 };
+} // namespace
 } // namespace solprop_native
 
 template <> struct Kokkos::reduction_identity<solprop_native::FluenceMoments> {
@@ -5880,9 +5884,9 @@ void GeneralWorkspace::low_storage_separable_pass(const std::size_t pass,
 // Each column's masked squared norm of `state` into `partials(0, column)`, in a team
 // per column: a device's final fold traverses like the others and reduces here, over
 // one volume, instead of reducing inside the fold's crossing (SEP 28).
-void column_norms(const char* label, const ExecutionSpace& execution,
-                  const ComplexView2& state, const ByteView& in_norm,
-                  const RealView2& partials) {
+static void column_norms(const char* label, const ExecutionSpace& execution,
+                         const ComplexView2& state, const ByteView& in_norm,
+                         const RealView2& partials) {
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   const auto n = state.extent(1);
@@ -7373,6 +7377,9 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // `strict_scale(1, x)` is x, so its exponential is the same bits. A host block with
 // vector maths forms the same values on its lanes
 // (`adams_lanes_predicted_compensation`).
+// The strict compensation helpers keep their linkage: changing it could change how GCC
+// inlines strict code (fp.hpp), which needs its own A/B.
+// NOLINTBEGIN(misc-use-internal-linkage): strict helpers, linkage unchanged
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
@@ -7445,6 +7452,7 @@ adams_observed_compensation(const ExponentialWeights& weights, const std::size_t
   return total;
 }
 
+// NOLINTEND(misc-use-internal-linkage)
 namespace {
 
 // The elements a host task of the elementwise trial's passes takes in turn. Each pass
