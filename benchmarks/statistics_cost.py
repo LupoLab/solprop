@@ -83,6 +83,7 @@ hydrogen, lossless, with Raman, over 0.1 m in one mode."""
 def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     backend_name: str,
     case_name: str,
+    *,
     target: float,
     repeats: int,
     modes: int | None,
@@ -278,10 +279,10 @@ def main() -> None:
     _worker(
         arguments.backend,
         arguments.case,
-        arguments.target,
-        arguments.repeats,
-        arguments.modes,
-        arguments.period,
+        target=arguments.target,
+        repeats=arguments.repeats,
+        modes=arguments.modes,
+        period=arguments.period,
     )
 
 
