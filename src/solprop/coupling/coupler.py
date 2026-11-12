@@ -906,6 +906,7 @@ def _channels(
 ) -> tuple[Float[np.ndarray, "n_channels 2"], Int[np.ndarray, " n_channels"]]:
     """Return each channel's Jones vector and mode index, channel order m-major.
 
+    - ``n_pol``: 1, each mode with its own polarisation; 2, each mode in x and in y.
     - Returns: jones vectors, shape ``(n_channels, 2)``, and the mode of each channel.
     """
     if n_pol == 1:

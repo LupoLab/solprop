@@ -474,7 +474,10 @@ def _index(medium: SpatialMedium, grid: TimeGrid) -> Complex[np.ndarray, " n_ome
 
 
 def _same_medium(first: SpatialMedium, second: SpatialMedium, grid: TimeGrid) -> bool:
-    """Return whether two media have the same index on the band."""
+    """Return whether two media have the same index on the band.
+
+    True for the same object or exactly equal indices on every band bin: no tolerance.
+    """
     return first is second or bool(
         np.array_equal(_index(first, grid), _index(second, grid))
     )
@@ -530,7 +533,10 @@ def _nodes(space: RadialGrid | FreeGrid) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _flux(state: SpatialState) -> SpatialFlux:
-    """Resolve the axial-flux measure of the state's plane."""
+    """Resolve the axial-flux measure of the state's plane.
+
+    The plane's medium is homogeneous, so the position is immaterial.
+    """
     return SpatialFlux.resolve(state.grid, state.space, state.medium, z=0.0)
 
 
@@ -597,6 +603,8 @@ def _angular_content(
     in place of the axial admittance; the obliquity of a propagating column is the
     admittance over the index, :math:`\cos\theta`.
 
+    - ``cone_cosine``: :math:`\cos\theta_*`; columns with a smaller obliquity are the
+      tail.
     - Returns: the split content, J.
     """
     grid = state.grid
@@ -634,6 +642,7 @@ def _reference_norm(
 ) -> float:
     """Return the squared reference-measure norm of a spectrum, up to a constant.
 
+    - ``index``: real index per bin, zero off band.
     - Returns: ``sum v_j gamma_k n_k |X_jpk|^2``, in the units of ``|X|^2`` m^-2 s.
     """
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -664,7 +673,10 @@ def _node_content(
     index: Float[np.ndarray, " n_omega"],
     samples: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> Float[np.ndarray, " n_modes"]:
-    """Return each node's reference-measure content, up to a constant."""
+    """Return each node's reference-measure content, up to a constant.
+
+    - ``index``: real index per bin, zero off band.
+    """
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
     density = np.sum(np.abs(samples) ** 2, axis=1)
     radial = isinstance(space, RadialGrid)
@@ -852,6 +864,7 @@ def _apply_screen(
     - ``transmission``: Optics-convention field transmission at the nodes on the band
       bins, shape ``(n_modes, n_band)``.
     - ``model_error``: the required budget in (0, 1).
+    - ``phase_only``: the screen is declared unit-modulus, so its local loss is zero.
     - ``gradient``: the screen's analytic phase gradient magnitude in rad/m at the
       nodes, shape ``(n_modes, n_band)``, when it is known. Sampled phases wrap, so only
       an analytic gradient detects a step beyond pi.
@@ -1470,6 +1483,11 @@ def _uniform_result(
     column keeps its obliquity, the loss per bin is the energy change per bin and
     the ledger closes to rounding. Across a medium change the loss is the declared
     reflection and the rest is obliquity.
+
+    - ``removed_bins``: bins the element sets to exactly zero; their input energy is
+      reported as removed.
+    - ``reflected``: declared reflectance per bin across a medium change; the specified
+      loss is then ``sum(R * spectrum_in)``.
     """
     measured_in = _measure(before, _flux(before))
     measured_out = _measure(after, _flux(after))
@@ -1904,7 +1922,11 @@ def _phase_only(transfer: TransferFunction) -> bool | None:
 
 
 def _reconstruction(transfer: TransferFunction) -> bool:
-    """Return whether a known optics element is a reconstruction operation."""
+    """Return whether a known optics element is a reconstruction operation.
+
+    True for a negative material length or an inverse mirror phase, in the element or
+    any member of a chain.
+    """
     if isinstance(transfer, Chain):
         return any(_reconstruction(member) for member in transfer.elements)
     if isinstance(transfer, Material):

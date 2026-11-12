@@ -128,7 +128,11 @@ def _frozen(
 
 
 def _canonical(record: object) -> str:
-    """Return the canonical JSON text an identity is a digest of."""
+    """Return the canonical JSON text an identity is a digest of.
+
+    A material's open interval bound is infinite, and JSON's ``Infinity`` spells it
+    deterministically.
+    """
     return json.dumps(record, sort_keys=True, separators=(",", ":"))
 
 
@@ -1596,6 +1600,7 @@ def _transverse(
 
     - ``values``: Internal-convention spectra, shape ``(n_columns, n_pol, n_omega)``.
     - ``space``: the grid whose QDHT or two-dimensional FFT is applied.
+    - ``inverse``: True for columns to nodes, False for nodes to columns.
     """
     if isinstance(space, RadialGrid):
         moved = np.moveaxis(values, 0, -1)

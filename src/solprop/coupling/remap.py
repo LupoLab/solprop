@@ -383,6 +383,7 @@ def _record_window(
     """Return which source samples the target window keeps, and check the record.
 
     - ``shift``: Record-time shift, s.
+    - ``truncate``: whether the record may be cut and declared zero outside the window.
     - Returns: the kept-sample mask, the share outside the target window and the share
       in the source's temporal collar.
     """

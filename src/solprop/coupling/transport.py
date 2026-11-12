@@ -208,6 +208,9 @@ def _sequence(
 ) -> tuple[SpatialState, TransportReport]:
     """Apply an ordered sequence to an internal state and keep the ledger.
 
+    - ``track``: the caller tracks a reference, so a gap without an explicit
+      ``frame_delay`` takes its frame term from `frame`; otherwise the element's own
+      default applies.
     - Returns: the last state and the sequential report.
     """
     current = state
