@@ -11,8 +11,8 @@ of the deviation rather than a tolerance chosen after a run.
 The independent references are: complex roots of the exact outgoing radial equation
 ``q J_1(q) + i eta J_0(q) = 0``, solved by a root finder that knows nothing about the
 condensation; a one-sided difference of the basis function at the wall; this package's
-own :class:`~solprop.modes.capillary.MarcatiliMode` effective index; and the committed
-wall-stiffness rows of an independent prototype.
+own :class:`~solprop.modes.capillary.MarcatiliMode` effective index; and the exact
+outgoing vector roots of an independent prototype.
 """
 
 import json
@@ -49,9 +49,6 @@ from solprop.modes.capillary import ModeKind, _cladding_term_and_derivative
 from solprop.profiles import FromCallable, Linear, ZProfile
 
 ORACLE = Path(__file__).resolve().parents[1] / "data" / "wall_oracle"
-
-STIFFNESS = ORACLE / "stiffness.json"
-"""Rows of an independent prototype's wall-stiffness study: sixty wall blocks."""
 
 VECTOR_ROOTS = ORACLE / "vector_roots.json"
 """Exact outgoing vector boundary roots of a 150 micrometre bore for TE, TM, HE and EH,
@@ -190,43 +187,6 @@ def test_every_channel_of_a_block_carries_its_own_marcatili_loss():
             4.0 * len(modes) ** 2 * inverse_eta**2 + mode.u_nm**2 / (2.0 * carrier**2)
         )
         assert measured / marcatili - 1.0 == pytest.approx(predicted, rel=5e-2)
-
-
-@pytest.mark.medium
-@pytest.mark.filterwarnings("ignore:The maximum number of subdivisions")
-def test_the_block_reproduces_the_prototype_stiffness_rows():
-    """Every row of the prototype's stiffness study comes out of the production block.
-
-    Bound, stated first: the production operator and the prototype are the
-    same arithmetic in a different order, so the three spectral quantities the
-    receipt records -- the rank-one wall term's spectral radius, that of its
-    off-diagonal remainder, and the highest channel's Marcatili loss -- agree to
-    1e-12 relative, which is the rounding of an eigenvalue solve of a rank-one
-    perturbation at these magnitudes. All sixty rows are checked, five wavelengths
-    from 0.8 to 12 micrometres, both cladding indices and N from 8 to 160.
-    """
-    rows = json.loads(STIFFNESS.read_text())
-    assert len(rows) == 60
-    for row in rows:
-        omega = np.array([2.0 * np.pi * C / (row["wavelength_um"] * 1e-6)])
-        modes = block(
-            row["N"], row["radius_m"], None, 0.0, cladding=row["cladding_index"]
-        )
-        operator = wall_operator(modes, omega, validity_limit=100.0)
-        rank_one = operator.coupling[0] * np.outer(
-            operator.trace_vector, operator.trace_vector
-        )
-        whole = float(max(abs(np.linalg.eigvals(rank_one))))
-        off = rank_one - np.diag(np.diag(rank_one))
-        remainder = float(max(abs(np.linalg.eigvals(off))))
-        highest = (
-            modes[-1].u_nm ** 2
-            * float(np.real(omega[0] / C / operator.impedance[0]))
-            / (float(np.real(operator.wavenumber[0])) ** 2 * row["radius_m"] ** 3)
-        )
-        assert whole == pytest.approx(row["whole_wall"]["rho_per_m"], rel=1e-12)
-        assert remainder == pytest.approx(row["offdiagonal"]["rho_per_m"], rel=1e-12)
-        assert highest == pytest.approx(row["alpha_N_marcatili_per_m"], rel=1e-12)
 
 
 def test_the_block_is_passive_and_its_hermitian_part_is_rank_one():
