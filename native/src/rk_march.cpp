@@ -381,6 +381,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
       }
       state.proposal = next;
     } else {
+      // NOLINTNEXTLINE(readability-suspicious-call-argument): solprop's reached(target, z)
       if (dense && !march::reached(target, end, ulps)) {
         if (!bounds.extend) {
           // solprop records the step's extension from the state before it, then

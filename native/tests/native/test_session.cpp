@@ -78,6 +78,7 @@ public:
   void stepped(const march::Result& /*result*/) override {}
   [[nodiscard]] bool crosses(const double position, const double target,
                              const int ulps) const override {
+    // NOLINTNEXTLINE(readability-suspicious-call-argument): solprop's reached(target, z)
     return !march::reached(target, position, ulps);
   }
   void observe(const double position) override {

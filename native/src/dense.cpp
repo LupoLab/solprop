@@ -148,6 +148,7 @@ void RungeKuttaDense::stepped(const march::Result& /*result*/) {}
 
 bool RungeKuttaDense::crosses(const double position, const double target,
                               const int ulps) const {
+  // NOLINTNEXTLINE(readability-suspicious-call-argument): solprop's reached(target, z)
   return !march::reached(target, position, ulps);
 }
 
