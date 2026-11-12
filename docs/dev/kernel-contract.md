@@ -1350,7 +1350,8 @@ library (#135): each strict file's probe, beside a control that fuses, in the in
 build (`tests/backends/test_native_strict_witness.py`, and the wheel stage's smoke test);
 the same probe in the native unit tests of an optimised build with fused multiply-add;
 and the wheel stage's scan of the strict files' disassembly for a fused instruction
-(`native/ci/check_strict_fma.py`). The boundary checks above and the Runge–Kutta march
+(`native/ci/check_strict_fma.py`, each function bounded by its symbol's size, since a
+stripped extension labels only exported functions). The boundary checks above and the Runge–Kutta march
 (§12) are held the same way.
 
 ## 12. The Runge–Kutta march

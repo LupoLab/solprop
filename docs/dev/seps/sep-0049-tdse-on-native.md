@@ -1465,10 +1465,24 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
              consistency=TDSEConsistency(enforce=False),
          )
          return Simulation.from_capillary(
-             256e-6, length, "He", 0.1,
-             wavelength=800e-9, wavelength_limits=(400e-9, 1.6e-6), trange=40e-15,
-             fwhm=6e-15, energy=20e-6, modes=1, radial_rule="field_scale", n_r=2,
-             noise=None, n_save=2, rtol=RTOL, dz_init=LENGTH, dz_max=LENGTH, backend=backend,
+             256e-6,
+             length,
+             "He",
+             0.1,
+             wavelength=800e-9,
+             wavelength_limits=(400e-9, 1.6e-6),
+             trange=40e-15,
+             fwhm=6e-15,
+             energy=20e-6,
+             modes=1,
+             radial_rule="field_scale",
+             n_r=2,
+             noise=None,
+             n_save=2,
+             rtol=RTOL,
+             dz_init=LENGTH,
+             dz_max=LENGTH,
+             backend=backend,
              tdse=response,
              tdse_execution=TDSEExecution(device=device, max_atomic_calls=budget),
          )
@@ -1506,7 +1520,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
      def workers():
          """This process's provider workers and their CPU seconds."""
          table = subprocess.run(
-             ["ps", "-A", "-o", "pid=,ppid=,time=,command="], capture_output=True, text=True,
+             ["ps", "-A", "-o", "pid=,ppid=,time=,command="],
+             capture_output=True,
+             text=True,
              check=True,
          ).stdout
          found = {}
@@ -1522,8 +1538,13 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
          results = {name: summary(run(name, device)) for name in ("numpy_ref", "native")}
          reference, ours = results["numpy_ref"], results["native"]
          for name, result in results.items():
-             print(name, result["status"], result["z"], result["atomic_calls"],
-                   result["logical_calls"])
+             print(
+                 name,
+                 result["status"],
+                 result["z"],
+                 result["atomic_calls"],
+                 result["logical_calls"],
+             )
          print("provider:", reference["provider"])
          if reference["logical_calls"]["accepted_steps"] == 0:
              print("no step was accepted, so nothing to compare: lower LENGTH")
@@ -1532,7 +1553,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
          gap = np.linalg.norm(ours["fields"][-1] - last)
          difference = gap / np.linalg.norm(last)
          print(f"final field, native against numpy_ref: {difference:.3e} relative")
-         print(f"... and against the segment's change: {gap / np.linalg.norm(last - first):.3e}")
+         print(
+             f"... and against the segment's change: {gap / np.linalg.norm(last - first):.3e}"
+         )
          keys = ("status", "z", "atomic_calls", "logical_calls")
          same = all(ours[key] == reference[key] for key in keys)
          print("same status, position and call ledgers:", same)
@@ -1575,7 +1598,9 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
          print("worker", sent["worker"], "still running" if alive else "gone")
          result = summary(output)
          print("provider:", result["provider"])
-         print(result["status"], result["z"], result["atomic_calls"], result["logical_calls"])
+         print(
+             result["status"], result["z"], result["atomic_calls"], result["logical_calls"]
+         )
          charged = result["atomic_calls"].get("attempted", 0) >= 1
          reserved = result["atomic_calls"].get("reserved")
          return 0 if not alive and charged and reserved == 0 else 1
@@ -1689,6 +1714,17 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     by hand when the provider is next used on a production GPU (Q10).
   - **Logs.** The build logs, and both runs' logs with every command's output, are
     kept with the maintainer's campaign records.
+- **The wheel's strict-FMA check.** On the merge with `main`, CI's Linux wheel failed
+  `native/ci/check_strict_fma.py` with 36 fused multiply-adds "in" `march::reached`.
+  The disassembly of that wheel shows `reached` itself (0x5d bytes, its symbol's size)
+  with none. The 36 lie in 9 KB of unlabelled code that the link-time optimisation
+  placed after it: Kokkos kernels of the dispersive response, which call
+  `GeneralDispersive::respond`, `sin`, `tanh`, `pow` and `exp`. The wheel is stripped,
+  so `objdump` labels only exported functions and counted that code as `reached`'s.
+  No strict file includes a contracting header, and no strict code changed. The check
+  now bounds each strict function by its symbol's size from `objdump -T` and `-t`,
+  with a test. It passes on that wheel (333 strict functions, none fused). The
+  non-TDSE runs stay bit for bit as before.
 - **Verification.** `tests/backends/test_tdse_native.py`: 23 passed. The held-signal test
   no longer produces nanobind's leak report, and with the unbind removed it fails its
   weak-reference check. The non-TDSE bitwise check is unaffected, because phase 4
