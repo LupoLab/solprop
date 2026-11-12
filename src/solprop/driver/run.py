@@ -98,7 +98,6 @@ __all__ = [
     "field_retention",
     "history_of",
     "open_run",
-    "open_run_record",
     "plane_from_observation",
     "retention_at",
     "run_problem",
@@ -702,6 +701,11 @@ def open_run(
 ) -> CheckpointOutput | None:
     """Open a run's output with the runtime facts outside its scientific identity.
 
+    A run refused after its resources were prepared and before its first step (a
+    failed haCC consistency check, SEP 20 section 5.4) is recorded by this alone: the
+    record, with the binding's provenance, and no plane or terminal checkpoint, so
+    it cannot be mistaken for a propagation state.
+
     Parameters
     ----------
     output : solprop.output.store.Output
@@ -731,33 +735,6 @@ def open_run(
         executed = {**executed, "tdse": dict(binding.metadata())}
     output.open(metadata.with_backend(BackendRecord.from_metadata(executed)))
     return output if isinstance(output, CheckpointOutput) else None
-
-
-def open_run_record(
-    output: Output,
-    metadata: RunMetadata,
-    backend: Backend | SessionFacts,
-    binding: TDSEBinding | None,
-) -> None:
-    """Open an output with the run's record and execution facts, and save nothing.
-
-    Used when a run is refused after its resources were prepared and before its
-    first step, such as a failed haCC consistency check (SEP 20 section 5.4): the
-    record, with the binding's provenance, is written without a plane or a
-    terminal checkpoint, so it cannot be mistaken for a propagation state.
-
-    Parameters
-    ----------
-    output : Output
-        Handler to open.
-    metadata : RunMetadata
-        Scientific description of the run.
-    backend : Backend
-        Prepared optical backend.
-    binding : TDSEBinding or None
-        Optional atomic service supplying execution provenance.
-    """
-    open_run(output, metadata, backend, binding)
 
 
 RESTART_RECORD = "restart"

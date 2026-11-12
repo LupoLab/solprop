@@ -274,7 +274,7 @@ def test_a_failed_refusal_record_keeps_the_consistency_error_primary(
     def broken(*args, **kwargs):
         raise OutputError("disk full")
 
-    monkeypatch.setattr(tdse_run_module, "open_run_record", broken)
+    monkeypatch.setattr(tdse_run_module, "open_run", broken)
     fake.response = alpha_law(0.5)
     with pytest.raises(TDSEConsistencyError, match="refused"):
         _run(_simulation())

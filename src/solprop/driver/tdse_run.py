@@ -27,7 +27,7 @@ from solprop.backends.session import Start
 from solprop.boundaries import absorber as collar
 from solprop.boundaries import temporal_collar_rate
 from solprop.driver import tdse_consistency
-from solprop.driver.run import open_run_record
+from solprop.driver.run import open_run
 from solprop.driver.settings import SimulationSettings, _scheme
 from solprop.exceptions import DriverError, TDSEArchiveError, TDSECostWarning
 from solprop.grid import TimeGrid
@@ -176,7 +176,7 @@ def _consistency_gate(  # noqa: PLR0917 - called positionally
     binding.record_consistency(result.to_record())
     if result.outcome in ("refused", "invalid"):
         try:
-            open_run_record(handler, metadata, backend, binding)
+            open_run(handler, metadata, backend, binding)
         except Exception:
             logger.exception("could not record the refused consistency check")
     tdse_consistency.apply_outcome(result)
