@@ -361,19 +361,10 @@ def _spec_range(
 ) -> tuple[float, float]:
     """Return the spectral range of a plot, in SI units of its abscissa, ascending.
 
-    Parameters
-    ----------
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa.
-    spec_range : tuple of float or None
-        The range asked for, in m, Hz or rad/s as ``axis`` says, in either order.
-    default : tuple of float
-        The wavelength range, m, to show when none was asked for.
-
-    Returns
-    -------
-    tuple of float
-        The lower and upper limits in the units of ``axis``.
+    - ``spec_range``: the range asked for, in m, Hz or rad/s as ``axis`` says, in either
+      order.
+    - ``default``: the wavelength range, m, to show when none was asked for.
+    - Returns: the lower and upper limits in the units of ``axis``.
     """
     if spec_range is None:
         return wavelength_to_axis(axis, default)
@@ -385,17 +376,7 @@ def _display_limits(
 ) -> tuple[float, float]:
     """Return SI limits on a spectral abscissa in the display units of the figure.
 
-    Parameters
-    ----------
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa.
-    spec_range : tuple of float
-        The ascending limits, in m, Hz or rad/s.
-
-    Returns
-    -------
-    tuple of float
-        The limits in the units of :func:`spectral_display`.
+    - ``spec_range``: the ascending limits, in m, Hz or rad/s.
     """
     factor, _ = spectral_display(axis)
     return float(factor * spec_range[0]), float(factor * spec_range[1])
@@ -589,15 +570,7 @@ def mode_labels(output: Output, n_modes: int) -> list[str]:
 def _angle_label(phi: object) -> str:
     """Return the polarisation suffix of a mode at a given angle.
 
-    Parameters
-    ----------
-    phi : object
-        The angle as the metadata records it, rad, or anything else.
-
-    Returns
-    -------
-    str
-        ``'(x)'``, ``'(y)'`` or the angle as a fraction of pi.
+    - ``phi``: the angle as the metadata records it, rad, or anything else.
     """
     if not isinstance(phi, float):
         return "(?)"
@@ -609,24 +582,7 @@ def _angle_label(phi: object) -> str:
 
 
 def _figure_of(ax: Axes) -> Figure:
-    """Return the figure an axis belongs to, narrowed to a root figure.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The axis.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Its root figure, so that a function drawing into a caller's sub-figure still
-        returns something a caller can save.
-
-    Raises
-    ------
-    solprop.exceptions.ProcessingError
-        If the axis belongs to no figure.
-    """
+    """Return the figure an axis belongs to, narrowed to a root figure."""
     figure = ax.get_figure(root=True)
     if figure is None:  # pragma: no cover - an axis always belongs to a figure
         msg = "the axis to draw on does not belong to a figure"
