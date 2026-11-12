@@ -3774,6 +3774,7 @@ void GeneralWorkspace::adams_fallback_squarings(const std::size_t section,
                          " m: a history sample's carry to the step's end", limit);
 }
 
+// NOLINTNEXTLINE(readability-function-size): hot path, split pending an A/B
 std::vector<double> GeneralWorkspace::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
@@ -7028,6 +7029,7 @@ GeneralWorkspace::band_team_policy(const std::size_t node_count,
 // filter and scan runs on its row's live window (`band_support`) and writes the rest:
 // zero before it, the final prefix after it, and an unchanged exposure's fraction.
 template <FieldFamily Family, std::size_t Components, bool Multiple, bool Folded>
+// NOLINTNEXTLINE(readability-function-size): hot path, split pending an A/B
 void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                                                const std::size_t first_node,
                                                const std::size_t node_count) {

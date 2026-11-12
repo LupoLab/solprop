@@ -3120,6 +3120,7 @@ nb::dict build_record() {
 
 } // namespace
 
+// NOLINTNEXTLINE(readability-function-size): the module's one table of bindings, kept whole
 NB_MODULE(_core, module_) {
   // Each registration makes the Python exception type; the handle need not outlive it.
   const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
