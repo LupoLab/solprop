@@ -46,6 +46,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._ownership import borrow, frozen_copy, hold, hold_view
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
@@ -342,7 +343,6 @@ from solprop.translate.problem import (
     TranslationReuse,
     _held_block,
     _held_state,
-    _hold,
     _state,
     assemble,
 )
@@ -992,7 +992,7 @@ class SimulationSettings(Displayed):
         DriverError
             If the planes are empty, not increasing, or not positive.
         """
-        planes = np.ascontiguousarray(self.save_planes, dtype=np.float64).reshape(-1)
+        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         if (
             planes.size == 0
             or not np.all(np.isfinite(planes))
@@ -1004,7 +1004,6 @@ class SimulationSettings(Displayed):
                 "at z = 0 is saved anyway and is not one of them"
             )
             raise DriverError(msg, parameter="save_planes")
-        planes.setflags(write=False)
         object.__setattr__(self, "save_planes", planes)
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:
@@ -7827,16 +7826,16 @@ def _borrowed_input(
     Returns
     -------
     Pulse, SpatialPulse or numpy.ndarray
-        A read-only view of a complex128 array the record does not hold, marked as held
-        so that nothing copies it; `initial` itself otherwise. The caller's own flags
-        are not touched.
+        A read-only view of a complex128 array the record does not hold, borrowed
+        (:func:`solprop._ownership.borrow`) so that nothing copies it; `initial`
+        itself otherwise. The caller's own flags are not touched.
     """
     if (
         isinstance(initial, np.ndarray)
         and initial.dtype == np.complex128
         and (stated or not _recorded_inline(initial))
     ):
-        return _hold(np.asarray(initial).view())
+        return borrow(np.asarray(initial).view())
     return initial
 
 
@@ -7857,11 +7856,12 @@ def _without_input(problem: PropagationProblem) -> PropagationProblem:
     solprop.translate.problem.PropagationProblem
         The problem, sharing every leaf but ``initial.field0``.
     """
+    # A broadcast of a held zero is itself held, so Initial takes it uncopied.
     placeholder = np.broadcast_to(
-        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+        hold(np.zeros(1, dtype=np.complex128)), problem.initial.field0.shape
     )
     return dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+        problem, initial=dataclasses.replace(problem.initial, field0=placeholder)
     )
 
 
@@ -9101,7 +9101,7 @@ def _replaced_launch(
     converted = power_amplitude(
         field0, power_weight_at(original, launch_z), inverse=True
     )
-    return _hold(np.asarray(converted, dtype=np.complex128))
+    return hold(np.asarray(converted, dtype=np.complex128))
 
 
 def _check_input_identity(
@@ -9159,7 +9159,7 @@ def _given_input(
     """
     # The whole dtype, byte order included: the record serialises its exact string.
     source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
-    return _hold(source.view())
+    return hold(source.view())
 
 
 def _check_planar_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
@@ -9275,7 +9275,9 @@ def _built_state(
     build = getattr(type(pulse), "build", None)
     own = getattr(build, "__module__", None) == _PULSE_MODULE
     if own and spectrum.dtype == np.complex128:
-        return _hold(spectrum)
+        # A build may give a new array its leading axes by indexing: the memory
+        # beneath is what is held.
+        return hold_view(spectrum)
     return _held_state(spectrum)
 
 

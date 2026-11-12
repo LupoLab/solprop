@@ -35,6 +35,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 from scipy import interpolate
 
+from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import ModeError, SurrogateAreaWarning
 from solprop.modes.base import alpha, beta, beta1
@@ -313,7 +314,7 @@ class InterpolatedDispersion:
         ModeError
             Naming what is wrong with the declaration.
         """
-        nodes = np.ascontiguousarray(self.positions, dtype=np.float64).reshape(-1)
+        nodes = frozen_copy(np.reshape(self.positions, -1), np.float64)
         members = tuple(self.members)
         if nodes.size < 2:
             msg = (
@@ -330,7 +331,6 @@ class InterpolatedDispersion:
                 "positions: a path carries one set per position"
             )
             raise ModeError(msg)
-        nodes.setflags(write=False)
         object.__setattr__(self, "positions", nodes)
         object.__setattr__(self, "members", members)
 
@@ -653,7 +653,7 @@ class TaylorDispersion:
         ModeError
             Naming what is wrong with the series.
         """
-        coefficients = np.ascontiguousarray(self.betas, dtype=np.float64).reshape(-1)
+        coefficients = frozen_copy(np.reshape(self.betas, -1), np.float64)
         if coefficients.size == 0:
             msg = "betas must hold at least the zeroth-order coefficient"
             raise ModeError(msg)
@@ -666,7 +666,6 @@ class TaylorDispersion:
         if self.derivative < 0:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
-        coefficients.setflags(write=False)
         object.__setattr__(self, "betas", coefficients)
         orders = np.arange(coefficients.size)
         # betas[n] is the n-th derivative at omega_ref, so the polynomial coefficient is
@@ -762,8 +761,8 @@ class TabulatedDispersion:
         ModeError
             Naming what is wrong with the table.
         """
-        nodes = np.ascontiguousarray(self.omega, dtype=np.float64)
-        values = np.ascontiguousarray(self.beta, dtype=np.float64)
+        nodes = frozen_copy(self.omega, np.float64)
+        values = frozen_copy(self.beta, np.float64)
         if nodes.shape != values.shape:
             msg = f"omega and beta have shapes {nodes.shape} and {values.shape}"
             raise ModeError(msg)
@@ -780,7 +779,6 @@ class TabulatedDispersion:
             msg = f"derivative must be a non-negative order, got {self.derivative!r}"
             raise ModeError(msg)
         for name, array in (("omega", nodes), ("beta", values)):
-            array.setflags(write=False)
             object.__setattr__(self, name, array)
         spline = interpolate.CubicSpline(nodes, values, extrapolate=False)
         object.__setattr__(
