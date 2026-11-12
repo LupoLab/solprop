@@ -1385,9 +1385,8 @@ and the wheel stage's scan of the strict files' disassembly for a fused instruct
 
 *Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
-not, on CPU and device builds; a controller that overrides one of `PIController`'s
-decisions is the reference's alone, and native refuses it by name
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3).*
+not, on CPU and device builds. `PIController` is final (ADR-077), so its decisions are
+the only ones either backend takes.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `HostDriver._march_to` and the controller core it

@@ -1714,8 +1714,8 @@ class _ResidentAdams:
         self.native.adams_allocate(self.n_slots, self.compensated, self.interpolate)
         self._exponential = self.method.formulation == "exponential"
         # The controller's scale is formed on the device each trial, so that the
-        # state's magnitude never crosses: it is solprop's own, since the backend
-        # refuses a controller that overrides it (`_refuse_reference_only`).
+        # state's magnitude never crosses: it is solprop's own, since PIController
+        # is final (ADR-077).
         controller = self.controller
         weights = controller.weights
         self.native.adams_scale(
@@ -2910,27 +2910,8 @@ class _ZTables:
         return self._native.table_terms_to_host(kind, slot)
 
 
-_CONTROLLER_DECISIONS = (
-    "scale",
-    "accepts",
-    "propose",
-    "rejection_factor",
-    "start_factor",
-    "equivalent_norm",
-)
-"""The ``PIController`` methods the native controller implements itself.
-
-A subclass that overrides one of them is a reference-only experiment (solprop SEP 47
-section 6.3), which native refuses by name.
-"""
-
-
-def _refuse_reference_only(stepper: StepperSettings) -> None:
-    """Refuse the reference-only controllers by name (SEP 47 6.3).
-
-    A controller that decides in Python runs on ``numpy_ref`` alone; native refuses it,
-    on CPU and device builds alike, before anything is allocated.
-    """
+def _refuse_unknown_method(stepper: StepperSettings) -> None:
+    """Refuse a method object the native marches do not step, by name."""
     integrator = stepper.integrator
     # A request built by hand may hold a method its annotation does not name.
     unnamed = not isinstance(integrator, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
@@ -2938,19 +2919,6 @@ def _refuse_reference_only(stepper: StepperSettings) -> None:
         raise BackendError(
             f"solprop-native does not step the method {type(integrator).__name__}; "
             "use Multistep(), LowStorageRungeKutta() or a Runge-Kutta tableau"
-        )
-    controller = type(stepper.controller)
-    overridden = [
-        name
-        for name in _CONTROLLER_DECISIONS
-        if getattr(controller, name) is not getattr(PIController, name)
-    ]
-    if overridden:
-        raise BackendError(
-            f"solprop-native does not run the controller {controller.__name__}, "
-            f"which overrides PIController's {', '.join(overridden)}: a controller "
-            "that decides in Python is reference-only (solprop SEP 47); use "
-            "backend='numpy_ref' for it, or PIController"
         )
 
 
@@ -3018,7 +2986,7 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
 
 
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
-    _refuse_reference_only(stepper)
+    _refuse_unknown_method(stepper)
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(

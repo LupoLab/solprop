@@ -30,7 +30,7 @@ References
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, final
 
 import numpy as np
 from jaxtyping import Float
@@ -252,6 +252,7 @@ def default_dz_min(length: float) -> float:
 
 # PR02 is suppressed because numpydoc's static hook cannot see the __init__ that
 # @dataclass generates, so it reads every documented field as an unknown parameter.
+@final
 @dataclass(frozen=True, eq=False)
 class PIController:  # numpydoc ignore=PR02
     """Proportional-integral step-size controller with lag and a reject-free mode.
@@ -265,7 +266,9 @@ class PIController:  # numpydoc ignore=PR02
     fluctuation of the estimate; the integral term damps that, which is what keeps the
     step size smooth enough for the step history to be worth replaying.
 
-    Equality is by identity (``eq=False``) because ``weights`` is an array.
+    Equality is by identity (``eq=False``) because ``weights`` is an array. The class
+    is final: both backends implement exactly these decisions, so a subclass is refused
+    when it is defined (ADR-077).
 
     Parameters
     ----------
@@ -322,7 +325,8 @@ class PIController:  # numpydoc ignore=PR02
     ------
     StepperError
         If a tolerance, gain or factor is outside its valid range, or the region is
-        not ``"active"`` or ``"band"``.
+        not ``"active"`` or ``"band"``; or, when a class is defined, if it subclasses
+        this one.
 
     References
     ----------
@@ -352,6 +356,15 @@ class PIController:  # numpydoc ignore=PR02
     weights: Float[np.ndarray, " n_omega"] | None = None
     estimator_order: int = 4
     region: Literal["active", "band"] = "active"
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse a subclass: native implements these decisions itself."""
+        super().__init_subclass__(**kwargs)
+        msg = (
+            f"PIController is final: {cls.__name__} cannot subclass it. Both backends "
+            "implement its decisions and norm themselves; set its fields instead"
+        )
+        raise StepperError(msg)
 
     def __post_init__(self) -> None:
         """Validate the settings and adopt a read-only copy of the weights."""

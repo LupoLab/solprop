@@ -63,8 +63,8 @@ following and refuses every other feature by name before allocating anything
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
 - no group (:mod:`solprop_native.group` runs one native session per member); and no
-  controller that overrides a decision or TDSE response, which the backend refuses by
-  name where it is built, before it allocates (SEP 47 section 6.3).
+  TDSE response, which the backend refuses by name where it is built, before it
+  allocates (SEP 47 section 6.3).
 """
 
 from __future__ import annotations
@@ -239,10 +239,9 @@ def refusal(
 
     Decided from the problem, the request and the start alone, before anything is
     allocated: the statistics the session does not evaluate. Everything else native
-    does not run -- a controller that overrides a decision, a TDSE response, a coupled
-    flow beside the interaction formulation, stage rows the native tables do not read --
-    the backend refuses by name where it is built (``NativeBackend``), still before any
-    native state (SEP 47 section 6.3).
+    does not run -- a TDSE response, a coupled flow beside the interaction formulation,
+    stage rows the native tables do not read -- the backend refuses by name where it is
+    built (``NativeBackend``), still before any native state (SEP 47 section 6.3).
 
     Parameters
     ----------

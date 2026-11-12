@@ -427,14 +427,6 @@ def _refused(problem, request, name, monkeypatch) -> None:
         )
 
 
-class _OwnAccept(PIController):
-    """A controller that overrides a decision: a reference-only experiment."""
-
-    def accepts(self, norm):
-        """Accept as the base does."""
-        return super().accepts(norm)
-
-
 @pytest.mark.parametrize(
     ("build", "name"),
     [
@@ -454,42 +446,6 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
     """SEP 47 section 6.3: every refused feature names itself, before allocation."""
     (problem, run_request), settings = build()
     _refused(problem, run_request.for_run(**settings), name, monkeypatch)
-
-
-@pytest.mark.parametrize(
-    ("options", "name"),
-    [
-        (
-            {"controller": _OwnAccept(rtol=1e-4, atol=1e-16)},
-            "the controller _OwnAccept, which overrides PIController's accepts: ",
-        ),
-    ],
-    ids=["controller"],
-)
-def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
-    """SEP 47 section 6.3: native refuses a reference-only run where it is built.
-
-    A controller that overrides a decision runs on ``numpy_ref`` alone: the
-    backend refuses it by name before the native state,
-    its first allocation, is built, so no native session ever runs them.
-    """
-    problem, run_request = _case(**options)
-    built_states = []
-    monkeypatch.setattr(
-        native_session._core, "State", lambda *args: built_states.append(args)
-    )
-    # The session's own refusal never sees them: the backend's admission is first.
-    assert native_session.refusal(problem, run_request) is None
-    with pytest.raises(BackendError, match="reference-only") as selected:
-        select("native", problem, run_request, grid=window(), modes=[fibre().mode])
-    with pytest.raises(BackendError, match="reference-only") as opened:
-        native_session.NativeSession(
-            problem, run_request, entrance(problem), grid=window(), modes=[fibre().mode]
-        )
-    for refused in (selected, opened):
-        assert name in str(refused.value)
-        assert "backend='numpy_ref'" in str(refused.value)
-    assert built_states == []
 
 
 def test_a_session_leases_its_state_exclusively():

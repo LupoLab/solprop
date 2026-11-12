@@ -184,8 +184,7 @@ itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and h
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
 decision corpora hold the reference's marches and the compiled ones to the same
 decisions on the same readings; where this page names a member of the reference's
-march, the compiled march's decision is the same. A controller that overrides a decision
-is the reference's alone: the native backend refuses it by name (SEP 47 section 6.3).
+march, the compiled march's decision is the same.
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
 needs (nothing changes the state after the last stage) are algorithms.md §2. **The hard
@@ -433,11 +432,9 @@ holds its extension; in SEP 47's native session the march holds it through its e
 `rk::Engine::extend`, finishes the step itself and the session observes the plane where the
 state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
-(reduced natively in both loops), on CPU and device builds alike. A `PIController` subclass
-that overrides one of its decisions or its norm (`scale`, `accepts`, `propose`,
-`rejection_factor`, `start_factor`, `equivalent_norm`) is a reference-only experiment:
-`native` refuses it by name where the backend is built, before it allocates
-([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.3), and `numpy_ref` runs it.
+(reduced natively in both loops), on CPU and device builds alike. `PIController` is final
+(ADR-077): defining a subclass raises `StepperError`, so its decisions and its norm are the
+only ones either backend takes.
 
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
@@ -461,8 +458,7 @@ reading through the monitor at its own step. The Python march is the reference -
 `HostAdamsMarch` for `numpy_ref`; native steps every configuration it admits with the
 native march and has no Python march to fall back on (SEP 47 phase 5): the interaction
 formulation beside a coupled flow, a representation its stage tables do not read and
-the untransported compensation witness are refused by name. A controller that
-overrides a decision is refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
+the untransported compensation witness are refused by name. A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). A native
 group replays each member in its own native session (`solprop_native.group`).

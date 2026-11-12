@@ -119,8 +119,7 @@ class ErrorControlSpec:
     Attributes
     ----------
     controller : solprop.stepper.controller.PIController
-        The controller and its norm. A subclass that overrides a decision method is
-        a reference-only experiment (SEP 47 section 6.3).
+        The controller and its norm.
     dz_min : float
         The step floor, m.
     dz_max : float
