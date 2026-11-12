@@ -12654,7 +12654,9 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                                           d_log_field, field_min, field_max, rate_max,
                                           intervals);
               });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
         }
+#endif
         team.team_barrier();
         team_band_filter<band_staging>(team, tile, rates, slot, filtered, slot, samples,
                                        taps, half);
@@ -12738,7 +12740,9 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                   filtered(slot, time) = rates(slot, time) * (1.0 - fraction);
                   exposures(slot, time) = fraction;
                 });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
           }
+#endif
           team.team_barrier();
           double paid = 0.0;
           Kokkos::parallel_reduce(
