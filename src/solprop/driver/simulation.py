@@ -6095,7 +6095,7 @@ class Simulation(Displayed):
         - ``shape``: Transform-limited shape of the input.
         - ``energy``: pulse energy, J. Give this or `peak_power`.
         - ``peak_power``: peak power, W, realised after the spectral phases.
-        - ``phases``: taylor spectral phases about `wavelength`, optics convention: CEP
+        - ``phases``: Taylor spectral phases about `wavelength`, optics convention: CEP
           in rad, group delay in s, GDD in s^2, and so on.
         - ``pulses``: several pulses launched together, for two-colour and multi-colour
           inputs: each a :mod:`solprop.pulses` object with its own wavelength, duration,
@@ -8216,7 +8216,7 @@ def _gnlse_fibre(
     """Map one dispersion source and one nonlinear coefficient onto the GNLSE.
 
     - ``gamma``: nonlinear coefficient in 1/(W m), absent beside `n2`.
-    - ``betas``: taylor coefficients about the reference frequency, s^n/m.
+    - ``betas``: Taylor coefficients about the reference frequency, s^n/m.
     - ``beta``: a pair of frequency and beta arrays, a callable, or None.
     - ``wavelength``: positive reference wavelength, m.
     - ``loss``: power loss in dB/m; None means omitted. Refused beside `fibre`.
@@ -8375,7 +8375,7 @@ def _shaped_pulse(
     - ``width``: natural width of a ``sech**2``, s.
     - ``energy``: pulse energy, J.
     - ``peak_power``: peak power, W.
-    - ``phases``: taylor coefficients of the optics-convention spectral phase.
+    - ``phases``: Taylor coefficients of the optics-convention spectral phase.
     """
     if pulses is not None:
         given = [
