@@ -5,6 +5,7 @@
 #pragma once
 
 #include "solprop_native/core.hpp"
+#include "solprop_native/dispatch.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -215,44 +216,12 @@ KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
 KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
                                                  const int low, const int high,
                                                  const double* taps, const int half) {
-  switch (half) {
-  case 0: {
-    band_filter_interior<0>(row, out, low, high, taps);
-    return;
-  }
-  case 1: {
-    band_filter_interior<1>(row, out, low, high, taps);
-    return;
-  }
-  case 2: {
-    band_filter_interior<2>(row, out, low, high, taps);
-    return;
-  }
-  case 3: {
-    band_filter_interior<3>(row, out, low, high, taps);
-    return;
-  }
-  case 4: {
-    band_filter_interior<4>(row, out, low, high, taps);
-    return;
-  }
-  case 5: {
-    band_filter_interior<5>(row, out, low, high, taps);
-    return;
-  }
-  case 6: {
-    band_filter_interior<6>(row, out, low, high, taps);
-    return;
-  }
-  case 7: {
-    band_filter_interior<7>(row, out, low, high, taps);
-    return;
-  }
-  default: {
+  const auto filter = [&]<std::size_t Width> {
+    band_filter_interior<static_cast<int>(Width)>(row, out, low, high, taps);
+  };
+  dispatch_width<0, band_max_half - 1>(static_cast<std::size_t>(half), filter, [&] {
     band_filter_interior<band_max_half>(row, out, low, high, taps);
-    return;
-  }
-  }
+  });
 }
 
 /** A staged band filter's tile in a team's scratch. */

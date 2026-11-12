@@ -7,6 +7,7 @@
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 #include "solprop_native/crossing.hpp"
+#include "solprop_native/dispatch.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/envelope_plasma.hpp"
 #include "solprop_native/far_field.hpp"
@@ -17,9 +18,9 @@
 #include "solprop_native/general_modal.hpp"
 #include "solprop_native/plasma.hpp"
 #include "solprop_native/raman_fft.hpp"
+#include "solprop_native/refuse.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
-#include "solprop_native/refuse.hpp"
 #include "solprop_native/z_table.hpp"
 
 #include <KokkosFFT.hpp>
@@ -7137,35 +7138,12 @@ adams_device_predict(const ExponentialWeights& weights, const std::size_t formed
                      const double dz, const Moments& moments, const Store& store,
                      const std::size_t column, const std::size_t index) {
   static_assert(adams_max_samples == 8, "one case per sample count");
-  switch (formed) {
-  case 1:
-    return adams_device_prediction<1>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 2:
-    return adams_device_prediction<2>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 3:
-    return adams_device_prediction<3>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 4:
-    return adams_device_prediction<4>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 5:
-    return adams_device_prediction<5>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 6:
-    return adams_device_prediction<6>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 7:
-    return adams_device_prediction<7>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  case 8:
-    return adams_device_prediction<8>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  default:
-    return adams_device_prediction<0>(weights, formed, x, propagate, accepted, dz,
-                                      moments, store, column, index);
-  }
+  const auto predict = [&]<std::size_t Formed> {
+    return adams_device_prediction<Formed>(weights, formed, x, propagate, accepted, dz,
+                                           moments, store, column, index);
+  };
+  return dispatch_width<1, adams_max_samples>(
+      formed, predict, [&] { return predict.template operator()<0>(); });
 }
 #endif
 
@@ -8242,26 +8220,13 @@ struct ExponentialCorrection {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     static_assert(adams_block == 1, "a device thread takes one element");
     if (first < last) {
-      switch (weights.width) {
-      case 1:
-        return device_element<1>(column, first, magnitude, update);
-      case 2:
-        return device_element<2>(column, first, magnitude, update);
-      case 3:
-        return device_element<3>(column, first, magnitude, update);
-      case 4:
-        return device_element<4>(column, first, magnitude, update);
-      case 5:
-        return device_element<5>(column, first, magnitude, update);
-      case 6:
-        return device_element<6>(column, first, magnitude, update);
-      case 7:
-        return device_element<7>(column, first, magnitude, update);
-      case 8:
-        return device_element<8>(column, first, magnitude, update);
-      default:
-        break;
-      }
+      const auto element = [&]<std::size_t Width> {
+        device_element<Width>(column, first, magnitude, update);
+        return true;
+      };
+      if (dispatch_width<1, adams_max_samples>(weights.width, element,
+                                               [] { return false; }))
+        return;
     }
 #endif
     double scale[adams_block]{};

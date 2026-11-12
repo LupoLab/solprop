@@ -4,10 +4,11 @@
 
 #include "solprop_native/general_modal.hpp"
 
+#include "solprop_native/dispatch.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/launch.hpp"
-
 #include "solprop_native/refuse.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -984,34 +985,9 @@ void GeneralModalSource::project(const std::size_t first, const std::size_t coun
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   project_device(first, count);
 #else
-  switch (projection_lanes_) {
-  case 2048:
-    project_lanes<2048>(first, count);
-    break;
-  case 1024:
-    project_lanes<1024>(first, count);
-    break;
-  case 512:
-    project_lanes<512>(first, count);
-    break;
-  case 256:
-    project_lanes<256>(first, count);
-    break;
-  case 128:
-    project_lanes<128>(first, count);
-    break;
-  case 64:
-    project_lanes<64>(first, count);
-    break;
-  case 32:
-    project_lanes<32>(first, count);
-    break;
-  case 16:
-    project_lanes<16>(first, count);
-    break;
-  default:
-    project_lanes<general_vector_lanes>(first, count);
-  }
+  dispatch_among<2048, 1024, 512, 256, 128, 64, 32, 16>(
+      projection_lanes_, [&]<std::size_t Lanes> { project_lanes<Lanes>(first, count); },
+      [&] { project_lanes<general_vector_lanes>(first, count); });
 #endif
 }
 
