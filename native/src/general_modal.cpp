@@ -459,7 +459,6 @@ void GeneralModalSource::plan() {
   }
 }
 
-
 void GeneralModalSource::evaluate() {
   if (!inverse_plan_ && !signal_plan_)
     throw std::logic_error("the general modal source has not been planned");
