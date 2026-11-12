@@ -13,11 +13,10 @@ import pytest
 from service.cases import TINY
 from solprop import tools
 from solprop.recipe import Recipe
+from solprop.service._curves import CURVE_POINTS, curve_range
 from solprop.service.handlers import HANDLERS
 from solprop.service.messages import PROTOCOL
 from solprop.service.sheet import (
-    CURVE_POINTS,
-    _curve_range,
     _shapes_of,
     beam_curve,
     beam_sheet,
@@ -106,7 +105,7 @@ def test_a_window_absent_from_the_recipe_is_around_the_pump() -> None:
 def test_an_anomalous_pump_with_no_phase_match_has_no_wave(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("solprop.service.sheet.lambda_rdw_all", lambda *_a, **_k: ())
+    monkeypatch.setattr("solprop.service._curves.lambda_rdw_all", lambda *_a, **_k: ())
     assert "rdw" not in design_numbers(Recipe.loads(TINY), 100e-6)
 
 
@@ -305,7 +304,7 @@ def test_a_curve_with_no_window_reaches_around_the_pump(
 ) -> None:
     recipe = Recipe.loads(TINY)
     monkeypatch.setattr(Recipe, "keywords", lambda self: {})
-    assert _curve_range(recipe, 800e-9) == pytest.approx((120e-9, 1600e-9))
+    assert curve_range(recipe, 800e-9) == pytest.approx((120e-9, 1600e-9))
 
 
 def test_the_run_options_are_solprop_s() -> None:

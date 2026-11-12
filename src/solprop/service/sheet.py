@@ -16,14 +16,12 @@ import contextlib
 import math
 import os
 from collections.abc import Mapping
-from pathlib import Path
 
 import numpy as np
 
 from solprop.backends import ThreadBudget, available, thread_budget
 from solprop.constants import C
 from solprop.exceptions import SolpropError
-from solprop.grid import EnvelopeGrid
 from solprop.modes import base
 from solprop.physdata.gases import Gas
 from solprop.plotting.geometry import LIGHT, Disc, Ring, outline
@@ -32,6 +30,15 @@ from solprop.recipe import Recipe
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.metadata import parameters
 from solprop.recipe.quantity import Unit, parse_quantity
+from solprop.service._curves import (
+    CURVE_POINTS,
+    curve_range,
+    reach_of,
+    shortest_wave,
+    wave_window,
+    zero_near,
+)
+from solprop.service._payload import Payload, read_recipe
 from solprop.service.kernel import RUN_THREADS
 from solprop.tools import (
     SolitonParams,
@@ -40,7 +47,6 @@ from solprop.tools import (
     capillary_params,
     dispersion_length,
     fission_length,
-    lambda_rdw_all,
     nonlinear_coefficient,
     nonlinear_length,
     pulse_peak_power,
@@ -67,36 +73,11 @@ __all__ = [
     "run_options",
 ]
 
-Payload = Mapping[str, object]
-
 _SHARED = ("shape", "temperature", "model", "loss", "cladding", "materials")
 """The capillary's keywords that ``tools.capillary_params`` also takes, by name."""
 
-CURVE_POINTS = 240
-"""The wavelengths of a sheet's dispersion curve."""
-
 _DB_PER_NEPER = 10.0 / math.log(10.0)
 """What a power loss coefficient in 1/m is multiplied by to read in dB/m."""
-
-_NEAR_PUMP = 0.35
-"""How far from the pump, as a share of the frequency, a curve's axis is judged."""
-
-_NEAR_REACH = 3.0
-"""How far past the pump's neighbourhood a curve's axis may reach, as a multiple."""
-
-_CURVE_WINDOW = (0.15, 2.0)
-"""The curve's wavelengths with no window in the recipe, as fractions of the pump's."""
-
-
-def _recipe(payload: Payload) -> Recipe:
-    """Read the recipe a payload carries.
-
-    - ``payload``: ``text`` and optionally ``base``.
-    """
-    base_dir = payload.get("base")
-    return Recipe.loads(
-        str(payload["text"]), base=None if base_dir is None else Path(str(base_dir))
-    )
 
 
 def capillary_numbers(recipe: Recipe, energy: float) -> SolitonParams:
@@ -181,86 +162,6 @@ def _as_numbers(params: SolitonParams) -> dict[str, float]:
     }
 
 
-def _shortest_wave(
-    mode: object,
-    wavelength: float,
-    *,
-    beta2: float,
-    peak_power: float,
-    gamma: float,
-    fwhm: float,
-    shape: str,
-    limits: tuple[float, float] | None = None,
-) -> float | None:
-    """Return the shortest wavelength phase-matched to the launch soliton.
-
-    - ``wavelength``: the pump's wavelength, m.
-    - ``beta2``: the dispersion at the pump, s^2/m.
-    - ``peak_power``: the peak power, W.
-    - ``gamma``: the nonlinear coefficient, 1/(W m).
-    - ``fwhm``: the duration, s.
-    - ``shape``: the pulse's shape.
-    - ``limits``: the range to search, m; ``None`` takes the tool's.
-    - Returns: the wavelength, m; ``None`` when none is, as a pump in normal dispersion
-      launches no soliton.
-    """
-    if beta2 >= 0:
-        return None
-    roots = (
-        lambda_rdw_all(
-            mode,  # pyright: ignore[reportArgumentType]
-            wavelength,
-            peak_power=peak_power,
-            gamma=gamma,
-            fwhm=fwhm,
-            shape=shape,  # pyright: ignore[reportArgumentType]
-        )
-        if limits is None
-        else lambda_rdw_all(
-            mode,  # pyright: ignore[reportArgumentType]
-            wavelength,
-            peak_power=peak_power,
-            gamma=gamma,
-            fwhm=fwhm,
-            shape=shape,  # pyright: ignore[reportArgumentType]
-            wavelength_limits=limits,
-        )
-    )
-    return float(roots[0]) if len(roots) else None
-
-
-def _wave_window(recipe: Recipe, pump: float) -> tuple[float, float] | None:
-    """Return where to look for a dispersive wave in an antiresonant fibre.
-
-    The tool's own range reaches where this fibre's fits go non-finite (#538), so the
-    search keeps to the run's window; a capillary keeps the tool's.
-
-    - ``pump``: the pump's wavelength, m.
-    - Returns: the range, m; ``None`` for the tool's own.
-    """
-    if recipe.keywords().get("lattice") is None:
-        return None
-    return _curve_range(recipe, pump)[0], 0.9 * pump
-
-
-def _zero_near(wavelength: np.ndarray, beta2: np.ndarray, pump: float) -> float | None:
-    """Return the zero of a dispersion curve nearest a pump, read from the curve.
-
-    - ``wavelength``: the curve's wavelengths, m, ascending.
-    - ``pump``: the pump's wavelength, m.
-    - Returns: the wavelength, m; ``None`` where the curve does not cross zero.
-    """
-    crossings = np.flatnonzero(np.sign(beta2[:-1]) * np.sign(beta2[1:]) < 0)
-    zeros = [
-        float(
-            wavelength[i]
-            + (wavelength[i + 1] - wavelength[i]) * beta2[i] / (beta2[i] - beta2[i + 1])
-        )
-        for i in crossings
-    ]
-    return min(zeros, key=lambda at: abs(at - pump), default=None)
-
-
 def _lattice_zero(recipe: Recipe, mode: object, pump: float) -> float:
     """Return the zero an antiresonant fibre's run can reach.
 
@@ -272,43 +173,11 @@ def _lattice_zero(recipe: Recipe, mode: object, pump: float) -> float:
     - ``pump``: the pump's wavelength, m.
     - Returns: the wavelength, m; NaN where the window holds no zero.
     """
-    low, high = _curve_range(recipe, pump)
+    low, high = curve_range(recipe, pump)
     wavelength = np.geomspace(low, high, CURVE_POINTS)
     beta2 = np.asarray(base.beta2(mode, 2.0 * math.pi * C / wavelength))  # pyright: ignore[reportArgumentType]
-    zero = _zero_near(wavelength, beta2, pump)
+    zero = zero_near(wavelength, beta2, pump)
     return math.nan if zero is None else zero
-
-
-def _curve_range(recipe: Recipe, pump: float) -> tuple[float, float]:
-    """Return the wavelengths a dispersion curve covers: the run's own window.
-
-    - ``pump``: the pump's wavelength, m.
-    - Returns: the two ends, m.
-    """
-    keywords = recipe.keywords()
-    limits = keywords.get("wavelength_limits")
-    if isinstance(limits, tuple | list) and len(limits) == 2:
-        return float(limits[0]), float(limits[1])  # pyright: ignore[reportArgumentType]
-    grid = keywords.get("grid")
-    if isinstance(grid, EnvelopeGrid):
-        return 2.0 * math.pi * C / grid.omega_max, 2.0 * math.pi * C / grid.omega_min
-    return pump * _CURVE_WINDOW[0], pump * _CURVE_WINDOW[1]
-
-
-def _reach_of(values: np.ndarray, wavelength: np.ndarray, pump: float) -> float:
-    """Return how far a dispersion curve's axis should reach from zero.
-
-    The curve runs off near a resonance, and a fibre's resonance dwarfs the pump's
-    neighbourhood, so the axis follows what the eye reads there.
-
-    - ``wavelength``: its wavelengths, m, ascending.
-    - ``pump``: the pump's wavelength, m.
-    """
-    reach = float(np.nanmax(np.abs(values[wavelength > 0.25 * wavelength[-1]])))
-    omega, centre = 1.0 / wavelength, 1.0 / pump
-    near = np.abs(omega - centre) < _NEAR_PUMP * omega
-    around = float(np.nanmax(np.abs(values[near]))) if near.any() else reach
-    return max(min(reach, _NEAR_REACH * around), 1.0) * 1.05
 
 
 def _shapes_of(mode: object) -> list[dict[str, object]]:
@@ -361,7 +230,7 @@ def design_numbers(recipe: Recipe, energy: float) -> dict[str, float]:
     """
     params = capillary_numbers(recipe, energy)
     numbers = _as_numbers(params)
-    wave = _shortest_wave(
+    wave = shortest_wave(
         params.mode,
         params.wavelength,
         beta2=params.beta2,
@@ -369,7 +238,7 @@ def design_numbers(recipe: Recipe, energy: float) -> dict[str, float]:
         gamma=params.gamma,
         fwhm=params.fwhm,
         shape=params.shape,
-        limits=_wave_window(recipe, params.wavelength),
+        limits=wave_window(recipe, params.wavelength),
     )
     if wave is not None:
         numbers["rdw"] = wave
@@ -391,7 +260,7 @@ def capillary_sheet(payload: Payload) -> dict[str, object]:
         curve's request reads back; ``pinned``, by pinned path, the solved value in its
         keyword's unit; and ``resolved``, the recipe's text with its pins solved.
     """
-    authored = _recipe(payload)
+    authored = read_recipe(payload)
     recipe = authored.resolve()
     keywords = recipe.keywords()
     energy = keywords.get("energy")
@@ -432,16 +301,16 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
         ``None``) and the ``loss`` at the pump (dB/m). With a lattice, also ``loss``
         (``x``, ``y`` in dB/m and ``pump``) and ``shapes``, its cross-section.
     """
-    recipe = _recipe(payload)
+    recipe = read_recipe(payload)
     numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
     mode = recipe.build().modes[0]
     pump = float(numbers["wavelength"])  # pyright: ignore[reportArgumentType]
-    low, high = _curve_range(recipe, pump)
+    low, high = curve_range(recipe, pump)
     wavelength = np.geomspace(low, high, CURVE_POINTS)
     omega = 2.0 * math.pi * C / wavelength
     beta2 = np.asarray(base.beta2(mode, omega)) * 1e30
     loss = float(base.alpha(mode, np.array([2 * math.pi * C / pump]))[0])
-    wave = _shortest_wave(
+    wave = shortest_wave(
         mode,
         pump,
         beta2=float(numbers["beta2"]),  # pyright: ignore[reportArgumentType]
@@ -449,10 +318,10 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
         gamma=float(numbers["gamma"]),  # pyright: ignore[reportArgumentType]
         fwhm=float(numbers["fwhm"]),  # pyright: ignore[reportArgumentType]
         shape=str(numbers["shape"]),
-        limits=_wave_window(recipe, pump),
+        limits=wave_window(recipe, pump),
     )
     nanometres = wavelength * 1e9
-    top = _reach_of(beta2, wavelength, pump)
+    top = reach_of(beta2, wavelength, pump)
     zdw = float(numbers["zdw"])  # pyright: ignore[reportArgumentType]
     reply: dict[str, object] = {
         "plot": {
@@ -500,7 +369,7 @@ def fibre_sheet(payload: Payload) -> dict[str, object]:
         no pins) and ``resolved``, the recipe's text. What the recipe does not give
         is left out.
     """
-    recipe = _recipe(payload).resolve()
+    recipe = read_recipe(payload).resolve()
     keywords = recipe.keywords()
     mode = recipe.build().modes[0]
     pump = float(keywords["wavelength"])  # pyright: ignore[reportArgumentType]
@@ -557,13 +426,13 @@ def fibre_curve(payload: Payload) -> dict[str, object]:
         ``zdw`` nearest the pump (m, or ``None``); a solved fibre's ``shapes``, its
         cross-section.
     """
-    recipe = _recipe(payload)
+    recipe = read_recipe(payload)
     numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
     pump = float(numbers["wavelength"])  # pyright: ignore[reportArgumentType]
     mode = recipe.build().modes[0]
-    wavelength = np.geomspace(*_curve_range(recipe, pump), CURVE_POINTS)
+    wavelength = np.geomspace(*curve_range(recipe, pump), CURVE_POINTS)
     beta2 = np.asarray(base.beta2(mode, 2.0 * math.pi * C / wavelength)) * 1e30
-    zdw = _zero_near(wavelength, beta2, pump)
+    zdw = zero_near(wavelength, beta2, pump)
     reach = float(np.nanmax(np.abs(beta2))) or 1.0
     reply: dict[str, object] = {
         "plot": {
@@ -604,7 +473,7 @@ def beam_sheet(payload: Payload) -> dict[str, object]:
         text. A medium that is no gas has only its ``peak_power``, with ``refusal``
         saying why. Of several beams launched together, the numbers are the first's.
     """
-    recipe = _recipe(payload)
+    recipe = read_recipe(payload)
     keywords = recipe.keywords()
     beam = keywords["initial"]
     medium = keywords["medium"]
@@ -704,7 +573,7 @@ def lens_beam(payload: Payload) -> dict[str, float]:
     dict
         ``waist`` and ``distance``, m.
     """
-    wavelength = _recipe(payload).keywords()["initial"].temporal.wavelength  # pyright: ignore[reportAttributeAccessIssue]
+    wavelength = read_recipe(payload).keywords()["initial"].temporal.wavelength  # pyright: ignore[reportAttributeAccessIssue]
     waist, distance = beam_through_lens(
         float(payload["focal_length"]),  # pyright: ignore[reportArgumentType]
         float(payload["radius"]),  # pyright: ignore[reportArgumentType]
@@ -726,7 +595,7 @@ def output_size(payload: Payload) -> dict[str, object]:
     dict
         ``output_bytes``.
     """
-    return {"output_bytes": _recipe(payload).resolve().build().output_bytes()}
+    return {"output_bytes": read_recipe(payload).resolve().build().output_bytes()}
 
 
 def gases(payload: Payload) -> list[str]:  # noqa: ARG001 - none
@@ -810,7 +679,7 @@ def grin_sheet(payload: Payload) -> dict[str, object]:
         ``mode_count``, the guided modes a power-law core holds, about
         V² p / (2 (p + 2)); ``pinned`` (empty) and ``resolved``, the recipe's text.
     """
-    recipe = _recipe(payload)
+    recipe = read_recipe(payload)
     metre, joule, second = Unit("m"), Unit("J"), Unit("s")
     pump = float(parse_quantity(recipe.get("wavelength"), metre, path="wavelength"))
     energy = float(parse_quantity(recipe.get("energy"), joule, path="energy"))
@@ -849,7 +718,7 @@ def grin_curve(payload: Payload) -> dict[str, object]:
         :func:`capillary_curve` gives one; none where the indices are not plain
         numbers. ``numbers`` is empty.
     """
-    profile = _graded(_recipe(payload))
+    profile = _graded(read_recipe(payload))
     if "axis" not in profile or "exterior" not in profile:
         return {"numbers": {}}
     radius = profile["radius"]

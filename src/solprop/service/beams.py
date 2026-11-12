@@ -4,8 +4,6 @@
 
 """What a radial beam's pages show, read from its file with solprop's readers."""
 
-from collections.abc import Mapping
-
 import numpy as np
 
 from solprop.output import open_file
@@ -19,6 +17,7 @@ from solprop.processing import (
     radial_intensity,
     radial_spectrum,
 )
+from solprop.service._payload import Payload
 from solprop.service.reduce import TIME_OVERSAMPLING, even_rows
 from solprop.service.results import _window
 
@@ -32,7 +31,6 @@ __all__ = [
     "beam_plane",
 ]
 
-Payload = Mapping[str, object]
 
 _ROWS = 400
 """The spectral bins of a beam's maps, even on their axis."""
