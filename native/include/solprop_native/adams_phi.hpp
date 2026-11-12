@@ -223,6 +223,9 @@ struct AdamsLanes {
   double dr[B], di[B];
   double defect[3][B];
 };
+// The lane passes spell their branches as signed 64-bit masks and bitwise selections,
+// the form every x86-64 target vectorises.
+// NOLINTBEGIN(bugprone-signed-bitwise, readability-implicit-bool-conversion): lane masks
 
 // The moments' argument and its branch, halvings and series argument, as
 // `adams_moment_argument`, `adams_phi` and `adams_phi_argument` form them, with the
@@ -492,6 +495,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     }
   }
 }
+// NOLINTEND(bugprone-signed-bitwise, readability-implicit-bool-conversion)
+
 // e^argument for the large branch into `gr`/`gi`: the flow `fr`/`fi`, or under a
 // carrier frame the flow times exp(-sigma), as `adams_moment_phi` forms it. Strict.
 SOLPROP_NATIVE_STRICT_FUNCTION
