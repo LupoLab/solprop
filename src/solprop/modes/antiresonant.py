@@ -18,7 +18,7 @@ the typeset page.
 import logging
 import math
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import ClassVar, Final
 
 import numpy as np
 from jaxtyping import Float, Inexact
@@ -668,6 +668,7 @@ class VincettiMode(MarcatiliMode):
     """
 
     lattice: TubeLattice
+    _INDEX_IS_MARCATILI: ClassVar[bool] = False
 
     def _check_arguments(self) -> None:
         """Validate the parent inputs and the tube geometry."""

@@ -370,6 +370,12 @@ class MarcatiliMode(GasFillMixin):
     cladding_index: GlassIndex | complex = field(init=False, repr=False)
     _aeff_factor: float = field(init=False, repr=False)
     _gain_warned: bool = field(init=False, default=False, repr=False)
+    _INDEX_IS_MARCATILI: ClassVar[bool] = True
+    """Whether the index is the Marcatili one that :meth:`dneff_dz` differentiates.
+
+    A subclass that computes its index another way -- a structured cladding, a
+    tabulated index -- sets it ``False``.
+    """
     # The mode a frozen copy was taken from, when the copy's frequency-only terms are
     # the origin's (:meth:`at_parameters`); shared by :meth:`sampled_terms` in a scope.
     _terms_origin: ClassVar["MarcatiliMode | None"] = None
@@ -1193,7 +1199,7 @@ class MarcatiliMode(GasFillMixin):
         >>> bool(mode.dneff_dz(np.array([2.356e15]), 5e-4)[0].real < 0.0)
         True
         """
-        if type(self) is not MarcatiliMode:
+        if not self._INDEX_IS_MARCATILI:
             msg = (
                 f"dneff_dz differentiates the Marcatili index, and "
                 f"{type(self).__name__} computes its index another way; it declares "
