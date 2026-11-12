@@ -338,17 +338,19 @@ class ZProfile(Protocol):
     """
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the positions in m where the path jumps or kinks, increasing."""
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Positions in m where the path jumps or kinks, increasing."""
         ...
 
     @property
-    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
-        """Return the declared discontinuities in m, a subset of the breakpoints."""
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:  # numpydoc ignore=RT01
+        """Declared discontinuities in m, a subset of the breakpoints."""
         ...
 
     @property
-    def z_span(self) -> tuple[float, float]:
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
         """The interval in m over which the path is defined, as ``(start, end)``."""
         ...
 
@@ -368,12 +370,12 @@ class ZProfile(Protocol):
         ...
 
     @property
-    def derivative_is_analytic(self) -> bool:
+    def derivative_is_analytic(self) -> bool:  # numpydoc ignore=RT01
         """Whether :meth:`derivative` is exact rather than a finite difference."""
         ...
 
     @property
-    def is_constant(self) -> bool:
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
         """Whether the path takes the same value everywhere on its span."""
         ...
 

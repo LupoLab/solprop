@@ -634,13 +634,13 @@ class RunSession(Protocol):
     """
 
     @property
-    def finished(self) -> bool:
-        """Return whether a terminal event was yielded."""
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a terminal event was yielded."""
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed."""
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         ...
 
     def status(self) -> SessionStatus:
@@ -829,18 +829,18 @@ class GroupSession(Protocol):
     """
 
     @property
-    def n_members(self) -> int:
-        """Return the number of members."""
+    def n_members(self) -> int:  # numpydoc ignore=RT01
+        """Number of members."""
         ...
 
     @property
-    def finished(self) -> bool:
-        """Return whether every member has ended."""
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every member has ended."""
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the group was closed."""
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group was closed."""
         ...
 
     def advance(self) -> GroupBatch:
@@ -979,8 +979,8 @@ class PreparedExecution(Protocol):
     """A backend's lowering of one problem and request, reusable across sessions."""
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it."""
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         ...
 
     def start(
@@ -1035,8 +1035,8 @@ class PreparedGroup(Protocol):
     """
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it."""
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         ...
 
     def start(

@@ -110,18 +110,20 @@ class DispersionPath(Protocol):
     """
 
     @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the positions in m where the path kinks; may be empty."""
+    def breakpoints(
+        self,
+    ) -> Float[np.ndarray, " n_breakpoints"]:  # numpydoc ignore=RT01
+        """Positions in m where the path kinks; may be empty."""
         ...
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the interval in m the path is declared over, ``(start, end)``."""
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Interval in m the path is declared over, ``(start, end)``."""
         ...
 
     @property
-    def is_constant(self) -> bool:
-        """Return whether the path takes the same value at every position."""
+    def is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the path takes the same value at every position."""
         ...
 
     def __call__(

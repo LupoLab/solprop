@@ -1336,7 +1336,7 @@ class _PowerWeightedProblem(Protocol):
 
     @property
     def linear(self) -> LinearOperator:
-        """Return the translated linear group."""
+        """The translated linear group."""
         ...
 
 

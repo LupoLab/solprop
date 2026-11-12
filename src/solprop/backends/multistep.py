@@ -1586,7 +1586,7 @@ class AdamsEngine(Protocol):
     removes its phase from the samples it reads."""
 
     @property
-    def n_slots(self) -> int:
+    def n_slots(self) -> int:  # numpydoc ignore=RT01
         """The history store's rows."""
         ...
 

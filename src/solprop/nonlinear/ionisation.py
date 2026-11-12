@@ -133,22 +133,24 @@ class IonisationRate(Protocol):
     """
 
     @property
-    def threshold(self) -> float:
+    def threshold(self) -> float:  # numpydoc ignore=RT01
         """Field amplitude, V/m, below which the rate is exactly zero."""
         ...
 
     @property
-    def maximum(self) -> float:
+    def maximum(self) -> float:  # numpydoc ignore=RT01
         """Ceiling on the rate, s^-1; the value is clipped there."""
         ...
 
     @property
-    def citation(self) -> str:
+    def citation(self) -> str:  # numpydoc ignore=RT01
         """One-line reference for the model and the options in force."""
         ...
 
     @property
-    def parameters(self) -> tuple[tuple[str, float | int | bool | str], ...]:
+    def parameters(
+        self,
+    ) -> tuple[tuple[str, float | int | bool | str], ...]:  # numpydoc ignore=RT01
         """Every setting that changes the rate, name-sorted and hashable.
 
         The translation layer builds its table cache key from this, so two rates that

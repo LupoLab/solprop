@@ -653,8 +653,8 @@ class Backend(Protocol):
     reads_transverse_edge: bool
 
     @property
-    def request(self) -> "RunRequest":
-        """Return the run request the backend was built for.
+    def request(self) -> "RunRequest":  # numpydoc ignore=RT01
+        """Run request the backend was built for.
 
         Its method, error control, itinerary, planes and statistics; a run adapts it
         with :meth:`~solprop.translate.run_request.RunRequest.for_run`.
