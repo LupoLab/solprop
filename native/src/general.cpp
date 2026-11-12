@@ -2400,12 +2400,15 @@ public:
   }
   std::map<std::string, int> raman_fft_tasks() const {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    const int full = 0, tail = 0, kernel = 0, products = 0;
+    const int full = 0;
+    const int tail = 0;
+    const int kernel = 0;
+    const int products = 0;
 #else
-    const int full = raman_execution_space_.concurrency(),
-              tail = raman_tail_execution_space_.concurrency(),
-              kernel = raman_kernel_execution_space_.concurrency(),
-              products = raman_product_execution_space_.concurrency();
+    const int full = raman_execution_space_.concurrency();
+    const int tail = raman_tail_execution_space_.concurrency();
+    const int kernel = raman_kernel_execution_space_.concurrency();
+    const int products = raman_product_execution_space_.concurrency();
 #endif
     // `products` is nonzero when the modal products replace the node drives.
     return {
