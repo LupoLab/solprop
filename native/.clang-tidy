@@ -28,6 +28,8 @@
 #   setup functions and hot kernels are split first (a later change), then gated.
 # - readability-avoid-nested-conditional-operator: nested conditionals initialise
 #   const locals, in kernels too; an immediately invoked lambda reads worse.
+# - readability-use-std-min-max: `if (a > m) m = a` keeps m on a NaN where std::max
+#   takes the NaN, and std::max is not device code.
 # - readability-make-member-function-const: Kokkos views are handles, so a member
 #   that writes through one would be marked const although it changes the state.
 # - clang-analyzer-osx.*: Apple framework checks; the code calls no Objective-C or
@@ -59,6 +61,7 @@ Checks: >
   -readability-function-cognitive-complexity,
   -readability-avoid-nested-conditional-operator,
   -readability-make-member-function-const,
+  -readability-use-std-min-max,
   cppcoreguidelines-special-member-functions,
   clang-analyzer-*,
   -clang-analyzer-osx.*,
