@@ -381,6 +381,8 @@ if(SOLPROP_NATIVE_ENABLE_CLANG_TIDY)
       "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
       "--header-filter=^${PROJECT_SOURCE_DIR}/(include|src|tests)/.*")
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # The GCC-only warnings in the compile commands are unknown to clang-tidy's parser.
+    list(APPEND SOLPROP_NATIVE_CLANG_TIDY_COMMAND "--extra-arg=-Wno-unknown-warning-option")
     execute_process(
       COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=include
       OUTPUT_VARIABLE SOLPROP_NATIVE_GNU_INCLUDE_DIR
