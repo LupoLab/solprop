@@ -762,6 +762,7 @@ def test_a_mis_shaped_metric_certificate_is_refused_by_name(strand):
     """
     _, state = continuous_wave(strand, [1.0])
     problem = general_problem(strand, state).problem
+    assert problem.linear.modal_metric is not None
     metric = dataclasses.replace(problem.linear.modal_metric)
     short = np.zeros(3)
     short.setflags(write=False)
