@@ -189,7 +189,6 @@ std::vector<double> run(Case& data, const std::uint64_t flags, const int profile
       .active = device("test.active", data.active),
       .evanescent = data.evanescent};
   auto values = pass.run(flags, apertures, exponent, data.regions, 0.5, field, inputs);
-  pass.close();
   return values;
 }
 

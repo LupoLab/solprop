@@ -368,7 +368,7 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   kernels_.fence("solprop_native general modal upload");
 }
 
-GeneralModalSource::~GeneralModalSource() { close(); }
+GeneralModalSource::~GeneralModalSource() { kernels_.fence(); }
 
 void GeneralModalSource::plan() {
   transforms_ =
@@ -464,8 +464,6 @@ std::string GeneralModalSource::delayed_fft_provider() const {
 }
 
 void GeneralModalSource::evaluate() {
-  if (closed_)
-    throw std::logic_error("the general modal source is closed");
   if (!inverse_plan_ && !signal_plan_)
     throw std::logic_error("the general modal source has not been planned");
   graph::deep_copy(kernels_, source_, Complex{});
@@ -518,8 +516,6 @@ void GeneralModalSource::evaluate() {
 }
 
 void GeneralModalSource::set_weights(const std::vector<double>& weights) {
-  if (closed_)
-    throw std::logic_error("the general modal source is closed");
   if (!moving()) {
     if (!weights.empty())
       throw std::invalid_argument("a stage carries transform_weights for general modal "
@@ -557,8 +553,6 @@ void GeneralModalSource::set_weights(const std::vector<double>& weights) {
 void GeneralModalSource::combine(const std::size_t stage) {
   if (!moving())
     return;
-  if (closed_)
-    throw std::logic_error("the general modal source is closed");
   if (!weights_ready_)
     throw std::logic_error("a moving guide's maps need the trial's transform_weights");
   if (stage >= n_stages_)
@@ -1200,73 +1194,6 @@ std::map<std::string, std::size_t> GeneralModalSource::memory_ledger() const {
       {"general_delayed_spectrum", delayed_spectrum_.size() * complex_bytes},
       {"general_node_response", node_response_.size() * index_bytes},
   };
-}
-
-void GeneralModalSource::close() noexcept {
-  if (closed_)
-    return;
-  kernels_.fence();
-  if (dispersive_)
-    dispersive_->close();
-  dispersive_.reset();
-  tail_inverse_plan_.reset();
-  tail_signal_plan_.reset();
-  tail_forward_plan_.reset();
-  tail_spectrum_ = {};
-  tail_field_ = {};
-  tail_source_ = {};
-  tail_polarisation_ = {};
-  inverse_plan_.reset();
-  signal_plan_.reset();
-  forward_plan_.reset();
-  tail_drive_plan_.reset();
-  tail_history_plan_.reset();
-  tail_drive_ = {};
-  tail_histories_ = {};
-  tail_drive_spectrum_ = {};
-  tail_product_ = {};
-  drive_plan_.reset();
-  history_plan_.reset();
-  synthesis_ = {};
-  projection_ = {};
-  synthesis_terms_ = {};
-  projection_terms_ = {};
-  map_weights_ = {};
-  host_map_weights_ = {};
-  weights_ready_ = false;
-  frequency_factor_ = {};
-  delayed_spectrum_ = {};
-  tensor_ = {};
-  delayed_tensor_ = {};
-  node_response_ = {};
-  scaled_ = {};
-  source_ = {};
-  half_spectrum_ = {};
-  tail_half_spectrum_ = {};
-  real_field_ = {};
-  tail_real_field_ = {};
-  node_spectrum_ = {};
-  node_field_ = {};
-  node_source_ = {};
-  node_polarisation_ = {};
-  node_drive_ = {};
-  node_histories_ = {};
-  node_delayed_ = {};
-  node_drive_spectrum_ = {};
-  node_product_ = {};
-  kernels_ = ExecutionSpace();
-  transforms_ = ExecutionSpace();
-  delayed_transforms_ = ExecutionSpace();
-  response_ = ExecutionSpace();
-  tail_response_ = ExecutionSpace();
-  maps_ = ExecutionSpace();
-  dense_ = ExecutionSpace();
-  tail_dense_ = ExecutionSpace();
-  kernel_pool_.clear();
-  fft_pool_.clear();
-  raman_pool_.clear();
-  raman_tail_pool_.clear();
-  closed_ = true;
 }
 
 } // namespace solprop_native

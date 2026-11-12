@@ -185,8 +185,6 @@ public:
   }
   /** The same rows, all zero, for a problem that does not take the route. */
   [[nodiscard]] static std::map<std::string, std::size_t> empty_ledger();
-  /** Release plans before Views; repeated calls have no effect. */
-  void close() noexcept;
 
   // NVCC extended lambdas require their enclosing member functions to be public.
   void combine_maps(std::size_t stage);
@@ -269,7 +267,6 @@ private:
   std::unique_ptr<DelayedForwardPlan> tail_drive_plan_;
   std::unique_ptr<DelayedInversePlan> tail_history_plan_;
   std::unique_ptr<GeneralDispersive> dispersive_;
-  bool closed_{};
 };
 
 } // namespace solprop_native

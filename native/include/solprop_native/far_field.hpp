@@ -362,7 +362,7 @@ public:
   };
 
   FarFieldPass(const Problem& problem, ExecutionSpace execution);
-  ~FarFieldPass() = default;
+  ~FarFieldPass();
   FarFieldPass(const FarFieldPass&) = delete;
   FarFieldPass& operator=(const FarFieldPass&) = delete;
   FarFieldPass(FarFieldPass&&) = delete;
@@ -395,7 +395,6 @@ public:
   [[nodiscard]] std::size_t partial_bytes() const noexcept;
   /** The bytes of the column axes, tables and packed output. */
   [[nodiscard]] std::size_t table_bytes() const noexcept;
-  void close() noexcept;
 
   /** What the rows have in common: the distance from the origin is evaluated once per
       element when they share one distance and scale row, and the distance from the

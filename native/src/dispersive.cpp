@@ -889,23 +889,6 @@ std::size_t DispersiveWeights::bytes() const {
          (term_rows_.size() + term_channels_.size() + members_.size()) * index + host;
 }
 
-void DispersiveWeights::close() noexcept {
-  static_inputs_ = {};
-  inputs_ = {};
-  term_multipliers_ = {};
-  outputs_ = {};
-  weights_ = {};
-  quartics_ = {};
-  input_scale_ = {};
-  output_scale_ = {};
-  factors_ = {};
-  for (auto& staging : host_factors_)
-    staging = {};
-  term_rows_ = {};
-  term_channels_ = {};
-  members_ = {};
-}
-
 // --- the fused node path -------------------------------------------------------------
 
 DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool& pool,
@@ -1013,7 +996,7 @@ DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool&
   kernels_.fence("solprop_native dispersive construction");
 }
 
-DispersiveResponse::~DispersiveResponse() { close(); }
+DispersiveResponse::~DispersiveResponse() { kernels_.fence(); }
 
 void DispersiveResponse::plan(CpuExecutionPool& transforms) {
   const auto space_for = [&](const auto& rows) -> const ExecutionSpace& {
@@ -1275,8 +1258,6 @@ std::map<std::string, std::size_t> DispersiveResponse::empty_ledger() {
 }
 
 std::map<std::string, std::size_t> DispersiveResponse::memory_ledger() const {
-  if (closed_)
-    return empty_ledger();
   const auto real = sizeof(double);
   const auto complex = sizeof(Complex);
   return {
@@ -1294,35 +1275,6 @@ std::map<std::string, std::size_t> DispersiveResponse::memory_ledger() const {
       {"dispersive_multipliers",
        weights_.bytes() + (dc_.size() + offset_.size()) * complex},
   };
-}
-
-void DispersiveResponse::close() noexcept {
-  if (closed_)
-    return;
-  closed_ = true;
-  kernels_.fence();
-  inverse_real_.reset();
-  inverse_complex_.reset();
-  forward_real_.reset();
-  forward_complex_.reset();
-  coarse_real_plan_.reset();
-  coarse_complex_plan_.reset();
-  stage_ = {};
-  weights_.close();
-  filtered_spectrum_ = {};
-  spectra_ = {};
-  filtered_complex_ = {};
-  slots_complex_ = {};
-  products_complex_ = {};
-  coarse_complex_ = {};
-  filtered_real_ = {};
-  slots_real_ = {};
-  products_real_ = {};
-  coarse_real_ = {};
-  packed_projection_ = {};
-  packed_coarse_ = {};
-  dc_ = {};
-  offset_ = {};
 }
 
 // --- the Cartesian free-space, line and planar routes
@@ -1420,7 +1372,7 @@ SeparableDispersive::SeparableDispersive(const Problem& problem, CpuExecutionPoo
   kernels_.fence("solprop_native separable dispersive construction");
 }
 
-SeparableDispersive::~SeparableDispersive() { close(); }
+SeparableDispersive::~SeparableDispersive() { kernels_.fence(); }
 
 void SeparableDispersive::plan(CpuExecutionPool& transforms) {
   const auto space_for = [&](const auto& rows) -> const ExecutionSpace& {
@@ -1660,8 +1612,6 @@ void SeparableDispersive::combine() {
 }
 
 std::map<std::string, std::size_t> SeparableDispersive::memory_ledger() const {
-  if (closed_)
-    return DispersiveResponse::empty_ledger();
   const auto real = sizeof(double);
   const auto complex = sizeof(Complex);
   // Free space's filtered fields are blocks of its products; the planar route's its
@@ -1678,33 +1628,6 @@ std::map<std::string, std::size_t> SeparableDispersive::memory_ledger() const {
   ledger["dispersive_multipliers"] =
       weights_.bytes() + (dc_.size() + offset_.size()) * complex;
   return ledger;
-}
-
-void SeparableDispersive::close() noexcept {
-  if (closed_)
-    return;
-  closed_ = true;
-  kernels_.fence();
-  tail_inverse_real_.clear();
-  tail_inverse_complex_.clear();
-  tail_forward_real_.clear();
-  tail_forward_complex_.clear();
-  inverse_real_.reset();
-  inverse_complex_.reset();
-  forward_real_.reset();
-  forward_complex_.reset();
-  stage_ = {};
-  weights_.close();
-  filtered_spectrum_ = {};
-  spectra_ = {};
-  filtered_complex_ = {};
-  slots_complex_ = {};
-  products_complex_ = {};
-  filtered_real_ = {};
-  slots_real_ = {};
-  products_real_ = {};
-  dc_ = {};
-  offset_ = {};
 }
 
 // --- the general modal route --------------------------------------------------------
@@ -1767,7 +1690,7 @@ GeneralDispersive::GeneralDispersive(const Problem& problem, CpuExecutionPool& p
   kernels_.fence("solprop_native general dispersive construction");
 }
 
-GeneralDispersive::~GeneralDispersive() { close(); }
+GeneralDispersive::~GeneralDispersive() { kernels_.fence(); }
 
 void GeneralDispersive::plan(CpuExecutionPool& transforms) {
   constexpr int axis = -1;
@@ -1904,8 +1827,6 @@ void GeneralDispersive::combine(const bool overwrite) {
 }
 
 std::map<std::string, std::size_t> GeneralDispersive::memory_ledger() const {
-  if (closed_)
-    return DispersiveResponse::empty_ledger();
   const auto real = sizeof(double);
   const auto complex = sizeof(Complex);
   auto ledger = DispersiveResponse::empty_ledger();
@@ -1919,28 +1840,6 @@ std::map<std::string, std::size_t> GeneralDispersive::memory_ledger() const {
                                      node_region_.size() * sizeof(std::size_t) +
                                      live_.capacity();
   return ledger;
-}
-
-void GeneralDispersive::close() noexcept {
-  if (closed_)
-    return;
-  closed_ = true;
-  kernels_.fence();
-  tail_inverse_.clear();
-  tail_forward_real_.clear();
-  tail_forward_complex_.clear();
-  inverse_.reset();
-  forward_real_.reset();
-  forward_complex_.reset();
-  stage_ = {};
-  weights_.close();
-  node_region_ = {};
-  filtered_spectrum_ = {};
-  filtered_ = {};
-  products_complex_ = {};
-  products_real_ = {};
-  spectra_ = {};
-  dc_ = {};
 }
 
 } // namespace solprop_native

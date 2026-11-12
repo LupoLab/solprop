@@ -157,13 +157,11 @@ public:
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   /** The same rows, all zero, for a problem that carries no coupled flow. */
   [[nodiscard]] static std::map<std::string, std::size_t> empty_ledger();
-  /** Release every View; repeated calls have no effect. */
-  void close() noexcept;
 
 private:
   std::size_t n_modes_{}, n_omega_{}, n_stages_{}, active_{}, sections_{}, terms_{};
   std::size_t section_{}, fallback_{};
-  bool ready_{}, closed_{}, forms_{};
+  bool ready_{}, forms_{};
   std::vector<unsigned char> identity_;
   // Per section, whether a bin is off the eigenbasis route.
   std::vector<unsigned char> section_fallback_;

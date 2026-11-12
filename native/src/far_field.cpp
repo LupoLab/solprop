@@ -114,16 +114,7 @@ std::size_t FarFieldPass::table_bytes() const noexcept {
   return (k_x_.size() + k_y_.size() + tables_.size() + packed_.size()) * sizeof(double);
 }
 
-void FarFieldPass::close() noexcept {
-  execution_.fence();
-  k_x_ = {};
-  k_y_ = {};
-  partials_ = {};
-  tables_ = {};
-  packed_ = {};
-  host_tables_ = {};
-  host_packed_ = {};
-}
+FarFieldPass::~FarFieldPass() { execution_.fence(); }
 
 std::vector<double> FarFieldPass::run(const std::uint64_t flags,
                                       const std::vector<double>& apertures,

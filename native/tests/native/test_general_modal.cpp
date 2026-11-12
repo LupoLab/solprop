@@ -391,8 +391,6 @@ TEST(GeneralModal, RepeatedEvaluationAgreesToRounding) {
         EXPECT_EQ(zero.data()[index], Complex{});
       EXPECT_EQ(source.memory_ledger(), ledger);
     }
-    source.close();
-    source.close();
   }
 }
 

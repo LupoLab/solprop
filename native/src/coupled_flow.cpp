@@ -432,8 +432,6 @@ CoupledFlowAction::CoupledFlowAction(const Problem& problem, ExecutionSpace kern
 const std::vector<double>&
 CoupledFlowAction::form_actions(const std::size_t section, const double dz,
                                 const std::vector<double>& fractions) {
-  if (closed_)
-    throw std::logic_error("the coupled flow is closed");
   if (!forms_)
     throw std::logic_error("this coupled flow carries no eigenbasis to form its "
                            "actions from");
@@ -523,13 +521,11 @@ bool CoupledFlowAction::falls_back(const std::size_t section) const {
   return section < section_fallback_.size() && section_fallback_[section] != 0U;
 }
 
-CoupledFlowAction::~CoupledFlowAction() { close(); }
+CoupledFlowAction::~CoupledFlowAction() { kernels_.fence(); }
 
 void CoupledFlowAction::set_actions(const std::vector<Complex>& forward,
                                     const std::vector<Complex>& inverse,
                                     const std::vector<unsigned char>& identity) {
-  if (closed_)
-    throw std::logic_error("the coupled flow is closed");
   require_size(forward.size(), forward_.size(), "forward actions");
   require_size(inverse.size(), inverse_.size(), "inverse actions");
   require_size(identity.size(), n_stages_ + 1, "identity flags");
@@ -546,8 +542,6 @@ void CoupledFlowAction::set_actions(const std::vector<Complex>& forward,
 
 void CoupledFlowAction::set_trial(const std::size_t section,
                                   const std::vector<double>& weights) {
-  if (closed_)
-    throw std::logic_error("the coupled flow is closed");
   if (!ready_)
     throw std::logic_error("no coupled flow actions have been loaded");
   if (section >= sections_)
@@ -579,8 +573,6 @@ void CoupledFlowAction::set_trial(const std::size_t section,
 }
 
 std::vector<Complex> CoupledFlowAction::actions_to_host(const bool inverse) const {
-  if (closed_)
-    throw std::logic_error("the coupled flow is closed");
   if (!ready_)
     throw std::logic_error("no coupled flow actions have been loaded");
   kernels_.fence("solprop_native coupled flow observation");
@@ -792,44 +784,6 @@ std::map<std::string, std::size_t> CoupledFlowAction::memory_ledger() const {
       {"flow_formation", (exponents_.size() + gram_.size()) * complex_bytes +
                              (fractions_.size() + measured_.size()) * real_bytes},
   };
-}
-
-void CoupledFlowAction::close() noexcept {
-  if (closed_)
-    return;
-  kernels_.fence();
-  slot_ = {};
-  forward_ = {};
-  inverse_ = {};
-  frozen_ = {};
-  terms_view_ = {};
-  weights_ = {};
-  active_terms_ = {};
-  active_counts_ = {};
-  host_active_terms_ = {};
-  host_active_counts_ = {};
-  input_ = {};
-  lab_ = {};
-  drive_ = {};
-  state_ = {};
-  solution_ = {};
-  error_ = {};
-  left_ = {};
-  right_ = {};
-  eigenvalues_ = {};
-  route_ = {};
-  fallback_vectors_ = {};
-  fallback_triangular_ = {};
-  fallback_work_ = {};
-  exponents_ = {};
-  gram_ = {};
-  fractions_ = {};
-  measured_ = {};
-  host_fractions_ = {};
-  host_measured_ = {};
-  ready_ = false;
-  forms_ = false;
-  closed_ = true;
 }
 
 } // namespace solprop_native
