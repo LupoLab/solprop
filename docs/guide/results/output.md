@@ -396,7 +396,7 @@ adaptive or replayed a fixed schedule, because the embedded estimate costs nothi
 and a replayed run still needs it: a largest scaled norm above one means a step was too
 coarse for the tolerance the norm is scaled by ([stepper.md](../../dev/stepper.md) §8).
 A rejected attempt that diverged, whose propagator or error overflowed (a long step
-under a strong collar, more easily in single precision), records an infinite norm; the
+under a strong collar), records an infinite norm; the
 stepper retried it at a much shorter step, so take the largest norm over the accepted
 attempts. {py:func}`~solprop.output.hdf5.resume` returns the history recorded so far with the last
 plane, and an appending handler numbers the next attempt where the file left off, so a
@@ -436,12 +436,11 @@ the scan container, not the records in it, and is still 1. A resume needs the fi
 schema to be this one, and checks that before it compares the records
 ([what a resume compares](resuming.md#what-a-resume-compares)).
 
-Every run records its `precision` (`"double"` or `"single"`,
-[single precision](../performance/single-precision.md)) in its configuration, so a run
-is never resumed in the other precision, and its plane-reference record
-(`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which
-a saved plane is read back as a coherent field plane
-([coupling simulations](../workflows/coupling.md)).
+Every run records its plane-reference record (`RunMetadata.reference`,
+[provenance](provenance.md#the-metadata-schema)), from which a saved plane is read back
+as a coherent field plane ([coupling simulations](../workflows/coupling.md)). The
+configuration no longer records a precision: solprop computes in binary64 only. A run
+started on an earlier release, whose configuration did, finishes on that release.
 
 How a run resumes from its last plane depends on what that plane is:
 

@@ -2795,8 +2795,6 @@ class Simulation(Displayed):
                 "absorber": self.settings.absorber,
                 "absorber_scheme": _scheme(self.settings),
                 "propagator_mode": self.settings.propagator_mode,
-                # Recorded until the hashed key is retired with its resume identity.
-                "precision": "double",
             }
         )
         if self.frame is not None:
