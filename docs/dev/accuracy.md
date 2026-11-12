@@ -675,7 +675,6 @@ These are one-fibre witnesses and numerical integration checks.
 | Four rectangular modes, Gram | 2.55e-15 | 1e-12 |
 | Rectangular (3,2) quartic, per axis | 22 nodes give 1.99e-13; 20 give 6.8e-11 | 1e-12; shipped rule `cartesian_nodes = 6h + 6` |
 | Rectangular refractivity against mpmath, 10 cm guide | 2.02e-16 relative | 4 ε; the naive spellings are 5.63e-6 |
-| Metal complex index versus Luna, Ag/Al | 29.4002 % / 7.75281 % | source and interpolation differences, not accuracy |
 | Metal-wall rectangular derivative against Richardson | 4.67e-12 (x) / 4.33e-12 (y) | 2e-11; the C2 spline's fourth derivative limits it |
 | Step-index cladding-slope derivative against Richardson | 3.36e-11 (NA core) / 1.06e-10 (constant core) | 1e-10 / 4e-10 |
 | `prop_gnlse(fibre=mode)` against the direct route, 1.5 cm | 6.43e-12 of the peak field | 128·8·n_t·ε = 2.33e-10 |
