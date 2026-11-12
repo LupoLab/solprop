@@ -67,7 +67,7 @@ def _measured(tmp_path: Path) -> tuple[size_report._Package, size_report._Report
     path = tmp_path / "mod.py"
     path.write_text(SOURCE, encoding="utf-8")
     package, report = size_report._Package(), size_report._Report()
-    size_report._measure_file(path, package, report, "mod.py")
+    size_report._measure_file(size_report._read(path), package, report, "mod.py")
     return package, report
 
 
@@ -114,7 +114,7 @@ def test_private_imports_across_packages_only(tmp_path):
         "from pkg._shared import public, _private\n",
         encoding="utf-8",
     )
-    found = size_report._private_imports(path, root, "m.py")
+    found = size_report._private_imports(size_report._read(path), root, "m.py")
     assert [entry.split(" ")[1] for entry in found] == [
         "pkg.b.x._hidden",
         "pkg.b._y.shown_too",

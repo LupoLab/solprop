@@ -80,6 +80,22 @@ class _Report:
     module_lines: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class _Source:
+    """One file read, parsed and tokenised once."""
+
+    path: Path
+    text: str
+    tree: ast.Module
+    tokens: list[tokenize.TokenInfo]
+
+
+def _read(path: Path) -> _Source:
+    text = path.read_text(encoding="utf-8")
+    tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    return _Source(path, text, ast.parse(text), tokens)
+
+
 def _package_of(path: Path, root: Path) -> str:
     parts = path.relative_to(root).parts
     return parts[0] if len(parts) > 1 else "(top-level)"
@@ -111,12 +127,12 @@ def _walk_definitions(tree: ast.Module, stem: str) -> list[tuple[ast.AST, str, b
     return found
 
 
-def _line_kinds(text: str) -> tuple[set[int], set[int]]:
+def _line_kinds(tokens: list[tokenize.TokenInfo]) -> tuple[set[int], set[int]]:
     # The lines holding only a comment, and the lines holding any other token.
     comments: set[int] = set()
     code: set[int] = set()
     skip = {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT}
-    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+    for tok in tokens:
         if tok.type == tokenize.COMMENT:
             comments.add(tok.start[0])
         elif tok.type not in skip and tok.type != tokenize.ENDMARKER:
@@ -124,11 +140,11 @@ def _line_kinds(text: str) -> tuple[set[int], set[int]]:
     return comments - code, code
 
 
-def _tokens(text: str, *, names: bool) -> list[str]:
+def _tokens(tokens: list[tokenize.TokenInfo], *, names: bool) -> list[str]:
     # Normalised tokens: literals lose their spelling, and names too unless `names`.
     out: list[str] = []
     keep = {tokenize.OP, tokenize.NEWLINE}
-    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+    for tok in tokens:
         if tok.type == tokenize.NAME:
             out.append(tok.string if names or tok.string in _KEYWORDS else "N")
         elif tok.type == tokenize.NUMBER:
@@ -140,13 +156,15 @@ def _tokens(text: str, *, names: bool) -> list[str]:
     return out
 
 
-def _measure_file(path: Path, package: _Package, report: _Report, label: str) -> None:
-    text = path.read_text(encoding="utf-8")
+def _measure_file(
+    source: _Source, package: _Package, report: _Report, label: str
+) -> None:
+    text, tree = source.text, source.tree
     lines = text.splitlines()
-    tree = ast.parse(text)
-    comment_lines, code_lines = _line_kinds(text)
+    comment_lines, code_lines = _line_kinds(source.tokens)
     doc_lines: dict[int, bool] = {}  # line -> private
-    for node, _, private in _walk_definitions(tree, path.stem):
+    definitions = _walk_definitions(tree, source.path.stem)
+    for node, _, private in definitions:
         doc = _docstring_node(node)
         if doc is None:
             continue
@@ -158,7 +176,7 @@ def _measure_file(path: Path, package: _Package, report: _Report, label: str) ->
             body = (node.end_lineno or node.lineno) - (doc.end_lineno or doc.lineno)
             if len(span) > body:
                 package.doc_over_body += 1
-    for node, name, _ in _walk_definitions(tree, path.stem):
+    for node, name, _ in definitions:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             size = (node.end_lineno or node.lineno) - node.lineno + 1
             report.largest_functions.append((f"{label}:{name}", size))
@@ -184,14 +202,14 @@ def _measure_file(path: Path, package: _Package, report: _Report, label: str) ->
     report.module_lines[label] = len(lines)
 
 
-def _private_imports(path: Path, root: Path, label: str) -> list[str]:
+def _private_imports(source: _Source, root: Path, label: str) -> list[str]:
     # Private names, or any name from a private module of a subpackage, imported from
     # another package. The root's private modules (`solprop._process`) are shared by
     # design, so only their private names count.
     top = root.name
-    here = _package_of(path, root)
+    here = _package_of(source.path, root)
     found: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    for node in ast.walk(source.tree):
         if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
             continue
         parts = node.module.split(".")
@@ -271,7 +289,8 @@ def _complexity(paths: list[str]) -> dict[str, int]:
     return counts
 
 
-def _measure(roots: list[str]) -> _Report:
+def _measure(roots: list[str], *, full: bool = True) -> _Report:
+    # `full=False` (the check) leaves out the clone and complexity passes.
     report = _Report()
     token_lists: dict[str, list[str]] = {}
     exact_lists: dict[str, list[str]] = {}
@@ -282,16 +301,19 @@ def _measure(roots: list[str]) -> _Report:
             key = _package_of(path, root)
             key = key if root_name == _ROOTS[0] else f"{root.name}/{key}"
             package = report.packages.setdefault(key, _Package())
-            _measure_file(path, package, report, label)
-            report.private_imports += _private_imports(path, root, label)
-            text = path.read_text(encoding="utf-8")
-            token_lists[label] = _tokens(text, names=False)
-            exact_lists[label] = _tokens(text, names=True)
+            source = _read(path)
+            _measure_file(source, package, report, label)
+            report.private_imports += _private_imports(source, root, label)
+            if full:
+                token_lists[label] = _tokens(source.tokens, names=False)
+                exact_lists[label] = _tokens(source.tokens, names=True)
     report.largest_files = sorted(report.largest_files, key=lambda x: -x[1])[:_TOP]
     report.largest_functions = sorted(report.largest_functions, key=lambda x: -x[1])[
         :_TOP
     ]
     report.noqa = dict(sorted(report.noqa.items(), key=lambda x: -x[1]))
+    if not full:
+        return report
     report.clone_percent, report.clone_pairs = _clones(token_lists)
     report.exact_clone_percent = _clones(exact_lists)[0]
     report.complexity = _complexity(roots)
@@ -390,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     roots = [*_ROOTS, *(_EXTRA_ROOTS if args.all else ())]
-    report = _measure(roots)
+    report = _measure(roots, full=not args.check)
     if args.check:
         failures = _check(report, tomllib.loads(_BUDGET.read_text(encoding="utf-8")))
         sys.stdout.writelines(f"size-check: {f}\n" for f in failures)
