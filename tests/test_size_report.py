@@ -111,14 +111,19 @@ def test_private_imports_across_packages_only(tmp_path):
         "from pkg.b.x import _hidden, shown\n"
         "from pkg.b._y import shown_too\n"
         "from pkg.a.z import _same_package\n"
-        "from pkg._shared import public, _private\n",
+        "from pkg._shared import public, _private\n"
+        "from pkg import _shared, b\n"
+        "import pkg.b._z\n"
+        "import pkg.b.w, pkg.a._v\n",
         encoding="utf-8",
     )
     found = size_report._private_imports(size_report._read(path), root, "m.py")
-    assert [entry.split(" ")[1] for entry in found] == [
-        "pkg.b.x._hidden",
-        "pkg.b._y.shown_too",
+    assert sorted(entry.split(" ")[1] for entry in found) == [
+        "pkg._shared",
         "pkg._shared._private",
+        "pkg.b._y.shown_too",
+        "pkg.b._z",
+        "pkg.b.x._hidden",
     ]
 
 

@@ -203,29 +203,35 @@ def _measure_file(
 
 
 def _private_imports(source: _Source, root: Path, label: str) -> list[str]:
-    # Private names, or any name from a private module of a subpackage, imported from
-    # another package. The root's private modules (`solprop._process`) are shared by
-    # design, so only their private names count.
+    # Private names imported from another package: a private name, a name from a private
+    # module of a subpackage, or a private module itself (`import solprop.x._y`,
+    # `from solprop import _y`). Public names from the root's private modules
+    # (`from solprop._process import ...`) are shared by design and do not count.
     top = root.name
     here = _package_of(source.path, root)
+
+    def package(name: str) -> str:
+        return name if (root / name).is_dir() else "(top-level)"
+
     found: list[str] = []
     for node in ast.walk(source.tree):
-        if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
-            continue
-        parts = node.module.split(".")
-        if parts[0] != top or len(parts) < 2:
-            continue
-        there = (
-            parts[1]
-            if (len(parts) > 2 or (root / parts[1]).is_dir())
-            else "(top-level)"
-        )
-        if there == here:
-            continue
-        module_private = any(_PRIVATE.match(p) for p in parts[2:])
-        for alias in node.names:
-            if module_private or _PRIVATE.match(alias.name):
-                found.append(f"{label}:{node.lineno} {node.module}.{alias.name}")
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                crosses = (
+                    len(parts) > 1 and parts[0] == top and package(parts[1]) != here
+                )
+                if crosses and any(_PRIVATE.match(p) for p in parts[1:]):
+                    found.append(f"{label}:{node.lineno} {alias.name}")
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            parts = node.module.split(".")
+            if parts[0] != top:
+                continue
+            module_private = any(_PRIVATE.match(p) for p in parts[2:])
+            for alias in node.names:
+                there = package(parts[1] if len(parts) > 1 else alias.name)
+                if there != here and (module_private or _PRIVATE.match(alias.name)):
+                    found.append(f"{label}:{node.lineno} {node.module}.{alias.name}")
     return found
 
 
