@@ -511,25 +511,96 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
     )
 
 
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        (
-            {
-                "modes": [
-                    MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                    MarcatiliMode(RADIUS, "He", 1.0, m=3),
-                ]
-            },
-            "HE_11 to HE_12",
-        ),
-        ({"noise": "modified", "seed": 3}, "refuses the 'modified' noise model"),
-    ],
-)
-def test_the_route_refuses_what_the_block_is_not_derived_for(overrides, expected):
-    """Every incompatible run is named at the translation layer, not at the backend."""
-    with pytest.raises((ModeError, TranslationError), match=expected):
-        capillary(wall=CoherentWall(), **overrides).translate()
+LATTICE = TubeLattice(180e-9, 10.38e-6, 6)
+"""Six 10.38 micrometre tubes, a Vincetti set the bare capillary wall must refuse."""
+
+LOSSES = [False, 0.0, 0.5, lambda omega: np.full_like(np.asarray(omega), 100.0)]
+"""Loss settings that a wall, which *is* the loss model, would otherwise discard.
+
+Measured before the refusal existed: the largest internal field-loss rate of a 50
+micrometre helium bore at `N = 1` was 17.730 /m with the wall for `loss=True`,
+`False`, `0.0`, `0.5` and a 100 /m callable **alike**, against 17.751, 0.030, 8.891
+and 50.030 /m on the uncoupled route -- the whole setting vanished, because the
+assembly subtracts the entire `HE_11` wavenumber and re-adds the block's own diagonal.
+"""
+
+
+def _lattice_capillary():
+    # Measured before the refusal existed, on this 15 micrometre argon lattice at 10
+    # bar: the flow was built with a generator bit identical to the plain Marcatili
+    # one, and declared an HE_11 loss of 3.21e3 /m against the guide's 1.01e-3 /m.
+    # The structured cladding's loss is its tubes' resonances, not a Robin condition.
+    return Simulation.from_capillary(
+        15e-6,
+        LENGTH,
+        "Ar",
+        10.0,
+        wavelength=800e-9,
+        grid=GRID,
+        absorber=WEAK_COLLAR,
+        fwhm=30e-15,
+        energy=1e-9,
+        modes=2,
+        n_save=2,
+        backend="numpy_ref",
+        lattice=LATTICE,
+        wall=CoherentWall(),
+        plasma=False,
+        raman=False,
+        noise=None,
+    )
+
+
+ROUTE_REFUSALS = [
+    *(
+        pytest.param(
+            lambda loss=loss: capillary(wall=CoherentWall(), loss=loss),
+            DriverError,
+            "is the loss model",
+            id=f"loss-{index}",
+        )
+        for index, loss in enumerate(LOSSES)
+    ),
+    # The condensation inverts the full model's eigenvalue.
+    pytest.param(
+        lambda: capillary(wall=CoherentWall(), model="reduced"),
+        DriverError,
+        "one capillary model, the full one",
+        id="reduced",
+    ),
+    pytest.param(
+        _lattice_capillary, DriverError, "uniform dielectric wall", id="lattice"
+    ),
+    pytest.param(
+        lambda: capillary(
+            wall=CoherentWall(),
+            modes=[
+                MarcatiliMode(RADIUS, "He", 1.0, m=1),
+                MarcatiliMode(RADIUS, "He", 1.0, m=3),
+            ],
+        ).translate(),
+        (ModeError, TranslationError),
+        "HE_11 to HE_12",
+        id="sparse-set",
+    ),
+    pytest.param(
+        lambda: capillary(wall=CoherentWall(), noise="modified", seed=3).translate(),
+        (ModeError, TranslationError),
+        "refuses the 'modified' noise model",
+        id="modified-noise",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build", "error", "expected"), ROUTE_REFUSALS)
+def test_the_route_refuses_what_the_block_is_not_derived_for(build, error, expected):
+    """Every incompatible declaration beside a wall is named, not overridden.
+
+    A declared option is honoured or refused by name, before the backend: at the
+    keyword the caller typed, or at translation.
+    """
+    with pytest.raises(error, match=expected):
+        build()
 
 
 @pytest.mark.medium
@@ -593,142 +664,77 @@ def test_prop_capillary_runs_a_wall_end_to_end_and_records_its_flow():
     assert measured == pytest.approx(predicted, rel=0.01)
 
 
-@pytest.mark.parametrize(
-    "loss", [False, 0.0, 0.5, lambda omega: np.full_like(np.asarray(omega), 100.0)]
-)
-def test_a_loss_setting_beside_a_wall_is_refused_rather_than_discarded(loss):
-    """The wall *is* the loss model, so a `LossSpec` beside it is named.
-
-    Measured before the refusal existed: the largest internal field-loss rate of a
-    50 micrometre helium bore at `N = 1` was 17.730 /m with the wall for `loss=True`,
-    `False`, `0.0`, `0.5` and a 100 /m callable **alike**, against 17.751, 0.030,
-    8.891 and 50.030 /m on the uncoupled route -- the whole setting vanished, because
-    the assembly subtracts the entire `HE_11` wavenumber and re-adds the block's own
-    diagonal. Both doors are exercised: the keyword the caller typed, and the mode
-    set the operator is built from.
-    """
-    with pytest.raises(DriverError, match="is the loss model"):
-        capillary(wall=CoherentWall(), loss=loss)
-    with pytest.raises(ModeError, match="is the loss model"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=index + 1, loss=loss)
-                for index in (0,)
-            ],
-            np.array([2.356e15]),
-        )
-
-
-def test_the_reduced_model_beside_a_wall_is_refused_rather_than_overridden():
-    """The condensation inverts the full model's eigenvalue, and says so."""
-    with pytest.raises(DriverError, match="one capillary model, the full one"):
-        capillary(wall=CoherentWall(), model="reduced")
-    with pytest.raises(ModeError, match="one capillary model, the full one"):
-        wall_operator(
-            [MarcatiliMode(RADIUS, "He", 1.0, m=1, model="reduced")],
-            np.array([2.356e15]),
-        )
-
-
-def test_a_tube_lattice_is_refused_rather_than_given_the_bare_capillary_wall():
-    """A Vincetti set is a `MarcatiliMode` subclass, and would take the bare wall.
-
-    Measured before the refusal existed, on a 15 micrometre argon-filled lattice of
-    six 10.38 micrometre tubes at 10 bar: the flow was built, the generator was **bit
-    identical** to the plain Marcatili one, and the `HE_11` field loss it declared was
-    3.21e3 /m against the guide's own 1.01e-3 /m -- six orders, in the wrong
-    direction. The structured cladding's loss is its tubes' resonances, not a Robin
-    condition at one radius.
-    """
-    lattice = TubeLattice(180e-9, 10.38e-6, 6)
-    with pytest.raises(DriverError, match="uniform dielectric wall"):
-        Simulation.from_capillary(
-            15e-6,
-            LENGTH,
-            "Ar",
-            10.0,
-            wavelength=800e-9,
-            grid=GRID,
-            absorber=WEAK_COLLAR,
-            fwhm=30e-15,
-            energy=1e-9,
-            modes=2,
-            n_save=2,
-            backend="numpy_ref",
-            lattice=lattice,
-            wall=CoherentWall(),
-            plasma=False,
-            raman=False,
-            noise=None,
-        )
-    block = [
-        VincettiMode(15e-6, "Ar", 10.0, lattice=lattice, m=index + 1)
-        for index in range(2)
+def _pair(first, second):
+    """Return a two-channel set whose second channel declares `second`."""
+    radius = second.pop("radius", RADIUS)
+    pressure = second.pop("pressure", 1.0)
+    return [
+        MarcatiliMode(RADIUS, "He", 1.0, m=1, **first),
+        MarcatiliMode(radius, "He", pressure, m=2, **second),
     ]
-    with pytest.raises(ModeError, match="uniform dielectric wall"):
-        wall_operator(block, np.array([2.356e15]))
 
 
-def test_channels_that_do_not_declare_one_guide_are_refused_by_name():
-    """The block reads the lowest channel alone, so the others must agree with it.
+BLOCK_REFUSALS = [
+    *(
+        pytest.param(
+            lambda loss=loss: [MarcatiliMode(RADIUS, "He", 1.0, m=1, loss=loss)],
+            "is the loss model",
+            id=f"loss-{index}",
+        )
+        for index, loss in enumerate(LOSSES)
+    ),
+    pytest.param(
+        lambda: [MarcatiliMode(RADIUS, "He", 1.0, m=1, model="reduced")],
+        "one capillary model, the full one",
+        id="reduced",
+    ),
+    pytest.param(
+        lambda: [
+            VincettiMode(15e-6, "Ar", 10.0, lattice=LATTICE, m=index + 1)
+            for index in range(2)
+        ],
+        "uniform dielectric wall",
+        id="lattice",
+    ),
+    # The block reads the lowest channel alone, so the others must agree with it.
+    # Measured before the refusal existed: two channels declaring `cladding=1.45+0j`
+    # and `2.6+0.1j` built a flow from the first one's impedance and said nothing.
+    # The declared settings are compared first, then what the operator samples,
+    # because two channels can name one glass in two ways and mean it.
+    pytest.param(
+        lambda: _pair({}, {"radius": 1.5 * RADIUS}), "core radius", id="radius"
+    ),
+    pytest.param(lambda: _pair({}, {"pressure": 2.0}), "density", id="density"),
+    pytest.param(
+        lambda: _pair({"cladding": 1.45 + 0j}, {"cladding": 2.6 + 0.1j}),
+        "samples a different cladding",
+        id="cladding",
+    ),
+    pytest.param(
+        lambda: _pair(
+            {"susceptibility": gas_law("He", model="ermolov_2015/sellmeier_He")},
+            {"susceptibility": gas_law("He", model="borzsonyi_2008/sellmeier_He")},
+        ),
+        "samples a different fill",
+        id="fill",
+    ),
+]
 
-    Measured before the refusal existed: two channels declaring `cladding=1.45+0j`
-    and `2.6+0.1j` built a flow from the first one's impedance and said nothing. The
-    declared settings are compared first, and then what the operator actually
-    samples, because two channels can name one glass in two ways and mean it.
-    """
-    omega = np.array([2.356e15, 2.4e15, 2.5e15])
-    with pytest.raises(ModeError, match="core radius"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                MarcatiliMode(1.5 * RADIUS, "He", 1.0, m=2),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="density"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1),
-                MarcatiliMode(RADIUS, "He", 2.0, m=2),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="samples a different cladding"):
-        wall_operator(
-            [
-                MarcatiliMode(RADIUS, "He", 1.0, m=1, cladding=1.45 + 0j),
-                MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=2.6 + 0.1j),
-            ],
-            omega,
-        )
-    with pytest.raises(ModeError, match="samples a different fill"):
-        wall_operator(
-            [
-                MarcatiliMode(
-                    RADIUS,
-                    "He",
-                    1.0,
-                    m=1,
-                    susceptibility=gas_law("He", model="ermolov_2015/sellmeier_He"),
-                ),
-                MarcatiliMode(
-                    RADIUS,
-                    "He",
-                    1.0,
-                    m=2,
-                    susceptibility=gas_law("He", model="borzsonyi_2008/sellmeier_He"),
-                ),
-            ],
-            omega,
-        )
-    # The default glass, asked for by name, is the same guide and is not refused.
+
+@pytest.mark.parametrize(("modes", "expected"), BLOCK_REFUSALS)
+def test_the_wall_block_refuses_a_mode_set_it_is_not_derived_for(modes, expected):
+    """The block's own door, which every route reaches, names what it refuses."""
+    with pytest.raises(ModeError, match=expected):
+        wall_operator(modes(), np.array([2.356e15, 2.4e15, 2.5e15]))
+
+
+def test_the_default_glass_asked_for_by_name_is_the_same_guide():
     wall_operator(
         [
             MarcatiliMode(RADIUS, "He", 1.0, m=1),
             MarcatiliMode(RADIUS, "He", 1.0, m=2, cladding=fused_silica()),
         ],
-        omega,
+        np.array([2.356e15, 2.4e15, 2.5e15]),
     )
 
 
