@@ -7,6 +7,7 @@
 import functools
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
@@ -59,58 +60,9 @@ __all__ = ["GAS_KEYWORD_DEFAULTS"]
 logger = logging.getLogger(__name__)
 
 
-def _from_general(
-    cls: type["Simulation"],
-    provider: ModalGuide,
-    modes: Sequence[Mode],
-    length: float,
-    *,
-    channel: int | str | None,
-    incident: SpatialPulse | None,
-    coupling: CouplingModel | None,
-    kerr_form: KerrForm,
-    observable_rtol: float | None,
-    observable_atol: float | None,
-    wavelength: float,
-    wavelength_limits: tuple[float, float] | None,
-    trange: float | None,
-    grid: TimeGrid | None,
-    fwhm: float | None,
-    width: float | None,
-    shape: str,
-    energy: float | None,
-    peak_power: float | None,
-    phases: Sequence[float] | np.ndarray,
-    pulses: Sequence[Pulse] | None,
-    absorber: Absorber | Literal[False] | None,
-    absorber_scheme: AbsorberScheme | None,
-    boundary_check: BoundaryCheck | None,
-    noise: NoiseSetting,
-    seed: int | None,
-    rtol: float | None,
-    atol: float,
-    dz_max: float | None,
-    dz_init: float | None,
-    schedule: FixedSchedule | None,
-    save_planes: Sequence[float] | np.ndarray | None,
-    n_save: int | None,
-    stats: StatsSpec | None,
-    backend: str,
-    materials: MaterialSelection | None = None,
-    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
-    launch: ModalLaunch | None = None,
-    interpolate_planes: bool = False,
-    step_planes: int | None = None,
-    polarisation_taper: bool = False,
-    **refused: object,
-) -> "Simulation":
-    """Build a general modal run from a guide that solves its own fields.
-
-    The provider half of :meth:`from_waveguide`, kept apart because it shares no
-    physics with the gas-filled one: no fill, no mixture, no static transverse
-    quadrature, no declared response list, and a launch that crosses no
-    normalisation boundary. Every keyword of the gas-filled path arrives in
-    `refused` and is refused by name if it was set.
+@dataclass(frozen=True, kw_only=True)
+class _GeneralRequest:
+    """The keywords of :func:`_from_general`, as the public constructor took them.
 
     - ``length``: guide length, m.
     - ``channel``: which channel the pulse enters; ``None`` takes the first.
@@ -127,16 +79,71 @@ def _from_general(
       and ``LowStorageRungeKutta()`` replays `schedule` in three registers.
     - ``step_planes``: also save the end of every `step_planes`-th accepted step;
       ``None`` is ``0``.
-    - ``**refused``: every gas-filled keyword; each is refused by name when it is
+    - ``refused``: every gas-filled keyword, by name; each is refused when it is
       set.
     """
-    _refuse_gas_keywords(refused)
+
+    provider: ModalGuide
+    modes: Sequence[Mode]
+    length: float
+    channel: int | str | None
+    incident: SpatialPulse | None
+    coupling: CouplingModel | None
+    kerr_form: KerrForm
+    observable_rtol: float | None
+    observable_atol: float | None
+    wavelength: float
+    wavelength_limits: tuple[float, float] | None
+    trange: float | None
+    grid: TimeGrid | None
+    fwhm: float | None
+    width: float | None
+    shape: str
+    energy: float | None
+    peak_power: float | None
+    phases: Sequence[float] | np.ndarray
+    pulses: Sequence[Pulse] | None
+    absorber: Absorber | Literal[False] | None
+    absorber_scheme: AbsorberScheme | None
+    boundary_check: BoundaryCheck | None
+    noise: NoiseSetting
+    seed: int | None
+    rtol: float | None
+    atol: float
+    dz_max: float | None
+    dz_init: float | None
+    schedule: FixedSchedule | None
+    save_planes: Sequence[float] | np.ndarray | None
+    n_save: int | None
+    stats: StatsSpec | None
+    backend: str
+    materials: MaterialSelection | None = None
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
+    launch: ModalLaunch | None = None
+    interpolate_planes: bool = False
+    step_planes: int | None = None
+    polarisation_taper: bool = False
+    refused: Mapping[str, object]
+
+
+def _from_general(cls: type["Simulation"], request: _GeneralRequest) -> "Simulation":
+    """Build a general modal run from a guide that solves its own fields.
+
+    The provider half of :meth:`from_waveguide`, kept apart because it shares no
+    physics with the gas-filled one: no fill, no mixture, no static transverse
+    quadrature, no declared response list, and a launch that crosses no
+    normalisation boundary. Every keyword of the gas-filled path arrives in the
+    request's ``refused`` and is refused by name if it was set.
+    """
+    provider = request.provider
+    _refuse_gas_keywords(request.refused)
     provider = _selected_guide(
-        provider, MaterialSelection() if materials is None else materials
+        provider,
+        MaterialSelection() if request.materials is None else request.materials,
     )
     for name, value in (
-        ("observable_rtol", observable_rtol),
-        ("observable_atol", observable_atol),
+        ("observable_rtol", request.observable_rtol),
+        ("observable_atol", request.observable_atol),
     ):
         if value is not None:
             msg = (
@@ -150,11 +157,11 @@ def _from_general(
             )
             raise DriverError(msg)
     working = _capillary_grid(
-        grid,
-        length,
-        wavelength,
-        wavelength_limits,
-        trange,
+        request.grid,
+        request.length,
+        request.wavelength,
+        request.wavelength_limits,
+        request.trange,
         envelope=False,
         thg=False,
     )
@@ -167,28 +174,33 @@ def _from_general(
         )
         raise DriverError(msg)
     channels = tuple(provider.mode_collection.modes)
-    if tuple(modes) not in ((), channels):
+    if tuple(request.modes) not in ((), channels):
         msg = (
             f"a general modal guide supplies its own {len(channels)} ordered "
             f"channel(s), validated against the provider's fields, and this "
-            f"call passes {len(tuple(modes))} mode(s) of its own: pass "
+            f"call passes {len(tuple(request.modes))} mode(s) of its own: pass "
             "modes=() beside provider=, or the guide's own "
             "provider.mode_collection.modes"
         )
         raise DriverError(msg)
-    planes = _save_planes(length, save_planes, n_save)
-    refuse_beside(launch, channel=channel, incident=incident, coupling=coupling)
+    planes = _save_planes(request.length, request.save_planes, request.n_save)
+    refuse_beside(
+        request.launch,
+        channel=request.channel,
+        incident=request.incident,
+        coupling=request.coupling,
+    )
     pulse = _general_pulse(
-        incident,
-        channel,
-        shape,
-        wavelength=wavelength,
-        fwhm=fwhm,
-        width=width,
-        energy=energy,
-        peak_power=peak_power,
-        phases=phases,
-        pulses=pulses,
+        request.incident,
+        request.channel,
+        request.shape,
+        wavelength=request.wavelength,
+        fwhm=request.fwhm,
+        width=request.width,
+        energy=request.energy,
+        peak_power=request.peak_power,
+        phases=request.phases,
+        pulses=request.pulses,
     )
     built = (pulse.temporal if isinstance(pulse, SpatialPulse) else pulse).build(
         working
@@ -199,8 +211,10 @@ def _from_general(
             working,
             z_max=float(np.max(planes)),
             omega_reference=float(working.omega0),
-            kerr_form=kerr_form,
-            selection=MaterialSelection() if materials is None else materials,
+            kerr_form=request.kerr_form,
+            selection=MaterialSelection()
+            if request.materials is None
+            else request.materials,
             # The pulse is built first so that the route's occupied-support basis
             # gate is weighted by where this run's light actually is rather than
             # over the whole declared band. The launch's channel distribution does
@@ -217,7 +231,7 @@ def _from_general(
         # own, unchanged, and the cause is kept.
         raise DriverError(str(error)) from error
     beam = pulse if isinstance(pulse, SpatialPulse) else None
-    if (beam is None) != (coupling is None):
+    if (beam is None) != (request.coupling is None):
         msg = (
             "an incident beam is coupled under a declared model: give incident= "
             "with coupling=CouplingModel('vector_paraxial', model_error=...), or "
@@ -231,8 +245,8 @@ def _from_general(
         _core_index(provider.regions, working)
         # The launch is the coupling's, installed through `with_input` below.
         field0 = np.zeros((len(channels), 1, working.n_omega), dtype=np.complex128)
-    elif launch is None:
-        field0 = _in_channel(built, provider, channel)
+    elif request.launch is None:
+        field0 = _in_channel(built, provider, request.channel)
     else:
         # A declared change of basis carries a dense flux metric, under which the
         # shares are a coordinate split; in the provider's own coordinates the
@@ -240,37 +254,37 @@ def _from_general(
         field0, launched = launch_pulse(
             # No beam, so the input is the shaped pulse.
             cast("Pulse", pulse),
-            launch,
+            request.launch,
             working,
             provider.mode_collection.channel_labels,
             metric=metric_at(route.metric_tables, 0.0),
         )
-    boundary, scheme = _boundary(absorber, absorber_scheme, working)
-    controller, default = _keyword_controller("waveguide", rtol, atol)
+    boundary, scheme = _boundary(request.absorber, request.absorber_scheme, working)
+    controller, default = _keyword_controller("waveguide", request.rtol, request.atol)
     settings = SimulationSettings(
         controller=controller,
         _default_controller=default,
         _route="waveguide",
         save_planes=planes,
-        dz_max=length / 2 if dz_max is None else dz_max,
-        dz_init=length * 1e-4 if dz_init is None else dz_init,
-        auto_init=dz_init is None,
-        schedule=schedule,
-        integrator=integrator,
-        interpolate_planes=interpolate_planes,
-        step_planes=0 if step_planes is None else step_planes,
+        dz_max=request.length / 2 if request.dz_max is None else request.dz_max,
+        dz_init=request.length * 1e-4 if request.dz_init is None else request.dz_init,
+        auto_init=request.dz_init is None,
+        schedule=request.schedule,
+        integrator=request.integrator,
+        interpolate_planes=request.interpolate_planes,
+        step_planes=0 if request.step_planes is None else request.step_planes,
         absorber=boundary,
         absorber_scheme=scheme,
-        boundary_check=boundary_check,
+        boundary_check=request.boundary_check,
         # The route carries its nodes, its materials and its normalisation in
         # its own leaves: the static transverse quadrature, the component
         # selection, the density path and the index override are all refused
         # by the translation layer and are not settings of this run.
-        stats=_general_stats() if stats is None else stats,
-        polarisation_taper=polarisation_taper,
-        backend=backend,
+        stats=_general_stats() if request.stats is None else request.stats,
+        polarisation_taper=request.polarisation_taper,
+        backend=request.backend,
     )
-    noise_model, resolution = resolve_noise("waveguide", noise, seed)
+    noise_model, resolution = resolve_noise("waveguide", request.noise, request.seed)
     draw = functools.partial(_general_noise, noise_model, working, guide=provider)
     simulation = cls(
         working,
@@ -278,12 +292,12 @@ def _from_general(
         [],
         field0,
         settings=settings,
-        noise=draw(seed),
+        noise=draw(request.seed),
         noise_resolution=resolution,
         configuration={
             "waveguide": {
                 "modes": [ModeRecord.from_mode(mode) for mode in channels],
-                "length": length,
+                "length": request.length,
                 "provider": dict(provider.identity),
             },
             **({} if beam is not None else {"pulse": pulse}),
@@ -291,12 +305,12 @@ def _from_general(
         },
         general=route,
         guide=provider,
-        materials=materials,
+        materials=request.materials,
     )
-    _redrawable(simulation, draw, seed)
+    _redrawable(simulation, draw, request.seed)
     if beam is None:
         return simulation
-    return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
+    return _incident_launch(simulation, beam, cast("CouplingModel", request.coupling))
 
 
 GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {

@@ -150,85 +150,9 @@ _RADIAL_NODES_PER_MODE = 8
 """Radial nodes per mode in the default order; see :func:`default_radial_order`."""
 
 
-def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
-    cls: type["Simulation"],
-    radius: float | ZProfile | None,
-    length: float,
-    gas: Gas | str | Mapping[str, float] | Mixture,
-    pressure: Pressure | None = None,
-    *,
-    waveguide: bool = False,
-    pressure_floor: float | None = None,
-    vacuum_end: VacuumEnd | None = None,
-    wavelength: float,
-    wavelength_limits: tuple[float, float] | None = None,
-    trange: float | None = None,
-    grid: TimeGrid | None = None,
-    envelope: bool = False,
-    fwhm: float | None = None,
-    width: float | None = None,
-    shape: str = "gauss",
-    energy: float | None = None,
-    peak_power: float | None = None,
-    phases: Sequence[float] | np.ndarray = (),
-    pulses: Sequence[Pulse] | None = None,
-    launch: ModalLaunch | None = None,
-    modes: int | Sequence[Mode] = 1,
-    mode_average: bool = False,
-    lattice: TubeLattice | None = None,
-    wall: CoherentWall | None = None,
-    taper_coupling: bool = True,
-    model: MarcatiliModel = "full",
-    loss: LossSpec = True,
-    cladding: GlassIndex | complex | None = None,
-    susceptibility: GasSusceptibility | None = None,
-    temperature: float | ZProfile | None = None,
-    kerr: bool = True,
-    thg: bool | None = None,
-    plasma: bool | IonisationRate | Mapping[str, bool | IonisationRate] | None = None,
-    preionisation: float | ZProfile | Mapping[str, float | ZProfile] | None = None,
-    plasma_integration: IntegrationPolicy | None = None,
-    raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions] | None = None,
-    n_r: int | None = None,
-    n_theta: int | None = None,
-    radial_rule: RadialRule = "gauss_kronrod",
-    ionisation_field_range: tuple[float, float] | None = None,
-    absorber: Absorber | Literal[False] | None = None,
-    absorber_scheme: AbsorberScheme | None = None,
-    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
-    noise: NoiseSetting = "default",
-    seed: int | None = None,
-    rtol: float | None = None,
-    atol: float = WAVEGUIDE_ATOL,
-    dz_max: float | None = None,
-    dz_init: float | None = None,
-    schedule: FixedSchedule | None = None,
-    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
-    route: Literal["capillary", "waveguide"] = "capillary",
-    interpolate_planes: bool = False,
-    step_planes: int | None = None,
-    save_planes: Sequence[float] | np.ndarray | None = None,
-    n_save: int | None = None,
-    stats: StatsSpec | None = None,
-    polarisation_taper: bool = False,
-    node_budget: int | None = None,
-    backend: str = "auto",
-    polarisation: str | float | None = None,
-    materials: MaterialSelection | None = None,
-    tdse: TDSEGasResponse | None = None,
-    tdse_execution: TDSEExecution | None = None,
-) -> "Simulation":
-    """Build a simulation of a pulse in a gas-filled hollow waveguide.
-
-    The shared body of :meth:`from_capillary` and :meth:`from_waveguide`. The mode
-    set is the first `modes` HE_1m modes of the capillary unless a set is given; the
-    transverse integral is a fixed quadrature rule
-    (``docs/guide/waveguides/mode-sets.md``); the
-    gas density along z is the pressure path through the equation of state, and the
-    same path sets the modes' core index, so a gradient fill disperses and broadens
-    consistently.
-
-    See ``docs/guide/setup/running.md`` for the discussion and a worked example.
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _HollowRequest:
+    """The keywords of :func:`_from_hollow`, as the public constructor took them.
 
     - ``radius``: core radius, m, constant or along z.
     - ``length``: capillary length, m.
@@ -409,25 +333,114 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
       it is. The run records its material manifest. ``None`` (the default) is
       ``MaterialSelection()``.
     """
+
+    radius: float | ZProfile | None
+    length: float
+    gas: Gas | str | Mapping[str, float] | Mixture
+    pressure: Pressure | None = None
+    waveguide: bool = False
+    pressure_floor: float | None = None
+    vacuum_end: VacuumEnd | None = None
+    wavelength: float
+    wavelength_limits: tuple[float, float] | None = None
+    trange: float | None = None
+    grid: TimeGrid | None = None
+    envelope: bool = False
+    fwhm: float | None = None
+    width: float | None = None
+    shape: str = "gauss"
+    energy: float | None = None
+    peak_power: float | None = None
+    phases: Sequence[float] | np.ndarray = ()
+    pulses: Sequence[Pulse] | None = None
+    launch: ModalLaunch | None = None
+    modes: int | Sequence[Mode] = 1
+    mode_average: bool = False
+    lattice: TubeLattice | None = None
+    wall: CoherentWall | None = None
+    taper_coupling: bool = True
+    model: MarcatiliModel = "full"
+    loss: LossSpec = True
+    cladding: GlassIndex | complex | None = None
+    susceptibility: GasSusceptibility | None = None
+    temperature: float | ZProfile | None = None
+    kerr: bool = True
+    thg: bool | None = None
+    plasma: bool | IonisationRate | Mapping[str, bool | IonisationRate] | None = None
+    preionisation: float | ZProfile | Mapping[str, float | ZProfile] | None = None
+    plasma_integration: IntegrationPolicy | None = None
+    raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions] | None = None
+    n_r: int | None = None
+    n_theta: int | None = None
+    radial_rule: RadialRule = "gauss_kronrod"
+    ionisation_field_range: tuple[float, float] | None = None
+    absorber: Absorber | Literal[False] | None = None
+    absorber_scheme: AbsorberScheme | None = None
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
+    noise: NoiseSetting = "default"
+    seed: int | None = None
+    rtol: float | None = None
+    atol: float = WAVEGUIDE_ATOL
+    dz_max: float | None = None
+    dz_init: float | None = None
+    schedule: FixedSchedule | None = None
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
+    route: Literal["capillary", "waveguide"] = "capillary"
+    interpolate_planes: bool = False
+    step_planes: int | None = None
+    save_planes: Sequence[float] | np.ndarray | None = None
+    n_save: int | None = None
+    stats: StatsSpec | None = None
+    polarisation_taper: bool = False
+    node_budget: int | None = None
+    backend: str = "auto"
+    polarisation: str | float | None = None
+    materials: MaterialSelection | None = None
+    tdse: TDSEGasResponse | None = None
+    tdse_execution: TDSEExecution | None = None
+
+
+def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
+    cls: type["Simulation"], request: _HollowRequest
+) -> "Simulation":
+    """Build a simulation of a pulse in a gas-filled hollow waveguide.
+
+    The shared body of :meth:`from_capillary` and :meth:`from_waveguide`. The mode
+    set is the first `modes` HE_1m modes of the capillary unless a set is given; the
+    transverse integral is a fixed quadrature rule
+    (``docs/guide/waveguides/mode-sets.md``); the
+    gas density along z is the pressure path through the equation of state, and the
+    same path sets the modes' core index, so a gradient fill disperses and broadens
+    consistently.
+
+    See ``docs/guide/setup/running.md`` for the discussion and a worked example.
+    """
+    backend = request.backend
+    materials = request.materials
+    n_save = request.n_save
+    plasma = request.plasma
+    raman = request.raman
+    step_planes = request.step_planes
+    thg = request.thg
     # The TDSE response owns the electronic response: build no other.
     atomic, plasma, raman, backend, n_save, step_planes = _entry_overrides(
         _tdse_entry(
-            tdse,
-            tdse_execution,
-            trange=trange,
-            kerr=kerr,
-            mode_average=mode_average,
+            request.tdse,
+            request.tdse_execution,
+            trange=request.trange,
+            kerr=request.kerr,
+            mode_average=request.mode_average,
             unset={
                 "plasma": plasma,
                 "raman": raman,
-                "preionisation": preionisation,
-                "plasma_integration": plasma_integration,
-                "ionisation_field_range": ionisation_field_range,
+                "preionisation": request.preionisation,
+                "plasma_integration": request.plasma_integration,
+                "ionisation_field_range": request.ionisation_field_range,
                 "thg": thg,
             },
             backend=backend,
             step_planes=step_planes,
-            save_planes=save_planes,
+            save_planes=request.save_planes,
             n_save=n_save,
         ),
         plasma,
@@ -436,18 +449,18 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         n_save,
         step_planes,
     )
-    if raman and not kerr:
+    if raman and not request.kerr:
         msg = (
             "raman=True needs kerr=True: a medium with a Raman response has an "
             "electronic one too, and on a field grid the drive form reaches the "
             "kernel through the Kerr term (docs/guide/media/raman.md)"
         )
         raise DriverError(msg, parameter=("raman", "kerr"), rule="raman-needs-kerr")
-    if polarisation is not None:
+    if request.polarisation is not None:
         msg = (
-            f"polarisation={polarisation!r}: this path is scalar and propagates "
-            "one transverse component per mode row. Declare the polarisation "
-            "in the modes instead -- a rectangular or slab guide's own "
+            f"polarisation={request.polarisation!r}: this path is scalar and "
+            "propagates one transverse component per mode row. Declare the "
+            "polarisation in the modes instead -- a rectangular or slab guide's own "
             "polarisation, each partner a row of its own -- or, for a vector "
             "capillary run, a polarisation-resolved mode set, which is not "
             "validated end to end yet"
@@ -456,15 +469,15 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
             msg, parameter="polarisation", rule="scalar-capillary-polarisation"
         )
     _check_wall_declaration(
-        wall,
-        model=model,
-        loss=loss,
-        lattice=lattice,
-        taper_coupling=taper_coupling,
+        request.wall,
+        model=request.model,
+        loss=request.loss,
+        lattice=request.lattice,
+        taper_coupling=request.taper_coupling,
     )
     thg, plasma = (
-        (not envelope) if thg is None else thg,
-        (not envelope) if plasma is None else plasma,
+        (not request.envelope) if thg is None else thg,
+        (not request.envelope) if plasma is None else plasma,
     )
     active_plasma = (
         any(value is not False for value in plasma.values())
@@ -472,68 +485,77 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         else plasma is not False
     )
     _refuse_plasma_settings(
-        plasma_integration, envelope=envelope, active=active_plasma, thg=thg
+        request.plasma_integration,
+        envelope=request.envelope,
+        active=active_plasma,
+        thg=thg,
     )
 
     working = _capillary_grid(
-        grid,
-        length,
-        wavelength,
-        wavelength_limits,
-        trange,
-        envelope=envelope,
+        request.grid,
+        request.length,
+        request.wavelength,
+        request.wavelength_limits,
+        request.trange,
+        envelope=request.envelope,
         thg=thg,
     )
     materials = MaterialSelection() if materials is None else materials
-    _check_selection_carrier(materials, working.reference_wavelength, wavelength)
+    _check_selection_carrier(
+        materials, working.reference_wavelength, request.wavelength
+    )
     bore = (
-        _flow_radius(modes, pressure)
-        if waveguide
-        else as_profile(cast("float | ZProfile", radius))
+        _flow_radius(request.modes, request.pressure)
+        if request.waveguide
+        else as_profile(cast("float | ZProfile", request.radius))
     )
     # The fill's own models warn about the conditions they are evaluated at,
     # which the gas keyword chose.
     with _warnings_about("gas", _MATERIAL_WARNINGS):
         mixture = capillary_fill(
-            gas,
-            pressure,
-            length=length,
-            temperature=temperature,
-            floor=pressure_floor,
-            susceptibility=susceptibility,
-            preionisation=preionisation,
+            request.gas,
+            request.pressure,
+            length=request.length,
+            temperature=request.temperature,
+            floor=request.pressure_floor,
+            susceptibility=request.susceptibility,
+            preionisation=request.preionisation,
             radius=bore,
-            vacuum_end=vacuum_end,
+            vacuum_end=request.vacuum_end,
             selection=materials,
         )
     _warn_boreless_gradient(mixture, bore)
-    if waveguide:
-        if isinstance(modes, int):
+    if request.waveguide:
+        if isinstance(request.modes, int):
             raise DriverError(
                 "from_waveguide requires supplied gas-filled modes",
                 parameter="modes",
             )
-        mode_set = _given_gas_modes(modes, mixture)
+        mode_set = _given_gas_modes(request.modes, mixture)
     else:
         mode_set = _capillary_modes(
-            modes,
-            cast("float | ZProfile", radius),
+            request.modes,
+            cast("float | ZProfile", request.radius),
             mixture,
-            length=length,
-            lattice=lattice,
-            model=model,
-            loss=loss,
-            cladding=_default_cladding(cladding)
-            if isinstance(modes, int)
-            else cladding,
+            length=request.length,
+            lattice=request.lattice,
+            model=request.model,
+            loss=request.loss,
+            cladding=_default_cladding(request.cladding)
+            if isinstance(request.modes, int)
+            else request.cladding,
         )
     rule = (
-        _no_quadrature(mode_set, n_r, n_theta, radial_rule=radial_rule)
-        if mode_average
-        else _capillary_quadrature(mode_set, n_r, n_theta, radial_rule=radial_rule)
+        _no_quadrature(
+            mode_set, request.n_r, request.n_theta, radial_rule=request.radial_rule
+        )
+        if request.mode_average
+        else _capillary_quadrature(
+            mode_set, request.n_r, request.n_theta, radial_rule=request.radial_rule
+        )
     )
     profiles = mixture_profiles(mixture)
-    if waveguide:
+    if request.waveguide:
         for mode in mode_set:
             paths: Mapping[str, ZProfile] = getattr(mode, "parameter_paths", {})
             profiles.update(
@@ -545,52 +567,61 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
                 }
             )
     else:
-        profiles["core_radius"] = as_profile(cast("float | ZProfile", radius))
+        profiles["core_radius"] = as_profile(cast("float | ZProfile", request.radius))
     if raman is None:
         # The default follows the Kerr switch: a run without the electronic
         # response is a deliberately reduced model, and a field-grid Raman term
         # cannot stand without a Kerr term beside it anyway.
-        raman = kerr and _default_raman(
+        raman = request.kerr and _default_raman(
             mixture, provisional=materials.raman == "provisional"
         )
     if atomic is not None:
         responses = [atomic.response]
     elif (
-        isinstance(gas, (Gas, str))
-        and not is_air(gas)
+        isinstance(request.gas, (Gas, str))
+        and not is_air(request.gas)
         and isinstance(raman, bool)
         and not isinstance(plasma, Mapping)
-        and not isinstance(preionisation, Mapping)
+        and not isinstance(request.preionisation, Mapping)
     ):
         # The Raman response is optmat's, built from the fill (SEP 3); the other
         # responses keep this path.
         with _warnings_about("gas", _MATERIAL_WARNINGS):
             responses = _capillary_responses(
-                gas,
+                request.gas,
                 mixture.components[0].species,
-                kerr=kerr,
+                kerr=request.kerr,
                 plasma=plasma,
-                preionisation=0.0 if preionisation is None else preionisation,
-                integration=plasma_integration,
-                wavelength=wavelength,
-                envelope=envelope,
+                preionisation=0.0
+                if request.preionisation is None
+                else request.preionisation,
+                integration=request.plasma_integration,
+                wavelength=request.wavelength,
+                envelope=request.envelope,
                 # The single gas's electronic response is optmat's, at the
                 # carrier or dispersive, as the selection's electronic policy
                 # says (SEP 6).
                 electronic=electronic_response(
                     mixture.components[0].species,
                     selection=materials,
-                    wavelength=wavelength,
+                    wavelength=request.wavelength,
                     thg=thg,
                 )
-                if kerr
+                if request.kerr
                 else None,
                 selection=materials,
             )
         # optmat's Raman response is the raman keyword's choice.
         with _about("raman"), _warnings_about("raman", _MATERIAL_WARNINGS):
             responses += (
-                _optmat_raman(gas, mixture, materials, thg, wavelength, length)
+                _optmat_raman(
+                    request.gas,
+                    mixture,
+                    materials,
+                    thg,
+                    request.wavelength,
+                    request.length,
+                )
                 if raman
                 else []
             )
@@ -599,39 +630,39 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
             responses = list(
                 responses_for(
                     mixture,
-                    kerr=kerr,
+                    kerr=request.kerr,
                     thg=thg,
                     plasma=plasma,
                     raman=raman,
-                    wavelength=wavelength,
-                    envelope=envelope,
-                    length=length,
+                    wavelength=request.wavelength,
+                    envelope=request.envelope,
+                    length=request.length,
                     selection=materials,
-                    plasma_integration=plasma_integration,
+                    plasma_integration=request.plasma_integration,
                 )
             )
     with _about(("preionisation", "plasma")):
         _refuse_idle_preionisation(mixture, responses)
     pulse = _shaped_pulse(
-        shape,
-        wavelength=wavelength,
-        fwhm=fwhm,
-        width=width,
-        energy=energy,
-        peak_power=peak_power,
-        phases=phases,
-        pulses=pulses,
+        request.shape,
+        wavelength=request.wavelength,
+        fwhm=request.fwhm,
+        width=request.width,
+        energy=request.energy,
+        peak_power=request.peak_power,
+        phases=request.phases,
+        pulses=request.pulses,
     )
-    field0, launched = _hollow_input(pulse, launch, working, mode_set.modes)
+    field0, launched = _hollow_input(pulse, request.launch, working, mode_set.modes)
     ionising = any(
         isinstance(one, PlasmaResponse | EnvelopePlasmaResponse) for one in responses
     )
-    boundary, scheme = _boundary(absorber, absorber_scheme, working)
+    boundary, scheme = _boundary(request.absorber, request.absorber_scheme, working)
     # A hollow guide's default is the grid's collar, so there is always one.
     _warn_capillary_walkoff(mode_set.modes, working, cast("Absorber", boundary))
     responses, field_range, reference = _ionisation_inputs(
         responses,
-        ionisation_field_range,
+        request.ionisation_field_range,
         _InputPeak(field0, mode_set, working, rule) if ionising else None,
     )
     row = (
@@ -639,33 +670,33 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         if any(isinstance(mode, SlabMode) for mode in mode_set.modes)
         else "capillary tdse"
         if atomic is not None
-        else route
+        else request.route
     )
-    controller, default = _keyword_controller(row, rtol, atol)
+    controller, default = _keyword_controller(row, request.rtol, request.atol)
     settings = SimulationSettings(
         controller=controller,
         _default_controller=default,
         _route=row,
-        save_planes=_save_planes(length, save_planes, n_save),
+        save_planes=_save_planes(request.length, request.save_planes, n_save),
         # Relative defaults, so that the first step and the cap scale with the
         # capillary.
-        dz_max=length / 2 if dz_max is None else dz_max,
-        dz_init=length * 1e-4 if dz_init is None else dz_init,
-        auto_init=dz_init is None,
-        schedule=schedule,
-        integrator=integrator,
-        interpolate_planes=interpolate_planes,
+        dz_max=request.length / 2 if request.dz_max is None else request.dz_max,
+        dz_init=request.length * 1e-4 if request.dz_init is None else request.dz_init,
+        auto_init=request.dz_init is None,
+        schedule=request.schedule,
+        integrator=request.integrator,
+        interpolate_planes=request.interpolate_planes,
         step_planes=step_planes,
         density=None,
         absorber=boundary,
         absorber_scheme=scheme,
-        boundary_check=boundary_check,
+        boundary_check=request.boundary_check,
         quadrature=rule,
         components=None
         if rule is None
-        else _hollow_components(supplied=not isinstance(modes, int)),
+        else _hollow_components(supplied=not isinstance(request.modes, int)),
         ionisation_field_range=field_range,
-        node_budget=node_budget,
+        node_budget=request.node_budget,
         stats=(
             _with_integration_statistics(
                 _hollow_stats(
@@ -674,24 +705,24 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
                     profiles=profiles,
                     rule=rule,
                 )
-                if waveguide
+                if request.waveguide
                 else _capillary_stats(
                     with_plasma=ionising, mixture=mixture, averaged=rule is None
                 ),
                 responses,
             )
-            if stats is None
-            else stats
+            if request.stats is None
+            else request.stats
         )
-        if atomic is None or stats is not None
+        if atomic is None or request.stats is not None
         else _tdse_stats(
             _capillary_stats(with_plasma=False, mixture=mixture, averaged=rule is None)
         ),
-        polarisation_taper=polarisation_taper,
+        polarisation_taper=request.polarisation_taper,
         backend=backend,
         tdse_execution=None if atomic is None else atomic.execution,
     )
-    noise_model, resolution = resolve_noise(row, noise, seed)
+    noise_model, resolution = resolve_noise(row, request.noise, request.seed)
     draw = functools.partial(_shot_noise, noise_model, working, n_modes=len(mode_set))
     simulation = cls(
         working,
@@ -699,11 +730,11 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         responses,
         field0,
         settings=settings,
-        noise=draw(seed),
+        noise=draw(request.seed),
         noise_resolution=resolution,
         profiles=profiles,
-        wall=wall,
-        taper_coupling=taper_coupling,
+        wall=request.wall,
+        taper_coupling=request.taper_coupling,
         materials=materials,
         configuration={
             "medium": mixture,
@@ -711,15 +742,15 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
                 {
                     "waveguide": {
                         "modes": [ModeRecord.from_mode(mode) for mode in mode_set],
-                        "length": length,
+                        "length": request.length,
                         "temperature": mixture.temperature,
                     }
                 }
-                if waveguide
+                if request.waveguide
                 else {
                     "capillary": {
-                        "radius": radius,
-                        "length": length,
+                        "radius": request.radius,
+                        "length": request.length,
                         "temperature": mixture.temperature,
                     }
                 }
@@ -735,20 +766,20 @@ def _from_hollow(  # noqa: PLR0915 - the interface's keyword surface
         None
         if atomic is not None
         else ResponseSelection(
-            kerr,
+            request.kerr,
             thg,
             plasma,
             raman,
-            wavelength,
-            envelope,
-            length,
+            request.wavelength,
+            request.envelope,
+            request.length,
             selection=materials,
             reference_field=reference,
             field_range=field_range,
-            plasma_integration=plasma_integration,
+            plasma_integration=request.plasma_integration,
         )
     )
-    return _redrawable(simulation, draw, seed)
+    return _redrawable(simulation, draw, request.seed)
 
 
 def _refuse_plasma_settings(

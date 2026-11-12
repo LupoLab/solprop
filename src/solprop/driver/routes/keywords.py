@@ -9,9 +9,10 @@ objects raise is attributed here to the keyword the caller typed.
 """
 
 import contextlib
+import dataclasses
 import warnings
 from collections.abc import Iterator, Mapping
-from typing import Final, cast
+from typing import Any, Final, cast
 
 from solprop.exceptions import (
     MaterialRangeWarning,
@@ -121,3 +122,16 @@ def _unset(**keywords: object) -> ParameterPath:
     - ``**keywords``: the keywords a refusal needs, by name; at least one is ``None``.
     """
     return _path(*(name for name, value in keywords.items() if value is None))
+
+
+def keyword_request[R](
+    kind: type[R], scope: Mapping[str, object], **given: object
+) -> R:
+    """Build a route's request from its constructor's locals.
+
+    Each field of `kind` the constructor's `scope` holds is taken from it, then
+    `given` overrides or adds fields; a field in neither keeps its default.
+    """
+    # `kind` is a dataclass; the type variable cannot say so.
+    names = {field.name for field in dataclasses.fields(cast("Any", kind))}
+    return kind(**{name: scope[name] for name in names if name in scope} | given)
