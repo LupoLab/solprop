@@ -2987,7 +2987,7 @@ nb::dict build_record() {
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
   result["nanobind_version"] = SOLPROP_NATIVE_NANOBIND_VERSION;
   result["gemm_provider"] = "HYBRID";
-  result["tpl_blas_enabled"] = static_cast<bool>(SOLPROP_NATIVE_TPL_BLAS_ENABLED);
+  result["tpl_blas_enabled"] = (SOLPROP_NATIVE_TPL_BLAS_ENABLED != 0);
   result["blas_backend"] = SOLPROP_NATIVE_BLAS_BACKEND;
   result["blas_thread_policy"] = decode_record_text(SOLPROP_NATIVE_BLAS_THREAD_POLICY);
   result["blas_selection"] = decode_record_text(SOLPROP_NATIVE_BLAS_SELECTION);
@@ -3085,8 +3085,7 @@ nb::dict build_record() {
   result["compiler"] = __VERSION__;
   result["compiler_flags"] = decode_record_text(SOLPROP_NATIVE_COMPILER_FLAGS);
   result["build_type"] = SOLPROP_NATIVE_BUILD_TYPE;
-  result["coverage_instrumented"] =
-      static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
+  result["coverage_instrumented"] = (SOLPROP_NATIVE_COVERAGE_INSTRUMENTED != 0);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
   result["precision"] = "complex128";
   result["fft_normalization"] = "none (explicit inverse scaling)";
@@ -3102,10 +3101,10 @@ nb::dict build_record() {
                           "SOLPROP_FFTW_PLAN overrides";
 #endif
   result["layout"] = "LayoutRight";
-  result["native_arch_enabled"] = static_cast<bool>(SOLPROP_NATIVE_HOST_ARCH_ENABLED);
+  result["native_arch_enabled"] = (SOLPROP_NATIVE_HOST_ARCH_ENABLED != 0);
   result["aggressive_vectorization_enabled"] =
-      static_cast<bool>(SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED);
-  result["ipo_enabled"] = static_cast<bool>(SOLPROP_NATIVE_IPO_ENABLED);
+      (SOLPROP_NATIVE_AGGRESSIVE_VECTORIZATION_ENABLED != 0);
+  result["ipo_enabled"] = (SOLPROP_NATIVE_IPO_ENABLED != 0);
   const std::string cpu_baseline = SOLPROP_NATIVE_CPU_BASELINE;
   const std::string architecture_policy =
       SOLPROP_NATIVE_HOST_ARCH_ENABLED ? "native architecture"
