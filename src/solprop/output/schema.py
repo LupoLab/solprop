@@ -1611,8 +1611,7 @@ class DefaultsResolution:
 class StepLimits:
     """The caps a run put on the controller's step proposal.
 
-    Grouped into one record because they travel together and because a constructor
-    that took them one by one would need more arguments than the project allows.
+    Grouped into one record because they travel together.
 
     Attributes
     ----------
