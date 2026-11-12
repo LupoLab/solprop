@@ -35,7 +35,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.session import ExecutionOptions
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.responses import ResponseStage
 
 native = pytest.importorskip("solprop_native")
 
@@ -71,11 +70,6 @@ def current_only(problem, grid, rule):
                 for channel in responses.plasma_channels
             ),
             kerr_coefficients=None,
-            response_order=tuple(
-                stage
-                for stage in responses.response_order
-                if stage is not ResponseStage.KERR
-            ),
         ),
     )
 

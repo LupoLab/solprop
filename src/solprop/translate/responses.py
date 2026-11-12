@@ -1780,8 +1780,6 @@ class CompiledResponses:
 
     Attributes
     ----------
-    response_order : tuple of ResponseStage
-        The fused-pass sequence, in execution order.
     kerr_coefficients : KerrCoefficients or None
         The compiled Kerr term, or ``None`` when no Kerr response was declared.
     ionisation_table : tuple of RateTable
@@ -1869,7 +1867,6 @@ class CompiledResponses:
     (<ResponseStage.KERR: 'kerr'>, <ResponseStage.ACCUMULATE: 'accumulate'>)
     """
 
-    response_order: tuple[ResponseStage, ...]
     kerr_coefficients: KerrCoefficients | None
     ionisation_table: tuple[RateTable, ...]
     plasma_channels: tuple[PlasmaChannel, ...]
@@ -1930,6 +1927,34 @@ class CompiledResponses:
                 "both absent; the two absorber schemes need one axis each"
             )
             raise TranslationError(msg)
+
+    @property
+    def response_order(self) -> tuple[ResponseStage, ...]:  # numpydoc ignore=RT01
+        """The fused-pass sequence the compiled leaves imply, in execution order.
+
+        Derived rather than stored, so that a stage is never named without its leaf nor
+        a leaf held without its stage; it always ends in ``ACCUMULATE``.
+        """
+        envelope = self.envelope_plasma is not None
+        stages: list[ResponseStage] = []
+        if envelope:
+            stages += [
+                ResponseStage.ENVELOPE_CYCLE,
+                ResponseStage.ENVELOPE_POPULATION,
+                ResponseStage.ENVELOPE_SOURCES,
+            ]
+        elif self.ionisation_table:
+            stages += [ResponseStage.INTENSITY, ResponseStage.IONISATION_RATE]
+        if self.plasma_channels:
+            stages += [ResponseStage.PLASMA_SCAN, ResponseStage.PLASMA_CURRENT]
+        if self.kerr_coefficients is not None:
+            stages.append(ResponseStage.KERR)
+        if self.dispersive_kerr is not None:
+            stages.append(ResponseStage.DISPERSIVE_KERR)
+        if self.raman_terms:
+            stages.append(ResponseStage.RAMAN_DRIVE)
+        stages.append(ResponseStage.ACCUMULATE)
+        return tuple(stages)
 
     @property
     def harmonic_carrier(self) -> bool:  # numpydoc ignore=RT01
@@ -3057,26 +3082,6 @@ def compile_responses(
         )
     )
     compiled = CompiledResponses(
-        response_order=_response_order(
-            bool(kerr),
-            bool(tables) and not envelope,
-            bool(compiled_plasma),
-            bool(raman),
-            has_dispersive=compiled_dispersive is not None,
-        )
-        if not envelope
-        else (
-            ResponseStage.ENVELOPE_CYCLE,
-            ResponseStage.ENVELOPE_POPULATION,
-            ResponseStage.ENVELOPE_SOURCES,
-            *_response_order(
-                bool(kerr),
-                False,
-                False,
-                bool(raman),
-                has_dispersive=compiled_dispersive is not None,
-            ),
-        ),
         kerr_coefficients=compiled_kerr,
         ionisation_table=tables,
         plasma_channels=compiled_plasma,
@@ -3295,33 +3300,6 @@ def _readonly(values: np.ndarray) -> np.ndarray:
     frozen = np.ascontiguousarray(values)
     frozen.setflags(write=False)
     return frozen
-
-
-def _response_order(
-    has_kerr: bool,
-    has_ionisation: bool,
-    has_plasma: bool,
-    has_raman: bool,
-    *,
-    has_dispersive: bool = False,
-) -> tuple[ResponseStage, ...]:
-    """Return the fused-pass sequence the declared content implies.
-
-    - Returns: the stages in execution order, always ending in ``ACCUMULATE``.
-    """
-    stages: list[ResponseStage] = []
-    if has_ionisation:
-        stages += [ResponseStage.INTENSITY, ResponseStage.IONISATION_RATE]
-    if has_plasma:
-        stages += [ResponseStage.PLASMA_SCAN, ResponseStage.PLASMA_CURRENT]
-    if has_kerr:
-        stages.append(ResponseStage.KERR)
-    if has_dispersive:
-        stages.append(ResponseStage.DISPERSIVE_KERR)
-    if has_raman:
-        stages.append(ResponseStage.RAMAN_DRIVE)
-    stages.append(ResponseStage.ACCUMULATE)
-    return tuple(stages)
 
 
 def raman_coefficients(

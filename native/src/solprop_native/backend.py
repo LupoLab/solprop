@@ -115,7 +115,6 @@ from solprop.translate.problem import (
     StepperSettings,
     validate_run,
 )
-from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.routes import (
     GeneralRoute,
     ModalRoute,
@@ -2953,41 +2952,8 @@ def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None
     )
 
 
-def _refuse_omitted_stages(responses: CompiledResponses) -> None:
-    """Refuse a ``response_order`` that leaves out a response the problem holds.
-
-    Native takes each response from its own leaves and doesn't read the order, so an
-    omitted stage would still run. The translation never produces this; a hand-built
-    problem can, and ``numpy_ref``, which reads the order, would run it without.
-    """
-    envelope = responses.envelope_plasma is not None
-    held = {
-        ResponseStage.KERR: responses.kerr_coefficients is not None,
-        ResponseStage.DISPERSIVE_KERR: responses.dispersive_kerr is not None,
-        ResponseStage.RAMAN_DRIVE: bool(responses.raman_terms),
-        ResponseStage.IONISATION_RATE: bool(responses.ionisation_table)
-        and not envelope,
-        ResponseStage.PLASMA_SCAN: bool(responses.plasma_channels) and not envelope,
-        ResponseStage.PLASMA_CURRENT: bool(responses.plasma_channels) and not envelope,
-        ResponseStage.ENVELOPE_POPULATION: envelope,
-    }
-    omitted = [
-        stage.value
-        for stage, present in held.items()
-        if present and stage not in responses.response_order
-    ]
-    if omitted:
-        raise BackendError(
-            f"response_order omits {', '.join(omitted)}, whose responses the problem "
-            "holds; solprop-native takes each response from its own leaves and would "
-            "run it anyway. Remove the response too, or use backend='numpy_ref', which "
-            "follows the order"
-        )
-
-
 def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_unknown_method(stepper)
-    _refuse_omitted_stages(problem.responses)
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before
     # anything is allocated: every route of the union but the modal route's TDSE
     # extension, which is the reference's alone.

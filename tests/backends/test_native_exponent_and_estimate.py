@@ -49,7 +49,6 @@ def test_a_separable_exponent_is_the_host_volume():
         problem,
         responses=dataclasses.replace(
             problem.responses,
-            response_order=problem.responses.response_order[-1:],
             kerr_coefficients=None,
             # No collar at all: a split one would act after the exponent's own step.
             temporal_absorber=None,

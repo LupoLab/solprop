@@ -592,7 +592,6 @@ def test_one_rate_without_the_other_is_refused(envelope_grid, mode):
     compiled = compile_for(envelope_grid, mode, absorber=absorber(envelope_grid))
     with pytest.raises(TranslationError, match="must both be present"):
         CompiledResponses(
-            response_order=compiled.response_order,
             kerr_coefficients=None,
             ionisation_table=(),
             plasma_channels=(),
@@ -612,7 +611,6 @@ def test_a_prefactor_representation_without_its_member_is_refused(envelope_grid,
     compiled = compile_for(envelope_grid, mode)
     with pytest.raises(TranslationError, match="prefactor_expansion must be present"):
         CompiledResponses(
-            response_order=compiled.response_order,
             kerr_coefficients=None,
             ionisation_table=(),
             plasma_channels=(),
@@ -664,7 +662,6 @@ def test_a_constant_prefactor_of_the_wrong_shape_is_refused(envelope_grid, mode)
     compiled = compile_for(envelope_grid, mode)
     with pytest.raises(TranslationError, match="prefactor_constant has shape"):
         CompiledResponses(
-            response_order=compiled.response_order,
             kerr_coefficients=None,
             ionisation_table=(),
             plasma_channels=(),
@@ -973,7 +970,6 @@ def test_a_prefactor_table_without_its_kind_is_refused(envelope_grid, mode):
     compiled = compile_for(envelope_grid, mode)
     with pytest.raises(TranslationError, match="prefactor must be present"):
         CompiledResponses(
-            response_order=compiled.response_order,
             kerr_coefficients=None,
             ionisation_table=(),
             plasma_channels=(),

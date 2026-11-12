@@ -73,7 +73,6 @@ def test_envelope_plasma_contract_fields_are_frozen():
             "ionisation_potential",
         ),
         CompiledResponses: (
-            "response_order",
             "kerr_coefficients",
             "ionisation_table",
             "plasma_channels",

@@ -431,7 +431,6 @@ def linear_cartesian(mode: str):
             problem,
             responses=dataclasses.replace(
                 problem.responses,
-                response_order=problem.responses.response_order[-1:],
                 kerr_coefficients=None,
             ),
         ),

@@ -26,6 +26,7 @@ from solprop.modes import ModeCollection, PlanarGrid, gaussian_coupling
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import gamma3
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.responses import RunningIntegral
 
 RADIUS_Y = 1e-3
 """Half-width of the periodic y window, m."""
@@ -144,3 +145,20 @@ def planar_case(name, *, steps=None):
             problem, initial=dataclasses.replace(problem.initial, field0=field0)
         )
     return grid, space, problem, planar._run_request()
+
+
+def linear_responses(responses):
+    """Return the compiled responses with every response removed: a linear problem.
+
+    The order is derived from the leaves, so removing them removes their stages too.
+    """
+    return dataclasses.replace(
+        responses,
+        kerr_coefficients=None,
+        ionisation_table=(),
+        plasma_channels=(),
+        raman_terms=(),
+        dispersive_kerr=None,
+        envelope_plasma=None,
+        plasma_integral=RunningIntegral.trapezoid(),
+    )

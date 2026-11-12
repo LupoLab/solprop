@@ -60,7 +60,6 @@ from solprop.translate.linop import delta_phi, profile_table
 from solprop.translate.problem import assemble
 from solprop.translate.responses import (
     PlasmaCoefficients,
-    ResponseStage,
     prefactor_at,
 )
 
@@ -581,54 +580,6 @@ def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_gri
 
 
 # ------------------------------------------------- guards on an inconsistent order
-
-
-@pytest.mark.parametrize(
-    ("field", "named"),
-    [
-        ("kerr_coefficients", "Kerr stage"),
-        ("plasma_channels", "plasma stage"),
-        ("ionisation_table", "ionisation stage"),
-    ],
-)
-def test_a_stage_without_its_coefficients_is_refused(ionising_capillary, field, named):
-    """`response_order` and the coefficients come from one compiler and can only
-    disagree in a hand-built or stale problem; the pass says which is missing rather
-    than reading a ``None``."""
-    problem, _, _, _ = ionising_capillary()
-    responses = dataclasses.replace(problem.responses)
-    object.__setattr__(responses, field, None if field == "kerr_coefficients" else ())
-    with pytest.raises(BackendError, match=named):
-        passes.nonlinear_polarisation(
-            np.zeros((1, 1, problem.grids.n_to)),
-            responses,
-            problem.grids.t_window_fine,
-            kind="field",
-            density=1.0,
-            preionisation=0.0,
-            dt=problem.grids.dt_fine,
-        )
-
-
-def test_a_plasma_stage_out_of_sequence_is_refused(ionising_capillary):
-    """The current cannot run before the scan that feeds it."""
-    problem, _, _, _ = ionising_capillary()
-    responses = dataclasses.replace(problem.responses)
-    object.__setattr__(
-        responses,
-        "response_order",
-        (ResponseStage.PLASMA_CURRENT, ResponseStage.ACCUMULATE),
-    )
-    with pytest.raises(BackendError, match="out of sequence"):
-        passes.nonlinear_polarisation(
-            np.zeros((1, 1, problem.grids.n_to)),
-            responses,
-            problem.grids.t_window_fine,
-            kind="field",
-            density=1.0,
-            preionisation=0.0,
-            dt=problem.grids.dt_fine,
-        )
 
 
 def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(

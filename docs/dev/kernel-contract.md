@@ -720,9 +720,13 @@ sqrt(A_eff(0)/A_eff(z))`, which for a scale-invariant mode is the `a(0)/a(z)` of
 
 ## 5. Responses (the compiled nonlinear term)
 
+The fused-pass sequence, `response_order` (e.g. `intensity, ionisation_rate,
+plasma_scan, plasma_current, kerr, raman_drive, accumulate`), is not a field: it is
+derived from the leaves below, so a stage is never named without its leaf nor a leaf
+held without its stage.
+
 | field | shape / dtype | meaning |
 |---|---|---|
-| `response_order` | tuple of enum | the fused-pass sequence (e.g. `intensity, ionisation_rate, plasma_scan, plasma_current, kerr, raman_drive, accumulate`) |
 | `kerr_coefficients` | frozen dataclass | `chi3`-derived coefficients with the transform normalisation folded in; THG flag; vector cross-term factors |
 | `dispersive_kerr` | `DispersiveKerrTerms` or `None` | the frequency-dependent electronic response, a leaf described below: one channel per population with its own fine-grid multipliers and density table, `None` without one |
 | `ionisation_table` | tuple of `RateTable` | rate tables in plasma-channel order, identical to each channel's `rate`; empty without a plasma response |

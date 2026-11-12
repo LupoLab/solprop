@@ -15,7 +15,7 @@ import math
 import numpy as np
 import pytest
 
-from backends.planar_cases import planar_case
+from backends.planar_cases import linear_responses, planar_case
 from bounds import gamma, step_evaluations
 from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -96,17 +96,12 @@ def relative(actual, expected):
 def test_the_responses_are_exercised(name):
     """The parity runs are nonlinear: native departs from the reference's linear run.
 
-    The retired test removed the responses from ``response_order`` and ran the same
-    compiled backend. Native does not read that order for its Kerr term (its payload
-    takes ``kerr_coefficients``, and its other responses their own leaves), so the
-    linear run here is the reference's, which does.
+    The linear run is the reference's, with every response removed.
     """
     grid, space, problem, run_request = planar_case(name)
     linear = dataclasses.replace(
         problem,
-        responses=dataclasses.replace(
-            problem.responses, response_order=problem.responses.response_order[:1]
-        ),
+        responses=linear_responses(problem.responses),
     )
     steps = run_request.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound(name, grid, space, problem, run_request, steps, grid.length)
@@ -127,8 +122,6 @@ def test_a_linear_run_with_the_collar_split_off_is_the_reference_s():
         problem,
         responses=dataclasses.replace(
             problem.responses,
-            response_order=problem.responses.response_order[-1:],
-            # Native's payload reads the coefficients, not the order.
             kerr_coefficients=None,
             absorber_scheme="split_step",
         ),

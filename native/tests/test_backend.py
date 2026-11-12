@@ -331,26 +331,17 @@ def test_the_record_names_the_low_storage_march_s_flows(
         backend.close()
 
 
-def test_an_order_that_omits_a_held_response_is_refused(
+def test_a_problem_without_its_responses_is_linear_and_admitted(
     phase_a_case: PhaseACase,
 ) -> None:
-    # Native reads each response's own leaf, not the order, so the omitted Kerr term
-    # would still run. Removing the response as well is a consistent, linear problem.
+    # The response order is derived from the leaves, so removing the Kerr leaf
+    # removes its stage too: a consistent, linear problem.
     problem, run_request, grid = phase_a_case
-    responses = problem.responses
-    accumulate_only = responses.response_order[-1:]
-    omitted = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(responses, response_order=accumulate_only),
-    )
-    with pytest.raises(BackendError, match="response_order omits kerr"):
-        NativeBackend(omitted, run_request, grid=grid)
     linear = dataclasses.replace(
         problem,
-        responses=dataclasses.replace(
-            responses, response_order=accumulate_only, kerr_coefficients=None
-        ),
+        responses=dataclasses.replace(problem.responses, kerr_coefficients=None),
     )
+    assert len(linear.responses.response_order) == 1
     NativeBackend(linear, run_request, grid=grid).close()
 
 

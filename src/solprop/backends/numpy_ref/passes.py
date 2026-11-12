@@ -1648,19 +1648,16 @@ def _magnitude(
 
 
 def _kerr(responses: CompiledResponses) -> KerrCoefficients:
-    """Return the compiled Kerr coefficients a declared Kerr stage promised."""
-    if responses.kerr_coefficients is None:
-        msg = "response_order names the Kerr stage but no coefficients were compiled"
-        raise BackendError(msg)
+    """Return the compiled Kerr coefficients, which the Kerr stage implies."""
+    assert responses.kerr_coefficients is not None
     return responses.kerr_coefficients
 
 
 def _plasma(responses: CompiledResponses) -> PlasmaCoefficients:
-    """Return the compiled plasma group a declared plasma stage promised."""
-    if responses.plasma_coefficients is None:
-        msg = "response_order names a plasma stage but no coefficients were compiled"
-        raise BackendError(msg)
-    return responses.plasma_coefficients
+    """Return the compiled plasma group, which a plasma stage implies."""
+    plasma = responses.plasma_coefficients
+    assert plasma is not None
+    return plasma
 
 
 def _raman_thg(responses: CompiledResponses) -> bool:
@@ -1671,20 +1668,13 @@ def _raman_thg(responses: CompiledResponses) -> bool:
     Kerr and Raman responses agree about it on a field grid, refused a field-grid Raman
     with no Kerr beside it, and a backend read the answer off the Kerr term's own flag.
     Both refusals stand -- they are what makes the agreement true -- but the answer is
-    now carried, so it is read where it belongs. An envelope grid's drive is ``|A|^2/2``
+    now carried, so it is read where it belongs: the stage runs exactly when the leaf is
+    present. An envelope grid's drive is ``|A|^2/2``
     whatever it says, which is why the value is not checked there.
 
     - Returns: True when the drive is ``E^2`` rather than ``|E_a|^2/2``.
     """
-    compiled = responses.raman_terms
-    if not compiled:
-        msg = (
-            "the fused pass reached the raman_drive stage with no "
-            "responses.raman_coefficients; the stage is in response_order exactly when "
-            "the leaf is present"
-        )
-        raise BackendError(msg)
-    return compiled[0].thg
+    return responses.raman_terms[0].thg
 
 
 def _raman(
@@ -1702,20 +1692,12 @@ def _raman(
 
 def _plasma_rate(responses: CompiledResponses) -> RateTable:
     """Return the rate table the ionisation stage reads."""
-    if len(responses.ionisation_table) != 1:
-        msg = "response_order names the ionisation stage but no rate table was compiled"
-        raise BackendError(msg)
     return responses.ionisation_table[0]
 
 
 def _checked[T](value: T | None) -> T:
-    """Return a stage result the compiled order guarantees is present."""
-    if value is None:
-        msg = (
-            "a plasma stage ran before the one that feeds it; response_order is out of "
-            "sequence"
-        )
-        raise BackendError(msg)
+    """Return a stage result the derived order guarantees is present."""
+    assert value is not None
     return value
 
 
