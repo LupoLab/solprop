@@ -967,11 +967,24 @@ def test_a_frozen_copy_leaves_the_caller_s_array_writeable():
     assert frozen[0, 0] == 0.0
 
 
-def test_a_frozen_array_is_taken_as_it_stands():
-    held = np.arange(4.0)
-    held.setflags(write=False)
+def test_a_held_array_and_a_view_of_it_are_taken_as_they_stand():
+    held = chebyshev._hold(np.arange(4.0))
     assert chebyshev._frozen_copy(held) is held
     assert chebyshev._frozen_copy(held, np.float64) is held
+    view = held[1:]
+    assert chebyshev._frozen_copy(view) is view
+
+
+def test_a_caller_s_read_only_array_is_copied_all_the_same():
+    # Its owner can make it writeable again, and a held array must not change.
+    mine = np.arange(3.0)
+    mine.setflags(write=False)
+    frozen = chebyshev._frozen_copy(mine)
+    assert frozen is not mine
+    mine.setflags(write=True)
+    mine[0] = 9.0
+    assert frozen[0] == 0.0
+    assert chebyshev._frozen_copy(frozen) is frozen
 
 
 def test_a_read_only_view_of_a_writeable_array_is_copied():

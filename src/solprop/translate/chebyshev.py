@@ -20,6 +20,7 @@ import functools
 import itertools
 import logging
 import math
+import weakref
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -2018,19 +2019,77 @@ def trim_axis(
     return np.moveaxis(_trim(np.moveaxis(coefficients, axis, 0)), 0, axis)
 
 
+_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
+"""The arrays the translation layer froze as its own, by ``id``.
+
+An array is in it because solprop made it -- a copy :func:`_frozen_copy` took, or one
+the translation built (:func:`_hold`) -- never because of its flags, which the owner of
+an array, or a writeable buffer beneath it, can change. Entries leave with their
+arrays.
+"""
+
+
+def _hold(values: np.ndarray) -> np.ndarray:
+    """Freeze an array solprop has just made, in place, and mark it as held.
+
+    Only for an array no one else refers to: a copy, a quotient or a fresh build. It
+    costs no copy, and :func:`_frozen_copy` takes the array, or a view of it, as it
+    stands.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+
+    Returns
+    -------
+    numpy.ndarray
+        The same array, read-only.
+    """
+    values.setflags(write=False)
+    _HELD[id(values)] = values
+    return values
+
+
+def _is_held(values: object) -> bool:
+    """Return whether an array is read-only down to an array :func:`_hold` marked.
+
+    A read-only view of a held array cannot be made writeable, so it is held too. A
+    read-only array that is not held is not, however it was frozen: whoever owns it
+    can make it writeable again.
+
+    Parameters
+    ----------
+    values : object
+        Anything.
+
+    Returns
+    -------
+    bool
+        True for a held array, or a read-only view of one, while it is read-only.
+    """
+    array = values
+    while isinstance(array, np.ndarray) and not array.flags.writeable:
+        if _HELD.get(id(array)) is array:
+            return True
+        array = array.base
+    return False
+
+
 def _frozen_copy(
     values: ArrayLike, dtype: np.dtype | type[np.generic] | None = None
 ) -> np.ndarray:
-    """Return the values read-only and C-contiguous, sharing no writeable memory.
+    """Return the values read-only and C-contiguous, as an array solprop holds.
 
     Every array that crosses the seam is read-only, and the translation layer freezes
-    its tables with this one helper. It copies, so that freezing never reaches an
-    array the caller still holds: ``numpy.ascontiguousarray`` returns its argument
-    itself when that is already contiguous and of the dtype asked for, so clearing
-    the write flag on what it returns would freeze the caller's own array. An array
-    that is already read-only, and read-only all the way down to the memory it views,
-    is returned as it stands, so a table frozen once is not copied again each time it
-    is handed on.
+    what a caller hands it with this one helper. It copies, so that freezing never
+    reaches an array the caller still holds: ``numpy.ascontiguousarray`` returns its
+    argument itself when that is already contiguous and of the dtype asked for, so
+    clearing the write flag on what it returns would freeze the caller's own array,
+    and a caller's read-only array can be made writeable again by its owner. Only an
+    array solprop already holds (:func:`_is_held`) is returned as it stands, so a
+    table frozen once is not copied again each time it is handed on. An array the
+    translation has just built takes :func:`_hold` instead, which copies nothing.
 
     It lives here because this module is the root of the translation layer's imports:
     every module that freezes a table can import it without a cycle, and the
@@ -2046,9 +2105,8 @@ def _frozen_copy(
     Returns
     -------
     numpy.ndarray
-        The same values and shape, C-contiguous and not writeable: `values` itself when
-        it already is all of that, with `dtype`, and no writeable array lies beneath
-        it; otherwise a new copy.
+        The same values and shape, C-contiguous, not writeable and held: `values`
+        itself when it is already all of that, with `dtype`; otherwise a new copy.
 
     Examples
     --------
@@ -2065,34 +2123,7 @@ def _frozen_copy(
         isinstance(values, np.ndarray)
         and (dtype is None or values.dtype == dtype)
         and values.flags.c_contiguous
-        and not _writeable_beneath(values)
+        and _is_held(values)
     ):
         return values
-    frozen = np.array(values, dtype=dtype, order="C", copy=True)
-    frozen.setflags(write=False)
-    return frozen
-
-
-def _writeable_beneath(values: np.ndarray) -> bool:
-    """Return whether an array, or any array whose memory it views, can be written.
-
-    A read-only view of a writeable array still changes when that array is written,
-    so its own flag is not enough. A base that is not an array (a buffer of another
-    kind) is counted as writeable, since its flags cannot be read here.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    bool
-        True when `values` or anything beneath it may be written.
-    """
-    array: object = values
-    while isinstance(array, np.ndarray):
-        if array.flags.writeable:
-            return True
-        array = array.base
-    return array is not None
+    return _hold(np.array(values, dtype=dtype, order="C", copy=True))

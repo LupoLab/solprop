@@ -32,7 +32,6 @@ import json
 import logging
 import math
 import warnings
-import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import ROUND_FLOOR, Decimal
@@ -101,7 +100,13 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5, Tableau, continuous_extension
-from solprop.translate.chebyshev import DEFAULT_TOL, PiecewiseChebyshev, _frozen_copy
+from solprop.translate.chebyshev import (
+    DEFAULT_TOL,
+    PiecewiseChebyshev,
+    _frozen_copy,
+    _hold,
+    _is_held,
+)
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     CoupledFlowTables,
@@ -784,52 +789,6 @@ class _RunPolicy(NamedTuple):
 
     stepper: StepperSettings
     stats: StatsSpec
-
-
-_HELD: weakref.WeakValueDictionary[int, np.ndarray] = weakref.WeakValueDictionary()
-"""The arrays an :class:`Initial` holds as its own, by ``id``.
-
-An array is in it because solprop made it -- a copy :class:`Initial` took, or one the
-translation built for the problem (:func:`_hold`) -- never because of its flags, which
-the owner of an array, or a writeable buffer beneath it, can change. Entries leave with
-their arrays.
-"""
-
-
-def _hold(values: np.ndarray) -> np.ndarray:
-    """Return an array solprop made for a problem, frozen and marked as held.
-
-    Only for an array no one else refers to: a copy, a quotient or a fresh build.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same array, read-only, which :class:`Initial` takes without a copy.
-    """
-    values.setflags(write=False)
-    _HELD[id(values)] = values
-    return values
-
-
-def _is_held(values: object) -> bool:
-    """Return whether an array is one :func:`_hold` marked.
-
-    Parameters
-    ----------
-    values : object
-        Anything.
-
-    Returns
-    -------
-    bool
-        True for the very array that was marked, while it lives.
-    """
-    return _HELD.get(id(values)) is values
 
 
 def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:

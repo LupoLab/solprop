@@ -299,6 +299,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
+from solprop.translate.chebyshev import _hold
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
     metric_at,
@@ -342,7 +343,6 @@ from solprop.translate.problem import (
     TranslationReuse,
     _held_block,
     _held_state,
-    _hold,
     _state,
     assemble,
 )
