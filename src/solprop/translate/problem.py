@@ -525,7 +525,7 @@ class Initial:
         state = _held_state(self.field0)
         object.__setattr__(self, "field0", state)
         if self.noise0 is not None:
-            noise = _held_copy(self.noise0, np.complex128)
+            noise = frozen_copy(self.noise0, np.complex128)
             object.__setattr__(self, "noise0", noise)
             if noise.shape != state.shape:
                 msg = (
@@ -789,28 +789,8 @@ class _RunPolicy(NamedTuple):
     stats: StatsSpec
 
 
-def _held_copy(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held, C-contiguous copy of an array, or the array if already held.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The caller's array, or one already held.
-    dtype : numpy.dtype or type
-        The element type of the copy, byte order included.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only and the problem's own, of `dtype`.
-    """
-    if is_held(values) and values.dtype == dtype:
-        return values
-    return hold(np.array(values, dtype=dtype, order="C"))
-
-
 def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.ndarray:
-    """Return a held copy of an array of `dtype`, a broadcast copying its block alone.
+    """Return an array as solprop holds it, a broadcast copying its block alone.
 
     Parameters
     ----------
@@ -822,22 +802,24 @@ def _held_block(values: np.ndarray, dtype: np.dtype | type[np.generic]) -> np.nd
     Returns
     -------
     numpy.ndarray
-        Read-only, of `dtype`: `values` itself when it is already held with that
-        dtype; for a broadcast view, a broadcast of a held copy of the block it
-        repeats; otherwise a held C-contiguous copy.
+        Read-only, held and of `dtype`: for a broadcast view, a broadcast of the
+        block it repeats, which is copied unless already held and C-contiguous;
+        otherwise :func:`~solprop._ownership.frozen_copy` of `values`, so a strided
+        view is copied to a C-contiguous array even when it views a held one.
     """
-    if is_held(values) and values.dtype == dtype:
-        return values
     repeated = tuple(
         size > 1 and stride == 0
         for size, stride in zip(values.shape, values.strides, strict=True)
     )
     if not any(repeated):
-        return _held_copy(values, dtype)
-    block = _held_copy(
-        values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)], dtype
-    )
-    return hold(np.broadcast_to(block, values.shape))
+        return frozen_copy(values, dtype)
+    sliced = values[tuple(slice(0, 1) if axis else slice(None) for axis in repeated)]
+    block = frozen_copy(sliced, dtype)
+    if block is sliced and is_held(values):
+        # Already a broadcast of a held block: taken back as it is.
+        return values
+    # A read-only view of a held block, so itself held.
+    return np.broadcast_to(block, values.shape)
 
 
 def _held_state(field0: Num[np.ndarray, "*shape"]) -> Complex[np.ndarray, "*shape"]:
