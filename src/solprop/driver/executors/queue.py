@@ -24,6 +24,7 @@ from typing import cast
 import h5py
 import numpy as np
 
+from solprop._durable import sync_directory
 from solprop.driver._scan_model import Scan, ScanPoint
 from solprop.driver.executors._queue_state import (
     atomic_json,
@@ -33,7 +34,6 @@ from solprop.driver.executors._queue_state import (
     owner,
     read_json,
     state,
-    sync_directory,
 )
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import Pool

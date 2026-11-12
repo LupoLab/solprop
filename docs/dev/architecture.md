@@ -244,7 +244,9 @@ module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
 any layer and importing none. So is `_identity.py`: the canonical JSON text of a record
 and its SHA-256, which every stored identity is (a run's resume key, a scan's common
-record, a coupling plane's basis, a TDSE basis or descriptor, a material population).
+record, a coupling plane's basis, a TDSE basis or descriptor, a material population),
+and `_durable.py`: a small file replaced whole, which the scan queue's state, the front
+end's run records and the TDSE consistency cache are written with.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy

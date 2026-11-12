@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from solprop import _durable
 from solprop.backends.session import StopToken
 from solprop.service import record
 from solprop.service.messages import Event, ServiceError
@@ -235,7 +236,7 @@ def test_a_summary_held_open_is_replaced_once_let_go(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "replace", held)
     write_json(tmp_path / "s.json", {"a": 1})
     assert read_status(tmp_path) is None and (tmp_path / "s.json").exists()
-    monkeypatch.setattr(record, "REPLACE_TRIES", 2)
+    monkeypatch.setattr(_durable, "REPLACE_TRIES", 2)
     refusals = iter([True, True])
     with pytest.raises(PermissionError):
         write_json(tmp_path / "t.json", {"a": 1})

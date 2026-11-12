@@ -30,7 +30,6 @@ import contextlib
 import os
 import queue
 import socket
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -38,6 +37,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from solprop._durable import write_atomic
 from solprop._process import process_stamp
 from solprop.service.frames import encode, split_frames
 from solprop.service.messages import TERMINAL, Event, ServiceError
@@ -89,9 +89,6 @@ RECORD_PROGRESS_PERIOD: Final = 2.0
 HEARTBEAT: Final = 30.0
 """The longest time between two rewrites of a living run's summary, s."""
 
-REPLACE_TRIES: Final = 50
-"""How many times a small file is put in place while a reader holds it (Windows)."""
-
 STOP_PERIOD: Final = 0.25
 """How often a run looks for its stop file, s."""
 
@@ -111,28 +108,7 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
     """
     import json  # noqa: PLC0415 - light, and only here
 
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=1, sort_keys=True)
-            stream.flush()
-            os.fsync(stream.fileno())
-        # Windows refuses to replace a file another process has open (a reader of
-        # the summary): try again for a moment rather than leave it stale.
-        left = REPLACE_TRIES
-        while True:
-            try:
-                temporary.replace(path)
-            except PermissionError:
-                left -= 1
-                if not left:
-                    raise
-                time.sleep(0.02)
-            else:
-                return
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_atomic(path, json.dumps(value, indent=1, sort_keys=True))
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
