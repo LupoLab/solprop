@@ -397,8 +397,8 @@ solprop runs a line, and those threads spin for about 0.1 s before they sleep. O
 time, against 0.75 in 0.67 with `OPENBLAS_THREAD_TIMEOUT=20`, which makes idle threads
 sleep after about 0.4 ms of spinning and changes no width. A Python process solprop
 starts itself takes `OPENBLAS_THREAD_TIMEOUT=20` unless the variable is already set: a
-run started from the window (directly or as a Slurm job), the window's kernel, and
-`Pool` workers. Your own script loads NumPy first, so set it yourself if CPU time on a
+run started from the window (directly or as a Slurm job), the window's kernel,
+`Pool` workers and a `Slurm` scan's controllers. Your own script loads NumPy first, so set it yourself if CPU time on a
 shared machine matters, before Python starts:
 
 ```sh

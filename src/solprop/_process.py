@@ -24,6 +24,7 @@ import functools
 import itertools
 import os
 import platform
+import shlex
 import sys
 import threading
 import warnings
@@ -53,6 +54,16 @@ it is safe where a load-time width is not (:data:`LOAD_TIME_BLAS_VARIABLES`). At
 fast as at the default, and 11 % slower at ``2**4``. Only a process started fresh
 can take it: OpenBLAS reads it once, when it loads."""
 
+THREAD_VARIABLES = (
+    "SOLPROP_THREADS",
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+)
+"""The variables that size a process's thread pools: solprop's budget, then the OpenMP
+and BLAS widths a scan's worker processes are started with."""
+
 _BLAS_LOCK = threading.RLock()
 _BLAS_USERS: set[object] = set()
 _BLAS_LIMITS = contextlib.ExitStack()
@@ -67,6 +78,36 @@ def child_environment(base: Mapping[str, str]) -> dict[str, str]:
     - ``base``: the environment the process would otherwise take.
     """
     return {**BLAS_IDLE_DEFAULTS, **base}
+
+
+def batch_script(
+    directives: Mapping[str, str | None],
+    body: Sequence[str],
+    *,
+    site: Sequence[str] = (),
+) -> str:
+    """Return a Slurm batch script whose Python is a process solprop starts.
+
+    The ``#SBATCH`` directives come first, each value quoted for the shell and one
+    without a value left out, then the `site`'s own lines (further directives, module
+    loads), then :data:`BLAS_IDLE_DEFAULTS` where the job's environment sets none of
+    them (solprop issue #383), then `body`.
+    """
+    lines = [
+        "#!/usr/bin/env bash",
+        *(
+            f"#SBATCH --{key}={shlex.quote(value)}"
+            for key, value in directives.items()
+            if value
+        ),
+        *site,
+        *(
+            f"export {name}=${{{name}:-{value}}}"
+            for name, value in BLAS_IDLE_DEFAULTS.items()
+        ),
+        *body,
+    ]
+    return "\n".join(lines) + "\n"
 
 
 _ENVIRONMENT_LOCK = threading.Lock()

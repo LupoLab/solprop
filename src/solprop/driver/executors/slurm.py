@@ -17,9 +17,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from solprop._process import THREAD_VARIABLES, batch_script
 from solprop.driver.executors._queue_state import atomic_json
 from solprop.driver.executors._request import ScanRequest
-from solprop.driver.executors.pool import _THREAD_VARIABLES, Pool
+from solprop.driver.executors.pool import Pool
 from solprop.driver.executors.queue import Queue
 from solprop.exceptions import DriverError
 
@@ -184,17 +185,10 @@ class Slurm:
             "cpus-per-task": str(self.cpus_per_task),
             "mem": self.mem,
             "time": self.time,
+            "partition": self.partition,
+            "gres": self.gres,
         }
-        if self.partition is not None:
-            directives["partition"] = self.partition
-        if self.gres is not None:
-            directives["gres"] = self.gres
         lines = [
-            "#!/usr/bin/env bash",
-            *[
-                f"#SBATCH --{key}={shlex.quote(value)}"
-                for key, value in directives.items()
-            ],
             "set -euo pipefail",
             f"cd -- {shlex.quote(str(directory))}",
             ': "${SLURM_ARRAY_TASK_ID:?set the Slurm array task ID}"',
@@ -237,7 +231,7 @@ class Slurm:
             lines.append('    export CUDA_VISIBLE_DEVICES="${devices[$instance]}"')
         # Each instance's controller keeps its whole share: SOLPROP_THREADS is the
         # budget its Pool workers are each spawned with, not the controller's own.
-        for variable in _THREAD_VARIABLES:
+        for variable in THREAD_VARIABLES:
             if variable != "SOLPROP_THREADS":
                 lines.append(f"    export {variable}={self.threads}")
         lines.append("    export SOLPROP_NATIVE_WAIT_REQUEST=passive")
@@ -275,7 +269,7 @@ class Slurm:
             "done",
             'exit "$status"',
         ]
-        return "\n".join(lines) + "\n"
+        return batch_script(directives, lines)
 
     def submit(self, destination: Path | str | None = None) -> str:
         """Write the script and submit it with sbatch.
