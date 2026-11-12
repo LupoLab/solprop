@@ -8,7 +8,9 @@ Each case runs three ways through the backend's session, interleaved round by ro
 ``plain`` (no periodic statistics), ``stashed`` (the electron density's plasma stash
 alone) and ``watched`` (every periodic row). The JSON line reports what the channel and
 its collection cost per step and per row. ``m2_reduced`` is the two-mode helium RDW
-capillary below; ``ctc_reduced`` is the registry's case of that name::
+capillary and ``ctc_reduced`` the one-mode hydrogen comb-to-continuum capillary below,
+both at rtol 1e-6 and atol 1e-10: the workloads of the native package's former
+``statistics_cost`` harness, reproduced exactly::
 
     python -m benchmarks.statistics_cost --case m2_reduced --repeats 5
 """
@@ -26,7 +28,6 @@ from typing import TypedDict
 
 import numpy as np
 
-from benchmarks.builders import capillary, variant
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -62,6 +63,22 @@ M2_REDUCED = {
 """The reduced resonant-dispersive-wave capillary: the ``rdw`` case's 7.5 fs, 275 uJ
 pulse at 800 nm in helium, over 1 m at 1.2 bar falling to vacuum, two modes."""
 
+CTC_REDUCED = {
+    "radius": 16e-6,
+    "length": 0.1,
+    "gas": "H2",
+    "pressure": 40.0,
+    "modes": 1,
+    "wavelength": 515e-9,
+    "wavelength_limits": (250e-9, 2e-6),
+    "trange": 2e-12,
+    "fwhm": 400e-15,
+    "energy": 10e-6,
+    "n_save": 21,
+}
+"""The reduced comb-to-continuum capillary: 400 fs, 10 uJ at 515 nm in 40 bar of
+hydrogen, lossless, with Raman, over 0.1 m in one mode."""
+
 
 def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     backend_name: str,
@@ -92,7 +109,25 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         if case_name == "ctc_reduced":
-            simulation = capillary(case_name, variant({"backend": backend_name}))
+            case = CTC_REDUCED
+            simulation = Simulation.from_capillary(
+                case["radius"],
+                case["length"],
+                case["gas"],
+                case["pressure"],
+                wavelength=case["wavelength"],
+                wavelength_limits=case["wavelength_limits"],
+                trange=case["trange"],
+                fwhm=case["fwhm"],
+                energy=case["energy"],
+                modes=case["modes"],
+                loss=False,
+                raman=True,
+                n_save=case["n_save"],
+                rtol=1e-6,
+                atol=1e-10,
+                backend=backend_name,
+            )
         else:
             case = M2_REDUCED
             simulation = Simulation.from_capillary(
