@@ -743,20 +743,10 @@ def _retain(
 
 
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
-    """Refuse a field-free rule for an output that cannot hold one, before opening it.
+    """Refuse a field-free rule for an output that cannot hold one.
 
-    Parameters
-    ----------
-    output : solprop.output.schema.Output
-        The run's handler.
-    retention : solprop.output.schema.FieldRetention
-        The run's resolved rule.
-
-    Raises
-    ------
-    DriverError
-        If the rule keeps fewer than every field and the output has no ``retain``
-        (:class:`~solprop.output.schema.RetainingOutput`).
+    Checked before the output is opened. An output can hold one when it has ``retain``
+    (:class:`~solprop.output.schema.RetainingOutput`).
     """
     if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (

@@ -630,17 +630,9 @@ class _Chunk:
 
 
 def _atomic_samples(descriptor: TDSEDescriptor) -> int:
-    """Return the samples the provider integrates over: the window's or the lattice's.
+    """Return the samples the provider integrates over.
 
-    Parameters
-    ----------
-    descriptor : TDSEDescriptor
-        Admitted descriptor.
-
-    Returns
-    -------
-    int
-        Retained atomic samples.
+    The atomic window's when there is one, else the lattice's.
     """
     window = descriptor.atomic_window
     return descriptor.samples if window is None else window.samples
