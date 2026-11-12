@@ -488,6 +488,8 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
           std::size_t rest = row;
           long slot = -1;
           bool amplitude = false;
+          // Each test takes the previous range off the row before comparing.
+          // NOLINTBEGIN(bugprone-assignment-in-if-condition): a packed-row cascade
           if (rest < leading) {
             slot = layout.beam;
           } else if ((rest -= leading) < regions) {
@@ -503,6 +505,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
             slot = layout.axis;
             amplitude = true;
           }
+          // NOLINTEND(bugprone-assignment-in-if-condition)
           const auto first = static_cast<std::size_t>(slot);
           double value = 0.0;
           if (amplitude) {
