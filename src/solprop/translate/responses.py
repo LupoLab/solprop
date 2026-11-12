@@ -52,6 +52,7 @@ along z carries the array instead, in ``prefactor_constant``, and a backend take
 fast path.
 """
 
+import functools
 import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -1928,12 +1929,13 @@ class CompiledResponses:
             )
             raise TranslationError(msg)
 
-    @property
+    @functools.cached_property
     def response_order(self) -> tuple[ResponseStage, ...]:  # numpydoc ignore=RT01
         """The fused-pass sequence the compiled leaves imply, in execution order.
 
         Derived rather than stored, so that a stage is never named without its leaf nor
-        a leaf held without its stage; it always ends in ``ACCUMULATE``.
+        a leaf held without its stage; it always ends in ``ACCUMULATE``. Formed once,
+        on first reading, since every stage reads it.
         """
         envelope = self.envelope_plasma is not None
         stages: list[ResponseStage] = []
