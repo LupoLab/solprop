@@ -146,10 +146,9 @@ inline bool adds_wisdom(const std::string& planned, const std::string& stored) {
     return found;
   };
   const auto had = lines(stored);
-  for (const auto line : lines(planned))
-    if (!std::ranges::binary_search(had, line))
-      return true;
-  return false;
+  return std::ranges::any_of(lines(planned), [&had](const auto line) {
+    return !std::ranges::binary_search(had, line);
+  });
 }
 
 // Merge `text` beneath the process's wisdom: where both hold an entry, the process's
