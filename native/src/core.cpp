@@ -66,7 +66,7 @@ ExecutionSpace execution_instance(const int threads) {
 #else
   static_cast<void>(threads);
 #endif
-  return ExecutionSpace();
+  return {};
 }
 
 void require_cpu_execution(const CpuExecution& execution) {

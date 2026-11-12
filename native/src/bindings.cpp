@@ -959,7 +959,7 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
   static_cast<void>(storage.release()); // the capsule owns it now
-  return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 /** A complex array owning `storage`. */
@@ -970,7 +970,7 @@ ComplexOutput owned_complex(std::unique_ptr<ComplexStorage> storage,
     const std::unique_ptr<ComplexStorage> held(static_cast<ComplexStorage*>(value));
   });
   static_cast<void>(storage.release()); // the capsule owns it now
-  return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 /** A complex array owning `storage`, uninitialised doubles a native copy filled. */
@@ -980,8 +980,8 @@ ComplexOutput complex_buffer_output(native::crossing::HostBuffer storage,
   nb::capsule owner(pointer, [](void* value) noexcept {
     const native::crossing::HostBuffer held(static_cast<double*>(value));
   });
-  return ComplexOutput(reinterpret_cast<std::complex<double>*>(pointer), shape.size(),
-                       shape.data(), owner);
+  return {reinterpret_cast<std::complex<double>*>(pointer), shape.size(), shape.data(),
+          owner};
 }
 
 RealOutput real_output(std::vector<double> values, const std::size_t rows) {
@@ -994,7 +994,7 @@ RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   });
   static_cast<void>(storage.release()); // the capsule owns it now
   const std::array<std::size_t, 2> shape{rows, pointer->size() / rows};
-  return RealOutput(pointer->data(), shape.size(), shape.data(), owner);
+  return {pointer->data(), shape.size(), shape.data(), owner};
 }
 
 void initialize_kokkos(const int threads, const int kernels, const int fft,

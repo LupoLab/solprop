@@ -6370,7 +6370,7 @@ SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex adams_phase_sum(
     real = real + weight * fixed.real();
     imag = imag + weight * fixed.imag();
   }
-  return Complex(real, imag);
+  return {real, imag};
 }
 
 } // namespace
