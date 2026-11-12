@@ -13,14 +13,13 @@ call's configuration hash, so those comparisons are of digests and exact.
 """
 
 import json
-import subprocess
-import sys
 import textwrap
 import warnings
 
 import numpy as np
 import pytest
 
+from builders import run_python
 from recipe.test_examples import _PROBE, ENTROPY, record
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.capabilities import route
@@ -521,14 +520,7 @@ def test_the_python_export_builds_the_same_run(name, tmp_path, monkeypatch):
     script = recipe.to_python()
     path = tmp_path / f"{name}.py"
     path.write_text(_PROBE.format(entropy=ENTROPY) + script, encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
+    result = run_python(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         expected = record(recipe.build())

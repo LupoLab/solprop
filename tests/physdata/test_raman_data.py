@@ -122,24 +122,20 @@ def test_a_supplied_line_set_counts_its_lines():
     assert lines.n_lines == 2
 
 
-def test_a_line_set_with_mismatched_lengths_is_rejected():
-    with pytest.raises(MaterialError, match="same length"):
+@pytest.mark.parametrize(
+    ("frequencies", "amplitudes", "widths", "match"),
+    [
+        ((1.0, 2.0), (1.0,), (1.0, 2.0), "same length"),
+        ((), (), (), "at least one line"),
+    ],
+)
+def test_a_malformed_line_set_is_rejected(frequencies, amplitudes, widths, match):
+    with pytest.raises(MaterialError, match=match):
         IntermediateBroadeningRaman(
-            frequencies=(1.0, 2.0),
-            amplitudes=(1.0,),
-            gaussian_widths=(1.0, 2.0),
-            lorentzian_widths=(1.0, 2.0),
-            citation="test",
-        )
-
-
-def test_an_empty_line_set_is_rejected():
-    with pytest.raises(MaterialError, match="at least one line"):
-        IntermediateBroadeningRaman(
-            frequencies=(),
-            amplitudes=(),
-            gaussian_widths=(),
-            lorentzian_widths=(),
+            frequencies=frequencies,
+            amplitudes=amplitudes,
+            gaussian_widths=widths,
+            lorentzian_widths=widths,
             citation="test",
         )
 

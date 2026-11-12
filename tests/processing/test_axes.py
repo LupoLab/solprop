@@ -119,14 +119,12 @@ def test_nearest_plane_needs_a_saved_plane():
         axes._nearest_plane(MemoryOutput(), 0.0)
 
 
-def test_plane_field_refuses_a_plane_and_a_position_together(output):
-    with pytest.raises(OutputError, match="not both"):
-        axes._plane_field(output, 0, 0.0, convention="fft")
-
-
-def test_plane_field_refuses_an_index_out_of_range(output):
-    with pytest.raises(OutputError, match="out of range"):
-        axes._plane_field(output, 9, None, convention="fft")
+@pytest.mark.parametrize(
+    ("index", "z", "message"), [(0, 0.0, "not both"), (9, None, "out of range")]
+)
+def test_plane_field_refuses_a_plane_it_cannot_name(output, index, z, message):
+    with pytest.raises(OutputError, match=message):
+        axes._plane_field(output, index, z, convention="fft")
 
 
 def test_plane_field_counts_a_negative_index_from_the_end(output):

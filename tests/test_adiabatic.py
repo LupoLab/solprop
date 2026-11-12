@@ -338,6 +338,9 @@ def test_the_budgets_must_be_finite_and_positive(value):
         ([math.nan], [0.0], (0.0, 1e-3), "finite positive frequencies"),
         ([OMEGA], [-1.0], (0.0, 1e-3), "finite and >= 0"),
         ([OMEGA], [math.inf], (0.0, 1e-3), "finite and >= 0"),
+        # q^2 = k0^2 (1 + rho) - k_perp^2 changes sign when k_perp^2 sits between the
+        # two ends' k^2.
+        ([OMEGA], [0.0, K0**2 * (1 + 0.5e-3)], (0.0, 1e-3), "crosses q = 0"),
     ],
 )
 def test_the_wave_certificate_refuses_an_invalid_input(omega, kperp_sq, z_span, match):
@@ -356,22 +359,6 @@ def test_the_bounds_are_stable_for_tiny_variation():
     # tanh and expm1 keep full relative accuracy where 1 - cosh would not.
     assert reflection_bound(1e-12) == pytest.approx(1e-24, rel=4 * EPS)
     assert field_error_bound(1e-12) == pytest.approx(1e-24, rel=4 * EPS)
-
-
-def test_a_column_crossing_cutoff_refuses():
-    # q^2 = k0^2 (1 + rho) - k_perp^2 changes sign when k_perp^2 sits between the
-    # two ends' k^2.
-    path = Linear(0.0, 1e-3, 1e-3)
-    between = K0**2 * (1 + 0.5e-3)
-    with pytest.raises(MaterialError, match="crosses q = 0"):
-        certify_wave_path(
-            np.array([OMEGA]),
-            np.ones(1, dtype=complex),
-            np.ones((1, 1), dtype=complex),
-            [path],
-            np.array([0.0, between]),
-            (0.0, 1e-3),
-        )
 
 
 def test_a_column_nonpropagating_everywhere_is_outside_the_certificate():

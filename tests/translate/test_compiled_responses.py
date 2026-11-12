@@ -599,41 +599,63 @@ def test_no_absorber_means_no_rates(envelope_grid, mode):
     assert compiled.temporal_absorber_fine is None
 
 
-def test_one_rate_without_the_other_is_refused(envelope_grid, mode):
-    compiled = compile_for(envelope_grid, mode, absorber=absorber(envelope_grid))
-    with pytest.raises(TranslationError, match="must both be present"):
-        CompiledResponses(
-            kerr_coefficients=None,
-            ionisation_table=(),
-            plasma_channels=(),
-            raman_terms=(),
-            density=compiled.density,
-            prefactor_representation=compiled.prefactor_representation,
-            prefactor=compiled.prefactor,
-            prefactor_expansion=compiled.prefactor_expansion,
-            prefactor_constant=compiled.prefactor_constant,
-            temporal_absorber=compiled.temporal_absorber,
-            temporal_absorber_fine=None,
-        )
-
-
-def test_a_prefactor_representation_without_its_member_is_refused(envelope_grid, mode):
-    """The kind and the member that carries it are one statement, checked both ways."""
-    compiled = compile_for(envelope_grid, mode)
-    with pytest.raises(TranslationError, match="prefactor_expansion must be present"):
-        CompiledResponses(
-            kerr_coefficients=None,
-            ionisation_table=(),
-            plasma_channels=(),
-            raman_terms=(),
-            density=compiled.density,
-            prefactor_representation="expansion",
-            prefactor=compiled.prefactor,
-            prefactor_expansion=None,
-            prefactor_constant=None,
-            temporal_absorber=None,
-            temporal_absorber_fine=None,
-        )
+# Each row builds the group by hand from a compiled one, `changes(compiled)` replacing
+# members of the plain constructor call below, and names the refusal. The kind and the
+# members that carry the prefactor are one statement, checked both ways.
+@pytest.mark.parametrize(
+    ("absorbed", "changes", "message"),
+    [
+        (
+            True,
+            lambda c: {"temporal_absorber": c.temporal_absorber},
+            "must both be present",
+        ),
+        (
+            False,
+            lambda c: {
+                "prefactor_representation": "expansion",
+                "prefactor_expansion": None,
+                "prefactor_constant": None,
+            },
+            "prefactor_expansion must be present",
+        ),
+        (
+            False,
+            lambda c: {"prefactor_constant": np.zeros((1, 1, 7), dtype=complex)},
+            "prefactor_constant has shape",
+        ),
+        (
+            False,
+            lambda c: {
+                "prefactor_representation": "table",
+                "prefactor": None,
+                "prefactor_expansion": None,
+                "prefactor_constant": None,
+            },
+            "prefactor must be present",
+        ),
+    ],
+)
+def test_the_group_refuses_inconsistent_members(
+    envelope_grid, mode, absorbed, changes, message
+):
+    extra = {"absorber": absorber(envelope_grid)} if absorbed else {}
+    compiled = compile_for(envelope_grid, mode, **extra)
+    members = {
+        "kerr_coefficients": None,
+        "ionisation_table": (),
+        "plasma_channels": (),
+        "raman_terms": (),
+        "density": compiled.density,
+        "prefactor_representation": compiled.prefactor_representation,
+        "prefactor": compiled.prefactor,
+        "prefactor_expansion": compiled.prefactor_expansion,
+        "prefactor_constant": compiled.prefactor_constant,
+        "temporal_absorber": None,
+        "temporal_absorber_fine": None,
+    } | changes(compiled)
+    with pytest.raises(TranslationError, match=message):
+        CompiledResponses(**members)
 
 
 # ------------------------------------------------------------------------- the density
@@ -667,24 +689,6 @@ def test_a_bad_run_length_is_refused(envelope_grid, mode, z_max):
 def test_an_empty_mode_set_is_refused(envelope_grid):
     with pytest.raises(TranslationError, match="at least one mode"):
         compile_for(envelope_grid, [])
-
-
-def test_a_constant_prefactor_of_the_wrong_shape_is_refused(envelope_grid, mode):
-    compiled = compile_for(envelope_grid, mode)
-    with pytest.raises(TranslationError, match="prefactor_constant has shape"):
-        CompiledResponses(
-            kerr_coefficients=None,
-            ionisation_table=(),
-            plasma_channels=(),
-            raman_terms=(),
-            density=compiled.density,
-            prefactor_representation=compiled.prefactor_representation,
-            prefactor=compiled.prefactor,
-            prefactor_expansion=compiled.prefactor_expansion,
-            prefactor_constant=np.zeros((1, 1, 7), dtype=complex),
-            temporal_absorber=None,
-            temporal_absorber_fine=None,
-        )
 
 
 def test_a_path_two_modes_share_is_resolved_once(envelope_grid):
@@ -975,24 +979,6 @@ def test_the_raman_leaf_accepts_the_shape_the_compiler_gives_it():
     assert leaf.n_terms == 1
     assert leaf.thg
     assert not leaf.undamped.flags.writeable
-
-
-def test_a_prefactor_table_without_its_kind_is_refused(envelope_grid, mode):
-    compiled = compile_for(envelope_grid, mode)
-    with pytest.raises(TranslationError, match="prefactor must be present"):
-        CompiledResponses(
-            kerr_coefficients=None,
-            ionisation_table=(),
-            plasma_channels=(),
-            raman_terms=(),
-            density=compiled.density,
-            prefactor_representation="table",
-            prefactor=None,
-            prefactor_expansion=None,
-            prefactor_constant=None,
-            temporal_absorber=None,
-            temporal_absorber_fine=None,
-        )
 
 
 def test_the_group_refuses_a_constant_beside_a_kind_that_is_not_one(

@@ -33,6 +33,31 @@ def _built(name, backend):
         return recipe.build()
 
 
+def low_storage_soliton(backend):
+    """Return an N = 1 soliton over 2 cm in eight fixed low-storage steps."""
+    length = 0.02
+    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
+    return Simulation.from_gnlse(
+        0.11,
+        length,
+        [0.0, 0.0, -11.83e-27],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=9.8,
+        shape="sech",
+        save_planes=[length / 2, length],
+        schedule=schedule,
+        integrator=LowStorageRungeKutta(),
+        backend=backend,
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        absorber=False,
+        noise=None,
+    )
+
+
 @pytest.mark.parametrize(
     "backend",
     [
@@ -109,27 +134,7 @@ def test_a_low_storage_run_takes_four_calls_a_step():
 )
 def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch):
     # #492: the Runge-Kutta trial step isn't this march's; on native it has no views.
-    length = 0.02
-    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
-    simulation = Simulation.from_gnlse(
-        0.11,
-        length,
-        [0.0, 0.0, -11.83e-27],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        save_planes=[length / 2, length],
-        schedule=schedule,
-        integrator=LowStorageRungeKutta(),
-        backend=backend,
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        absorber=False,
-        noise=None,
-    )
+    simulation = low_storage_soliton(backend)
     taken = []
     build = estimate_module._timed_step
 
@@ -285,27 +290,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_low_storage_probe_has_no_trial_field(backend):
-    length = 0.02
-    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
-    simulation = Simulation.from_gnlse(
-        0.11,
-        length,
-        [0.0, 0.0, -11.83e-27],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        save_planes=[length / 2, length],
-        schedule=schedule,
-        integrator=LowStorageRungeKutta(),
-        backend=backend,
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        absorber=False,
-        noise=None,
-    )
+    simulation = low_storage_soliton(backend)
     problem, probed = _backend(simulation)
     try:
         probe = probed.timing_probe(Start.entrance(problem))

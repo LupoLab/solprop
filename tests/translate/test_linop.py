@@ -776,57 +776,42 @@ def test_the_tables_translation_builds_are_held_and_not_copied_again():
     assert tabulated.hard_kinks.size and is_held(tabulated.hard_kinks)
 
 
-def test_the_group_refuses_a_breakpoint_count_that_does_not_match():
-    with pytest.raises(TranslationError, match="phi_breakpoints has"):
-        LinearOperator(
-            phi_representation="table",
-            phi_breakpoints=np.array([0.0, 0.5, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=None,
-        )
-
-
-def test_the_group_refuses_a_degree_count_that_does_not_match():
-    """The degrees say how many intervals there are; the coefficients must agree."""
-    with pytest.raises(TranslationError, match="phi_degrees has"):
-        LinearOperator(
-            phi_representation="table",
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((2, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=None,
-        )
-
-
+# Each row changes members of a one-interval table group (the base below) and names
+# the refusal. The degrees say how many intervals there are; the coefficients must
+# agree.
 @pytest.mark.parametrize(
-    ("kind", "constant"),
-    [("constant", None), ("table", np.zeros((1, 1, 1, 3), dtype=complex))],
+    ("changes", "message"),
+    [
+        ({"phi_breakpoints": np.array([0.0, 0.5, 1.0])}, "phi_breakpoints has"),
+        (
+            {"phi_coefficients": np.zeros((2, 2, 1, 1, 1, 3), dtype=complex)},
+            "phi_degrees has",
+        ),
+        ({"phi_representation": "constant"}, "phi_constant must be present"),
+        (
+            {"phi_constant": np.zeros((1, 1, 1, 3), dtype=complex)},
+            "phi_constant must be present",
+        ),
+        (
+            {
+                "phi_representation": "constant",
+                "phi_constant": np.zeros((1, 1, 1, 4), dtype=complex),
+            },
+            "phi_constant has shape",
+        ),
+    ],
 )
-def test_the_group_refuses_a_constant_that_disagrees_with_the_kind(kind, constant):
-    with pytest.raises(TranslationError, match="phi_constant must be present"):
-        LinearOperator(
-            phi_representation=kind,
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=constant,
-        )
-
-
-def test_the_group_refuses_a_constant_of_the_wrong_shape():
-    with pytest.raises(TranslationError, match="phi_constant has shape"):
-        LinearOperator(
-            phi_representation="constant",
-            phi_breakpoints=np.array([0.0, 1.0]),
-            phi_coefficients=np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
-            phi_degrees=np.array([1]),
-            hard_kinks=np.empty(0),
-            phi_constant=np.zeros((1, 1, 1, 4), dtype=complex),
-        )
+def test_the_group_refuses_inconsistent_members(changes, message):
+    members = {
+        "phi_representation": "table",
+        "phi_breakpoints": np.array([0.0, 1.0]),
+        "phi_coefficients": np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
+        "phi_degrees": np.array([1]),
+        "hard_kinks": np.empty(0),
+        "phi_constant": None,
+    } | changes
+    with pytest.raises(TranslationError, match=message):
+        LinearOperator(**members)
 
 
 def test_the_group_reports_its_size_and_its_polynomial():

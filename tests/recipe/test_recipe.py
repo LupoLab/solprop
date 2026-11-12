@@ -16,6 +16,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import HASH_PROBE, run_python
 from solprop.cli import main
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -587,19 +588,6 @@ def test_the_export_is_a_script_that_builds_the_same_run(recipe, tmp_path):
     assert "output='run.h5'" in recipe.to_python("run.h5")
 
 
-_HASH_PROBE = textwrap.dedent(
-    """\
-    from solprop.driver.simulation import Simulation
-
-    def run(self, *args, **kwargs):
-        print(self.metadata().configuration_hash())
-        raise SystemExit(0)
-
-    Simulation.run = run
-    """
-)
-
-
 def _data_file(path, data):
     path.write_bytes(data)
     return {"file": path.name, "sha256": hashlib.sha256(data).hexdigest()}
@@ -648,14 +636,8 @@ def test_the_export_writes_data_files_and_plain_tables(kind, tmp_path):
     else:
         assert "gas={'He': 0.5, 'Ne': 0.5}" in script
     path = tmp_path / "export.py"
-    path.write_text(_HASH_PROBE + script)
-    result = subprocess.run(
-        [sys.executable, str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=tmp_path,
-    )
+    path.write_text(HASH_PROBE + script)
+    result = run_python(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         built = recipe.build()

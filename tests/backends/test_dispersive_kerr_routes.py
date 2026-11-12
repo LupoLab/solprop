@@ -37,11 +37,12 @@ import pytest
 
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
+from builders import numpy_ref_launch_derivative as stage_derivative
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends import node_chunk
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
-from solprop.backends.numpy_ref import NumpyRefBackend, general_modal, passes
+from solprop.backends.numpy_ref import general_modal, passes
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import Absorber
 from solprop.driver import Simulation, SimulationSettings
@@ -142,21 +143,6 @@ def unit_collar(translation):
         ),
         run_request,
     )
-
-
-def stage_derivative(problem, run_request, grid):
-    """Return ``numpy_ref``'s stage derivative at the launch."""
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        return backend._nonlinear(
-            backend._require_state(),
-            backend._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )
-    finally:
-        backend.close()
 
 
 def assert_same_derivative(got, expected):
