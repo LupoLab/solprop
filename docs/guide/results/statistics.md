@@ -664,7 +664,7 @@ statistic with no profile, and the message lists the profiles that were given.
 ```{code-block} python
 import numpy as np
 from solprop.grid import EnvelopeGrid
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, collect
 

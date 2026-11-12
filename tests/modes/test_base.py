@@ -155,11 +155,6 @@ def test_beta3_matches_the_third_derivative_of_a_mode_with_a_known_expansion():
     assert np.max(np.abs(beta3(evacuated, omega) / expected - 1.0)) < 5e-6
 
 
-def test_beta3_refuses_a_non_positive_frequency(mode):
-    with pytest.raises(ModeError, match="beta3 differences beta1"):
-        beta3(mode, np.array([0.0]))
-
-
 def test_beta2_is_negative_above_the_zero_dispersion_wavelength(mode):
     """Anomalous dispersion above the ZDW: the regime every RDW experiment uses.
 
@@ -169,11 +164,6 @@ def test_beta2_is_negative_above_the_zero_dispersion_wavelength(mode):
     """
     assert np.all(beta2(mode, omega_of(np.linspace(500e-9, 950e-9, 16))) < 0.0)
     assert beta2(mode, omega_of(np.array([440e-9])))[0] > 0.0
-
-
-def test_beta2_refuses_a_non_positive_frequency(mode):
-    with pytest.raises(ModeError, match="must be positive"):
-        beta2(mode, np.array([0.0]))
 
 
 def test_the_beta2_step_is_documented_and_small():
@@ -332,9 +322,17 @@ def test_transmission_composes_over_adjacent_sections():
     np.testing.assert_allclose(whole, halves, rtol=1e-9)
 
 
-def test_transmission_refuses_a_negative_length(mode):
-    with pytest.raises(ModeError, match="must not be negative"):
-        transmission(mode, band(), -1.0)
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda mode: beta3(mode, np.array([0.0])), "beta3 differences beta1"),
+        (lambda mode: beta2(mode, np.array([0.0])), "must be positive"),
+        (lambda mode: transmission(mode, band(), -1.0), "must not be negative"),
+    ],
+)
+def test_a_dispersion_or_loss_query_outside_its_domain_is_refused(mode, call, message):
+    with pytest.raises(ModeError, match=message):
+        call(mode)
 
 
 # ----------------------------------------------------------------------- aeff

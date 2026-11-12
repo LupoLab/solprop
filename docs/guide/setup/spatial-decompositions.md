@@ -57,7 +57,7 @@ How each is reached, and where it runs:
 | [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | both CPU, including a moving solid guide |
 | [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | both CPU |
 | [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | both CPU |
-| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | both CPU |
+| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_free`, `Simulation.from_free` on a `RadialGrid` | both CPU |
 | [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | both CPU |
 | [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | both CPU |
 | [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | both CPU |
@@ -573,7 +573,7 @@ $N = 256$ ([finite-transform error](../free-space/hankel.md#finite-transform-err
 power ({func}`~solprop.spatial.critical_power`) is the scalar paraxial Townes value,
 and does not predict where an exact-UPPE pulse collapses.
 
-**Entry point.** `prop_radial` and `Simulation.from_radial`
+**Entry point.** `prop_free` and `Simulation.from_free` on a `RadialGrid`
 ([construct and run a beam](../free-space/model.md#construct-and-run-a-beam)).
 
 ## Cartesian free space

@@ -32,7 +32,7 @@ from solprop import capabilities, sol
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
-from solprop.driver import service as service_module
+from solprop.driver import session_loop as service_module
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import (
@@ -41,17 +41,16 @@ from solprop.output import (
     check_cache,
     resumability,
     resume,
+    serialisation,
 )
-from solprop.output import schema as output_schema
-from solprop.output.schema import (
-    PEAK_FIELDS_ANNOTATION,
+from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, _example_metadata
+from solprop.output.records import SavedPlane
+from solprop.output.store import (
     CheckpointOutput,
     FieldRetention,
     Output,
     PlaneStore,
     RetainingOutput,
-    SavedPlane,
-    _example_metadata,
 )
 from solprop.plotting.style import field_modes
 from solprop.processing import energy
@@ -418,7 +417,7 @@ def test_a_reducing_run_keeps_no_more_alive_as_it_goes(backend, monkeypatch):
     control, which shows that the measure can see a volume at all: it adds one per
     plane, so three here, of which the bound takes a tenth off for what a pass frees.
     """
-    monkeypatch.setattr(output_schema, "INLINE_ARRAY_LIMIT", 0)
+    monkeypatch.setattr(serialisation, "INLINE_ARRAY_LIMIT", 0)
     volume = cartesian(backend)._field0.nbytes
     copies: list[np.ndarray] = []
 

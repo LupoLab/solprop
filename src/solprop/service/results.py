@@ -46,6 +46,7 @@ from solprop.processing.scans import ScanOutput
 from solprop.processing.spectra import bandpass as spectral_window
 from solprop.processing.time import energy, fwhm_t
 from solprop.recipe import Recipe
+from solprop.service._payload import Payload
 from solprop.service.beam import beam_reading, beam_slice, profile_row
 from solprop.service.recipes import split, without_table
 from solprop.service.reduce import TIME_OVERSAMPLING, even_rows, light_range
@@ -55,7 +56,6 @@ from solprop.stats import CATALOGUE
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
 
-Payload = Mapping[str, object]
 
 C = 299_792_458.0
 

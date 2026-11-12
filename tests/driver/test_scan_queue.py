@@ -31,8 +31,9 @@ from solprop.driver.executors.queue import Queue, _Heartbeat, _QueueWork, collec
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
 from solprop.output.hdf5 import _dataset
+from solprop.output.metadata import _example_metadata
 from solprop.output.scan import PointResult
-from solprop.output.schema import RECORD_ARRAY_LIMIT, _example_metadata
+from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",

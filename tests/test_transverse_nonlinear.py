@@ -26,7 +26,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium, critical_power
@@ -49,7 +49,7 @@ def kerr_suite(
     index = float(np.real(medium.index(np.array([2 * math.pi * C / 800e-9]))[0]))
     power = 0.9 * critical_power(800e-9, chi3 * density, index=index)
     energy = power * 30e-15 * math.sqrt(math.pi / (4 * math.log(2)))
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         space,
         medium,

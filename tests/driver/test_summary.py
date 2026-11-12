@@ -16,8 +16,8 @@ import pytest
 
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.driver.summary import (
     RunSummary,
     _code,
@@ -47,7 +47,8 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import HDF5Output, MemoryOutput, open_file
-from solprop.output.schema import RUN_SUMMARY_ANNOTATION, GitProvenance
+from solprop.output.metadata import RUN_SUMMARY_ANNOTATION
+from solprop.output.provenance import GitProvenance
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
@@ -232,7 +233,7 @@ def spatial_case(grid_kind="field"):
 
 def test_radial_cartesian_and_line_routes():
     grid, pulse, settings = spatial_case()
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium(),
@@ -484,7 +485,7 @@ def test_representation_of_a_general_guide_and_of_two_polarisations():
     assert _representation(problem, general) == "general guide, 1 channels, scalar"
     grid, pulse, settings = spatial_case()
     circular = dataclasses.replace(pulse, jones=(1.0 + 0.0j, 1.0j))
-    radial = Simulation.from_radial(
+    radial = Simulation.from_free(
         grid,
         RadialGrid(6e-4, 16),
         SpatialMedium(),

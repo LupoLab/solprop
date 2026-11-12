@@ -69,12 +69,11 @@ from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
 from solprop.driver import Simulation, prop_capillary
+from solprop.driver.inputs import _in_lowest_mode, default_field_range
 from solprop.driver.mixtures import capillary_fill
-from solprop.driver.simulation import (
+from solprop.driver.routes.hollow import (
     BACKEND_STATISTICS,
     PLASMA_STATISTICS,
-    _in_lowest_mode,
-    default_field_range,
     default_radial_order,
 )
 from solprop.exceptions import (
@@ -288,18 +287,6 @@ def test_a_linear_fill_to_exact_vacuum_runs_and_ends_in_vacuum():
     assert density[-1] == 0.0
 
 
-def test_an_unreadable_pressure_is_refused_by_name():
-    with pytest.raises(DriverError, match="p_in, p_out"):
-        build(pressure=(1.0, 2.0, 3.0))
-
-
-def test_a_malformed_staged_fill_is_refused_by_the_profile_that_knows_the_rule():
-    # One pressure for two positions: the profile names the rule, so the driver does
-    # not restate it in a message of its own.
-    with pytest.raises(TranslationError, match="one pressure per position"):
-        build(pressure=([0.0, SHORT], [1.0]))
-
-
 # ------------------------------------------------------------------- the mode set
 
 
@@ -363,11 +350,6 @@ def test_the_rule_is_kronrod_so_the_alarm_has_an_estimate():
     assert rule.kronrod
     assert rule.has_embedded_rule
     assert rule.n_nodes == 33
-
-
-def test_azimuthal_nodes_are_refused_for_a_radial_set():
-    with pytest.raises(DriverError, match="azimuthal order zero"):
-        build(modes=2, n_theta=16)
 
 
 def test_azimuthal_nodes_are_taken_when_a_mode_has_angular_structure():
@@ -489,11 +471,6 @@ def kerr_of(simulation) -> KerrResponse:
 def test_thg_defaults_to_on_for_a_field_grid():
     assert kerr_of(build()).thg
     assert not kerr_of(build(thg=False)).thg
-
-
-def test_a_run_with_no_nonlinearity_is_refused():
-    with pytest.raises(DriverError, match="no nonlinearity"):
-        build(kerr=False, plasma=False)
 
 
 # ------------------------------------------------------------- the CtC keywords
@@ -623,6 +600,45 @@ def test_the_ctc_temperature_reaches_the_rotational_populations():
 # ------------------------------------------------------------------------- refusals
 
 
+# Each row builds (or runs) the cheap capillary with the given keywords and names the
+# refusal: the entry, the keywords, the exception class and the exact match.
+BUILD_REFUSALS = [
+    (build, {"pressure": (1.0, 2.0, 3.0)}, DriverError, "p_in, p_out"),
+    # One pressure for two positions: the profile names the rule, so the driver does
+    # not restate it in a message of its own.
+    (
+        build,
+        {"pressure": ([0.0, SHORT], [1.0])},
+        TranslationError,
+        "one pressure per position",
+    ),
+    (build, {"modes": 2, "n_theta": 16}, DriverError, "azimuthal order zero"),
+    (build, {"kerr": False, "plasma": False}, DriverError, "no nonlinearity"),
+    # optmat names the atom (SEP 3, Phase 1c).
+    (build, {"raman": True}, MaterialError, "no molecular Raman response"),
+    (
+        build,
+        {"gas": "H2", "raman": True, "kerr": False},
+        DriverError,
+        "needs kerr=True",
+    ),
+    (build, {"polarisation": "circular"}, DriverError, "this path is scalar"),
+    (
+        build,
+        {"envelope": True, "plasma": True, "thg": True},
+        DriverError,
+        "envelope plasma cannot be combined with THG",
+    ),
+    (run, {"save_planes": [SHORT], "n_save": 3}, DriverError, "not both"),
+]
+
+
+@pytest.mark.parametrize(("entry", "overrides", "error", "message"), BUILD_REFUSALS)
+def test_the_capillary_refuses_a_bad_request(entry, overrides, error, message):
+    with pytest.raises(error, match=message):
+        entry(**overrides)
+
+
 @pytest.mark.parametrize("gas", ["H2", "O2"])
 def test_raman_true_adds_the_molecular_response_of_the_fill(gas):
     # plasma=False so that this is about the Raman response alone; the plasma beside it
@@ -632,12 +648,6 @@ def test_raman_true_adds_the_molecular_response_of_the_fill(gas):
     # optmat's response since SEP 3's Phase 4a, a RamanResponse of its own type.
     assert kinds == ["KerrResponse", "OptmatRamanResponse"]
     assert simulation.translate().flags.has_raman
-
-
-def test_raman_true_is_refused_for_a_gas_without_raman_data():
-    # optmat names the atom (SEP 3, Phase 1c).
-    with pytest.raises(MaterialError, match="no molecular Raman response"):
-        build(raman=True)
 
 
 @pytest.mark.parametrize("gas", ["N2", "O2", "H2", "D2", "CH4", "SF6"])
@@ -731,27 +741,10 @@ def test_oxygen_raman_propagates_through_both_cpu_backends():
     )
 
 
-def test_raman_true_needs_the_kerr_term_it_drives_beside():
-    with pytest.raises(DriverError, match="needs kerr=True"):
-        build(gas="H2", raman=True, kerr=False)
-
-
-def test_a_vector_request_is_refused_as_scalar_only():
-    with pytest.raises(DriverError, match="this path is scalar"):
-        build(polarisation="circular")
-
-
 def test_an_envelope_grid_with_explicit_plasma_selects_cycle_averaging():
     simulation = build(envelope=True, plasma=True)
     assert any(isinstance(one, EnvelopePlasmaResponse) for one in simulation.responses)
     assert not kerr_of(simulation).thg
-
-
-def test_envelope_plasma_with_thg_is_refused_by_name():
-    with pytest.raises(
-        DriverError, match="envelope plasma cannot be combined with THG"
-    ):
-        build(envelope=True, plasma=True, thg=True)
 
 
 def test_an_envelope_grid_turns_plasma_and_thg_off_by_itself():
@@ -903,11 +896,6 @@ def test_the_profile_statistics_reach_the_output():
 
 def test_n_save_counts_the_entrance():
     assert run(n_save=4)["z"].size == 4
-
-
-def test_save_planes_and_n_save_are_exclusive():
-    with pytest.raises(DriverError, match="not both"):
-        run(save_planes=[SHORT], n_save=3)
 
 
 def test_explicit_planes_are_used_as_given():

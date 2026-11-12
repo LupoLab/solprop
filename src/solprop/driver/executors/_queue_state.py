@@ -7,13 +7,13 @@
 import json
 import os
 import socket
-import tempfile
 import time
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
+from solprop._durable import sync_directory, write_atomic
 from solprop._process import process_stamp
 from solprop.exceptions import DriverError
 from solprop.output._file_lock import lock, unlock
@@ -32,28 +32,9 @@ def locked(path: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
-def sync_directory(path: Path) -> None:
-    """Make filename publication durable on a filesystem supporting directory fsync."""
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def atomic_json(path: Path, value: object) -> None:
-    """Replace a JSON record only after its complete content has been fsynced."""
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(_json(value))
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(path)
-        sync_directory(path.parent)
-    finally:
-        temporary.unlink(missing_ok=True)
+    """Replace a JSON record durably, its complete content on the disk first."""
+    write_atomic(path, _json(value), durable=True)
 
 
 def read_json(path: Path) -> dict:

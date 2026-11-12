@@ -662,7 +662,7 @@ its lengths: [transverse boundaries](../free-space/model.md#transverse-boundarie
 | entry point | absorber by default |
 |---|---|
 | `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
+| `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
 | a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass

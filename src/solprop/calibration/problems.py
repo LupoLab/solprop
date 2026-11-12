@@ -167,7 +167,7 @@ def _spatial(kind: str, scale: float) -> Simulation:
     if radial:
         responses.append(PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)))
         settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid,
             RadialGrid(1.5e-3, max(16, 2 * round(32 * scale))),
             medium,

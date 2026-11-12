@@ -191,7 +191,7 @@ def beam() -> GaussianPulse:
 
 def radial(grid, responses):
     """Return a radial simulation, choosing its frame in ``_from_spatial``."""
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(6e-4, 32),
         SpatialMedium("Ar", 1.0),

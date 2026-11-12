@@ -6,10 +6,11 @@
 
 Skipped unless Pyroraptor is importable, at any revision: solprop pins none (SEP 49
 section 6.5). The check runs in a subprocess with one provider and one OpenMP thread,
-so the provider's native runtime never shares this test process: it resolves both presets through ``hacc_preset``,
-checks their identities and SI conversion against the records the fake-provider tests
-use, and runs one call of the provider's own tiny consumer-example haCC(1) basis
-through the binding (C3 to C5). It qualifies nothing about the atomic physics.
+so the provider's native runtime never shares this test process: it resolves both
+presets through ``hacc_preset``, checks their identities and SI conversion against the
+records the fake-provider tests use, and runs one call of the provider's own tiny
+consumer-example haCC(1) basis through the binding (C3 to C5). It qualifies nothing
+about the atomic physics.
 """
 
 import importlib.util

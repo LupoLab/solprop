@@ -335,7 +335,7 @@ rows in threads, as `stored_spectrum` does. A destination is validated by one ru
 `destination_refusal`, which names what is wrong: the shape, the dtype, the layout (one whose
 elements overlap one another is not contiguous) or a read-only array.
 
-The service loop (`driver/service.py`, `_Exports`) asks for one export per pending ticket
+The session loop (`driver/session_loop.py`, `_Exports`) asks for one export per pending ticket
 and shares it among the plane's consumers. A plane store that `takes_exports` gives the
 export its own room with `field_destination`: `MemoryOutput` the block row the plane will
 occupy, allocated with the reserved planes, so a kept field is written once, where it is

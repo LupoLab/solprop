@@ -85,7 +85,7 @@ planes (`n_save`) or a file (`output="run.h5"`), which writes each plane out, sh
 The step history grows with the steps taken.
 
 **The propagator table.** `propagator_mode` on
-{py:class}`~solprop.driver.simulation.SimulationSettings` decides whether the stage
+{py:class}`~solprop.driver.settings.SimulationSettings` decides whether the stage
 propagators are kept for the whole step (`"tabulate"`) or recomputed in each stage
 (`"recompute"`), which changes the memory held, not the method. Its
 default, `"auto"`, leaves the choice to the backend and records what was resolved in the

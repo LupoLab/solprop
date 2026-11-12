@@ -31,8 +31,8 @@ from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, _scan_batch, prop_gnlse
 from solprop.driver.executors import Batch, Local
-from solprop.driver.run import _earlier_execution
 from solprop.driver.scan import Scan, ScanPoint, run_scan
+from solprop.driver.session_loop import _earlier_execution
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.log import NullReporter
@@ -45,16 +45,11 @@ from solprop.monitor import (
     BoundaryMonitor,
 )
 from solprop.nonlinear.responses import KerrResponse
-from solprop.output import MemoryOutput, open_file, schema
+from solprop.output import MemoryOutput, open_file, records
 from solprop.output.hdf5 import resume
+from solprop.output.records import RunOutcome, TerminalCheckpoint
 from solprop.output.scan import read_point
-from solprop.output.schema import (
-    CheckpointOutput,
-    Output,
-    PlaneStore,
-    RunOutcome,
-    TerminalCheckpoint,
-)
+from solprop.output.store import CheckpointOutput, Output, PlaneStore
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -229,7 +224,7 @@ def _split(
 def _radial_walker(backend: str, scheme: AbsorberScheme, dz_max: float) -> Simulation:
     """Return a 1 pJ radial pulse at 1150 nm whose group delay walks out of 400 fs."""
     grid = FieldGrid.from_limits(1.0, 800e-9, (500e-9, 1.3e-6), 400e-15)
-    return Simulation.from_radial(
+    return Simulation.from_free(
         grid,
         RadialGrid(1.2e-2, 16),
         SpatialMedium("Ar", 60.0),
@@ -447,14 +442,14 @@ def test_a_saved_plane_validates_its_record_once(
     # The driver builds the record once a plane, and the store amends it with what it
     # has already validated -- its earlier executions -- rather than checking the whole
     # record again: one JSON round trip a plane, not nine.
-    validate = schema._outcome_record
+    validate = records._outcome_record
     validated: list[Mapping[str, object]] = []
 
     def counted(record: Mapping[str, object]) -> dict[str, object]:
         validated.append(record)
         return validate(record)
 
-    monkeypatch.setattr(schema, "_outcome_record", counted)
+    monkeypatch.setattr(records, "_outcome_record", counted)
     output = _Recording()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
@@ -878,32 +873,28 @@ def test_the_split_s_removal_is_what_the_backend_took() -> None:
     assert summary["removed_fraction"] == summary["raw_removed_fraction"]
 
 
-def test_under_the_split_the_guards_are_judged_on_what_it_found() -> None:
-    # The state the split left shows empty guards; what it found holds a tenth of
-    # the energy in the high guard, which stops the run under the default check.
+@pytest.mark.parametrize(
+    "left_share",
+    [
+        # The state the split left shows empty guards; what it found holds a tenth of
+        # the energy in the high guard, which stops the run under the default check.
+        1.0,
+        # One energy for one verdict: the split took nearly everything, below the
+        # no-light floor of the state it left, but what it found filled the guard.
+        1e-15,
+    ],
+    ids=["guards", "emptied"],
+)
+def test_under_the_split_the_guards_are_judged_on_what_it_found(left_share) -> None:
     monitor, _, reading = _split_monitor()
     monitor.check = BoundaryCheck()
     left = BoundaryEnergies(
-        reading.total,
+        left_share * reading.total,
         np.zeros(4),
         found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
     )
     with pytest.raises(BoundaryError, match="guards"):
         monitor.step(left, 0.1)
-
-
-def test_a_state_the_split_emptied_is_still_judged_on_what_it_found() -> None:
-    # One energy for one verdict: the split took nearly everything, below the
-    # no-light floor of the state it left, but what it found filled the guard.
-    monitor, _, reading = _split_monitor()
-    monitor.check = BoundaryCheck()
-    emptied = BoundaryEnergies(
-        1e-15 * reading.total,
-        np.zeros(4),
-        found=reading.total * np.array([1.0, 0.0, 0.1, 0.2]),
-    )
-    with pytest.raises(BoundaryError, match="guards"):
-        monitor.step(emptied, 0.1)
 
 
 def test_the_collar_share_is_of_what_the_split_found() -> None:

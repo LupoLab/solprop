@@ -40,7 +40,7 @@ from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid, LineGrid
 from solprop.linear import Frame
 from solprop.monitor import BoundaryCheck
-from solprop.output.schema import PlaneStore
+from solprop.output.store import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta

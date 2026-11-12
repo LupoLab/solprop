@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import Backend, HostStepping
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import FieldRetention, Output
+    from solprop.output.store import FieldRetention, Output
     from solprop.translate.problem import PropagationProblem
 
 
@@ -622,7 +622,7 @@ def measure(
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.executors.pool import peak_rss  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
-    from solprop.output.schema import serialise  # noqa: PLC0415
+    from solprop.output.serialisation import serialise  # noqa: PLC0415
 
     free_before = _device_free(configuration)
     started = time.perf_counter()

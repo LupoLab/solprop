@@ -5,12 +5,12 @@
 """Prepare compatible fixed-schedule scan members without changing their backend."""
 
 import dataclasses
-import hashlib
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
+from solprop._identity import text_digest
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
@@ -86,7 +86,7 @@ def _signature(member: BatchMember) -> str:
         # BLAS does not split a batch that did not change.
         "modal_identity": _modal_identity(problem),
     }
-    return hashlib.sha256(_json(descriptor).encode()).hexdigest()
+    return text_digest(_json(descriptor))
 
 
 def _modal_identity(problem: PropagationProblem) -> Mapping[str, object] | None:

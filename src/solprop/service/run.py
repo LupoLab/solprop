@@ -264,7 +264,7 @@ class ScanObserver(ScanReporter):
         """
         values = getattr(point, "values", {})
         # A keyword's value is read in SI; a nested path's is the quantity as written.
-        plain = {str(k): _plain(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
+        plain = {str(k): _point_value(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
         place = [int(i) for i in getattr(point, "multi_index", ())]
         self.emit(
             Event(
@@ -365,7 +365,7 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     return "failed", data
 
 
-def _plain(value: object) -> float | str:
+def _point_value(value: object) -> float | str:
     """Return a point's value as an event carries it.
 
     - ``value``: a number, or a quantity as a recipe writes it (``"0.8 bar"``).

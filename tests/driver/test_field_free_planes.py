@@ -34,7 +34,7 @@ from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput, open_file
-from solprop.output.schema import FieldRetention, FieldsChoice, Output, PlaneStore
+from solprop.output.store import FieldRetention, FieldsChoice, Output, PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import default_spec

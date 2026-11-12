@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from solprop import stats
+from solprop._validation import choice
 from solprop.exceptions import ModeError, ProcessingError
-from solprop.processing import axes, fields, spectra, time
+from solprop.processing import fields, spectra, time
 
 
 def test_moment_is_the_weighted_mean():
@@ -160,8 +161,10 @@ def test_the_arrival_time_of_a_delayed_pulse(synthetic, kind, method):
 
 
 def test_arrival_time_refuses_an_unknown_method():
-    with pytest.raises(ProcessingError, match="method must be one of"):
-        axes._check_choice("centroid", time.ARRIVAL_METHODS, "method")
+    with pytest.raises(
+        ProcessingError, match="method must be 'moment' or 'peak', got 'centroid'"
+    ):
+        choice("centroid", "method", time.ARRIVAL_METHODS, ProcessingError)
 
 
 def test_the_field_autocorrelation_is_the_energy_at_zero_delay(output):

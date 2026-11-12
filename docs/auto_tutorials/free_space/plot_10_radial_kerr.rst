@@ -25,7 +25,7 @@ A collimated 800 nm, 30 fs beam of 1 mm waist and 0.2 mJ, in 1 bar of argon, on 
 radial (Hankel) grid, below the critical power for self-focusing. Over 50 cm the Kerr
 lens offsets about half of the beam's diffraction: its second-moment radius grows by
 0.45 %, where diffraction alone (a Rayleigh length of 3.9 m) gives 0.81 %. The run is a
-plain :func:`~solprop.driver.interface.prop_radial`, every argument an object a recipe
+plain :func:`~solprop.driver.interface.prop_free`, every argument an object a recipe
 writes as a table, and it is the call the radial route's example recipe mirrors
 (``Recipe.example("radial_kerr")``).
 
@@ -41,7 +41,7 @@ The chart is the fluence across the beam at the entrance and after 50 cm.
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from solprop.driver import SimulationSettings, prop_radial
+    from solprop.driver import SimulationSettings, prop_free
     from solprop.grid import EnvelopeGrid, RadialGrid
     from solprop.nonlinear.responses import KerrResponse
     from solprop.physdata import gamma3
@@ -83,7 +83,7 @@ radius recorded at each.
         dz_max=0.05,
         stats=StatsSpec(names=("energy", "beam_radius")),
     )
-    result = prop_radial(
+    result = prop_free(
         grid,
         space,
         argon,
@@ -138,7 +138,7 @@ The fluence through each plane in the argon, against the radius.
  .. code-block:: none
 
     Second-moment radius: 1.0000 mm -> 1.0045 mm
-    Complete radial Kerr example: 1.013 s
+    Complete radial Kerr example: 0.070 s
 
 
 
@@ -153,7 +153,7 @@ Related reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.030 seconds)
+   **Total running time of the script:** (0 minutes 0.086 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_10_radial_kerr.py:

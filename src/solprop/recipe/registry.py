@@ -31,7 +31,7 @@ from typing import Final, Literal
 import numpy as np
 
 from solprop.boundaries import SpatialAbsorber, absorber
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.grid import (
     EnvelopeGrid,
     FieldGrid,

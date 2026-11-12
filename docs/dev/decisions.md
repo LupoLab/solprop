@@ -1923,8 +1923,7 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
   [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
-  implemented under them, stay as written. ADR-077 amends its clause that `numpy_ref`
-  stays comprehensive: its end state is a slim test and development reference.
+  implemented under them, stay as written.
 - **Context:** production runs on `native`, and the costs of the split between Python and
   native decide what those runs can do. The written rules still steered work as if the
   reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
@@ -2237,10 +2236,10 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-077 — Two backends, binary64 only
 
 - **Status:** accepted (maintainer), 2026-11-11. Supersedes ADR-054 and ADR-061; amends
-  ADR-064 (single precision under `backend="auto"`) and ADR-068 (`numpy_ref` "stays
-  comprehensive"); withdraws [SEP 48](seps/archive/sep-0048-julia-backend.md). Those
-  records, and the SEPs implemented under them, stay as written. Amended by ADR-078:
-  native runs the TDSE response too.
+  ADR-064 (single precision under `backend="auto"`); withdraws
+  [SEP 48](seps/archive/sep-0048-julia-backend.md). Those records, and the SEPs
+  implemented under them, stay as written. Amended by ADR-078: native runs the TDSE
+  response too.
 - **Context:** single precision runs on `numpy_ref` alone since `mlx` was retired
   (SEP 47): no installed backend runs it quickly, and `backend="auto"` refuses it.
   [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
@@ -2258,10 +2257,11 @@ Withdrawn (development-process record, not a design decision).
     response, for now. `numpy_ref` is the numerical reference. There is no tier system,
     and no other backend will be implemented, in this repository or as a plugin.
   - The Julia backend (SEP 48) is withdrawn.
-  - `numpy_ref`'s end state is a slim test and development reference: the contract
-    arithmetic native is checked against, not a second complete executor. A later SEP
-    specifies it, with the TDSE response on native. Until then ADR-068's rules stand:
-    a new feature lands on both backends, in either order, and a SEP is `Final` with
+  - `numpy_ref` stays a complete, selectable backend: independent runs of the same
+    problem are kept for development, debugging and numerical verification. Slimming it
+    to a test library was proposed with the TDSE response on native and not taken
+    (maintainer decision, 2026-11-12, in the review of SEP 49). ADR-068's rules stand: a
+    new feature lands on both backends, in either order, and a SEP is `Final` with
     parity on `numpy_ref` and native CPU, or an exception written into it.
 - **Why:** development and qualification time goes where the runs are. A precision that
   no production run uses, a ranking of a fixed pair and a second engine language each
@@ -2280,8 +2280,8 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-078 — The TDSE response runs on native through a host source; its provider in a worker
 
 - **Status:** accepted (maintainer), 2026-11-12, with
-  [SEP 49](seps/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature except the TDSE response, for now": native
-  implements every feature.
+  [SEP 49](seps/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
+  except the TDSE response, for now": native implements every feature.
 - **Context:** the TDSE response ran on `numpy_ref` alone, and native refused it by name.
   Its source is a complete atomic calculation at every radial node, from 93 s to over
   1,300 s a call, so a native rewrite of the provider buys nothing; what native lacked

@@ -190,7 +190,7 @@ modified run, whose saved field holds no seed. See
 ## Reproducibility
 
 In a run, choose the model with the driver's `noise` keyword and fix the realisation with
-`seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial` and `prop_free`
+`seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide` and `prop_free`
 all take both. The keyword's default, `"default"`, resolves to `"input"` wherever the
 run can carry noise. Where it cannot, it resolves to none: on the hybrid planar grid and
 on a `prop_waveguide` run of slab modes, neither of which declares a photon measure for

@@ -280,7 +280,7 @@ Compression by taylor
 
 The evaluation count is SciPy's and moves with its version; the tests mask it.
 
-The compressors take an {py:class}`~solprop.output.schema.Output` (the last plane by
+The compressors take an {py:class}`~solprop.output.store.Output` (the last plane by
 default; `plane=`, `modes=`, `bandpass=` select) or, for a pulse that has not been
 propagated, `grid=` with the internal-convention `spectrum=` that `pulse.build(grid)`
 returns. `compress_taylor` searches up to `order=2` (the GDD alone) unless told

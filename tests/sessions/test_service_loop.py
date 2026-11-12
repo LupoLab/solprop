@@ -18,12 +18,13 @@ from sessions.executors import PLANES, entrance, fibre, soliton, window
 from solprop.backends.host.session import HostSession
 from solprop.backends.registry import select
 from solprop.backends.session import StopToken
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import run_problem
-from solprop.driver.simulation import metadata_for
 from solprop.exceptions import StopRequested
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, MemoryOutput
-from solprop.output.schema import Output, SavedPlane
+from solprop.output.records import SavedPlane
+from solprop.output.store import Output
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
@@ -41,7 +42,7 @@ def _run(output: Output, progress: object = "none") -> None:
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         Where the planes go.
     progress : object, optional
         The reporter.

@@ -208,30 +208,20 @@ def test_the_spectrum_needs_one_rate_for_every_row(raman_field_grid):
         passes.raman_spectrum(kernels.undamped, [0.0], 1.0, raman_field_grid.dt_fine)
 
 
-def test_a_vector_field_is_refused_by_the_pass():
-    """``raman_drive`` takes the first component and says nothing about the rest, so a
-    two-component chunk would be convolved without half of itself."""
-    with pytest.raises(BackendError, match="tensor"):
-        passes.raman_polarisation(
-            np.zeros((1, 2, 16)),
-            np.zeros(17, dtype=complex),
-            kind="field",
-            thg=True,
-            density=1.0,
-        )
-
-
-def test_a_mismatched_convolution_is_refused():
-    """The doubled grid is built from the field's own length; a spectrum of another
-    length would convolve against the wrong axis rather than raise."""
-    with pytest.raises(BackendError, match="kernel spectrum has shape"):
-        passes.raman_polarisation(
-            np.zeros((1, 1, 16)),
-            np.zeros(5, dtype=complex),
-            kind="field",
-            thg=True,
-            density=1.0,
-        )
+@pytest.mark.parametrize(
+    ("field", "spectrum", "message"),
+    [
+        # ``raman_drive`` takes the first component and says nothing about the rest,
+        # so a two-component chunk would be convolved without half of itself.
+        (np.zeros((1, 2, 16)), np.zeros(17, dtype=complex), "tensor"),
+        # The doubled grid is built from the field's own length; a spectrum of another
+        # length would convolve against the wrong axis rather than raise.
+        (np.zeros((1, 1, 16)), np.zeros(5, dtype=complex), "kernel spectrum has shape"),
+    ],
+)
+def test_the_raman_pass_refuses_a_field_it_cannot_convolve(field, spectrum, message):
+    with pytest.raises(BackendError, match=message):
+        passes.raman_polarisation(field, spectrum, kind="field", thg=True, density=1.0)
 
 
 def test_a_declared_raman_stage_without_a_spectrum_is_refused(raman_capillary):

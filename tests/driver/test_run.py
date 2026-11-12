@@ -32,7 +32,7 @@ from solprop.backends.protocol import (
 from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
-from solprop.driver.run import _history_of, plane_from_observation
+from solprop.driver.run import history_of, plane_from_observation
 from solprop.exceptions import BackendError, DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -272,7 +272,7 @@ def read_file(path, key):
 def test_the_stored_history_holds_start_positions_and_per_attempt_times():
     """The backend records end positions and a running clock; the file does not.
 
-    ``output.schema.StepHistory`` documents ``z`` as the start of each attempt and
+    ``output.records.StepHistory`` documents ``z`` as the start of each attempt and
     ``wall_time`` as the time one attempt took, and the driver converts on the way.
     Exactly representable numbers, so the check is bitwise.
     """
@@ -583,21 +583,17 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
     assert handler["z"].tolist() == [0.0, 0.005, 0.01]
 
 
-def test_the_settings_refuse_save_planes_that_are_not_increasing():
-    with pytest.raises(DriverError, match="positive and increasing"):
+@pytest.mark.parametrize(
+    ("save_planes", "message"),
+    [([1.0, 0.5], "positive and increasing"), ([0.0, 0.5], "saved anyway")],
+)
+def test_the_settings_refuse_save_planes_out_of_order_or_at_the_entrance(
+    save_planes, message
+):
+    with pytest.raises(DriverError, match=message):
         SimulationSettings(
             controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[1.0, 0.5],
-            dz_max=0.1,
-            dz_init=1e-3,
-        )
-
-
-def test_the_settings_refuse_a_plane_at_the_entrance():
-    with pytest.raises(DriverError, match="saved anyway"):
-        SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-18),
-            save_planes=[0.0, 0.5],
+            save_planes=save_planes,
             dz_max=0.1,
             dz_init=1e-3,
         )
@@ -735,7 +731,7 @@ def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
         )
 
 
-def test_history_of_stores_start_positions_and_per_attempt_times():
+def testhistory_of_stores_start_positions_and_per_attempt_times():
     history = BackendHistory(
         np.array([0.5, 1.0]),
         np.array([0.5, 0.5]),
@@ -743,6 +739,6 @@ def test_history_of_stores_start_positions_and_per_attempt_times():
         np.array([True, True]),
         np.array([0.25, 0.75]),
     )
-    stored = _history_of(history)
+    stored = history_of(history)
     assert stored.z.tolist() == [0.0, 0.5]
     assert stored.wall_time.tolist() == [0.25, 0.5]

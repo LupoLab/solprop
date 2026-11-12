@@ -32,8 +32,8 @@ from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_capillary
 from solprop.driver.executors import Local
 from solprop.driver.material_output import material_manifest
+from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import _selected_guide
 from solprop.exceptions import DiluteScalingWarning, MaterialRangeWarning, OutputError
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode, StepIndexMode
@@ -327,7 +327,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
     space = RadialGrid(3e-4, 8)
     # optmat's Borzsonyi form, not the recommended fit: a caller's choice.
     other = gamma(Gas.Ar, model="borzsonyi_2008/sellmeier_Ar")
-    kept: Any = Simulation.from_radial(
+    kept: Any = Simulation.from_free(
         grid,
         space,
         SpatialMedium("Ar", Linear(1.0, 2.0, grid.length), susceptibility=other),
@@ -341,7 +341,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
     assert component.species.susceptibility == other
     assert type(component.species.equation_of_state).__name__ == "OptmatGas"
     window = fused_silica(model="recommended")
-    glass: Any = Simulation.from_radial(
+    glass: Any = Simulation.from_free(
         grid,
         space,
         SpatialMedium(window),

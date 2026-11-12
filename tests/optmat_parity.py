@@ -51,6 +51,7 @@ from typing import Any
 import numpy as np
 
 from bounds import rate_log_sensitivity
+from builders import launch_derivative
 from optmat_parity_cases import Case, build_case
 from sessions.runs import load_native, native_trial, saved, to_planes
 from sessions.runs import run as run_session
@@ -152,13 +153,7 @@ def derivative(backend_class, case: Case) -> np.ndarray:
     backend = _backend(backend_class, case)
     try:
         if isinstance(backend, NumpyRefBackend):
-            backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)
-            return backend._nonlinear(
-                backend._require_state(),
-                backend._stage_scalars(0.0, 0.0),
-                np.ones((1, *problem.shape), complex),
-            )[0]
+            return launch_derivative(backend, problem)[0]
         # The native state itself, loaded with the launch, takes the zero-length trial
         # on the staged rows, as the native backend's own trial does (SEP 47 phase 5).
         assert backend.name == "native"

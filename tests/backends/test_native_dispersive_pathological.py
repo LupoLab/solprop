@@ -26,15 +26,14 @@ import warnings
 import numpy as np
 import pytest
 
-from backends.dispersive_cases import LENGTH, POLICIES, STEPS
+from backends.dispersive_cases import LENGTH, POLICIES, STEPS, disagreement
+from backends.dispersive_cases import run as march
 from backends.dispersive_route_cases import (
     ARGON_FILL,
-    disagreement,
     evaluation_bound,
     general_problem,
     strand,
 )
-from backends.dispersive_route_cases import run as march
 from backends.dispersive_route_cases import source as launch_source
 from bounds import assert_within, step_evaluations
 from sessions.runs import native_source

@@ -35,7 +35,7 @@ from solprop.backends.numpy_ref.multistep import (
     HostHistory,
 )
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
 from solprop.stepper.schedule import FixedSchedule, landing
@@ -171,7 +171,7 @@ class HostAdamsMarch:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The snapshot, or ``None`` where there is nothing a resume could continue:
             no history yet, or the march ahead of an interpolated observation.
         """
@@ -223,7 +223,7 @@ class HostAdamsMarch:
 
         Parameters
         ----------
-        snapshot : solprop.output.schema.MarchSnapshot
+        snapshot : solprop.output.records.MarchSnapshot
             What :meth:`snapshot` returned, possibly read back from a file.
 
         Returns

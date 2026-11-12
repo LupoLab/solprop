@@ -78,17 +78,18 @@ class ModePreview:
     gamma : numpy.ndarray or None
         The nonlinear coefficient ``n2 omega / (c A_eff)`` in rad/(W m), with the
         fill's ``n2`` at the grid's reference wavelength, the carrier its Kerr data
-        are taken at (:func:`solprop.tools.nonlinear_coefficient` at each
+        are taken at (:func:`solprop.tools.soliton.nonlinear_coefficient` at each
         frequency); ``None`` where the mode has no fill or the fill no Kerr data.
     phase_mismatch : numpy.ndarray or None
         The phase mismatch in rad/m between a dispersive wave in this mode and a
         soliton in the launch mode (the set's first) at the pump
-        (:func:`solprop.tools.phase_mismatch`); ``None`` without a pump. See
-        :func:`modes` for the pump and the nonlinear term.
+        (:func:`solprop.tools.phase_matching.phase_mismatch`); ``None`` without a pump.
+        See :func:`modes` for the pump and the nonlinear term.
     rdw : tuple of float
         The phase-matched wavelengths in m, shortest first, between the band's
-        short edge and 0.9 of the pump (:func:`solprop.tools.lambda_rdw_all`);
-        empty without a pump or a root.
+        short edge and 0.9 of the pump
+        (:func:`solprop.tools.phase_matching.lambda_rdw_all`); empty without a pump or a
+        root.
     """
 
     label: str
@@ -210,9 +211,9 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     mode (the launch mode's own for the first; intermodal for the rest). With an
     unchirped sech or Gaussian pulse given by its FWHM and its energy or peak power,
     and a fill with Kerr data, the soliton's nonlinear wavenumber is that of its
-    largest constituent (:func:`solprop.tools.phase_mismatch`'s default); otherwise,
-    and for a pump in normal dispersion, which launches no soliton, the condition is
-    the linear one.
+    largest constituent (:func:`solprop.tools.phase_matching.phase_mismatch`'s
+    default); otherwise, and for a pump in normal dispersion, which launches no soliton,
+    the condition is the linear one.
     """
     from solprop.modes.base import (  # noqa: PLC0415
         aeff,
@@ -284,8 +285,9 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     - ``z``: the position, m: the fill's coefficient, the mode's area and its dispersion
       are taken there, as the mismatch is.
     - Returns: the pump wavelength in m (``None`` without a numeric ``wavelength``), and
-      the keywords :func:`solprop.tools.phase_mismatch` takes for the nonlinear term
-      (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear condition.
+      the keywords :func:`solprop.tools.phase_matching.phase_mismatch` takes for the
+      nonlinear term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the
+      linear condition.
       The nonlinear coefficient is the recipe's ``gamma`` where it gives one (the
       GNLSE), else the launch mode's fill's at `z`. The condition is linear for a
       chirped pulse (a ``phases`` term from second order on), a pump in normal
@@ -297,10 +299,10 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     from solprop.recipe.pins import _route_pulse  # noqa: PLC0415
     from solprop.tools import (  # noqa: PLC0415
         SolitonOrder,
-        _fill_n2,
         nonlinear_coefficient,
         phase_mismatch,
     )
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415
 
     wavelength = keywords.get("wavelength")
     if not isinstance(wavelength, int | float) or soliton is None:
@@ -398,7 +400,7 @@ def _gamma(
     - Returns: ``gamma`` in rad/(W m); ``None`` without a fill or its Kerr data.
     """
     from solprop.physdata.mixtures import Mixture  # noqa: PLC0415
-    from solprop.tools import _fill_n2  # noqa: PLC0415 - the tools' own n2
+    from solprop.tools.waveguide import _fill_n2  # noqa: PLC0415 - the tools' own n2
 
     mixture = getattr(mode, "mixture", None)
     if not isinstance(mixture, Mixture):
@@ -431,7 +433,7 @@ def preview_input(recipe: "Recipe") -> InputPreview:
         free-space route its fluence.
     """
     from solprop.driver.plane_view import PlaneView  # noqa: PLC0415 - layer D
-    from solprop.output.schema import SavedPlane  # noqa: PLC0415
+    from solprop.output.records import SavedPlane  # noqa: PLC0415
     from solprop.recipe.metadata import OBJECT_ROUTES, parameters  # noqa: PLC0415
 
     quiet = recipe.resolve()

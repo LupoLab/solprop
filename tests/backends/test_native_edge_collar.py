@@ -13,6 +13,7 @@ import contextlib
 import math
 import threading
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -150,7 +151,7 @@ def _case(
         )
     pulse = SpatialPulse(temporal, waist, propz=propz)
     if route == "radial":
-        return Simulation.from_radial(
+        return Simulation.from_free(
             grid,
             RadialGrid(300e-6, 48, collar_fraction=1.0),
             medium,
@@ -262,10 +263,15 @@ def test_native_reads_a_collars_strip_and_current_as_the_host_does(
     )
 
 
-def test_a_plane_wave_reads_its_exact_current() -> None:
-    # On a uniform grid the central difference of exp(i kappa s) is exactly
-    # i sin(kappa h) / h times it, so J = |E|^2 sin(kappa h) / (h k). It flows towards
-    # smaller s on the face where it's inward, and the other face rectifies it away.
+def _line_current(
+    bins: Callable[[np.ndarray, float], dict[int, np.ndarray]],
+) -> tuple[float, float, float, Any, int]:
+    """Read the line case's current from a state of transverse waves in its bins.
+
+    `bins(x, kappa)` maps an active bin's index to its field along the line, for
+    kappa forty cycles over the line. Returns the native current, kappa, the spacing
+    h, the attached edge and the line's point count.
+    """
     simulation = _case("line")
     problem = simulation.translate()
     monitor = simulation._boundary_monitor()
@@ -276,12 +282,11 @@ def test_a_plane_wave_reads_its_exact_current() -> None:
     assert isinstance(space, LineGrid)
     x = np.asarray(space.x)
     h = float(x[1] - x[0])
-    mode = 40
-    kappa = 2 * math.pi * mode / (space.n_x * h)
-    wave = np.exp(1j * kappa * x)
+    kappa = 2 * math.pi * 40 / (space.n_x * h)
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[:, 0, active[3]] = np.fft.fft(wave)
+    for index, wave in bins(x, kappa).items():
+        state[:, 0, active[index]] = np.fft.fft(wave)
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(
@@ -289,38 +294,40 @@ def test_a_plane_wave_reads_its_exact_current() -> None:
         )
     finally:
         backend.close()
+    return native.current, kappa, h, edge, space.n_x
+
+
+def test_a_plane_wave_reads_its_exact_current() -> None:
+    # On a uniform grid the central difference of exp(i kappa s) is exactly
+    # i sin(kappa h) / h times it, so J = |E|^2 sin(kappa h) / (h k). It flows towards
+    # smaller s on the face where it's inward, and the other face rectifies it away.
+    current, kappa, h, edge, n_x = _line_current(
+        lambda x, kappa: {3: np.exp(1j * kappa * x)}
+    )
     expected = math.sin(kappa * h) / h / edge.k_min
-    assert native.current == pytest.approx(expected, rel=64 * fft_bound(space.n_x))
+    assert current == pytest.approx(expected, rel=64 * fft_bound(n_x))
 
 
 def test_the_current_is_rectified_per_row_and_not_after_summing() -> None:
     # One bin inward and one outward at one amplitude: their fluxes cancel in a sum,
     # and a current rectified after summing would read nothing on either face.
-    simulation = _case("line")
-    problem = simulation.translate()
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    edge = monitor.transverse
-    assert edge is not None
-    space = edge.space
-    assert isinstance(space, LineGrid)
-    x = np.asarray(space.x)
-    h = float(x[1] - x[0])
-    mode = 40
-    kappa = 2 * math.pi * mode / (space.n_x * h)
-    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
-    state = np.zeros(problem.shape, dtype=np.complex128)
-    state[:, 0, active[3]] = np.fft.fft(np.exp(1j * kappa * x))
-    state[:, 0, active[5]] = np.fft.fft(np.exp(-1j * kappa * x))
-    backend, edge = _attached(simulation, state)
-    try:
-        native = backend._edge_reading(
-            backend._native_state, edge, faces=False, current=True
-        )
-    finally:
-        backend.close()
+    current, kappa, h, edge, n_x = _line_current(
+        lambda x, kappa: {3: np.exp(1j * kappa * x), 5: np.exp(-1j * kappa * x)}
+    )
     expected = 2 * math.sin(kappa * h) / h / edge.k_min
-    assert native.current == pytest.approx(expected, rel=64 * fft_bound(space.n_x))
+    assert current == pytest.approx(expected, rel=64 * fft_bound(n_x))
+
+
+def test_a_standing_wave_reads_almost_no_current() -> None:
+    # A real field carries no flux, so each row's product cancels to rounding: there the
+    # bound is absolute, set by the terms and not by the result.
+    current, _, h, edge, n_x = _line_current(
+        lambda x, kappa: {3: np.cos(kappa * x).astype(np.complex128)}
+    )
+    # Unit field: |v| |s| / k, for |s| at most 2 / (2 h), times the transform's
+    # rounding, on each of the two lines, which rectification can only keep.
+    bound = 2 * fft_bound(n_x) / h / edge.k_min
+    assert 0.0 <= current <= bound
 
 
 def _packet(space: LineGrid, centre: float, kappa: float) -> np.ndarray:
@@ -522,36 +529,6 @@ def test_a_lit_node_reads_the_collars_rate_from_its_design() -> None:
         backend.close()
     expected = rate[node] * float(np.asarray(space.spatial_weights)[node])
     assert read.totals[1] == pytest.approx(expected, rel=64 * fft_bound(space.n_x))
-
-
-def test_a_standing_wave_reads_almost_no_current() -> None:
-    # A real field carries no flux, so each row's product cancels to rounding: there the
-    # bound is absolute, set by the terms and not by the result.
-    simulation = _case("line")
-    problem = simulation.translate()
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    edge = monitor.transverse
-    assert edge is not None
-    space = edge.space
-    assert isinstance(space, LineGrid)
-    x = np.asarray(space.x)
-    h = float(x[1] - x[0])
-    kappa = 2 * math.pi * 40 / (space.n_x * h)
-    active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
-    state = np.zeros(problem.shape, dtype=np.complex128)
-    state[:, 0, active[3]] = np.fft.fft(np.cos(kappa * x).astype(np.complex128))
-    backend, edge = _attached(simulation, state)
-    try:
-        native = backend._edge_reading(
-            backend._native_state, edge, faces=False, current=True
-        )
-    finally:
-        backend.close()
-    # Unit field: |v| |s| / k, for |s| at most 2 / (2 h), times the transform's
-    # rounding, on each of the two lines, which rectification can only keep.
-    bound = 2 * fft_bound(space.n_x) / h / edge.k_min
-    assert 0.0 <= native.current <= bound
 
 
 class _StopAtFirstPlane(NullReporter):

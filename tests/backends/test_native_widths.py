@@ -862,7 +862,7 @@ def _radial_route(kind="envelope"):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, RadialGrid(3e-4, 32), LOSSY, [], pulse, settings=settings, noise=None
     )
     return grid, simulation.translate(), simulation._run_request()

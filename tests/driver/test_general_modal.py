@@ -67,15 +67,16 @@ from solprop.driver.batch import (
     refuse_mixed_guides,
 )
 from solprop.driver.executors import Batch
-from solprop.driver.run import run_problem
-from solprop.driver.scan import Scan, run_scan
-from solprop.driver.simulation import (
-    _GAS_KEYWORD_DEFAULTS,
+from solprop.driver.inputs import _shot_noise
+from solprop.driver.routes.general import (
+    GAS_KEYWORD_DEFAULTS,
     _core_index,
+    _GeneralRequest,
     _in_channel,
     _refuse_gas_keywords,
-    _shot_noise,
 )
+from solprop.driver.run import run_problem
+from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -242,19 +243,19 @@ def test_every_gas_keyword_is_refused_by_name_beside_a_provider(guide, grid, key
 def test_from_waveguide_refuses_or_names_every_keyword_it_takes():
     """Lock the signature to the refusal table, so a new keyword cannot be ignored.
 
-    ``_from_general`` takes the keywords it carries by name and collects the rest
-    in ``**refused``; every collected one must be in the table, or it would be
+    ``_GeneralRequest`` takes the keywords it carries by name and collects the rest
+    in ``refused``; every collected one must be in the table, or it would be
     swallowed silently -- accepted by the signature, never read, and never
     refused. The defaults must agree too: the table's entry is the value that
     means "not given", and a table entry that is not the signature's default would
     refuse a call that passed nothing.
     """
     taken = set(inspect.signature(Simulation.from_waveguide).parameters)
-    named = set(inspect.signature(Simulation._from_general).parameters) - {"refused"}
-    assert set(GAS_KEYWORDS) == set(_GAS_KEYWORD_DEFAULTS)
-    assert taken == named | set(_GAS_KEYWORD_DEFAULTS)
+    named = {field.name for field in dataclasses.fields(_GeneralRequest)} - {"refused"}
+    assert set(GAS_KEYWORDS) == set(GAS_KEYWORD_DEFAULTS)
+    assert taken == named | set(GAS_KEYWORD_DEFAULTS)
     signature = inspect.signature(Simulation.from_waveguide).parameters
-    for name, default in _GAS_KEYWORD_DEFAULTS.items():
+    for name, default in GAS_KEYWORD_DEFAULTS.items():
         assert signature[name].default == default
 
 
@@ -268,7 +269,7 @@ def test_an_array_valued_gas_keyword_is_refused_by_name_and_not_by_a_crash():
     with pytest.raises(DriverError, match="pressure="):
         _refuse_gas_keywords({"pressure": np.array([1.0, 2.0])})
     # And the "not given" values still pass, array-free.
-    _refuse_gas_keywords(dict.fromkeys(GAS_KEYWORDS) | dict(_GAS_KEYWORD_DEFAULTS))
+    _refuse_gas_keywords(dict.fromkeys(GAS_KEYWORDS) | dict(GAS_KEYWORD_DEFAULTS))
 
 
 def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():

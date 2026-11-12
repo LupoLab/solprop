@@ -137,7 +137,7 @@ table must cover, here up to 1e11 V/m, well above the clamped field.
         absorber=absorber(grid),
         ionisation_field_range=(1e8, 1e11),
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, responses, pulse, settings=settings, seed=20261027
     )
     run = simulation.run(progress="none")
@@ -284,7 +284,7 @@ continue with :doc:`/guide/free-space/beams` and :doc:`/guide/free-space/hankel`
  .. code-block:: none
 
     exit energy / input energy: 0.919089
-    9.6 s; backend native
+    3.8 s; backend native
 
 
 
@@ -292,7 +292,7 @@ continue with :doc:`/guide/free-space/beams` and :doc:`/guide/free-space/hankel`
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.619 seconds)
+   **Total running time of the script:** (0 minutes 3.877 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_03_filament.py:

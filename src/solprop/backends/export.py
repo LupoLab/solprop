@@ -21,7 +21,7 @@ A destination is either an array the caller supplies -- a preallocated store row
 or a newly owned array the session allocates. Either way the result is detached: it is
 never a view of a live workspace, and the session never writes to it again. A plane
 store asks for its own room
-(:meth:`solprop.output.schema.PlaneStore.field_destination`), so that a kept field is
+(:meth:`solprop.output.store.PlaneStore.field_destination`), so that a kept field is
 written once, where it is kept.
 
 The destination is always host memory. A session whose state lives on a device fills it

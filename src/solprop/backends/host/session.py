@@ -78,7 +78,7 @@ from solprop.backends.session_core import (
 from solprop.exceptions import BackendError, StopRequested
 from solprop.log import StopFlag
 from solprop.monitor import BoundaryMonitor
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
@@ -453,7 +453,7 @@ class HostSession:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             The history at the ticket's position, or ``None``.
         """
         self._ledger.check_ticket(ticket)

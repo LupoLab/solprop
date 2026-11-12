@@ -299,34 +299,34 @@ def test_invalid_initial_fraction_is_refused(value):
         EnvelopePlasmaResponse("Ar", PolynomialRate(), preionisation=value)
 
 
-@pytest.mark.parametrize("value", [0.0, -1.0, np.nan, np.inf])
-def test_invalid_dt_is_refused(value):
-    with pytest.raises(GridError, match="dt"):
-        EnvelopePlasmaResponse("Ar", PolynomialRate()).sources(
-            np.zeros((1, 1), complex), 1, dt=value
-        )
-
-
-@pytest.mark.parametrize("value", [-1.0, np.nan, np.inf])
-def test_invalid_density_is_refused(value):
-    with pytest.raises(GridError, match="density"):
-        EnvelopePlasmaResponse("Ar", PolynomialRate()).sources(
-            np.zeros((1, 1), complex), value, dt=1
-        )
+ZERO = np.zeros((1, 1), complex)
 
 
 @pytest.mark.parametrize(
-    "field",
+    ("field", "density", "dt", "match"),
     [
-        np.zeros((3, 1), complex),
-        np.zeros((1, 0), complex),
-        np.full((1, 1), np.nan + 0j),
-        np.full((1, 1), np.inf + 0j),
+        (ZERO, 1, 0.0, "dt"),
+        (ZERO, 1, -1.0, "dt"),
+        (ZERO, 1, np.nan, "dt"),
+        (ZERO, 1, np.inf, "dt"),
+        (ZERO, -1.0, 1, "density"),
+        (ZERO, np.nan, 1, "density"),
+        (ZERO, np.inf, 1, "density"),
+        (np.zeros((3, 1), complex), 1, 1, "field"),
+        (np.zeros((1, 0), complex), 1, 1, "field"),
+        (np.full((1, 1), np.nan + 0j), 1, 1, "field"),
+        (np.full((1, 1), np.inf + 0j), 1, 1, "field"),
+        (
+            np.full((2, 1), np.finfo(float).max, complex),
+            1.0,
+            1.0,
+            "magnitude is not representable",
+        ),
     ],
 )
-def test_invalid_field_is_refused(field):
-    with pytest.raises(GridError, match="field"):
-        EnvelopePlasmaResponse("Ar", PolynomialRate()).sources(field, 1, dt=1)
+def test_invalid_sources_inputs_are_refused(field, density, dt, match):
+    with pytest.raises(GridError, match=match):
+        EnvelopePlasmaResponse("Ar", PolynomialRate()).sources(field, density, dt=dt)
 
 
 def test_source_container_copies_inputs_and_validates():
@@ -366,12 +366,6 @@ def test_invalid_binding_and_nonzero_dark_rate_are_refused():
         EnvelopePlasmaResponse("Ar", PolynomialRate(), species=" ")
     with pytest.raises(MaterialError, match="zero at zero"):
         EnvelopePlasmaResponse("Ar", PolynomialRate(power=0))
-
-
-def test_unrepresentable_physical_magnitude_is_refused():
-    field = np.full((2, 1), np.finfo(float).max, complex)
-    with pytest.raises(GridError, match="magnitude is not representable"):
-        EnvelopePlasmaResponse("Ar", PolynomialRate()).sources(field, 1.0, dt=1.0)
 
 
 def test_adaptive_cycle_failure_is_reported(monkeypatch):

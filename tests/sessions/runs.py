@@ -521,7 +521,7 @@ class Snapshots:
 
         Returns
         -------
-        solprop.output.schema.MarchSnapshot or None
+        solprop.output.records.MarchSnapshot or None
             Its snapshot.
         """
         [found] = [

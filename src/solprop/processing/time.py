@@ -40,13 +40,14 @@ import numpy as np
 from jaxtyping import Float, Inexact
 
 from solprop import stats
+from solprop._validation import choice
+from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
-from solprop.output.schema import Output
+from solprop.output.store import Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
     ModeSelection,
     _apply_modes,
-    _check_choice,
     _check_mode_index,
     _check_mode_selection,
     _plane_field,
@@ -219,7 +220,7 @@ def energy(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end; with neither ``plane`` nor
@@ -297,7 +298,7 @@ def peak_power(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -376,7 +377,7 @@ def fwhm_t(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -431,7 +432,7 @@ def fwhm_f(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -481,7 +482,7 @@ def time_bandwidth(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -537,7 +538,7 @@ def arrival_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -573,7 +574,7 @@ def arrival_time(
     True
     """
     _refuse_by_basis(output, "arrival_time")
-    _check_choice(method, ARRIVAL_METHODS, "method")
+    choice(method, "method", ARRIVAL_METHODS, ProcessingError)
     t, power = _power(output, plane=plane, z=z, modes=modes, bandpass=bandpass)
     if method == "peak":
         return _along_last(power, lambda trace: float(t[np.argmax(trace)]))
@@ -597,7 +598,7 @@ def field_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -654,7 +655,7 @@ def intensity_autocorrelation(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.
@@ -709,7 +710,7 @@ def coherence_time(
 
     Parameters
     ----------
-    output : solprop.output.schema.Output
+    output : solprop.output.store.Output
         An opened output handler.
     plane : int or None
         Index of the plane wanted, negative from the end.

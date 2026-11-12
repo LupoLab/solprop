@@ -4,7 +4,6 @@
 
 """Tests for the plane-statistics catalogue, its definitions and the collector."""
 
-import dataclasses
 import re
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, SolpropWarning
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode
-from solprop.output.schema import SavedPlane
+from solprop.output.records import SavedPlane
 from solprop.profiles import Constant, PressureGradient
 from solprop.pulses import GaussianPulse
 from solprop.stats import (
@@ -394,24 +393,30 @@ def test_a_spec_freezes_its_windows():
         spec.energy_windows[0, 0] = 3.0
 
 
-def test_a_spec_refuses_an_unknown_statistic():
-    with pytest.raises(OutputError, match="unknown statistics"):
-        StatsSpec(names=("energy", "banana"))
+@pytest.mark.parametrize(
+    ("keywords", "message"),
+    [
+        ({"names": ("energy", "banana")}, "unknown statistics"),
+        ({"names": ("energy", "energy")}, "these repeat"),
+        ({"names": ("energy",), "periodic": ("peak_power",)}, "periodic subset"),
+        ({"names": ("energy",), "period": 0}, "at least 1"),
+        ({"energy_windows": np.array([[np.nan, 1.0]])}, "NaN edge"),
+        ({"energy_windows": np.array([[2.0, 1.0]])}, r"lo < hi"),
+        # Fluence widths are implemented at saved planes, with an explicit trait.
+        (
+            {"names": ("fwhm_r",), "periodic": ("fwhm_r",)},
+            "cannot be evaluated between save planes",
+        ),
+    ],
+)
+def test_a_spec_refuses_a_bad_selection(keywords, message):
+    with pytest.raises(OutputError, match=message):
+        StatsSpec(**keywords)
 
 
 def test_a_spec_accepts_the_implemented_radial_width():
     assert StatsSpec(names=("fwhm_r",)).names == ("fwhm_r",)
     assert CATALOGUE["fwhm_r"].requires == ("spatial_geometry",)
-
-
-def test_a_spec_refuses_a_reserved_catalogue_entry(monkeypatch):
-    monkeypatch.setitem(
-        CATALOGUE,
-        "future_width",
-        dataclasses.replace(CATALOGUE["fwhm_r"], implemented=False),
-    )
-    with pytest.raises(OutputError, match="reserved but not implemented"):
-        StatsSpec(names=("future_width",))
 
 
 @pytest.mark.parametrize(
@@ -442,31 +447,6 @@ def test_the_field_statistics_are_not_backend_owned():
     )
 
 
-def test_a_spec_refuses_a_repeated_statistic():
-    with pytest.raises(OutputError, match="these repeat"):
-        StatsSpec(names=("energy", "energy"))
-
-
-def test_a_spec_refuses_a_periodic_statistic_it_does_not_record():
-    with pytest.raises(OutputError, match="periodic subset"):
-        StatsSpec(names=("energy",), periodic=("peak_power",))
-
-
-def test_a_spec_refuses_a_period_below_one():
-    with pytest.raises(OutputError, match="at least 1"):
-        StatsSpec(names=("energy",), period=0)
-
-
-def test_a_spec_refuses_a_window_with_a_nan_edge():
-    with pytest.raises(OutputError, match="NaN edge"):
-        StatsSpec(energy_windows=np.array([[np.nan, 1.0]]))
-
-
-def test_a_spec_refuses_a_window_that_is_not_ordered():
-    with pytest.raises(OutputError, match=r"lo < hi"):
-        StatsSpec(energy_windows=np.array([[2.0, 1.0]]))
-
-
 def test_a_spec_accepts_a_periodic_subset():
     spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=10)
     assert spec.periodic == ("energy",)
@@ -479,12 +459,6 @@ def test_a_spec_refuses_a_periodic_statistic_no_backend_evaluates_between_planes
     assert not CATALOGUE[name].between_planes
     with pytest.raises(OutputError, match="cannot be evaluated between save planes"):
         StatsSpec(names=("energy", name), periodic=(name,))
-
-
-def test_a_spec_refuses_spatial_widths_between_planes():
-    """Fluence widths are implemented at saved planes, with an explicit trait."""
-    with pytest.raises(OutputError, match="cannot be evaluated between save planes"):
-        StatsSpec(names=("fwhm_r",), periodic=("fwhm_r",))
 
 
 def test_every_periodic_default_is_one_the_catalogue_allows():
@@ -507,12 +481,12 @@ def test_every_periodic_default_is_one_the_catalogue_allows():
     ],
     ids=["averaged", "averaged-full", "multimode", "multimode-full"],
 )
-def test_every_default_name_is_in_the_catalogue_and_implemented(kind_and_flags):
+def test_every_default_name_is_in_the_catalogue(kind_and_flags):
     kind, with_profiles, with_zdw = kind_and_flags
     spec = default_spec(kind, with_profiles=with_profiles, with_zdw=with_zdw)
     assert spec.names
     for name in spec.names:
-        assert CATALOGUE[name].implemented
+        assert name in CATALOGUE
 
 
 def test_the_multimode_default_adds_the_total_peak_power():
@@ -594,17 +568,23 @@ def test_collect_agrees_with_the_statistics_it_calls(envelope_grid):
     assert np.array_equal(values["peak_power"], peak_power(envelope_grid, field))
 
 
-def test_collect_refuses_a_windowed_statistic_without_windows(envelope_grid):
+@pytest.mark.parametrize(
+    ("spec", "profiles", "message"),
+    [
+        (StatsSpec(names=("energy_window",)), None, "at least one energy window"),
+        (StatsSpec(names=("zdw",)), None, "needs the propagated modes"),
+        (
+            StatsSpec(names=("pressure",)),
+            {"density": Constant(1.0)},
+            r"collect was given \['density'\]",
+        ),
+    ],
+)
+def test_collect_refuses_what_it_cannot_form(envelope_grid, spec, profiles, message):
     field = gaussian(envelope_grid, energy_j=ENERGY)
-    spec = StatsSpec(names=("energy_window",))
-    with pytest.raises(OutputError, match="at least one energy window"):
-        collect(spec, envelope_grid, plane_of(field))
-
-
-def test_collect_refuses_zdw_without_modes(envelope_grid):
-    field = gaussian(envelope_grid, energy_j=ENERGY)
-    with pytest.raises(OutputError, match="needs the propagated modes"):
-        collect(StatsSpec(names=("zdw",)), envelope_grid, plane_of(field))
+    given = {} if profiles is None else {"profiles": profiles}
+    with pytest.raises(OutputError, match=message):
+        collect(spec, envelope_grid, plane_of(field), **given)
 
 
 @pytest.mark.parametrize("name", PROFILE_STATISTICS)
@@ -612,17 +592,6 @@ def test_collect_refuses_a_profile_statistic_without_its_profile(envelope_grid, 
     field = gaussian(envelope_grid, energy_j=ENERGY)
     with pytest.raises(OutputError, match=f"the {name!r} statistic needs"):
         collect(StatsSpec(names=(name,)), envelope_grid, plane_of(field))
-
-
-def test_collect_names_the_profiles_it_was_given(envelope_grid):
-    field = gaussian(envelope_grid, energy_j=ENERGY)
-    with pytest.raises(OutputError, match=r"collect was given \['density'\]"):
-        collect(
-            StatsSpec(names=("pressure",)),
-            envelope_grid,
-            plane_of(field),
-            profiles={"density": Constant(1.0)},
-        )
 
 
 def test_the_manual_page_states_the_trait_the_catalogue_holds():
@@ -649,8 +618,8 @@ def test_the_manual_page_states_the_trait_the_catalogue_holds():
         cells = [line[7:] for line in body.splitlines() if line.startswith("     - ")]
         if name in CATALOGUE and len(cells) >= 4:
             rows[name] = cells[2]
-    # The catalogue tables include every implemented entry, including spatial widths.
-    documented = {name for name, entry in CATALOGUE.items() if entry.implemented}
+    # The catalogue tables include every entry, including spatial widths.
+    documented = set(CATALOGUE)
     assert set(rows) == documented
     for name, cell in rows.items():
         assert cell == ("yes" if CATALOGUE[name].between_planes else "no"), name

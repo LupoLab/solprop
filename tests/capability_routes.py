@@ -261,7 +261,7 @@ def _spatial_pulse() -> SpatialPulse:
 def radial(noise: str | None) -> Simulation:
     """Return the radial free-space route, 32 Hankel nodes."""
     medium, responses = _argon()
-    return Simulation.from_radial(
+    return Simulation.from_free(
         SPATIAL_GRID,
         RadialGrid(6e-4, 32),
         medium,

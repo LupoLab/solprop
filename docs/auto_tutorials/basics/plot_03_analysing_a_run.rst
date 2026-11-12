@@ -34,7 +34,7 @@ Build the run. A saved plane is a position, a field in the internal FFT conventi
 and whatever statistics were taken there; a handler stores them and records the grid,
 the modes and the configuration beside them.
 
-.. GENERATED FROM PYTHON SOURCE LINES 21-71
+.. GENERATED FROM PYTHON SOURCE LINES 21-72
 
 .. code-block:: Python
 
@@ -44,7 +44,8 @@ the modes and the configuration beside them.
 
     from solprop.grid import EnvelopeGrid
     from solprop.output import MemoryOutput, open_file
-    from solprop.output.schema import GridRecord, RunMetadata, SavedPlane, StepperRecord
+    from solprop.output.metadata import RunMetadata
+    from solprop.output.records import GridRecord, SavedPlane, StepperRecord
     from solprop.plotting import plot_energy, plot_stats, prop_2d, spec_1d, time_1d
     from solprop.processing import energy as pulse_energy
     from solprop.processing import (
@@ -101,13 +102,13 @@ the modes and the configuration beside them.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 72-75
+.. GENERATED FROM PYTHON SOURCE LINES 73-76
 
 Read it back. The accessors take the handler, not the grid: they rebuild the axes from
 the metadata, return the active band on an ascending axis, and squeeze the mode and
 polarisation axes a mode-averaged run does not need.
 
-.. GENERATED FROM PYTHON SOURCE LINES 75-84
+.. GENERATED FROM PYTHON SOURCE LINES 76-85
 
 .. code-block:: Python
 
@@ -136,14 +137,14 @@ polarisation axes a mode-averaged run does not need.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 85-89
+.. GENERATED FROM PYTHON SOURCE LINES 86-90
 
 The metrics against the closed form. Pure dispersion conserves the energy and the
 spectrum exactly and stretches the pulse by a known factor, so the measured duration
 is a check on the whole chain: the stored convention, the rebuilt axes, the transform
 and the half-maximum crossing.
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-110
+.. GENERATED FROM PYTHON SOURCE LINES 90-111
 
 .. code-block:: Python
 
@@ -186,13 +187,13 @@ and the half-maximum crossing.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 111-114
+.. GENERATED FROM PYTHON SOURCE LINES 112-115
 
 The propagation maps. One figure per mode and one for the modal sum; here there is one
 mode, so there is one figure. The spectral panel is in decibels below the peak and the
 temporal one is a linear power in an auto-chosen unit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 114-121
+.. GENERATED FROM PYTHON SOURCE LINES 115-122
 
 .. code-block:: Python
 
@@ -215,13 +216,13 @@ temporal one is a linear power in an auto-chosen unit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 122-125
+.. GENERATED FROM PYTHON SOURCE LINES 123-126
 
 Slices at three positions. A colour per position; the temporal legend carries each
 trace's width at half maximum, and the spectral axis is logarithmic over six decades
 by default.
 
-.. GENERATED FROM PYTHON SOURCE LINES 125-131
+.. GENERATED FROM PYTHON SOURCE LINES 126-132
 
 .. code-block:: Python
 
@@ -243,13 +244,13 @@ by default.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-135
+.. GENERATED FROM PYTHON SOURCE LINES 133-136
 
 The energy along the fibre, with the conversion efficiency on the right-hand axis.
 Pure dispersion moves neither, which is the point: a plot that shows nothing happening
 is how you find out that nothing happened.
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-140
+.. GENERATED FROM PYTHON SOURCE LINES 136-141
 
 .. code-block:: Python
 
@@ -270,12 +271,12 @@ is how you find out that nothing happened.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-143
+.. GENERATED FROM PYTHON SOURCE LINES 142-144
 
 The statistics the run recorded. Only the groups with something in them are drawn, so
 a run that recorded no waveguide statistics gets one figure rather than an error.
 
-.. GENERATED FROM PYTHON SOURCE LINES 143-148
+.. GENERATED FROM PYTHON SOURCE LINES 144-149
 
 .. code-block:: Python
 
@@ -296,7 +297,7 @@ a run that recorded no waveguide statistics gets one figure rather than an error
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 149-154
+.. GENERATED FROM PYTHON SOURCE LINES 150-155
 
 The same run from disk. A memory handler writes exactly the file the HDF5 handler
 would have written, ``open_file`` opens it again read-only through the same protocol,
@@ -304,7 +305,7 @@ and an accessor reading either returns the same bits -- which is what makes it s
 to develop an analysis against a small in-memory run and then point it at a large
 file.
 
-.. GENERATED FROM PYTHON SOURCE LINES 154-167
+.. GENERATED FROM PYTHON SOURCE LINES 155-168
 
 .. code-block:: Python
 
@@ -335,7 +336,7 @@ file.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 168-174
+.. GENERATED FROM PYTHON SOURCE LINES 169-175
 
 Related reading
 ---------------
@@ -347,7 +348,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.305 seconds)
+   **Total running time of the script:** (0 minutes 0.566 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_03_analysing_a_run.py:

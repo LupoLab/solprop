@@ -324,7 +324,9 @@ def test_flush_failure_is_a_fatal_suspend_error(
 
 
 def test_missing_backend_history_stops_clearly(working):
-    from solprop.driver.run import _MarchKeeper  # noqa: PLC0415 - failure seam only
+    from solprop.driver.session_loop import (  # noqa: PLC0415 - failure seam only
+        _MarchKeeper,
+    )
 
     keeper = object.__new__(_MarchKeeper)
     keeper._kept_z = None
@@ -365,7 +367,7 @@ def test_snapshot_admission_rejects_invalid_controller_and_batch(working):
 def test_run_cleanup_retains_primary_failure_and_attempts_every_resource(primary):
     import inspect  # noqa: PLC0415 - fault injection bypasses resource protocols
 
-    from solprop.driver.simulation import _close_run  # noqa: PLC0415
+    from solprop.driver.tdse_run import _close_run  # noqa: PLC0415
 
     events = []
 
@@ -564,7 +566,7 @@ def test_archive_file_creation_error_releases_ownership(tmp_path, monkeypatch):
 def test_archive_cleanup_preserves_a_preparation_error(primary):
     import inspect  # noqa: PLC0415 - inject a failed resource into private cleanup
 
-    from solprop.driver.simulation import _close_tdse_archive  # noqa: PLC0415
+    from solprop.driver.tdse_run import _close_tdse_archive  # noqa: PLC0415
 
     def failed():
         raise TDSEArchiveError("archive close failed")

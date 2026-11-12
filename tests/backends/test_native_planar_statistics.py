@@ -172,6 +172,27 @@ def finished(problem, run_request, grid, rows, dz, options=None):
     return expected, actual
 
 
+def _split_step_finish(off_band: complex):
+    """Finish the split-step collar case's launch rows set to `off_band` off the band.
+
+    Returns the problem, its active mask and the reference's and native's finished
+    rows (:func:`finished`) over one step of the schedule.
+    """
+    grid, space, problem, run_request = collar_family_case("collar_split_step")
+    active = np.asarray(problem.grids.active_mask)
+    rows = np.array(problem.initial.field0, dtype=complex)
+    rows[..., ~active] = off_band
+    expected, actual = finished(
+        problem,
+        run_request,
+        grid,
+        rows,
+        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
+        chunked(space),
+    )
+    return problem, active, expected, actual
+
+
 def test_the_hard_mask_takes_the_rows_to_the_state():
     """The split-step finish leaves exact zeros off the band, on native and the oracle.
 
@@ -180,19 +201,8 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
     finish on rows it is handed. Off the band the zeros are exact (class P,
     ``docs/dev/testing.md`` section 3): any other value would be real content.
     """
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
+    _, active, expected, actual = _split_step_finish(1.0 + 1.0j)
     assert not np.all(active)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 1.0 + 1.0j
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
     np.testing.assert_array_equal(expected[..., ~active], 0.0)
     np.testing.assert_array_equal(actual[..., ~active], 0.0)
     assert np.max(np.abs(actual[..., active])) > 0.0
@@ -200,18 +210,7 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
 
 def test_the_finish_on_the_band_is_the_reference_s():
     """The same finish on rows with nothing off the band, as every march's are."""
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 0.0
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
+    problem, _, expected, actual = _split_step_finish(0.0)
     assert_within(actual, expected, finish_bound(problem), what="the finish")
 
 
@@ -230,16 +229,5 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
     source's prefactor and the in-stage term are zero there, and the flow is the
     identity there. Measured 1.1e-8 at unit content off the band, 4.4e6 V/m at the peak.
     """
-    grid, space, problem, run_request = collar_family_case("collar_split_step")
-    active = np.asarray(problem.grids.active_mask)
-    rows = np.array(problem.initial.field0, dtype=complex)
-    rows[..., ~active] = 1.0 + 1.0j
-    expected, actual = finished(
-        problem,
-        run_request,
-        grid,
-        rows,
-        float(run_request.stepper.schedule.max_step),  # pyright: ignore[reportOptionalMemberAccess]
-        chunked(space),
-    )
+    problem, _, expected, actual = _split_step_finish(1.0 + 1.0j)
     assert_within(actual, expected, finish_bound(problem), what="the finish")

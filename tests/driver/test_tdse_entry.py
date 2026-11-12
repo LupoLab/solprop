@@ -16,11 +16,11 @@ import pytest
 from tests.driver.test_sep12_sep14_integration import _Binding
 from tests.hacc_cases import hacc_response, plain, preset_basis
 
-import solprop.driver.simulation as simulation_module
+import solprop.driver.tdse_run as tdse_run_module
 from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
 from solprop.driver import Simulation, prop_capillary
 from solprop.driver import tdse as runtime
-from solprop.driver.simulation import SimulationSettings
+from solprop.driver.settings import SimulationSettings
 from solprop.exceptions import (
     DriverError,
     MaterialRangeWarning,
@@ -36,7 +36,7 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.output import MemoryOutput
-from solprop.output.schema import serialise
+from solprop.output.serialisation import serialise
 from solprop.stats import StatsSpec
 from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
@@ -83,7 +83,7 @@ def _capillary(**changes):
 def test_tdse_keyword_builds_the_one_response_run_in_one_step(caplog):
     response = _sae()
     execution = TDSEExecution(max_atomic_calls=7)
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver.tdse_run"):
         simulation = _capillary(tdse=response, tdse_execution=execution)
     assert simulation.responses == (response,)
     assert simulation.settings.tdse_execution == execution
@@ -166,7 +166,7 @@ def test_tdse_execution_alone_and_a_foreign_record_are_refused():
     with pytest.raises(DriverError, match="tdse_execution requires"):
         _capillary(tdse_execution=TDSEExecution())
     # The record's own check, beneath the test session's annotation checker.
-    entry = inspect.unwrap(simulation_module._tdse_entry)
+    entry = inspect.unwrap(tdse_run_module._tdse_entry)
     with pytest.raises(DriverError, match="must be a TDSEGasResponse"):
         entry(
             object(),

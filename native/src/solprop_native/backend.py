@@ -66,7 +66,7 @@ from solprop.grid import RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     ABSORBED_CHANNELS,

@@ -101,7 +101,7 @@ def _settings(names, **extra):
 def _radial(medium):
     grid = _grid()
     space = RadialGrid(6e-4, 16)
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid, space, medium, [], _pulse(60e-6), settings=_settings(LOCAL), noise=None
     )
     return grid, simulation.translate(), simulation._run_request()

@@ -91,7 +91,7 @@ def test_rectangular_contour_derivative_and_material_chain(polarisation):
     for phase in np.arange(64) * 2 * np.pi / 64:
         offset = 0.1 * omega * np.exp(1j * phase)
         value = mode._model_values(
-            replace(terms, omega=omega + offset), 50e-6, 12.5e-6
+            replace(terms, omega=omega + offset), mode._walls(0.0)
         )[0]
         total = total + value / offset
     # Existing capillary contour tolerance: float rounding amplified by the
@@ -265,7 +265,7 @@ def test_rectangular_remaining_validation_and_mixture_paths():
     terms = mode._terms(np.asarray([2e15]), 0.0)
     with pytest.raises(ModeError, match="non-finite"):
         mode._model_values(
-            replace(terms, dwall=np.asarray([complex(np.nan)])), 50e-6, 12.5e-6
+            replace(terms, dwall=np.asarray([complex(np.nan)])), mode._walls(0.0)
         )
     mixture = Mixture.fill({"He": 0.25, "Ar": 0.75}, 2.0)
     filled = mode.with_mixture(mixture)
@@ -294,7 +294,7 @@ def test_rectangular_luna_witness_at_matched_material_indices():
             mode._terms(omega, 0.0),
             chi=np.asarray([complex(*case["core"]) ** 2 - 1]),
         )
-        value = 1 + mode._model_values(terms, 50e-6, 12.5e-6)[0]
+        value = 1 + mode._model_values(terms, mode._walls(0.0))[0]
         # Identical material samples isolate the algebra from gas and metal data;
         # expm1/log1p versus sqrt differs by a few rounded complex operations.
         assert_allclose(value, complex(*case["neff"]), rtol=1e-15, atol=0)

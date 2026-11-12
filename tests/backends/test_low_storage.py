@@ -61,7 +61,7 @@ from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput
-from solprop.output.schema import MarchSnapshot
+from solprop.output.records import MarchSnapshot
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
 from solprop.stats import StatsSpec
@@ -1367,26 +1367,28 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
 # --- the noise (section 7.1, Q3) ----------------------------------------------------
 
 
-def test_the_noise_draw_never_enters_the_propagating_field():
-    """With the draw and no response the state is the pure flow of its input."""
-    length = 1e-3
+def noisy_free_case(length, seed, steps, responses):
+    """A Cartesian envelope case with a modified-noise draw, on `steps` equal steps.
+
+    Returns the grid, the space, the draw, the schedule, the problem and its request.
+    """
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
     space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
-        np.random.default_rng(3),
+        np.random.default_rng(seed),
         model="modified",
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
-    schedule = FixedSchedule.uniform(0.0, length, length / 8)
+    schedule = FixedSchedule.uniform(0.0, length, length / steps)
     problem, run_request = assemble(
         grid,
         None,
-        [],
+        responses,
         pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
@@ -1398,6 +1400,13 @@ def test_the_noise_draw_never_enters_the_propagating_field():
         schedule=schedule,
         integrator=MARCH,
     )
+    return grid, space, noise, schedule, problem, run_request
+
+
+def test_the_noise_draw_never_enters_the_propagating_field():
+    """With the draw and no response the state is the pure flow of its input."""
+    length = 1e-3
+    grid, _, noise, schedule, problem, run_request = noisy_free_case(length, 3, 8, [])
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, noise)
     backend.propagate_to(length)
@@ -1413,33 +1422,8 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
     every active bin, as ``test_free_noise`` forms it; the bound is that test's.
     """
     length = 1e-4
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-    )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
-    noise = spatial_noise(
-        SpatialFlux.resolve(grid, space, SpatialMedium()),
-        np.random.default_rng(94),
-        model="modified",
-    )
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
-    )
-    schedule = FixedSchedule.uniform(0.0, length, length / 2)
-    problem, run_request = assemble(
-        grid,
-        None,
-        [KerrResponse(1e-22, thg=False)],
-        pulse.build(grid, space, medium=SpatialMedium()),
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        noise=noise,
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
+    grid, space, noise, schedule, problem, run_request = noisy_free_case(
+        length, 94, 2, [KerrResponse(1e-22, thg=False)]
     )
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, noise)

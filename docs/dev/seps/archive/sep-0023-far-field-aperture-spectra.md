@@ -709,7 +709,7 @@ Additive and opt-in: no default changes, `default_spec("free")` is unchanged, an
 existing statistic changes beyond rounding. The kernel schema and the output schema are
 unchanged; the new statistics are float64 arrays stored like the others. The two
 `StatsSpec` fields follow SEP 22's hash-stability rule: each declares
-`metadata={"omit_default": True}`, so `output.schema._serialise_dataclass` leaves it out
+`metadata={"omit_default": True}`, so `output.serialisation._serialise_dataclass` leaves it out
 of the configuration record while it holds its default (`None`, and an empty table
 compared as empty), as the function already does for `PlasmaResponse.integration`; every
 existing resume key and scan digest, and SEP 22's stored digests, stand; the marker and

@@ -113,7 +113,7 @@ def pair_guide(grid):
 def route_for(guide, grid):
     """Return the route a run of these tests builds, rebuilt from the guide.
 
-    `Simulation._from_general` passes the **last save plane** as `z_max`, so a
+    `_from_general` passes the **last save plane** as `z_max`, so a
     caller rebuilding the reference for a reconstruction passes the same: the
     tables' `z_span` is part of their identity and a different one is refused by
     name, which is the point of the check.

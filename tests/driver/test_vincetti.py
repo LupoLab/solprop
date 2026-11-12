@@ -25,7 +25,7 @@ from solprop.modes.base import alpha, beta, beta1, zdw
 from solprop.modes.quadrature import mode_matrix, transverse_quadrature
 from solprop.output import open_file
 from solprop.output.hdf5 import resume
-from solprop.output.schema import ModeRecord
+from solprop.output.records import ModeRecord
 from solprop.physdata import Component, Mixture, Species, TabulatedSusceptibility
 from solprop.profiles import Constant
 from solprop.stats import StatsSpec

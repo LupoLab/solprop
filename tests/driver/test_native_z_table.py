@@ -150,7 +150,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
             for index, label in enumerate(fill.labels)
         }
     )
-    simulation = Simulation.from_radial(
+    simulation = Simulation.from_free(
         grid,
         RadialGrid(1e-3, 16, collar_fraction=0.0),
         SpatialMedium(fill),

@@ -767,10 +767,28 @@ def test_stepindex_lost_root_is_recovered_by_its_own_factor(monkeypatch):
     )
 
 
-def test_stepindex_ambiguous_recovery_is_refused(monkeypatch):
-    # One cutoff interval holds one guided root, so a factor that changes sign
-    # three times in an empty one is refused, and the message says why, instead
-    # of guessing which candidate is the root.
+@pytest.mark.parametrize(
+    ("branch", "scan", "message"),
+    [
+        # One cutoff interval holds one guided root, so a factor that changes sign
+        # three times in an empty one is refused, and the message says why, instead
+        # of guessing which candidate is the root.
+        (
+            lambda u, v, ratio, n, kind: (u - 0.5) * (u - 1.0) * (u - 1.5),
+            (),
+            "changes sign 3 times",
+        ),
+        # With the scan capped below V, a missing root cannot be the one within
+        # rounding of V, so it is refused with its own cause rather than reported
+        # short for the caller to call a near-cutoff mode.
+        (
+            lambda u, v, ratio, n, kind: u + 1.0,
+            (1,),
+            "a root away from V could not be resolved",
+        ),
+    ],
+)
+def test_stepindex_an_unrecoverable_root_is_refused(monkeypatch, branch, scan, message):
     real = stepindex._refined_roots
 
     def short(nodes, values, v, ratio, n, kind):
@@ -779,30 +797,9 @@ def test_stepindex_ambiguous_recovery_is_refused(monkeypatch):
         return found
 
     monkeypatch.setattr(stepindex, "_refined_roots", short)
-    monkeypatch.setattr(
-        stepindex,
-        "_branch",
-        lambda u, v, ratio, n, kind: (u - 0.5) * (u - 1.0) * (u - 1.5),
-    )
-    with pytest.raises(ModeError, match="changes sign 3 times"):
-        _roots(6.0, (1.45 / 1.47) ** 2, 1, "HE")
-
-
-def test_stepindex_unresolved_root_below_the_scan_top_is_refused(monkeypatch):
-    # With the scan capped below V, a missing root cannot be the one within
-    # rounding of V, so it is refused with its own cause rather than reported
-    # short for the caller to call a near-cutoff mode.
-    real = stepindex._refined_roots
-
-    def short(nodes, values, v, ratio, n, kind):
-        found = real(nodes, values, v, ratio, n, kind)
-        found[kind] = found[kind][1:]
-        return found
-
-    monkeypatch.setattr(stepindex, "_refined_roots", short)
-    monkeypatch.setattr(stepindex, "_branch", lambda u, v, ratio, n, kind: u + 1.0)
-    with pytest.raises(ModeError, match="a root away from V could not be resolved"):
-        _roots(6.0, (1.45 / 1.47) ** 2, 1, "HE", 1)
+    monkeypatch.setattr(stepindex, "_branch", branch)
+    with pytest.raises(ModeError, match=message):
+        _roots(6.0, (1.45 / 1.47) ** 2, 1, "HE", *scan)
 
 
 @pytest.mark.parametrize(

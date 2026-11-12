@@ -18,7 +18,7 @@ import pytest
 
 from sessions.executors import soliton
 from solprop.exceptions import TranslationError
-from solprop.output.schema import FieldRetention
+from solprop.output.store import FieldRetention
 from solprop.stats import StatsSpec
 from solprop.stepper import Multistep
 from solprop.translate.problem import StepperSettings

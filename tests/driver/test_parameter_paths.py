@@ -430,7 +430,7 @@ REFUSALS = [
         lambda: _hollow(fwhm=-1.0),
         PulseError,
         "fwhm",
-        "finite positive number",
+        "finite and positive",
         id="capillary-pulse-duration",
     ),
     pytest.param(
@@ -521,7 +521,7 @@ def test_the_boundary_warning_names_the_boundary_check() -> None:
 
 
 def test_an_inner_refusal_that_names_its_keyword_keeps_it() -> None:
-    from solprop.driver.simulation import _about  # noqa: PLC0415 - a private seam
+    from solprop.driver.routes.keywords import _about  # noqa: PLC0415 - a private seam
 
     with pytest.raises(DriverError) as caught, _about("pulses"):
         raise DriverError("refused", parameter="pulses[0].energy")

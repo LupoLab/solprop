@@ -9,10 +9,10 @@ body of what would otherwise be a hand loop over the backend. The plane reaches 
 the run made it, with no copy and no conversion, so the handler costs no volume of its
 own.
 
-It is an :class:`~solprop.output.schema.Output` and a
-:class:`~solprop.output.schema.RetainingOutput`, and deliberately neither a
-:class:`~solprop.output.schema.PlaneStore` nor a
-:class:`~solprop.output.schema.CheckpointOutput`. A store's readers have nothing to read
+It is an :class:`~solprop.output.store.Output` and a
+:class:`~solprop.output.store.RetainingOutput`, and deliberately neither a
+:class:`~solprop.output.store.PlaneStore` nor a
+:class:`~solprop.output.store.CheckpointOutput`. A store's readers have nothing to read
 here, and its save path converts each field into a new volume. A checkpoint promises a
 state that ``resume=True`` can continue, and with no file there is nothing to continue,
 so a run neither fetches a terminal field for this handler nor says that one was
@@ -27,13 +27,9 @@ import numpy as np
 
 from solprop._display import line
 from solprop.exceptions import OutputError
-from solprop.output.schema import (
-    Convention,
-    FieldRetention,
-    RunMetadata,
-    SavedPlane,
-    resolve_metadata_write,
-)
+from solprop.output.metadata import RunMetadata, resolve_metadata_write
+from solprop.output.records import Convention, SavedPlane
+from solprop.output.store import FieldRetention
 
 __all__ = ["CallbackOutput"]
 
@@ -50,7 +46,7 @@ def _not_held(what: str) -> OutputError:
 class CallbackOutput:
     """Give each saved plane to a callable, and keep nothing.
 
-    The callable is given the run's own :class:`~solprop.output.schema.SavedPlane`, not
+    The callable is given the run's own :class:`~solprop.output.records.SavedPlane`, not
     a copy. Its arrays are read-only and nothing writes to them again, so the callable
     may keep any of them, at the cost of what it keeps; a plane it reduces and lets go
     costs one field volume on the host while it is held, the one the observation
@@ -60,7 +56,7 @@ class CallbackOutput:
     stores, in a second volume.
 
     The run's ``fields`` setting
-    (:class:`~solprop.driver.simulation.SimulationSettings`) decides what a plane
+    (:class:`~solprop.driver.settings.SimulationSettings`) decides what a plane
     carries. With ``fields="none"``, what a reduction of statistics wants, every plane
     has ``field=None`` and ``noise_phase=None`` beside its position, its statistics and
     its step history, and no field leaves the backend. With ``fields="planes"`` the
@@ -142,7 +138,7 @@ class CallbackOutput:
             The record of the run about to start.
         force : bool, optional
             Whether to replace a different record held already
-            (:func:`~solprop.output.schema.resolve_metadata_write`).
+            (:func:`~solprop.output.metadata.resolve_metadata_write`).
 
         Raises
         ------
@@ -162,7 +158,7 @@ class CallbackOutput:
     def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
         """Accept the run's field rule: there is no storage for it to size.
 
-        Declares :class:`~solprop.output.schema.RetainingOutput`, which is what admits
+        Declares :class:`~solprop.output.store.RetainingOutput`, which is what admits
         field-free planes. The rule reaches the callable as each plane's ``field``.
 
         Parameters

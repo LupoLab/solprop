@@ -4,8 +4,8 @@
 from startup and rejected trials, it usually needs one new source evaluation per
 accepted step. This can save time when a response is expensive, while requiring more
 state history in memory. It is the default integrator of `prop_capillary`,
-`prop_radial` and `prop_planar` and their builders; `prop_gnlse`, `prop_waveguide` and
-`prop_free` default to `RungeKutta()` ([the defaults](choosing-a-stepper.md#the-defaults)).
+`prop_free` on a radial grid and `prop_planar`, and their builders; `prop_gnlse`,
+`prop_waveguide` and `prop_free` on a Cartesian or line grid default to `RungeKutta()` ([the defaults](choosing-a-stepper.md#the-defaults)).
 
 The default exponential formulation integrates an interpolating source polynomial
 against the represented linear flow. The alternative interaction formulation
