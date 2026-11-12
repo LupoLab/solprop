@@ -402,8 +402,10 @@ std::vector<Element> exact_vector(const nb::handle value, const std::string& fie
 }
 
 template <class Element>
-ExactArray<Element>::Output array_of(const std::vector<Element>& values) {
-  using Stored = ExactArray<Element>::Stored;
+// NOLINTNEXTLINE(readability-redundant-typename): nvcc's front end needs it
+typename ExactArray<Element>::Output array_of(const std::vector<Element>& values) {
+  // NOLINTNEXTLINE(readability-redundant-typename): nvcc's front end needs it
+  using Stored = typename ExactArray<Element>::Stored;
   auto storage = std::make_unique<Stored[]>(values.size());
   for (std::size_t index = 0; index < values.size(); ++index) {
     if constexpr (std::is_same_v<Element, native::Complex>)
@@ -434,7 +436,8 @@ public:
   template <class Value>
   Fields& field(const char* name, Value Group::* member, const std::size_t rank = 0) {
     if constexpr (IsVector<Value>::value) {
-      using Element = Value::value_type;
+      // NOLINTNEXTLINE(readability-redundant-typename): nvcc's front end needs it
+      using Element = typename Value::value_type;
       // The setter's stub names the one dtype it takes.
       const std::string setter =
           native::concat("def ", name, "(self, arg: numpy.typing.NDArray[",
