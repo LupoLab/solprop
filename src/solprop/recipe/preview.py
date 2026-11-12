@@ -83,12 +83,13 @@ class ModePreview:
     phase_mismatch : numpy.ndarray or None
         The phase mismatch in rad/m between a dispersive wave in this mode and a
         soliton in the launch mode (the set's first) at the pump
-        (:func:`solprop.tools.phase_matching.phase_mismatch`); ``None`` without a pump. See
-        :func:`modes` for the pump and the nonlinear term.
+        (:func:`solprop.tools.phase_matching.phase_mismatch`); ``None`` without a pump.
+        See :func:`modes` for the pump and the nonlinear term.
     rdw : tuple of float
         The phase-matched wavelengths in m, shortest first, between the band's
-        short edge and 0.9 of the pump (:func:`solprop.tools.phase_matching.lambda_rdw_all`);
-        empty without a pump or a root.
+        short edge and 0.9 of the pump
+        (:func:`solprop.tools.phase_matching.lambda_rdw_all`); empty without a pump or a
+        root.
     """
 
     label: str
@@ -210,9 +211,9 @@ def modes(recipe: "Recipe", z: float | None = None) -> ModeSetPreview:
     mode (the launch mode's own for the first; intermodal for the rest). With an
     unchirped sech or Gaussian pulse given by its FWHM and its energy or peak power,
     and a fill with Kerr data, the soliton's nonlinear wavenumber is that of its
-    largest constituent (:func:`solprop.tools.phase_matching.phase_mismatch`'s default); otherwise,
-    and for a pump in normal dispersion, which launches no soliton, the condition is
-    the linear one.
+    largest constituent (:func:`solprop.tools.phase_matching.phase_mismatch`'s
+    default); otherwise, and for a pump in normal dispersion, which launches no soliton,
+    the condition is the linear one.
     """
     from solprop.modes.base import (  # noqa: PLC0415
         aeff,
@@ -284,8 +285,9 @@ def _pump(  # noqa: PLR0911 - one return per case of the linear condition
     - ``z``: the position, m: the fill's coefficient, the mode's area and its dispersion
       are taken there, as the mismatch is.
     - Returns: the pump wavelength in m (``None`` without a numeric ``wavelength``), and
-      the keywords :func:`solprop.tools.phase_matching.phase_mismatch` takes for the nonlinear term
-      (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the linear condition.
+      the keywords :func:`solprop.tools.phase_matching.phase_mismatch` takes for the
+      nonlinear term (``peak_power``, ``gamma``, ``fwhm``, ``shape``), empty for the
+      linear condition.
       The nonlinear coefficient is the recipe's ``gamma`` where it gives one (the
       GNLSE), else the launch mode's fill's at `z`. The condition is linear for a
       chirped pulse (a ``phases`` term from second order on), a pump in normal

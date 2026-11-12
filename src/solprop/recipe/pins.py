@@ -440,9 +440,9 @@ def solve_pulse(
     """Return the energy or peak power that gives a pulse a soliton order.
 
     Closed form on the launch mode at the launch position, with the fill's Kerr
-    coefficient (:func:`solprop.tools.soliton.soliton_peak_power`). The route is built once,
-    the pulse at a placeholder, for its mode. This is the call the Python export of a
-    recipe with a ``soliton_order`` pin writes before the route's call.
+    coefficient (:func:`solprop.tools.soliton.soliton_peak_power`). The route is built
+    once, the pulse at a placeholder, for its mode. This is the call the Python export
+    of a recipe with a ``soliton_order`` pin writes before the route's call.
 
     Parameters
     ----------
