@@ -15,8 +15,10 @@ above its budget, and each budgeted comparison checks that it does.
 """
 
 import dataclasses
+import gc
 import math
 import signal
+import weakref
 from typing import Any, cast
 
 import numpy as np
@@ -518,10 +520,13 @@ def test_an_abandoned_attempt_s_failed_release_is_a_note_on_the_run_s_error():
     assert runs["native"][2].calls == runs["numpy_ref"][2].calls
 
 
-def test_a_held_signal_stops_a_native_evaluation_before_its_commit():
-    """Item 3 and section 6.7: a real SIGTERM inside the session's commit is held, and
-    the session's ``interruptible`` scope lets the evaluation's wait raise it."""
-    problem, request, grid = case = _case()
+def _held_signal_run(case) -> tuple[float, weakref.ref]:
+    """Run `case` on native with a real SIGTERM held in an evaluation; check the stop.
+
+    Returns the run's last position and a weak reference to its binding, which the
+    signal's exception reaches through its traceback (the binding keeps it).
+    """
+    problem, request, grid = case
     binding = Recording(
         tdse_descriptor(problem.route), 1000, fail_evaluation=12, signal=True
     )
@@ -539,9 +544,23 @@ def test_a_held_signal_stops_a_native_evaluation_before_its_commit():
     assert run.terminal.eligibility.value == "eligible"
     assert binding.ledger.reserved == 0
     assert binding.calls[-1] == ("release",)
+    return run.terminal.z, weakref.ref(binding)
+
+
+def test_a_held_signal_stops_a_native_evaluation_before_its_commit():
+    """Item 3 and section 6.7: a real SIGTERM inside the session's commit is held, and
+    the session's ``interruptible`` scope lets the evaluation's wait raise it.
+
+    The closed backend leaves nothing the collector cannot see: the binding, in a
+    cycle through the kept exception's traceback, is freed.
+    """
+    case = _case()
+    z, binding = _held_signal_run(case)
+    gc.collect()
+    assert binding() is None
     # The last accepted step, as a provider failure there leaves it.
     failed = _pair(case, fail_evaluation=12)["native"][0]
-    assert run.terminal.z == failed.terminal.z > 0
+    assert z == failed.terminal.z > 0
 
 
 def test_an_archive_failure_after_an_accepted_commit_keeps_the_new_state():
@@ -616,14 +635,17 @@ def _agreement(case, work_limit):
 
 @pytest.mark.parametrize("work_limit", [1, 256])
 def test_eight_steps_agree_within_the_eight_step_budget(work_limit):
-    """Item 4: eight steps of 10 nm, one attempt per call and the production bound.
+    """Item 4: eight steps, one attempt per call and the production bound.
 
-    Without the in-stage absorber's collar the steps reach their cap: eight steps, each
-    one stage of the one-step budget, 16 eps, accumulated linearly to 128 eps.
+    Without the in-stage absorber's collar the steps reach their cap. Cap and length
+    are binary-exact (2^-27 m, 2^-24 m), so eight steps of the cap land on the end
+    with no split final step: each one stage of the one-step budget, 16 eps,
+    accumulated linearly to 128 eps.
     """
-    case = _case(length=8e-8, dz_max=1e-8, absorber=None)
+    case = _case(length=2.0**-24, dz_max=2.0**-27, absorber=None)
     ours, reference, attempts = _agreement(case, work_limit)
-    assert attempts == 9  # the startup's attempt and eight accepted steps
+    # Eight accepted steps; the startup sample is evaluated inside the first.
+    assert attempts == 8
     assert_within(ours, reference, 128 * EPS, what="eight steps")
     _unsourced(case, 128 * EPS, ours, work_limit=work_limit)
 

@@ -2239,7 +2239,8 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** accepted (maintainer), 2026-11-11. Supersedes ADR-054 and ADR-061; amends
   ADR-064 (single precision under `backend="auto"`) and ADR-068 (`numpy_ref` "stays
   comprehensive"); withdraws [SEP 48](seps/archive/sep-0048-julia-backend.md). Those
-  records, and the SEPs implemented under them, stay as written.
+  records, and the SEPs implemented under them, stay as written. Amended by ADR-078:
+  native runs the TDSE response too.
 - **Context:** single precision runs on `numpy_ref` alone since `mlx` was retired
   (SEP 47): no installed backend runs it quickly, and `backend="auto"` refuses it.
   [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) measured single and mixed
@@ -2275,3 +2276,58 @@ Withdrawn (development-process record, not a design decision).
   - The backend registry becomes a fixed table of the two backends, with no plugin rows.
   - The precision field and CF4's settings leave the hashed configuration in one release,
     so resume identity changes once: a run started on an earlier release finishes on it.
+
+## ADR-078 — The TDSE response runs on native through a host source; its provider in a worker
+
+- **Status:** proposed with [SEP 49](seps/sep-0049-tdse-on-native.md) (PR #771), for the
+  maintainer. Amends ADR-077's "every feature except the TDSE response, for now": native
+  implements every feature.
+- **Context:** the TDSE response ran on `numpy_ref` alone, and native refused it by name.
+  Its source is a complete atomic calculation at every radial node, from 93 s to over
+  1,300 s a call, so a native rewrite of the provider buys nothing; what native lacked
+  was a way to hand the provider a stage's field and take its source. The provider,
+  Pyroraptor, ran in solprop's process, beside the native wheel's Kokkos and OpenMP
+  runtimes, which rules out a GPU provider beside a CPU wheel, and a call of minutes
+  could not be stopped.
+- **Decision:**
+  - *The host source hook.* The native resident Adams march takes one optional, generic
+    host source, `begin(cost)`, `evaluate(field, z, purpose, source)` and
+    `end(outcome)`, that knows nothing of the TDSE. When it is bound, each source
+    evaluation hands it the stage's lab-frame field, unscaled and with any noise
+    added, and takes the projected source in place of the engine's own response pass;
+    the stage finish applies the collar, the in-stage absorber and the propagator as on
+    every route. It is called from the thread that called `advance`, outside every
+    parallel region, with the interpreter lock taken for the call: the one Python call
+    in a native trial. A Python exception is caught at the binding layer, never inside
+    a Kokkos kernel. Its scope: the native CPU build, the adaptive Adams march, and one
+    real column of a modal route (the TDSE response's own scope). The source assembly,
+    `solprop.backends.tdse_source`, is shared by both backends.
+  - *Device builds refuse.* A native CUDA or HIP build refuses a TDSE problem by name:
+    a TDSE run gives the provider the GPU or every CPU thread, and solprop's optical
+    side is negligible beside an atomic call.
+  - *The provider worker.* The provider runs only in a worker process of its own (the
+    same interpreter, `subprocess`, length-prefixed frames, no pickle), for presets,
+    bases, diagnostics and runs alike, so solprop's process never imports it. A worker
+    is replaced after any provider failure. Ctrl-C, SIGTERM and a stop flag end it
+    during a call; the call stays charged.
+  - *The failure boundary.* An attempt reserves its atomic calls before it evaluates.
+    A failure before the step commits abandons the attempt (its reservation released,
+    nothing recorded, the state the last accepted one); a failure after the commit, in
+    the archive's record, leaves the committed step standing and is the run's error;
+    a release that fails after another error is a note on it. Both backends keep this
+    boundary.
+  - `backend="auto"` runs a TDSE problem on native; `backend="numpy_ref"` still runs it,
+    as the reference.
+- **Why:** the response is the provider's arithmetic either way; what native adds is
+  every optical feature it already runs, at its speed, and one backend for production.
+  A generic hook keeps the engine free of the TDSE and of Python, except at that one
+  call. A process boundary is the simplest isolation of two native runtimes, and the
+  only one that lets a GPU provider sit beside a CPU wheel; a few milliseconds a call
+  are nothing against minutes.
+- **Consequences:** per evaluation the hook adds a Python call, the worker a copy each
+  way, and the shared assembly 0.13–1.9 ms (SEP 49, phase 0), below 1e-4 of the
+  fastest recorded atomic call. Native runs without a host source are unchanged bit for
+  bit. The hook's two rows are listed as `host_source` in the memory ledger. CI tests
+  the hook and the worker with manufactured providers; compatibility with an installed
+  Pyroraptor is checked by hand ([SEP 49](seps/sep-0049-tdse-on-native.md), section 7.4),
+  and the worker's handshake refuses a mismatched revision or execution space.

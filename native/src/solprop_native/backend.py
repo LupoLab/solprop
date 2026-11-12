@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import functools
 import logging
@@ -1592,8 +1593,15 @@ class NativeBackend:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
             # Closing the state drops a host source with the engine that borrowed it,
-            # also while a session still leases the state (SEP 49).
+            # also while a session still leases the state (SEP 49). The state's own
+            # reference to the source is invisible to the garbage collector, which
+            # could then never free a cycle through it (a kept exception's traceback
+            # reaching the session), so it is dropped once the state is closed. A
+            # session that could not close still uses the state, and keeps it.
             self._native_state.close()
+            if self._host_source is not None:
+                with contextlib.suppress(RuntimeError):
+                    self._native_state.bind_host_source(None)
             _host_blas.release()
         self._closed = True
 

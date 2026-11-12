@@ -2222,8 +2222,9 @@ public:
   }
   // Closes a session that leases this state first (below, after its class).
   void close() noexcept;
-  // solprop SEP 49: bind `owner` as the state's host source, or unbind with None. The
-  // state keeps the object; the engine borrows it.
+  // solprop SEP 49: bind `owner` as the state's host source, or unbind with None (on
+  // a closed state too, which no longer borrows it). The state keeps the object; the
+  // engine borrows it.
   void bind_host_source(nb::object owner) {
     require_unleased();
     if (owner.is_none()) {
@@ -2678,8 +2679,8 @@ void BoundState::close() noexcept {
     general_state_->close();
     general_state_.reset();
   }
-  // A host source's owner (SEP 49) stays until the state is destroyed: this close
-  // runs without the interpreter lock, and the engine that borrowed it is gone.
+  // A host source's owner (SEP 49) is not released here, without the interpreter
+  // lock: the engine that borrowed it is gone, and `bind_host_source(None)` drops it.
 }
 
 // solprop SEP 47 section 6.4: a statistics evaluation lowered once from the problem,

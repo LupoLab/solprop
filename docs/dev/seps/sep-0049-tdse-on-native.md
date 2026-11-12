@@ -15,8 +15,8 @@
 | **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–3 |
-| **Manual pages** | — |
+| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–4, the manual check of §7.4 pending |
+| **Manual pages** | [TDSE response](../../guide/media/tdse.md), [Choosing a backend](../../guide/performance/backends.md) |
 
 ## Part I — Proposal
 
@@ -1209,8 +1209,8 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     output carried to the step's end in the interaction formulation, is equal bit for
     bit; with it, the collar rejects the initial step, the row is the startup output,
     and it is within one transform's bound, peak-normalised.
-  - Item 4 is two runs: eight steps of 10 nm without the in-stage absorber, within the
-    eight-step 128 eps; and, with the absorber, whose collar holds the steps to about a
+  - Item 4 is two runs: eight steps of 2^-27 m without the in-stage absorber (cap and
+    length binary-exact, so no final step is split), within the eight-step 128 eps; and, with the absorber, whose collar holds the steps to about a
     two-hundredth of the run, 0.2 um in some four hundred attempts within the
     attempts times the one-step 16 eps. Each checks that the source moves its field a
     millionfold beyond the budget.
@@ -1245,9 +1245,11 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   state carrying the committed step's proposal; an abandoned attempt's failed release
   as the reference's note on the floor's error; the eight-step and collar-held runs
   within their budgets, with one attempt per call and the production bound (measured
-  1e-4 eps against 128 eps, and 5.0 eps against 6,480); a device build and a missing
-  binding refused by name; the memory rows; closing a backend whose state a session
-  leases. The TDSE, worker and interrupt modules of `tests/backends` and
+  5e-5 eps against 128 eps, and 5 to 6 eps against 6,480); a device build and a
+  missing binding refused by name; the memory rows; closing a backend whose state a
+  session leases, after which the binding, held in a cycle through the kept
+  exception's traceback, is collected (the state's own reference, which the collector
+  cannot see, is dropped once the state is closed). The TDSE, worker and interrupt modules of `tests/backends` and
   `tests/driver`, the compiled-multistep, resume-ledger, capability, structure and
   SEP modules: 1,411 passed, 3 skipped; `native/tests/test_backend.py` and
   `test_session_failure.py`: 61 passed. Non-TDSE runs, before (the #770
@@ -1292,6 +1294,318 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
     proposal fails the archive test. Non-TDSE runs stay bit for bit as before.
 - **Handoff.** Phase 4: the manual check of §7.4 through the worker on both backends,
   the ADR, the remaining pages, and the size comparison.
+
+### Phase 4 — Qualification and documentation
+
+- **Scope.** Phase 4, 2026-11-12, Opus 5.5 (AI): the review's two follow-ups to phase 3,
+  the ADR, the remaining pages of §8, the size report against §6.8, and the procedure
+  for the manual check of §7.4, which is pending. The SEP stays `In progress`: it
+  becomes `Final` after CI, an A/B and the manual check.
+- **Delivered.**
+  - Phase 3 follow-ups:
+    - `NativeBackend.close` now drops the host source once the state is closed
+      (`bind_host_source(None)`, which a closed state allows). Before, the state kept a
+      reference that the garbage collector cannot see. A cycle through it (a kept
+      exception's traceback reaching the session) was never freed, and the held-signal
+      test leaked eight nanobind instances.
+    - That test now checks, with a weak reference after `gc.collect()`, that the
+      binding is freed, and it fails without the fix. A session that could not close
+      keeps the source it still uses.
+    - Item 4's eight-step run actually took nine attempts, all accepted: 8e-8 m in
+      10 nm steps left a last step one ulp over the cap, which the march split in two.
+      The cap and length are now binary-exact (2^-27 m and 2^-24 m), so the run is
+      eight accepted steps. The comment no longer counts the startup as an attempt.
+  - ADR-078 (`decisions.md`) covers:
+    - the host source hook, its scope and the device refusal;
+    - the provider worker;
+    - the failure boundary;
+    - `auto`.
+
+    It amends ADR-077's "every feature except the TDSE response, for now", and
+    ADR-077's status now says so.
+  - `testing.md` gains *Shared code and out-of-process providers*: the oracle boundary
+    for shared code and the worker-contract tests. `backends.md` and
+    `kernel-contract.md` now cite ADR-078.
+  - The other pages of §8 were done in phases 2 and 3:
+    - the TDSE manual and *Choosing a backend*;
+    - `backends.md`, `kernel-contract.md` §6 and `architecture.md`;
+    - `AGENTS.md` and `native/AGENTS.md`;
+    - the release notes: `tdse-on-native.changed.md` for `auto`, and
+      `tdse-provider-worker.changed.md` for the worker and cancellation during an
+      atomic call.
+- **Size** against §6.8. Lines are `git diff --numstat` from the tip of #770
+  (`1f00b8f7`, which contains `main`), so #770's own changes are not counted. Code lines
+  are from `tools/size_report.py`.
+
+  | part | `src/solprop` | native Python | C++ | tests |
+  |---|---|---|---|---|
+  | estimate, total | +0.6k | +0.4k | +0.3k | +1.3k |
+  | lines | +2,448 −784 | +280 −12 | +349 −11 | +2,160 −66 |
+  | code lines | +1,052 | +166 | — | — |
+
+  By part:
+  - The shared source is a move: +34 code lines with `node_fields`, and its tests +0.3k.
+  - The worker and adapter are `_source_worker.py` (522 code lines) and `_pyroraptor.py`
+    (605), less 136 from `driver/tdse.py`: about +1.0k code lines, which is the
+    `src/solprop` overrun. Their tests are +1.0k.
+  - The hook is +166 native Python code lines and +349 C++ lines, with tests of +0.8k.
+
+  The worker is larger than §6.8 estimated. The binding's validation and normalisation
+  stay in solprop's process, as §6.5 asks, while the requests the parent's view of the
+  haCC model makes must be served in the worker. Phase 2's report records what was
+  examined for removal.
+- **Pending: the manual check of §7.4.** For the maintainer, with Pyroraptor at the
+  pinned revision `876b72d10b5286478125b842ea45548a5051b033`
+  (`solprop.driver.tdse._PROVIDER_REVISION`). Use a Pyroraptor checkout that contains
+  that commit: `git -C <pyroraptor> cat-file -e 876b72d10b52` must succeed. A squashed
+  public history may not contain it.
+
+  1. Set up the environment on the CPU. On macOS this needs Homebrew LLVM, `libomp` and
+     FFTW; on Linux, `CXX=clang++`, as Pyroraptor's installation guide says.
+
+     ```sh
+     cd <solprop checkout>   # this branch
+     uv sync                 # solprop and its native CPU build
+     git -C <pyroraptor> checkout 876b72d10b5286478125b842ea45548a5051b033
+     uv pip install --python .venv/bin/python <pyroraptor>   # its CPU (OpenMP) build
+     uv run --no-sync python -c "import pyroraptor as p; print(p.build_info())"
+     ```
+
+     From here on, use `uv run --no-sync`: a plain `uv run` or `uv sync` removes
+     Pyroraptor.
+  2. On a GPU machine, use the same solprop environment with its native CPU build (a
+     native device build refuses TDSE). Install Pyroraptor's device build into it in
+     place of step 1's, configured as its `scripts/device_build.sh` does:
+
+     ```sh
+     cd <pyroraptor>
+     kokkos="$PWD/build/sources/kokkos-5.2.1"
+     test -f "$kokkos/CMakeLists.txt" || git clone --depth 1 --branch 5.2.1 \
+         https://github.com/kokkos/kokkos.git "$kokkos"
+     # CUDA
+     arch=$(scripts/device_build.sh cuda arch auto)
+     NVCC_WRAPPER_DEFAULT_COMPILER=g++ CMAKE_ARGS="-DPYRORAPTOR_EXECUTION_SPACE=CUDA \
+         -DPYRORAPTOR_DEVICE_ARCH=$arch -DCMAKE_CXX_COMPILER=$kokkos/bin/nvcc_wrapper \
+         -DFETCHCONTENT_SOURCE_DIR_KOKKOS=$kokkos" \
+         uv pip install --python <solprop checkout>/.venv/bin/python --reinstall .
+     # or HIP
+     arch=$(scripts/device_build.sh hip arch auto)
+     CMAKE_ARGS="-DPYRORAPTOR_EXECUTION_SPACE=HIP -DPYRORAPTOR_DEVICE_ARCH=$arch \
+         -DCMAKE_CXX_COMPILER=$(command -v hipcc) \
+         -DFETCHCONTENT_SOURCE_DIR_KOKKOS=$kokkos" \
+         uv pip install --python <solprop checkout>/.venv/bin/python --reinstall .
+     ```
+
+  3. Save this script as `sep49_check.py` in an empty directory outside the checkout:
+
+     ```python
+     """SEP 49 section 7.4: a real Pyroraptor through the worker, native against numpy_ref.
+
+     python sep49_check.py compare DEVICE   one short haCC(1) fast segment on both backends
+     python sep49_check.py cancel DEVICE    native, Ctrl-C (SIGINT) during an atomic call
+
+     DEVICE is cpu, cuda or hip, matching the installed Pyroraptor build.
+     """
+
+     import json
+     import os
+     import signal
+     import subprocess
+     import sys
+     import threading
+     import time
+     import warnings
+     from pathlib import Path
+
+     import numpy as np
+
+     from solprop.driver import Simulation
+     from solprop.driver.tdse import hacc_preset
+     from solprop.exceptions import ResponseBudgetError
+     from solprop.nonlinear.tdse import (
+         TDSEConsistency,
+         TDSEExecution,
+         TDSEGasResponse,
+         TDSESampling,
+     )
+     from solprop.output import open_file
+
+     LENGTH = 2.0**-24  # one step of 60 nm: a startup and a predictor call, then a retry
+     BUDGET = 3  # atomic calls, at most (SEP 49 section 7.4)
+     RTOL = 0.1  # loose: the one step is accepted, a check of the plumbing, not accuracy
+     BUSY = float(os.environ.get("SEP49_BUSY_SECONDS", "5"))  # worker CPU time in a call
+
+
+     def simulation(backend, device, budget, length):
+         preset = hacc_preset(1, "fast")
+         response = TDSEGasResponse(
+             "helium",
+             preset.basis,
+             preset.max_atomic_step,
+             "tdse_native",
+             1.0,
+             preset.calibration(),
+             TDSESampling(4),
+             model="hacc",
+             # No weak-field consistency call: the budget is the march's alone.
+             consistency=TDSEConsistency(enforce=False),
+         )
+         return Simulation.from_capillary(
+             256e-6, length, "He", 0.1,
+             wavelength=800e-9, wavelength_limits=(400e-9, 1.6e-6), trange=40e-15,
+             fwhm=6e-15, energy=20e-6, modes=1, radial_rule="field_scale", n_r=2,
+             noise=None, n_save=2, rtol=RTOL, dz_init=LENGTH, dz_max=LENGTH, backend=backend,
+             tdse=response,
+             tdse_execution=TDSEExecution(device=device, max_atomic_calls=budget),
+         )
+
+
+     def run(backend, device, budget=BUDGET, length=LENGTH):
+         path = Path(f"sep49-{backend}-{device}.h5")
+         path.unlink(missing_ok=True)
+         with warnings.catch_warnings():
+             warnings.simplefilter("ignore")
+             try:
+                 simulation(backend, device, budget, length).run(path, progress="none")
+             except ResponseBudgetError as error:  # the budget ends the segment
+                 print(f"{backend}: {error}")
+         return path
+
+
+     def summary(path):
+         with open_file(path) as output:
+             outcome = output.outcome
+             plain = lambda value: json.loads(json.dumps(value, default=str))  # noqa: E731
+             return {
+                 "status": outcome.status,
+                 "z": float(outcome.z),
+                 "atomic_calls": plain(outcome.atomic_calls),
+                 "logical_calls": plain(outcome.logical_calls),
+                 "provider": plain(outcome.execution["tdse"]["build"]),
+                 "fields": np.asarray(output.fields(convention="fft")),
+             }
+
+
+     def workers():
+         """This process's provider workers and their CPU seconds."""
+         table = subprocess.run(
+             ["ps", "-A", "-o", "pid=,ppid=,time=,command="], capture_output=True, text=True,
+             check=True,
+         ).stdout
+         found = {}
+         for line in table.splitlines():
+             pid, ppid, cpu, command = line.split(None, 3)
+             if int(ppid) == os.getpid() and "solprop.driver._source_worker" in command:
+                 parts = [float(part) for part in cpu.replace("-", ":").split(":")]
+                 found[int(pid)] = sum(v * 60**i for i, v in enumerate(reversed(parts)))
+         return found
+
+
+     def compare(device):
+         results = {name: summary(run(name, device)) for name in ("numpy_ref", "native")}
+         reference, ours = results["numpy_ref"], results["native"]
+         for name, result in results.items():
+             print(name, result["status"], result["z"], result["atomic_calls"],
+                   result["logical_calls"])
+         print("provider:", reference["provider"])
+         if reference["logical_calls"]["accepted_steps"] == 0:
+             print("no step was accepted, so nothing to compare: lower LENGTH")
+             return 1
+         first, last = reference["fields"][0], reference["fields"][-1]
+         gap = np.linalg.norm(ours["fields"][-1] - last)
+         difference = gap / np.linalg.norm(last)
+         print(f"final field, native against numpy_ref: {difference:.3e} relative")
+         print(f"... and against the segment's change: {gap / np.linalg.norm(last - first):.3e}")
+         keys = ("status", "z", "atomic_calls", "logical_calls")
+         same = all(ours[key] == reference[key] for key in keys)
+         print("same status, position and call ledgers:", same)
+         return 0 if same and difference <= 1e-9 else 1
+
+
+     def cancel(device):
+         sent = {}
+
+         output = Path(f"sep49-native-{device}.h5")
+         output.unlink(missing_ok=True)
+
+         def watch():
+             # A worker of the run (its file is open) that has computed for BUSY seconds
+             # is inside an atomic call.
+             while True:
+                 busy = {pid: cpu for pid, cpu in workers().items() if cpu >= BUSY}
+                 if busy and output.exists():
+                     time.sleep(float(os.environ.get("SEP49_DELAY", "1")))
+                     sent.update(worker=next(iter(busy)), at=time.monotonic())
+                     os.kill(os.getpid(), signal.SIGINT)
+                     return
+                 time.sleep(0.5)
+
+         threading.Thread(target=watch, daemon=True).start()
+         try:
+             # Many steps, so that a call is in flight whenever the signal comes.
+             run("native", device, budget=1000, length=1000 * LENGTH)
+         except KeyboardInterrupt:
+             stopped = time.monotonic() - sent["at"]
+             print(f"KeyboardInterrupt {stopped:.2f} s after SIGINT, during a call")
+         else:
+             print("the run finished before a call was interrupted: raise LENGTH")
+             return 1
+         alive = sent["worker"] in workers()
+         print("worker", sent["worker"], "still running" if alive else "gone")
+         result = summary(output)
+         print(result["status"], result["z"], result["atomic_calls"], result["logical_calls"])
+         return 0 if not alive and result["atomic_calls"].get("reserved") == 0 else 1
+
+
+     if __name__ == "__main__":
+         mode, device = sys.argv[1], sys.argv[2]
+         sys.exit({"compare": compare, "cancel": cancel}[mode](device))
+     ```
+
+  4. Run it from that directory. With the GPU build, replace `cpu` with `cuda` or `hip`.
+
+     ```sh
+     uv run --no-sync --project <solprop checkout> python sep49_check.py compare cpu
+     uv run --no-sync --project <solprop checkout> python sep49_check.py cancel cpu
+     ```
+
+     `compare` runs one 60 nm step of haCC(1) fast at about 3e13 W/cm², with two radial
+     nodes, through the worker: first on `numpy_ref`, then on native. Each run makes at
+     most three atomic calls: a startup, a predictor and one retry.
+     - It passes (exit status 0) when both runs end with the same status, position and
+       call ledgers, and native's final field is within 1e-9 of `numpy_ref`'s,
+       relative.
+     - It also prints the difference against the segment's own change.
+
+     `cancel` runs native over a longer segment. It sends itself SIGINT once a worker
+     of the run has computed for 5 s (`SEP49_BUSY_SECONDS`). On a GPU build, whose
+     worker may wait rather than compute, lower that threshold. It passes when:
+     - the run raises `KeyboardInterrupt` within about a second;
+     - the worker is gone and nothing is reserved;
+     - the file records the call as charged and the last accepted step's position.
+  5. Record here, for each run:
+     - the provider revision and build (the `provider:` line);
+     - the machine;
+     - the threads (`SOLPROP_THREADS` or the machine's) or the device;
+     - both modes' output and exit status.
+
+  Both modes were dry-run on an Apple M5 Max. The worker served the manufactured haCC
+  provider of `tests/hacc_cases.py` in place of Pyroraptor
+  (`solprop.driver.tdse._ADAPTER = "source_adapters:manufactured_tdse"`).
+  - `compare` took one accepted step on each backend with two atomic calls. The ledgers
+    were the same, and the final fields were 1.3e-13 apart, relative.
+  - `cancel` was run with every call after the second hanging
+    (`MANUFACTURED_HANG_AFTER=2`). It raised `KeyboardInterrupt` 0.11 s after the
+    signal: the worker was gone, three calls were charged, none were reserved, and the
+    run stood at its one accepted step.
+
+  This checks the script and the plumbing, not Pyroraptor.
+- **Verification.** `tests/backends/test_tdse_native.py`: 23 passed. The held-signal test
+  no longer produces nanobind's leak report, and with the unbind removed it fails its
+  weak-reference check. The non-TDSE bitwise check is unaffected, because phase 4
+  changes the native extension's comments only.
+- **Handoff.** Next are the maintainer's manual check (above), CI and an A/B; then
+  `Final`.
 
 ## Part III — History
 

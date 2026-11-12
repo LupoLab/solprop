@@ -1031,9 +1031,9 @@ it changes no step, charge or reservation. None of this is part of the descripto
 or the kernel problem, which compiled backends see, so it is
 outside the kernel schema.
 
-**The native host source hook** ([SEP 49](seps/sep-0049-tdse-on-native.md)). On the
-native CPU build the binding reaches the resident Adams march as a host source: a
-session binding outside the kernel problem, whose three entry points the march calls
+**The native host source hook** ([SEP 49](seps/sep-0049-tdse-on-native.md),
+ADR-078). On the native CPU build the binding reaches the resident Adams march as a
+host source: a session binding outside the kernel problem, whose three entry points the march calls
 from the thread that called `advance`, outside every parallel region, holding the
 interpreter lock for each. `begin(cost)` reserves an attempt's calls after the march's
 budget check; `evaluate(field, z, purpose, out)` receives, read-only, the lab-frame

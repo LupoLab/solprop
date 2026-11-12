@@ -168,6 +168,22 @@ The two thread settings matter: eighteen xdist workers each initialising an
 eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding pins each
 worker's threads to the same first cores.
 
+### Shared code and out-of-process providers
+
+Parity between the backends checks what each computes independently. It cannot check
+code both call: a defect in the TDSE response's source assembly
+(`solprop.backends.tdse_source`, [SEP 49](seps/sep-0049-tdse-on-native.md)) is the same
+on both. That module's tests state their expectations independently of it, analytic or
+manufactured (`tests/backends/test_tdse_source.py`, `tests/edge_source_cases.py`), and a
+deliberate defect in each term is shown to fail one of them; parity then covers what each
+backend does with the source. The atomic provider runs in a worker process. Its contract
+is tested with real workers serving manufactured providers (`tests/source_adapters.py`,
+`tests/driver/test_source_worker.py`, `tests/driver/test_tdse_worker.py`): results equal
+a direct call bit for bit, the handshake's refusals, every failure, cancellation by
+signal and stop flag, and clean-up. These tests have hard deadlines, so a broken
+cancellation fails instead of hanging; the production code has none. An installed
+Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
+
 ### Budgets and timing assertions
 
 The medium tier's budget is tight: time it with `poe test-medium` before adding to it. Most
