@@ -114,7 +114,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "GridRecord.from_grid"
   },
@@ -135,8 +135,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema.GridRecord",
-   "module_short": "solprop.output.schema.GridRecord",
+   "module": "solprop.output.records.GridRecord",
+   "module_short": "solprop.output.records.GridRecord",
    "name": "from_grid"
   }
  ],
@@ -174,7 +174,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore"
   },
@@ -248,7 +248,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.metadata",
    "module_short": "solprop.output",
    "name": "RunMetadata"
   },
@@ -283,7 +283,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.metadata",
    "module_short": "solprop.output",
    "name": "RunMetadata"
   }
@@ -292,7 +292,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   },
@@ -327,7 +327,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   }
@@ -336,7 +336,7 @@
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "StepperRecord"
   },
@@ -357,7 +357,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "StepperRecord"
   }
@@ -1130,7 +1130,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.metadata",
    "module_short": "solprop.output",
    "name": "RunMetadata"
   },
@@ -1290,7 +1290,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.records",
    "module_short": "solprop.output",
    "name": "SavedPlane"
   },
@@ -1469,7 +1469,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.n_saved"
   },
@@ -1534,7 +1534,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.open"
   },
@@ -1599,7 +1599,7 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
+   "module": "solprop.output.store",
    "module_short": "solprop.output",
    "name": "PlaneStore.save"
   },
@@ -1664,8 +1664,8 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.output.schema",
-   "module_short": "solprop.output.schema",
+   "module": "solprop.output.store",
+   "module_short": "solprop.output.store",
    "name": "PlaneStore.to_file"
   },
   {
