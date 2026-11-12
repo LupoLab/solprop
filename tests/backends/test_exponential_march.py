@@ -147,10 +147,24 @@ def test_exponential_is_the_exact_linear_flow_without_a_source(
     assert ledger_of(march).rejected_steps == 0
 
 
+@pytest.fixture(scope="module")
+def order_reference(narrow_grid, soliton_problem):
+    """Return the order study's tight Runge-Kutta reference, shared by both orders."""
+    return run(
+        *soliton_problem(
+            narrow_grid,
+            2,
+            save_planes=[SOLITON_PERIOD / 2],
+            controller=PIController(rtol=1e-12, atol=1e-18),
+        ),
+        grid=narrow_grid,
+    )[0]
+
+
 @pytest.mark.medium
 @pytest.mark.parametrize("order", [2, 4])
 def test_exponential_converges_at_its_order_on_a_schedule(
-    narrow_grid, soliton_problem, order
+    narrow_grid, soliton_problem, order_reference, order
 ):
     # A second-order soliton over half a period on uniform prescribed steps: three
     # levels against a tight Runge-Kutta reference.
@@ -176,15 +190,7 @@ def test_exponential_converges_at_its_order_on_a_schedule(
         )
         return run(problem, run_request, narrow_grid)[0]
 
-    reference = run(
-        *soliton_problem(
-            narrow_grid,
-            2,
-            save_planes=[length],
-            controller=PIController(rtol=1e-12, atol=1e-18),
-        ),
-        grid=narrow_grid,
-    )[0]
+    reference = order_reference
     # The populated bins, above 1e-8 of the peak power. The weak wings below hold
     # free radiation under the soliton's cross-phase modulation, a source linear in
     # each bin's own field that rotates with its free phase: there the exponential
@@ -250,24 +256,34 @@ def test_the_default_leaves_its_excess_error_in_the_dark_wings(
     assert ledger_of(march).total < 500
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-def test_both_formulations_agree_with_runge_kutta(narrow_grid, soliton_problem, method):
-    planes = [SOLITON_PERIOD / 4, SOLITON_PERIOD / 2]
-    reference = run(
+AGREEMENT_PLANES = [SOLITON_PERIOD / 4, SOLITON_PERIOD / 2]
+
+
+@pytest.fixture(scope="module")
+def agreement_reference(narrow_grid, soliton_problem):
+    """Return the N = 3 Runge-Kutta reference, shared by both formulations."""
+    return run(
         *soliton_problem(
             narrow_grid,
             3,
-            save_planes=planes,
+            save_planes=AGREEMENT_PLANES,
             controller=PIController(rtol=1e-11, atol=1e-18),
         ),
         grid=narrow_grid,
     )[0]
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
+def test_both_formulations_agree_with_runge_kutta(
+    narrow_grid, soliton_problem, agreement_reference, method
+):
+    reference = agreement_reference
     field, march, _ = run(
         *soliton_problem(
             narrow_grid,
             3,
-            save_planes=planes,
+            save_planes=AGREEMENT_PLANES,
             controller=PIController(rtol=1e-8, atol=1e-18),
             integrator=method,
         ),
