@@ -793,36 +793,18 @@ class NativeSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def native(self) -> _core.Session:
-        """Return the native session, for the structural counters of the tests.
-
-        Returns
-        -------
-        solprop_native._core.Session
-            The native session.
-        """
+    def native(self) -> _core.Session:  # numpydoc ignore=RT01
+        """The native session, for the structural counters of the tests."""
         return self._native
 
     @property
-    def finished(self) -> bool:
-        """Return whether the session yielded its terminal event.
-
-        Returns
-        -------
-        bool
-            True once finished.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session yielded its terminal event."""
         return self._native.status().outcome != 0
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         return _STATES[self._native.status().state] is SessionState.CLOSED
 
     def status(self) -> SessionStatus:
@@ -1274,14 +1256,11 @@ class NativeSession:
         return None
 
     @property
-    def march_refusal(self) -> str | None:
-        """Return why the start's method history was not installed, or ``None``.
+    def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
+        """Why the start's method history was not installed.
 
-        Returns
-        -------
-        str or None
-            The march record's reason (``NativeBackend._restore``), or ``None`` when
-            it was installed or none was given.
+        The march record's reason (``NativeBackend._restore``), or ``None`` when it
+        was installed or none was given.
         """
         return self._march_refusal
 
@@ -1509,30 +1488,18 @@ class NativeSession:
         return self.pending_ticket()
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the step a failure left in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """Step a failure left in flight, ``(start, length)`` in m, or ``None``.
 
         A low-storage step overwrites the state in place, so a failure partway leaves
         neither of its ends: the session is poisoned, and the service loop falls back
         to its latest running checkpoint (SEP 47 section 5.5), naming this step.
-
-        Returns
-        -------
-        tuple or None
-            Where the abandoned step started and its length, m, or ``None``.
         """
         return self._abandoned
 
     @property
-    def reads_transverse_edge(self) -> bool:
-        """Return whether the session's backend reads a transverse edge (SEP 40).
-
-        Returns
-        -------
-        bool
-            True: the native session reads the edge from its resident state and
-            judges it natively.
-        """
+    def reads_transverse_edge(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend reads a transverse edge (SEP 40): always, natively."""
         return NativeBackend.reads_transverse_edge
 
     def close(self) -> None:
@@ -2107,14 +2074,8 @@ class NativePrepared:
         self._closed = False
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The backend's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         return self._backend.name
 
     def start(

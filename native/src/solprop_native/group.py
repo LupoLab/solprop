@@ -237,14 +237,8 @@ class NativePreparedGroup:
         self._requests = tuple(requests)
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The first member's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it (the first member's)."""
         return self._members[0].name
 
     def start(
@@ -431,36 +425,18 @@ class NativeGroupSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def n_members(self) -> int:
-        """Return the number of members.
-
-        Returns
-        -------
-        int
-            The members.
-        """
+    def n_members(self) -> int:  # numpydoc ignore=RT01
+        """Number of members."""
         return len(self._sessions)
 
     @property
-    def finished(self) -> bool:
-        """Return whether the group's terminal batch was issued.
-
-        Returns
-        -------
-        bool
-            True once every member has ended.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group's terminal batch was issued: every member has ended."""
         return self._ledger.finished
 
     @property
-    def closed(self) -> bool:
-        """Return whether the group was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the group was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def advance(self) -> GroupBatch:
