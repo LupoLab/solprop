@@ -24,7 +24,7 @@ physics or numerics rather than style, ask rather than guess.
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
-| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). Double precision only. No other backend (ADR-077) |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |

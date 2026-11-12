@@ -20,10 +20,12 @@ contract and its conventions; where both apply, follow the stricter rule.
 - The public names are those in `solprop_native.__all__` (the backend, the build record
   and its checks, and the contract tuples `*_FIELDS`). The compiled `_core` module and
   the C++ API are private.
-- solprop has two backends, this one and its NumPy reference, and computes in IEEE
-  binary64 only (solprop's ADR-077): every field, stage and statistic here is double
-  precision, with no single or mixed mode. This backend runs every feature except the
-  TDSE response, on CPUs and GPUs.
+- solprop has two backends, this one and its NumPy reference, and settles on IEEE
+  binary64 (solprop's ADR-077). This backend computes in double precision only and
+  refuses single precision, which runs on the reference alone until it is removed. It
+  runs every feature except the TDSE response and the reference-only methods ADR-077
+  retires (CF4 sections, `ComparisonMultistep`, `PIController` overrides), on CPUs and
+  GPUs.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
