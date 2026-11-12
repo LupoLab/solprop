@@ -218,13 +218,10 @@ class SnapshotController:
         self._last_result: SnapshotResult | None = None
 
     @property
-    def last_result(self) -> SnapshotResult | None:
-        """Return the latest attempt, or None before any request is serviced.
+    def last_result(self) -> SnapshotResult | None:  # numpydoc ignore=RT01
+        """Latest attempt, or None before any request is serviced.
 
-        Returns
-        -------
-        SnapshotResult or None
-            The result, including total pause time and bytes copied.
+        The result, including total pause time and bytes copied.
         """
         return self._last_result
 

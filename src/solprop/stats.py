@@ -2227,40 +2227,28 @@ class ApertureSet:
         return float(np.hypot(centre[0], centre[1])) + float(grown)
 
     @property
-    def row_shapes(self) -> tuple[ApertureShape, ...]:
-        """Return every row's outline.
+    def row_shapes(self) -> tuple[ApertureShape, ...]:  # numpydoc ignore=RT01
+        """Every row's outline.
 
-        Returns
-        -------
-        tuple of str
-            One of :data:`solprop.spatial.APERTURE_SHAPES` per aperture.
+        One of :data:`solprop.spatial.APERTURE_SHAPES` per aperture.
         """
         if self.shapes is None:
             return ("circle",) * int(np.asarray(self.diameters).size)
         return self.shapes
 
     @property
-    def row_profiles(self) -> tuple[ApertureProfile, ...]:
-        """Return every row's edge profile.
+    def row_profiles(self) -> tuple[ApertureProfile, ...]:  # numpydoc ignore=RT01
+        """Every row's edge profile.
 
-        Returns
-        -------
-        tuple of str
-            One of :data:`solprop.spatial.APERTURE_PROFILES` per aperture.
+        One of :data:`solprop.spatial.APERTURE_PROFILES` per aperture.
         """
         if self.profiles is None:
             return (self.profile,) * int(np.asarray(self.diameters).size)
         return self.profiles
 
     @property
-    def n_apertures(self) -> int:
-        """Return how many apertures the set holds.
-
-        Returns
-        -------
-        int
-            The number of apertures.
-        """
+    def n_apertures(self) -> int:  # numpydoc ignore=RT01
+        """How many apertures the set holds."""
         return int(np.asarray(self.diameters).size)
 
     def same_as(self, other: "ApertureSet | None") -> bool:
@@ -2425,24 +2413,18 @@ class StatsSpec:
             raise OutputError(msg)
 
     @property
-    def n_apertures(self) -> int:
-        """Return how many far-field apertures the spec carries.
+    def n_apertures(self) -> int:  # numpydoc ignore=RT01
+        """How many far-field apertures the spec carries.
 
-        Returns
-        -------
-        int
-            The apertures of :attr:`apertures`, or zero without them.
+        The apertures of :attr:`apertures`, or zero without them.
         """
         return 0 if self.apertures is None else self.apertures.n_apertures
 
     @property
-    def n_regions(self) -> int:
-        """Return how many regions of transverse wavevector the spec carries.
+    def n_regions(self) -> int:  # numpydoc ignore=RT01
+        """How many regions of transverse wavevector the spec carries.
 
-        Returns
-        -------
-        int
-            The rows of :attr:`spectral_regions`.
+        The rows of :attr:`spectral_regions`.
         """
         return int(self.spectral_regions.shape[0])
 
@@ -2470,14 +2452,8 @@ class StatsSpec:
         )
 
     @property
-    def n_windows(self) -> int:
-        """Return how many spectral windows the spec carries.
-
-        Returns
-        -------
-        int
-            The number of windows.
-        """
+    def n_windows(self) -> int:  # numpydoc ignore=RT01
+        """How many spectral windows the spec carries."""
         return int(self.energy_windows.shape[0])
 
 

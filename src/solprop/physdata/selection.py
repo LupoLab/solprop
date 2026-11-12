@@ -495,25 +495,19 @@ class DiluteScalingCheck:
     reason: str = ""
 
     @property
-    def measured(self) -> bool:
-        """Return whether the error was measured.
+    def measured(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the error was measured.
 
-        Returns
-        -------
-        bool
-            True unless optmat refused the evaluation (see `reason`).
+        True unless optmat refused the evaluation (see `reason`).
         """
         return not self.reason
 
     @property
-    def exceeded(self) -> bool:
-        """Return whether the error's magnitude is above the threshold.
+    def exceeded(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the error's magnitude is above the threshold.
 
-        Returns
-        -------
-        bool
-            ``abs(relative_error) > threshold`` for a measured check; False for one
-            that was not measured.
+        ``abs(relative_error) > threshold`` for a measured check; False for one
+        that was not measured.
         """
         return self.measured and abs(self.relative_error) > self.threshold
 
@@ -796,13 +790,10 @@ class MaterialManifest:
             )
 
     @property
-    def empty(self) -> bool:
-        """Return whether the run took nothing from optmat and selected nothing.
+    def empty(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the run took nothing from optmat and selected nothing.
 
-        Returns
-        -------
-        bool
-            True for a run of solprop's own materials only.
+        True for a run of solprop's own materials only.
         """
         return self.selection is None and not self.records
 

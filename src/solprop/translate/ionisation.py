@@ -223,35 +223,26 @@ class RateTable:
             raise TranslationError(msg)
 
     @property
-    def n_knots(self) -> int:
-        """Return the number of knots.
+    def n_knots(self) -> int:  # numpydoc ignore=RT01
+        """Number of knots.
 
-        Returns
-        -------
-        int
-            The knot count, one more than the number of intervals.
+        The knot count, one more than the number of intervals.
         """
         return int(self.log_rate.size)
 
     @property
-    def log_field(self) -> Float[np.ndarray, " n_table"]:
-        """Return the knot positions in ``log E``.
+    def log_field(self) -> Float[np.ndarray, " n_table"]:  # numpydoc ignore=RT01
+        """Knot positions in ``log E``.
 
-        Returns
-        -------
-        numpy.ndarray
-            Uniformly spaced logarithms of the field amplitude, shape ``(n_table,)``.
+        Uniformly spaced logarithms of the field amplitude, shape ``(n_table,)``.
         """
         return self.log_field_min + self.d_log_field * np.arange(self.n_knots)
 
     @property
-    def field(self) -> Float[np.ndarray, " n_table"]:
-        """Return the knot positions as field amplitudes.
+    def field(self) -> Float[np.ndarray, " n_table"]:  # numpydoc ignore=RT01
+        """Knot positions as field amplitudes, V/m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Geometrically spaced field amplitudes in V/m, shape ``(n_table,)``.
+        Geometrically spaced, shape ``(n_table,)``.
         """
         return np.exp(self.log_field)
 
@@ -288,18 +279,15 @@ class RateTable:
         ]
 
     @property
-    def plasma_energy(self) -> float | None:
-        """Return the energy per ionisation event the source rate declared, in J.
+    def plasma_energy(self) -> float | None:  # numpydoc ignore=RT01
+        """Energy per ionisation event the source rate declared, in J.
 
         A table keeps the species and the energy of the rate it tabulates, so that a
         plasma response built on the table pays the same energy as one built on the
         rate (:func:`solprop.nonlinear.ionisation.bind_rate_energy`, SEP 3, D8).
 
-        Returns
-        -------
-        float or None
-            :attr:`ionisation_potential` when the source rate named its species and
-            energy; ``None`` otherwise.
+        :attr:`ionisation_potential` when the source rate named its species and
+        energy; ``None`` otherwise.
         """
         if self.species_identity is None:
             return None

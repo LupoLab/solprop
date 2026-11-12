@@ -478,14 +478,11 @@ class MemoryOutput(PlaneStore):
         """Release nothing: the arrays stay readable after the handler is closed."""
 
     @property
-    def noise_phase(self) -> np.ndarray | None:
-        """Return the stored noise phases, or ``None`` when the run had no noise.
+    def noise_phase(self) -> np.ndarray | None:  # numpydoc ignore=RT01
+        """Stored noise phases, or ``None`` when the run had no noise.
 
-        Returns
-        -------
-        numpy.ndarray or None
-            Shape ``(n_z, n_modes, n_pol, n_omega)``, rad, in the internal FFT
-            convention, which is where the noise field lives.
+        Shape ``(n_z, n_modes, n_pol, n_omega)``, rad, in the internal FFT
+        convention, which is where the noise field lives.
 
         Raises
         ------

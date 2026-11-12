@@ -258,13 +258,10 @@ class EnvelopePlasmaChannel:
             raise TranslationError("invalid envelope plasma channel constants")
 
     @property
-    def rate(self) -> RateTable:
-        """Return the instantaneous magnitude table carried by this channel.
+    def rate(self) -> RateTable:  # numpydoc ignore=RT01
+        """The instantaneous magnitude table carried by this channel.
 
-        Returns
-        -------
-        RateTable
-            The table used inside the cycle integral, not an averaged rate.
+        The table used inside the cycle integral, not an averaged rate.
         """
         return self.cycle.rate
 

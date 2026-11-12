@@ -1571,8 +1571,8 @@ class ModalTransformTables(Displayed):
         ]
 
     @property
-    def frozen_rule(self) -> bool:
-        """Return whether one node rule was broadcast across every position.
+    def frozen_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one node rule was broadcast across every position.
 
         A record built over several positions from **one** rule -- the same
         Cartesian nodes and the same area weights at every z -- is the frozen-rule
@@ -1584,10 +1584,7 @@ class ModalTransformTables(Displayed):
         own rules (:mod:`solprop.translate.modal_path`); a snapshot is trivially
         frozen.
 
-        Returns
-        -------
-        bool
-            True when ``node_xy`` and ``weights`` do not vary along z.
+        True when ``node_xy`` and ``weights`` do not vary along z.
         """
         return bool(
             np.all(self.node_xy == self.node_xy[0])
@@ -1595,8 +1592,8 @@ class ModalTransformTables(Displayed):
         )
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the scalar identity a run records and a resume compares.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Scalar identity a run records and a resume compares.
 
         The record is ``eq=False``: two of them are never compared by value, and a
         resume must not compare megabytes of E and H field by field either. What
@@ -1617,10 +1614,7 @@ class ModalTransformTables(Displayed):
         number, so that the two agree and a re-solve on another BLAS does not move
         either of them.
 
-        Returns
-        -------
-        mapping
-            JSON-serialisable scalars, stable across processes.
+        JSON-serialisable scalars, stable across processes.
         """
         positions, nodes, components, modes, frequencies = np.shape(self.electric)
         factors = self.factors

@@ -279,8 +279,8 @@ class RunRequest:
     snapshots: bool = False
 
     @functools.cached_property
-    def stepper(self) -> StepperSettings:
-        """Return the stepping policy as the one record translation resolved.
+    def stepper(self) -> StepperSettings:  # numpydoc ignore=RT01
+        """Stepping policy as the one record translation resolved.
 
         The method, the error control, the itinerary and the planes, gathered back
         into :class:`~solprop.translate.problem.StepperSettings` for the code that
@@ -288,10 +288,7 @@ class RunRequest:
         (:func:`solprop.translate.problem.validate_run`) and the run's configuration
         record, whose hash they enter exactly as before.
 
-        Returns
-        -------
-        solprop.translate.problem.StepperSettings
-            The record, built once per request.
+        The record, built once per request.
 
         Examples
         --------

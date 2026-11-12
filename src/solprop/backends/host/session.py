@@ -189,36 +189,18 @@ class HostSession:
     # -- protocol -------------------------------------------------------------------
 
     @property
-    def driver(self) -> HostStepping:
-        """Return the reference backend, whose facts the service loop records.
-
-        Returns
-        -------
-        solprop.backends.protocol.HostStepping
-            The backend, through the host stepping seam.
-        """
+    def driver(self) -> HostStepping:  # numpydoc ignore=RT01
+        """Reference backend, whose facts the service loop records."""
         return self._driver
 
     @property
-    def finished(self) -> bool:
-        """Return whether the session yielded its terminal event.
-
-        Returns
-        -------
-        bool
-            True once finished.
-        """
+    def finished(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session yielded its terminal event."""
         return self._ledger.finished
 
     @property
-    def closed(self) -> bool:
-        """Return whether the session was closed.
-
-        Returns
-        -------
-        bool
-            True once closed.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the session was closed."""
         return self._ledger.state is SessionState.CLOSED
 
     def status(self) -> SessionStatus:
@@ -501,13 +483,10 @@ class HostSession:
         return self._driver.march_export_refusal()
 
     @property
-    def march_refusal(self) -> str | None:
-        """Return why the start's method history could not be installed.
+    def march_refusal(self) -> str | None:  # numpydoc ignore=RT01
+        """Why the start's method history could not be installed.
 
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when it was installed or the start carried none.
+        The reason, or ``None`` when it was installed or the start carried none.
         """
         return self._march_refusal
 
@@ -784,14 +763,8 @@ class HostPrepared:
         self._closed = False
 
     @property
-    def backend(self) -> str:
-        """Return the registered name of the backend that prepared it.
-
-        Returns
-        -------
-        str
-            The backend's registered name.
-        """
+    def backend(self) -> str:  # numpydoc ignore=RT01
+        """Registered name of the backend that prepared it."""
         return self._driver.name
 
     def start(

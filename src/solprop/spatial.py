@@ -339,14 +339,11 @@ class SpatialMedium:
         return result
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return every material path that changes the spatial operator.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Every material path that changes the spatial operator.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            A shared pressure in bar or independent labelled densities in m^-3.
-            A single population retains the original density parameter.
+        A shared pressure in bar or independent labelled densities in m^-3.
+        A single population retains the original density parameter.
         """
         if not isinstance(self.material, Mixture) or len(self.material.components) == 1:
             return {"density": self.density}
@@ -852,14 +849,11 @@ class SpatialFlux:
         return cls(grid, space, medium, z, side, coefficients)
 
     @property
-    def energy_scale(self) -> float:
-        """Return the factor turning weighted ``|X|^2`` sums into joules.
+    def energy_scale(self) -> float:  # numpydoc ignore=RT01
+        """Factor turning weighted ``|X|^2`` sums into joules.
 
-        Returns
-        -------
-        float
-            ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
-            mode functions already carry it.
+        ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
+        mode functions already carry it.
         """
         return 1.0 if isinstance(self.space, PlanarGrid) else 0.5 * EPS0 * C
 
@@ -2619,47 +2613,37 @@ class ApertureTables:
             raise OutputError(msg)
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of transverse columns the tables describe.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of transverse columns the tables describe.
 
-        Returns
-        -------
-        int
-            ``n_x*n_y``.
+        ``n_x*n_y``.
         """
         return int(self.weights.size)
 
     @property
-    def n_apertures(self) -> int:
-        """Return the number of apertures.
+    def n_apertures(self) -> int:  # numpydoc ignore=RT01
+        """Number of apertures.
 
-        Returns
-        -------
-        int
-            The rows of the aperture tables, zero when none was asked for.
+        The rows of the aperture tables, zero when none was asked for.
         """
         return int(self.half_widths.size)
 
     @property
-    def n_regions(self) -> int:
-        """Return the number of regions of transverse wavevector.
+    def n_regions(self) -> int:  # numpydoc ignore=RT01
+        """Number of regions of transverse wavevector.
 
-        Returns
-        -------
-        int
-            The rows of `regions`.
+        The rows of `regions`.
         """
         return int(self.regions.shape[0])
 
     @property
-    def profile_codes(self) -> Float[np.ndarray, " n_apertures"]:
-        """Return each row's profile code, its index in :data:`APERTURE_PROFILES`.
+    def profile_codes(
+        self,
+    ) -> Float[np.ndarray, " n_apertures"]:  # numpydoc ignore=RT01
+        """Each row's profile code, its index in :data:`APERTURE_PROFILES`.
 
-        Returns
-        -------
-        numpy.ndarray
-            0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``, as
-            float64 for a compiled pass's row, shape ``(n_apertures,)``.
+        0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``, as
+        float64 for a compiled pass's row, shape ``(n_apertures,)``.
         """
         assert self.profiles is not None  # filled in at construction
         return np.array(
@@ -2667,13 +2651,10 @@ class ApertureTables:
         )
 
     @property
-    def shape_codes(self) -> Float[np.ndarray, " n_apertures"]:
-        """Return each row's shape code, its index in :data:`APERTURE_SHAPES`.
+    def shape_codes(self) -> Float[np.ndarray, " n_apertures"]:  # numpydoc ignore=RT01
+        """Each row's shape code, its index in :data:`APERTURE_SHAPES`.
 
-        Returns
-        -------
-        numpy.ndarray
-            The codes as float64 for a compiled pass's row, shape ``(n_apertures,)``.
+        The codes as float64 for a compiled pass's row, shape ``(n_apertures,)``.
         """
         assert self.shapes is not None  # filled in at construction
         return np.array(
@@ -2681,14 +2662,13 @@ class ApertureTables:
         )
 
     @property
-    def inverse_widths(self) -> Float[np.ndarray, " n_apertures"]:
-        """Return the reciprocal edge widths a compiled pass multiplies by.
+    def inverse_widths(
+        self,
+    ) -> Float[np.ndarray, " n_apertures"]:  # numpydoc ignore=RT01
+        """Reciprocal edge widths a compiled pass multiplies by, 1/m.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``1/w`` in 1/m on ``tanh`` and ``rcos`` rows, zeros otherwise, shape
-            ``(n_apertures,)``: the factor :func:`edge_profile` forms itself.
+        On ``tanh`` and ``rcos`` rows, zeros otherwise, shape ``(n_apertures,)``: the
+        factor :func:`edge_profile` forms itself.
         """
         assert self.profiles is not None  # filled in at construction
         smooth = np.array(

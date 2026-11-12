@@ -721,13 +721,8 @@ class StepperSettings:
             raise TranslationError(msg)
 
     @property
-    def z_end(self) -> float:
-        """Return the last save plane, where the run stops.
-
-        Returns
-        -------
-        float
-            The largest save plane, m.
+    def z_end(self) -> float:  # numpydoc ignore=RT01
+        """Last save plane, where the run stops, m.
 
         Examples
         --------
@@ -902,19 +897,16 @@ class PropagationProblem:
     split_crossing: SplitCrossing | None = None
 
     @property
-    def transform(self) -> Transform:
-        """Return the route's transform, which every route variant carries.
+    def transform(self) -> Transform:  # numpydoc ignore=RT01
+        """The route's transform, which every route variant carries.
 
-        Returns
-        -------
-        solprop.translate.modal.Transform
-            Synthesis and projection (section 4).
+        Synthesis and projection (section 4).
         """
         return self.route.transform
 
     @property
-    def device_ready(self) -> bool:
-        """Return whether both z-varying arrays are in the seam's device form.
+    def device_ready(self) -> bool:  # numpydoc ignore=RT01
+        """Whether both z-varying arrays are in the seam's device form.
 
         True when ``Phi`` and the prefactor each evaluate as a weighted sum of a fixed
         set of arrays over host scalars -- the constant fast path with one term and the
@@ -926,10 +918,7 @@ class PropagationProblem:
         accelerator build refuses through
         :func:`solprop.translate.stage.require_device_ready`.
 
-        Returns
-        -------
-        bool
-            Whether neither representation is ``"table"``.
+        Whether neither representation is ``"table"``.
 
         Examples
         --------

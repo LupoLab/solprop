@@ -159,13 +159,10 @@ class Machine:
     resources: dict[str, object] = field(default_factory=dict)
 
     @property
-    def local(self) -> bool:
-        """Return whether this is this computer.
+    def local(self) -> bool:  # numpydoc ignore=RT01
+        """Whether this is this computer.
 
-        Returns
-        -------
-        bool
-            True for :data:`LOCAL`; any other machine is reached over SSH.
+        True for :data:`LOCAL`; any other machine is reached over SSH.
         """
         return self.name == LOCAL
 

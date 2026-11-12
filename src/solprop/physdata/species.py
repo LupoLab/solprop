@@ -187,14 +187,8 @@ class OptmatGas:
         object.__setattr__(self, "gas", as_gas(self.gas))
 
     @property
-    def key(self) -> Gas:
-        """Return the species as a registry member.
-
-        Returns
-        -------
-        Gas
-            The gas.
-        """
+    def key(self) -> Gas:  # numpydoc ignore=RT01
+        """The species as a registry member."""
         return as_gas(self.gas)
 
     @functools.cached_property
@@ -226,26 +220,20 @@ class OptmatGas:
         )
 
     @property
-    def constituents(self) -> tuple[tuple[str, float], ...]:
-        """Return the gases and mole fractions the transport properties combine.
+    def constituents(self) -> tuple[tuple[str, float], ...]:  # numpydoc ignore=RT01
+        """The gases and mole fractions the transport properties combine.
 
-        Returns
-        -------
-        tuple
-            ``(gas, mole fraction)`` pairs: the gas itself, or air's constituents.
+        ``(gas, mole fraction)`` pairs: the gas itself, or air's constituents.
         """
         if self.key is Gas.Air:
             return tuple(_optmat.composition_fractions(_AIR_COMPOSITION).items())
         return ((self.key.value, 1.0),)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the equation of state and transport models.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the equation of state and transport models.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The equation of state first, then each constituent's transport model.
+        The equation of state first, then each constituent's transport model.
         """
         return (
             _optmat.record(self._equation),
@@ -359,14 +347,10 @@ class OptmatGas:
         return _optmat.pa_to_bar(float(pascals))
 
     @property
-    def temperature_range(self) -> tuple[float, float]:
-        """Return the temperatures over which every transport property is defined.
+    def temperature_range(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """The temperatures over which every transport property is defined, K.
 
-        Returns
-        -------
-        tuple of float
-            The lowest and highest temperature in K, over every constituent's
-            viscosity and heat capacity.
+        The lowest and highest, over every constituent's viscosity and heat capacity.
         """
         lows, highs = [], []
         for model, _ in self._transport:
@@ -394,19 +378,14 @@ class OptmatGas:
         return value
 
     @property
-    def molar_mass(self) -> float:
-        """Return the molar mass of the fluid whose equation of state gives the density.
+    def molar_mass(self) -> float:  # numpydoc ignore=RT01
+        """Molar mass of the fluid whose equation of state gives the density, kg mol^-1.
 
         optmat's equation of state's own (``EquationOfState.molar_mass``), so that a
         mass density formed from :meth:`density` is the equation's: for a pure gas
         it equals the transport model's, and for ``Gas.Air`` it is CoolProp's
         pseudo-pure dry air's, 0.02896546 kg/mol, not the mean of the N2/O2/Ar
         constituents (0.0289597), which enters only Wilke's viscosity rule.
-
-        Returns
-        -------
-        float
-            Molar mass in kg mol^-1.
         """
         return float(self._equation.molar_mass)
 
@@ -626,14 +605,8 @@ class TabulatedSusceptibility:
         return np.clip(values, self.omega[0], self.omega[-1])
 
     @property
-    def source(self) -> str:
-        """Return the source name used in material diagnostics.
-
-        Returns
-        -------
-        str
-            The explicit tabulated-data source name.
-        """
+    def source(self) -> str:  # numpydoc ignore=RT01
+        """Source name used in material diagnostics."""
         return "tabulated"
 
     def susceptibility(self, omega: ArrayLike | float) -> Complex[np.ndarray, "*shape"]:
@@ -753,14 +726,11 @@ class Species(Displayed):
         return line("Species", [("", self.name), *(("", name) for name in carried)])
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the optmat models the species carries.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the optmat models the species carries.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The linear model's and the equation of state's, then the transport
-            models', then the Kerr model's; empty for a species of supplied data.
+        The linear model's and the equation of state's, then the transport
+        models', then the Kerr model's; empty for a species of supplied data.
         """
         records: list[MaterialRecord] = []
         for part in (self.susceptibility, self.equation_of_state, self.kerr):

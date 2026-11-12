@@ -3051,24 +3051,18 @@ class SolitonOrder:
             )
 
     @property
-    def shape(self) -> PulseShape:
-        """Return the pulse shape the design numbers use.
+    def shape(self) -> PulseShape:  # numpydoc ignore=RT01
+        """Pulse shape the design numbers use.
 
-        Returns
-        -------
-        {'sech', 'gauss'}
-            ``"gauss"`` for a `GaussianPulse`, ``"sech"`` for a `SechPulse`.
+        ``"gauss"`` for a `GaussianPulse`, ``"sech"`` for a `SechPulse`.
         """
         return "gauss" if isinstance(self.pulse, GaussianPulse) else "sech"
 
     @property
-    def fwhm(self) -> float:
-        """Return the pulse's full width at half maximum of the power.
+    def fwhm(self) -> float:  # numpydoc ignore=RT01
+        """The pulse's full width at half maximum of the power, s.
 
-        Returns
-        -------
-        float
-            FWHM in s; a `SechPulse` given its natural width converts it.
+        A `SechPulse` given its natural width converts it.
         """
         pulse = self.pulse
         if isinstance(pulse, GaussianPulse):
@@ -3081,14 +3075,10 @@ class SolitonOrder:
         )
 
     @property
-    def peak_power(self) -> float:
-        """Return the pulse's peak power.
+    def peak_power(self) -> float:  # numpydoc ignore=RT01
+        """The pulse's peak power, W.
 
-        Returns
-        -------
-        float
-            Peak power in W: the pulse's own, or that of its energy
-            (:func:`pulse_peak_power`).
+        The pulse's own, or that of its energy (:func:`pulse_peak_power`).
         """
         if self.pulse.peak_power is not None:
             return self.pulse.peak_power

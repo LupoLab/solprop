@@ -958,37 +958,28 @@ class StageFlow(Displayed):
     transitional_fraction: float
 
     @property
-    def exit_knudsen(self) -> float:
-        """Return the Knudsen number at the stage's lower-pressure end.
+    def exit_knudsen(self) -> float:  # numpydoc ignore=RT01
+        """Knudsen number at the stage's lower-pressure end.
 
-        Returns
-        -------
-        float
-            ``knudsen_end`` when the flow runs towards +z, else ``knudsen_start``.
+        ``knudsen_end`` when the flow runs towards +z, else ``knudsen_start``.
         """
         return (
             self.knudsen_end if self.end_bar <= self.start_bar else self.knudsen_start
         )
 
     @property
-    def throughput_mbar_litres_per_second(self) -> float:
-        """Return the throughput in mbar l/s.
+    def throughput_mbar_litres_per_second(self) -> float:  # numpydoc ignore=RT01
+        """Throughput in mbar l/s.
 
-        Returns
-        -------
-        float
-            :func:`mbar_litres_per_second` of :attr:`throughput`.
+        :func:`mbar_litres_per_second` of :attr:`throughput`.
         """
         return mbar_litres_per_second(self.throughput)
 
     @property
-    def throughput_slpm(self) -> float:
-        """Return the throughput in standard litres per minute.
+    def throughput_slpm(self) -> float:  # numpydoc ignore=RT01
+        """Throughput in standard litres per minute.
 
-        Returns
-        -------
-        float
-            :func:`standard_litres_per_minute` of :attr:`throughput`.
+        :func:`standard_litres_per_minute` of :attr:`throughput`.
         """
         return standard_litres_per_minute(self.throughput, self.temperature)
 
@@ -1040,36 +1031,18 @@ class FlowReport(Displayed):
     end_is_choked: bool
 
     @property
-    def peak_reynolds(self) -> float:
-        """Return the largest Reynolds number of the fill.
-
-        Returns
-        -------
-        float
-            The maximum over the stages.
-        """
+    def peak_reynolds(self) -> float:  # numpydoc ignore=RT01
+        """Largest Reynolds number of the fill."""
         return max(stage.peak_reynolds for stage in self.stages)
 
     @property
-    def peak_reynolds_position(self) -> float:
-        """Return where the largest Reynolds number is.
-
-        Returns
-        -------
-        float
-            The position in m.
-        """
+    def peak_reynolds_position(self) -> float:  # numpydoc ignore=RT01
+        """Where the largest Reynolds number is, m."""
         return max(self.stages, key=lambda s: s.peak_reynolds).peak_reynolds_position
 
     @property
-    def peak_knudsen(self) -> float:
-        """Return the largest Knudsen number of the fill.
-
-        Returns
-        -------
-        float
-            The maximum over the stages.
-        """
+    def peak_knudsen(self) -> float:  # numpydoc ignore=RT01
+        """Largest Knudsen number of the fill."""
         return max(stage.peak_knudsen for stage in self.stages)
 
     def __repr__(self) -> str:

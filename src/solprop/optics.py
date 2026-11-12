@@ -1755,13 +1755,10 @@ class PrismPair(Displayed):
         ) - np.array([0.0, self.geometry.insertion])
 
     @property
-    def apex_distance(self) -> float:
-        """Return the physical tip-to-tip distance in metres.
+    def apex_distance(self) -> float:  # numpydoc ignore=RT01
+        """Physical tip-to-tip distance, m.
 
-        Returns
-        -------
-        float
-            ``norm(R*u0 + (0, -H))``, which changes when either stage moves.
+        ``norm(R*u0 + (0, -H))``, which changes when either stage moves.
         """
         return float(np.linalg.norm(self._apex()))
 

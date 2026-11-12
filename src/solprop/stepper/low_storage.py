@@ -109,47 +109,35 @@ class LowStorageRungeKutta:
             raise StepperError(msg)
 
     @property
-    def name(self) -> str:
-        """Return the method's record name.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The method's record name.
 
-        Returns
-        -------
-        str
-            ``low-storage-<scheme>``.
+        ``low-storage-<scheme>``.
         """
         return f"low-storage-{self.scheme}"
 
     @property
-    def order(self) -> int:
-        """Return the scheme's classical order, the ``order`` to calibrate at.
+    def order(self) -> int:  # numpydoc ignore=RT01
+        """The scheme's classical order, the ``order`` to calibrate at.
 
-        Returns
-        -------
-        int
-            Four.
+        Four.
         """
         return 4
 
     @property
-    def evaluations(self) -> int:
-        """Return the source evaluations a step makes.
+    def evaluations(self) -> int:  # numpydoc ignore=RT01
+        """Source evaluations a step makes.
 
-        Returns
-        -------
-        int
-            Four: no slope carries over, because the fourth is taken at a predicted
-            state, not at the accepted one.
+        Four: no slope carries over, because the fourth is taken at a predicted
+        state, not at the accepted one.
         """
         return 4
 
     @property
-    def real_stability_interval(self) -> float:
-        """Return the negative-real stability interval for a damping term.
+    def real_stability_interval(self) -> float:  # numpydoc ignore=RT01
+        """Negative-real stability interval for a damping term.
 
-        Returns
-        -------
-        float
-            :data:`LOW_STORAGE_REAL_INTERVAL`: the largest ``h |lambda|`` for a damping
-            rate ``lambda`` integrated explicitly.
+        :data:`LOW_STORAGE_REAL_INTERVAL`: the largest ``h |lambda|`` for a damping
+        rate ``lambda`` integrated explicitly.
         """
         return LOW_STORAGE_REAL_INTERVAL

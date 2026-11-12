@@ -804,9 +804,8 @@ class BackendRecord:
     A resumed file keeps the record it was opened with, creation time and all, so the
     backend it names is the one that **started** the run. That is append mode's rule
     for the whole record and not a special case for this group. The name may be one this
-    package no longer has, such as ``numba_cpu`` or ``mlx``: a recorded name is not a
-    request, so an old file's record reads as it was written, in its backend's own
-    vocabulary.
+    package no longer has, such as ``numba_cpu``: a recorded name is not a request, so
+    an old file's record reads as it was written, in its backend's own vocabulary.
 
     Attributes
     ----------
@@ -1718,25 +1717,16 @@ class StepHistory(Displayed):
         )
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of attempts recorded.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of attempts recorded.
 
-        Returns
-        -------
-        int
-            Accepted and rejected attempts together.
+        Accepted and rejected attempts together.
         """
         return int(self.z.size)
 
     @property
-    def n_rejected(self) -> int:
-        """Return the number of rejected attempts.
-
-        Returns
-        -------
-        int
-            How many attempts the controller threw away.
-        """
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Number of rejected attempts."""
         return int(np.count_nonzero(~self.accepted))
 
 
@@ -1838,25 +1828,13 @@ class StepStats(Displayed):
         return cls(z=np.empty(0), step=np.empty(0, dtype=np.int64), values={})
 
     @property
-    def n_rows(self) -> int:
-        """Return how many rows belong to this plane.
-
-        Returns
-        -------
-        int
-            The row count.
-        """
+    def n_rows(self) -> int:  # numpydoc ignore=RT01
+        """How many rows belong to this plane."""
         return int(self.z.size)
 
     @property
-    def names(self) -> tuple[str, ...]:
-        """Return the statistics the channel carries, sorted.
-
-        Returns
-        -------
-        tuple of str
-            The catalogue names.
-        """
+    def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -2014,13 +1992,10 @@ class SavedPlane(Displayed):
             object.__setattr__(self, "noise_phase", phase)
 
     @property
-    def shape(self) -> tuple[int, ...] | None:
-        """Return the field's shape, or ``None`` on a field-free plane.
+    def shape(self) -> tuple[int, ...] | None:  # numpydoc ignore=RT01
+        """The field's shape, or ``None`` on a field-free plane.
 
-        Returns
-        -------
-        tuple or None
-            ``(n_modes, n_pol, n_omega)``.
+        ``(n_modes, n_pol, n_omega)``.
         """
         return None if self.field is None else self.field.shape
 
@@ -2357,13 +2332,10 @@ class MarchSnapshot:  # numpydoc ignore=PR02
             raise OutputError("march snapshot positions and state must be finite")
 
     @property
-    def nbytes(self) -> int:
-        """Return the bytes the snapshot's arrays hold.
+    def nbytes(self) -> int:  # numpydoc ignore=RT01
+        """The bytes the snapshot's arrays hold.
 
-        Returns
-        -------
-        int
-            The state and every engine row.
+        The state and every engine row.
         """
         return int(self.state.nbytes + sum(row.nbytes for row in self.rows.values()))
 
@@ -2962,8 +2934,8 @@ class RunMetadata(Displayed):
             raise OutputError(msg)
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the run's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the run's transverse integrals measure.
 
         A run on modes uniform in y (:class:`solprop.modes.slab.SlabMode`) records
         ``configuration["transverse_measure"] = "per_unit_width"``: its powers are
@@ -2971,10 +2943,7 @@ class RunMetadata(Displayed):
         an area. The key sits in the free-form configuration and is written only
         where it is not the default.
 
-        Returns
-        -------
-        str
-            ``"area"`` or ``"per_unit_width"``.
+        ``"area"`` or ``"per_unit_width"``.
 
         Raises
         ------
@@ -2997,14 +2966,11 @@ class RunMetadata(Displayed):
         return cast("TransverseMeasure", value)
 
     @property
-    def power_convention(self) -> str:
-        """Return the amplitude label of the stored field.
+    def power_convention(self) -> str:  # numpydoc ignore=RT01
+        """Amplitude label of the stored field.
 
-        Returns
-        -------
-        str
-            Always ``"poynting"``: the interface modal amplitude, whose squared
-            modulus is the true power in watts (``docs/dev/conventions.md`` §4).
+        Always ``"poynting"``: the interface modal amplitude, whose squared
+        modulus is the true power in watts (``docs/dev/conventions.md`` §4).
         """
         return "poynting"
 
@@ -3781,46 +3747,28 @@ class Output(Protocol):
         ...
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes have been stored.
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes have been stored."""
+        ...
 
-        Returns
-        -------
-        int
-            The number of planes.
+    @property
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened."""
+        ...
+
+    @property
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The names of the statistics stored at every plane.
+
+        The names, sorted; empty before the first plane is saved.
         """
         ...
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics stored between planes, if any.
 
-        Returns
-        -------
-        RunMetadata or None
-            What produced the stored data.
-        """
-        ...
-
-    @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the names of the statistics stored at every plane.
-
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty before the first plane is saved.
-        """
-        ...
-
-    @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics stored between planes, if any.
-
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty when the run recorded no periodic subset.
+        The names, sorted; empty when the run recorded no periodic subset.
         """
         ...
 
@@ -3893,25 +3841,13 @@ class CheckpointOutput(Protocol):
         ...
 
     @property
-    def outcome(self) -> RunOutcome | None:
-        """Return recorded status, or None when no outcome was recorded.
-
-        Returns
-        -------
-        RunOutcome or None
-            Last persisted execution outcome.
-        """
+    def outcome(self) -> RunOutcome | None:  # numpydoc ignore=RT01
+        """Recorded status, or None when no outcome was recorded."""
         ...
 
     @property
-    def terminal_checkpoint(self) -> TerminalCheckpoint | None:
-        """Return the latest accepted terminal field outside regular observations.
-
-        Returns
-        -------
-        TerminalCheckpoint or None
-            The checkpoint, if one has been recorded.
-        """
+    def terminal_checkpoint(self) -> TerminalCheckpoint | None:  # numpydoc ignore=RT01
+        """Latest accepted terminal field outside regular observations."""
         ...
 
 
@@ -4016,25 +3952,13 @@ class RecipeRecord:
     files: Mapping[str, RecipeFile] = dataclasses.field(default_factory=dict)
 
     @property
-    def authored_sha256(self) -> str:
-        """Return the SHA-256 of the authored text.
-
-        Returns
-        -------
-        str
-            The digest, in hexadecimal.
-        """
+    def authored_sha256(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of the authored text, in hexadecimal."""
         return hashlib.sha256(self.authored.encode("utf-8")).hexdigest()
 
     @property
-    def resolved_sha256(self) -> str:
-        """Return the SHA-256 of the resolved text.
-
-        Returns
-        -------
-        str
-            The digest, in hexadecimal.
-        """
+    def resolved_sha256(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 of the resolved text, in hexadecimal."""
         return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
 
 
@@ -4181,24 +4105,18 @@ class PlaneStore(Displayed, ABC):
         self._resume_outcome_pending = False
 
     @property
-    def outcome(self) -> RunOutcome | None:
-        """Return the execution outcome, or None when none was recorded.
+    def outcome(self) -> RunOutcome | None:  # numpydoc ignore=RT01
+        """Execution outcome, or None when none was recorded.
 
-        Returns
-        -------
-        RunOutcome or None
-            The last recorded completion state and cumulative ledgers.
+        The last recorded completion state and cumulative ledgers.
         """
         return self._outcome
 
     @property
-    def terminal_checkpoint(self) -> TerminalCheckpoint | None:
-        """Return the terminal checkpoint without treating it as a saved plane.
+    def terminal_checkpoint(self) -> TerminalCheckpoint | None:  # numpydoc ignore=RT01
+        """Terminal checkpoint without treating it as a saved plane.
 
-        Returns
-        -------
-        TerminalCheckpoint or None
-            A field in the internal FFT convention and output amplitude units.
+        A field in the internal FFT convention and output amplitude units.
         """
         return self._terminal_checkpoint
 
@@ -4225,14 +4143,8 @@ class PlaneStore(Displayed, ABC):
         """Persist the recipe; a store that lives in memory has nothing to do."""
 
     @property
-    def recipe(self) -> RecipeRecord | None:
-        """The recipe the run was built from, or ``None`` for a run from a script.
-
-        Returns
-        -------
-        RecipeRecord or None
-            The record.
-        """
+    def recipe(self) -> RecipeRecord | None:  # numpydoc ignore=RT01
+        """The recipe the run was built from, or ``None`` for a run from a script."""
         return self._recipe
 
     def record_outcome(
@@ -4326,8 +4238,8 @@ class PlaneStore(Displayed, ABC):
         """
 
     @property
-    def annotations(self) -> Mapping[str, JsonValue]:
-        """Return the post-run annotations the store holds, by name.
+    def annotations(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Post-run annotations the store holds, by name.
 
         An annotation is something learned only once the run has closed -- the
         material manifest's peak-field report (:data:`PEAK_FIELDS_ANNOTATION`) is
@@ -4335,10 +4247,7 @@ class PlaneStore(Displayed, ABC):
         resume and a scan's reuse never see it. A store without any, a file written
         before annotations existed included, answers with an empty mapping.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Each annotation's plain JSON values, by name; a copy.
+        Each annotation's plain JSON values, by name; a copy.
 
         Examples
         --------
@@ -4398,63 +4307,39 @@ class PlaneStore(Displayed, ABC):
         """Persist one annotation; a store that lives in memory has nothing to do."""
 
     @property
-    def metadata(self) -> RunMetadata | None:
-        """Return the record of the run, or ``None`` before it is opened.
-
-        Returns
-        -------
-        RunMetadata or None
-            What produced the stored data.
-        """
+    def metadata(self) -> RunMetadata | None:  # numpydoc ignore=RT01
+        """Record of the run, or ``None`` before it is opened."""
         return self._metadata
 
     @property
-    def n_saved(self) -> int:
-        """Return how many planes have been stored.
-
-        Returns
-        -------
-        int
-            The number of planes.
-        """
+    def n_saved(self) -> int:  # numpydoc ignore=RT01
+        """How many planes have been stored."""
         return self._n_saved
 
     @property
-    def closed(self) -> bool:
-        """Return whether the handler has been closed.
-
-        Returns
-        -------
-        bool
-            True once :meth:`close` has run.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the handler has been closed."""
         return self._closed
 
     @property
-    def stat_names(self) -> tuple[str, ...]:
-        """Return the names of the statistics stored at every plane.
+    def stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The names of the statistics stored at every plane.
 
         Read off the layout the first plane fixed, so that the two handlers answer
         alike, and a file continued or opened for reading answers from what it holds.
 
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty before the first plane is saved.
+        The names, sorted; empty before the first plane is saved.
         """
         return () if self._layout is None else self._layout.stat_names
 
     @property
-    def step_stat_names(self) -> tuple[str, ...]:
-        """Return the statistics the between-planes channel carries.
+    def step_stat_names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the between-planes channel carries.
 
         Empty for a run that asked for no periodic subset, which is how a reader
         tells whether the channel is there to prefer over the planes.
 
-        Returns
-        -------
-        tuple of str
-            The names, sorted; empty when the run has no channel.
+        The names, sorted; empty when the run has no channel.
         """
         return () if self._layout is None else self._layout.step_stat_names
 
@@ -4572,8 +4457,8 @@ class PlaneStore(Displayed, ABC):
         self._store(plane, None)
 
     @property
-    def takes_exports(self) -> bool:
-        """Return whether a run hands this store its kept fields already stored.
+    def takes_exports(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a run hands this store its kept fields already stored.
 
         A store that takes them is given each kept plane through
         :meth:`save_exported`, its field exported by the run's session straight into
@@ -4584,10 +4469,7 @@ class PlaneStore(Displayed, ABC):
         plane, and its field, through ``save`` as before. A class vouches with
         ``_takes_exports = True`` in its own body, and opts out with ``False``.
 
-        Returns
-        -------
-        bool
-            Whether :meth:`save_exported` is how the run stores kept fields here.
+        Whether :meth:`save_exported` is how the run stores kept fields here.
 
         Examples
         --------
@@ -4812,24 +4694,18 @@ class PlaneStore(Displayed, ABC):
         self._field_shape = tuple(int(size) for size in field_shape)
 
     @property
-    def retention(self) -> FieldRetention:
-        """Return which planes of the run keep their field.
+    def retention(self) -> FieldRetention:  # numpydoc ignore=RT01
+        """Which planes of the run keep their field.
 
-        Returns
-        -------
-        FieldRetention
-            The rule the run declared (:meth:`retain`), every plane by default.
+        The rule the run declared (:meth:`retain`), every plane by default.
         """
         return self._retention
 
     @property
-    def field_shape(self) -> tuple[int, ...]:
-        """Return the shape of one plane's field, stored or not.
+    def field_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of one plane's field, stored or not.
 
-        Returns
-        -------
-        tuple of int
-            ``(n_modes, n_pol, n_omega)``; empty before anything has said it.
+        ``(n_modes, n_pol, n_omega)``; empty before anything has said it.
         """
         if self._layout is not None and self._layout.field_shape:
             return self._layout.field_shape

@@ -374,13 +374,10 @@ class RectMode(_WallPairFill):
         return a, b
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the geometry and material paths carrying longitudinal variation.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Geometry and material paths carrying longitudinal variation.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Half-width paths plus the shared fill's density or pressure paths.
+        Half-width paths plus the shared fill's density or pressure paths.
         """
         return MappingProxyType(
             {
@@ -426,77 +423,56 @@ class RectMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether every geometry and material path is constant.
-
-        Returns
-        -------
-        bool
-            True if all declared paths are constant.
-        """
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every geometry and material path is constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return the transform's geometry-constant trait for the rectangle.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """The transform's geometry-constant trait for the rectangle.
 
-        Returns
-        -------
-        bool
-            True when both half-width paths are constant; the historical trait
-            name also serves Cartesian modes.
+        True when both half-width paths are constant; the historical trait
+        name also serves Cartesian modes.
         """
         return self.width_x.is_constant and self.width_y.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether one scalar rescaling represents the geometry.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one scalar rescaling represents the geometry.
 
-        Returns
-        -------
-        bool
-            True for constant half-widths or the same path object on both axes.
+        True for constant half-widths or the same path object on both axes.
         """
         return self.radius_is_constant or self.width_x is self.width_y
 
     @property
-    def polarisation_degenerate(self) -> bool:
-        """Return whether the two polarisations share one effective index.
+    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the two polarisations share one effective index.
 
-        Returns
-        -------
-        bool
-            False: the x- and y-polarised modes of one (n, m) take the TE-like
-            and TM-like coefficients on opposite wall pairs, so they are
-            distinct modes and need a row each.
+        False: the x- and y-polarised modes of one (n, m) take the TE-like
+        and TM-like coefficients on opposite wall pairs, so they are
+        distinct modes and need a row each.
         """
         return False
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the larger Cartesian order as a geometry-resolution hint.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Larger Cartesian order as a geometry-resolution hint.
 
-        Returns
-        -------
-        int
-            Maximum of n and m. Cartesian Gauss rules integrate trigonometric products,
-            not polynomials; their required node count is measured, not derived (see
-            :func:`solprop.modes.quadrature.cartesian_nodes`).
+        Maximum of n and m. Cartesian Gauss rules integrate trigonometric products,
+        not polynomials; their required node count is measured, not derived (see
+        :func:`solprop.modes.quadrature.cartesian_nodes`).
         """
         return max(self.n, self.m)
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the rectangular family, its two indices and its polarisation.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Rectangular family, its two indices and its polarisation.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``rect``, with ``n`` and ``m`` in the azimuthal and radial fields
-            -- a rectangular guide has neither, but they are the two indices the
-            record carries -- and the polarisation in the display label. The other
-            polarisation is a distinct mode with its own operator row, not a parity
-            partner of this one, so ``parity`` stays ``None``.
+        Family ``rect``, with ``n`` and ``m`` in the azimuthal and radial fields
+        -- a rectangular guide has neither, but they are the two indices the
+        record carries -- and the polarisation in the display label. The other
+        polarisation is a distinct mode with its own operator row, not a parity
+        partner of this one, so ``parity`` stays ``None``.
 
         Examples
         --------
@@ -530,14 +506,11 @@ class RectMode(_WallPairFill):
         return self.polarisation
 
     @property
-    def orthogonal_polarisation(self) -> "RectMode":
-        """Return the distinct mode with the other electric-field orientation.
+    def orthogonal_polarisation(self) -> "RectMode":  # numpydoc ignore=RT01
+        """Distinct mode with the other electric-field orientation.
 
-        Returns
-        -------
-        RectMode
-            Same indices, geometry and fill, with the other wall-pair assignment.
-            It requires its own operator row; it is not a duplicated scalar index.
+        Same indices, geometry and fill, with the other wall-pair assignment.
+        It requires its own operator row; it is not a duplicated scalar index.
         """
         return replace(self, polarisation="y" if self.polarisation == "x" else "x")
 

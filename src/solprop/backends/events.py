@@ -385,14 +385,8 @@ class EventBatch:
     events: tuple[Event, ...] = field(default_factory=tuple)
 
     @property
-    def terminal(self) -> Terminal | None:
-        """Return the batch's terminal event, if it ended the session.
-
-        Returns
-        -------
-        Terminal or None
-            The last event when it is terminal; ``None`` otherwise.
-        """
+    def terminal(self) -> Terminal | None:  # numpydoc ignore=RT01
+        """The batch's terminal event, or ``None`` if it did not end the session."""
         if self.events and isinstance(self.events[-1], Terminal):
             return self.events[-1]
         return None

@@ -944,13 +944,10 @@ class TransverseEdge:
 
     # ------------------------------------------------------------------ the record
     @property
-    def resumed(self) -> bool:
-        """Return whether this edge continues an earlier execution's record.
+    def resumed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether this edge continues an earlier execution's record.
 
-        Returns
-        -------
-        bool
-            True after :meth:`resume` found a record, so that the launch is not judged.
+        True after :meth:`resume` found a record, so that the launch is not judged.
         """
         return self._resumed
 
@@ -1332,27 +1329,19 @@ class TransverseEdge:
         self._current_last = (z, share)
 
     @property
-    def next_read(self) -> float:
-        """Return where the edge is next read, m; infinite when nothing is read.
+    def next_read(self) -> float:  # numpydoc ignore=RT01
+        """Where the edge is next read, m; infinite when nothing is read.
 
         A backend that marches without the host, as the native Adams march does,
         holds its steps to it as :meth:`ceiling` does and hands the state back there.
-
-        Returns
-        -------
-        float
-            The position, m.
         """
         return self._next
 
     @property
-    def every_step(self) -> bool:
-        """Return whether the edge accumulates at every committed step (a collar).
+    def every_step(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the edge accumulates at every committed step (a collar).
 
-        Returns
-        -------
-        bool
-            True with a requested collar.
+        True with a requested collar.
         """
         return self.design is not None and self.design.has_collar
 
@@ -1436,13 +1425,10 @@ class TransverseEdge:
 
     # ------------------------------------------------------------------ results
     @property
-    def ramp_removed(self) -> float:
-        """Return the safety ramp's removal above noise and declared content.
+    def ramp_removed(self) -> float:  # numpydoc ignore=RT01
+        """Safety ramp's removal above noise and declared content.
 
-        Returns
-        -------
-        float
-            A share of the launch energy, signed.
+        A share of the launch energy, signed.
         """
         return (
             self._ramp_raw
@@ -1451,14 +1437,11 @@ class TransverseEdge:
         )
 
     @property
-    def status(self) -> TransverseStatus:
-        """Return the run's transverse status (section 5.3).
+    def status(self) -> TransverseStatus:  # numpydoc ignore=RT01
+        """The run's transverse status (section 5.3).
 
-        Returns
-        -------
-        str
-            ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
-            ``unwatched``.
+        ``clear``, ``warned``, ``stopped``, ``insensitive``, ``coarse`` or
+        ``unwatched``.
         """
         return self._status
 

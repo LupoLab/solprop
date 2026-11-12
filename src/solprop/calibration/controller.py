@@ -183,13 +183,10 @@ class Candidate:
     wait: str | None = None
 
     @property
-    def name(self) -> str:
-        """``"built-in"``, or the wait and width, such as ``"spin/6"``.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """Name in reports and scores.
 
-        Returns
-        -------
-        str
-            The candidate's name in reports and scores.
+        ``"built-in"``, or the wait and width, such as ``"spin/6"``.
         """
         if self.threads is None and self.wait is None:
             return "built-in"

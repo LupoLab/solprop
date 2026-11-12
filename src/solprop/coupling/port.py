@@ -204,25 +204,19 @@ class InputPort:
                 object.__setattr__(self, name, array)
 
     @property
-    def lattice(self) -> str:
-        """Return the identity of the receiving temporal lattice.
+    def lattice(self) -> str:  # numpydoc ignore=RT01
+        """Identity of the receiving temporal lattice.
 
-        Returns
-        -------
-        str
-            :func:`~solprop.coupling.plane.lattice_identity` of `grid`.
+        :func:`~solprop.coupling.plane.lattice_identity` of `grid`.
         """
         return lattice_identity(self.grid)
 
     @property
-    def identity(self) -> str:
-        """Return the port's identity: route, lattice, basis and entrance.
+    def identity(self) -> str:  # numpydoc ignore=RT01
+        """The port's identity: route, lattice, basis and entrance.
 
-        Returns
-        -------
-        str
-            A SHA-256 hex digest; two ports with the same identity accept the same
-            launch.
+        A SHA-256 hex digest; two ports with the same identity accept the same
+        launch.
         """
         record = {
             "route": self.route,

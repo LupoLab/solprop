@@ -9,8 +9,9 @@
 [private_docstrings]
 # Private or nested definitions whose docstring has numpydoc sections (Parameters,
 # Returns, Yields, Raises, Examples, See Also). The target is 0 (AGENTS.md,
-# "Docstrings and comments").
-max_sectioned = 2895
+# "Docstrings and comments"). Those left are public API defined in a private module and
+# re-exported, which keeps its sections.
+max_sectioned = 37
 
 [modules]
 # No module grows past this many lines.
@@ -19,11 +20,9 @@ max_lines = 4000
 [modules.allow]
 # The modules already larger, each capped at its present size so it can only shrink.
 # Remove an entry once its module is split below max_lines.
-"src/solprop/driver/simulation.py" = 13113
-"src/solprop/translate/problem.py" = 6910
-"src/solprop/output/schema.py" = 5854
-"src/solprop/tools.py" = 4201
-"src/solprop/spatial.py" = 4031
+"src/solprop/driver/simulation.py" = 10741
+"src/solprop/translate/problem.py" = 5701
+"src/solprop/output/schema.py" = 5073
 
 [private_imports]
 # Private names imported from another package (the root's shared private modules, such

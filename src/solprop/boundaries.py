@@ -364,13 +364,10 @@ class Absorber:
             raise GridError(msg)
 
     @property
-    def in_stage_length(self) -> float:
-        """Return the length that sets the in-stage collars' strength.
+    def in_stage_length(self) -> float:  # numpydoc ignore=RT01
+        """Length that sets the in-stage collars' strength, m.
 
-        Returns
-        -------
-        float
-            `collar_length`, or `reference_length` when it is ``None``, m.
+        `collar_length`, or `reference_length` when it is ``None``.
 
         Examples
         --------

@@ -958,13 +958,10 @@ class Mixture(Displayed):
         return mixture
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the optmat models the populations carry, once each.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the optmat models the populations carry, once each.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            In component order, a model shared by two populations once.
+        In component order, a model shared by two populations once.
         """
         seen: dict[str, MaterialRecord] = {}
         for component in self.components:
@@ -995,14 +992,8 @@ class Mixture(Displayed):
         )
 
     @property
-    def labels(self) -> tuple[str, ...]:
-        """Return the labels in mixture order.
-
-        Returns
-        -------
-        tuple of str
-            Unique population labels.
-        """
+    def labels(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The unique population labels, in mixture order."""
         return tuple(c.label for c in self.components)
 
     def __getitem__(self, label: str) -> Component:

@@ -90,14 +90,8 @@ class RunEstimate:
     total_calls: int | None
 
     @property
-    def step(self) -> float:
-        """Return the evaluations' share of an accepted step's time.
-
-        Returns
-        -------
-        float
-            Seconds per step.
-        """
+    def step(self) -> float:  # numpydoc ignore=RT01
+        """Evaluations' share of an accepted step's time, s."""
         return self.rhs * self.calls_per_step
 
 

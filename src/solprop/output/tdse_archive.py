@@ -227,13 +227,10 @@ class RecordSchema:
     fields: tuple[RecordField, ...]
 
     @property
-    def serializer(self) -> str:
-        """Return the identifier written beside every record stored with this schema.
+    def serializer(self) -> str:  # numpydoc ignore=RT01
+        """Identifier written beside every record stored with this schema.
 
-        Returns
-        -------
-        str
-            ``solprop.tdse-archive.<name>.v<version>``.
+        ``solprop.tdse-archive.<name>.v<version>``.
         """
         return f"solprop.tdse-archive.{self.name}.v{self.version}"
 
@@ -816,46 +813,28 @@ class TDSEArchiveWriter:
     # -- properties ------------------------------------------------------------------
 
     @property
-    def path(self) -> Path:
-        """Return the archive's path.
-
-        Returns
-        -------
-        pathlib.Path
-            As requested.
-        """
+    def path(self) -> Path:  # numpydoc ignore=RT01
+        """The archive's path."""
         return self._archive.path
 
     @property
-    def outputs(self) -> ArchiveOutputs:
-        """Return the output selection.
-
-        Returns
-        -------
-        {'full', 'required'}
-            The request's selection.
-        """
+    def outputs(self) -> ArchiveOutputs:  # numpydoc ignore=RT01
+        """Output selection."""
         return self._archive.outputs
 
     @property
-    def run_uuid(self) -> str:
-        """Return the run's identity.
+    def run_uuid(self) -> str:  # numpydoc ignore=RT01
+        """The run's identity.
 
-        Returns
-        -------
-        str
-            Shared with the optical file.
+        Shared with the optical file.
         """
         return self._run_uuid
 
     @property
-    def failed(self) -> bool:
-        """Return whether a write has failed.
+    def failed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a write has failed.
 
-        Returns
-        -------
-        bool
-            True once any write raised.
+        True once any write raised.
         """
         return self._failure is not None
 
@@ -1642,25 +1621,16 @@ class TDSEArchiveReader:
         self._file.close()
 
     @property
-    def schema(self) -> str:
-        """Return the archive's schema identifier.
+    def schema(self) -> str:  # numpydoc ignore=RT01
+        """The archive's schema identifier.
 
-        Returns
-        -------
-        str
-            :data:`TDSE_ARCHIVE_SCHEMA`.
+        :data:`TDSE_ARCHIVE_SCHEMA`.
         """
         return str(_attr(self._file, "schema"))
 
     @property
-    def run_uuid(self) -> str:
-        """Return the run's identity, shared with its optical file.
-
-        Returns
-        -------
-        str
-            The UUID.
-        """
+    def run_uuid(self) -> str:  # numpydoc ignore=RT01
+        """The run's identity, shared with its optical file."""
         return str(_attr(self._file, "run_uuid"))
 
     def _sessions(self) -> list[h5py.Group]:
@@ -1669,13 +1639,10 @@ class TDSEArchiveReader:
         return [cast("h5py.Group", sessions[name]) for name in sorted(sessions)]
 
     @property
-    def sessions(self) -> tuple[ArchivedSession, ...]:
-        """Return every session of the archive, in order.
+    def sessions(self) -> tuple[ArchivedSession, ...]:  # numpydoc ignore=RT01
+        """Every session of the archive, in order.
 
-        Returns
-        -------
-        tuple of ArchivedSession
-            Their labels, trial decisions and totals.
+        Their labels, trial decisions and totals.
         """
         return tuple(self._session(group) for group in self._sessions())
 
@@ -1728,14 +1695,8 @@ class TDSEArchiveReader:
                 yield _evaluation(evaluations, name, trials)
 
     @property
-    def truncated(self) -> bool:
-        """Return whether any evaluation group is incomplete.
-
-        Returns
-        -------
-        bool
-            True when a crash or a failed write left a group incomplete.
-        """
+    def truncated(self) -> bool:  # numpydoc ignore=RT01
+        """Whether any evaluation group is incomplete."""
         return any(not item.complete for item in self.evaluations())
 
     def _evaluation_group(self, evaluation: ArchivedEvaluation) -> h5py.Group:

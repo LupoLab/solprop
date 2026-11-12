@@ -393,13 +393,10 @@ class Unit:
             )
 
     @property
-    def dimension(self) -> Dimension:
+    def dimension(self) -> Dimension:  # numpydoc ignore=RT01
         """The unit's dimension.
 
-        Returns
-        -------
-        Dimension
-            The exponents of the five base dimensions.
+        The exponents of the five base dimensions.
         """
         return _unit_scale(self.text).dimension
 

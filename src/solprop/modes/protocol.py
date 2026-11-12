@@ -527,16 +527,13 @@ class ParameterisedMode(Mode, Protocol):
     """
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the named scalar paths the effective index depends on.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Named scalar paths the effective index depends on.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Path name to :class:`~solprop.profiles.ZProfile`, for example
-            ``{"core_radius": ..., "density": ...}``. Every key is accepted by
-            :meth:`at_parameters`; constant paths are included, so that a caller sees
-            the whole dependence and decides for itself which of them vary.
+        Path name to :class:`~solprop.profiles.ZProfile`, for example
+        ``{"core_radius": ..., "density": ...}``. Every key is accepted by
+        :meth:`at_parameters`; constant paths are included, so that a caller sees
+        the whole dependence and decides for itself which of them vary.
         """
         ...
 

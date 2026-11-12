@@ -262,13 +262,10 @@ class KerrResponse:
     species: str | None = None
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the Kerr response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the Kerr response.
 
-        Returns
-        -------
-        ResponseTraits
-            Pointwise, both grids, vector-isotropic, consuming the density path.
+        Pointwise, both grids, vector-isotropic, consuming the density path.
 
         Examples
         --------
@@ -766,25 +763,19 @@ class DispersiveKerrResponse:
             raise MaterialError(msg)
 
     @property
-    def sector(self) -> Sector:
-        """Return which quartets the response keeps.
+    def sector(self) -> Sector:  # numpydoc ignore=RT01
+        """Which quartets the response keeps.
 
-        Returns
-        -------
-        {'full', 'conserving'}
-            ``"full"`` with ``thg``, ``"conserving"`` without.
+        ``"full"`` with ``thg``, ``"conserving"`` without.
         """
         return "full" if self.thg else "conserving"
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the response.
 
-        Returns
-        -------
-        ResponseTraits
-            A convolution in time (spectral multipliers on the inputs and the output),
-            both grids, vector-isotropic, consuming the density path.
+        A convolution in time (spectral multipliers on the inputs and the output),
+        both grids, vector-isotropic, consuming the density path.
         """
         return ResponseTraits(
             domain="convolution",
@@ -796,13 +787,10 @@ class DispersiveKerrResponse:
         )
 
     @property
-    def coefficient(self) -> float:
-        """Return ``eps0 gamma3_0``, the static coefficient per unit density.
+    def coefficient(self) -> float:  # numpydoc ignore=RT01
+        """``eps0 gamma3_0``, the static coefficient per unit density, C m^2/V^3.
 
-        Returns
-        -------
-        float
-            In C m^2/V^3 (m^5/V^2 times eps0), multiplying the number density.
+        That is m^5/V^2 times eps0; it multiplies the number density.
         """
         return EPS0 * self.model.gamma3_static
 
@@ -1123,13 +1111,8 @@ class PlasmaResponse:
             raise MaterialError(msg)
 
     @property
-    def potential(self) -> float:
-        """Return the ionisation potential without inventing custom species data.
-
-        Returns
-        -------
-        float
-            First ionisation potential in J.
+    def potential(self) -> float:  # numpydoc ignore=RT01
+        """First ionisation potential, J, without inventing custom species data.
 
         Raises
         ------
@@ -1143,14 +1126,11 @@ class PlasmaResponse:
         return float(ionisation_potential(self.gas))
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the declared traits of the plasma response.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Declared traits of the plasma response.
 
-        Returns
-        -------
-        ResponseTraits
-            With memory, field grid only, vector-isotropic, consuming the density and
-            pre-ionisation paths.
+        With memory, field grid only, vector-isotropic, consuming the density and
+        pre-ionisation paths.
 
         Examples
         --------

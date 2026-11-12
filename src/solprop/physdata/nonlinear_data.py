@@ -466,24 +466,15 @@ class OptmatKerr:
         _ = self.model
 
     @property
-    def key(self) -> Gas:
-        """Return the species as a registry member.
-
-        Returns
-        -------
-        Gas
-            The gas.
-        """
+    def key(self) -> Gas:  # numpydoc ignore=RT01
+        """The species as a registry member."""
         return as_gas(self.gas)
 
     @functools.cached_property
-    def model(self) -> _optmat.Untyped:
-        """Return optmat's hyperpolarizability model of the gas, resolved once.
+    def model(self) -> _optmat.Untyped:  # numpydoc ignore=RT01
+        """The optmat hyperpolarizability model of the gas, resolved once.
 
-        Returns
-        -------
-        optmat.gas.nonlinear.HyperpolarizabilityModel
-            ``hyperpolarizability_models()[gas]``.
+        ``hyperpolarizability_models()[gas]``.
 
         Raises
         ------
@@ -506,14 +497,8 @@ class OptmatKerr:
         return models[name]  # pyright: ignore[reportCallIssue, reportArgumentType] - a StrEnum key
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the hyperpolarizability model.
-
-        Returns
-        -------
-        tuple of MaterialRecord
-            One record.
-        """
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the hyperpolarizability model."""
         return (_optmat.record(self.model),)
 
     def gamma3(self, wavelength: float) -> float:
@@ -700,13 +685,10 @@ class ElectronicRegions:
     best_effort: tuple[float, float] | None
 
     @property
-    def beyond_support(self) -> bool:
-        """Return whether any part of the band is bounded or best effort.
+    def beyond_support(self) -> bool:  # numpydoc ignore=RT01
+        """Whether any part of the band is bounded or best effort.
 
-        Returns
-        -------
-        bool
-            True when a run's legs reach beyond the gas's leg bound or band edge.
+        True when a run's legs reach beyond the gas's leg bound or band edge.
         """
         return self.bounded is not None or self.best_effort is not None
 
@@ -925,24 +907,18 @@ class DispersiveKerrModel:
         )
 
     @property
-    def model_digest(self) -> str:
-        """Return the digest of optmat's hyperpolarizability model.
+    def model_digest(self) -> str:  # numpydoc ignore=RT01
+        """Digest of optmat's hyperpolarizability model.
 
-        Returns
-        -------
-        str
-            Sixty-four hexadecimal digits.
+        Sixty-four hexadecimal digits.
         """
         return self.material_records[0].digest
 
     @property
-    def support_digest(self) -> str:
-        """Return the digest of optmat's support record of the model.
+    def support_digest(self) -> str:  # numpydoc ignore=RT01
+        """Digest of optmat's support record of the model.
 
-        Returns
-        -------
-        str
-            Sixty-four hexadecimal digits.
+        Sixty-four hexadecimal digits.
         """
         return self.material_records[1].digest
 

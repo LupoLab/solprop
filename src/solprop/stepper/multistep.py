@@ -255,15 +255,12 @@ class Multistep:
             raise StepperError(msg)
 
     @property
-    def name(self) -> str:
-        """Return the method's record name.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The method's record name.
 
-        Returns
-        -------
-        str
-            ``adams-pec<q>/<q + 1>``, with ``-variable`` when the order is chosen, an
-            ``exponential-`` prefix for the exponential formulation and a
-            ``-<policy>-frame`` suffix under a carrier frame.
+        ``adams-pec<q>/<q + 1>``, with ``-variable`` when the order is chosen, an
+        ``exponential-`` prefix for the exponential formulation and a
+        ``-<policy>-frame`` suffix under a carrier frame.
         """
         variable = "-variable" if self.variable_order else ""
         prefix = "exponential-" if self.formulation == "exponential" else ""
@@ -271,8 +268,8 @@ class Multistep:
         return f"{prefix}adams-pec{self.order}/{self.order + 1}{variable}{frame}"
 
     @property
-    def history_key(self) -> str:
-        """Return what defines the history a march of this method keeps.
+    def history_key(self) -> str:  # numpydoc ignore=RT01
+        """What defines the history a march of this method keeps.
 
         A resume continues an Adams history only when the snapshot's key equals the
         resuming method's: the formulation, the carrier frame and
@@ -280,10 +277,7 @@ class Multistep:
         call budget, the safety factor and the other step-size settings choose the
         next step, not what the history means, so a change of them keeps it.
 
-        Returns
-        -------
-        str
-            :attr:`name` without the variable-order marker.
+        :attr:`name` without the variable-order marker.
 
         Examples
         --------
@@ -298,14 +292,11 @@ class Multistep:
         return f"{prefix}adams-pec{self.order}/{self.order + 1}{frame}"
 
     @property
-    def real_stability_interval(self) -> float:
-        """Return the negative-real stability interval of the highest order run.
+    def real_stability_interval(self) -> float:  # numpydoc ignore=RT01
+        """Negative-real stability interval of the highest order run.
 
-        Returns
-        -------
-        float
-            :data:`PEC_REAL_INTERVAL` at :attr:`order`: the largest ``h |lambda|``
-            for a damping rate ``lambda`` integrated explicitly.
+        :data:`PEC_REAL_INTERVAL` at :attr:`order`: the largest ``h |lambda|``
+        for a damping rate ``lambda`` integrated explicitly.
         """
         return PEC_REAL_INTERVAL[self.order - 1]
 

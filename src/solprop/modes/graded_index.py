@@ -182,35 +182,20 @@ class PowerLawPermittivity:
         )
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the centre material's frequency interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Centre material's frequency interval ``(lower, upper)``, rad/s."""
         return self.centre.omega_domain
 
     @property
-    def material(self) -> PermittivityLaw:
-        """Return the material owning core responses.
-
-        Returns
-        -------
-        PermittivityLaw
-            Material law owning the core response declarations.
-        """
+    def material(self) -> PermittivityLaw:  # numpydoc ignore=RT01
+        """Material owning core responses."""
         return self.centre
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return the declared centre, contrast and radial exponent.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Declared centre, contrast and radial exponent.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "centre": dict(self.centre.identity),
@@ -374,15 +359,8 @@ class GradedIndexProvider(Displayed):
         return value
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the declared core-radius path in m.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            The core_radius path in m, named as every other
-            :class:`~solprop.modes.protocol.ParameterisedMode` names it.
-        """
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Declared core-radius path in m."""
         return {"core_radius": as_profile(self.radius)}
 
     def at_parameters(self, values: Mapping[str, float]) -> "GradedIndexProvider":
@@ -410,14 +388,8 @@ class GradedIndexProvider(Displayed):
         return replace(self, radius=values.get("core_radius", self.radius))
 
     @property
-    def regions(self) -> tuple[MaterialRegion, ...]:
-        """Return radial-core ownership and the homogeneous exterior.
-
-        Returns
-        -------
-        tuple of MaterialRegion
-            Ordered core and unbounded exterior ownership.
-        """
+    def regions(self) -> tuple[MaterialRegion, ...]:  # numpydoc ignore=RT01
+        """Radial-core ownership and the homogeneous exterior."""
         # The radial law owns the core material values, not a fictitious bulk index.
         return (
             MaterialRegion(
@@ -431,51 +403,30 @@ class GradedIndexProvider(Displayed):
         )
 
     @property
-    def omega_domain(self) -> tuple[float, float]:
-        """Return the common material frequency interval in rad/s.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper angular frequency in rad/s.
-        """
+    def omega_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Common material frequency interval ``(lower, upper)``, rad/s."""
         return max(
             self.permittivity.omega_domain[0], self.exterior.omega_domain[0]
         ), min(self.permittivity.omega_domain[1], self.exterior.omega_domain[1])
 
     @property
-    def z_domain(self) -> tuple[float, float]:
-        """Return the radius-path interval in m.
-
-        Returns
-        -------
-        tuple of float
-            Lower and upper position in m.
-        """
+    def z_domain(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Radius-path interval ``(lower, upper)``, m."""
         return as_profile(self.radius).z_span
 
     @property
-    def z_breakpoints(self) -> tuple[float, ...]:
-        """Return physical radius-path breakpoints in m.
-
-        Returns
-        -------
-        tuple of float
-            Positions of physical path kinks in m.
-        """
+    def z_breakpoints(self) -> tuple[float, ...]:  # numpydoc ignore=RT01
+        """Physical radius-path breakpoints (path kinks), m."""
         return tuple(float(v) for v in as_profile(self.radius).breakpoints)
 
     @property
-    def channel_labels(self) -> tuple[ChannelLabel, ...]:
-        """Return one label per requested radial channel, in solve order.
+    def channel_labels(self) -> tuple[ChannelLabel, ...]:  # numpydoc ignore=RT01
+        """One label per requested radial channel, in solve order.
 
-        Returns
-        -------
-        tuple of ChannelLabel
-            The sector's family and azimuthal order with radial order ``1..count``,
-            in the order :meth:`solve` returns the channels, which is decreasing
-            propagation constant. A radial sector has no parity partner and no
-            handedness, so both are ``None``.
+        The sector's family and azimuthal order with radial order ``1..count``,
+        in the order :meth:`solve` returns the channels, which is decreasing
+        propagation constant. A radial sector has no parity partner and no
+        handedness, so both are ``None``.
 
         Examples
         --------
@@ -506,13 +457,10 @@ class GradedIndexProvider(Displayed):
         )
 
     @property
-    def identity(self) -> Mapping[str, JsonValue]:
-        """Return physical law, sector and explicit discretisation identity.
+    def identity(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
+        """Physical law, sector and explicit discretisation identity.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Serializable physical model and construction metadata.
+        Serializable physical model and construction metadata.
         """
         return {
             "spectral_convention": "internal",

@@ -369,14 +369,8 @@ class PlaneGeometry:
         object.__setattr__(self, "x_axis", tuple(float(one) for one in self.x_axis))
 
     @property
-    def y_axis(self) -> tuple[float, float, float]:
-        """Return the local y axis, ``normal`` cross ``x_axis``.
-
-        Returns
-        -------
-        tuple of float
-            The unit vector completing the right-handed frame.
-        """
+    def y_axis(self) -> tuple[float, float, float]:  # numpydoc ignore=RT01
+        """Local y axis, ``normal`` cross ``x_axis``."""
         value = np.cross(np.asarray(self.normal), np.asarray(self.x_axis))
         return (float(value[0]), float(value[1]), float(value[2]))
 
@@ -1004,13 +998,10 @@ class AnalyticRecord:
     resolution_change: float
 
     @property
-    def error(self) -> float:
-        """Return the larger of the two checks, the energy's numerical error bound.
+    def error(self) -> float:  # numpydoc ignore=RT01
+        """Larger of the two checks, the energy's numerical error bound.
 
-        Returns
-        -------
-        float
-            ``max(domain_change, resolution_change)``, dimensionless.
+        ``max(domain_change, resolution_change)``, dimensionless.
         """
         return max(self.domain_change, self.resolution_change)
 
@@ -1125,13 +1116,10 @@ class FieldPlane:
         )
 
     @property
-    def omega(self) -> Float[np.ndarray, " n_omega"]:
-        """Return the absolute angular frequency of each stored bin.
+    def omega(self) -> Float[np.ndarray, " n_omega"]:  # numpydoc ignore=RT01
+        """Absolute angular frequency of each stored bin, rad/s.
 
-        Returns
-        -------
-        numpy.ndarray
-            Angular frequencies in rad/s, shape ``(n_omega,)``, in storage order.
+        Shape ``(n_omega,)``, in storage order.
         """
         return self.grid.omega
 

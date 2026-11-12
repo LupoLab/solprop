@@ -1047,7 +1047,9 @@ def test_spatial_metadata_names_its_flux_model(envelope_grid, stepper):
 def test_inlined_replaces_every_array_reference_by_its_values():
     inlined = schema._inlined(schema.serialise({"axis": np.zeros(5000)}))
     assert isinstance(inlined, dict)
-    assert sorted(inlined["axis"]) == ["__ndarray__", "dtype", "shape"]
+    axis = inlined["axis"]
+    assert isinstance(axis, dict)
+    assert sorted(axis) == ["__ndarray__", "dtype", "shape"]
 
 
 def test_array_name_carries_the_dtype_and_the_shape():

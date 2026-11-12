@@ -449,24 +449,19 @@ class ModalPathTable(Displayed):
                 )
 
     @property
-    def n_intervals(self) -> int:
-        """Return how many sections the path is cut into.
-
-        Returns
-        -------
-        int
-            The section count.
-        """
+    def n_intervals(self) -> int:  # numpydoc ignore=RT01
+        """How many sections the path is cut into."""
         return int(self.z_edges.size - 1)
 
     @property
-    def positions(self) -> Float[np.ndarray, "n_intervals_positions n_deg_positions"]:
-        """Return every sampled position, section by section.
+    def positions(
+        self,
+    ) -> Float[
+        np.ndarray, "n_intervals_positions n_deg_positions"
+    ]:  # numpydoc ignore=RT01
+        """Every sampled position, section by section, m.
 
-        Returns
-        -------
-        numpy.ndarray
-            Positions in m, shape ``(n_intervals, degree + 1)``.
+        Shape ``(n_intervals, degree + 1)``.
         """
         return np.stack(
             [

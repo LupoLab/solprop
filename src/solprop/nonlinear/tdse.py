@@ -208,13 +208,10 @@ class TDSEBasis:
             )
 
     @property
-    def identity(self) -> str:
-        """Return the stable SHA-256 identity of all resolved basis fields.
+    def identity(self) -> str:  # numpydoc ignore=RT01
+        """Stable SHA-256 identity of all resolved basis fields.
 
-        Returns
-        -------
-        str
-            Hexadecimal digest of canonical JSON, including the source record.
+        Hexadecimal digest of canonical JSON, including the source record.
         """
         encoded = json.dumps(
             asdict(self), sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -410,17 +407,14 @@ class HaccBasis:
             )
 
     @property
-    def identity(self) -> str:
-        """Return the SHA-256 identity of every field, tagged as a haCC basis.
+    def identity(self) -> str:  # numpydoc ignore=RT01
+        """SHA-256 identity of every field, tagged as a haCC basis.
 
         The ``kind`` tag keeps a haCC identity distinct from any SAE
         :class:`TDSEBasis` identity; ``preset`` distinguishes a preset from a custom
         basis with the same numbers.
 
-        Returns
-        -------
-        str
-            Hexadecimal digest of canonical JSON with ``kind="hacc_helium"``.
+        Hexadecimal digest of canonical JSON with ``kind="hacc_helium"``.
         """
         encoded = json.dumps(
             {"kind": "hacc_helium", **asdict(self)},
@@ -431,14 +425,11 @@ class HaccBasis:
         return hashlib.sha256(encoded.encode()).hexdigest()
 
     @property
-    def label(self) -> str:
-        """Return the model's name, with ``(custom)`` for a non-preset basis.
+    def label(self) -> str:  # numpydoc ignore=RT01
+        """The model's name, with ``(custom)`` for a non-preset basis.
 
-        Returns
-        -------
-        str
-            ``haCC(1)`` or ``haCC(5)``, followed by `` fast`` for the fast preset
-            variant and by `` (custom)`` when ``preset`` is ``None``.
+        ``haCC(1)`` or ``haCC(5)``, followed by `` fast`` for the fast preset
+        variant and by `` (custom)`` when ``preset`` is ``None``.
         """
         name = "haCC(1)" if self.ions == 1 else "haCC(5)"
         if self.preset is None:
@@ -446,14 +437,11 @@ class HaccBasis:
         return name if self.variant == "standard" else f"{name} fast"
 
     @property
-    def variant(self) -> Literal["standard", "fast"] | None:
-        """Return the preset's numerics variant, read from its identity.
+    def variant(self) -> Literal["standard", "fast"] | None:  # numpydoc ignore=RT01
+        """The preset's numerics variant, read from its identity.
 
-        Returns
-        -------
-        {'standard', 'fast'} or None
-            ``'fast'`` for a ``hacc-helium-<1|5>-fast-...`` identity, ``'standard'``
-            for any other preset, ``None`` for a custom basis.
+        ``'fast'`` for a ``hacc-helium-<1|5>-fast-...`` identity, ``'standard'``
+        for any other preset, ``None`` for a custom basis.
         """
         if self.preset is None:
             return None
@@ -462,16 +450,13 @@ class HaccBasis:
         return "fast" if match.group(2) else "standard"
 
     @property
-    def qualified(self) -> bool:
-        """Return whether the record claims a provider preset's qualification.
+    def qualified(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the record claims a provider preset's qualification.
 
         The claim is verified against the installed provider when the binding
         prepares the model; a custom basis is never qualified.
 
-        Returns
-        -------
-        bool
-            True exactly when ``preset`` is set.
+        True exactly when ``preset`` is set.
         """
         return self.preset is not None
 
@@ -842,12 +827,9 @@ class TDSEGasResponse:
             )
 
     @property
-    def traits(self) -> ResponseTraits:
-        """Return the scalar real-field memory response traits.
+    def traits(self) -> ResponseTraits:  # numpydoc ignore=RT01
+        """Scalar real-field memory response traits.
 
-        Returns
-        -------
-        ResponseTraits
-            Field-grid, scalar, density-dependent temporal response.
+        Field-grid, scalar, density-dependent temporal response.
         """
         return ResponseTraits("memory", ("field",), "scalar", ("density",))

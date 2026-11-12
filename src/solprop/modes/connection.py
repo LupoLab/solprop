@@ -225,28 +225,21 @@ class ModalConnection(Displayed):
     omega: float
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the connection couples.
-
-        Returns
-        -------
-        int
-            The channel count.
-        """
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the connection couples."""
         return int(self.matrix.shape[0])
 
     @property
-    def self_terms(self) -> Complex[np.ndarray, " n_modes_self"]:
-        """Return the diagonal: the flux self-term and the gauge phase rate.
+    def self_terms(
+        self,
+    ) -> Complex[np.ndarray, " n_modes_self"]:  # numpydoc ignore=RT01
+        """Diagonal: the flux self-term and the gauge phase rate, 1/m.
 
         The real part is ``W'_nn/2``, the rate the channel's own power
         normalisation moves; the imaginary part is the gauge's phase rate. Neither
         is zero in general for a moving material interface.
 
-        Returns
-        -------
-        numpy.ndarray
-            Complex, shape ``(n_modes,)``, in 1/m.
+        Complex, shape ``(n_modes,)``.
         """
         return np.diag(self.matrix)
 

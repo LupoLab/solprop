@@ -256,25 +256,18 @@ class Tableau:  # numpydoc ignore=PR02
             )
 
     @property
-    def n_stages(self) -> int:
-        """Return the number of stages, counting the reused FSAL stage.
-
-        Returns
-        -------
-        int
-            Number of stages.
-        """
+    def n_stages(self) -> int:  # numpydoc ignore=RT01
+        """Number of stages, counting the reused FSAL stage."""
         return int(self.nodes.size)
 
     @property
-    def embedded_weights(self) -> Float[np.ndarray, " n_stages"]:
-        """Return the weights of the embedded companion.
+    def embedded_weights(
+        self,
+    ) -> Float[np.ndarray, " n_stages"]:  # numpydoc ignore=RT01
+        """The weights of the embedded companion.
 
-        Returns
-        -------
-        numpy.ndarray
-            Weights ``b_hat = b - (b - b_hat)`` of shape ``(n_stages,)``,
-            dimensionless, summing to 1.
+        Weights ``b_hat = b - (b - b_hat)`` of shape ``(n_stages,)``,
+        dimensionless, summing to 1.
         """
         return self.solution_weights - self.error_weights
 

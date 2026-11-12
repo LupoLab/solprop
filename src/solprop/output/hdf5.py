@@ -673,17 +673,14 @@ class ResumeState(Displayed):
     march: MarchSnapshot | None = None
 
     @property
-    def interpolated(self) -> bool:
+    def interpolated(self) -> bool:  # numpydoc ignore=RT01
         """Whether the plane the file resumes from was interpolated inside a step.
 
         A landed plane is the end of an accepted step of the run; an interpolated one
         lies inside a step, and a resume from it needs ``resume="interpolated"``.
         The entrance is the initial field.
 
-        Returns
-        -------
-        bool
-            Whether the plane is not a state the march passed through.
+        Whether the plane is not a state the march passed through.
         """
         if self.checkpoint is not None:
             return not self.checkpoint.landed
@@ -828,14 +825,8 @@ class HDF5Output(PlaneStore):
             self._open_readonly()
 
     @property
-    def path(self) -> Path:
-        """Return where the file is written.
-
-        Returns
-        -------
-        pathlib.Path
-            The path given to the constructor.
-        """
+    def path(self) -> Path:  # numpydoc ignore=RT01
+        """Where the file is written."""
         return self._path
 
     def _state_text(self) -> str:

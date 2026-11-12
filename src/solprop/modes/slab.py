@@ -259,26 +259,20 @@ class SlabMode(_WallPairFill):
         return a
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what this mode's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What this mode's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"``: the normalisation is a power per metre of y and
-            :meth:`aeff` an effective width, so a run's powers are W/m and its
-            energies J/m (:data:`solprop.modes.protocol.TransverseMeasure`).
+        ``"per_unit_width"``: the normalisation is a power per metre of y and
+        :meth:`aeff` an effective width, so a run's powers are W/m and its
+        energies J/m (:data:`solprop.modes.protocol.TransverseMeasure`).
         """
         return "per_unit_width"
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the gap and material paths carrying longitudinal variation.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Gap and material paths carrying longitudinal variation.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            The half-gap path plus the shared fill's density or pressure paths.
+        The half-gap path plus the shared fill's density or pressure paths.
         """
         return MappingProxyType({"half_gap": self.width_x, **self._fill_paths()})
 
@@ -316,76 +310,55 @@ class SlabMode(_WallPairFill):
         return frozen
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether the gap and every material path are constant.
-
-        Returns
-        -------
-        bool
-            True if all declared paths are constant.
-        """
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the gap and every material path are constant."""
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return the transform's geometry-constant trait for the slab.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """The transform's geometry-constant trait for the slab.
 
-        Returns
-        -------
-        bool
-            True when the half-gap path is constant; the historical trait name also
-            serves Cartesian and slab modes.
+        True when the half-gap path is constant; the historical trait name also
+        serves Cartesian and slab modes.
         """
         return self.width_x.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether one scalar rescaling represents the geometry along z.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether one scalar rescaling represents the geometry along z.
 
-        Returns
-        -------
-        bool
-            Always True: one gap is the whole geometry, and the profile is a function
-            of ``x / a(z)``, so a taper rescales the matrices by
-            ``sqrt(a(0) / a(z))`` (:func:`solprop.modes.quadrature.taper_scale`).
+        Always True: one gap is the whole geometry, and the profile is a function
+        of ``x / a(z)``, so a taper rescales the matrices by
+        ``sqrt(a(0) / a(z))`` (:func:`solprop.modes.quadrature.taper_scale`).
         """
         return True
 
     @property
-    def polarisation_degenerate(self) -> bool:
-        """Return whether the two polarisations share one effective index.
+    def polarisation_degenerate(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the two polarisations share one effective index.
 
-        Returns
-        -------
-        bool
-            False: TE and TM take different wall coefficients, so they are distinct
-            modes and need a row each, as the rectangular partners do.
+        False: TE and TM take different wall coefficients, so they are distinct
+        modes and need a row each, as the rectangular partners do.
         """
         return False
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the mode order as the rule's resolution hint.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Mode order as the rule's resolution hint.
 
-        Returns
-        -------
-        int
-            ``p``. A slab has no azimuthal coordinate; the x rule's node bound is the
-            measured :func:`solprop.modes.quadrature.cartesian_nodes` of it.
+        ``p``. A slab has no azimuthal coordinate; the x rule's node bound is the
+        measured :func:`solprop.modes.quadrature.cartesian_nodes` of it.
         """
         return self.order
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the slab family and order.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Slab family and order.
 
-        Returns
-        -------
-        ChannelLabel
-            Family ``TE`` or ``TM``, no azimuthal order, the mode order ``p`` in the
-            radial field -- the one index the record carries -- and ``TE1``,
-            ``TM3`` and so on as the display label. The other polarisation is a
-            distinct mode, not a parity partner, so ``parity`` stays ``None``.
+        Family ``TE`` or ``TM``, no azimuthal order, the mode order ``p`` in the
+        radial field -- the one index the record carries -- and ``TE1``,
+        ``TM3`` and so on as the display label. The other polarisation is a
+        distinct mode, not a parity partner, so ``parity`` stays ``None``.
 
         Examples
         --------
@@ -415,14 +388,11 @@ class SlabMode(_WallPairFill):
         return "y" if self.polarisation == "te" else "x"
 
     @property
-    def orthogonal_polarisation(self) -> "SlabMode":
-        """Return the same order with the other polarisation.
+    def orthogonal_polarisation(self) -> "SlabMode":  # numpydoc ignore=RT01
+        """Same order with the other polarisation.
 
-        Returns
-        -------
-        SlabMode
-            TM for a TE mode and TE for a TM one: a distinct mode with its own
-            effective index and its own operator row.
+        TM for a TE mode and TE for a TM one: a distinct mode with its own
+        effective index and its own operator row.
         """
         return replace(self, polarisation="tm" if self.polarisation == "te" else "te")
 
@@ -1054,104 +1024,70 @@ class PlanarGrid(Displayed):
         object.__setattr__(self, "rule", rule)
 
     @property
-    def n_p(self) -> int:
-        """Return the number of slab channels.
-
-        Returns
-        -------
-        int
-            ``len(modes)``.
-        """
+    def n_p(self) -> int:  # numpydoc ignore=RT01
+        """Number of slab channels."""
         return len(self.modes)
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of state columns, ``(p, k_y)`` pairs.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of state columns, ``(p, k_y)`` pairs.
 
-        Returns
-        -------
-        int
-            ``n_p * n_y``.
+        ``n_p * n_y``.
         """
         return self.n_p * self.n_y
 
     @property
-    def n_nodes(self) -> int:
-        """Return the number of physical nodes, ``(x, y)`` pairs with x fastest.
+    def n_nodes(self) -> int:  # numpydoc ignore=RT01
+        """Number of physical nodes, ``(x, y)`` pairs with x fastest.
 
-        Returns
-        -------
-        int
-            ``n_x * n_y`` with ``n_x = x.size``.
+        ``n_x * n_y`` with ``n_x = x.size``.
         """
         return int(self.x.size) * self.n_y
 
     @property
-    def dy(self) -> float:
-        """Return the y spacing.
-
-        Returns
-        -------
-        float
-            In m.
-        """
+    def dy(self) -> float:  # numpydoc ignore=RT01
+        """Y spacing, m."""
         return float(self.y[1] - self.y[0])
 
     @property
-    def half_gap(self) -> float:
-        """Return the plates' half separation.
-
-        Returns
-        -------
-        float
-            ``a`` in m.
-        """
+    def half_gap(self) -> float:  # numpydoc ignore=RT01
+        """Plates' half separation ``a``, m."""
         return float(self.modes[0].dimlimits(0.0)[2][0])
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the grid's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the grid's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"area"``: the grid integrates over y, so energies are J and powers W.
+        ``"area"``: the grid integrates over y, so energies are J and powers W.
         """
         return "area"
 
     @property
-    def spectral_weights(self) -> Float[np.ndarray, " n_columns"]:
-        """Return the Parseval weight of each state column.
+    def spectral_weights(
+        self,
+    ) -> Float[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """Parseval weight of each state column.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``dy / n_y`` in m, shape ``(n_columns,)``: the energy of a state of
-            modal amplitudes in sqrt(W/m) is ``sum w |A|^2`` integrated over time.
+        ``dy / n_y`` in m, shape ``(n_columns,)``: the energy of a state of
+        modal amplitudes in sqrt(W/m) is ``sum w |A|^2`` integrated over time.
         """
         return np.full(self.n_columns, self.dy / self.n_y)
 
     @property
-    def kperp_sq(self) -> Float[np.ndarray, " n_columns"]:
-        """Return each column's ``k_y**2``.
+    def kperp_sq(self) -> Float[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """Each column's ``k_y**2``, m^-2.
 
-        Returns
-        -------
-        numpy.ndarray
-            In m^-2, shape ``(n_columns,)``, the mode index fastest.
+        Shape ``(n_columns,)``, the mode index fastest.
         """
         return np.repeat(self.k_y**2, self.n_p)
 
     @property
-    def on_axis(self) -> Complex[np.ndarray, " n_columns"]:
-        """Return the weights that reconstruct the field at ``x = y = 0``.
+    def on_axis(self) -> Complex[np.ndarray, " n_columns"]:  # numpydoc ignore=RT01
+        """The weights that reconstruct the field at ``x = y = 0``.
 
-        Returns
-        -------
-        numpy.ndarray
-            ``V_p(0) exp(-i k_y y[0]) / n_y`` in V/(m sqrt(W/m)), complex, shape
-            ``(n_columns,)``: the inverse y DFT at ``y = 0`` times each mode's
-            mid-plane field.
+        ``V_p(0) exp(-i k_y y[0]) / n_y`` in V/(m sqrt(W/m)), complex, shape
+        ``(n_columns,)``: the inverse y DFT at ``y = 0`` times each mode's
+        mid-plane field.
         """
         phase = np.exp(-1j * self.k_y * self.y[0]) / self.n_y
         return (phase[:, None] * self.centre[None, :]).ravel()

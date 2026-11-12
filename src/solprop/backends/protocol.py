@@ -162,13 +162,8 @@ class BackendHistory:
             raise BackendError(msg)
 
     @property
-    def n_steps(self) -> int:
-        """Return the number of steps recorded, accepted and rejected together.
-
-        Returns
-        -------
-        int
-            The length of ``z``.
+    def n_steps(self) -> int:  # numpydoc ignore=RT01
+        """Number of steps recorded, accepted and rejected together.
 
         Examples
         --------
@@ -181,13 +176,8 @@ class BackendHistory:
         return int(self.z.size)
 
     @property
-    def n_rejected(self) -> int:
-        """Return the number of rejected steps.
-
-        Returns
-        -------
-        int
-            How many entries of ``accepted`` are false.
+    def n_rejected(self) -> int:  # numpydoc ignore=RT01
+        """Number of rejected steps.
 
         Examples
         --------
@@ -304,25 +294,13 @@ class StepStats:
         return cls(np.empty(0), np.empty(0, dtype=np.int64), {})
 
     @property
-    def n_rows(self) -> int:
-        """Return how many rows were taken since the previous observation.
-
-        Returns
-        -------
-        int
-            The row count.
-        """
+    def n_rows(self) -> int:  # numpydoc ignore=RT01
+        """How many rows were taken since the previous observation."""
         return int(self.z.size)
 
     @property
-    def names(self) -> tuple[str, ...]:
-        """Return the statistics the channel carries, sorted.
-
-        Returns
-        -------
-        tuple of str
-            The catalogue names.
-        """
+    def names(self) -> tuple[str, ...]:  # numpydoc ignore=RT01
+        """The statistics the channel carries, sorted."""
         return tuple(sorted(self.values))
 
 
@@ -827,14 +805,8 @@ class Backend(Protocol):
         ...
 
     @property
-    def closed(self) -> bool:
-        """Return whether the backend has released its buffers, as a failure may.
-
-        Returns
-        -------
-        bool
-            ``True`` when it can run no other input.
-        """
+    def closed(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the backend has released its buffers, as a failure may."""
         ...
 
 
@@ -967,13 +939,10 @@ class HostStepping(Backend, Protocol):
         ...
 
     @property
-    def in_flight(self) -> tuple[float, float] | None:
-        """Return the low-storage step a failure abandoned in flight, or ``None``.
+    def in_flight(self) -> tuple[float, float] | None:  # numpydoc ignore=RT01
+        """Low-storage step a failure abandoned in flight, or ``None``.
 
-        Returns
-        -------
-        tuple of float or None
-            The step's start and length, m, while the state is neither of its ends.
+        The step's start and length, m, while the state is neither of its ends.
         """
         ...
 
@@ -1100,27 +1069,20 @@ class BatchBackend(HostStepping, Protocol):
         ...
 
     @property
-    def member_stops(self) -> tuple[BoundaryError | BoundaryWarning | None, ...]:
-        """Return what stopped each member's watch, ``None`` where nothing did.
+    def member_stops(
+        self,
+    ) -> tuple[BoundaryError | BoundaryWarning | None, ...]:  # numpydoc ignore=RT01
+        """What stopped each member's watch, ``None`` where nothing did.
 
         A stop, or a warning raised as an error under an ``"error"`` filter.
-
-        Returns
-        -------
-        tuple
-            One entry per member, in member order.
         """
         ...
 
     @property
-    def member_records(self) -> tuple[Mapping[str, object] | None, ...]:
-        """Return each member's monitor record as it closed, ``None`` if unwatched.
-
-        Returns
-        -------
-        tuple
-            One entry per member, in member order.
-        """
+    def member_records(
+        self,
+    ) -> tuple[Mapping[str, object] | None, ...]:  # numpydoc ignore=RT01
+        """Each member's monitor record as it closed, ``None`` if unwatched."""
         ...
 
     def finish_monitors(self) -> None:

@@ -2504,13 +2504,10 @@ class DiagnosticSession:
             raise BackendError(f"TDSE preparation failed: {error} [{kind}]") from error
 
     @property
-    def ledger(self) -> AtomicCallLedger:
-        """Return the check's attempted-call accounting.
+    def ledger(self) -> AtomicCallLedger:  # numpydoc ignore=RT01
+        """The check's attempted-call accounting.
 
-        Returns
-        -------
-        AtomicCallLedger
-            Diagnostic charges, including failures.
+        Diagnostic charges, including failures.
         """
         return self._budget.snapshot()
 

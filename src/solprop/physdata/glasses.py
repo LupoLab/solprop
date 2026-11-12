@@ -677,49 +677,37 @@ class OptmatGlass(GlassIndex):
         )
 
     @property
-    def axis(self) -> str:
-        """Return the crystal axis the model describes.
+    def axis(self) -> str:  # numpydoc ignore=RT01
+        """Crystal axis the model describes.
 
-        Returns
-        -------
-        str
-            ``"o"`` or ``"e"`` for a uniaxial crystal, empty otherwise.
+        ``"o"`` or ``"e"`` for a uniaxial crystal, empty otherwise.
         """
         return str(getattr(self.model, "axis", ""))
 
     @property
-    def largest_dropped_extinction(self) -> float:
-        """Return the largest extinction coefficient a transparent index has dropped.
+    def largest_dropped_extinction(self) -> float:  # numpydoc ignore=RT01
+        """Largest extinction coefficient a transparent index has dropped.
 
-        Returns
-        -------
-        float
-            ``max k`` over every band evaluated so far, dimensionless; 0 for a model
-            that is not transparent or has not been evaluated.
+        ``max k`` over every band evaluated so far, dimensionless; 0 for a model
+        that is not transparent or has not been evaluated.
         """
         return self._dropped.extinction
 
     @property
-    def largest_dropped_absorption(self) -> float:
-        """Return the largest absorption coefficient a transparent index has dropped.
+    def largest_dropped_absorption(self) -> float:  # numpydoc ignore=RT01
+        """Largest absorption coefficient a transparent index has dropped, 1/m.
 
-        Returns
-        -------
-        float
-            ``max 4 pi k / lambda`` over every band evaluated so far, in 1/m.
+        ``max 4 pi k / lambda`` over every band evaluated so far.
         """
         return self._dropped.absorption
 
     @property
-    def transparency(self) -> Mapping[str, float | bool | None]:
-        """Return the record of the transparent approximation, for a run's manifest.
+    def transparency(self) -> Mapping[str, float | bool | None]:  # numpydoc ignore=RT01
+        """Record of the transparent approximation, for a run's manifest.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            ``transparent``, the ``absorption_bound`` in 1/m, the largest dropped
-            extinction and absorption coefficient (1/m) with its wavelength in m
-            (None before any is dropped), and whether the bound was exceeded.
+        ``transparent``, the ``absorption_bound`` in 1/m, the largest dropped
+        extinction and absorption coefficient (1/m) with its wavelength in m
+        (None before any is dropped), and whether the bound was exceeded.
         """
         dropped = self._dropped
         return {
@@ -775,14 +763,8 @@ class OptmatGlass(GlassIndex):
         }
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the record of the optmat model, for a run's manifest.
-
-        Returns
-        -------
-        tuple of MaterialRecord
-            The solid model's identity.
-        """
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """Record of the optmat model, for a run's manifest."""
         return (_optmat.record(self.model),)
 
     def _check_range(self, omega: Float[np.ndarray, "*shape"]) -> None:
@@ -1513,68 +1495,50 @@ class SilicaBundle:
         return _optmat.untyped(self.model)
 
     @property
-    def name(self) -> str:
-        """Return the bundle's optmat name.
+    def name(self) -> str:  # numpydoc ignore=RT01
+        """The bundle's optmat name.
 
-        Returns
-        -------
-        str
-            For example ``"silica_bundle/default"``.
+        For example ``"silica_bundle/default"``.
         """
         return _optmat.record(self.model).name
 
     @property
-    def shape(self) -> str:
-        """Return the name of the bundle's Raman shape.
+    def shape(self) -> str:  # numpydoc ignore=RT01
+        """Name of the bundle's Raman shape.
 
-        Returns
-        -------
-        str
-            For example ``"hollenbeck_2002"``.
+        For example ``"hollenbeck_2002"``.
         """
         return str(self._bundle.response.name)
 
     @property
-    def raman_fraction(self) -> float:
-        """Return the shape's own Raman fraction, the delayed share of the total n2.
+    def raman_fraction(self) -> float:  # numpydoc ignore=RT01
+        """The shape's own Raman fraction, the delayed share of the total n2.
 
-        Returns
-        -------
-        float
-            ``f_R``, in ``(0, 1)``.
+        ``f_R``, in ``(0, 1)``.
         """
         return float(self._bundle.raman_fraction)
 
     @property
-    def paired(self) -> bool:
-        """Return whether ``f_R`` is the one the Kerr fit found with this shape.
+    def paired(self) -> bool:  # numpydoc ignore=RT01
+        """Whether ``f_R`` is the one the Kerr fit found with this shape.
 
-        Returns
-        -------
-        bool
-            True for the default bundle.
+        True for the default bundle.
         """
         return bool(self._bundle.paired)
 
     @property
-    def has_tensor(self) -> bool:
-        """Return whether the shape has Hellwarth's isotropic and anisotropic parts.
+    def has_tensor(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the shape has Hellwarth's isotropic and anisotropic parts.
 
-        Returns
-        -------
-        bool
-            True for Lin and Agrawal's shape; False for a copolarised-only one.
+        True for Lin and Agrawal's shape; False for a copolarised-only one.
         """
         return bool(self._bundle.response.has_tensor)
 
     @property
-    def material_records(self) -> tuple[MaterialRecord, ...]:
-        """Return the records of the bundle, its Kerr fit and its Raman shape.
+    def material_records(self) -> tuple[MaterialRecord, ...]:  # numpydoc ignore=RT01
+        """The records of the bundle, its Kerr fit and its Raman shape.
 
-        Returns
-        -------
-        tuple of MaterialRecord
-            The bundle's first.
+        The bundle's first.
         """
         bundle = self._bundle
         return (

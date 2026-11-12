@@ -448,14 +448,11 @@ class LinearOperator:
                 raise TranslationError(msg)
 
     @property
-    def value_shape(self) -> tuple[int, ...]:
-        """Return the shape of ``Phi`` at one position.
+    def value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
+        """Shape of ``Phi`` at one position.
 
-        Returns
-        -------
-        tuple of int
-            ``(1, n_modes, n_pol, n_omega)``, whichever representation
-            carries it.
+        ``(1, n_modes, n_pol, n_omega)``, whichever representation
+        carries it.
 
         Examples
         --------
@@ -473,17 +470,14 @@ class LinearOperator:
         return tuple(cast("np.ndarray", self.phi_coefficients).shape[2:])
 
     @functools.cached_property
-    def polynomial(self) -> PiecewiseChebyshev:
-        """Return the z table as a piecewise Chebyshev polynomial.
+    def polynomial(self) -> PiecewiseChebyshev:  # numpydoc ignore=RT01
+        """Z table as a piecewise Chebyshev polynomial.
 
         A view over the stored arrays, not a copy, so evaluation costs one Clenshaw pass
         and no memory. Only a ``"table"`` representation has one; an expansion's
         equivalent is ``phi_expansion.weights``, whose value is ``n_terms`` scalars.
 
-        Returns
-        -------
-        solprop.translate.chebyshev.PiecewiseChebyshev
-            ``Phi`` over ``[0, z_max (1 + margin)]``.
+        ``Phi`` over ``[0, z_max (1 + margin)]``.
 
         Raises
         ------
@@ -512,19 +506,16 @@ class LinearOperator:
         )
 
     @functools.cached_property
-    def rate(self) -> PiecewiseChebyshev:
-        """Return the derivative of the cumulative operator's scalar or z table.
+    def rate(self) -> PiecewiseChebyshev:  # numpydoc ignore=RT01
+        """Derivative of the cumulative operator's scalar or z table.
 
         ``D = dPhi/dz`` from the representation that defines the flow, so that a
         residual ``(D(z) - B) u`` integrates to zero against the chord ``B`` exactly
         as the table does (SEP 16 section 4.2): an expansion's scalar integral tables
         differentiate to its resolved integrands, a z table to its resolved ``D``.
 
-        Returns
-        -------
-        solprop.translate.chebyshev.PiecewiseChebyshev
-            The derivative of ``phi_expansion.weights`` (value shape
-            ``(n_terms,)``) for an expansion, of :attr:`polynomial` otherwise.
+        The derivative of ``phi_expansion.weights`` (value shape
+        ``(n_terms,)``) for an expansion, of :attr:`polynomial` otherwise.
 
         Examples
         --------
@@ -539,13 +530,8 @@ class LinearOperator:
         return self.polynomial.derivative()
 
     @property
-    def z_span(self) -> tuple[float, float]:
-        """Return the range of z the table covers.
-
-        Returns
-        -------
-        tuple of float
-            ``(first breakpoint, last breakpoint)`` in m.
+    def z_span(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Range ``(first breakpoint, last breakpoint)`` of z the table covers, m.
 
         Examples
         --------
@@ -557,13 +543,10 @@ class LinearOperator:
         return float(self.phi_breakpoints[0]), float(self.phi_breakpoints[-1])
 
     @property
-    def n_intervals(self) -> int:
-        """Return the number of Chebyshev intervals.
+    def n_intervals(self) -> int:  # numpydoc ignore=RT01
+        """Number of Chebyshev intervals.
 
-        Returns
-        -------
-        int
-            The length of ``phi_degrees``.
+        The length of ``phi_degrees``.
 
         Examples
         --------
@@ -575,15 +558,12 @@ class LinearOperator:
         return int(self.phi_degrees.size)
 
     @property
-    def nbytes(self) -> int:
-        """Return the memory the representation occupies.
+    def nbytes(self) -> int:  # numpydoc ignore=RT01
+        """Memory the representation occupies, bytes.
 
-        Returns
-        -------
-        int
-            Bytes: the coefficient array for a z table, the expansion's terms and
-            scalar tables together for an expansion. This is the number
-            ``docs/dev/kernel-contract.md`` section 3 quotes.
+        The coefficient array for a z table, the expansion's terms and scalar tables
+        together for an expansion. This is the number ``docs/dev/kernel-contract.md``
+        section 3 quotes.
 
         Examples
         --------

@@ -238,13 +238,10 @@ class SpatialPulse(Displayed):
             raise PulseError(msg)
 
     @property
-    def aligned(self) -> bool:
-        """Return whether the beam is displaced or tilted.
+    def aligned(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the beam is displaced or tilted.
 
-        Returns
-        -------
-        bool
-            True when either has a nonzero component.
+        True when either has a nonzero component.
         """
         return any(self.displacement) or any(self.tilt)
 
@@ -632,13 +629,10 @@ class SpatialPulseSum(Displayed):
         object.__setattr__(self, "beams", members)
 
     @property
-    def jones(self) -> tuple[complex, ...]:
-        """Return the members' common Jones vector, as the first member gives it.
+    def jones(self) -> tuple[complex, ...]:  # numpydoc ignore=RT01
+        """Members' common Jones vector, as the first member gives it.
 
-        Returns
-        -------
-        tuple of complex
-            One scalar component or two Cartesian components.
+        One scalar component or two Cartesian components.
         """
         return self.beams[0].jones
 
@@ -2255,14 +2249,11 @@ class DataPulse(Displayed):
             )
 
     @property
-    def reference_wavelength(self) -> float:
-        """Return the wavelength the Taylor phase is expanded about, m.
+    def reference_wavelength(self) -> float:  # numpydoc ignore=RT01
+        """Wavelength the Taylor phase is expanded about, m.
 
-        Returns
-        -------
-        float
-            ``wavelength`` if it was given, otherwise the wavelength of the spectral
-            centre of mass of the data.
+        ``wavelength`` if it was given, otherwise the wavelength of the spectral
+        centre of mass of the data.
         """
         return 2.0 * np.pi * C / self._reference_frequency()
 
@@ -2630,14 +2621,11 @@ class TimeDataPulse(Displayed):
         return float(np.sum(omega[keep] * weight)) / total
 
     @property
-    def reference_wavelength(self) -> float:
-        """Return the wavelength the Taylor phase is expanded about, m.
+    def reference_wavelength(self) -> float:  # numpydoc ignore=RT01
+        """Wavelength the Taylor phase is expanded about, m.
 
-        Returns
-        -------
-        float
-            ``wavelength`` if it was given, otherwise the wavelength of the spectral
-            centre of mass of the record.
+        ``wavelength`` if it was given, otherwise the wavelength of the spectral
+        centre of mass of the record.
         """
         return 2.0 * np.pi * C / self._reference_frequency()
 

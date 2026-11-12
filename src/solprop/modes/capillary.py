@@ -474,82 +474,67 @@ class MarcatiliMode(GasFillMixin):
     # ------------------------------------------------------------------ traits
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether nothing about the mode varies along z.
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether nothing about the mode varies along z.
 
-        Returns
-        -------
-        bool
-            ``True`` when neither the core radius nor the density varies. The
-            multimode transform cares only about the radius, which
-            :attr:`radius_is_constant` reports separately.
+        ``True`` when neither the core radius nor the density varies. The
+        multimode transform cares only about the radius, which
+        :attr:`radius_is_constant` reports separately.
         """
         return all(path.is_constant for path in self.parameter_paths.values())
 
     @property
-    def radius_is_constant(self) -> bool:
-        """Return whether the transverse profile is the same at every z.
+    def radius_is_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the transverse profile is the same at every z.
 
-        Returns
-        -------
-        bool
-            ``True`` when the core radius does not vary, so the synthesis and
-            projection matrices of the multimode transform may be built once. A
-            pressure gradient changes the effective index but not the field profile.
+        ``True`` when the core radius does not vary, so the synthesis and
+        projection matrices of the multimode transform may be built once. A
+        pressure gradient changes the effective index but not the field profile.
         """
         return self.core_radius.is_constant
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether the profile scales exactly with the core radius.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the profile scales exactly with the core radius.
 
-        Returns
-        -------
-        bool
-            Always ``True``: the field depends on ``r`` only through ``r / a`` and the
-            normalisation goes as ``a^2``, so a taper rescales the transform matrices
-            by two scalars.
+        Always ``True``: the field depends on ``r`` only through ``r / a`` and the
+        normalisation goes as ``a^2``, so a taper rescales the transform matrices
+        by two scalars.
         """
         return True
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the highest azimuthal harmonic in the Cartesian field components.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Highest azimuthal harmonic in the Cartesian field components.
 
-        Returns
-        -------
-        int
-            ``|n - 1|`` for a hybrid mode and 1 for a transverse one. The signed
-            ``n - 1`` would be negative for ``HE_{-1,m}`` and would then understate
-            the theta rule a cubic product needs.
+        ``|n - 1|`` for a hybrid mode and 1 for a transverse one. The signed
+        ``n - 1`` would be negative for ``HE_{-1,m}`` and would then understate
+        the theta rule a cubic product needs.
         """
         return 1 if self.kind in ("TE", "TM") else abs(self.n - 1)
 
     @property
-    def channel_label(self) -> ChannelLabel:
-        """Return the family, the two indices and which polarisation partner this is.
+    def channel_label(self) -> ChannelLabel:  # numpydoc ignore=RT01
+        """Family, the two indices and which polarisation partner this is.
 
-        Returns
-        -------
-        ChannelLabel
-            ``parity`` is ``None`` for a transverse family, which has no degenerate
-            polarisation partner. For a hybrid mode it follows the one definition in
-            :class:`~solprop.modes.protocol.ChannelLabel`: the ``even`` member is the
-            ``cos((n - 1) theta)`` pattern about the x axis, which here is the
-            **unrotated** mode ``phi = 0`` -- at that angle the transverse components
-            are ``(cos((n - 1) theta), -sin((n - 1) theta))``, the same pattern the
-            exact step-index ``even`` member carries, and for ``HE_1m`` it is the
-            x-polarised state. The quarter turn ``phi = pi / (2 n)`` is therefore the
-            ``odd`` member, y-polarised for ``HE_1m``. Any other rotation is a gauge
-            rather than a parity: its parity is ``None`` and its display label carries
-            the angle, so that two rotated copies of one mode are still told apart.
+        ``parity`` is ``None`` for a transverse family, which has no degenerate
+        polarisation partner. For a hybrid mode it follows the one definition in
+        :class:`~solprop.modes.protocol.ChannelLabel`: the ``even`` member is the
+        ``cos((n - 1) theta)`` pattern about the x axis, which here is the
+        **unrotated** mode ``phi = 0`` -- at that angle the transverse components
+        are ``(cos((n - 1) theta), -sin((n - 1) theta))``, the same pattern the
+        exact step-index ``even`` member carries, and for ``HE_1m`` it is the
+        x-polarised state. The quarter turn ``phi = pi / (2 n)`` is therefore the
+        ``odd`` member, y-polarised for ``HE_1m``. Any other rotation is a gauge
+        rather than a parity: its parity is ``None`` and its display label carries
+        the angle, so that two rotated copies of one mode are still told apart.
 
-            A **negative** azimuthal index is the ``EH`` family, and the label says
-            so: the label's own ``azimuthal_order`` is the non-negative total
-            azimuthal order ``|n|`` and the family is ``"EH"``, which is how an exact
-            :class:`~solprop.modes.stepindex.StepIndexMode` of the same physical
-            channel labels itself, so an ``EH`` capillary mode can be put in a
-            :class:`~solprop.modes.collection.ModeCollection`.
+        A **negative** azimuthal index is the ``EH`` family, and the label says
+        so: the label's own ``azimuthal_order`` is the non-negative total
+        azimuthal order ``|n|`` and the family is ``"EH"``, which is how an exact
+        :class:`~solprop.modes.stepindex.StepIndexMode` of the same physical
+        channel labels itself, so an ``EH`` capillary mode can be put in a
+        :class:`~solprop.modes.collection.ModeCollection`.
 
         Examples
         --------
@@ -639,19 +624,16 @@ class MarcatiliMode(GasFillMixin):
         return replace(self, phi=phi)
 
     @property
-    def orthogonal_polarisation(self) -> "MarcatiliMode | None":
-        """Return the degenerate partner of a hybrid mode, or ``None``.
+    def orthogonal_polarisation(self) -> "MarcatiliMode | None":  # numpydoc ignore=RT01
+        """Degenerate partner of a hybrid mode, or ``None``.
 
-        Returns
-        -------
-        MarcatiliMode or None
-            The same mode turned by ``pi / (2 n)``, which turns the pattern a further
-            quarter turn from ``x`` towards ``y`` and so exchanges the two Cartesian
-            components: for ``HE_11`` that is the y-polarised partner of the
-            x-polarised default, and so the ``odd`` member of the pair
-            (:attr:`channel_label`). ``None`` for a transverse family, whose
-            members are not degenerate in polarisation -- ``TE_0m`` and ``TM_0m``
-            are different modes, not two states of one.
+        The same mode turned by ``pi / (2 n)``, which turns the pattern a further
+        quarter turn from ``x`` towards ``y`` and so exchanges the two Cartesian
+        components: for ``HE_11`` that is the y-polarised partner of the
+        x-polarised default, and so the ``odd`` member of the pair
+        (:attr:`channel_label`). ``None`` for a transverse family, whose
+        members are not degenerate in polarisation -- ``TE_0m`` and ``TM_0m``
+        are different modes, not two states of one.
 
         Examples
         --------
@@ -669,16 +651,13 @@ class MarcatiliMode(GasFillMixin):
     # ------------------------------------------------ the parameterised protocol
 
     @property
-    def parameter_paths(self) -> Mapping[str, ZProfile]:
-        """Return the scalar paths that carry the whole z dependence.
+    def parameter_paths(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """Scalar paths that carry the whole z dependence.
 
-        Returns
-        -------
-        collections.abc.Mapping
-            Radius and the material paths, including constant ones. One component
-            retains ``density``; a shared fill uses total ``pressure`` in bar;
-            independent populations use ``density:<label>`` in m^-3. See
-            :class:`solprop.modes.protocol.ParameterisedMode`.
+        Radius and the material paths, including constant ones. One component
+        retains ``density``; a shared fill uses total ``pressure`` in bar;
+        independent populations use ``density:<label>`` in m^-3. See
+        :class:`solprop.modes.protocol.ParameterisedMode`.
 
         Examples
         --------
@@ -1798,13 +1777,10 @@ class WallLimits(Displayed):
     radius: float
 
     @property
-    def worst(self) -> float:
-        """Return the largest of the three ratios.
+    def worst(self) -> float:  # numpydoc ignore=RT01
+        """Largest of the three ratios.
 
-        Returns
-        -------
-        float
-            The one a refusal or a warning is taken on.
+        The one a refusal or a warning is taken on.
         """
         return max(self.transverse_ratio, self.vacuum_ratio, self.quasi_static)
 
@@ -1927,14 +1903,8 @@ class WallOperator(Displayed):
     limits: WallLimits
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the block couples.
-
-        Returns
-        -------
-        int
-            The length of the trace vector.
-        """
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the block couples."""
         return len(self.trace_vector)
 
     def __repr__(self) -> str:
@@ -2030,17 +2000,14 @@ class WallFamily:
     radial_sign: float
 
     @property
-    def truncation(self) -> int:
-        """Return the family's boundary truncation constant ``2 N_f + p_f``.
+    def truncation(self) -> int:  # numpydoc ignore=RT01
+        """The family's boundary truncation constant ``2 N_f + p_f``.
 
-        Returns
-        -------
-        int
-            The constant the condensation's denominator carries for this family: the
-            truncated boundary self term ``sum_m h_m^2/u_m^2 = 2 N_f`` of the retained
-            orders plus the ``p_f`` of the exact recurrence
-            ``q J_{p+1}(q) = (p - i eta) J_p(q)``. Dropping the ``p_f`` leaves a
-            residue that does **not** fall with ``N``.
+        The constant the condensation's denominator carries for this family: the
+        truncated boundary self term ``sum_m h_m^2/u_m^2 = 2 N_f`` of the retained
+        orders plus the ``p_f`` of the exact recurrence
+        ``q J_{p+1}(q) = (p - i eta) J_p(q)``. Dropping the ``p_f`` leaves a
+        residue that does **not** fall with ``N``.
         """
         return 2 * self.n_channels + self.bessel_order
 
@@ -2115,24 +2082,18 @@ class VectorWallOperator(Displayed):
     limits: WallLimits
 
     @property
-    def n_modes(self) -> int:
-        """Return how many channels the block couples.
+    def n_modes(self) -> int:  # numpydoc ignore=RT01
+        """How many channels the block couples.
 
-        Returns
-        -------
-        int
-            The total over its families.
+        The total over its families.
         """
         return sum(family.n_channels for family in self.families)
 
     @property
-    def n_families(self) -> int:
-        """Return how many radial families the block carries.
+    def n_families(self) -> int:  # numpydoc ignore=RT01
+        """How many radial families the block carries.
 
-        Returns
-        -------
-        int
-            One or two.
+        One or two.
         """
         return len(self.families)
 

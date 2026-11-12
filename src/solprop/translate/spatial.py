@@ -206,14 +206,11 @@ class SpatialGeometry:
             object.__setattr__(self, name, values)
 
     @property
-    def n_columns(self) -> int:
-        """Return the number of state columns the geometry describes.
+    def n_columns(self) -> int:  # numpydoc ignore=RT01
+        """Number of state columns the geometry describes.
 
-        Returns
-        -------
-        int
-            ``n_r`` or ``n_x*n_y`` for the radial and Cartesian kinds, where columns
-            and nodes coincide, and ``n_p*n_y`` for a slab, where they do not.
+        ``n_r`` or ``n_x*n_y`` for the radial and Cartesian kinds, where columns
+        and nodes coincide, and ``n_p*n_y`` for a slab, where they do not.
         """
         return int(self.spectral_weights.size)
 
@@ -495,24 +492,18 @@ class SeparableOperator:
         object.__setattr__(self, "kperp_rate", rate)
 
     @property
-    def n_channels(self) -> int:
-        """Return the number of slab channels the columns cycle through.
+    def n_channels(self) -> int:  # numpydoc ignore=RT01
+        """Number of slab channels the columns cycle through.
 
-        Returns
-        -------
-        int
-            The rows of `kappa_sq`, or 1 when it is absent.
+        The rows of `kappa_sq`, or 1 when it is absent.
         """
         return 1 if self.kappa_sq is None else int(self.kappa_sq.shape[0])
 
     @property
-    def value_shape(self) -> tuple[int, int, int, int]:
-        """Return the full state shape represented by these shared coefficients.
+    def value_shape(self) -> tuple[int, int, int, int]:  # numpydoc ignore=RT01
+        """Full state shape represented by these shared coefficients.
 
-        Returns
-        -------
-        tuple of int
-            ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
+        ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
         """
         return (1, self.kperp_sq.size, self.n_pol, self.k_squared.size)
 

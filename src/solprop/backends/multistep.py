@@ -226,13 +226,10 @@ class CallLedger:
         return ledger
 
     @property
-    def total(self) -> int:
-        """Return every charged source evaluation.
+    def total(self) -> int:  # numpydoc ignore=RT01
+        """Every charged source evaluation.
 
-        Returns
-        -------
-        int
-            Startup, predictor and corrected evaluations together.
+        Startup, predictor and corrected evaluations together.
         """
         return self.startup + self.predictor + self.corrected
 
@@ -1854,14 +1851,8 @@ class HostHistory:
         self._exponential_trial = None
 
     @property
-    def n_slots(self) -> int:
-        """The history store's rows: the method's order and two more.
-
-        Returns
-        -------
-        int
-            ``order + 2``.
-        """
+    def n_slots(self) -> int:  # numpydoc ignore=RT01
+        """The history store's rows: the method's order and two more."""
         return self._method.order + 2
 
     # --- the accepted state, held across a dense observation --------------------------

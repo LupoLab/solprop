@@ -406,17 +406,14 @@ class ModeCollection(Displayed, Sequence[Mode]):
             seen.add(label)
 
     @property
-    def channel_labels(self) -> tuple[ChannelLabel, ...]:
-        """Return each member's physical label, in the order of the mode axis.
+    def channel_labels(self) -> tuple[ChannelLabel, ...]:  # numpydoc ignore=RT01
+        """Each member's physical label, in the order of the mode axis.
 
-        Returns
-        -------
-        tuple of ChannelLabel
-            The members' own :attr:`solprop.modes.protocol.Mode.channel_label`, in
-            order. A label a family does not have is ``None``, never a string
-            standing for one: an axially symmetric TE0m or TM0m channel has no
-            parity partner, so its parity is ``None``, exactly as its handedness is.
-            The run record persists these labels.
+        The members' own :attr:`solprop.modes.protocol.Mode.channel_label`, in
+        order. A label a family does not have is ``None``, never a string
+        standing for one: an axially symmetric TE0m or TM0m channel has no
+        parity partner, so its parity is ``None``, exactly as its handedness is.
+        The run record persists these labels.
 
         Examples
         --------
@@ -897,27 +894,21 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return limits
 
     @property
-    def azimuthal_order(self) -> int:
-        """Return the highest azimuthal order in the set.
+    def azimuthal_order(self) -> int:  # numpydoc ignore=RT01
+        """Highest azimuthal order in the set.
 
-        Returns
-        -------
-        int
-            The bound that fixes how many azimuthal nodes a quartic product needs,
-            ``n_theta >= 4 h + 1``.
+        The bound that fixes how many azimuthal nodes a quartic product needs,
+        ``n_theta >= 4 h + 1``.
         """
         return max(mode.azimuthal_order for mode in self.modes)
 
     @property
-    def needs_full_rule(self) -> bool:
-        """Return whether the azimuthal coordinate has to be resolved.
+    def needs_full_rule(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the azimuthal coordinate has to be resolved.
 
-        Returns
-        -------
-        bool
-            ``False`` for a set whose products are azimuthally symmetric -- any set of
-            ``HE_1m`` modes -- which then needs the radial rule alone, and for a slab
-            set, which is uniform in y; ``True`` otherwise.
+        ``False`` for a set whose products are azimuthally symmetric -- any set of
+        ``HE_1m`` modes -- which then needs the radial rule alone, and for a slab
+        set, which is uniform in y; ``True`` otherwise.
         """
         kind = self.dimlimits()[0]
         if kind == "slab":
@@ -925,37 +916,28 @@ class ModeCollection(Displayed, Sequence[Mode]):
         return self.azimuthal_order > 0 or kind == "cartesian"
 
     @property
-    def transverse_measure(self) -> TransverseMeasure:
-        """Return what the set's transverse integrals measure.
+    def transverse_measure(self) -> TransverseMeasure:  # numpydoc ignore=RT01
+        """What the set's transverse integrals measure.
 
-        Returns
-        -------
-        str
-            ``"per_unit_width"`` for a slab set, whose powers are W/m and energies
-            J/m, and ``"area"`` otherwise (:func:`transverse_measure`).
+        ``"per_unit_width"`` for a slab set, whose powers are W/m and energies
+        J/m, and ``"area"`` otherwise (:func:`transverse_measure`).
         """
         return transverse_measure(self.modes)
 
     @property
-    def z_constant(self) -> bool:
-        """Return whether nothing in the set varies along z.
+    def z_constant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether nothing in the set varies along z.
 
-        Returns
-        -------
-        bool
-            ``True`` only when every mode says so.
+        ``True`` only when every mode says so.
         """
         return all(mode.z_constant for mode in self.modes)
 
     @property
-    def scale_invariant(self) -> bool:
-        """Return whether every mode rescales with the core radius.
+    def scale_invariant(self) -> bool:  # numpydoc ignore=RT01
+        """Whether every mode rescales with the core radius.
 
-        Returns
-        -------
-        bool
-            ``True`` when the transform may rescale its matrices along a taper rather
-            than rebuilding them.
+        ``True`` when the transform may rescale its matrices along a taper rather
+        than rebuilding them.
         """
         return all(mode.scale_invariant for mode in self.modes)
 

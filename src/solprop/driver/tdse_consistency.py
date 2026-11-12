@@ -590,13 +590,10 @@ class GateBinding(DiagnosticSource, Protocol):
         ...
 
     @property
-    def plans_built(self) -> bool:
-        """Return whether the propagation plans exist.
+    def plans_built(self) -> bool:  # numpydoc ignore=RT01
+        """Whether the propagation plans exist.
 
-        Returns
-        -------
-        bool
-            False while a deferred binding awaits :meth:`build_plans`.
+        False while a deferred binding awaits :meth:`build_plans`.
         """
         ...
 

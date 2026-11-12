@@ -145,13 +145,10 @@ class NodeChunkPlan:
     requested: int | None = None
 
     @property
-    def automatic(self) -> bool:
-        """Return whether no budget or chunk was given, so a machine rule may apply.
+    def automatic(self) -> bool:  # numpydoc ignore=RT01
+        """Whether no budget or chunk was given, so a machine rule may apply.
 
-        Returns
-        -------
-        bool
-            ``True`` when `source` is ``"default"``.
+        ``True`` when `source` is ``"default"``.
         """
         return self.source == "default"
 

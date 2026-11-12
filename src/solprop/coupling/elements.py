@@ -198,13 +198,10 @@ class SpatialState:
         object.__setattr__(self, "frame", frame)
 
     @property
-    def n_pol(self) -> int:
-        """Return the number of stored polarisation components.
+    def n_pol(self) -> int:  # numpydoc ignore=RT01
+        """Number of stored polarisation components.
 
-        Returns
-        -------
-        int
-            One for a scalar state, two for ``(x, y)``.
+        One for a scalar state, two for ``(x, y)``.
         """
         return int(self.spectrum.shape[1])
 

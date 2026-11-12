@@ -285,14 +285,8 @@ class IndexTable(Displayed):
         )
 
     @property
-    def wavelength_range(self) -> tuple[float, float]:
-        """Return the inclusive wavelength range in metres.
-
-        Returns
-        -------
-        tuple of float
-            Shortest and longest wavelength, m.
-        """
+    def wavelength_range(self) -> tuple[float, float]:  # numpydoc ignore=RT01
+        """Inclusive wavelength range ``(shortest, longest)``, m."""
         omega = np.asarray(self.omega)
         return float(2 * np.pi * C / omega[-1]), float(2 * np.pi * C / omega[0])
 
