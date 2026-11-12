@@ -210,14 +210,7 @@ class Transform:
         self._check_kind()
 
     def _check_kind(self) -> None:
-        """Check the stored kind against what the transform carries.
-
-        Raises
-        ------
-        TranslationError
-            If the kind is unknown or contradicts the geometry, the tables, the node
-            count or the node weights.
-        """
+        """Check the stored kind against what the transform carries."""
         kind = self.kind
         if self.geometry is not None:
             if kind != self.geometry.kind:
@@ -247,13 +240,7 @@ class Transform:
             raise TranslationError(msg)
 
     def _check_placeholders(self) -> None:
-        """Check the static matrices a general modal guide does not use.
-
-        Raises
-        ------
-        TranslationError
-            If anything the general route replaces carries a value.
-        """
+        """Check the static matrices a general modal guide does not use."""
         n_modes = self.n_modes
         expected = ((1, n_modes), (n_modes, 1), (n_modes, 1))
         matrices = (self.synthesis, self.projection, self.projection_coarse)
@@ -409,22 +396,7 @@ def _sampled_areas(
     it is where an impossible area is caught, by name, instead of reaching
     ``sqrt`` as a bare ``ValueError``.
 
-    Parameters
-    ----------
-    mode : solprop.modes.protocol.Mode
-        The mode being tabulated.
-    z : numpy.ndarray
-        Positions in m, shape (n_z,).
-
-    Returns
-    -------
-    numpy.ndarray
-        Effective areas in m², shape (n_z,).
-
-    Raises
-    ------
-    ModeError
-        If the area is not positive and finite at one of the sampled positions.
+    - ``z``: positions in m, shape (n_z,).
     """
     areas = np.array([mode.aeff(float(one)) for one in z], dtype=float)
     bad = ~(np.isfinite(areas) & (areas > 0.0))
@@ -450,16 +422,8 @@ def _radius_kinks(mode: Mode) -> tuple[float, ...]:
     :func:`solprop.translate.linop.declared_paths` puts the same paths into the
     cumulative operator's hard kinks, which is what the schedule lands on.
 
-    Parameters
-    ----------
-    mode : Mode
-        The mode.
-
-    Returns
-    -------
-    tuple of float
-        The declared breakpoints in m, increasing and without duplicates, empty
-        when the mode declares no path.
+    - Returns: the declared breakpoints in m, increasing and without duplicates, empty
+      when the mode declares no path.
     """
     values: set[float] = set()
     one: Mode | None = mode
@@ -773,22 +737,7 @@ def general_modal_transform(
 def _checked_span(z_max: float, margin: float) -> float:
     """Return the end of the tabulated range, validating both arguments.
 
-    Parameters
-    ----------
-    z_max : float
-        Length the run covers, m.
-    margin : float
-        Fraction of `z_max` to extend beyond it.
-
-    Returns
-    -------
-    float
-        ``z_max (1 + margin)``.
-
-    Raises
-    ------
-    TranslationError
-        If `z_max` is not positive and finite or `margin` is negative or not finite.
+    - ``z_max``: length the run covers, m.
     """
     if not (math.isfinite(z_max) and z_max > 0.0):
         msg = f"z_max must be positive and finite, got {z_max!r}"

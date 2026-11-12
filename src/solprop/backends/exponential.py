@@ -165,20 +165,7 @@ def phi_functions(
 def _phi_far(
     x: Complex[np.ndarray, " n_elements"], order: int
 ) -> Complex[np.ndarray, "n_phi n_elements"]:
-    """Recur up from ``exp(x)``: stable where every ``|x|`` exceeds the join.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The arguments, each beyond :data:`PHI_JOIN` in magnitude.
-    order : int
-        The highest function.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``phi_0`` to ``phi_order``, shape ``(order + 1, n_elements)``.
-    """
+    """Recur up from ``exp(x)``: stable where every ``|x|`` exceeds the join."""
     out = np.empty((order + 1, x.size), dtype=np.complex128)
     out[0] = np.exp(x)
     for k in range(1, order + 1):
@@ -189,20 +176,7 @@ def _phi_far(
 def _phi_near(
     x: Complex[np.ndarray, " n_elements"], order: int
 ) -> Complex[np.ndarray, "n_phi n_elements"]:
-    """Scale, sum the highest series, recur down and double back, near zero.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The arguments, each within :data:`PHI_JOIN` in magnitude.
-    order : int
-        The highest function.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``phi_0`` to ``phi_order``, shape ``(order + 1, n_elements)``.
-    """
+    """Scale, sum the highest series, recur down and double back, near zero."""
     magnitude = np.abs(x)
     # The number of halvings bringing |x| to at most 1/2; zero at and below it.
     squarings = np.where(
@@ -410,33 +384,27 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
         refuses.
     """
 
-    def element(values: np.ndarray) -> np.ndarray:
+    def _element(values: np.ndarray) -> np.ndarray:
         """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch.
 
-        Parameters
-        ----------
-        values : numpy.ndarray
-            A representation's array, its last four axes the state's layout.
-
-        Returns
-        -------
-        numpy.ndarray
-            Column 0, polarisation 0 and the reference bin, every leading axis kept.
+        - ``values``: a representation's array, its last four axes the state's layout.
+        - Returns: column 0, polarisation 0 and the reference bin, every leading axis
+          kept.
         """
         column = min(index, values.shape[-1] - 1)
         return np.ascontiguousarray(values[..., 0, 0, column])
 
     if linear.phi_constant is not None:
-        return CarrierChord(constant=element(linear.phi_constant))
+        return CarrierChord(constant=_element(linear.phi_constant))
     if linear.phi_expansion is not None:
         expansion = linear.phi_expansion
         return CarrierChord(
-            expansion=dataclasses.replace(expansion, terms=element(expansion.terms))
+            expansion=dataclasses.replace(expansion, terms=_element(expansion.terms))
         )
     if linear.phi_coefficients is not None:
         table = linear.polynomial
         return CarrierChord(
-            table=dataclasses.replace(table, coefficients=element(table.coefficients))
+            table=dataclasses.replace(table, coefficients=_element(table.coefficients))
         )
     return None
 
@@ -616,17 +584,8 @@ def carrier_reference(
 def _nearest_bin(omega: Float[np.ndarray, " n_omega"], omega0: float) -> int:
     """Return the bin nearest `omega0`, ties going to the lower index.
 
-    Parameters
-    ----------
-    omega : numpy.ndarray
-        The frequency axis, rad/s, in the grid's own order.
-    omega0 : float
-        The reference frequency, rad/s.
-
-    Returns
-    -------
-    int
-        The bin.
+    - ``omega``: the frequency axis, rad/s, in the grid's own order.
+    - ``omega0``: the reference frequency, rad/s.
     """
     # argmin returns the first of equal distances: the lower index of the axis's order.
     return int(np.argmin(np.abs(omega - omega0)))
@@ -642,24 +601,9 @@ def _carrier_refusal(
 ) -> str | None:
     """Return why `backend` cannot step a carrier frame, or ``None`` when it can.
 
-    Parameters
-    ----------
-    policy : {'off', 'scalar'}
-        The policy asked for.
-    backend : str
-        The backend's name, for the message.
-    delivered : frozenset of str
-        The policies the backend steps.
-    geometry : str or None
-        The spatial geometry's kind; ``None`` on a guided route.
-    single : bool, optional
-        Whether the run is held in single precision (SEP 33), where the shift was not
-        qualified.
-
-    Returns
-    -------
-    str or None
-        The refusal.
+    - ``geometry``: the spatial geometry's kind; ``None`` on a guided route.
+    - ``single``: whether the run is held in single precision (SEP 33), where the shift
+      was not qualified.
     """
     if policy == "off":
         return None

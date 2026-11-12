@@ -438,19 +438,7 @@ def _column(
     At module level rather than nested in :func:`join_attempts`, so that no function
     object is made per call (each one costs the coverage lane's import hook a compile).
 
-    Parameters
-    ----------
-    histories : list of BackendHistory
-        The histories, in delivery order.
-    name : str
-        The column's attribute on a history.
-    dtype : type, optional
-        The column's dtype, which an empty join keeps.
-
-    Returns
-    -------
-    numpy.ndarray
-        The column over every history.
+    - ``dtype``: the column's dtype, which an empty join keeps.
     """
     return np.concatenate(
         [np.empty(0, dtype=dtype), *(getattr(part, name) for part in histories)]

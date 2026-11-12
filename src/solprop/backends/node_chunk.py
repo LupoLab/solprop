@@ -247,17 +247,7 @@ def plan_node_chunk(
 def _host_chunk(problem: PropagationProblem, budget: int) -> int:
     """Return the host rule's chunk within `budget`: the base chunk, then admissions.
 
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The validated problem.
-    budget : int
-        Node workspace budget, bytes, positive.
-
-    Returns
-    -------
-    int
-        The chunk.
+    - ``budget``: node workspace budget, bytes, positive.
     """
     transform = problem.transform
     if transform.modal_tables is not None:
@@ -279,26 +269,7 @@ def _host_chunk(problem: PropagationProblem, budget: int) -> int:
 def _base_chunk(transform: Transform, n_pol: int, n_to: int, budget: int) -> int:
     """Return the chunk a node's temporal columns admit, before the responses.
 
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        The transform.
-    n_pol : int
-        State polarisation components.
-    n_to : int
-        Fine time samples.
-    budget : int
-        Node workspace budget, bytes.
-
-    Returns
-    -------
-    int
-        Between 1 and the node count.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If a Cartesian or planar column does not fit.
+    - ``budget``: node workspace budget, bytes.
     """
     geometry = transform.geometry
     if transform.mode_averaged:
@@ -317,18 +288,7 @@ def _base_chunk(transform: Transform, n_pol: int, n_to: int, budget: int) -> int
 
 
 def _cartesian(transform: Transform) -> bool:
-    """Return whether the transform's nodes are Cartesian or planar columns.
-
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        The transform.
-
-    Returns
-    -------
-    bool
-        ``True`` on the ``"free"`` and ``"slab"`` kinds.
-    """
+    """Return whether the transform's nodes are Cartesian or planar columns."""
     return transform.geometry is not None and transform.geometry.kind in (
         "free",
         "slab",
@@ -338,15 +298,7 @@ def _cartesian(transform: Transform) -> bool:
 def _row_nodes(transform: Transform) -> int:
     """Return the physical nodes of one planar transverse row, one elsewhere.
 
-    Parameters
-    ----------
-    transform : solprop.translate.modal.Transform
-        The transform.
-
-    Returns
-    -------
-    int
-        ``n_x`` on the planar kind, else one.
+    - Returns: ``n_x`` on the planar kind, else one.
     """
     geometry = transform.geometry
     return geometry.shape[0] if geometry is not None and geometry.kind == "slab" else 1
@@ -355,23 +307,9 @@ def _row_nodes(transform: Transform) -> int:
 def _even_chunk(count: int, limit: int) -> int:
     """Return the smallest chunk that covers `count` items in as few passes as `limit`.
 
-    Parameters
-    ----------
-    count : int
-        Items to cover (positive).
-    limit : int
-        Largest admitted chunk (positive).
-
-    Returns
-    -------
-    int
-        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
-
-    Examples
-    --------
-    >>> from solprop.backends.node_chunk import _even_chunk
-    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
-    (17, 33, 25)
+    - ``count``: items to cover (positive).
+    - ``limit``: largest admitted chunk (positive).
+    - Returns: ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
     """
     passes = -(-count // limit)
     return -(-count // passes)
@@ -386,18 +324,6 @@ def _balanced_chunk(chunk: int, transform: Transform) -> int:
     of one 33-node pass. The same number of passes of near-equal size (17 and 16)
     never exceeds the admitted chunk, so every budget still holds. A planar chunk
     of whole transverse rows stays whole rows; one shorter than a row is kept.
-
-    Parameters
-    ----------
-    chunk : int
-        The admitted chunk.
-    transform : solprop.translate.modal.Transform
-        The transform.
-
-    Returns
-    -------
-    int
-        The smallest chunk that needs no more passes.
     """
     row_nodes = _row_nodes(transform)
     rows = transform.n_nodes // row_nodes
@@ -412,29 +338,10 @@ def _envelope_chunk(
 ) -> int:
     """Admit envelope plasma's current streams and histories into the chunk.
 
-    Parameters
-    ----------
-    chunk : int
-        The chunk admitted so far.
-    transform : solprop.translate.modal.Transform
-        The transform.
-    n_pol : int
-        State polarisation components.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
+    Modal projected arrays are accounted separately by the backends' ledgers, because
+    they do not scale with the chunk.
 
-    Returns
-    -------
-    int
-        The bounded chunk. Modal projected arrays are accounted separately by the
-        backends' ledgers because they do not scale with the chunk.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If one complete node history and its sources do not fit.
+    - ``budget``: node workspace budget in bytes.
     """
     components = transform.n_pol * n_pol
     free = _cartesian(transform)
@@ -464,30 +371,7 @@ def _held_current_chunk(  # noqa: PLR0917 - called positionally
     transform layout (radial), the band scan, Raman and dispersive buffers
     together, so a mixed response cannot consume the same budget twice.
 
-    Parameters
-    ----------
-    chunk : int
-        The chunk admitted so far.
-    transform : solprop.translate.modal.Transform
-        The transform.
-    responses : solprop.translate.responses.CompiledResponses
-        Compiled sources; the chunk is unchanged without field plasma.
-    n_pol : int
-        State components.
-    n_to : int
-        Fine temporal samples.
-    budget : int
-        Node workspace budget, bytes.
-
-    Returns
-    -------
-    int
-        The chunk with all node-dependent source buffers admitted.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If one complete node, or planar transverse row, does not fit.
+    - ``budget``: node workspace budget, bytes.
     """
     if not responses.plasma_channels:
         return chunk
@@ -554,30 +438,7 @@ def _raman_chunk(  # noqa: PLR0917 - called positionally
 ) -> int:
     """Admit complete Raman histories, including combined envelope plasma storage.
 
-    Parameters
-    ----------
-    chunk : int
-        The chunk admitted so far.
-    transform : solprop.translate.modal.Transform
-        The transform.
-    responses : solprop.translate.responses.CompiledResponses
-        Declared convolution channels and optional plasma streams.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per physical node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    int
-        A complete-node chunk within the workspace budget.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If one complete Raman node history does not fit.
+    - ``budget``: node workspace budget in bytes.
     """
     if not responses.raman_terms:
         return chunk
@@ -656,30 +517,7 @@ def _dispersive_chunk(  # noqa: PLR0917 - called positionally
 ) -> int:
     """Admit the dispersive response's node buffers into the chunk's budget.
 
-    Parameters
-    ----------
-    chunk : int
-        The chunk admitted so far.
-    transform : solprop.translate.modal.Transform
-        The transform; a general modal guide never reaches here.
-    responses : solprop.translate.responses.CompiledResponses
-        The compiled responses; nothing changes without the dispersive leaf.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    int
-        A chunk whose every buffer fits the budget.
-
-    Raises
-    ------
-    solprop.exceptions.BackendError
-        If one node and the response's buffers do not fit.
+    - ``budget``: node workspace budget in bytes.
     """
     if responses.dispersive_kerr is None:
         return chunk

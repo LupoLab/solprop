@@ -281,35 +281,22 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
         coefficients at its own position.
     """
 
-    def array(name: str, dtype: type) -> np.ndarray:
-        """Return one stored coefficient array.
-
-        Parameters
-        ----------
-        name : str
-            The record's key.
-        dtype : type
-            The array's dtype.
-
-        Returns
-        -------
-        numpy.ndarray
-            The array.
-        """
+    def _array(name: str, dtype: type) -> np.ndarray:
+        """Return one stored coefficient array."""
         return _stored(record[name], dtype)
 
-    zeros = np.zeros(array("k_squared", complex).size)
+    zeros = np.zeros(_array("k_squared", complex).size)
     kappa = record["kappa_sq"]
     base = SeparableOperator(
-        k_squared=array("k_squared", complex),
-        kperp_sq=array("kperp_sq", float),
-        k_squared_low=array("k_squared_low", complex),
-        kperp_sq_low=array("kperp_sq_low", float),
+        k_squared=_array("k_squared", complex),
+        kperp_sq=_array("kperp_sq", float),
+        k_squared_low=_array("k_squared_low", complex),
+        kperp_sq_low=_array("kperp_sq_low", float),
         frame=zeros,
         spectral_rate=zeros,
         prefactor_numerator=zeros.astype(complex),
         prefactor_clamped=zeros.astype(complex),
-        active=array("active", bool),
+        active=_array("active", bool),
         evanescent_rate=float(cast("float", record["evanescent_rate"])),
         n_pol=1,
         # A measure is evaluated where it is asked; its span is never stepped.
@@ -341,44 +328,17 @@ def _admission(record: Mapping[str, object]) -> AdiabaticAdmission:
 
     The path's structural identity is kept as the text it was recorded as.
 
-    Parameters
-    ----------
-    record : collections.abc.Mapping
-        The ``admission`` entry of a ``flux_plan`` record.
-
-    Returns
-    -------
-    solprop.adiabatic.AdiabaticAdmission
-        The certificate the run was admitted under.
+    - ``record``: the ``admission`` entry of a ``flux_plan`` record.
     """
 
     def number(name: str) -> float:
-        """Return one stored scalar.
-
-        Parameters
-        ----------
-        name : str
-            The record's key.
-
-        Returns
-        -------
-        float
-            The value.
-        """
+        """Return one stored scalar."""
         return float(cast("float", record[name]))
 
     def optional(name: str) -> float | None:
         """Return one stored scalar that may be absent.
 
-        Parameters
-        ----------
-        name : str
-            The record's key.
-
-        Returns
-        -------
-        float or None
-            The value, or None where it was not recorded.
+        - Returns: the value, or None where it was not recorded.
         """
         value = record.get(name)
         return None if value is None else float(cast("float", value))
@@ -411,18 +371,6 @@ def _stored(value: object, dtype: type) -> np.ndarray:
     A record written to JSON or HDF5 and read back nests each array as the
     ``{"__ndarray__": ..., "__imaginary__": ...}`` form of
     :func:`solprop.output.schema.serialise`, which a nested spatial record keeps.
-
-    Parameters
-    ----------
-    value : object
-        An array, a nested list, or its serialised form.
-    dtype : type
-        The array's dtype.
-
-    Returns
-    -------
-    numpy.ndarray
-        The array.
     """
     if isinstance(value, Mapping) and "__ndarray__" in value:
         real = np.asarray(value["__ndarray__"], dtype=float)

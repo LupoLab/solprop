@@ -51,24 +51,9 @@ __all__ = ["planar_kappa", "planar_operators", "planar_transform", "square_resid
 def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
     """Validate the scalar state and a finite positive translation extent.
 
-    Parameters
-    ----------
-    n_pol : int
-        State polarisation components; the planar state carries one.
-    z_max : float
-        Run length in m.
-    margin : float
-        Fractional nonnegative extension.
-
-    Returns
-    -------
-    float
-        Extended positive span in m.
-
-    Raises
-    ------
-    TranslationError
-        If the state has two components or the span is invalid.
+    - ``z_max``: run length in m.
+    - ``margin``: fractional nonnegative extension.
+    - Returns: extended positive span in m.
     """
     if isinstance(n_pol, bool) or n_pol != 1:
         msg = (
@@ -313,19 +298,6 @@ def _check_medium(space: PlanarGrid, medium: SpatialMedium) -> None:
     which the medium's index cancels, but the nonlinear responses are scaled by the
     medium's density: a different medium would propagate correctly and respond as
     another gas. The modes carry the fill, so the medium must be that fill.
-
-    Parameters
-    ----------
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels, which share one fill.
-    medium : solprop.spatial.SpatialMedium
-        The bulk medium the run was given.
-
-    Raises
-    ------
-    TranslationError
-        If the gas, its density (pressure and temperature), its susceptibility or
-        the vacuum does not match the modes'.
     """
     mode = cast("SlabMode", space.modes[0])
     position = np.array([0.0])
@@ -378,14 +350,8 @@ def square_residuals(axis: np.ndarray) -> np.ndarray:
 def _warn_grazing(space: PlanarGrid, grid: TimeGrid, data: SeparableOperator) -> None:
     """Report the first active column inside its cutoff's arithmetic uncertainty.
 
-    Parameters
-    ----------
-    space : solprop.modes.slab.PlanarGrid
-        The channels and y frequencies, for the reported column.
-    grid : solprop.grid.TimeGrid
-        Frequency bins in rad/s and their active mask.
-    data : solprop.translate.spatial.SeparableOperator
-        Validated square parts and wall terms in m^-2.
+    - ``grid``: frequency bins in rad/s and their active mask.
+    - ``data``: validated square parts and wall terms in m^-2.
     """
     assert data.kappa_sq is not None
     order = np.argsort(space.k_y**2, kind="stable")

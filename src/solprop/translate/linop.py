@@ -389,12 +389,6 @@ class LinearOperator:
         A kind that is neither is caught by the two presence checks together and named
         by their message, so it needs no membership test of its own -- which could not
         be reached anyway from a constructor whose annotation is a literal.
-
-        Raises
-        ------
-        TranslationError
-            If the wrong member is present for the kind named, or an expansion's scalar
-            tables disagree with the breakpoints, degrees and kinks beside them.
         """
         expansion = self.phi_expansion
         if (self.separable is not None) != (self.phi_representation == "separable"):
@@ -617,23 +611,9 @@ def _value_shape(
     The operator's values keep a leading broadcast axis of one, the layout the native
     build reads; the state itself has none (SEP 47 section 6.2).
 
-    Parameters
-    ----------
-    operator : numpy.ndarray
-        ``D`` as ``(n_omega,)``, in the state's ``(n_modes, n_pol, n_omega)`` or
-        already in the value layout.
-    n_pol : int
-        Polarisation components to broadcast a one-dimensional operator over.
-
-    Returns
-    -------
-    numpy.ndarray
-        The operator with four axes.
-
-    Raises
-    ------
-    TranslationError
-        If the array has neither one, three nor four axes, or `n_pol` is not 1 or 2.
+    - ``operator``: ``D`` as ``(n_omega,)``, in the state's ``(n_modes, n_pol,
+      n_omega)`` or already in the value layout.
+    - Returns: the operator with four axes.
     """
     values = np.asarray(operator)
     if values.ndim == 4:
@@ -711,15 +691,7 @@ def tabulate(
 def _readonly(values: np.ndarray) -> np.ndarray:
     """Return a C-contiguous, read-only copy of an array.
 
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The array to freeze.
-
-    Returns
-    -------
-    numpy.ndarray
-        The same values, C-contiguous and not writeable.
+    - Returns: the same values, C-contiguous and not writeable.
     """
     frozen = np.ascontiguousarray(values)
     frozen.setflags(write=False)
@@ -799,19 +771,8 @@ def _zero_edges(
     already, or when the correction would change the interval by more than `tol` of its
     largest coefficient: that is not rounding, and the domain check decides.
 
-    Parameters
-    ----------
-    row : numpy.ndarray
-        The interval's Chebyshev coefficients up to its degree, at least two.
-    left, right : bool
-        Whether the path is exactly zero at the interval's left or right end.
-    tol : float
-        The table's tolerance, relative to the interval's largest coefficient.
-
-    Returns
-    -------
-    numpy.ndarray
-        The corrected coefficients, or `row` itself when nothing is corrected.
+    - ``row``: the interval's Chebyshev coefficients up to its degree, at least two.
+    - Returns: the corrected coefficients, or `row` itself when nothing is corrected.
     """
     ends = chebyshev_basis.chebval(np.array([-1.0, 1.0]), row)
     if (not left or ends[0] == 0.0) and (not right or ends[1] == 0.0):
@@ -945,22 +906,7 @@ def constant_phi(
 def _checked_span(z_max: float, margin: float) -> float:
     """Return the end of the tabulated range, validating both arguments.
 
-    Parameters
-    ----------
-    z_max : float
-        Length the run covers, m.
-    margin : float
-        Fraction of `z_max` to extend beyond it.
-
-    Returns
-    -------
-    float
-        ``z_max (1 + margin)``.
-
-    Raises
-    ------
-    TranslationError
-        If `z_max` is not positive and finite or `margin` is negative or not finite.
+    - ``z_max``: length the run covers, m.
     """
     if not (math.isfinite(z_max) and z_max > 0.0):
         msg = f"z_max must be positive and finite, got {z_max!r}"
@@ -972,23 +918,7 @@ def _checked_span(z_max: float, margin: float) -> float:
 
 
 def _as_modes(mode: Mode | Sequence[Mode]) -> tuple[Mode, ...]:
-    """Return the modes of a problem as a tuple, accepting one mode or a set.
-
-    Parameters
-    ----------
-    mode : Mode or sequence of Mode
-        One mode, or the ordered set of a multimode problem.
-
-    Returns
-    -------
-    tuple of Mode
-        The modes, in order.
-
-    Raises
-    ------
-    TranslationError
-        If an empty set is given.
-    """
+    """Return the modes of a problem as a tuple, accepting one mode or a set."""
     modes = tuple(mode) if isinstance(mode, Sequence) else (mode,)
     if not modes:
         msg = "a problem needs at least one mode"
@@ -1187,79 +1117,35 @@ def _dispersion_phi(
     mode whose parameters do not resolve; the only approximation anywhere in ``Phi`` is
     the interpolation of ``D`` (``docs/guide/numerics/linear-operator.md``).
 
-    Parameters
-    ----------
-    mode : Mode or sequence of Mode
-        The mode, or the ordered set of a multimode problem. Only ``neff``,
-        ``dneff_domega``, the declared ``core_radius`` and ``density`` paths and, for
-        the expansion, ``at_parameters`` are used.
-    grid : solprop.grid.TimeGrid
-        The grid; supplies the frequency axis, the active band and the layout.
-    frame : solprop.linear.Frame
-        The co-moving frame, usually from :meth:`solprop.linear.Frame.comoving`.
-    z_max : float
-        Length the run covers, m, positive and finite.
-    n_pol : int, optional
-        Polarisation components, 1 or 2. ``D`` is the same for both components of one
-        mode, and is stored for each so that a birefringent mode needs no new layout.
-    absorber_rate : numpy.ndarray or None, optional
-        Spectral absorber rate in 1/m, shape ``(n_omega,)``, folded into ``D`` before
-        the integration so the collar is exact as a rate.
-    loss : solprop.linear.LossPolicy, optional
-        What to do with an attenuation too large to represent. Applied to ``D`` before
-        ``Phi`` is integrated, never to an accumulated exponent afterwards.
-    margin : float, optional
-        Fraction of `z_max` the table extends beyond the end. Default
-        :data:`DEFAULT_MARGIN`.
-    tol : float, optional
-        Target bound on the uniform error of the table relative to the value scale. The
-        request is raised to :data:`ROUNDOFF_SAFETY` times the measured round-off floor
-        of ``D`` when that is larger, because no interpolant can resolve a function
-        below the noise of its own evaluation, and relaxed further, by decades up to
-        :data:`MAX_TOL`, if the interval budget is exhausted anyway
-        (``docs/dev/stepper.md`` section 4, step 4). Both are logged.
-    n_max : int, optional
-        Highest Chebyshev degree tried on an interval, or on a parameter, before the
-        interval is bisected or the expansion gives up.
-    max_intervals : int, optional
-        Interval budget; exceeding it sets the fallback flag and logs a warning.
-    representation : {'auto', 'expansion', 'table'}, optional
-        Which representation to build. ``"auto"``, the default, prefers the expansion;
-        ``"table"`` forces the z table, which is what an equivalence test between the
-        two needs; ``"expansion"`` refuses to fall back. A ``z_constant`` mode set takes
-        :func:`constant_phi` whatever this says, since that path is exact.
-    reuse : ParameterExpansion or None, optional
-        Coefficients of the identical operator function on the same grid, frame and
-        fixed parameters. The caller must establish function identity. Covered paths
-        receive new scalar weights; other paths rebuild normally, with a logged reason.
-    kinks : sequence of float or numpy.ndarray, optional
-        Further hard kinks in m beside the mode set's breakpoints, as for
-        :func:`build_phi`.
-
-    Returns
-    -------
-    LinearOperator
-        Section 3 of the kernel contract, covering ``[0, z_max (1 + margin)]``.
-
-    Raises
-    ------
-    TranslationError
-        If `z_max`, `margin`, `representation` or the mode set is invalid, or
-        ``representation="expansion"`` is asked for and cannot be built.
-
-    Examples
-    --------
-    >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.linear import Frame
-    >>> from solprop.nonlinear.gnlse import SpecifiedMode
-    >>> from solprop.translate.linop import build_phi
-    >>> grid = EnvelopeGrid.from_limits(1.0, 1030e-9, (700e-9, 2e-6), 2e-12)
-    >>> mode = SpecifiedMode.from_taylor(
-    ...     [0.0, 0.0, 2e-26], omega_ref=grid.omega0
-    ... )
-    >>> table = build_phi(mode, grid, Frame.comoving(grid), z_max=1.0)
-    >>> table.phi_representation, table.n_intervals
-    ('constant', 1)
+    - ``mode``: only ``neff``, ``dneff_domega``, the declared ``core_radius`` and
+      ``density`` paths and, for the expansion, ``at_parameters`` are used.
+    - ``grid``: the grid; supplies the frequency axis, the active band and the layout.
+    - ``z_max``: length the run covers, m, positive and finite.
+    - ``n_pol``: polarisation components, 1 or 2. ``D`` is the same for both components
+      of one mode, and is stored for each so that a birefringent mode needs no new
+      layout.
+    - ``absorber_rate``: spectral absorber rate in 1/m, shape ``(n_omega,)``, folded
+      into ``D`` before the integration so the collar is exact as a rate.
+    - ``loss``: applied to ``D`` before ``Phi`` is integrated, never to an accumulated
+      exponent afterwards.
+    - ``tol``: target bound on the uniform error of the table relative to the value
+      scale. The request is raised to :data:`ROUNDOFF_SAFETY` times the measured
+      round-off floor of ``D`` when that is larger, because no interpolant can resolve a
+      function below the noise of its own evaluation, and relaxed further, by decades up
+      to :data:`MAX_TOL`, if the interval budget is exhausted anyway
+      (``docs/dev/stepper.md`` section 4, step 4). Both are logged.
+    - ``max_intervals``: exceeding it sets the fallback flag and logs a warning.
+    - ``representation``: which representation to build. ``"auto"``, the default,
+      prefers the expansion; ``"table"`` forces the z table, which is what an
+      equivalence test between the two needs; ``"expansion"`` refuses to fall back. A
+      ``z_constant`` mode set takes :func:`constant_phi` whatever this says, since that
+      path is exact.
+    - ``reuse``: coefficients of the identical operator function on the same grid, frame
+      and fixed parameters. The caller must establish function identity. Covered paths
+      receive new scalar weights; other paths rebuild normally, with a logged reason.
+    - ``kinks``: further hard kinks in m beside the mode set's breakpoints, as for
+      :func:`build_phi`.
+    - Returns: section 3 of the kernel contract, covering ``[0, z_max (1 + margin)]``.
     """
     _checked_representation(representation)
     span = _checked_span(z_max, margin)
@@ -1372,35 +1258,13 @@ def _weight_sampler(
 ) -> Callable[[float], Float[np.ndarray, "n_modes n_pol n_omega"]]:
     """Sample the prefactor's real index; unused spectral bins have unit weight.
 
-    Parameters
-    ----------
-    modes : sequence of solprop.modes.protocol.Mode
-        Modes in canonical state order.
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-    n_pol : int
-        Number of state polarisations, one or two.
-    index : float or None
-        Constant index override, or None for the physical effective index.
-
-    Returns
-    -------
-    callable
-        Positive real index in shape (n_modes, n_pol, n_omega) at one z.
+    - ``index``: constant index override, or None for the physical effective index.
     """
 
     def sample(z: float) -> Float[np.ndarray, "n_modes n_pol n_omega"]:
         """Sample the index at the requested position.
 
-        Parameters
-        ----------
-        z : float or numpy.ndarray
-            Positions within the translated span, in metres.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values of the sampled weight polynomial at the requested positions.
+        - ``z``: positions within the translated span, in metres.
         """
         weight = np.ones((len(modes), n_pol, grid.n_omega))
         for number, mode in enumerate(modes):
@@ -1461,15 +1325,7 @@ def with_power_weight(
         ) -> Float[np.ndarray, "n_modes n_pol n_omega"]:
             """Sample the weight inside the declared parameter box.
 
-            Parameters
-            ----------
-            values : collections.abc.Mapping
-                Physical parameter values inside the declared expansion box.
-
-            Returns
-            -------
-            numpy.ndarray
-                Weight values in the mode and frequency layout.
+            - Returns: weight values in the mode and frequency layout.
             """
             return _weight_sampler(
                 [mode.at_parameters(values) for mode in frozen], grid, n_pol, index
@@ -1485,25 +1341,18 @@ def with_power_weight(
                 power_weight_expansion=expansion,
             )
 
-    def samples(
+    def _samples(
         z: Float[np.ndarray, " n_z"],
     ) -> Float[np.ndarray, "n_z n_modes n_pol n_omega"]:
         """Stack weight values along the position axis.
 
-        Parameters
-        ----------
-        z : float or numpy.ndarray
-            Positions within the translated span, in metres.
-
-        Returns
-        -------
-        numpy.ndarray
-            Power weights with a leading position axis.
+        - ``z``: positions within the translated span, in metres.
+        - Returns: power weights with a leading position axis.
         """
         return np.stack([sample(float(one)) for one in z])
 
     table = build(
-        samples,
+        _samples,
         *linear.z_span,
         tol=DEFAULT_TOL,
         mandatory_breakpoints=linear.hard_kinks,
@@ -1528,13 +1377,7 @@ class _PowerWeightedProblem(Protocol):
 
     @property
     def linear(self) -> LinearOperator:
-        """Return the translated linear group.
-
-        Returns
-        -------
-        LinearOperator
-            Operator and optional modal power-weight rows.
-        """
+        """Return the translated linear group."""
         ...
 
 
@@ -1658,35 +1501,14 @@ def _log_weight_sampler(
 ) -> _OperatorAt:
     """Sample the real endpoint exponent on the active band, zero elsewhere.
 
-    Parameters
-    ----------
-    modes : sequence of solprop.modes.protocol.Mode
-        Modes in canonical state order.
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-    n_pol : int
-        Number of state polarisations, one or two.
-    index : float or None
-        Constant index override, or None for the physical effective index.
-
-    Returns
-    -------
-    callable
-        Minus one half the logarithmic weight in canonical state shape.
+    - ``index``: constant index override, or None for the physical effective index.
+    - Returns: minus one half the logarithmic weight in canonical state shape.
     """
 
     def sample(z: float) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Sample the index at the requested position.
 
-        Parameters
-        ----------
-        z : float or numpy.ndarray
-            Positions within the translated span, in metres.
-
-        Returns
-        -------
-        numpy.ndarray
-            Values of the sampled weight polynomial at the requested positions.
+        - ``z``: positions within the translated span, in metres.
         """
         columns = np.zeros((1, len(modes), n_pol, grid.n_omega), dtype=complex)
         for number, mode in enumerate(modes):
@@ -1706,21 +1528,7 @@ def _power_phi(
 ) -> LinearOperator:
     """Add the exact cumulative power conversion without changing constant Phi.
 
-    Parameters
-    ----------
-    linear : LinearOperator
-        Cumulative dispersion operator and its representation.
-    modes : sequence of solprop.modes.protocol.Mode
-        Modes in canonical state order.
-    grid : solprop.grid.TimeGrid
-        Temporal grid defining frequency and Parseval weights.
-    index : float or None
-        Constant index override, or None for the physical effective index.
-
-    Returns
-    -------
-    LinearOperator
-        Operator including the exact cumulative logarithmic term.
+    - ``index``: constant index override, or None for the physical effective index.
     """
     if linear.phi_representation == "constant" or index is not None:
         return linear
@@ -1732,15 +1540,7 @@ def _power_phi(
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Sample the weight inside the declared parameter box.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            Physical parameter values inside the declared expansion box.
-
-        Returns
-        -------
-        numpy.ndarray
-            Weight values in the mode and frequency layout.
+        - Returns: weight values in the mode and frequency layout.
         """
         return _log_weight_sampler(
             [mode.at_parameters(values) for mode in frozen], grid, n_pol, index
@@ -1836,27 +1636,20 @@ def endpoint_phi(
         )
     entrance = sample(linear.z_span[0])
 
-    def correction(
+    def _correction(
         z: Float[np.ndarray, " n_z"],
     ) -> Complex[np.ndarray, "n_z n_batch n_modes n_pol n_omega"]:
         """Sample the endpoint function along z.
 
-        Parameters
-        ----------
-        z : float or numpy.ndarray
-            Positions within the translated span, in metres.
-
-        Returns
-        -------
-        numpy.ndarray
-            Endpoint values with a leading position axis.
+        - ``z``: positions within the translated span, in metres.
+        - Returns: endpoint values with a leading position axis.
         """
         return np.stack([sample(float(one)) for one in z])
 
     # Resolve the function itself before subtracting its entrance value. A relative
     # tolerance on the vanishing endpoint difference would chase round-off at z=0.
     endpoint = build(
-        correction,
+        _correction,
         *linear.z_span,
         tol=tol,
         mandatory_breakpoints=linear.phi_breakpoints[1:-1],
@@ -1886,18 +1679,6 @@ def _add_phi_tables(
     narrowest width that holds every interval, and the padding is exact zeros, which a
     Clenshaw pass reproduces bit for bit -- but `degrees` is per interval, as the field
     documents, rather than the maximum everywhere.
-
-    Parameters
-    ----------
-    integral : PiecewiseChebyshev
-        Original integrated polynomial on its z intervals.
-    endpoint : PiecewiseChebyshev
-        Endpoint polynomial on the same physical span.
-
-    Returns
-    -------
-    PiecewiseChebyshev
-        Sum of both polynomials on their common refinement.
     """
     width = max(integral.coefficients.shape[1], endpoint.coefficients.shape[1])
     coefficients = np.zeros(
@@ -1934,16 +1715,6 @@ def _checked_representation(representation: str) -> None:
     Its parameter is a plain ``str`` rather than the literal alias, because the point of
     the check is the production run, where no runtime type checker stands in front of it
     and a misspelt choice would otherwise be taken for "not the z table".
-
-    Parameters
-    ----------
-    representation : str
-        What the caller asked for.
-
-    Raises
-    ------
-    TranslationError
-        If it is not one of :data:`RepresentationChoice`.
     """
     if representation not in ("auto", "expansion", "table"):
         msg = (
@@ -1969,37 +1740,9 @@ def _phi_expansion(  # noqa: PLR0917 - called positionally
 ) -> ParameterExpansion | None:
     """Try to expand ``Phi`` in the scalar paths the mode set agrees on.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set, in order.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    frame : solprop.linear.Frame
-        The co-moving frame.
-    n_pol : int
-        Polarisation components.
-    loss : solprop.linear.LossPolicy
-        The loss limit.
-    absorber_rate : numpy.ndarray or None
-        The spectral absorber rate.
-    span : float
-        End of the tabulated range, m.
-    tol : float
-        Target bound on the uniform relative error, already raised to the round-off
-        floor.
-    kinks : sequence of float
-        The paths' interior breakpoints, mandatory edges of the scalar tables.
-    n_max : int
-        Highest degree tried on a parameter.
-    max_intervals : int
-        Interval budget for the scalar tables.
-
-    Returns
-    -------
-    solprop.translate.expansion.ParameterExpansion or None
-        The expansion, or ``None`` when the mode set does not declare a usable
-        parameter set or a parameter does not resolve. Either way the reason is logged.
+    - ``span``: end of the tabulated range, m.
+    - Returns: the expansion, or ``None`` when the mode set does not declare a usable
+      parameter set or a parameter does not resolve. Either way the reason is logged.
     """
     varying = parameter_paths(modes, 0.0, span)
     if varying is None:
@@ -2052,21 +1795,8 @@ def _expansion_operator(
 ) -> LinearOperator:
     """Wrap a resolved expansion as section 3 of the contract.
 
-    Parameters
-    ----------
-    expansion : solprop.translate.expansion.ParameterExpansion
-        The expansion of ``Phi``, with integrated weights.
-    operator_at : callable
-        ``z -> D(z)``, for the debug-level check against the quadrature.
-    span : float
-        End of the tabulated range, m.
-    beta0, beta1 : solprop.translate.chebyshev.PiecewiseChebyshev
-        The frame quantities, for the record.
-
-    Returns
-    -------
-    LinearOperator
-        With ``phi_representation`` ``"expansion"``.
+    - ``operator_at``: ``z -> D(z)``, for the debug-level check against the quadrature.
+    - ``span``: end of the tabulated range, m.
     """
     weights = expansion.weights
     table = LinearOperator(
@@ -2110,30 +1840,11 @@ def _z_table_operator(
 ) -> LinearOperator:
     """Build the version-2 z table, the general representation.
 
-    Parameters
-    ----------
-    operator_at : callable
-        ``z -> D(z)`` in the canonical layout.
-    paths : sequence of solprop.profiles.ZProfile
-        The declared scalar paths, resolved first because they carry the structure.
-    span : float
-        End of the tabulated range, m.
-    tol : float
-        Target bound on the uniform relative error, already raised to the round-off
-        floor; relaxed by decades up to :data:`MAX_TOL` if the budget is exhausted.
-    kinks : sequence of float
-        The paths' interior breakpoints, mandatory edges.
-    n_max : int
-        Highest degree tried on an interval before it is bisected.
-    max_intervals : int
-        Interval budget.
-    beta0, beta1 : solprop.translate.chebyshev.PiecewiseChebyshev
-        The frame quantities, for the record.
-
-    Returns
-    -------
-    LinearOperator
-        With ``phi_representation`` ``"table"``.
+    - ``operator_at``: ``z -> D(z)`` in the canonical layout.
+    - ``span``: end of the tabulated range, m.
+    - ``tol``: target bound on the uniform relative error, already raised to the
+      round-off floor; relaxed by decades up to :data:`MAX_TOL` if the budget is
+      exhausted.
     """
     samplers = [path.__call__ for path in paths]
 
@@ -2142,18 +1853,7 @@ def _z_table_operator(
     ) -> Complex[np.ndarray, "n_z n_batch n_modes n_pol n_omega"]:
         """Return the operator at every position of a Chebyshev node set.
 
-        Parameters
-        ----------
-        z : numpy.ndarray
-            Positions along the waveguide, m, shape ``(n_z,)``.
-        *_ : object
-            The path values the builder resolved; the operator is evaluated from ``z``
-            directly, so they are not used.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``D`` at each position, shape ``(n_z, 1, n_modes, n_pol, n_omega)``.
+        - ``z``: positions along the waveguide, m, shape ``(n_z,)``.
         """
         return np.stack([operator_at(float(one)) for one in z])
 
@@ -2230,39 +1930,15 @@ def _operator_sampler(  # noqa: PLR0917 - called positionally
 ) -> _OperatorAt:
     """Return a callable giving ``D`` in the canonical layout at one position.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set, in order.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    frame : solprop.linear.Frame
-        The co-moving frame.
-    n_pol : int
-        Polarisation components; ``D`` is repeated over them.
-    loss : solprop.linear.LossPolicy
-        The loss limit, applied before integration.
-    absorber_rate : numpy.ndarray or None
-        The spectral absorber rate, or ``None``.
-
-    Returns
-    -------
-    callable
-        ``z -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
+    - ``absorber_rate``: the spectral absorber rate, or ``None``.
+    - Returns: ``z -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
 
     def operator_at(z: float) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Return the linear operator at one position, in the canonical layout.
 
-        Parameters
-        ----------
-        z : float
-            Position along the waveguide, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``D(omega, z)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
+        - ``z``: position along the waveguide, m.
+        - Returns: ``D(omega, z)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
         """
         shared = _shared_frame(modes[0], frame, z)
         columns = [
@@ -2293,28 +1969,13 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     frozen modes are z-constant, so the position handed to
     :func:`solprop.linear.dispersion_operator` is irrelevant and is zero.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set, in order; each must implement
-        :class:`solprop.modes.protocol.ParameterisedMode`.
-    grid : solprop.grid.TimeGrid
-        The grid.
-    frame : solprop.linear.Frame
-        The co-moving frame. Its ``beta_0`` and ``beta_1`` follow the frozen reference
-        mode, so the frame subtraction is a function of the same parameters and needs
-        no dimension of its own.
-    n_pol : int
-        Polarisation components; ``D`` is repeated over them.
-    loss : solprop.linear.LossPolicy
-        The loss limit, applied before integration.
-    absorber_rate : numpy.ndarray or None
-        The spectral absorber rate, or ``None``.
-
-    Returns
-    -------
-    callable
-        ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
+    - ``modes``: the mode set, in order; each must implement
+      :class:`solprop.modes.protocol.ParameterisedMode`.
+    - ``frame``: its ``beta_0`` and ``beta_1`` follow the frozen reference mode, so the
+      frame subtraction is a function of the same parameters and needs no dimension
+      of its own.
+    - ``absorber_rate``: the spectral absorber rate, or ``None``.
+    - Returns: ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
     """
     parameterised = [one for one in modes if isinstance(one, ParameterisedMode)]
 
@@ -2323,15 +1984,7 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Return the linear operator at one point of the parameter space.
 
-        Parameters
-        ----------
-        values : collections.abc.Mapping
-            One value per expanded path, by name.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``D(omega; values)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
+        - Returns: ``D(omega; values)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
         """
         frozen = [one.at_parameters(values) for one in parameterised]
         # One frame for the whole set, from the reference mode at *these* parameter
@@ -2355,18 +2008,8 @@ def _canonical(
 ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
     """Stack one operator per mode into the canonical state layout.
 
-    Parameters
-    ----------
-    columns : sequence of numpy.ndarray
-        ``D`` per mode, each of shape ``(n_omega,)``.
-    n_pol : int
-        Polarisation components; ``D`` is the same for both components of one mode and
-        is repeated over them so a birefringent mode needs no new layout.
-
-    Returns
-    -------
-    numpy.ndarray
-        Shape ``(1, n_modes, n_pol, n_omega)``.
+    - ``n_pol``: polarisation components; ``D`` is the same for both components of one
+      mode and is repeated over them so a birefringent mode needs no new layout.
     """
     stacked = np.stack(columns)[:, np.newaxis, :]
     return np.repeat(stacked, n_pol, axis=1)[np.newaxis]
@@ -2391,19 +2034,7 @@ def _shared_frame(reference: Mode, frame: Frame, z: float) -> Frame:
     :func:`build_phi` records beside ``Phi``. Freezing them here also saves the
     remaining modes an ``neff`` evaluation each.
 
-    Parameters
-    ----------
-    reference : solprop.modes.protocol.Mode
-        The mode the frame follows; the first of the set.
-    frame : solprop.linear.Frame
-        The frame, whose fixed values are kept as they are.
-    z : float
-        Position along the waveguide, m.
-
-    Returns
-    -------
-    solprop.linear.Frame
-        The same frame with both quantities fixed at this position.
+    - ``z``: position along the waveguide, m.
     """
     if frame.beta0 is not None and frame.beta1 is not None:
         return frame
@@ -2430,17 +2061,10 @@ def _roundoff_floor(operator_at: _OperatorAt, span: float) -> float:
     differ by whatever ratio the elements span, which is four orders on a wide field
     grid and eight when a dispersion-specified mode stands beside a capillary one.
 
-    Parameters
-    ----------
-    operator_at : callable
-        ``z -> D(z)`` in the canonical layout.
-    span : float
-        End of the tabulated range, m.
-
-    Returns
-    -------
-    float
-        The relative round-off floor; zero if the operator vanishes everywhere probed.
+    - ``operator_at``: ``z -> D(z)`` in the canonical layout.
+    - ``span``: end of the tabulated range, m.
+    - Returns: the relative round-off floor; zero if the operator vanishes everywhere
+      probed.
     """
     delta = _FLOOR_STEP_FRACTION * span
     worst = 0.0
@@ -2621,18 +2245,7 @@ def _check_dispersion_span(modes: Sequence[Mode], z_max: float) -> None:
     derivative and for its loss too, and a loss declared over half the fibre would
     hold its last attenuation over the rest in exactly the same silence.
 
-    Parameters
-    ----------
-    modes : sequence of Mode
-        The mode set.
-    z_max : float
-        Length the run covers, m.
-
-    Raises
-    ------
-    TranslationError
-        Naming the mode, which of its paths falls short, its declared range and the
-        run.
+    - ``z_max``: length the run covers, m.
     """
     for one in modes:
         for attribute, label in _SPECTRAL_PATHS:
@@ -2686,17 +2299,7 @@ def parameters_own_z(modes: Sequence[Mode]) -> bool:
 def _interior_edges(paths: Sequence[ZProfile], span: float) -> list[float]:
     """Return the declared breakpoints of the paths that lie strictly inside the range.
 
-    Parameters
-    ----------
-    paths : sequence of solprop.profiles.ZProfile
-        The scalar paths the modes declare.
-    span : float
-        End of the tabulated range, m.
-
-    Returns
-    -------
-    list of float
-        The interior breakpoints, sorted and deduplicated.
+    - ``span``: end of the tabulated range, m.
     """
     return sorted(
         {
@@ -2719,23 +2322,9 @@ def _frame_tables(
     interval width, spending dozens of intervals and still leaving an error a hundred
     times its tolerance at the kink itself.
 
-    Parameters
-    ----------
-    mode : Mode
-        The reference mode; the frame follows it along z.
-    frame : solprop.linear.Frame
-        The frame.
-    span : float
-        End of the tabulated range, m.
-    tol : float
-        Target bound on the uniform error relative to the value scale.
-    kinks : sequence of float
-        Positions that must be interval edges.
-
-    Returns
-    -------
-    tuple
-        ``(beta0, beta1)`` as scalar Chebyshev tables, in 1/m and s/m.
+    - ``span``: end of the tabulated range, m.
+    - ``kinks``: positions that must be interval edges.
+    - Returns: ``(beta0, beta1)`` as scalar Chebyshev tables, in 1/m and s/m.
     """
     quantities = [
         tabulate(
@@ -2918,23 +2507,10 @@ def _rate_value(
 ) -> np.ndarray:
     """Evaluate the rate table at `z`, on the side of an edge `before` asks for.
 
-    Parameters
-    ----------
-    table : LinearOperator
-        An expansion or a z table.
-    z : float
-        Position in m.
-    before : bool
-        Read an edge from the interval ending there.
-    helpers : solprop._helpers.Helpers or None
-        The stepping backend's implementation for an expansion's rows, which reads the
-        chosen interval as a one-interval table at the same ``x``; ``None``, or a z
-        table, takes the shared pass.
-
-    Returns
-    -------
-    numpy.ndarray
-        The expansion's term weights, or the z table's ``D``.
+    - ``z``: position in m.
+    - ``helpers``: the stepping backend's implementation for an expansion's rows, which
+      reads the chosen interval as a one-interval table at the same ``x``; ``None``, or
+      a z table, takes the shared pass.
     """
     rate = table.rate
     index = rate.interval_containing(z)
@@ -2965,19 +2541,9 @@ def _separable_phase(
 ) -> np.ndarray:
     """Evaluate a phase with bounded coefficient scratch and one returned volume.
 
-    Parameters
-    ----------
-    coefficients : solprop.translate.spatial.SeparableOperator
-        Shared constant-medium data.
-    distance : float
-        Integration length in m.
-    imaginary : bool
-        Return only the unitary phase when true.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex exponent or real unitary phase, in the canonical state layout.
+    - ``distance``: integration length in m.
+    - ``imaginary``: return only the unitary phase when true.
+    - Returns: complex exponent or real unitary phase, in the canonical state layout.
     """
     result = np.empty(
         coefficients.value_shape, dtype=np.float64 if imaginary else np.complex128
@@ -3055,24 +2621,15 @@ def walk_off_buckets(
     axis = np.asarray(omega, dtype=np.float64)[order]
     sorted_active = np.asarray(active, dtype=bool)[order]
 
-    def rates(phase: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    def _rates(phase: np.ndarray, valid: np.ndarray) -> np.ndarray:
         """Return the slopes of sorted phases, zero where unreadable.
 
         Centred where a bin and both its neighbours may be read, one-sided where only
         one neighbour may: the last propagating bin before evanescence and the
         active band's edges, which walk fastest, keep their rates.
 
-        Parameters
-        ----------
-        phase : numpy.ndarray
-            Phases per metre on the sorted bins, rad/m, ``(n_rows, n_omega)``.
-        valid : numpy.ndarray
-            Which bins may be read.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``|d phase / d omega|``, s/m, the shape of `phase`.
+        - ``phase``: phases per metre on the sorted bins, rad/m, ``(n_rows, n_omega)``.
+        - Returns: ``|d phase / d omega|``, s/m, the shape of `phase`.
         """
         step = np.abs(np.diff(phase, axis=1)) / np.diff(axis)
         pair = valid[:, 1:] & valid[:, :-1]
@@ -3118,7 +2675,7 @@ def walk_off_buckets(
             root, propagating, _ = longitudinal_root(coefficients, columns)
             phase = (np.real(root) - coefficients.frame[None, :])[:, order]
             valid = propagating[:, order] & sorted_active[None, :]
-            each = rates(phase, valid)
+            each = _rates(phase, valid)
             fastest = max(fastest, float(np.max(each, initial=0.0)))
             buckets[columns][:, order] = split_rate_buckets(each)
         if inverse is not None:
@@ -3130,7 +2687,7 @@ def walk_off_buckets(
         n_batch, n_modes, n_pol, n_omega = rate.shape
         phase = -np.imag(rate.reshape(-1, n_omega))[:, order]
         valid = np.broadcast_to(sorted_active[None, :], phase.shape)
-        each = rates(phase, valid).reshape(n_batch, n_modes, n_pol, n_omega)
+        each = _rates(phase, valid).reshape(n_batch, n_modes, n_pol, n_omega)
         each = each.max(axis=(0, 2))
         widest = each if widest is None else np.maximum(widest, each)
     assert widest is not None
@@ -3149,17 +2706,9 @@ def _rate_positions(
     jumps at a hard kink. A coupled flow's sections are read the same way, their ends
     from the section each closes, beside ``D`` at the same positions.
 
-    Parameters
-    ----------
-    table : LinearOperator
-        A tabulated operator.
-
-    Returns
-    -------
-    list of tuple
-        ``(z, before, section)``: the position, m, whether :func:`phi_rate` reads it
-        from the interval ending there, and the coupled flow's section it is read in
-        (``None`` without a flow, or for the section containing it).
+    - Returns: ``(z, before, section)``: the position, m, whether :func:`phi_rate` reads
+      it from the interval ending there, and the coupled flow's section it is read in
+      (``None`` without a flow, or for the section containing it).
     """
     edges = np.asarray(table.phi_breakpoints, dtype=np.float64)
     positions: list[tuple[float, bool, int | None]] = []
@@ -3195,27 +2744,8 @@ def _channel_rate(
     ``G``, applied beside it. The taper's connection is antisymmetric, a rotation of
     the moving basis, and adds nothing to the diagonal.
 
-    Parameters
-    ----------
-    table : LinearOperator
-        A tabulated operator.
-    z : float
-        Position in m.
-    before : bool
-        Read an edge of ``D`` from the interval ending there.
-    section : int or None
-        The flow's section the position is read in (:func:`flow_weights`).
-
-    Returns
-    -------
-    numpy.ndarray
-        ``D + diag(G)`` in 1/m, canonical layout.
-
-    Raises
-    ------
-    TranslationError
-        For a factored coupled flow, which no backend executes and whose generator
-        diagonal is not read here.
+    - ``z``: position in m.
+    - Returns: ``D + diag(G)`` in 1/m, canonical layout.
     """
     rate = phi_rate(table, z, before=before)
     flow = table.coupled_flow
@@ -3285,17 +2815,7 @@ def unitary_phase(
 def _check_inside(table: LinearOperator, z: float) -> None:
     """Refuse a position outside the tabulated range.
 
-    Parameters
-    ----------
-    table : LinearOperator
-        The cumulative operator.
-    z : float
-        Position in m.
-
-    Raises
-    ------
-    TranslationError
-        If `z` is outside ``[z_span[0], z_span[1]]``.
+    - ``z``: position in m.
     """
     low, high = table.z_span
     if not low <= z <= high:
@@ -3309,17 +2829,8 @@ def _verify_pairs(span: float, count: int) -> tuple[tuple[float, float], ...]:
     Deterministic rather than random, so a debug log is reproducible: the pairs walk
     across the span with increasing separation.
 
-    Parameters
-    ----------
-    span : float
-        End of the tabulated range, m.
-    count : int
-        Number of pairs.
-
-    Returns
-    -------
-    tuple
-        ``(z1, z2)`` pairs with ``0 <= z1 < z2 <= span``.
+    - ``span``: end of the tabulated range, m.
+    - Returns: ``(z1, z2)`` pairs with ``0 <= z1 < z2 <= span``.
     """
     starts = np.linspace(0.0, 0.5 * span, count)
     ends = np.linspace(0.5 * span, span, count)

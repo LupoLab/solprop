@@ -245,24 +245,8 @@ def _damped(
 ) -> Float[np.ndarray, " n_to_doubled"]:
     """Apply each term's dephasing to its undamped kernel and sum.
 
-    Parameters
-    ----------
-    response : RamanResponse
-        The response the kernels came from; supplies the dephasings and the fraction.
-    kernels : numpy.ndarray
-        The undamped, tapered rows, shape ``(n_terms, 2 n_to)``.
-    grid : TimeGrid
-        The grid supplying the fine time axis and the temporal collar.
-    density : float
-        Number density in m^-3, non-negative.
-    check : bool
-        Whether to check each damped term against the window it has to fit in, and
-        note in the debug log the ones that outlive it.
-
-    Returns
-    -------
-    numpy.ndarray
-        The damped kernel, shape ``(2 n_to,)``.
+    - ``grid``: the grid supplying the fine time axis and the temporal collar.
+    - ``density``: number density in m^-3, non-negative.
     """
     n_to = grid.n_to
     delays = np.arange(n_to) * grid.dt_fine
@@ -285,15 +269,7 @@ def _damped(
 def _flat_samples(grid: TimeGrid) -> int:
     """Return the number of kernel samples the taper leaves alone.
 
-    Parameters
-    ----------
-    grid : TimeGrid
-        The grid supplying the fine time axis and the temporal collar.
-
-    Returns
-    -------
-    int
-        The index at which the taper starts to fall.
+    - ``grid``: the grid supplying the fine time axis and the temporal collar.
     """
     span = (grid.n_to - 1) * grid.dt_fine
     return int(
@@ -326,20 +302,7 @@ def _check_window(  # noqa: PLR0917 - called positionally
     since the taper has already begun; that makes the test conservative, and the taper
     is one at the sample the tail starts from.
 
-    Parameters
-    ----------
-    response : RamanResponse
-        The response, for the number of terms in the message.
-    model : RamanModel
-        The term itself, for its dephasing time.
-    tail : numpy.ndarray
-        The damped kernel over the tapered region, shape ``(n_tail,)``.
-    damped : numpy.ndarray
-        The damped kernel over the whole response span, shape ``(n_to,)``.
-    density : float
-        Number density in m^-3, non-negative.
-    row : int
-        Index of the term, for the message.
+    - ``density``: number density in m^-3, non-negative.
     """
     peak = float(np.max(np.abs(damped)))
     if peak == 0.0 or tail.size == 0:
@@ -683,17 +646,8 @@ def decay_rate_profiles(
         ) -> Float[np.ndarray, " n_z"]:
             """Return the capped decay rate at each position.
 
-            Parameters
-            ----------
-            z : numpy.ndarray
-                Positions in m, shape ``(n_z,)``.
-            dephasing : Dephasing
-                The term's dephasing, bound at definition time.
-
-            Returns
-            -------
-            numpy.ndarray
-                ``min(1/tau2(rho(z)), cap)`` in s^-1, shape ``(n_z,)``.
+            - ``z``: positions in m, shape ``(n_z,)``.
+            - Returns: ``min(1/tau2(rho(z)), cap)`` in s^-1, shape ``(n_z,)``.
             """
             values = density(np.asarray(z, dtype=float))
             return np.array(

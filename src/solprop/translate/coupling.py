@@ -98,16 +98,8 @@ def frame_record(
 def _antiderivative(values: PiecewiseChebyshev) -> dict[str, object]:
     """Return the edges and coefficients of a scalar table's antiderivative.
 
-    Parameters
-    ----------
-    values : solprop.translate.chebyshev.PiecewiseChebyshev
-        A scalar frame table.
-
-    Returns
-    -------
-    dict
-        JSON-ready ``breakpoints`` (m) and per-interval ``coefficients``, lowest
-        degree first, of the exact antiderivative vanishing at the first edge.
+    - Returns: JSON-ready ``breakpoints`` (m) and per-interval ``coefficients``, lowest
+      degree first, of the exact antiderivative vanishing at the first edge.
     """
     integral = values.integral()
     coefficients = np.real(integral.coefficients).reshape(integral.degrees.size, -1)
@@ -278,18 +270,8 @@ def input_port(
 def _scalar_contrast(profiles: ScalarModeBasis, index: np.ndarray) -> np.ndarray:
     """Return a step-index profile set's weak-guidance contrast at each bin.
 
-    Parameters
-    ----------
-    profiles : solprop.coupling.ScalarModeBasis
-        A step-index LP set, carrying its core and cladding indices.
-    index : numpy.ndarray
-        The reference index per bin.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``max |n^2 - n_ref^2| / (2 n_ref^2)`` over core and cladding, zero where
-        the reference index is zero, shape ``(n_omega,)``.
+    - Returns: ``max |n^2 - n_ref^2| / (2 n_ref^2)`` over core and cladding, zero where
+      the reference index is zero, shape ``(n_omega,)``.
     """
     live = index > 0
     contrast = np.zeros(index.shape)

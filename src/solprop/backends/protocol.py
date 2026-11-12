@@ -333,15 +333,8 @@ def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
     pass over the rows. Only a sum that overflows takes the second look, which allows
     for finite entries too large to add.
 
-    Parameters
-    ----------
-    state : numpy.ndarray
-        A contiguous complex state.
-
-    Returns
-    -------
-    bool
-        True when no entry is a NaN or an infinity.
+    - ``state``: a contiguous complex state.
+    - Returns: True when no entry is a NaN or an infinity.
     """
     if state.size == 0:
         return True
@@ -350,15 +343,7 @@ def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
     def finite(selected: slice) -> bool:
         """Return whether the selected rows are finite.
 
-        Parameters
-        ----------
-        selected : slice
-            The rows.
-
-        Returns
-        -------
-        bool
-            True when none holds a NaN or an infinity.
+        - Returns: True when none holds a NaN or an infinity.
         """
         part = rows[selected]
         # Per thread: a sum that overflows is what the second look is for.
@@ -510,13 +495,7 @@ class Observation:
         return self.field
 
     def _check_counts(self) -> None:
-        """Check the step counts against the history and the rows against both.
-
-        Raises
-        ------
-        BackendError
-            Naming the disagreement.
-        """
+        """Check the step counts against the history and the rows against both."""
         if self.n_steps != self.step_history.n_steps:
             msg = (
                 f"n_steps is {self.n_steps} but the history records "
