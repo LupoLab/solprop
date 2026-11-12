@@ -34,11 +34,17 @@ from solprop.driver.executors import Local
 from solprop.driver.material_output import material_manifest
 from solprop.driver.routes.materials import _selected_guide
 from solprop.driver.scan import Scan, run_scan
-from solprop.exceptions import DiluteScalingWarning, MaterialRangeWarning, OutputError
+from solprop.exceptions import (
+    DiluteScalingWarning,
+    MaterialRangeWarning,
+    MaterialStatusWarning,
+    OutputError,
+)
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode, StepIndexMode
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import IndexMaterial, MaterialKerr, MaterialRegion
+from solprop.nonlinear.optmat_raman import OptmatRamanResponse
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.output import open_file
 from solprop.output.hdf5 import check_cache
@@ -826,3 +832,33 @@ def test_a_graded_index_cores_default_tensor_response_resolves_too():
     assert isinstance(raman.parameters, SilicaBundle)
     assert resolved.regions == resolved.field_provider.regions
     assert resolved.sampling is guide.sampling
+
+
+def test_the_provisional_policy_turns_n2os_default_raman_on_once():
+    """``raman=None`` under ``"provisional"`` takes N2O's provisional bands."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        simulation = Simulation.from_capillary(
+            50e-6,
+            4e-4,
+            "N2O",
+            1.0,
+            wavelength=800e-9,
+            wavelength_limits=(400e-9, 2e-6),
+            trange=200e-15,
+            fwhm=30e-15,
+            energy=1e-6,
+            plasma=False,
+            n_r=8,
+            n_save=2,
+            materials=MaterialSelection(raman="provisional"),
+            noise=None,
+        )
+    statuses = [
+        one for one in caught if issubclass(one.category, MaterialStatusWarning)
+    ]
+    assert len(statuses) == 1
+    assert not any("provisionally" in str(one.message) for one in caught)
+    assert any(isinstance(one, OptmatRamanResponse) for one in simulation.responses)
+    names = {record.name for record in simulation.material_manifest().records}
+    assert any("N2O" in name and "raman" in name for name in names), names
