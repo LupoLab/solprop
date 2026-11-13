@@ -2067,17 +2067,16 @@ public:
                    const std::string& category) {
     require_open();
     native::engines::MarchFault fault;
+    // `trial_source` fails inside the trial's source evaluation, its prediction in
+    // the state.
+    fault.in_source = stage == "trial_source";
     if (stage == "startup")
       fault.stage = march::Stage::startup;
-    else if (stage == "trial")
+    else if (stage == "trial" || fault.in_source)
       fault.stage = march::Stage::trial;
     else if (stage == "accept")
       fault.stage = march::Stage::accept;
-    else if (stage == "trial_source") {
-      // Inside the trial's source evaluation, its prediction in the state.
-      fault.stage = march::Stage::trial;
-      fault.in_source = true;
-    } else
+    else
       throw std::invalid_argument(
           "a march fault's stage is startup, trial, trial_source or accept");
     if (category == "convergence")
