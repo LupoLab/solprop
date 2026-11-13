@@ -12,19 +12,20 @@ small enough to translate and step in a test (SEP 16's capability audit began th
 **Rows.** :func:`catalogue` holds the rows that
 ``tests/backends/test_parity_catalogue.py`` runs on native against ``numpy_ref``
 (``tests/parity_ladder.py``). A row (:class:`parity_ladder.Row`) is a factory of one
-built problem -- the translated problem, its run request, its grid and execution
-options -- with an id and the axes it covers: route family, response, stepper and
-features. Rows cover the axes pairwise (each route with each response and each
-stepper it admits, each feature on at least one route), not their full product. A
-family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``,
-``backends/optmat_rows.py``, ``backends/plasma_rows.py``, ``backends/column_rows.py``,
-the spatial family's ``backends/free_rows.py``, ``backends/planar_rows.py``,
-``backends/geometry_rows.py`` and ``backends/session_rows.py``, and the general route's
-and the mixture's ``backends/general_rows.py``, ``backends/mixture_rows.py`` and
-``backends/ladder_rows.py``, and the coupled flow's ``backends/flow_rows.py``) and is
-collected here. A row may also write its readings
-into an accuracy record (``Row.record``), as the free-space ladders and the validation
-ladder's soliton do.
+built problem -- the translated problem, its run request, its grid and execution options
+-- with an id and the axes it covers: route family, response, stepper and features. Rows
+cover the axes pairwise (each route with each response and each stepper it admits, each
+feature on at least one route), not their full product. A family of rows lives beside
+the cases it builds from (``backends/dispersive_rows.py``, ``backends/optmat_rows.py``,
+``backends/plasma_rows.py``, ``backends/column_rows.py``, the spatial family's
+``backends/free_rows.py``, ``backends/planar_rows.py``, ``backends/geometry_rows.py``
+and ``backends/session_rows.py``, and the general route's and the mixture's
+``backends/general_rows.py``, ``backends/mixture_rows.py`` and
+``backends/ladder_rows.py``, the coupled flow's ``backends/flow_rows.py``, and the last
+family's ``backends/driver_rows.py``, ``backends/axis_plasma_rows.py`` and
+``backends/vector_raman_rows.py``) and is collected here. A row may also write its
+readings into an accuracy record (``Row.record``), as the free-space ladders and the
+validation ladder's soliton do.
 
 **Claims.** Every row states the physical claim it holds (``why``, one sentence, such
 as "the response must not filter the drive"), and a row whose bound has a floor, a
@@ -63,18 +64,31 @@ row's ``unguarded`` with the reason it is kept. Every row guards at least one ru
 unless the guard found an old claim vacuous: such a row is kept, but declares itself
 ``vacuous`` with what was measured, so that every exception is named where the row is.
 
-**Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the session ladders (of the sessions, the low-storage and z-table marches have joined,
-``backends/session_rows.py``). The mixture's fixed-schedule comparisons have joined
-(``backends/mixture_rows.py``), and so have the general route's
-(``backends/general_rows.py``), the retired column tests (``backends/column_rows.py``)
-and the coupled flow's (``backends/flow_rows.py``: its ten-step marches, the moving
-guides, the bins off the eigenbasis route, the wide flows, and the driver runs that read
-the last saved plane). An adaptive march's comparisons stay outside (#809), and so do
-an adaptive march's periodic rows, which no rung marches, a source evaluation beside a
-coupled flow, whose zero-length trial native refuses, and the modules that hold native
-to the recorded decision traces, to solprop's own translation or reduction, or to its
-admission rules, which compare nothing with the reference.
+**What has joined.** The sessions' low-storage and z-table marches
+(``backends/session_rows.py``), the mixture's fixed-schedule comparisons
+(``backends/mixture_rows.py``), the general route's (``backends/general_rows.py``, its
+entry point's saved plane among them), the retired column tests
+(``backends/column_rows.py``) and the coupled flow's (``backends/flow_rows.py``: its
+ten-step marches, the moving guides, the bins off the eigenbasis route, the wide flows,
+and the driver runs that read the last saved plane). The last family joined the
+driver's other fixed-schedule runs (``backends/driver_rows.py``: the slab guide's
+projected multimode launch, the legacy entry points and the Runge-Kutta replays), the
+on-axis plasma statistics at the launch (``backends/axis_plasma_rows.py``) and the
+vector Raman on the spatial geometries and the modal complete run
+(``backends/vector_raman_rows.py``).
+
+**What stays outside.** An adaptive march's comparisons (#809), and an adaptive march's
+periodic rows, which no rung marches; a source evaluation beside a coupled flow, whose
+zero-length trial native refuses; a comparison that reads every observation of a session
+(its step planes, launch and trace, through an export recipe) or holds each of several
+planes to its own norm (``tests/driver/test_native_z_table.py``,
+``tests/sessions/test_native_session.py``); a replay of the steps native's own adaptive
+run took (``tests/sessions/test_native_session_carrier_table.py``); statistics evaluated
+on a supplied state, monitors, events, resume, device and group-against-lone tests; an
+elementwise allowance carried to each bin
+(``tests/backends/test_native_held_projection_budget.py``); and the modules that hold
+native to the recorded decision traces, to solprop's own translation or reduction, or to
+its admission rules, which compare nothing with the reference.
 """
 
 from __future__ import annotations
