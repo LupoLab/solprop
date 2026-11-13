@@ -233,7 +233,8 @@ def axis_node(
 
     A Gauss-Radau field-scale rule (SEP 19) has one: its synthesis row is the mode
     profile at ``r = 0``, the on-axis synthesis itself, so its own node scan supplies
-    the axis statistics without a further one.
+    the axis statistics without a further one. A transform that does not carry every
+    component the modes have on the axis has none: its node scan lacks that row.
 
     Parameters
     ----------
@@ -251,6 +252,8 @@ def axis_node(
     if transform.kind != "modal" or transform.modal_tables is not None:
         return None
     n_pol = transform.n_pol
+    if np.any(axis[n_pol:]):
+        return None
     rows = transform.synthesis.reshape(transform.n_nodes, n_pol, -1)
     scaled = axis[:n_pol] * problem.grids.pad_scale
     for index, row in enumerate(rows):
