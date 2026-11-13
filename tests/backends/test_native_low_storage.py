@@ -29,13 +29,15 @@ import pytest
 
 from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
+    CARTESIAN_CHUNK,
+    MARCH,
+    cartesian_march,
     parity_bound,
     uniform,
     varying_capillary,
     with_mode,
 )
 from backends.matched import native_thread_fields
-from backends.test_low_storage import CARTESIAN_CHUNK, MARCH, cartesian_march
 from bounds import assert_within
 from sessions.runs import launch, load_native, run
 from solprop.backends.memory import (

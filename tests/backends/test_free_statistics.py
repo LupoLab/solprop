@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from backends.test_radial_nonlinear import make_problem
+from backends.spatial_cases import make_problem
 from bounds import gamma
 from sessions.runs import launch_statistics
 from solprop.backends.session import ExecutionOptions

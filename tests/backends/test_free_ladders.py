@@ -26,12 +26,8 @@ from backends.free_rows import (
     cartesian_case,
     free_amplitude_bound,
 )
-from backends.test_radial_nonlinear import (
-    CHI3,
-    LENGTH,
-    make_problem,
-    matched_parity_grids,
-)
+from backends.spatial_cases import CHI3, LENGTH, make_problem
+from backends.test_radial_nonlinear import matched_parity_grids
 from bounds import gamma, ladder_bound
 from sessions.executors import IDENTITY
 from sessions.runs import launch_statistics, launched, run

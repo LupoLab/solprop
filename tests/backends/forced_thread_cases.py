@@ -264,7 +264,7 @@ def noisy_problem(march: str, *, draw: bool = True):
     retired combine test's seed; `march` ``"rk"`` takes the Runge-Kutta march on the
     schedule instead, ``"adams"`` the exponential Adams method at its top order.
     """
-    from backends.test_low_storage import cartesian_march  # noqa: PLC0415
+    from backends.low_storage_cases import cartesian_march  # noqa: PLC0415
 
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     noise = spatial_noise(
@@ -301,7 +301,7 @@ def noisy_problem(march: str, *, draw: bool = True):
 
 def noisy(march: str):
     """March the beam under the modified noise model, and once without its draw."""
-    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+    from backends.low_storage_cases import CARTESIAN_CHUNK  # noqa: PLC0415
 
     fields = {}
     for name, draw in (("field", True), ("quiet", False)):
@@ -327,7 +327,7 @@ def wide_transverse_problem(march: str = "march"):
     `march` ``"adams"`` takes the default method at its top order on the same schedule,
     which #322 asks for beside the low-storage march.
     """
-    from backends.test_low_storage import MARCH  # noqa: PLC0415
+    from backends.low_storage_cases import MARCH  # noqa: PLC0415
 
     length = 1e-3
     grid = EnvelopeGrid.from_limits(
@@ -424,7 +424,7 @@ def accept():
 
 def linear_cartesian(mode: str):
     """Return ``cartesian_march``'s beam with no response: a pass is its fold."""
-    from backends.test_low_storage import cartesian_march  # noqa: PLC0415
+    from backends.low_storage_cases import cartesian_march  # noqa: PLC0415
 
     problem, run_request, grid, _ = cartesian_march(mode)
     return (
@@ -454,7 +454,7 @@ def folds(mode: str):
         _ResidentLowStorage,  # pyright: ignore[reportPrivateUsage]
     )
 
-    from backends.test_low_storage import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
+    from backends.low_storage_cases import CARTESIAN_CHUNK, MARCH  # noqa: PLC0415
 
     problem, run_request, grid = linear_cartesian(mode)
     edges = np.asarray(run_request.stepper.schedule.edges)  # pyright: ignore[reportOptionalMemberAccess]

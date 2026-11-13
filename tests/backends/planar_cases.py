@@ -17,7 +17,7 @@ import math
 
 import numpy as np
 
-from backends.test_planar_hybrid import FAMILIES, HALF_GAP, LENGTH, ORDERS
+from backends.planar_hybrid_cases import FAMILIES, HALF_GAP, LENGTH, ORDERS
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation

@@ -25,6 +25,14 @@ import numpy as np
 import pytest
 
 from backends.conftest import soliton_field
+from backends.low_storage_cases import (
+    ARGUMENT_FACTOR,
+    CARTESIAN_CHUNK,
+    MARCH,
+    cartesian_march,
+    marched,
+    populated,
+)
 from backends.test_free_diffraction import flux_width, gaussian_reference, moment_bound
 from backends.test_numpy_ref_p2 import (
     BETA2_UNIT,
@@ -47,7 +55,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
-from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -68,7 +76,6 @@ from solprop.stats import StatsSpec
 from solprop.stepper import (
     DOPRI5,
     FixedSchedule,
-    LowStorageRungeKutta,
     PIController,
     calibrate,
 )
@@ -78,7 +85,6 @@ from solprop.translate.linop import delta_phi
 from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
-    Translation,
     validate_run,
 )
 from solprop.translate.routes import TDSESource
@@ -87,30 +93,6 @@ from solprop.translate.routes import TDSESource
 # hold more than a millionth of the energy in their guards or collar: the boundary
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
-
-MARCH = LowStorageRungeKutta()
-
-# Section 4.5's argument coefficient, fixed before any measurement. Each flow's exponent
-# and the reference's carry about eps |Delta Phi|; the table is built from its key, the
-# run's mean step (Q10), so a reused flow is off by |D| |h - h_t| / 2, a few ulps of the
-# position times |D|, whose sum over a run telescopes to the run's own phase (the
-# |Phi(z_N)| term); and the products add 4 N eps. 16 covers the 8 + 1 of phase 1's
-# per-step key with a factor of about two.
-ARGUMENT_FACTOR = 16
-
-
-def marched(problem, run_request, schedule, *, mode="auto", **stepper):
-    """Return a problem and its request stepped by the low-storage march."""
-    settings = dataclasses.replace(
-        run_request.stepper,
-        integrator=MARCH,
-        schedule=schedule,
-        propagator_mode=mode,
-        dz_max=max(schedule.max_step, run_request.stepper.dz_max),
-        dz_init=min(run_request.stepper.dz_init, schedule.max_step),
-        **stepper,
-    )
-    return Translation(problem, run_request.with_stepper(settings))
 
 
 def run(problem, run_request, grid, *, planes=None, backend=None, options=None):
@@ -272,12 +254,6 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
 # own classical value on the same ladder, and never more loosely than this (section
 # 7.1).
 ORDER_SPREAD_CAP = 0.3
-
-
-def populated(spectra, fraction=1e-2):
-    """Return the bins holding at least `fraction` of the run's peak amplitude."""
-    peak = np.max(np.abs(np.asarray(spectra)), axis=0)
-    return peak >= fraction * np.max(peak)
 
 
 def driven_phase(problem, step, bins):
@@ -1241,57 +1217,6 @@ FIELD_ROWS = (
     "accumulator_solution",
     "accumulator_error",
 )
-
-
-CARTESIAN_CHUNK = ExecutionOptions(node_chunk=7)
-"""The node chunk :func:`cartesian_march`'s problem runs with: 7 of 108 columns."""
-
-
-def cartesian_march(mode, *, noise=None, collar=False):
-    """Return a Cartesian Kerr problem under the march, run in chunks of 7 of 108.
-
-    Its backends take :data:`CARTESIAN_CHUNK`.
-
-    With the collars, the spatial and the temporal one in-stage, it takes the 100
-    steps their stability limits ask for; otherwise 4.
-    """
-    length = 1e-3
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-    )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
-    )
-    start = (
-        pulse.build(grid, space, medium=SpatialMedium())
-        if noise is None
-        else np.zeros_like(noise.spectrum)
-    )
-    schedule = FixedSchedule.uniform(0.0, length, length / (100 if collar else 4))
-    problem, run_request = assemble(
-        grid,
-        None,
-        [KerrResponse(1e-22, thg=False)],
-        start,
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        noise=noise,
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-        propagator_mode=mode,
-        absorber=absorber(grid) if collar else None,
-        absorber_scheme="nonlinear",
-    )
-    if collar:
-        # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
-        # is the march's ledger beside an in-stage term, so its rate is put on directly.
-        problem = with_collar_rate(problem, 12.6 / (length / 20))
-    return problem, run_request, grid, space
 
 
 def held_volumes(backend, field):

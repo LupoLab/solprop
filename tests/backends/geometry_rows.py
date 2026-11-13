@@ -93,6 +93,9 @@ from typing import Any
 
 import numpy as np
 
+from backends import edge_collar_cases as collar
+from backends import flux_cases
+from backends import synthetic_leaf_cases as leaves
 from backends.host_cases_envelope_plasma import (
     build_envelope_mixture,
     geometry_case,
@@ -422,9 +425,7 @@ def flux_case(case: str, group: str) -> Built:
     observes the group's statistics that the case reads; each is the old test's to the
     bit (measured).
     """
-    from backends import test_flux_parity as flux  # noqa: PLC0415
-
-    build, z = flux.CASES[case]
+    build, z = flux_cases.CASES[case]
     grid, problem, run_request = build()
     rng = np.random.default_rng(34)
     field = problem.initial.field0
@@ -446,9 +447,7 @@ def flux_budget(group: str) -> Callable[[Built], float]:
     """Return the bound of one group: its statistics' shared rounding budget."""
 
     def bound(built: Built) -> float:
-        from backends import test_flux_parity as flux  # noqa: PLC0415
-
-        return flux._budget(FLUX_GROUPS[group][0], built.grid, built.problem)
+        return flux_cases.budget(FLUX_GROUPS[group][0], built.grid, built.problem)
 
     bound.__name__ = f"flux_budget({group!r})"
     return bound
@@ -557,8 +556,6 @@ def synthetic(case: str, mode: str = "auto", n_pol: int = 1) -> Built:
     in-stage temporal collar each present or not (``test_native_synthetic_operator``).
     One order-one step of an order-one random state on the leaf's active bins.
     """
-    from backends import test_native_synthetic_operator as leaves  # noqa: PLC0415
-
     if case == "cartesian march":
         problem, run_request, grid = leaves.free_problem(
             responses=[leaves.KERR], n_pol=n_pol, mode=mode
@@ -582,8 +579,6 @@ def synthetic(case: str, mode: str = "auto", n_pol: int = 1) -> Built:
 
 def synthetic_step(built: Built) -> float:
     """Bound the one step: ``test_native_synthetic_operator.step_limit`` on the leaf."""
-    from backends import test_native_synthetic_operator as leaves  # noqa: PLC0415
-
     leaf = built.problem.linear.separable
     return leaves.step_limit(built.problem, built.run_request, built.grid, leaf)
 
@@ -594,8 +589,6 @@ def the_leaf_is_pathological(built: Built) -> bool:
     ``test_native_synthetic_operator.assert_the_leaf_is_pathological``; on a stage case
     the two wall channels also differ, since the same ``k_y`` is another rate.
     """
-    from backends import test_native_synthetic_operator as leaves  # noqa: PLC0415
-
     leaf = built.problem.linear.separable
     assert leaf is not None
     leaves.assert_the_leaf_is_pathological(leaf)
@@ -644,10 +637,8 @@ def collar_run(route: str, march: str) -> Built:
     schedule of eight steps (128 on the planar route) saved at half and the whole of
     its 2 mm; the run's own problem, request, options and modes.
     """
-    from backends import test_native_edge_collar as collar  # noqa: PLC0415
-
     steps = 16 * collar.STEPS if route == "planar" else collar.STEPS
-    simulation: Simulation = collar._case(
+    simulation: Simulation = collar.collar_case(
         route,
         **collar.INWARD,
         backend="numpy_ref",

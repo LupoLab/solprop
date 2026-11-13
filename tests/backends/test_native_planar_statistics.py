@@ -25,8 +25,8 @@ import numpy as np
 import pytest
 
 from backends.planar_cases import planar_case
-from backends.test_planar_native import chunked
-from backends.test_planar_native import planar_case as collar_family_case
+from backends.planar_plate_cases import chunked
+from backends.planar_plate_cases import planar_case as collar_family_case
 from bounds import assert_within, fft_bound, gamma
 from sessions.runs import launch_statistics, load_native
 from solprop.backends.numpy_ref import NumpyRefBackend

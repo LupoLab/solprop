@@ -91,8 +91,8 @@ from typing import Any
 import numpy as np
 
 from backends.optmat_rows import without_kerr, without_plasma, without_raman
-from backends.test_radial_absorber import problem_for, radial_absorber_case
-from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, make_problem
+from backends.radial_absorber_cases import problem_for, radial_absorber_case
+from backends.spatial_cases import CHI3, LENGTH, QuadraticRate, make_problem
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from parity_ladder import Built, Reading, Row, Statistic, reference

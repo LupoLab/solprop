@@ -91,7 +91,11 @@ from backends.conftest import (
 )
 from backends.dispersive_rows import without_response
 from backends.low_storage_cases import (
+    CARTESIAN_CHUNK,
+    MARCH,
     STEPS,
+    cartesian_march,
+    marched,
     parity_bound,
     uniform,
     varying_capillary,
@@ -99,10 +103,9 @@ from backends.low_storage_cases import (
 )
 from backends.optmat_rows import without_kerr, without_plasma, without_raman
 from backends.planar_cases import planar_case
-from backends.test_low_storage import CARTESIAN_CHUNK, MARCH, cartesian_march, marched
-from backends.test_radial_nonlinear import CHI3, QuadraticRate
-from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
-from backends.test_radial_nonlinear import make_problem as radial_problem
+from backends.spatial_cases import CHI3, QuadraticRate
+from backends.spatial_cases import LENGTH as RADIAL_LENGTH
+from backends.spatial_cases import make_problem as radial_problem
 from general_parity import conditioning, nonlinear_scale, problem_for, scaled_case
 from general_parity import source_bound as general_source_bound
 from march_bounds import FIXED_ORDER, march_bound

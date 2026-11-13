@@ -93,9 +93,9 @@ from typing import Any
 import numpy as np
 
 from backends import planar_cases
-from backends import test_planar_native as plates
+from backends import planar_plate_cases as plates
 from backends.optmat_rows import without_plasma
-from backends.test_planar_hybrid import FAMILIES
+from backends.planar_hybrid_cases import FAMILIES
 from bounds import gamma, step_evaluations
 from parity_ladder import Built, Row, Statistic
 from solprop.driver import Simulation, SimulationSettings
