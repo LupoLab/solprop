@@ -47,6 +47,7 @@ FIELD_RUNGS = (
     "one_step",
     "steps",
     "run",
+    "last_plane",
 )
 """The rungs, cheapest first, each a field's but ``launch`` (the launch's statistics); a
 row's statistics follow them."""
@@ -109,8 +110,9 @@ Bound = Callable[[Built], float]
 """A rung's bound from the built row, fixed before native runs.
 
 A bound may read the reference's own measurement of a rung that needs nothing of the
-row (``derivative``, ``run``) through :func:`reference`: a growth factor or a rate's
-sensitivity taken from the reference run, never from the backend under test."""
+row (``derivative``, ``run``, ``last_plane``) through :func:`reference`: a growth
+factor or a rate's sensitivity taken from the reference run, never from the backend
+under test."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,7 +177,8 @@ class Row:
     by default). ``every_statistic``
     compares every statistic of the request's own specification at the launch (the
     ``launch`` rung's, one by one), at the end of the ``steps`` rung and of the ``run``
-    rung, each with the :class:`Statistic` it returns.
+    rung, and at the ``last_plane`` rung's plane, each with the :class:`Statistic` it
+    returns.
     ``context`` makes the context the whole check runs in, so that every backend of the
     row, the reference's and the guard's included, is constructed inside it (the private
     gated plasma benchmark, ``tests/gated_source.py``). ``record`` writes the row's
@@ -474,9 +477,9 @@ def run(backend_class: Any, built: Built) -> Marched:
     translation unless the row's term was switched off. An assembled row runs at the
     seam, through the backend's session.
     """
-    schedule = built.run_request.stepper.schedule
-    assert schedule is not None, "the row's request has no fixed schedule to run"
     if built.simulation is None:
+        schedule = built.run_request.stepper.schedule
+        assert schedule is not None, "the row's request has no fixed schedule to run"
         backend = _backend(backend_class, built)
         try:
             # The session owns the backend and closes it, as a service's run does.
@@ -490,28 +493,60 @@ def run(backend_class: Any, built: Built) -> Marched:
             for name in planes[-1][0].stats
         }
         accepted = run_summary(result).n_steps
-    else:
-        # A shallow copy whose settings name the backend and whose translation is the
-        # row's, so the translation is shared and a switched-off problem runs too.
-        simulation = copy.copy(built.simulation)
-        simulation.settings = dataclasses.replace(
-            simulation.settings, backend=backend_class.name
+        assert accepted == len(schedule.steps), (
+            f"{backend_class.name}'s complete run accepted {accepted} steps of the "
+            f"schedule's {len(schedule.steps)}"
         )
-        simulation._problem = built.problem
-        handler = simulation.run(progress="none")
-        field = handler.fields("optics")
-        statistics = {
-            name: np.asarray(handler[f"stats/{name}"]) for name in handler.stat_names
-        } | {
-            f"rows/{name}": np.asarray(handler[f"step_stats/{name}"])
-            for name in handler.step_stat_names
-        }
-        accepted = int(np.count_nonzero(handler["step_history/accepted"]))
+        return Marched(field, statistics)
+    handler = _driver_run(backend_class, built)
+    field = handler.fields("optics")
+    statistics = {
+        name: np.asarray(handler[f"stats/{name}"]) for name in handler.stat_names
+    } | {
+        f"rows/{name}": np.asarray(handler[f"step_stats/{name}"])
+        for name in handler.step_stat_names
+    }
+    return Marched(field, statistics)
+
+
+def _driver_run(backend_class: Any, built: Built) -> Any:
+    """Run a driver's row through :meth:`solprop.driver.Simulation.run`; its output.
+
+    On the row's problem -- the simulation's own translation unless the row's term was
+    switched off -- with every step of its schedule accepted.
+    """
+    schedule = built.run_request.stepper.schedule
+    assert schedule is not None, "the row's request has no fixed schedule to run"
+    assert built.simulation is not None, "the row was not built from a driver's run"
+    # A shallow copy whose settings name the backend and whose translation is the
+    # row's, so the translation is shared and a switched-off problem runs too.
+    simulation = copy.copy(built.simulation)
+    simulation.settings = dataclasses.replace(
+        simulation.settings, backend=backend_class.name
+    )
+    simulation._problem = built.problem
+    handler = simulation.run(progress="none")
+    accepted = int(np.count_nonzero(handler["step_history/accepted"]))
     assert accepted == len(schedule.steps), (
         f"{backend_class.name}'s complete run accepted {accepted} steps of the "
         f"schedule's {len(schedule.steps)}"
     )
-    return Marched(field, statistics)
+    return handler
+
+
+def last_plane(backend_class: Any, built: Built) -> Marched:
+    """Return the driver's stored last plane: its field and its statistics.
+
+    A driver's row runs :meth:`solprop.driver.Simulation.run` through the output layer
+    (:func:`run`'s run) and reads its last saved plane back as the output gives it,
+    ``MemoryOutput.planes()[-1]``: the field in the internal convention, which is
+    ``fields("fft")[-1]``, and that plane's statistics. The plane is compared in its
+    own norm or peak, where the ``run`` rung measures every saved plane together.
+    """
+    plane = _driver_run(backend_class, built).planes()[-1]
+    assert plane.field is not None, "the last saved plane kept no field"
+    statistics = {name: np.asarray(value) for name, value in plane.stats.items()}
+    return Marched(np.asarray(plane.field), statistics)
 
 
 RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
@@ -530,11 +565,12 @@ RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
         row.window,
     ),
     "run": lambda backend_class, built, row: run(backend_class, built),
+    "last_plane": lambda backend_class, built, row: last_plane(backend_class, built),
 }
 """Each field rung's measurement, by name."""
 
 ROW_FREE_RUNGS = frozenset(
-    {"derivative", "launch", "projected", "linear", "one_step", "run"}
+    {"derivative", "launch", "projected", "linear", "one_step", "run", "last_plane"}
 )
 """The rungs a bound may read the reference's measurement of (:func:`reference`)."""
 
@@ -839,9 +875,14 @@ def _check_declarations(row: Row) -> None:
     assert row.every_statistic is None or not row.statistics, (
         "a row compares its named statistics or every statistic, not both"
     )
-    assert row.every_statistic is None or {"launch", "steps", "run"} & set(row.rungs), (
-        "every statistic is read at the launch or the end of the steps or run rung, "
-        "none of which the row runs"
+    assert row.every_statistic is None or {
+        "launch",
+        "steps",
+        "run",
+        "last_plane",
+    } & set(row.rungs), (
+        "every statistic is read at the launch, the end of the steps or run rung or "
+        "the last plane, none of which the row runs"
     )
     assert row.window is None or "steps" in row.rungs, (
         "a window cuts the steps rung, which the row does not run"

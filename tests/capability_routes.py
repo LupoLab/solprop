@@ -36,17 +36,20 @@ the first stage's derivative at the launch (``derivative``), the statistics the 
 observes at the launch, nothing stepped (``launch``), one evaluation's projected
 polarisation on both quadrature rules (``projected``), one step of the launch scaled
 to ``1e-20`` (``linear``: the linear operator alone), one step (``one_step``: the
-schedule's first), the schedule's fixed window or its first steps (``steps``), and
-the complete run through the driver and output layer (``run``), with statistics at
-the end of the last two. A row names the rungs it runs, each with its bound: a function
-of the built problem from ``tests/bounds.py`` and the family's summation counts, fixed
-before native runs (a bound may read the reference's own launch derivative or complete
-run, as a growth factor or a rate's sensitivity). A rung compares relative to a
-finite, non-zero reference -- normwise, or peak-normalised where the row's bounds count
-roundings per sample of the peak -- and must be strictly inside its bound; a ``floor``
-row adds its own measured native disagreement where a term beside the row's is known
-to disagree by more than the row's budget. Rungs go through the native state (its
-trial, march and projections) or the driver, never a Python re-implementation.
+schedule's first), the schedule's fixed window or its first steps (``steps``), the
+complete run through the driver and output layer (``run``), and that run's last saved
+plane as the output gives it back, compared in its own norm or peak (``last_plane``),
+with statistics at the end of the last three. A row names the rungs it runs, each with
+its bound: a function of the built problem from ``tests/bounds.py`` and the family's
+summation counts, fixed before native runs (a bound may read the reference's own launch
+derivative, complete run or last plane, as a growth factor or a rate's sensitivity). A
+rung compares relative to a finite, non-zero reference -- normwise, or peak-normalised
+where the row's bounds count roundings per sample of the peak, or over a scale the row
+reads off its build (``scale``, the launch's peak) -- and must be strictly inside its
+bound; a ``floor`` row adds its own measured native disagreement where a term beside
+the row's is known to disagree by more than the row's budget. Rungs go through the
+native state (its trial, march and projections) or the driver, never a Python
+re-implementation.
 
 **Non-vacuity.** Every row says how to switch its term off (``switch_off``, on the
 translated problem). At every field rung the reference with the term off must differ
