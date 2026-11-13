@@ -216,6 +216,13 @@ is never clamped to zero. A non-finite index raises rather than passing through.
 itself, before $\Phi$ is integrated — clamping the accumulated exponent instead would make
 the answer depend on the step.
 
+The same clamp keeps a modal run inside the exponent budget that a separable or radial
+run is checked against ([free-space model](../free-space/model.md#exact-longitudinal-operator)): no step within the
+fibre's length forms a factor past $\mathrm{e}^{708}$, below the overflow at
+$\ln(\mathrm{DBL\_MAX}) \approx 709.78$, so a replayed step cannot overflow and
+translation does not check it. Gain, a `max_alpha` raised above the default and the
+absorber's rates, which are added to `D` after the clamp, are outside that bound.
+
 ## The operator of a dispersion-specified fibre
 
 ```{eval-rst}
