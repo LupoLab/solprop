@@ -122,7 +122,7 @@ belong to the driver/binding, which runs the provider in a worker process of its
 provider's adapter): framed pipes, no pickle, cancellation while waiting; modal synthesis to the nodes, the assembly of the
 macroscopic sources and their projection belong to `backends/tdse_source.py`, which
 imports neither backend and which a backend calls from its source evaluation
-([SEP 49](seps/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).
+([SEP 49](seps/archive/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).
 
 Geometry: mode-averaged propagation is the single-node case of multimode propagation (the
 effective-area normalisation replaces the quadrature); the GNLSE is the mode-averaged

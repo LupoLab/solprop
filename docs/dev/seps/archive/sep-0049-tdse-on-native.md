@@ -6,17 +6,17 @@
 | **Title** | The TDSE response on native |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-12 |
 | **Resolution** | Accepted 2026-11-12 by John Travers, in [#765](https://github.com/LupoLab/solprop/pull/765) |
-| **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
+| **Requires** | [SEP 12](sep-0012-tdse-nonlinear-response.md), [SEP 20](sep-0020-hacc-helium-tdse.md) and [SEP 26](sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | In progress: Opus 5.5 (AI), on `feature/sep-0049-tdse-on-native`; phases 0–4, with the manual check of §7.4 done |
-| **Manual pages** | [TDSE response](../../guide/media/tdse.md), [Choosing a backend](../../guide/performance/backends.md) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, on `feature/sep-0049-tdse-on-native` ([#771](https://github.com/LupoLab/solprop/pull/771)); phases 0–4, started and complete 2026-11-12/13; the manual check of §7.4 done by hand on a CPU build and an NVIDIA A40 |
+| **Manual pages** | [TDSE response](../../../guide/media/tdse.md), [Choosing a backend](../../../guide/performance/backends.md) |
 
 ## Part I — Proposal
 
@@ -47,7 +47,7 @@ included. Slimming it to a test library, which this SEP first proposed, is defer
 (§10.1).
 
 Success means: a TDSE run on native agrees with the same run on `numpy_ref` within the
-rounding budgets of [testing.md](../testing.md) §3 derived for its cases, with its atomic
+rounding budgets of [testing.md](../../testing.md) §3 derived for its cases, with its atomic
 ledger, labels, reservations and archive records identical; the shared source meets
 independent analytic and manufactured expectations; the worker's contract holds in CI
 with a manufactured provider; and an explicit stop ends a run within the wait loop's
@@ -115,9 +115,9 @@ native hook. Neither the hook nor the worker is specific to TDSE or Pyroraptor (
 
 `numpy_ref` is a complete executor: its own Runge–Kutta, Adams and low-storage marches
 (`backends/host/`), sessions, group sessions, a lockstep batch and a registry row
-([backends.md](../backends.md) §1–§2). Native runs every run through its native session
+([backends.md](../../backends.md) §1–§2). Native runs every run through its native session
 (`solprop_native.session`), whose compiled marches advance to an event from one policy
-record (SEP 47; [kernel-contract.md](../kernel-contract.md) §11–§12). Each `advance` call
+record (SEP 47; [kernel-contract.md](../../kernel-contract.md) §11–§12). Each `advance` call
 returns after 256 attempts or 0.1 s of wall time; the session wraps it in
 `_interrupts.committing()`, so a SIGINT or SIGTERM arriving during the call is held and
 raised when the call returns. The run's stop flag is polled before each native call, and
@@ -125,7 +125,7 @@ a `StopToken` also forwards a stop to the native march, which reads it between a
 
 #### 3.2 The TDSE response today
 
-The TDSE response ([TDSE response](../../guide/media/tdse.md); SEPs 12, 20 and 26) is
+The TDSE response ([TDSE response](../../../guide/media/tdse.md); SEPs 12, 20 and 26) is
 admitted on one route only, by `PropagationProblem._check_tdse` and
 `translate.problem._check_tdse_assembly_route`:
 
@@ -189,14 +189,14 @@ is below $10^{-3}$ of a call (§6.8).
 
 The native Adams march runs the trial in its resident engine and evaluates the source
 natively; its rules forbid "allocation, planning, logging, Python call or unplanned fence
-in a trial step" ([backends.md](../backends.md) §3.2, `native/AGENTS.md`). A TDSE source
+in a trial step" ([backends.md](../../backends.md) §3.2, `native/AGENTS.md`). A TDSE source
 cannot be evaluated without the provider, and its evaluation is a field-dependent,
 minutes-long call that cannot be precomputed. With a trial lasting minutes, each `advance`
 call returns after one attempt anyway.
 
 #### 3.4 Decisions and changes this SEP builds on
 
-- **ADR-077** (two backends, binary64 only; [decisions.md](../decisions.md)), and the
+- **ADR-077** (two backends, binary64 only; [decisions.md](../../decisions.md)), and the
   change it calls for, which must be merged before implementation starts: in particular
   native importing nothing from `numpy_ref`. ADR-077 records that `numpy_ref` stays a
   complete, selectable backend (amended with the maintainer's decision in this SEP's
@@ -240,7 +240,7 @@ where $P$ and $S = J - j_1$ are the macroscopic polarisation and remainder curre
 $n_{\text{nodes}}$ radial nodes (density and the declared scales applied once), $Q$ the
 modal projection with the taper scale, $g$ and $g'$ the gate and its analytic derivative
 (SEP 26), $p$ the stage prefactor and $c$ the independent current factor
-([kernel-contract.md](../kernel-contract.md) §6). Each backend then forms what it forms
+([kernel-contract.md](../../kernel-contract.md) §6). Each backend then forms what it forms
 for every source: the stage output $w\,F$ with the spectral collar $w$, the in-stage
 absorber term, and in the interaction formulation the inverse propagator
 $e^{-\Delta\Phi}$. That is the composition of steps 1–5 in §3.2, split after step 4.
@@ -253,7 +253,7 @@ the collar, a sum with the absorber term, a phase factor) and its optical march 
 own, so a TDSE stage and a short TDSE run on native agree with `numpy_ref`'s within the
 one-stage and eight-step budgets `tests/bounds.py` derives for the existing source
 comparisons ($16\varepsilon$ and $128\varepsilon$ peak-normalised on those cases,
-[accuracy.md](../accuracy.md) §7). These are budgets derived for these cases, checked on
+[accuracy.md](../../accuracy.md) §7). These are budgets derived for these cases, checked on
 them, not guarantees for every TDSE problem or variable-step history. Where independently
 rounded norms fall on either side of a decision threshold, the two runs fork; such a fork
 is reported and the pair is then compared to an accuracy envelope (class T), not counted
@@ -505,9 +505,9 @@ GUI job's stop) and the run's `StopFlag` (a stop button, a scan's supervisor).
 
 **Time.** One TDSE evaluation is a complete atomic calculation at every radial node:
 93 s (production basis, 17 nodes) to 615 s (strong-field basis, 33 nodes) on compressed
-fields in [SEP 12](archive/sep-0012-tdse-nonlinear-response.md)'s node selection
+fields in [SEP 12](sep-0012-tdse-nonlinear-response.md)'s node selection
 (Part II), and 366 s (haCC(1)) and 1,307 s (haCC(5)) on one AMD MI325X
-([SEP 20](archive/sep-0020-hacc-helium-tdse.md), Part II). Per evaluation the hook adds
+([SEP 20](sep-0020-hacc-helium-tdse.md), Part II). Per evaluation the hook adds
 a GIL acquisition and a Python call (microseconds), the worker a copy each way of a few MB
 and a context switch (milliseconds), and the host source assembly, which `numpy_ref`
 already performs (of order 10–100 ms at the response lattices in use, to be measured in
@@ -534,7 +534,7 @@ is removed but `numpy_ref/tdse.py`, which moves):
 
 The kernel problem does not change: the TDSE descriptor already crosses it, and the hook
 is a session binding outside it, as the binding is today. The hook's binding joins the
-members `check_build` looks up by name, and [kernel-contract.md](../kernel-contract.md)
+members `check_build` looks up by name, and [kernel-contract.md](../../kernel-contract.md)
 §6's "the native backend refuses TDSE by name and never holds a binding" is rewritten,
 with a release-note fragment.
 
@@ -620,14 +620,14 @@ provider's revision is recorded with every run.
 
 ### 8. Documentation
 
-- **Manual.** [TDSE response](../../guide/media/tdse.md): runs on native's CPU build and
+- **Manual.** [TDSE response](../../../guide/media/tdse.md): runs on native's CPU build and
   on `numpy_ref`; the provider in its worker, its threads or device, and stopping a run;
-  [Choosing a backend](../../guide/performance/backends.md): TDSE leaves the list of
+  [Choosing a backend](../../../guide/performance/backends.md): TDSE leaves the list of
   features that run only on the reference.
-- **Design pages.** [backends.md](../backends.md) §1 (the `auto` rule) and §3.2 (the
-  hook's exception); [kernel-contract.md](../kernel-contract.md) §6;
-  [architecture.md](../architecture.md) (the shared source module, the worker);
-  [testing.md](../testing.md) (the oracle boundary for shared code; worker-contract
+- **Design pages.** [backends.md](../../backends.md) §1 (the `auto` rule) and §3.2 (the
+  hook's exception); [kernel-contract.md](../../kernel-contract.md) §6;
+  [architecture.md](../../architecture.md) (the shared source module, the worker);
+  [testing.md](../../testing.md) (the oracle boundary for shared code; worker-contract
   tests); `AGENTS.md` and `native/AGENTS.md` (the hook's exception).
 - **Records.** One ADR: the host source hook (the one Python call in a native trial, its
   scope, its refusal on device builds), the provider worker, and the failure boundary;
@@ -1736,6 +1736,46 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 - **Handoff.** Next are CI and an A/B; then `Final`. The GPU numerical comparison stays
   manual, for the provider's next production GPU use (Q10).
 
+### Completion — 2026-11-13
+
+- **Coverage.** CI's coverage lane found the worker's own side uncovered: it runs in a
+  subprocess, which the parent's coverage does not see. Tests now run it in-process
+  (two pipes standing in for its standard streams, `os._exit` recorded): requests served
+  in order until `close`, adapter and codec errors reported, the provider's prints kept
+  out of the frames, signals ignored, a failed start reported in place of the handshake,
+  and the watchdog's exit on end of file. Real-worker tests cover a reply before the
+  handshake, a message out of turn, a close past its grace (killed), and a worker dying
+  mid-call (a charged `[worker]` failure with its stderr). Four defensive checks that
+  validation already guarantees became assertions, and a provider reply that is not a
+  record is now refused by name as a contract failure. `Worker._exited` waits for the
+  stderr reader once the worker has exited, so the last lines are never lost.
+- **Performance (A/B, non-TDSE).** Baseline `main` against this branch, on one NUMA
+  domain of a 128-core AMD EPYC 7763 node, production threads, 3 rounds of 3 repeats,
+  noise ε from A/A runs on the same machine. Every case did the same work:
+
+  | Case | Ratio | Min | Max | ε | Field difference |
+  |---|---|---|---|---|---|
+  | `argon_blueshift_envelope` | 0.964 | 0.958 | 0.989 | 0.064 | 0 |
+  | `rdw_one_mode` | 1.016 | 0.996 | 1.037 | 0.039 | 5.5e-15 |
+  | `kerr_beam_192` | 1.003 | 0.996 | 1.013 | 0.007 | 1.4e-16 |
+  | `radial_filament_256_saved_hdf5` | 0.973 | 0.967 | 1.021 | 0.032 | 0 |
+  | `he_rdw_averaged` | 0.998 | 0.992 | 0.999 | 0.020 | 5.6e-15 |
+  | `h2_raman_averaged` | 0.983 | 0.979 | 0.997 | 0.017 | 4.8e-15 |
+  | `ctc_reduced` | 0.949 | 0.911 | 1.048 | 0.052 | 3.6e-15 |
+  | `kerr_beam_384` | 1.002 | 1.000 | 1.019 | 0.007 | 0 |
+
+  Geometric mean 0.986, against the limit 1 + mean(ε)/2 = 1.015: no regression. With
+  estimated FFT plans and calibration off, all seven cases of the bitwise check gave a
+  field difference of exactly 0, so non-TDSE runs are unchanged bit for bit. The
+  differences above come from measured FFT plans.
+- **Open questions moved to issues.** The numerical comparison of native against
+  `numpy_ref` with the provider on a production GPU, left manual by Q10:
+  [#785](https://github.com/LupoLab/solprop/issues/785). The strict-FP check on object
+  files rather than the stripped wheel:
+  [#777](https://github.com/LupoLab/solprop/issues/777).
+- **Status.** `Final`, set in the last commit of #771; merging it completes the SEP and
+  closes [#764](https://github.com/LupoLab/solprop/issues/764).
+
 ## Part III — History
 
 - 2026-11-12: Drafted.
@@ -1888,7 +1928,7 @@ no physical constant or TDSE model was requalified by this review.
    [`test_a_full_adaptive_run_meets_the_reference_s_accuracy`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_backend_ladder.py)
    compares against a tighter reference integration and checks a declared work band.
    Replaying native's own schedule cannot replace that claim. The analytic P0–P2,
-   three-level P3 and cross-scheme checks in [testing.md](../testing.md) must remain
+   three-level P3 and cross-scheme checks in [testing.md](../../testing.md) must remain
    separately identified class-T or analytic checks, not become matched-replay tests.
 
    **Recommendation and question:** compare a third option: a small, non-production

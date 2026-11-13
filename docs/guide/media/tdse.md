@@ -334,4 +334,5 @@ against an exact solution.
 See also §10.6 of the primer's [ionisation chapter](../../primer/ionisation.md),
 [radial nodes for expensive responses](../waveguides/radial-quadrature.md), and the API
 reference of {mod}`solprop.nonlinear.tdse`, {mod}`solprop.driver.tdse` and
-{mod}`solprop.driver.tdse_consistency`.
+{mod}`solprop.driver.tdse_consistency`. The native backend's TDSE response and the provider's
+worker process are [SEP 49](../../dev/seps/archive/sep-0049-tdse-on-native.md).

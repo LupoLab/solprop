@@ -45,4 +45,5 @@ sep-0045-native-rk-march
 sep-0046-machine-calibration
 sep-0047-run-ownership
 sep-0048-julia-backend
+sep-0049-tdse-on-native
 ```

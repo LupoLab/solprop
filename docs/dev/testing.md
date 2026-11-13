@@ -180,7 +180,7 @@ worker's threads to the same first cores.
 
 Parity between the backends checks what each computes independently. It cannot check
 code both call: a defect in the TDSE response's source assembly
-(`solprop.backends.tdse_source`, [SEP 49](seps/sep-0049-tdse-on-native.md)) is the same
+(`solprop.backends.tdse_source`, [SEP 49](seps/archive/sep-0049-tdse-on-native.md)) is the same
 on both. That module's tests state their expectations independently of it, analytic or
 manufactured (`tests/backends/test_tdse_source.py`, `tests/edge_source_cases.py`), and a
 deliberate defect in each term is shown to fail one of them; parity then covers what each

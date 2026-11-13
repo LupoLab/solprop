@@ -2280,7 +2280,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-078 — The TDSE response runs on native through a host source; its provider in a worker
 
 - **Status:** accepted (maintainer), 2026-11-12, with
-  [SEP 49](seps/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
+  [SEP 49](seps/archive/sep-0049-tdse-on-native.md) (PR #771). Amends ADR-077's "every feature
   except the TDSE response, for now": native implements every feature.
 - **Context:** the TDSE response ran on `numpy_ref` alone, and native refused it by name.
   Its source is a complete atomic calculation at every radial node, from 93 s to over
@@ -2333,5 +2333,5 @@ Withdrawn (development-process record, not a design decision).
   fastest recorded atomic call. Native runs without a host source are unchanged bit for
   bit. The hook's two rows are listed as `host_source` in the memory ledger. CI tests
   the hook and the worker with manufactured providers; compatibility with an installed
-  Pyroraptor is checked by hand ([SEP 49](seps/sep-0049-tdse-on-native.md), section 7.4),
+  Pyroraptor is checked by hand ([SEP 49](seps/archive/sep-0049-tdse-on-native.md), section 7.4),
   and the worker's handshake refuses a mismatched protocol or execution space.
