@@ -35,6 +35,7 @@ from solprop.stepper import DOPRI5, FixedSchedule, PIController, default_dz_min
 from solprop.stepper.multistep import Multistep
 from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
+from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import LinearOperator, constant_phi, profile_table
 from solprop.translate.masks import Grids
@@ -849,6 +850,145 @@ def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(
     validate_run(
         corrupt(soliton, "responses", "prefactor_constant", None), soliton_request
     )
+
+
+# ------------------------------------------------------- dense observation's admission
+
+
+def observed_densely(run_request):
+    """Return a landed request adapted to dense observation, its replay dropped."""
+    return dataclasses.replace(
+        run_request,
+        replay=None,
+        observation=dataclasses.replace(run_request.observation, dense=True),
+    )
+
+
+def split_collar_run(field_grid, capillary, **extra):
+    """Assemble the gradient capillary under the per-step temporal collar."""
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        return assemble(
+            field_grid,
+            capillary,
+            [KerrResponse(chi3=2.2e-52, thg=True)],
+            start,
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[0.1, 0.2],
+            dz_max=0.01,
+            dz_init=1e-4,
+            absorber=absorber(field_grid),
+            absorber_scheme="split_step",
+            **extra,
+        )
+
+
+def noisy_run(envelope_grid, gnlse, **extra):
+    """Assemble the soliton launched with the 'modified' noise draw."""
+    start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
+        envelope_grid
+    )
+    return assemble(
+        envelope_grid,
+        gnlse.mode,
+        [gnlse.kerr],
+        start,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[1.0],
+        dz_max=0.05,
+        dz_init=1e-4,
+        noise=modified_noise(envelope_grid, np.random.default_rng(3)),
+        **GNLSE,
+        **extra,
+    )
+
+
+@pytest.fixture(scope="module")
+def split_collar_translation(field_grid, capillary):
+    """The split-collar capillary, landed on a fixed schedule."""
+    schedule = FixedSchedule.uniform(0.0, 0.2, 0.01, save_planes=[0.1, 0.2])
+    return split_collar_run(field_grid, capillary, schedule=schedule)
+
+
+@pytest.fixture(scope="module")
+def noisy_translation(envelope_grid, gnlse):
+    """The noisy soliton, landed."""
+    return noisy_run(envelope_grid, gnlse)
+
+
+@pytest.fixture(scope="module")
+def coupled_translation(field_grid):
+    """A constant-fill capillary carrying a zero constant-Schur coupled flow."""
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MaterialRangeWarning)
+        problem, run_request = assemble(
+            field_grid,
+            MarcatiliMode(125e-6, "He", 1.0, cladding=1.45),
+            [KerrResponse(chi3=2.2e-52, thg=True)],
+            start,
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[0.1, 0.2],
+            dz_max=0.01,
+            dz_init=1e-4,
+        )
+    flow = constant_schur_flow(
+        problem.grids.omega,
+        problem.linear.phi_breakpoints[[0, -1]],
+        np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
+        dz_max=run_request.stepper.dz_max,
+        condition_limit=1e6,
+        gauge_id="test",
+        certificate_id="constant-schur",
+    )
+    linear = dataclasses.replace(problem.linear, coupled_flow=flow)
+    return dataclasses.replace(problem, linear=linear), run_request
+
+
+@pytest.mark.parametrize(
+    ("which", "reason"),
+    [
+        ("split_collar_translation", "per-step temporal collar"),
+        ("noisy_translation", "'modified' noise model"),
+        ("coupled_translation", "a coupled linear flow"),
+    ],
+)
+def test_validate_run_refuses_a_request_adapted_to_dense_observation(
+    request, which, reason
+):
+    # The landed request is admitted; the same problem observed densely is refused
+    # where a backend is built, not only where the request was first assembled.
+    problem, landed = request.getfixturevalue(which)
+    assert not landed.observation.dense
+    assert validate_run(problem, landed) is None
+    with pytest.raises(TranslationError, match=reason):
+        validate_run(problem, observed_densely(landed))
+
+
+def test_validate_run_admits_a_request_adapted_to_dense_observation(
+    soliton, soliton_request
+):
+    dense = observed_densely(soliton_request)
+    assert dense.stepper.interpolate_planes
+    assert validate_run(soliton, dense) is None
+
+
+@pytest.mark.parametrize(
+    ("which", "run", "inputs"),
+    [
+        ("split_collar_translation", split_collar_run, ("field_grid", "capillary")),
+        ("noisy_translation", noisy_run, ("envelope_grid", "gnlse")),
+    ],
+)
+def test_assembly_and_validate_run_refuse_dense_alike(request, which, run, inputs):
+    problem, landed = request.getfixturevalue(which)
+    with pytest.raises(TranslationError) as adapted:
+        validate_run(problem, observed_densely(landed))
+    arguments = [request.getfixturevalue(name) for name in inputs]
+    with pytest.raises(TranslationError) as assembled:
+        run(*arguments, interpolate_planes=True)
+    assert str(assembled.value) == str(adapted.value)
 
 
 # ------------------------------------------------------------------------ immutability
