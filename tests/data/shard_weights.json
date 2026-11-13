@@ -206,7 +206,6 @@
   "tests/backends/test_source_evaluations.py": 0.6,
   "tests/backends/test_spatial_absorber_schemes.py": 3.6,
   "tests/backends/test_spatial_execution.py": 94.9,
-  "tests/backends/test_spatial_mixture_channels.py": 43.7,
   "tests/backends/test_step_limits.py": 37.4,
   "tests/backends/test_tdse_edge_free.py": 5.9,
   "tests/backends/test_tdse_march.py": 4.1,

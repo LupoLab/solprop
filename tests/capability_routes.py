@@ -17,8 +17,11 @@ options -- with an id and the axes it covers: route family, response, stepper an
 features. Rows cover the axes pairwise (each route with each response and each
 stepper it admits, each feature on at least one route), not their full product. A
 family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``,
-``backends/optmat_rows.py``, ``backends/plasma_rows.py``, ``backends/column_rows.py``)
-and is collected here.
+``backends/optmat_rows.py``, ``backends/plasma_rows.py``, ``backends/column_rows.py``,
+and the spatial family's ``backends/free_rows.py``, ``backends/planar_rows.py``,
+``backends/geometry_rows.py`` and ``backends/session_rows.py``) and is collected here.
+A row may also write its readings into an accuracy record (``Row.record``), as the
+free-space ladders do.
 
 **Claims.** Every row states the physical claim it holds (``why``, one sentence, such
 as "the response must not filter the drive"), and a row whose bound has a floor, a
@@ -55,11 +58,12 @@ unless the guard found an old claim vacuous: such a row is kept, but declares it
 ``vacuous`` with what was measured, so that every exception is named where the row is.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the mixture, session and coupled-flow ladders. Of the general-route march's modules the
-retired column tests have joined (``backends/column_rows.py``); an adaptive march's
-periodic rows, which no rung marches, stay, and so do the modules that hold native to
-the recorded decision traces, to solprop's own translation or reduction, or to its
-admission rules, which compare nothing with the reference.
+the mixture, session and coupled-flow ladders (of the sessions, the low-storage and
+z-table marches have joined, ``backends/session_rows.py``). Of the general-route
+march's modules the retired column tests have joined (``backends/column_rows.py``); an
+adaptive march's periodic rows, which no rung marches, stay, and so do the modules that
+hold native to the recorded decision traces, to solprop's own translation or reduction,
+or to its admission rules, which compare nothing with the reference.
 """
 
 from __future__ import annotations
