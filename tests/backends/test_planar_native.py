@@ -2,15 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The hybrid planar transform on native CPU, against the oracle.
+"""The hybrid planar transform on native CPU: its plates, ledger and threads.
 
 Native executes schema 15's ``"slab"`` kind in every combination ``numpy_ref`` does: the
 y FFT around the slab rule's synthesis and projection in x, each column's operator with
 its channel's ``kappa_sq``, the y collar in both absorber schemes, every response family
-and the spatial and plasma statistics. Each case is compared at one nonlinear
-evaluation, one step and ten fixed steps, under a bound derived before the run
-(:func:`amplitude_bound`), and a ``prop_planar`` run is compared end to end through its
-HDF5 file.
+and the spatial and plasma statistics. The parity of each case with ``numpy_ref`` -- at
+one nonlinear evaluation, one step and ten fixed steps, under :func:`amplitude_bound`
+derived before the run, and of a planar driver run end to end -- is the case
+catalogue's planar rows (``tests/backends/planar_rows.py``), which build these cases.
+Here: that the cases exercise the slab route, the ledger's planar buffers, and one
+thread against four.
 
 The cases are vacuum-filled plates of constant index (so no material fit is read and
 the responses carry their own density, as the Cartesian ladders'), three slab orders
@@ -30,27 +32,22 @@ from numpy.testing import assert_allclose
 
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
-from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivative
+from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate
 from bounds import gamma, ladder_bound
-from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
 from sessions.runs import run
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import C
-from solprop.driver import SimulationSettings, prop_planar
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
-from solprop.output import open_file
-from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse
 from solprop.spatial import SpatialMedium
-from solprop.stats import StatsSpec, default_spec
+from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.assembly import assemble
@@ -59,8 +56,6 @@ from solprop.translate.routes import transverse_of
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
-    # The prop_planar case is argon-filled; the FFT padding reaches beyond its fit.
-    pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
 ]
 
 EPS = np.finfo(float).eps
@@ -77,8 +72,6 @@ A declared band, kappa w = 22.4 above the floor 22.3, below the safety ramp's st
 at 1.56e4 rad/m; three hundred nepers at its edge make a collar of about 9e3 1/m,
 close to one neper over the run, so that it moves the answer by more than the
 rounding compared."""
-STEPS = (0, 1, 10)
-"""Zero is one nonlinear evaluation, one a single step, ten the qualification run."""
 
 FAMILIES = (
     "envelope_kerr",
@@ -271,60 +264,6 @@ def test_the_cases_exercise_the_slab_route(case):
         assert np.any(geometry.absorber_rate > 0)
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("steps", STEPS)
-def test_the_planar_kind_matches_the_reference(case, steps):
-    family, grid, space, problem, run_request = case
-    bound = amplitude_bound(grid, space, family, steps)
-    assert bound > 0
-    options = chunked(space)
-    if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, run_request, grid, options)
-        actual = derivative(native_class(), problem, run_request, grid, options)
-    else:
-        run_request = with_steps(run_request, steps)
-        reference, _ = propagate(
-            problem, run_request, grid, NumpyRefBackend, options=options
-        )
-        actual, _ = propagate(
-            problem, run_request, grid, native_class(), options=options
-        )
-    scale = float(np.max(np.abs(reference)))
-    assert scale > 0
-    assert_allclose(actual, reference, rtol=0, atol=bound * scale)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("steps", [0, 10])
-def test_the_planar_statistics_match_the_reference(case, steps):
-    """Energy, intensities, the axis spectrum, widths in y and the plasma records.
-
-    Twice the amplitude bound for squared fields, plus the column and temporal
-    reductions (the Cartesian statistics' bound), and the node reductions.
-    """
-    family, grid, space, problem, run_request = case
-    bound = 2 * amplitude_bound(grid, space, family, steps)
-    bound += gamma(128 * (space.n_columns + space.n_nodes) + 32 * grid.n_to)
-    names = SPATIAL_NAMES + (PLASMA_NAMES if family.endswith("plasma") else ())
-    # Without steps the launch plane's statistics are compared; the session still
-    # runs to the end, so on one step.
-    run_request = with_steps(run_request, steps or 1)
-    rows = []
-    for implementation in (NumpyRefBackend, native_class()):
-        landed = _landed(
-            problem, run_request, grid, implementation, names, chunked(space)
-        )
-        # The launch plane's statistics without a step, the last plane's after them.
-        plane = landed.observations[-1 if steps else 0]
-        assert plane.z == (LENGTH if steps else 0.0)
-        rows.append({name: np.asarray(plane.stats[name]) for name in names})
-    reference, actual = rows
-    for name in names:
-        scale = float(np.max(np.abs(reference[name])))
-        assert scale > 0, name
-        assert_allclose(actual[name], reference[name], rtol=0, atol=bound * scale)
-
-
 def test_the_ledger_counts_the_planar_buffers():
     """The y scratch, the slab rule and the wall terms, at their real byte cost."""
     grid, space, problem, run_request = planar_case("envelope_kerr")
@@ -373,76 +312,3 @@ def test_the_planar_kind_agrees_across_thread_counts(tmp_path):
         scale = float(np.max(np.abs(one[name])))
         assert scale > 0
         assert_allclose(four[name], one[name], rtol=0, atol=bound * scale)
-
-
-@pytest.mark.medium
-def test_prop_planar_runs_on_native_as_on_the_reference(tmp_path):
-    """Ten Kerr steps of an argon-filled gap through ``prop_planar`` into HDF5.
-
-    The fields and every default free-space statistic of the two files agree under
-    the ladder bound over the run's 10 cm (the operator's term dominates it).
-    """
-    grid = EnvelopeGrid.from_limits(
-        0.1, 800e-9, (650e-9, 1000e-9), 600e-15, **LEGACY_GRID
-    )
-    modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3, 5)]
-    space = PlanarGrid(modes, 1.5e-3, 32)
-    launch = PlanarPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-3),
-        400e-6,
-        waist_x=0.735 * HALF_GAP,
-    )
-    records = {}
-    for backend in ("numpy_ref", "native"):
-        path = tmp_path / f"{backend}.h5"
-        settings = SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-12),
-            save_planes=[0.1],
-            dz_max=0.01,
-            dz_init=0.01,
-            schedule=FixedSchedule(np.full(10, 0.01)),
-            backend=backend,
-            stats=default_spec("free"),
-            absorber=bare_absorber(grid),
-            # The coarse case launches 4e-4 into the safety ramp's band, which
-            # would refuse it (SEP 40 section 5.3); the subject is backend parity.
-            spatial_absorber=False,
-        )
-        prop_planar(
-            grid,
-            space,
-            [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)],
-            launch,
-            settings=settings,
-            output=path,
-            progress="none",
-        )
-        with open_file(path) as output:
-            names = list(default_spec("free").names)
-            records[backend] = (
-                np.asarray(output.fields("fft")),
-                {name: np.asarray(output[f"stats/{name}"]) for name in names},
-            )
-    (reference, reference_stats), (actual, actual_stats) = (
-        records["numpy_ref"],
-        records["native"],
-    )
-    bound = amplitude_bound(grid, space, "envelope_kerr", 10, length=0.1)
-    scale = float(np.max(np.abs(reference)))
-    assert_allclose(actual, reference, rtol=0, atol=bound * scale)
-    statistics_bound = 2 * bound + gamma(
-        128 * (space.n_columns + space.n_nodes) + 32 * grid.n_to
-    )
-    for name, expected in reference_stats.items():
-        values = actual_stats[name]
-        finite = np.isfinite(expected)
-        np.testing.assert_array_equal(np.isfinite(values), finite, err_msg=name)
-        if np.any(finite):
-            scale = float(np.max(np.abs(expected[finite])))
-            assert_allclose(
-                values[finite],
-                expected[finite],
-                rtol=0,
-                atol=statistics_bound * scale,
-                err_msg=name,
-            )

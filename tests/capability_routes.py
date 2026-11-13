@@ -407,6 +407,7 @@ def catalogue() -> tuple[Row, ...]:
         free_rows,
         geometry_rows,
         optmat_rows,
+        planar_rows,
         plasma_rows,
         session_rows,
     )
@@ -417,6 +418,7 @@ def catalogue() -> tuple[Row, ...]:
         *plasma_rows.rows(),
         *column_rows.rows(),
         *free_rows.rows(),
+        *planar_rows.rows(),
         *geometry_rows.rows(),
         *session_rows.rows(),
     )

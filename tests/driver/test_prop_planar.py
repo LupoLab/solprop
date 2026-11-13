@@ -4,8 +4,9 @@
 
 """The hybrid planar front end: ``prop_planar`` and ``Simulation.from_planar``.
 
-Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``; Kokkos
-(``tests/backends/test_planar_native.py``) executes it as well.
+Every run is at most ten fixed steps of an argon-filled gap on ``numpy_ref``; native
+executes it as well (the case catalogue's planar rows,
+``tests/backends/planar_rows.py``).
 Energies are in J: the geometry integrates over y.
 """
 

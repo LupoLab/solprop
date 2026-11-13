@@ -1128,7 +1128,8 @@ modified noise draw, and every statistic.
   natively from the flux measure (§3.13). The plasma statistics take the stage's route and read
   the stash between planes. No quadrature alarm is scored, as on the reference.
 - **Parity** is a rounding statement with the bounds of `tests/backends/test_planar_native.py` and
-  `tests/backends/planar_cases.py` stated first. What the ladder adds to the Cartesian one is the
+  `tests/backends/planar_cases.py` stated first, held by the case catalogue's planar rows
+  (`tests/backends/planar_rows.py`). What the ladder adds to the Cartesian one is the
   operator: each library's complex square root is within one ulp of the principal root, so
   `Re k_z` differs by at most `2 eps k_max` and the phase of a run of length `L` by
   `2 eps k_max L`. Repeats, and one against four threads, agree within the same bounds. §4 has the
