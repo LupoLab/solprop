@@ -240,7 +240,8 @@ def test_a_group_refuses_it_for_any_member():
     run = request.for_run(stats=StatsSpec(names=("plasma_work_defect",)))
     entrance = Start.entrance(problem)
     with pytest.raises(BackendError, match="field-grid plasma column"):
-        check_group(2, [problem, problem], [request, run], [entrance, entrance])
+        members, starts = [object(), object()], [entrance, Start.entrance(problem)]
+        check_group(members, [problem, problem], [request, run], starts)
 
 
 def test_a_spatial_route_refuses_a_modal_statistic_on_every_executor():

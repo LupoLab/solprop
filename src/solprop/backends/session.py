@@ -269,7 +269,7 @@ class ExecutionOptions:
 
 
 def check_group(
-    count: int,
+    members: Sequence[object],
     problems: Sequence[PropagationProblem],
     requests: Sequence[RunRequest],
     starts: Sequence[Start],
@@ -278,12 +278,13 @@ def check_group(
 
     A group (:class:`GroupSession`) takes one problem, request and start per member,
     and starts every member at its entrance, with no method history or monitor record
-    to continue (SEP 47 section 6.7).
+    to continue (SEP 47 section 6.7). Every check reads its inputs alone, so a refused
+    group leaves the caller's starts and backends untouched.
 
     Parameters
     ----------
-    count : int
-        The members given.
+    members : collections.abc.Sequence of object
+        Each member's backend.
     problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
@@ -294,12 +295,14 @@ def check_group(
     Raises
     ------
     SessionError
-        If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance whose launch plane is owed.
+        If the sequences differ in length or are empty, if a start is not a fresh
+        entrance whose launch plane is owed or was already used, or if two members
+        share a start or a backend.
     solprop.exceptions.BackendError
         If a member asks for statistics its problem does not carry
         (:func:`statistics_unavailable`).
     """
+    count = len(members)
     if count == 0 or not count == len(problems) == len(requests) == len(starts):
         msg = (
             f"a group needs one problem, request and start per member, and got "
@@ -319,6 +322,14 @@ def check_group(
                 "a group starts its members at their entrance, its launch plane owed, "
                 "with no method history or monitor record to continue"
             )
+            raise SessionError(msg)
+        if start.field is None:
+            msg = "this start was already used: a start is handed to one session"
+            raise SessionError(msg)
+    # One start or backend shared by two members would alias their state.
+    for given, name in ((starts, "start"), (members, "backend")):
+        if len({id(one) for one in given}) < count:
+            msg = f"each member of a group takes its own {name}"
             raise SessionError(msg)
 
 
