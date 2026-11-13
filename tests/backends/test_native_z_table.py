@@ -10,145 +10,26 @@ then select them, ``Phi(z1) - Phi(z0)`` as ``e_1 - e_0`` and a value as ``e_1``.
 tests hold the slots to the reference's own host evaluation
 (:class:`solprop.translate.chebyshev.PiecewiseChebyshev`, through NumPy's ``chebval``)
 within a Clenshaw rounding budget, the stage kernels' phase sum over two slots to the
-table's difference, the compensation's rate slot to solprop's ``phi_rate``, and
-ten fixed steps of each march to the reference within the matched-march budget of
-``tests/march_bounds.py`` -- with ``Phi``, the prefactor or both on the table, since
-either may be a table while the other is an expansion. A device build refuses the
-table, naming its size and the CPU backends; no CPU configuration is refused.
+table's difference and the compensation's rate slot to solprop's ``phi_rate``. A device
+build refuses the table, naming its size and the CPU backends; no CPU configuration is
+refused. Ten fixed steps of each march against the reference, with ``Phi``, the
+prefactor or both on the table, are the catalogue's ``z table`` rows
+(``tests/backends/session_rows.py``).
 """
-
-import dataclasses
-import warnings
 
 import numpy as np
 import pytest
 
+from backends.session_rows import MARCHES, TABLES, capillary, tabulate
+from backends.session_rows import Z_TABLE_LENGTH as LENGTH
 from bounds import EPS
-from march_bounds import FIXED_ORDER, assert_matched, march_bound
-from sessions.runs import run
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.boundaries import absorber
-from solprop.exceptions import BackendError, MaterialRangeWarning
-from solprop.modes.capillary import MarcatiliMode
-from solprop.nonlinear.responses import KerrResponse
-from solprop.profiles import PressureGradient
-from solprop.pulses import GaussianPulse
-from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
-from solprop.translate.assembly import assemble
-from solprop.translate.chebyshev import build
-from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import Translation
-from solprop.translate.responses import prefactor_at
+from march_bounds import FIXED_ORDER
+from solprop.exceptions import BackendError
+from solprop.translate.linop import phi_rate
 
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
 NativeBackend = native.NativeBackend
-
-LENGTH = 0.02
-"""Two centimetres of the gradient capillary, in :data:`STEPS` fixed steps."""
-
-STEPS = 10
-
-MARCHES = {
-    "adams": FIXED_ORDER,
-    "runge_kutta": None,
-    "low_storage": LowStorageRungeKutta(),
-}
-"""Each march on the prescribed schedule: the exponential Adams method (a varying
-operator's compensated march), Runge-Kutta (``None`` replays the schedule with it) and
-the low-storage march."""
-
-TABLES = {
-    "both": (True, True),
-    "phi": (True, False),
-    "prefactor": (False, True),
-}
-"""Which of the two quantities take the z table; the other keeps its expansion."""
-
-
-def capillary(field_grid, integrator):
-    """Return the helium gradient capillary on ten fixed steps, its expansions intact.
-
-    The fixture of ``tests/backends/conftest.py`` (``capillary_problem``) on a
-    prescribed schedule, with the collar integrated exactly so that the explicit
-    marches are stable at its steps.
-    """
-    mode = MarcatiliMode(
-        125e-6, "He", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
-    )
-    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
-    schedule = FixedSchedule.uniform(
-        0.0, LENGTH, LENGTH / STEPS * 1.0000001, save_planes=[LENGTH]
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        return assemble(
-            field_grid,
-            mode,
-            [KerrResponse(chi3=2.2e-52, thg=True)],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-14),
-            save_planes=[LENGTH],
-            dz_max=schedule.max_step,
-            dz_init=schedule.max_step,
-            schedule=schedule,
-            integrator=integrator,
-            absorber=absorber(field_grid),
-            absorber_scheme="split_step",
-        )
-
-
-def tabulate(translation, substitute, *, phi=True, prefactor=True):
-    """Return a translation with ``Phi``, the prefactor or both on the z table.
-
-    The tables are built from the values the expansions give, as
-    ``tests/backends/conftest.py``'s ``tabulated_problem`` builds them, the way a mode
-    set that declares no parameters would present them.
-    """
-    problem, run_request = translation
-    linear, responses = problem.linear, problem.responses
-    if phi:
-        table = build(
-            lambda z: np.stack([delta_phi(linear, 0.0, float(one)) for one in z]),
-            *linear.z_span,
-            tol=1e-10,
-        )
-        linear = dataclasses.replace(
-            linear,
-            phi_expansion=None,
-            phi_representation="table",
-            phi_breakpoints=table.breakpoints,
-            phi_coefficients=table.coefficients,
-            phi_degrees=table.degrees,
-            hard_kinks=table.hard_kinks,
-            phi_constant=None,
-        )
-    if prefactor:
-        table = build(
-            lambda z: np.stack([prefactor_at(responses, float(one)) for one in z]),
-            *responses.prefactor_span,
-            tol=1e-10,
-        )
-        for values in (
-            table.coefficients,
-            table.breakpoints,
-            table.degrees,
-            table.hard_kinks,
-        ):
-            values.setflags(write=False)
-        responses = dataclasses.replace(
-            responses,
-            prefactor_representation="table",
-            prefactor=table,
-            prefactor_expansion=None,
-            prefactor_constant=None,
-        )
-    return Translation(
-        substitute(
-            problem, run_request=run_request, linear=linear, responses=responses
-        ),
-        run_request,
-    )
 
 
 def clenshaw_bound(table, z):
@@ -165,39 +46,10 @@ def clenshaw_bound(table, z):
     return 8.0 * terms**2 * EPS * np.sum(np.abs(coefficients), axis=0)
 
 
-def launch_phase(problem, run_request, grid):
-    """Return the run's nonlinear phase ``L ||N(a_0)|| / ||a_0||`` by the reference.
-
-    ``tests/march_bounds.py``'s ``measured_scales``, at the seam.
-    """
-    backend = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        state = problem.initial.field0[None]
-        backend._hoist(0.0)
-        source = backend._nonlinear(
-            state, backend._stage_scalars(0.0, 0.0), np.ones_like(state)
-        )
-    finally:
-        backend.close()
-    return LENGTH * float(np.linalg.norm(source) / np.linalg.norm(state))
-
-
-def replay(backend_class, problem, run_request, grid):
-    """Replay the schedule to its plane in the backend's session; return the field."""
-    assert float(run_request.stepper.save_planes[-1]) == LENGTH
-    backend = backend_class(problem, run_request, grid=grid)
-    try:
-        field = run(backend, problem, run_request).fields[-1]
-    finally:
-        backend.close()
-    assert np.all(np.isfinite(field))
-    return field
-
-
 @pytest.fixture(scope="module")
-def tabulated(field_grid, substitute):
+def tabulated(field_grid):
     """The capillary with both quantities on the z table, under the Adams march."""
-    return tabulate(capillary(field_grid, FIXED_ORDER), substitute)
+    return tabulate(capillary(field_grid, FIXED_ORDER))
 
 
 def test_the_slots_hold_the_tables_values(tabulated, field_grid):
@@ -284,29 +136,6 @@ def test_the_rate_slot_holds_the_derivative_table(tabulated, field_grid):
         backend.close()
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("tables", TABLES)
-@pytest.mark.parametrize("march", MARCHES)
-def test_ten_steps_match_the_reference(field_grid, substitute, march, tables):
-    phi, prefactor = TABLES[tables]
-    problem, run_request = tabulate(
-        capillary(field_grid, MARCHES[march]),
-        substitute,
-        phi=phi,
-        prefactor=prefactor,
-    )
-    assert not problem.device_ready
-    bound = march_bound(
-        problem,
-        run_request,
-        phi=max(launch_phase(problem, run_request, field_grid), 0.1),
-        backend="native",
-    )
-    expected = replay(NumpyRefBackend, problem, run_request, field_grid)
-    got = replay(NativeBackend, problem, run_request, field_grid)
-    assert_matched(got, expected, bound, what=f"{march}, {tables} on the table")
-
-
 def test_a_device_build_refuses_the_table_naming_the_cpu_backends(
     tabulated, field_grid, monkeypatch
 ):
@@ -324,9 +153,7 @@ def test_a_device_build_refuses_the_table_naming_the_cpu_backends(
 
 
 @pytest.mark.parametrize("tables", TABLES)
-def test_no_cpu_configuration_refuses_a_z_table(
-    field_grid, substitute, tables, monkeypatch
-):
+def test_no_cpu_configuration_refuses_a_z_table(field_grid, tables, monkeypatch):
     # SEP 29 section 7: on a CPU build the native backend admits every z table, under
     # every march.
     def refuse(*_):
@@ -336,7 +163,7 @@ def test_no_cpu_configuration_refuses_a_z_table(
     phi, prefactor = TABLES[tables]
     for integrator in MARCHES.values():
         problem, run_request = tabulate(
-            capillary(field_grid, integrator), substitute, phi=phi, prefactor=prefactor
+            capillary(field_grid, integrator), phi=phi, prefactor=prefactor
         )
         NativeBackend(problem, run_request, grid=field_grid).close()
 
