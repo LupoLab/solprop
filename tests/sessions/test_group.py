@@ -308,6 +308,82 @@ def test_a_group_starts_its_members_fresh_and_one_start_each(backend):
             )
 
 
+def untouched(starts: Sequence[Start], owners: Sequence[Any]) -> list[bool]:
+    """Return whether each start keeps its field; assert every owner is still open."""
+    assert not any(owner.closed for owner in owners)
+    return [start.field is not None for start in starts]
+
+
+@pytest.mark.parametrize("backend", GROUPS)
+def test_a_refused_group_leaves_the_caller_its_starts_and_backends(backend):
+    available(backend)
+    halved = FixedSchedule.uniform(0.0, PLANES[-1], STEP / 2, save_planes=PLANES)
+    simulations = [member(0, backend), member(1, backend, schedule=halved)]
+    problems = [one.translate() for one in simulations]
+    requests = [one._run_request() for one in simulations]
+    with ExitStack() as cleanup:
+        owners = [constructed(one, cleanup) for one in simulations]
+        starts = [Start.entrance(problem) for problem in problems]
+        with pytest.raises(BackendError, match="schedule"):
+            start_group(owners, problems, requests, starts)
+        assert untouched(starts, owners) == [True, True]
+        # A start already handed to a session is refused before any member loads.
+        starts[1].take_field()
+        with pytest.raises(SessionError, match="already used"):
+            start_group(owners, problems, requests, starts)
+        assert untouched(starts, owners) == [True, False]
+        # One start or backend for two members would alias their state.
+        problems, requests = problems[:1] * 2, requests[:1] * 2
+        with pytest.raises(SessionError, match="its own start"):
+            start_group(owners[:1] * 2, problems, requests, starts[:1] * 2)
+        with pytest.raises(SessionError, match="its own backend"):
+            fresh = [starts[0], Start.entrance(problems[0])]
+            start_group(owners[:1] * 2, problems, requests, fresh)
+        assert untouched(starts, owners) == [True, False]
+
+
+@pytest.mark.parametrize("backend", GROUPS)
+def test_a_group_whose_later_member_fails_to_start_can_be_retried(backend, monkeypatch):
+    available(backend)
+    simulations = [member(index, backend) for index in range(2)]
+    problems = [one.translate() for one in simulations]
+    requests = [one._run_request() for one in simulations]
+    if backend == "native":
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
+
+        constructed_sessions: list[Any] = []
+
+        def second_fails(*args: Any, **kwargs: Any) -> Any:
+            if constructed_sessions:
+                raise BackendError("injected: the second member cannot start")
+            constructed_sessions.append(NativeSession(*args, **kwargs))
+            return constructed_sessions[-1]
+
+        monkeypatch.setattr("solprop_native.group.NativeSession", second_fails)
+    else:
+
+        def refused(members: Any) -> Any:
+            raise BackendError("injected: the runner refuses the group")
+
+        monkeypatch.setattr("solprop.backends.registry.select_batch", refused)
+    with ExitStack() as cleanup:
+        owners = [constructed(one, cleanup) for one in simulations]
+        starts = [Start.entrance(problem) for problem in problems]
+        with pytest.raises(BackendError, match="injected"):
+            start_group(owners, problems, requests, starts)
+        assert untouched(starts, owners) == [True, True]
+        monkeypatch.undo()
+        # The same starts and backends start the group, which takes and owns them.
+        group = start_group(owners, problems, requests, starts)
+        cleanup.callback(group.close)
+        assert [start.field for start in starts] == [None, None]
+        drive(group)
+        group.close()
+        assert all(owner.closed for owner in owners)
+
+
 @pytest.mark.parametrize("backend", GROUPS)
 def test_a_schedule_past_the_last_plane_completes_without_a_step(backend):
     # The completion takes no step, whatever the schedule holds beyond the last plane,

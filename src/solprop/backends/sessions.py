@@ -104,13 +104,14 @@ def start_group(
     ----------
     members : collections.abc.Sequence of solprop.backends.protocol.Backend
         One constructed backend per member, all of one backend; the group owns them
-        once constructed.
+        once constructed, and a construction that fails leaves them to the caller.
     problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor.
     starts : collections.abc.Sequence of solprop.backends.session.Start
-        Each member's entrance.
+        Each member's entrance; the group takes their fields once constructed, and a
+        construction that fails leaves them to the caller.
     stop : solprop.log.StopFlag or None, optional
         A group-wide stop token.
 
@@ -125,11 +126,11 @@ def start_group(
     Raises
     ------
     solprop.backends.session.SessionError
-        If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance.
+        If the sequences differ in length or are empty, if a start is not a fresh
+        entrance or was already used, or if two members share a start or a backend.
     solprop.exceptions.BackendError
         If the backend runs no group, or refuses this one.
     """
-    check_group(len(members), problems, requests, starts)
+    check_group(members, problems, requests, starts)
     prepared = members[0].prepare_group(members, problems, requests)
     return prepared.start(starts, stop=stop)

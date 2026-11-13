@@ -358,22 +358,23 @@ class NativeGroupSession:
         One constructed backend per member, each built for its problem and holding no
         state. Once the group is constructed it owns them, each through its member's
         native session, and closes them with itself; a construction that fails closes
-        the sessions it started.
+        the sessions it started and leaves the backends to the caller.
     problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor; their schedule,
         save planes and statistics are the group's common ones.
     starts : collections.abc.Sequence of solprop.backends.session.Start
-        Each member's entrance.
+        Each member's entrance. The group takes each start's field once it is
+        constructed; a construction that fails leaves them to the caller.
     stop : solprop.log.StopFlag or None, optional
         A group-wide stop token, polled between rounds of common steps.
 
     Raises
     ------
     solprop.backends.session.SessionError
-        If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance.
+        If the sequences differ in length or are empty, if a start is not a fresh
+        entrance or was already used, or if two members share a start or a backend.
     solprop.exceptions.BackendError
         Naming what the native group refuses (:func:`refusal`), before anything is
         allocated, or if a member is not a native backend.
@@ -389,7 +390,7 @@ class NativeGroupSession:
         stop: StopFlag | None = None,
     ) -> None:
         """Refuse what the native group does not run, then start each member."""
-        check_group(len(members), problems, requests, starts)
+        check_group(members, problems, requests, starts)
         if any(
             not isinstance(cast("object", member), NativeBackend) for member in members
         ):
@@ -399,16 +400,26 @@ class NativeGroupSession:
         if refused is not None:
             msg = f"the native group session does not run {refused}"
             raise BackendError(msg)
+        # Each member session loads a copy of its start, and the originals' fields are
+        # taken only once every member has started: a construction that fails leaves
+        # the caller its starts and its backends to retry with.
         sessions: list[NativeSession] = []
         try:
             for member, problem, request, start in zip(
                 members, problems, requests, starts, strict=True
             ):
-                sessions.append(NativeSession(problem, request, start, backend=member))
+                sessions.append(
+                    NativeSession(
+                        problem, request, dataclasses.replace(start), backend=member
+                    )
+                )
         except BaseException:
             for session in sessions:
+                session._owns = False  # pyright: ignore[reportPrivateUsage] - the caller keeps its backend
                 session.close()
             raise
+        for start in starts:
+            start.take_field()
         self._sessions = tuple(sessions)
         self._planes = int(np.asarray(requests[0].observation.save_planes).size)
         self._stop = stop
