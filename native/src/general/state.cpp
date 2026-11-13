@@ -464,6 +464,10 @@ void GeneralState::bind_host_source(std::shared_ptr<HostSource> source) {
 HostSource* GeneralState::host_source() const noexcept {
   return workspace_ ? workspace_->host_source() : nullptr;
 }
+void GeneralState::arm_source_fault(std::function<void()> fault) noexcept {
+  if (workspace_)
+    workspace_->arm_source_fault(std::move(fault));
+}
 void GeneralState::host_evaluation(const double z, const HostPurpose purpose) noexcept {
   if (workspace_)
     workspace_->host_evaluation(z, purpose);

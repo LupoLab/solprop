@@ -47,8 +47,9 @@ from tests.backends.native_trace_marches import TraceAdamsMarch  # noqa: E402
 
 CORPUS = Path(__file__).parents[1] / "data" / "adams_traces.json.gz"
 
-CHANGED = {"floor_short_landing"}
-"""Scenarios phase 0's commit-order fix changed; the fixed march is the reference."""
+CHANGED = {"floor_short_landing", "floor_after_rejections"}
+"""Scenarios a later fix changed -- phase 0's commit order, and the recorded rejection
+before a floor (issue #651); the fixed march is the reference."""
 
 
 def _corpus() -> list[dict[str, Any]]:
@@ -217,3 +218,36 @@ def test_calls_to_their_events_take_the_same_attempts(entry):
 
     assert attempts(found) == attempts(reference)
     assert found["end"] == reference["end"]
+
+
+def test_a_rejection_below_the_floor_records_its_attempt_in_both_marches():
+    # Issue #651: one order-one trial at z = 0 of 0.25 m, rejected with norm four, and
+    # its shrunk proposal (0.1 m) below the 0.2 m floor. Each march records the
+    # completed attempt once, then raises the floor with the accepted state, the
+    # proposal and the ledger as they were.
+    case = Scenario(
+        name="rejected_floor_accounting",
+        method={"order": 1, "variable_order": False},
+        z0=0.0,
+        proposal=0.25,
+        dz_min=0.2,
+        dz_max=1.0,
+        z_end=1.0,
+        norms=[[4.0, 4.0, 4.0]],
+    )
+    reference = run_scenario(case)
+    for trace in (reference, run_native(case, max_attempts=1)):
+        rows = [row for row in trace["events"] if "accepted" in row]
+        assert [
+            (row["end"], row["step"], row["norm"], row["accepted"], row["order"])
+            for row in rows
+        ] == [(0.25, 0.25, 4.0, False, 1)]
+        end = trace["end"]
+        assert end["stop"] == "ConvergenceError"
+        assert "below the floor dz_min = 2.000e-01 m" in end["message"]
+        assert (end["position"], end["proposal"]) == (0.0, 0.25)
+        assert end["history"] == [[0.0, "accepted", 0]]
+        # startup, predictor, rejected, accepted and rejected steps (`LEDGER`).
+        assert end["ledger"][:5] == [1, 1, 1, 0, 1]
+        assert end["in_flight"] == {}
+    assert run_native(case, max_attempts=1) == reference

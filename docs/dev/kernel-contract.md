@@ -1290,7 +1290,10 @@ ledger. A resume carries all of it exactly (`MarchSnapshot`).
 
 An acceptance commits the engine's state, the history, the ledger, the stored order, the
 position and a kink restart together. Only then is the next proposal tested against the
-floor. A floor so found is raised after the attempt is recorded.
+floor. A floor so found is raised after the attempt is recorded. A rejection's shrunk
+proposal is tested in the same way, and a floor it falls below leaves the proposal as
+it was and is raised after the rejected attempt is recorded (issue #651); a replay
+records no rejected attempt and raises it at once.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
 interval changes (`MarchPolicy`, every field of the record), with a replay's
