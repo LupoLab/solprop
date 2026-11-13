@@ -208,6 +208,7 @@ def test_a_plane_view_of_a_spatial_run_refuses_its_power_and_density(spatial_run
             OutputError, match=r"^get_spectral_density measures modal amplitudes"
         ):
             view.spectral_density()
+        assert set(view.quantities) == {"field"}
         assert view.spectrum()[1].shape[0] == output.fields().shape[1]
     finally:
         view._close()
@@ -270,10 +271,22 @@ def test_the_advice_names_only_what_works_on_the_route(spatial_run):
     assert on_axis_spectrum(stored, flux).shape == (simulation.grid.n_omega,)
 
 
+FIELD_UNITS = {
+    "radial": "V m",
+    "cartesian": "V/m",
+    "line": "V/m",
+    "planar": "sqrt(W/m)",
+}
+"""The unit each route stores its field in."""
+
+
 def test_the_file_statement_keeps_the_statistic_and_states_the_readers(spatial_run):
-    _, _, output = spatial_run
+    route, _, output = spatial_run
     statement = capabilities.output(output)
     assert statement.basis == "spatial"
+    # Only the field, in the stored unit: the modal flux readers refuse the file.
+    field = capabilities.Quantity("coordinate", FIELD_UNITS[route])
+    assert statement.quantities == {"field": field}
     # The energy statistic is the beam's physical flux, and stays admitted.
     assert statement.admits("energy") and statement.admits("peak_intensity")
     assert set(statement.refused_readers) == set(COLUMN_READINGS)

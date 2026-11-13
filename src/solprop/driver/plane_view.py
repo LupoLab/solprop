@@ -107,9 +107,11 @@ class PlaneView:
     def quantities(self) -> dict[str, Quantity]:  # numpydoc ignore=RT01
         """What the plane's derived quantities are.
 
-        Whether its power, energy, density and field are physical fluxes.
+        Whether its power, energy, density and field are physical fluxes, as
+        :func:`solprop.capabilities.output` states them; a spatial plane has only
+        its field.
         """
-        return _quantities(self.basis)
+        return _quantities(self._metadata, self.basis)
 
     def _reader(self) -> MemoryOutput:
         """Return the plane as a one-plane output, fetching its field once if needed."""

@@ -517,8 +517,9 @@ def test_a_failed_evaluation_keeps_the_last_accepted_state(binding_class):
 
 
 def test_an_abandoned_attempt_s_failed_release_is_a_note_on_the_run_s_error():
-    """Section 6.3: the step-size floor abandons the first attempt, whose release
-    fails; that failure rides on the floor's error as a note, on both."""
+    """Section 6.3: the step-size floor follows the first attempt, recorded as
+    rejected (issue #651), whose release fails; that failure rides on the floor's
+    error as a note, on both."""
     case = _case(length=1e-2, dz_max=1e-4, dz_init=1e-4, dz_min=9e-5, absorber=None)
     runs = _pair(case, ReleaseFails)
     errors = [runs[name][0].terminal.error for name in ("numpy_ref", "native")]

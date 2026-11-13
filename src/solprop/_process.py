@@ -5,8 +5,8 @@
 """The CPUs this process may run on, as the scheduler granted them.
 
 Linux reports affinity per thread. An OpenMP runtime started with ``OMP_PROC_BIND``
-set -- GNU libgomp, which Kokkos's builds load -- binds the **main** thread to the first
-of its places when it starts, so after the first parallel region
+or ``OMP_PLACES`` set -- GNU libgomp, which Kokkos's builds load -- binds the **main**
+thread to the first of its places when it starts, so after the first parallel region
 ``os.sched_getaffinity(0)`` names one CPU although the process was granted many. A
 thread pool sized from that answer runs on one core (measured: an 18-core allocation
 gave a pool sized this way one thread). The affinity is therefore read once, when
@@ -342,19 +342,23 @@ _AT_IMPORT = _at_import()
 def allowed_cpus() -> tuple[int, ...]:
     """Return the CPUs this process may run on, undoing an OpenMP main-thread binding.
 
-    The current affinity, unless ``OMP_PROC_BIND`` is set and the current answer is a
+    The current affinity, unless OpenMP binding is on and the current answer is a
     single CPU, or the hardware threads of a single core, of the wider set the process
     had when ``solprop`` was imported: that is the runtime's binding of the main thread
     to its first place (``OMP_PLACES=threads`` or ``cores``) and not the scheduler's
-    grant, so the import-time set is returned. A deliberate narrowing to several cores,
-    or any narrowing without ``OMP_PROC_BIND``, is believed.
+    grant, so the import-time set is returned. Binding is on when ``OMP_PROC_BIND`` is
+    set to anything but ``false``, or when it is unset and ``OMP_PLACES`` is set:
+    libgomp then binds as if it were ``true`` (measured: ``OMP_PLACES=cores`` alone
+    bound the main thread to one core's two hardware threads). A deliberate narrowing
+    to several cores, or any narrowing with binding off, is believed.
 
     - Returns: sorted CPU indices, at least one.
     """
     current = _query()
     binding = os.environ.get("OMP_PROC_BIND", "").strip().lower()
+    places = os.environ.get("OMP_PLACES", "").strip()
     if (
-        binding not in {"", "false"}
+        (binding not in {"", "false"} or (not binding and places))
         and len(_AT_IMPORT) > len(current)
         and set(current) <= set(_AT_IMPORT)
         and (len(current) == 1 or physical_cores(current) == 1)
@@ -467,8 +471,22 @@ def _read_cgroup_cpus(root: Path) -> int | None:
         lines = (root / "proc/self/cgroup").read_text(encoding="utf-8").splitlines()
     except OSError:
         return None
+    quotas = [
+        quota
+        for directory in _cgroup_path(root, lines, "cpu")
+        if (quota := _quota(directory)) is not None
+    ]
+    return min(quotas) if quotas else None
+
+
+def _cgroup_path(root: Path, lines: Sequence[str], controller: str) -> Iterator[Path]:
+    """Yield a controller's group directories from the process's own up to the mount.
+
+    - ``lines``: ``/proc/self/cgroup``, one ``hierarchy:controllers:path`` per line;
+      a line of another form is skipped. Version 2's unified line serves every
+      controller, version 1's only its own.
+    """
     mounts = root / "sys/fs/cgroup"
-    quotas: list[int] = []
     for line in lines:
         fields = line.split(":", 2)
         if len(fields) != 3:
@@ -476,18 +494,55 @@ def _read_cgroup_cpus(root: Path) -> int | None:
         controllers, path = fields[1], Path(fields[2].lstrip("/"))
         if not controllers:
             base = mounts
-        elif "cpu" in controllers.split(","):
+        elif controller in controllers.split(","):
             base = mounts / controllers
-            base = base if base.is_dir() else mounts / "cpu"
+            base = base if base.is_dir() else mounts / controller
         else:
             continue
         # A container without its own cgroup namespace names the host's path, which
         # its /sys/fs/cgroup does not have; the parents end at the mount, its own group.
         for directory in (path, *path.parents):
-            quota = _quota(base / directory)
-            if quota is not None:
-                quotas.append(quota)
-    return min(quotas) if quotas else None
+            yield base / directory
+
+
+def cgroup_memory(root: Path | None = None) -> int | None:
+    """Return the tightest memory limit on this process's control-group path.
+
+    Every group from the process's own up to the hierarchy's root is read --
+    ``memory.max`` (version 2) and ``memory.limit_in_bytes`` (version 1) -- because a
+    parent's limit binds its children, and on a shared node the root group is often
+    unlimited while the process's own is not. Unlike :func:`cgroup_cpus` it is read
+    afresh at each call, and a limit file that exists but cannot be read or parsed is
+    an error, not "no limit": admitting workers against the whole machine is how the
+    group's limit kills them.
+
+    - ``root``: filesystem root holding ``proc/self/cgroup`` and ``sys/fs/cgroup``;
+      ``/`` when unset.
+    - Returns: bytes, positive, or ``None`` where no limit is set (``max``, or zero)
+      or the process has no control groups (not Linux).
+    - Raises ``OSError`` when a file that exists cannot be read and ``ValueError`` when
+      a limit is neither ``max`` nor a whole number of bytes; both name the file.
+    """
+    root = Path("/") if root is None else root
+    record = root / "proc/self/cgroup"
+    if not record.exists():
+        return None
+    limits: list[int] = []
+    for directory in _cgroup_path(
+        root, record.read_text(encoding="utf-8").splitlines(), "memory"
+    ):
+        for name in ("memory.max", "memory.limit_in_bytes"):
+            file = directory / name
+            if not file.exists():
+                continue
+            value = file.read_text(encoding="utf-8").strip()
+            if value == "max":
+                continue
+            if not value.isdecimal():
+                raise ValueError(f"{file} holds {value!r}, not a memory limit in bytes")
+            if int(value) > 0:
+                limits.append(int(value))
+    return min(limits) if limits else None
 
 
 def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:

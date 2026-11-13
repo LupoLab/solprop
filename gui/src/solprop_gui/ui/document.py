@@ -268,8 +268,11 @@ class SetupDocument(QObject):
         adapt = self._adapt.pop(reply.request_id, None)
         if purpose.startswith("describe-") and reply.ok and isinstance(value, dict):
             route = str(value["route"])
-            self.descriptions[route] = value
-            self.described.emit(route)
+            # A route asked ahead and asked again as its setup opened can be
+            # answered twice; a second answer would rebuild the sheet for nothing.
+            if route not in self.descriptions:
+                self.descriptions[route] = value
+                self.described.emit(route)
         elif purpose == "example" and reply.ok and isinstance(value, str):
             model = RecipeModel(value)
             if adapt is not None:
