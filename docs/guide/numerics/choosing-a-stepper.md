@@ -145,7 +145,12 @@ There:
 
 - for a dense, multimode, Raman-active run such as a comb-to-continuum capillary, use
   `Multistep(carrier_frame="scalar")`: the fastest method measured, about half the
-  default's and IP-DOPRI5's time;
+  default's and IP-DOPRI5's time, when the observable is the populated band or the
+  developed spectrum. It loses a weak driven band that is still forming: near the
+  launch, a comb-to-continuum's blue side and a Raman self-frequency shift's red band
+  came out a few hundred times less accurate than with the default at matched
+  total-field error, and the step-size norm does not see it. Where such a band is the
+  observable, keep the default or check the band against a tighter run;
 - for a single-mode dense-gas run (an argon blue shift, a soliton self-frequency
   shift), use `Multistep(formulation="interaction")`;
 - at a loose tolerance, `RungeKutta()` or `rtol <= 1e-4` with the default.

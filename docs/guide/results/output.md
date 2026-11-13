@@ -366,15 +366,19 @@ recipe, leaves it as it is and is recorded in its own execution record.
 reader may offer: the file's basis (`modal`, `general_modal` or `spatial`); whether its
 power, energy, spectral density and field are **physical fluxes** (an orthogonal modal
 basis) or **coordinate quantities** (a general modal basis, whose physical energy is
-`physical_energy`, and a spatial grid, per transverse column); which saved planes keep
-their field and which only their statistics; which of the basis-dependent accessors and
-compression its readers refuse, with the refusal they give, read from the same gates
-(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
-`refused_readers`, which processing and plotting readers refuse it (on a spatial file
-every reader that would read its columns as modes, such as `get_power`);
-what a general modal reconstruction needs that the file only identifies (the guide and
-the reference tables); whether it records a recipe; and, for a path, its
-[resumability](resuming.md#what-a-file-allows).
+`physical_energy`), in W, J, J s/rad and √W. A spatial file states only its field, a
+coordinate quantity per transverse column in the run's stored unit (V m radially, V/m
+on a Cartesian or line grid, √(W/m) per y frequency on a planar one): the readers of
+its power, energy and spectral density read the columns as modes and refuse it, and
+the beam's flux is a [spatial functional](../free-space/flux.md#using-the-measure).
+It also says which saved planes keep their field and which only their statistics;
+which of the basis-dependent accessors and compression its readers refuse, with the
+refusal they give, read from the same gates (a spatial file admits `energy`, whose
+statistic is the beam's physical energy); in `refused_readers`, which processing and
+plotting readers refuse it (on a spatial file every reader that would read its
+columns as modes, such as `get_power`); what a general modal reconstruction needs
+that the file only identifies (the guide and the reference tables); whether it
+records a recipe; and, for a path, its [resumability](resuming.md#what-a-file-allows).
 
 ### The writer-lock sidecar
 

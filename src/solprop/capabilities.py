@@ -44,9 +44,11 @@ from solprop.output.capability import (
     capability_of,
     reading_refusal,
     refusal_for,
+    spatial_field_unit,
     withheld_from,
 )
 from solprop.output.hdf5 import open_file
+from solprop.output.metadata import RunMetadata
 from solprop.output.resumable import Resumability, resumability
 from solprop.output.store import Output
 from solprop.physdata.gases import Gas, as_gas, is_molecule
@@ -112,7 +114,11 @@ class OutputCapabilities:
         The kind of run, as its record names it.
     quantities : collections.abc.Mapping
         :class:`Quantity` for ``power``, ``energy``, ``spectral_density`` and
-        ``field``.
+        ``field``. A spatial file has only ``field``, a coordinate quantity per
+        transverse column in its route's stored unit (V m radially, V/m on a
+        Cartesian or line grid, sqrt(W/m) per y frequency on a planar one); the
+        readers of its power, energy and spectral density (``get_power``,
+        ``energy`` and ``get_spectral_density``) refuse it, in ``refused_readers``.
     field_planes : tuple of int
         The saved planes that keep their field.
     statistics_planes : tuple of int
@@ -162,14 +168,18 @@ class OutputCapabilities:
         return operation not in self.refused
 
 
-def _quantities(basis: BasisCapability) -> dict[str, Quantity]:
+def _quantities(metadata: RunMetadata, basis: BasisCapability) -> dict[str, Quantity]:
     """Return what each derived quantity is on a basis.
 
     - Returns: the quantities: physical on an orthogonal modal basis, coordinate on a
       general one (whose physical energy is
-      :func:`solprop.processing.modal.physical_energy`) and on a spatial grid, whose
-      amplitudes are per transverse column.
+      :func:`solprop.processing.modal.physical_energy`). On a spatial grid only the
+      field, per transverse column in its route's stored unit: the readers that
+      would give the power, energy and spectral density read the columns as modes
+      and refuse the file (``refused_readers``).
     """
+    if basis == "spatial":
+        return {"field": Quantity("coordinate", spatial_field_unit(metadata))}
     kind: QuantityKind = "physical" if basis == "modal" else "coordinate"
     return {
         "power": Quantity(kind, "W"),
@@ -266,7 +276,7 @@ def _statement(handler: Output, resumable: Resumability | None) -> OutputCapabil
     return OutputCapabilities(
         basis,
         metadata.simulation_kind,
-        _quantities(basis),
+        _quantities(metadata, basis),
         kept,
         others,
         refused,
