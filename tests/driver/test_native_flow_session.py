@@ -281,9 +281,8 @@ def test_the_session_runs_bins_off_the_route_within_the_bound(
 ):
     """The session admits the taper off the route, held to the reference's bound.
 
-    ``numpy_ref`` within the bound of
-    :func:`test_bins_off_the_route_are_the_reference_s`, and the same run twice to the
-    bit on one thread.
+    ``numpy_ref`` within the bound of the ``flow off route taper`` rows of the case
+    catalogue, and the same run twice to the bit on one thread.
     """
     simulation, problem = parity_cases("taper")
     request, grid = simulation._run_request(), simulation.grid

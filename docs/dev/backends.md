@@ -1014,8 +1014,8 @@ frequency-dependent map of three Cartesian components.
   combination adds `2 u n_deg (3 kappa_S + kappa_Q)` to the source bound. A constant guide never
   combines and is the constant route exactly.
 - **Parity is a rounding statement** against `numpy_ref`, with the bound stated first
-  (`tests/general_parity.py`, `native/tests/test_general_modal.py`,
-  `tests/driver/test_native_moving_guide.py`). Not bitwise: FFTW is not pocketfft, and numpy's
+  (`tests/general_parity.py`, `native/tests/test_general_modal.py`, and the case catalogue's
+  `moving guide ...` rows in `tests/backends/flow_rows.py`). Not bitwise: FFTW is not pocketfft, and numpy's
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
   on the reference, so on one state the two agree to the statistic's rounding bound. The
@@ -1097,8 +1097,8 @@ name.
   which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
   1e-12 (`adams_block_to_host`, a test observation).
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
-  actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
-  fixed steps on each case.
+  actions and the steps, and `parity_bound` in `tests/coupled_flow_cases.py` for ten fixed steps
+  on each case (the case catalogue's rows, `tests/backends/flow_rows.py`).
 - **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
   the native group refuses a member carrying the leaf by name, as the reference's does.
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).

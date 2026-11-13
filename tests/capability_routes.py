@@ -21,7 +21,8 @@ family of rows lives beside the cases it builds from (``backends/dispersive_rows
 the spatial family's ``backends/free_rows.py``, ``backends/planar_rows.py``,
 ``backends/geometry_rows.py`` and ``backends/session_rows.py``, and the general route's
 and the mixture's ``backends/general_rows.py``, ``backends/mixture_rows.py`` and
-``backends/ladder_rows.py``) and is collected here. A row may also write its readings
+``backends/ladder_rows.py``, and the coupled flow's ``backends/flow_rows.py``) and is
+collected here. A row may also write its readings
 into an accuracy record (``Row.record``), as the free-space ladders and the validation
 ladder's soliton do.
 
@@ -63,13 +64,15 @@ unless the guard found an old claim vacuous: such a row is kept, but declares it
 ``vacuous`` with what was measured, so that every exception is named where the row is.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the session and coupled-flow ladders (of the sessions, the low-storage and z-table
-marches have joined, ``backends/session_rows.py``). The mixture's fixed-schedule
-comparisons have joined (``backends/mixture_rows.py``), and so have the general route's
-(``backends/general_rows.py``) and the retired column tests
-(``backends/column_rows.py``). An adaptive march's comparisons stay outside (#809), and
-so do a comparison read from the output's stored planes, which no rung reads, an
-adaptive march's periodic rows, which no rung marches, and the modules that hold native
+the session ladders (of the sessions, the low-storage and z-table marches have joined,
+``backends/session_rows.py``). The mixture's fixed-schedule comparisons have joined
+(``backends/mixture_rows.py``), and so have the general route's
+(``backends/general_rows.py``), the retired column tests (``backends/column_rows.py``)
+and the coupled flow's (``backends/flow_rows.py``: its ten-step marches, the moving
+guides, the bins off the eigenbasis route, the wide flows, and the driver runs that read
+the last saved plane). An adaptive march's comparisons stay outside (#809), and so do
+an adaptive march's periodic rows, which no rung marches, a source evaluation beside a
+coupled flow, whose zero-length trial native refuses, and the modules that hold native
 to the recorded decision traces, to solprop's own translation or reduction, or to its
 admission rules, which compare nothing with the reference.
 """

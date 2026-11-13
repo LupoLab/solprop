@@ -38,9 +38,10 @@ bounds.
 
 **Not here.** The moving guide under the split collar (``slow``, an absolute bound read
 from three more reference runs of the quiet launch) stays in
-``test_native_general_split.py`` beside the coupled-flow parity of the moving guides
-(``tests/driver/test_native_moving_guide.py``), and so does the entry point's run (the
-saved plane in the output's own convention, which no rung reads).
+``test_native_general_split.py``, beside the coupled-flow parity of the moving guides
+(``backends/flow_rows.py``'s ``moving guide ...`` rows). So does the entry point's run:
+the saved plane in the output's own convention, which the ``last_plane`` rung reads
+now, though the run has not moved yet.
 
 **How to read a row.** Every row is a :func:`general_row` call, for example::
 
