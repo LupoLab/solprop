@@ -79,8 +79,10 @@ jobs:
           fi
           echo "lanes=$lanes" | tee -a "$GITHUB_OUTPUT"
           # Whether a device build could have changed; without a diff to read, it could.
+          # The second grep reads the whole pipe: grep -q stops at its first match, the
+          # first grep then dies of SIGPIPE, and under pipefail that reads as no match.
           device=true
-          if [ -f changed.txt ] && ! grep -vE '\.md$' changed.txt | grep -qE '^native/|^\.github/workflows/ci\.yml$'; then
+          if [ -f changed.txt ] && ! grep -vE '\.md$' changed.txt | grep -E '^native/|^\.github/workflows/ci\.yml$' > /dev/null; then
             device=false
           fi
           echo "device=$device" | tee -a "$GITHUB_OUTPUT"
