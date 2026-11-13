@@ -581,14 +581,18 @@ class Worker:
 
     def _exited(self) -> WorkerError:
         """Return the failure of a worker whose pipe ended: its status, its stderr."""
+        # Only a started worker is waited on, so its process and pipes exist.
         process = self._process
+        assert process is not None and process.stderr is not None
         self._usable = False
-        status: int | None = None
-        if process is not None:
-            try:
-                status = process.wait(timeout=CLOSE_GRACE)
-            except subprocess.TimeoutExpired:
-                status = None
+        try:
+            status = process.wait(timeout=CLOSE_GRACE)
+        except subprocess.TimeoutExpired:
+            status = None
+        if status is not None:
+            # Its last words may still be in the pipe, which ends now that it has
+            # exited (unless a grandchild holds it open: the grace bounds that).
+            self._threads[process.stderr].join(timeout=CLOSE_GRACE)
         tail = "\n".join(self._tail)
         error = WorkerError(
             f"the source worker ended (exit status {status}) without replying"
@@ -614,9 +618,10 @@ def _end(
                 # Its own session: the group holds anything the provider started.
                 os.killpg(process.pid, signal.SIGKILL)
     process.wait()
-    if process.stdin is not None:
-        with contextlib.suppress(OSError):
-            process.stdin.close()
+    # Every worker is started with all three pipes.
+    assert process.stdin is not None
+    with contextlib.suppress(OSError):
+        process.stdin.close()
     # The worker's ends are closed now, so its readers see the end of their pipes.
     for stream, thread in threads.items():
         thread.join(timeout=CLOSE_GRACE)

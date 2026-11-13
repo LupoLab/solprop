@@ -511,6 +511,11 @@ def inject(raw, failure):  # noqa: PLR0912 - one injected malformation per branc
         raw.info = dataclasses.replace(raw.info, spacing=raw.info.spacing * 2)
     elif failure == "info_atom":
         raw.info = dataclasses.replace(raw.info, atom=FakeHelium(2, 6))
+    elif failure == "info_unreadable":
+        # An info record the provider's comparison cannot read: no atom.
+        fields = {name: getattr(raw.info, name) for name in vars(raw.info)}
+        del fields["atom"]
+        raw.info = SimpleNamespace(**fields)
     elif failure == "wrong_type":
         return SimpleNamespace(**vars(raw))
     elif failure == "extents":

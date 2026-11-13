@@ -5,13 +5,16 @@
 """Manufactured adapters the source worker serves in the tests, inside the worker.
 
 ``make_adapter`` is a provider-agnostic adapter whose requests misbehave on purpose:
-it echoes, hangs, raises, exits, prints, closes its pipe or writes a malformed frame.
+it echoes, hangs, raises, exits, prints, closes its pipe, writes a malformed frame or a
+message out of turn, returns what the codec refuses, starts a grandchild or makes its
+own close hang.
 The ``*_tdse`` factories serve the TDSE binding with Pyroraptor's adapter around the
 manufactured haCC provider of ``hacc_cases`` (SEP 49 section 7.2), the module this
 worker imports in place of ``pyroraptor``.
 """
 
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -28,6 +31,9 @@ test (the call returns) instead of hanging it, and far above any cancellation's 
 
 class _Manufactured:
     """An adapter with no provider: each request names its behaviour."""
+
+    def __init__(self):
+        self._slow_close = False
 
     def identity(self):
         return {"adapter": "manufactured", "pid": os.getpid()}
@@ -75,12 +81,45 @@ class _Manufactured:
                 "modules": sorted(sys.modules),
                 "main": None if spec is None else spec.name,
             }
+        return self._out_of_line(kind)
+
+    def _out_of_line(self, kind):
+        """Serve the environment and the requests that break the protocol."""
         if kind == "environment":
             return dict(os.environ)
+        if kind == "hello_again":
+            _send_out_of_turn("hello", {"protocol": _source_worker.PROTOCOL_VERSION})
+            time.sleep(HANG_SECONDS)
+        if kind == "unencodable":
+            nested = []
+            nested.append(nested)
+            return nested
+        if kind == "spawn":
+            # In a session of its own, out of the worker's group, holding its stderr.
+            child = subprocess.Popen(
+                [sys.executable, "-c", f"import time; time.sleep({HANG_SECONDS})"],
+                start_new_session=True,
+            )
+            return child.pid
+        if kind == "slow_close":
+            self._slow_close = True
+            return None
         raise KeyError(kind)
 
     def close(self):
-        pass
+        if self._slow_close:
+            time.sleep(HANG_SECONDS)
+
+
+def _send_out_of_turn(kind, value):
+    """Write a message on the protocol pipe that the worker's loop did not send."""
+    _source_worker.write_message(
+        lambda data: _source_worker._write_all(
+            _source_worker.PROTOCOL_DESCRIPTORS[1], data
+        ),
+        kind,
+        value,
+    )
 
 
 def make_adapter():
@@ -89,6 +128,12 @@ def make_adapter():
 
 def failing_adapter():
     raise ValueError("the manufactured provider cannot start")
+
+
+def early_reply_adapter():
+    """Answer before the handshake, as a worker of another protocol might."""
+    _send_out_of_turn("reply", "too early")
+    return _Manufactured()
 
 
 def _provider(**changes):
@@ -103,6 +148,8 @@ def _provider(**changes):
     hang = os.environ.get("MANUFACTURED_HANG_AFTER")
     if hang is not None:
         _hang_after(provider, int(hang))
+    if os.environ.get("MANUFACTURED_EXIT_IN_CALL") is not None:
+        _exit_in_call(provider)
     return provider
 
 
@@ -144,6 +191,25 @@ def _hang_after(provider, calls):
             return evaluate(fields)
 
         built.evaluate = slow
+        return built
+
+    provider.hacc.ResponsePlan = plan
+
+
+def _exit_in_call(provider):
+    """Make every atomic call end the worker, saying why on its standard error."""
+    original = provider.hacc.ResponsePlan
+
+    def plan(model, **values):
+        built = original(model, **values)
+
+        def exits(fields):
+            del fields
+            sys.stderr.write("the manufactured provider exits mid-call\n")
+            sys.stderr.flush()
+            os._exit(9)
+
+        built.evaluate = exits
         return built
 
     provider.hacc.ResponsePlan = plan

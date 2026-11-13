@@ -27,7 +27,7 @@ import os
 import warnings
 from collections.abc import Mapping
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import numpy as np
@@ -610,9 +610,7 @@ def _estimated_memory(
 
 
 def _json_default(value: object) -> object:
-    """Convert a public native record or array into JSON-compatible containers."""
-    if is_dataclass(value) and not isinstance(value, type):
-        return asdict(value)
+    """Convert a provider record or array into JSON-compatible containers."""
     if isinstance(value, Record):
         # A provider record from the worker: its fields, as the dataclass gave them.
         return dict(vars(value))
@@ -943,10 +941,12 @@ def _returned(reply: object) -> _Native:
     """
     answer = cast("Mapping[str, Any]", reply)
     raw = answer["raw"]
-    if isinstance(raw, Record):
-        raw.computed["provider_type"] = raw.record_type.rpartition(".")[2]
-        raw.record_type = answer["kind"]
-        raw.computed["model_match"] = answer["model_match"]
+    if not isinstance(raw, Record):
+        # Nothing, or an object without fields, which the worker sends as its repr.
+        raise BackendError(f"the TDSE provider returned no result record: {raw!r}")
+    raw.computed["provider_type"] = raw.record_type.rpartition(".")[2]
+    raw.record_type = answer["kind"]
+    raw.computed["model_match"] = answer["model_match"]
     return raw
 
 
@@ -971,10 +971,9 @@ def _component(shadow: _Native, quantity: str, order: int) -> np.ndarray:
     The worker evaluated the provider's method (``_pyroraptor``); a component it
     refused raises here as the provider raised it.
     """
-    components = cast("Mapping[str, Any]", shadow.components)
-    found = components.get(f"{quantity}:{order}")
-    if found is None:
-        raise ValueError(f"order must be one of {shadow.orders}")
+    # The worker evaluated every quantity at each order the shadow reports, and the
+    # binding asks only for orders it has checked against those labels.
+    found = cast("Mapping[str, Any]", shadow.components)[f"{quantity}:{order}"]
     if isinstance(found, Mapping):
         refusal = cast("Mapping[str, str]", found)
         if refusal["type"] == "ValueError":
@@ -2139,10 +2138,10 @@ def _diagnostic(
         finally:
             budget.release_reservation()
     finally:
-        # A failed or cancelled call has ended the worker already; nothing to close.
-        if worker.alive:
-            with contextlib.suppress(RemoteError, WorkerError):
-                worker.request("diagnostic_close", {})
+        # A failed or cancelled call has ended the worker already, which then refuses
+        # the close at once as not running: nothing is left to close.
+        with contextlib.suppress(RemoteError, WorkerError):
+            worker.request("diagnostic_close", {})
     return (
         np.array(total[0], dtype=np.float64, copy=True),
         np.array(first[0], dtype=np.float64, copy=True),

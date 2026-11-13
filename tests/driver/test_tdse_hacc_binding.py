@@ -35,6 +35,7 @@ from tests.hacc_cases import (
 import source_channel
 from solprop.constants import EPS0, C
 from solprop.driver import tdse
+from solprop.driver._source_worker import RemoteError
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -431,6 +432,7 @@ def test_valid_call_returns_owning_read_only_padded_arrays(fake):
         "wrong_type",
         "info",
         "info_atom",
+        "info_unreadable",
         "labels",
         "bound_none",
         "bound_negative",
@@ -855,6 +857,26 @@ def test_sae_binding_has_no_consistency_diagnostic(monkeypatch):
     with pytest.raises(BackendError, match="needs a haCC binding"):
         binding.diagnostic_currents(field, spacing)
     binding.close()
+
+
+@pytest.mark.parametrize(
+    ("kind", "message"),
+    [
+        ("no_such_request", "has no request 'no_such_request'"),
+        ("diagnostic_plan", "needs a haCC binding"),
+        ("diagnostic_evaluate", "no consistency diagnostic plan is open"),
+    ],
+)
+def test_the_adapter_refuses_requests_outside_its_protocol(fake, kind, message):
+    """The worker's adapter refuses by name what the binding never sends."""
+    worker = source_channel.InProcessWorker()
+    request = {"samples": 8, "spacing": 1e-17, "drive": np.zeros((1, 8))}
+    with pytest.raises(RemoteError, match=message) as raised:
+        worker.request(kind, request)
+    assert raised.value.type_name == "solprop.exceptions.BackendError"
+    assert raised.value.classification == "contract"
+    assert not worker.alive
+    assert fake.calls == []
 
 
 def test_diagnostic_session_classifies_preparation_failures_and_reports(

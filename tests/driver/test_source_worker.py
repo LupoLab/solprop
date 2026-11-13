@@ -16,13 +16,16 @@ import importlib.util
 import io
 import json
 import os
+import queue
+import runpy
 import signal
 import subprocess
 import sys
 import threading
 import time
+import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import psutil
@@ -31,7 +34,9 @@ import pytest
 from solprop._interrupts import committing, handled, interruptible
 from solprop.driver import _source_worker
 from solprop.driver._source_worker import (
+    CONTROL_LIMIT,
     POLL_INTERVAL,
+    Opaque,
     Record,
     RemoteError,
     Worker,
@@ -105,6 +110,26 @@ def test_the_codec_round_trips_values_and_records_without_pickle():
     assert isinstance(record, Record) and record.record_type.endswith("_Pair")
     assert record.left == (1,)
     assert back["opaque"].type_name == "builtins.object"
+
+
+@pytest.mark.medium
+def test_the_codec_carries_numpy_scalars_and_sends_callables_as_opaque():
+    tree, arrays = encode({"step": np.int32(3), "z": np.float64(0.5), "f": len})
+    back: Any = decode(json.loads(json.dumps(tree)), arrays)
+    assert back["step"] == 3 and type(back["step"]) is int
+    assert back["z"] == 0.5 and type(back["z"]) is float
+    assert back["f"] == Opaque("builtins.builtin_function_or_method", repr(len))
+
+
+@pytest.mark.medium
+def test_a_received_record_re_encodes_with_its_type_and_computed_values():
+    """A record sent on keeps its type; the sender's computed values win."""
+    tree, arrays = encode(_Pair(1, 2), lambda value: {"ok": True, "kept": 1})
+    received: Any = decode(tree, arrays)
+    again: Any = decode(*encode(received, lambda value: {"ok": False}))
+    assert again.record_type == received.record_type
+    assert vars(again) == {"left": 1, "right": 2}
+    assert again.computed == {"ok": False, "kept": 1}
 
 
 @pytest.mark.medium
@@ -259,6 +284,103 @@ def test_a_message_this_side_cannot_decode_is_a_protocol_error(body):
         _source_worker.read_message(stream.read, len(control))
 
 
+def _frame(payload):
+    return _source_worker._HEADER.pack(len(payload)) + payload
+
+
+def _control(*arrays, kind: object = "reply"):
+    message = {"kind": kind, "body": None, "arrays": list(arrays)}
+    return _frame(json.dumps(message).encode())
+
+
+_LIMIT = 4096
+_HEADER = _source_worker._HEADER
+_FOUR = {"dtype": "<f8", "shape": [4]}
+
+
+@pytest.mark.parametrize(
+    ("stream", "message"),
+    [
+        (_frame(b"{}")[:3], "ended inside a frame"),
+        (_HEADER.pack(10), "ended inside a frame"),
+        (_HEADER.pack(10) + b"abc", "ended inside a frame"),
+        (_HEADER.pack(_LIMIT + 1), f"declares {_LIMIT + 1} bytes, over its bound"),
+        (_control(kind=3), "malformed worker message: TypeError"),
+        (_frame(b'{"kind": "reply", "body": null, "arrays": {}}'), "TypeError"),
+        (_control({"dtype": "|O", "shape": [1]}), "TypeError: object"),
+        (_control({"dtype": "<M8[s]", "shape": [1]}), "TypeError: datetime64"),
+        (_control({"dtype": "<f8", "shape": [2, -1]}), "TypeError: float64"),
+        (_control({"dtype": "<f8", "shape": [1024]}), "8192 bytes is over its bound"),
+        (_control(_FOUR) + _frame(bytes(16)), "does not match its declared shape"),
+        (_control(_FOUR), "does not match its declared shape"),
+    ],
+    ids=[
+        "header cut",
+        "payload missing",
+        "payload cut",
+        "frame over the bound",
+        "kind not a string",
+        "arrays not a list",
+        "object dtype",
+        "datetime dtype",
+        "negative extent",
+        "array over the bound",
+        "short array frame",
+        "missing array frame",
+    ],
+)
+@pytest.mark.medium
+def test_a_truncated_oversized_or_mistyped_message_is_refused(stream, message):
+    """Every length and shape is checked before anything is allocated (P5)."""
+    with pytest.raises(WorkerError, match=message):
+        _source_worker.read_message(io.BytesIO(stream).read, _LIMIT)
+
+
+@pytest.mark.medium
+def test_end_of_file_between_messages_is_none_and_a_whole_message_reads():
+    stream = io.BytesIO(_control(_FOUR) + _frame(np.arange(4.0).tobytes()))
+    kind, body, arrays = cast("Any", _source_worker.read_message(stream.read, _LIMIT))
+    assert (kind, body) == ("reply", None)
+    np.testing.assert_array_equal(arrays[0], np.arange(4.0))
+    assert _source_worker.read_message(stream.read, _LIMIT) is None
+
+
+class _Unreadable(io.BufferedReader):
+    """A reply pipe whose read fails with `error`."""
+
+    def __init__(self, error):
+        read_end, write_end = os.pipe()
+        os.close(write_end)
+        super().__init__(io.FileIO(read_end, "r"))
+        self.error = error
+
+    def read(self, size: int | None = -1):
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "queued"),
+    [
+        (OSError("Bad file descriptor"), None),
+        (ValueError("I/O operation on closed file"), None),
+        (RuntimeError("reentrant call"), "could not be read: RuntimeError"),
+    ],
+    ids=["closed descriptor", "closed file", "anything else"],
+)
+@pytest.mark.medium
+def test_the_reply_reader_always_queues_an_ending(error, queued):
+    """A pipe the parent closed while killing is an exit; anything else a failure."""
+    replies = queue.Queue()
+    with _Unreadable(error) as stream:
+        _source_worker._reader(stream, _LIMIT, replies)
+    item = replies.get_nowait()
+    if queued is None:
+        assert item is None
+    else:
+        assert isinstance(item, WorkerError)
+        assert queued in str(item)
+
+
 @pytest.mark.medium
 @POSIX
 def test_a_worker_that_died_between_calls_is_a_named_failure(worker):
@@ -302,6 +424,72 @@ def test_close_between_calls_ends_the_worker_in_order(worker):
     worker.close()
     _assert_ended(worker)
     assert worker._process is not None and worker._process.returncode == 0
+
+
+@pytest.mark.medium
+def test_a_worker_never_started_closes_and_kills_as_no_ops():
+    worker = Worker("source_adapters", environment={})
+    worker.close()
+    worker.kill()
+    assert worker._process is None and not worker.alive
+    with pytest.raises(WorkerError, match="not running"):
+        worker.request("echo", 1)
+
+
+@pytest.mark.medium
+def test_a_worker_that_answers_before_its_handshake_is_refused():
+    worker = Worker(
+        "source_adapters:early_reply_adapter",
+        environment=worker_environment(os.environ, {}),
+    )
+    with pytest.raises(WorkerError, match="opened with 'reply', not a handshake"):
+        worker.start()
+    _assert_ended(worker)
+
+
+@pytest.mark.medium
+def test_a_message_out_of_turn_ends_the_worker(worker):
+    with pytest.raises(WorkerError, match="answered 'hello_again' with 'hello'"):
+        worker.request("hello_again")
+    _assert_ended(worker)
+
+
+@pytest.mark.medium
+@POSIX
+def test_a_worker_whose_close_overruns_the_grace_is_killed(worker, monkeypatch):
+    monkeypatch.setattr(_source_worker, "CLOSE_GRACE", 0.2)
+    assert worker.request("slow_close") is None
+    started = time.monotonic()
+    worker.close()
+    assert time.monotonic() - started < DEADLINE
+    _assert_ended(worker)
+    assert worker._process is not None
+    assert worker._process.returncode == -signal.SIGKILL
+
+
+@pytest.mark.medium
+@POSIX
+def test_a_grandchild_holding_standard_error_does_not_hold_up_a_kill(
+    worker, monkeypatch
+):
+    """The stream its reader is still inside is left open, never waited on."""
+    monkeypatch.setattr(_source_worker, "CLOSE_GRACE", 0.2)
+    grandchild = cast("int", worker.request("spawn"))
+    process = worker._process
+    assert process is not None and process.stderr is not None
+    stderr = process.stderr
+    try:
+        started = time.monotonic()
+        worker.kill()
+        assert time.monotonic() - started < DEADLINE
+        assert process.returncode == -signal.SIGKILL
+        assert process.stdout is not None and process.stdout.closed
+        assert not stderr.closed
+    finally:
+        os.kill(grandchild, signal.SIGKILL)
+        assert _gone(grandchild)
+        worker._threads[stderr].join(DEADLINE)
+        stderr.close()
 
 
 def _timed(worker, kind, expected):
@@ -379,6 +567,209 @@ def test_the_worker_imports_neither_backend_nor_the_parent_s_main(worker):
     assert "pyroraptor" not in names
     assert loaded["main"] == "solprop.driver._source_worker"
     assert POLL_INTERVAL <= 0.2
+
+
+# ----------------------------------------------- the worker's side, in this process
+#
+# The worker's own code runs in a process of its own above, where this process's
+# coverage cannot see it. Here its entry point runs in this process instead, on pipes
+# standing in for descriptors 0 and 1, with ``os._exit`` recorded rather than called.
+
+
+class _Exits:
+    """Record ``os._exit``'s statuses instead of ending this process."""
+
+    def __init__(self):
+        self.statuses = []
+        self._called = threading.Event()
+
+    def __call__(self, status):
+        self.statuses.append(status)
+        self._called.set()
+
+    def wait(self):
+        assert self._called.wait(DEADLINE)
+        return self.statuses
+
+
+@pytest.fixture
+def exits(monkeypatch):
+    recorder = _Exits()
+    monkeypatch.setattr(os, "_exit", recorder)
+    return recorder
+
+
+def _serve(monkeypatch, adapter, requests):
+    """Run the worker's ``main`` here; return its status, messages and signal handlers.
+
+    The requests are written first; the parent's end of their pipe is closed after
+    ``main`` returns, which is the watchdog's cue. Descriptors 0 and 1, standard
+    output and the signal handlers are restored.
+    """
+    requests_read, requests_write = os.pipe()
+    replies_read, replies_write = os.pipe()
+    for kind, value in requests:
+        _source_worker.write_message(
+            lambda data: _source_worker._write_all(requests_write, data), kind, value
+        )
+    messages = []
+
+    def _collect():
+        while True:
+            message = _source_worker.read_message(
+                lambda size: os.read(replies_read, size), CONTROL_LIMIT
+            )
+            if message is None:
+                return
+            messages.append(message[:2])
+
+    collector = threading.Thread(target=_collect, daemon=True)
+    collector.start()
+    monkeypatch.setattr(_source_worker, "PROTOCOL_DESCRIPTORS", [])
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    numbers = (signal.SIGINT, signal.SIGTERM)
+    handlers = [signal.getsignal(number) for number in numbers]
+    saved = os.dup(0), os.dup(1)
+    try:
+        os.dup2(requests_read, 0)
+        os.dup2(replies_write, 1)
+        os.close(requests_read)
+        os.close(replies_write)
+        status = _source_worker.main([adapter, str(CONTROL_LIMIT)])
+        serving = [signal.getsignal(number) for number in numbers]
+    finally:
+        for descriptor, original in enumerate(saved):
+            os.dup2(original, descriptor)
+            os.close(original)
+        for number, handler in zip(numbers, handlers, strict=True):
+            signal.signal(number, handler)
+    os.close(requests_write)
+    inbound, outbound = _source_worker.PROTOCOL_DESCRIPTORS
+    os.close(outbound)
+    collector.join(DEADLINE)
+    os.close(replies_read)
+    return status, messages, serving, inbound
+
+
+@pytest.mark.medium
+@POSIX
+def test_the_worker_serves_requests_in_order_until_close(monkeypatch, exits):
+    status, messages, serving, inbound = _serve(
+        monkeypatch,
+        "source_adapters",
+        [
+            ("echo", {"field": np.arange(3.0)}),
+            ("print", None),
+            ("raise", None),
+            ("unencodable", None),
+            ("echo", "after"),
+            ("close", None),
+        ],
+    )
+    assert status == 0
+    # The parent's pipe ended after the close: the watchdog's exit.
+    assert exits.wait() == [_source_worker._ORPHANED]
+    os.close(inbound)
+    assert [kind for kind, _ in messages] == [
+        "hello",
+        "reply",
+        "reply",
+        "error",
+        "error",
+        "reply",
+    ]
+    hello: Any = messages[0][1]
+    assert hello["protocol"] == _source_worker.PROTOCOL_VERSION
+    assert hello["pid"] == os.getpid()
+    assert hello["identity"]["adapter"] == "manufactured"
+    np.testing.assert_array_equal(cast("Any", messages[1][1])["field"], np.arange(3.0))
+    # What the provider printed went to standard error, not into a frame.
+    assert messages[2][1] == "printed"
+    raised: Any = messages[3][1]
+    assert raised["type"] == "builtins.ValueError"
+    assert raised["message"] == "manufactured provider failure"
+    assert raised["classification"] == "manufactured"
+    # A reply the codec refuses is reported, not half sent: the next one reads.
+    assert cast("Any", messages[4][1])["type"] == "builtins.RecursionError"
+    assert messages[5][1] == "after"
+    assert serving == [signal.SIG_IGN, signal.SIG_IGN]
+
+
+@pytest.mark.parametrize(
+    ("adapter", "type_name", "detail"),
+    [
+        ("source_adapters:failing_adapter", "ValueError", "cannot start"),
+        ("source_adapters_absent", "ModuleNotFoundError", "source_adapters_absent"),
+    ],
+)
+@pytest.mark.medium
+@POSIX
+def test_an_adapter_that_cannot_start_is_reported_in_place_of_the_handshake(
+    monkeypatch, exits, adapter, type_name, detail
+):
+    status, messages, _, inbound = _serve(monkeypatch, adapter, [])
+    assert status == 1
+    assert exits.wait() == [_source_worker._ORPHANED]
+    os.close(inbound)
+    assert [kind for kind, _ in messages] == ["error"]
+    report: Any = messages[0][1]
+    assert report["type"] == f"builtins.{type_name}"
+    assert detail in report["message"]
+    assert report["classification"] == "unexpected"
+
+
+@pytest.mark.parametrize("ending", ["end of file", "garbage"])
+@pytest.mark.medium
+@POSIX
+def test_the_watchdog_exits_when_the_parent_s_pipe_ends_or_breaks(exits, ending):
+    """P8: the worker exits at once, whatever it is computing."""
+    read_end, write_end = os.pipe()
+
+    def write(data):
+        _source_worker._write_all(write_end, data)
+
+    _source_worker.write_message(write, "echo", 1)
+    if ending == "garbage":
+        write(_frame(b"{not json"))
+    os.close(write_end)
+    inbox = queue.Queue()
+    _source_worker._watch(read_end, CONTROL_LIMIT, inbox)
+    os.close(read_end)
+    assert exits.statuses == [_source_worker._ORPHANED]
+    assert inbox.get_nowait() == ("echo", 1)
+    assert inbox.empty()
+
+
+class _Exited(BaseException):
+    """Raised by a recorded ``os._exit``, to leave the module's entry block."""
+
+
+@pytest.mark.parametrize("fails", [False, True], ids=["returns", "raises"])
+@pytest.mark.medium
+def test_the_module_entry_runs_the_imported_main_and_never_finalises(
+    monkeypatch, capsys, fails
+):
+    seen = []
+
+    def main(argv):
+        seen.append(list(argv))
+        if fails:
+            raise RuntimeError("the provider's runtime aborted")
+        return 0
+
+    def exit_now(status):
+        raise _Exited(status)
+
+    monkeypatch.setattr(_source_worker, "main", main)
+    monkeypatch.setattr(os, "_exit", exit_now)
+    monkeypatch.setattr(sys, "argv", ["worker", "source_adapters", "4096"])
+    with warnings.catch_warnings(), pytest.raises(_Exited) as exited:
+        # The worker's own command line ignores this runpy warning too.
+        warnings.filterwarnings("ignore", category=RuntimeWarning, module="runpy")
+        runpy.run_module("solprop.driver._source_worker", run_name="__main__")
+    assert seen == [["source_adapters", "4096"]]
+    assert exited.value.args == (1 if fails else 0,)
+    assert ("the provider's runtime aborted" in capsys.readouterr().err) is fails
 
 
 _CHILD = """

@@ -32,7 +32,6 @@ from solprop import fourier
 from solprop.exceptions import BackendError
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.responses import ResponseStage
 from solprop.translate.routes import tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEResult, lattice_times, waveform_identity
@@ -138,19 +137,11 @@ def _cubic_polarisation(
     ``P = eps0 chi3 rho E^3 w(t)`` in C/m², with the temporal collar ``w``: the real
     cubic of a field grid, the only term the TDSE route admits beside the atom.
     """
-    stages = set(problem.responses.response_order) - {ResponseStage.ACCUMULATE}
+    # A validated problem (``PropagationProblem.validate``) holds this real cubic for
+    # ``optmat_cubic``, and no plasma, Raman or dispersive Kerr term beside it.
     kerr = problem.responses.kerr_coefficients
+    assert kerr is not None
     values = fields[:, None, :]
-    if not stages:
-        # Nothing but the accumulation compiled: an identically zero polarisation.
-        return np.zeros_like(values)
-    if (
-        kerr is None
-        or kerr.cubic_form != "real"
-        or kerr.analytic_signal
-        or stages != {ResponseStage.KERR}
-    ):
-        raise BackendError("the cubic replacement needs the real Kerr term alone")
     polarisation = kerr.coefficient * bundle.kerr_density * values**2 * values
     return polarisation * problem.grids.t_window_fine
 

@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 import source_channel
-from driver.test_tdse_hacc_binding import _descriptor, _fields
+from driver.test_tdse_hacc_binding import _descriptor, _fields, _protocol
 from driver.test_tdse_hacc_run import _simulation
 from hacc_cases import FakeHaccProvider, alpha_law, preset_basis
 from solprop.driver import tdse
@@ -196,6 +196,52 @@ def test_after_a_provider_exception_the_retry_gets_a_fresh_worker(
     assert binding.ledger.attempted == 3 and binding.ledger.failed_calls == 1
     binding.close()
     assert not workers[1].alive
+
+
+@pytest.mark.medium
+def test_a_provider_that_cannot_start_is_named(monkeypatch, workers):
+    monkeypatch.setattr(tdse, "_ADAPTER", "source_adapters:failing_adapter")
+    expected = (
+        r"TDSE provider start failed: the manufactured provider cannot start "
+        r"\[unexpected\]"
+    )
+    with pytest.raises(BackendError, match=expected):
+        _bind(_descriptor(preset_basis(1)))
+    assert workers == []
+
+
+@pytest.mark.medium
+def test_a_worker_that_dies_in_a_call_is_a_charged_worker_failure(monkeypatch, workers):
+    monkeypatch.setenv("MANUFACTURED_EXIT_IN_CALL", "1")
+    binding = _bind(_descriptor(preset_basis(1)))
+    binding.reserve(1)
+    with pytest.raises(
+        BackendError, match=r"exit status 9\) without replying \[worker\]"
+    ) as raised:
+        binding.evaluate(_fields(3), z=0.1, purpose="startup")
+    # Its last standard error rides on the error raised.
+    assert "exits mid-call" in "\n".join(raised.value.__notes__)
+    assert binding.ledger.attempted == binding.ledger.failed_calls == 1
+    assert cast("Any", binding.metadata())["failures"][0]["classification"] == "worker"
+    assert not workers[0].alive
+    binding.close()
+
+
+@pytest.mark.medium
+def test_a_stop_during_the_diagnostic_call_kills_the_worker_and_keeps_the_charge(
+    monkeypatch, workers
+):
+    monkeypatch.setenv("MANUFACTURED_HANG_AFTER", "0")
+    flag = threading.Event()
+    binding: Any = _bind(_descriptor(preset_basis(1)), stop=flag)
+    field, spacing = _protocol()
+    threading.Timer(0.3, flag.set).start()
+    with pytest.raises(StopRequested):
+        binding.diagnostic_currents(field, spacing)
+    assert binding.ledger.attempted == 1 and binding.ledger.failed_calls == 0
+    assert binding.metadata()["failures"] == []
+    assert len(workers) == 1 and not workers[0].alive
+    binding.close()
 
 
 class _Watch:
