@@ -683,8 +683,16 @@ def _walkoff(
     )  # fmt: skip
 
 
-@pytest.mark.parametrize("march", ["adams", "runge-kutta"])
-@pytest.mark.parametrize("noise", ["input", "modified"])
+@pytest.mark.parametrize(
+    ("noise", "march"),
+    [
+        ("input", "adams"),
+        ("input", "runge-kutta"),
+        ("modified", "adams"),
+        pytest.param("modified", "runge-kutta", marks=pytest.mark.medium),
+    ],
+    ids=lambda value: value,
+)
 def test_a_noisy_run_on_a_z_table_meets_the_reference(noise, march):
     """The noise phase at a plane reads a z table's propagator phase, which the leased
     state holds: the native session reads its slot at the plane through the session,

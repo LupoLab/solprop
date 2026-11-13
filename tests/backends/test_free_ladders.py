@@ -277,7 +277,7 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
         )
 
 
-@pytest.mark.parametrize("steps", [1, 8])
+@pytest.mark.parametrize("steps", [1, pytest.param(8, marks=pytest.mark.medium)])
 def test_cartesian_field_envelope_and_scalar_vector_parity(
     spatial_backend_class, steps, request
 ):

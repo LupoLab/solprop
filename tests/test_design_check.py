@@ -169,6 +169,7 @@ def test_a_rescaled_launch_reuses_the_verdict() -> None:
     assert transverse_of(child.translate().route) is design
 
 
+@pytest.mark.medium
 def test_a_new_launch_gets_its_own_check() -> None:
     # A narrower beam spreads beyond the band the collar was derived from: it warns,
     # and its own check decides, on the shared grid.
@@ -288,6 +289,7 @@ def test_the_periodic_march_absorbs_what_a_wrap_returns() -> None:
     assert collar < 0.1 * wrap
 
 
+@pytest.mark.medium
 def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
     # Section 4.7: a fixed in-stage schedule is checked at c_x = 0.15 and at
     # alpha0 h / 2 <= 1.3; the scaled suite's f = 2.6 design allows about 1.35 mm.
@@ -423,6 +425,7 @@ def test_a_trial_grid_keeps_the_spacing_and_the_launch(kind: str) -> None:
     assert after == pytest.approx(before, rel=1e-12)
 
 
+@pytest.mark.medium
 def test_a_new_launch_its_collar_cannot_absorb_is_refused_by_name() -> None:
     # A beam 2.5 times wider fills the requested aperture: its own band is narrower
     # than the collar's, so it does not warn of spreading, but the collar returns

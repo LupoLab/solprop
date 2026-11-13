@@ -62,7 +62,7 @@ def run(backend_type, problem, run_request, grid, *, steps=None):
         backend.close()
 
 
-@pytest.mark.parametrize("steps", [1, 8, None])
+@pytest.mark.parametrize("steps", [1, 8, pytest.param(None, marks=pytest.mark.medium)])
 def test_mixture_propagation_ladder_and_every_species_statistic(
     thread_budget_lifted, steps, equivalence_backend_class
 ):

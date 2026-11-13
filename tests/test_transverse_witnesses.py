@@ -79,7 +79,7 @@ def test_the_crossing_counterexample_is_refused_on_one_step() -> None:
         ).translate()
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_crossing_counterexample_is_accurate_when_adaptive() -> None:
     # The exact generator leaves about 1e-6 of the launch in the aperture after one
     # circuit (section 4.7's table, for its own collar); adaptive in-stage RK, held

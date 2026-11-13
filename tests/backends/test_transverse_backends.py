@@ -105,6 +105,7 @@ def assert_same(reference: dict[str, Any], native: dict[str, Any]) -> None:
         np.testing.assert_allclose(native[key], reference[key], rtol=1e-7, atol=FLOOR)
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_a_backend_reads_the_miss_as_numpy_ref(backend: str) -> None:
     # The budget relaxed, the run completes: sixteen reads at most L/16 apart.
