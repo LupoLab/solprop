@@ -8,6 +8,9 @@
 [medium]
 # The medium tier's total, in seconds: the sum of its tests' JUnit times over the lane's
 # shards. This may only go down: lower it when tests are trimmed or moved to slow, never
-# raise it to let a change through. Set to the measured 4,143 s rounded up to the next
-# 50 s.
-max_total = 4150
+# raise it to let a change through. Reset once (#792) from the measured totals, because
+# the first baseline (4,143 s) was one low run: 4,399 to 4,710 s over five green runs
+# before and after the first re-tiering, rounded up from the largest, 4,750 s. Then
+# lowered with the cost exceptions of #792 to their measured 3,297 s plus 5 %, rounded up
+# to 50 s.
+max_total = 3500

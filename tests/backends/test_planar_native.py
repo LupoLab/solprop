@@ -252,6 +252,27 @@ def case(request):
     return request.param, *planar_case(request.param)
 
 
+def _with_steps(steps):
+    """Return each family with each of `steps`, as ``case`` and ``steps`` parameters.
+
+    Each is ``medium`` but the envelope plasma's ten steps, which is slow by cost
+    (#792): 105-136 s on CI macOS and 200-268 s on Windows x64 in each of the two tests
+    that run it; a parity check, not a witness.
+    """
+    return [
+        pytest.param(
+            family,
+            count,
+            id=f"{family}-{count}",
+            marks=pytest.mark.slow
+            if (family, count) == ("envelope_plasma", 10)
+            else pytest.mark.medium,
+        )
+        for family in FAMILIES
+        for count in steps
+    ]
+
+
 def test_the_cases_exercise_the_slab_route(case):
     """The problems are the ``"slab"`` kind, with a partial final chunk."""
     family, _, space, problem, _ = case
@@ -271,8 +292,7 @@ def test_the_cases_exercise_the_slab_route(case):
         assert np.any(geometry.absorber_rate > 0)
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("steps", STEPS)
+@pytest.mark.parametrize(("case", "steps"), _with_steps(STEPS), indirect=["case"])
 def test_the_planar_kind_matches_the_reference(case, steps):
     family, grid, space, problem, run_request = case
     bound = amplitude_bound(grid, space, family, steps)
@@ -294,8 +314,7 @@ def test_the_planar_kind_matches_the_reference(case, steps):
     assert_allclose(actual, reference, rtol=0, atol=bound * scale)
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("steps", [0, 10])
+@pytest.mark.parametrize(("case", "steps"), _with_steps((0, 10)), indirect=["case"])
 def test_the_planar_statistics_match_the_reference(case, steps):
     """Energy, intensities, the axis spectrum, widths in y and the plasma records.
 

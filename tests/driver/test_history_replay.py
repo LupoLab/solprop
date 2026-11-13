@@ -34,8 +34,6 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.problem import _printed_down
 
-pytestmark = pytest.mark.medium
-
 INTEGRATORS = {"runge_kutta": RungeKutta, "multistep": Multistep}
 NUMBER = r"([0-9.]+e[+-][0-9]+)"
 
@@ -143,6 +141,7 @@ def assert_replays(route: str, integrator: str, **changes) -> None:
     assert_allclose(other, one, rtol=0.0, atol=1e-12 * float(np.max(np.abs(one))))
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("integrator", list(INTEGRATORS))
 def test_a_default_runs_history_is_refused_naming_both_remedies(integrator):
     message = refusal_of("soliton", integrator)
@@ -150,11 +149,13 @@ def test_a_default_runs_history_is_refused_naming_both_remedies(integrator):
     assert "run the discovery with that integrator" in message
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("integrator", list(INTEGRATORS))
 def test_the_split_collar_in_both_runs_replays(integrator):
     assert_replays("soliton", integrator, absorber_scheme="split_step")
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("integrator", list(INTEGRATORS))
 def test_dz_max_at_the_printed_temporal_limit_replays(integrator):
     message = refusal_of("soliton", integrator)
@@ -162,6 +163,9 @@ def test_dz_max_at_the_printed_temporal_limit_replays(integrator):
     assert_replays("soliton", integrator, dz_max=cap)
 
 
+# slow by cost (#792): 35-54 s on CI macOS and 73-101 s on Windows x64; a refusal and
+# its replay, not a witness
+@pytest.mark.slow
 def test_the_spatial_collar_stability_refusal_names_the_dz_max_remedy():
     # Multistep's stability interval puts the collar's stable step below the steps
     # the adaptive run takes; the split scheme does not lift a spatial limit.
@@ -173,6 +177,7 @@ def test_the_spatial_collar_stability_refusal_names_the_dz_max_remedy():
     assert_replays("radial", "multistep", dz_max=cap)
 
 
+@pytest.mark.medium
 def test_the_collar_damping_refusal_names_the_dz_max_remedy():
     # Under Runge-Kutta the adaptive steps stay inside the collar's stable step but
     # grow past the damping bound a fixed schedule is held to, which is the
@@ -185,6 +190,7 @@ def test_the_collar_damping_refusal_names_the_dz_max_remedy():
     assert_replays("radial", "runge_kutta", dz_max=cap)
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize(
     ("value", "printed"),
     [
