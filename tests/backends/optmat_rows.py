@@ -548,10 +548,10 @@ def plasma_rows() -> Iterator[Row]:
         why="Argon launched at 1.06e11 V/m, above its rate model's maximum field of "
         "8.6e10 V/m: the rate table holds its last value inside the run, at every "
         "plane, and the run that holds it is the reference's.",
-        bound_note="The family's largest departures, still eight orders inside: "
-        "6.1e-13 on the complete run against 3.5e-8 and 1.1e-13 on its peak power "
-        "against 1.4e-7 (measured). Over the other cases' 40 um steps this field "
-        "ionises past what a fixed step holds, so its ten steps cover 40 um.",
+        bound_note="The family's largest departures, still more than four orders "
+        "inside: 6.1e-13 on the complete run against 3.5e-8 and 1.1e-13 on its peak "
+        "power against 1.4e-7 (measured). Over the other cases' 40 um steps this "
+        "field ionises past what a fixed step holds, so its ten steps cover 40 um.",
         switch_off=without_plasma,
         rungs={
             "linear": one_step_of_the_operator,
