@@ -25,6 +25,19 @@ and 1.0049222 for the reduced CtC case. That mean agrees with the true energy of
 archives' own plane zero to 2e-16 on both RDW cases and the full CtC one, and to 1.2e-11
 on the reduced CtC one.
 
+**Comparisons between time windows.** Runs on different windows differ by a band-edge
+term at first order in the window factor, whatever the boundary does: Kerr-generated
+content at the band's low-frequency edge, where the spectral collar and the mask are
+sampled on bins that move with the bin spacing. [SEP 21's phase
+0a](seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings) measured it, and no test holds it:
+widening the band from 1.6 to 3.2 µm cut the edge energy from 2.5e-3 to 1.4e-6 and the
+term about threefold; it floors every requested-window comparison at order 1e-5 (1.9e-5
+on the canonical case, [findings](seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25) item 1); and
+field errors near 1e-4 on smooth windows are this term, not the boundary (item 13).
+A boundary is therefore measured with and without temporal absorption at equal window,
+or against references extrapolated as $2F(2M) - F(M)$, whose uncertainty there was 4e-6
+to 5e-5 per case ([the boundaries guide](../guide/numerics/boundaries.md#watching-the-windows-edges)).
+
 ## 1. The integrators and the tables
 
 | what | measured | where |

@@ -812,6 +812,26 @@ spacing and found nothing ([transverse boundaries](../free-space/model.md#transv
 function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a
 larger `budget` or `stop_factor` relaxes it.
 
+**Comparing two windows.** Refining the window and comparing the runs, as the tutorial
+does, has an error floor of its own that is not the boundary's. Light the Kerr effect
+generates at the low-frequency edge of the band sits where the spectral collar and the
+band mask are sampled on frequency bins, and those bins move with the bin spacing, so
+two runs on different windows differ at first order in the window factor even when no
+light reaches an edge. [SEP 21's phase 0a](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a--decisions-and-interim-findings)
+measured it (figures not re-run since):
+
+- widening the band from 1.6 to 3.2 µm cut the energy at its edge from 2.5e-3 to 1.4e-6,
+  and the term about threefold;
+- it floors a comparison between requested windows at order 1e-5, 1.9e-5 on that
+  study's canonical case ([findings](../../dev/seps/archive/sep-0021-absorbing-boundaries.md#phase-0a-report--2026-10-25), item 1);
+- field errors near 1e-4 between smooth windows were this term, not the boundary.
+
+Under `fft_size="auto"` neighbouring requests realise different sizes
+([grids](../setup/grids.md#coarse-and-fine-sampling)), so the term enters any comparison
+between two windows. To test the boundary itself, compare a run with and without the
+temporal collar on the same grid, or extrapolate the references in the window's inverse,
+$2F(2M) - F(M)$ for a window factor $M$, as SEP 21 did.
+
 ## A worked example
 
 ```{code-block} python
