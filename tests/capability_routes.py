@@ -19,6 +19,12 @@ stepper it admits, each feature on at least one route), not their full product. 
 family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``)
 and is collected here.
 
+**Claims.** Every row states the physical claim it holds (``why``, one sentence, such
+as "the response must not filter the drive"), and a row whose bound has a floor, a
+margin or a choice worth explaining says what was measured against it
+(``bound_note``). Every failure quotes both, with the row's id; a rung outside its
+bound gives the measured value, the bound and their ratio.
+
 **Rungs.** One source evaluation (``source``: the whole stage source at the launch),
 one evaluation's projected polarisation on both quadrature rules (``projected``), one
 step (``one_step``: the schedule cut to its first step), the schedule's fixed window

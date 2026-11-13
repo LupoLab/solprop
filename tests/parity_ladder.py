@@ -55,21 +55,24 @@ Bound = Callable[[Built], float]
 """A rung's bound from the built row, fixed before either backend runs."""
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class Row:
-    """One catalogue row: a problem factory, the axes it covers and its rungs' bounds.
+    """One catalogue row: a problem factory, the claim it holds and its rungs' bounds.
 
-    ``rungs`` maps each field rung of :data:`FIELD_RUNGS` the row runs to its bound;
-    ``statistics`` maps a statistic, read at the end of the row's schedule and compared
-    absolutely, to its bound. ``switch_off`` returns the problem with the row's term
-    off: the guard that the term moves every field rung's reference by more than
-    :data:`DETECTION` bounds. ``floor`` builds a row whose own native disagreement at
-    the same rung is added to the bound (a term beside the row's that is known to
-    disagree by more than the row's own budget). ``masked_launch`` evaluates the
-    source at the launch hard-masked to the active band on both sides, as the native
-    state loads it; ``source_z`` is where the source is evaluated, m. ``metadata`` is
-    what the native backend's ``metadata()`` must report (a callable value is a
-    predicate on it); ``expect`` maps a dotted path into the built row
+    ``why`` is the physical claim the row holds, in one sentence; every failure quotes
+    it. ``bound_note`` explains a bound with a floor, a margin or a choice (what was
+    measured against it, and what a wrong backend would miss by). ``rungs`` maps each
+    field rung of :data:`FIELD_RUNGS` the row runs to its bound; ``statistics`` maps a
+    statistic, read at the end of the row's schedule and compared absolutely, to its
+    bound. ``switch_off`` returns the problem with the row's term off: the guard that
+    the term moves every field rung's reference by more than :data:`DETECTION` bounds.
+    ``floor`` builds a row whose own native
+    disagreement at the same rung is added to the bound (a term beside the row's that
+    is known to disagree by more than the row's own budget). ``masked_launch``
+    evaluates the source at the launch hard-masked to the active band on both sides, as
+    the native state loads it; ``source_z`` is where the source is evaluated, m.
+    ``metadata`` is what the native backend's ``metadata()`` must report (a callable
+    value is a predicate on it); ``expect`` maps a dotted path into the built row
     (``"problem.transform.n_nodes"``; a method is called, ``""`` is the row itself) to
     what it must be; ``quiet`` holds the warning filters the row's run needs.
     ``unguarded`` names a rung the term does not move far enough to guard, with why the
@@ -78,10 +81,12 @@ class Row:
     """
 
     id: str
+    why: str
     axes: Mapping[str, str]
     build: Callable[[], Built]
     rungs: Mapping[str, Bound]
     switch_off: Callable[[PropagationProblem], PropagationProblem]
+    bound_note: str = ""
     statistics: Mapping[str, Bound] = dataclasses.field(default_factory=dict)
     floor: Callable[[], Built] | None = None
     masked_launch: bool = False
@@ -91,6 +96,20 @@ class Row:
     medium: bool = False
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass(frozen=True)
+class Reading:
+    """One rung's or statistic's comparison: what was measured against what bound.
+
+    ``guard`` is how many bounds switching the term off moved the rung's reference
+    (``None`` for an unguarded rung or a statistic).
+    """
+
+    rung: str
+    measured: float
+    bound: float
+    guard: float | None = None
 
 
 # --- the rungs ----------------------------------------------------------------------
@@ -193,7 +212,11 @@ def _march(
     finally:
         backend.close()
     last = result.observations[-1]
-    assert last.z == float(request.stepper.save_planes[-1])
+    plane = float(request.stepper.save_planes[-1])
+    assert last.z == plane, (
+        f"{backend.name}'s last observation is at z = {last.z} m, not at the request's "
+        f"last plane, {plane} m"
+    )
     statistics = {name: float(last.stats[name]) for name in names}
     return result.fields[-1], run_summary(result), statistics
 
@@ -201,7 +224,10 @@ def _march(
 def one_step(backend_class: type, built: Built) -> np.ndarray:
     """Return the field after the schedule's first step, which must be one step."""
     field, summary, _ = _march(backend_class, built, first_step(built.run_request))
-    assert summary.n_steps == 1
+    assert summary.n_steps == 1, (
+        f"{backend_class.__name__} took {summary.n_steps} steps over the schedule's "
+        "first step, not one"
+    )
     return field
 
 
@@ -213,10 +239,15 @@ def steps(
     The statistics `names` are read at the schedule's end, from the same run.
     """
     schedule = built.run_request.stepper.schedule
-    assert schedule is not None
-    assert float(built.run_request.stepper.save_planes[-1]) == float(schedule.edges[-1])
+    assert schedule is not None, "the row's request has no fixed schedule to march"
+    assert float(built.run_request.stepper.save_planes[-1]) == float(
+        schedule.edges[-1]
+    ), "the request's last plane is not the schedule's end"
     field, summary, statistics = _march(backend_class, built, built.run_request, names)
-    assert summary.n_steps == len(schedule.steps)
+    assert summary.n_steps == len(schedule.steps), (
+        f"{backend_class.__name__} took {summary.n_steps} steps of the schedule's "
+        f"{len(schedule.steps)}"
+    )
     return field, statistics
 
 
@@ -240,7 +271,10 @@ def _pairs(ours, theirs) -> list[tuple[np.ndarray, np.ndarray]]:
     """Return the arrays a rung compares, the same ones present on both sides."""
     if not isinstance(theirs, list):
         return [(np.asarray(ours), np.asarray(theirs))]
-    assert [one is None for one in ours] == [one is None for one in theirs]
+    assert [one is None for one in ours] == [one is None for one in theirs], (
+        "native and the reference hold different quadrature rules (None: no rule): "
+        f"{[one is None for one in ours]} against {[one is None for one in theirs]}"
+    )
     return [
         (np.asarray(a), np.asarray(b))
         for a, b in zip(ours, theirs, strict=True)
@@ -258,42 +292,66 @@ def disagreement(ours, theirs) -> float:
     worst = 0.0
     for got, expected in _pairs(ours, theirs):
         a, b = np.ravel(got), np.ravel(expected)
-        assert a.size == b.size, (a.size, b.size)
-        assert np.all(np.isfinite(a)) and np.all(np.isfinite(b))
-        assert np.linalg.norm(b) > 0
+        assert a.size == b.size, f"native holds {a.size} values, the reference {b.size}"
+        assert np.all(np.isfinite(a)), "native's output is not finite"
+        assert np.all(np.isfinite(b)), "the reference's output is not finite"
+        assert np.linalg.norm(b) > 0, (
+            "the reference's output is zero: nothing to compare"
+        )
         worst = max(worst, departure(a, b))
     return worst
 
 
-def check(native_class: type, row: Row) -> list[tuple[str, float, float]]:
+def check(native_class: type, row: Row) -> list[Reading]:
     """Run every rung of a row on native and the reference; assert each in its bound.
 
     Also asserts the row's expectations, its native metadata and the guard: with the
     row's term switched off -- for a row with a floor, the floor's reference, which
     differs from the row by the term the floor replaces -- each guarded field rung's
-    reference moves by more than :data:`DETECTION` times that rung's bound.
-    Returns ``(rung, measured, bound)``.
+    reference moves by more than :data:`DETECTION` times that rung's bound. Every
+    failure names the row and quotes its claim
+    and bound note; a rung outside its bound gives the measured value, the bound and
+    their ratio.
     """
+    try:
+        return _check(native_class, row)
+    except AssertionError as error:
+        raise AssertionError(_failure(row, str(error))) from error
+
+
+def _failure(row: Row, what: str) -> str:
+    """Return a failure's message: the row, its claim and bound note, what failed."""
+    lines = [f"row {row.id!r}", f"  claim: {row.why}"]
+    if row.bound_note:
+        lines.append(f"  bound: {row.bound_note}")
+    lines += [f"  failed: {line}" for line in what.splitlines() or ["(no message)"]]
+    return "\n".join(lines)
+
+
+def _check(native_class: type, row: Row) -> list[Reading]:
+    """Run :func:`check`'s comparisons; the caller adds the row to a failure."""
+    _check_declarations(row)
     built = row.build()
-    _matches({path: _resolve(built, path) for path in row.expect}, row.expect)
+    _matches(
+        {path: _resolve(built, path) for path in row.expect}, row.expect, "built row"
+    )
     if row.metadata:
         backend = _backend(native_class, built)
         try:
             metadata = backend.metadata()
         finally:
             backend.close()
-        _matches(metadata, row.metadata)
-    assert set(row.unguarded) < set(row.rungs), "a row guards at least one rung"
-    assert not row.statistics or "steps" in row.rungs
+        _matches(metadata, row.metadata, "native metadata")
     floor = None if row.floor is None else row.floor()
     off = dataclasses.replace(built, problem=row.switch_off(built.problem))
     names = tuple(row.statistics)
     found: dict[str, float] = {}
     expected: dict[str, float] = {}
-    rows = []
+    readings: list[Reading] = []
+    failures: list[str] = []
     for rung, bound_of in row.rungs.items():
         bound = bound_of(built)
-        assert bound > 0
+        assert bound > 0, f"{rung}: the bound is {bound}, not positive"
         measure = RUNGS[rung]
         if rung == "steps":
             ours, found = steps(native_class, built, names)
@@ -305,18 +363,44 @@ def check(native_class: type, row: Row) -> list[tuple[str, float, float]]:
         if floor is not None:
             reference_off = measure(NumpyRefBackend, floor, row)
             bound += disagreement(measure(native_class, floor, row), reference_off)
-        rows.append((rung, disagreement(ours, theirs), bound))
+        guard = None
         if rung not in row.unguarded:
             if reference_off is None:
                 reference_off = measure(NumpyRefBackend, off, row)
-            share = _share(reference_off, theirs)
-            assert share > DETECTION * bound, (rung, "guard", share, bound)
+            guard = _share(reference_off, theirs) / bound
+            if not guard > DETECTION:
+                failures.append(
+                    f"{rung} guard: switching the term off moves the reference by "
+                    f"{guard:.3g} bounds, not more than {DETECTION:g}, so a backend "
+                    "that dropped the term could pass"
+                )
+        readings.append(Reading(rung, disagreement(ours, theirs), bound, guard))
     for name, bound_of in row.statistics.items():
-        assert expected[name] > 0
-        rows.append((name, abs(found[name] - expected[name]), bound_of(built)))
-    outside = [one for one in rows if not one[1] < one[2]]
-    assert not outside, f"{row.id}: {outside}"
-    return rows
+        assert expected[name] > 0, f"{name}: the reference's statistic is not positive"
+        measured = abs(found[name] - expected[name])
+        readings.append(Reading(name, measured, bound_of(built)))
+    failures += [
+        f"{one.rung}: native departs from the reference by {one.measured:.3e}, "
+        f"not inside its bound {one.bound:.3e} ({one.measured / one.bound:.3g} bounds)"
+        for one in readings
+        if not one.measured < one.bound
+    ]
+    assert not failures, "\n".join(failures)
+    return readings
+
+
+def _check_declarations(row: Row) -> None:
+    """Assert the row states its claim and declares its guards completely."""
+    assert row.why.strip(), "the row states no claim (`why`)"
+    assert set(row.unguarded) < set(row.rungs), (
+        "a row guards at least one rung, and names as unguarded only rungs it runs"
+    )
+    assert all(reason.strip() for reason in row.unguarded.values()), (
+        "an unguarded rung gives no reason"
+    )
+    assert not row.statistics or "steps" in row.rungs, (
+        "statistics are read at the end of the steps rung, which the row does not run"
+    )
 
 
 def _resolve(built: Built, path: str) -> object:
@@ -327,13 +411,18 @@ def _resolve(built: Built, path: str) -> object:
     return found() if inspect.ismethod(found) else found
 
 
-def _matches(actual: Mapping[str, Any], expected: Mapping[str, Any]) -> None:
+def _matches(actual: Mapping[str, Any], expected: Mapping[str, Any], what: str) -> None:
     """Assert every key `expected` names: equal, or satisfying it if it is callable."""
     for key, value in expected.items():
         if callable(value):
-            assert value(actual[key]), (key, actual[key])
+            assert value(actual[key]), (
+                f"{what} {key or '(the row)'}: {actual[key]!r} fails "
+                f"{getattr(value, '__name__', value)}"
+            )
         else:
-            assert actual[key] == value, (key, actual[key], value)
+            assert actual[key] == value, (
+                f"{what} {key}: {actual[key]!r}, expected {value!r}"
+            )
 
 
 def _share(off, on) -> float:
