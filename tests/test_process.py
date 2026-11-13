@@ -29,8 +29,10 @@ def _one_kind_of_core(monkeypatch):
 
 @pytest.fixture
 def granted(monkeypatch):
-    """A process granted CPUs 0-17 at import."""
+    """A process granted CPUs 0-17 at import, with no OpenMP placement chosen."""
     monkeypatch.setattr(_process, "_AT_IMPORT", tuple(range(18)))
+    monkeypatch.delenv("OMP_PROC_BIND", raising=False)
+    monkeypatch.delenv("OMP_PLACES", raising=False)
 
 
 def _affinity(monkeypatch, cpus):
@@ -49,14 +51,28 @@ def test_a_main_thread_bound_by_openmp_still_sees_the_grant(
     assert _process.allowed_cpus() == tuple(range(18))
 
 
-@pytest.mark.parametrize("binding", [None, "false"])
-def test_without_a_binding_the_current_affinity_is_believed(
-    monkeypatch, granted, binding
+@pytest.mark.parametrize("places", ["cores", "threads", "{0},{1}"])
+def test_a_main_thread_bound_by_places_alone_still_sees_the_grant(
+    monkeypatch, granted, places
 ):
-    if binding is None:
-        monkeypatch.delenv("OMP_PROC_BIND", raising=False)
-    else:
+    # libgomp with OMP_PLACES and no OMP_PROC_BIND binds as if it were true: one
+    # core's two hardware threads for OMP_PLACES=cores.
+    monkeypatch.setenv("OMP_PLACES", places)
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: 1)
+    _affinity(monkeypatch, {0, 9})
+    assert _process.allowed_cpus() == tuple(range(18))
+
+
+@pytest.mark.parametrize(
+    ("binding", "places"), [(None, None), ("false", None), ("false", "cores")]
+)
+def test_without_a_binding_the_current_affinity_is_believed(
+    monkeypatch, granted, binding, places
+):
+    if binding is not None:
         monkeypatch.setenv("OMP_PROC_BIND", binding)
+    if places is not None:
+        monkeypatch.setenv("OMP_PLACES", places)
     _affinity(monkeypatch, {3})
     assert _process.allowed_cpus() == (3,)
 

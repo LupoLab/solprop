@@ -5,8 +5,8 @@
 """The CPUs this process may run on, as the scheduler granted them.
 
 Linux reports affinity per thread. An OpenMP runtime started with ``OMP_PROC_BIND``
-set -- GNU libgomp, which Kokkos's builds load -- binds the **main** thread to the first
-of its places when it starts, so after the first parallel region
+or ``OMP_PLACES`` set -- GNU libgomp, which Kokkos's builds load -- binds the **main**
+thread to the first of its places when it starts, so after the first parallel region
 ``os.sched_getaffinity(0)`` names one CPU although the process was granted many. A
 thread pool sized from that answer runs on one core (measured: an 18-core allocation
 gave a pool sized this way one thread). The affinity is therefore read once, when
@@ -325,19 +325,23 @@ _AT_IMPORT = _at_import()
 def allowed_cpus() -> tuple[int, ...]:
     """Return the CPUs this process may run on, undoing an OpenMP main-thread binding.
 
-    The current affinity, unless ``OMP_PROC_BIND`` is set and the current answer is a
+    The current affinity, unless OpenMP binding is on and the current answer is a
     single CPU, or the hardware threads of a single core, of the wider set the process
     had when ``solprop`` was imported: that is the runtime's binding of the main thread
     to its first place (``OMP_PLACES=threads`` or ``cores``) and not the scheduler's
-    grant, so the import-time set is returned. A deliberate narrowing to several cores,
-    or any narrowing without ``OMP_PROC_BIND``, is believed.
+    grant, so the import-time set is returned. Binding is on when ``OMP_PROC_BIND`` is
+    set to anything but ``false``, or when it is unset and ``OMP_PLACES`` is set:
+    libgomp then binds as if it were ``true`` (measured: ``OMP_PLACES=cores`` alone
+    bound the main thread to one core's two hardware threads). A deliberate narrowing
+    to several cores, or any narrowing with binding off, is believed.
 
     - Returns: sorted CPU indices, at least one.
     """
     current = _query()
     binding = os.environ.get("OMP_PROC_BIND", "").strip().lower()
+    places = os.environ.get("OMP_PLACES", "").strip()
     if (
-        binding not in {"", "false"}
+        (binding not in {"", "false"} or (not binding and places))
         and len(_AT_IMPORT) > len(current)
         and set(current) <= set(_AT_IMPORT)
         and (len(current) == 1 or physical_cores(current) == 1)
