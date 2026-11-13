@@ -28,13 +28,14 @@ from former_raman import (
 from sessions.runs import load_native, native_trial, saved
 from sessions.runs import run as run_session
 from solprop.backends.session import ExecutionOptions
-from solprop.grid import EnvelopeGrid, FieldGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, ModeKind, transverse_quadrature
 from solprop.nonlinear.raman import RamanResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import MolecularRaman
 from solprop.profiles import Linear
-from solprop.pulses import GaussianPulse
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
@@ -235,4 +236,49 @@ def raman_populations(varying_density: bool, geometry: str = "modal"):
     )
     problem, run_request, grid = geometry_case((mixture, responses), geometry, 2)
     assert len(problem.responses.raman_terms) == 2
+    return problem, run_request, grid
+
+
+SPATIAL_LENGTH = 1e-5
+"""The spatial tails' run, m: two fixed steps of 5 um."""
+
+
+def spatial_tails(geometry: str, family: str):
+    """Return hydrogen's vector Raman on a radial or Cartesian beam, two fixed steps.
+
+    An elliptically polarised 80 um Gaussian beam (Jones ``(1, 0.35j)``) of a 20 fs,
+    100 nJ pulse in free space, on a radial grid of 8 nodes or a 4 x 4 Cartesian grid,
+    no collar; hydrogen's former Raman response beside a zero Kerr term at 1e25 m^-3,
+    the third harmonic kept on a real field. The actual-width tails of the
+    convolution are exercised. Returns the problem, its run's request and the grid.
+    """
+    constructor = EnvelopeGrid if family == "envelope" else FieldGrid
+    grid = constructor.from_limits(SPATIAL_LENGTH, 800e-9, (500e-9, 1.2e-6), 100e-15)
+    space = (
+        RadialGrid(6e-4, 8, collar_fraction=0.0)
+        if geometry == "radial"
+        else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
+    )
+    initial = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7),
+        80e-6,
+        jones=(1, 0.35j),
+    ).build(grid, space, medium=SpatialMedium())
+    problem, run_request = assemble(
+        grid,
+        None,
+        [
+            KerrResponse(0.0, thg=family == "field_real"),
+            former_response(FORMER_H2, thg=family == "field_real"),
+        ],
+        initial,
+        density=1e25,
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[SPATIAL_LENGTH],
+        dz_max=SPATIAL_LENGTH / 2,
+        dz_init=SPATIAL_LENGTH / 2,
+        schedule=FixedSchedule.uniform(0.0, SPATIAL_LENGTH, SPATIAL_LENGTH / 2),
+    )
     return problem, run_request, grid

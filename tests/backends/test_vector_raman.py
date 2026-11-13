@@ -59,20 +59,25 @@ def test_vector_complete_run_matches_reference_and_modal_routes(
     per_rhs = 3 * 512 * np.finfo(float).eps * math.ceil(
         math.log2(2 * grid.n_to)
     ) + 8 * gamma(problem.transform.n_nodes)
-    for got, reference, evaluations in (
-        (actual[0], expected[0], 1),
-        (actual[1], expected[1], 7 * steps),
-    ):
+    # Native's final state and statistics against the reference's are the catalogue's
+    # rows ``vector raman complete ...`` (backends/vector_raman_rows.py). Its first
+    # stage, a trial's of an eighth of the run, has no rung there and stays here. The
+    # reference's instance compares the reference with itself (#808).
+    compared = [(actual[0], expected[0], 1)]
+    if backend_class.name != "native":
+        compared.append((actual[1], expected[1], 7 * steps))
+    for got, reference, evaluations in compared:
         scale = float(np.max(abs(reference)))
         bound = ladder_bound(
             backend_class.name, 2 * evaluations * per_rhs, grid.n_to, 3 * evaluations
         )
         assert scale > 0 and bound > 0
         assert_allclose(got, reference, rtol=0, atol=bound * scale)
-    for name, value in expected[2].items():
-        # Statistics add a temporal reduction and a squared-modulus operation.
-        bound = 112 * per_rhs + 8 * gamma(grid.n_to * problem.transform.n_nodes)
-        assert_allclose(actual[2][name], value, rtol=bound, atol=0)
+    if backend_class.name != "native":
+        for name, value in expected[2].items():
+            # Statistics add a temporal reduction and a squared-modulus operation.
+            bound = 112 * per_rhs + 8 * gamma(grid.n_to * problem.transform.n_nodes)
+            assert_allclose(actual[2][name], value, rtol=bound, atol=0)
     row_problem, row_request, row_grid, row_modes = vector_translation(
         family, material, route="rows", steps=steps
     )

@@ -431,6 +431,7 @@ def catalogue() -> tuple[Row, ...]:
         planar_rows,
         plasma_rows,
         session_rows,
+        vector_raman_rows,
     )
 
     rows = (
@@ -448,6 +449,7 @@ def catalogue() -> tuple[Row, ...]:
         *flow_rows.rows(),
         *driver_rows.rows(),
         *axis_plasma_rows.rows(),
+        *vector_raman_rows.rows(),
     )
     assert len({row.id for row in rows}) == len(rows)
     return rows
