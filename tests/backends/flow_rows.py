@@ -5,7 +5,7 @@
 """The coupled linear flow on a fixed schedule: its rows of the case catalogue.
 
 **What is compared.** Native against ``numpy_ref`` on the coupled-flow cases, the field
-after each case's ten fixed steps (``steps``):
+after each case's ten fixed steps (``steps``, or ``last_plane`` through the driver):
 
 - ``flow marches ...`` rows: the eight cases of ``tests/flow_parity.py`` -- the scalar,
   TE/TM, TE and TM walls, the walled taper and pressure gradient, the lossless taper
@@ -25,7 +25,17 @@ after each case's ten fixed steps (``steps``):
   ``tests/driver/test_native_moving_guide.py``), and ``moving guide bound ...``: the
   step-index pair and complex basis at the retired source-bound tests' 10 nJ over
   0.1 mm (from ``tests/driver/test_native_moving_guide_bound.py``, which keeps their
-  sources: the source rung's zero-length trial is refused by a coupled flow).
+  sources: the source rung's zero-length trial is refused by a coupled flow);
+- through the driver, the last saved plane as the output gives it back
+  (``last_plane``): the scalar wall, the TE/TM wall and a walled taper beside
+  nitrogen's default plasma and Raman response, one row per response (``wall beside N2
+  ...``, from ``tests/driver/test_wall_beside_gas_responses.py``, which keeps the
+  energy statistic and the record); the input shot-noise draw through each coupled
+  flow (``input noise ...``, from ``tests/driver/test_coupled_input_noise.py``); the
+  TE/TM wall on a taper (``vector wall taper driver``, from
+  ``tests/driver/test_coherent_capillary.py``); and the scalar wall and the lossless
+  taper coupling whose ``auto`` runs ``test_native_coupled_flow.py`` and
+  ``test_taper_coupling.py`` keep (``scalar wall driver``, ``taper coupling driver``).
 
 **The bounds are the old tests', fixed before native runs.** A ``flow marches`` row is
 bounded by ``flow_parity.ten_step_bound`` (``B_10``): the declared conditioning ``C``
@@ -41,16 +51,22 @@ rows compare peaks relative to the launch's peak (``Row.scale``), as the old tes
 and assert its nonlinear increment ``rho > 1e-5`` (``expect``). A ``moving guide``
 row is bounded the same way by ``moving_guide_cases.moving_parity_bound``, which adds
 each stage's combination of the maps; a ``moving guide bound`` row by ``B_10``, below
-1e-9 where the retired tests held it (``expect``). The kinked taper's schedule
-accumulates to an ulp past its millimetre; the run ends there, as the old tests
-accepted (``parity_ladder.lands``).
+1e-9 where the retired tests held it (``expect``). A ``wall beside N2`` row is
+bounded by ``wall_gas_cases.parity_bound``, ``B_10`` with the source split by response,
+on the reference's last plane. The other driver rows hold their old tests' fixed gates,
+1e-12 or 1e-11 of the plane's peak or of the reference's saved launch plane's
+(``Row.scale``), which no derivation backs (#807), each with a ``bound_note``. The
+kinked taper's schedule accumulates to an ulp past its millimetre; the run ends there,
+as the old tests accepted (``parity_ladder.lands``).
 
 **The guard.** A flow row's term is the coupled flow: :func:`without_flow` drops
 ``linear.coupled_flow``, so the channels propagate on their diagonal alone. A moving
 guide's is its maps' motion: :func:`frozen_maps` holds every stage at the launch's
-maps. The
-reference's ten steps must then move by more than ``parity_ladder.DETECTION`` (a
-thousand) of the row's bound. The old marches test asked the same of native's run
+maps. A wall-beside-gas row's is its response, the plasma or the Raman one, rebuilt off
+at the entry point as the old test did (:func:`without_the_response`); an input-noise
+row's is the draw, rebuilt with no noise (:func:`without_the_draw`). The reference
+must then move by more than ``parity_ladder.DETECTION`` (a thousand) of the row's
+bound. The old marches test asked the same of native's run
 without the flow; the old strong-case test guarded the flow not at all, only that the
 source moved the field (``rho``).
 
@@ -83,9 +99,13 @@ import numpy as np
 
 import coupled_flow_cases
 import flow_parity
+import input_noise_cases
 import moving_guide_cases
-from parity_ladder import Built, Row
+import wall_gas_cases
+from parity_ladder import Built, Row, reference
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.modes import CoherentWall
+from solprop.stats import StatsSpec
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import scalars
 
@@ -155,6 +175,58 @@ def bound_case(descriptors: tuple, **basis: Any) -> Built:
         descriptors, **basis
     )
     return Built(problem, run_request, grid)
+
+
+def driver_case(simulation: Any) -> Built:
+    """Return a driver's row: the simulation's translation, request, grid and itself."""
+    return Built(
+        simulation.translate(),
+        simulation._run_request(),
+        simulation.grid,
+        simulation=simulation,
+    )
+
+
+def wall_gas_case(name: str, **overrides: Any) -> Built:
+    """Return a wall beside nitrogen's default plasma and Raman, ten fixed steps.
+
+    Observing the energy alone: the default statistics read the plasma column, which
+    the guard's problem without the plasma does not carry, and the field does not
+    depend on what is observed.
+    """
+    return driver_case(
+        wall_gas_cases.simulation(
+            name, **({"stats": StatsSpec(names=("energy",))} | overrides)
+        )
+    )
+
+
+def noise_case(route: str, noise: str | None = "input") -> Built:
+    """Return an input-noise route's run on the reference, ten fixed steps."""
+    build = input_noise_cases.ROUTES[route]
+    return driver_case(build(noise, input_noise_cases.PULSE_ENERGY, "numpy_ref"))
+
+
+def vector_wall_taper() -> Built:
+    """Return the TE/TM wall on the qualification taper, a nanojoule, ten steps."""
+    taper = coupled_flow_cases.taper()
+    return driver_case(
+        coupled_flow_cases.capillary(
+            wall=coupled_flow_cases.VECTOR_WALL,
+            modes=coupled_flow_cases.vector_modes(radius=taper),
+            radius=taper,
+        )
+    )
+
+
+def scalar_wall() -> Built:
+    """Return the scalar wall of the qualification capillary, a nanojoule, ten steps."""
+    return driver_case(coupled_flow_cases.capillary(wall=CoherentWall()))
+
+
+def lossless_taper() -> Built:
+    """Return the lossless taper coupling, no wall, a nanojoule, ten steps."""
+    return driver_case(coupled_flow_cases.lossless())
 
 
 # --- the bounds -----------------------------------------------------------------------
@@ -241,6 +313,41 @@ def bound_below_a_billionth(built: Built) -> bool:
     return 0.0 < marches_bound(built) < 1e-9
 
 
+def wall_gas_bound(name: str) -> Callable[[Built], float]:
+    """Return a wall-beside-gas case's ten-step bound on native, from the reference.
+
+    ``wall_gas_cases.parity_bound``: ``B_10`` with the source split by response, read
+    on the reference's last plane.
+    """
+
+    def bound(built: Built) -> float:
+        return wall_gas_cases.parity_bound(
+            name, "native", reference(built, "last_plane").field
+        )
+
+    return bound
+
+
+def fixed(value: float) -> Callable[[Built], float]:
+    """Return a fixed bound: an old test's own constant, underived (#807)."""
+
+    def bound(built: Built) -> float:
+        del built
+        return value
+
+    return bound
+
+
+def launch_plane_peak(built: Built) -> float:
+    """Return the peak modulus of the reference's saved launch plane.
+
+    The scale of the entry points' ``auto`` checks: the plane at z = 0 as the output
+    keeps it (the reference's complete run, :func:`parity_ladder.reference`), not the
+    problem's launch.
+    """
+    return float(np.max(np.abs(reference(built, "run").field[0])))
+
+
 def exercises_the_nonlinear_half(built: Built) -> bool:
     """Return whether the source moves the field through the flow: ``rho > 1e-5``."""
     return increment(built) > 1e-5
@@ -282,6 +389,34 @@ def frozen_maps(problem: PropagationProblem) -> PropagationProblem:
     return dataclasses.replace(
         problem, route=dataclasses.replace(problem.route, transform=transform)
     )
+
+
+def without_the_response(
+    name: str, response: str
+) -> Callable[[PropagationProblem], PropagationProblem]:
+    """Return a switch-off rebuilding a wall-beside-gas case with `response` off.
+
+    ``plasma=False`` or ``raman=False`` at the entry point, as the old test switched
+    them.
+    """
+
+    def switch(problem: PropagationProblem) -> PropagationProblem:
+        rebuilt = wall_gas_case(name, **{response: False}).problem
+        assert rebuilt.shape == problem.shape
+        return rebuilt
+
+    return switch
+
+
+def without_the_draw(route: str) -> Callable[[PropagationProblem], PropagationProblem]:
+    """Return a switch-off rebuilding an input-noise route with no noise at all."""
+
+    def switch(problem: PropagationProblem) -> PropagationProblem:
+        rebuilt = noise_case(route, None).problem
+        assert rebuilt.shape == problem.shape
+        return rebuilt
+
+    return switch
 
 
 # --- the rows -------------------------------------------------------------------------
@@ -514,6 +649,130 @@ def _bound_row(name: str) -> Row:
     )
 
 
+WALL_GAS = {
+    "scalar": ("capillary (coherent wall)", "the scalar wall"),
+    "te_tm": ("capillary (coherent wall)", "the TE/TM wall's azimuthal block"),
+    "taper": ("capillary (coherent wall)", "the scalar wall on a taper"),
+}
+"""Each wall-beside-gas case's route and what it is, by ``wall_gas_cases.CASES`` name.
+
+The old test marked the TE/TM wall and the taper slow; each of their parity tests,
+both backends' runs and both responses switched off, took 2.8 to 6.6 s on the Mac, so
+their rows are medium."""
+
+
+def _wall_gas_rows() -> tuple[Row, ...]:
+    """Return each wall beside nitrogen's plasma and Raman, one row per response."""
+    return tuple(
+        flow_row(
+            name=f"wall beside N2 {name} {response}",
+            stepper="adams",
+            route=WALL_GAS[name][0],
+            response="kerr, plasma, raman",
+            features=f"{WALL_GAS[name][1]} beside N2's default plasma and Raman, "
+            "30 uJ through prop_capillary's defaults",
+            why=f"Ten fixed steps of {WALL_GAS[name][1]} beside nitrogen's own plasma "
+            "and Raman response, which the entry point turns on by default, leave "
+            f"the reference's last plane, the {response} acting.",
+            bound_note="wall_gas_cases.parity_bound, written before any measurement: "
+            "B_10 with the source split by response, each with its own share, "
+            "rounding and Lipschitz factor, read on the reference's last plane.",
+            build=partial(wall_gas_case, name),
+            switch_off=without_the_response(name, response),
+            rungs={"last_plane": wall_gas_bound(name)},
+        )
+        for name in wall_gas_cases.CASES
+        for response in ("plasma", "raman")
+    )
+
+
+NOISE_ROUTES = {
+    "capillary (coherent wall)": ("adams", "wall"),
+    "capillary (taper coupling)": ("adams", "taper"),
+    "general guide (moving)": ("rk", "moving"),
+    "general guide (split block)": ("rk", "split"),
+}
+"""Each input-noise route's stepper and the short name of its row."""
+
+
+def _noise_rows() -> tuple[Row, ...]:
+    """Return the input draw carried through each coupled flow."""
+    return tuple(
+        flow_row(
+            name=f"input noise {NOISE_ROUTES[route][1]}",
+            stepper=NOISE_ROUTES[route][0],
+            route=route,
+            features="the input shot-noise draw in the entrance state, 1 pJ, "
+            "through the driver",
+            why="The input draw needs no backend path of its own: native carries it "
+            "through the coupled flow to the reference's last plane.",
+            bound_note="1e-12 of the plane's peak, a rounding budget fixed before "
+            "the comparison but not derived (#807): ten steps of transforms, flow "
+            "actions and stage sums, a few hundred ulps of the peak at most.",
+            build=partial(noise_case, route),
+            switch_off=without_the_draw(route),
+            rungs={"last_plane": fixed(1e-12)},
+            metric="peak",
+        )
+        for route in input_noise_cases.ROUTES
+    )
+
+
+def _entry_rows() -> tuple[Row, ...]:
+    """Return the coupled flows' driver runs: the vector wall and the auto checks."""
+    return (
+        flow_row(
+            name="vector wall taper driver",
+            stepper="adams",
+            route="capillary (coherent wall)",
+            features="the TE/TM wall on a taper, a dense frozen-residual flow, 1 nJ",
+            why="The TE/TM wall on a taper, a dense frozen-residual flow, leaves the "
+            "reference's last plane through the entry point.",
+            bound_note="1e-11 of the plane's peak, an underived gate (#807) above the "
+            "flow's parity bounds, at most 5.5e-12 of the launch's peak after ten "
+            "steps (from test_coherent_capillary).",
+            build=vector_wall_taper,
+            switch_off=without_flow,
+            rungs={"last_plane": fixed(1e-11)},
+            metric="peak",
+        ),
+        flow_row(
+            name="scalar wall driver",
+            stepper="adams",
+            route="capillary (coherent wall)",
+            features="the scalar wall, 1 nJ, through the entry point",
+            why="The scalar wall's ten steps through the entry point leave the "
+            "reference's last plane on native, which backend='auto' resolves to.",
+            bound_note="1e-12 of the reference's saved launch plane's peak, an "
+            "underived gate (#807): a millionth of the launch is generous for ten "
+            "steps of a nanojoule, where the source is below rounding. The test of "
+            "auto's resolution keeps test_native_coupled_flow.",
+            build=scalar_wall,
+            switch_off=without_flow,
+            rungs={"last_plane": fixed(1e-12)},
+            metric="peak",
+            scale=launch_plane_peak,
+        ),
+        flow_row(
+            name="taper coupling driver",
+            stepper="adams",
+            route="capillary (taper coupling)",
+            features="the lossless taper coupling, no wall, 1 nJ",
+            why="The lossless taper's coupling, the lowest channel's parameter "
+            "expansion, leaves the reference's last plane on native, which "
+            "backend='auto' resolves to.",
+            bound_note="1e-12 of the reference's saved launch plane's peak, an "
+            "underived gate (#807). The test of auto's resolution keeps "
+            "test_taper_coupling.",
+            build=lossless_taper,
+            switch_off=without_flow,
+            rungs={"last_plane": fixed(1e-12)},
+            metric="peak",
+            scale=launch_plane_peak,
+        ),
+    )
+
+
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the coupled linear flow on a fixed schedule."""
@@ -522,4 +781,7 @@ def rows() -> tuple[Row, ...]:
         *_coupled_rows(),
         *(_moving_row(name) for name in MOVING),
         *(_bound_row(name) for name in BOUND_CASES),
+        *_wall_gas_rows(),
+        *_noise_rows(),
+        *_entry_rows(),
     )

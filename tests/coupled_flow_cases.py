@@ -466,3 +466,8 @@ def reference_and_linear(case: Case) -> tuple[np.ndarray, np.ndarray]:
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     return expected, linear
+
+
+def lossless(**overrides):
+    """Return the ten-step three-channel qualification taper, lossless, no wall."""
+    return varying(loss=False, cladding=1.45, **overrides)

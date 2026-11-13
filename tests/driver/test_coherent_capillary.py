@@ -2644,31 +2644,6 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", ["native"])
-def test_a_varying_vector_wall_runs_on_the_compiled_backends_to_rounding(name):
-    """Every backend executes the TE/TM wall on a taper, to the flow parity bound.
-
-    ``native`` executes every constant-Schur and frozen-residual flow the reference
-    admits, the TE/TM block on a varying guide included. The leaf is a dense
-    frozen-residual flow like the scalar taper's, so the compiled backend's parity
-    bounds cover it: at most 5.5e-12 (Kokkos) of the launch peak after ten steps. Gated
-    here at 1e-11 of the final plane's peak.
-    """
-    if name not in available():
-        pytest.skip(f"{name} is not installed")
-    arguments = {
-        "wall": VECTOR_WALL,
-        "modes": vector_modes(radius=taper()),
-        "radius_override": taper(),
-    }
-    reference = np.asarray(run_capillary(**arguments).planes()[-1].field)
-    compiled = np.asarray(run_capillary(backend=name, **arguments).planes()[-1].field)
-    peak = float(np.max(abs(reference)))
-    assert peak > 0.0
-    assert float(np.max(abs(compiled - reference))) < 1e-11 * peak
-
-
-@pytest.mark.medium
 def test_prop_capillary_runs_a_vector_wall_end_to_end_and_records_its_flow():
     """Ten steps through the entry point: the record, the loss and the conversion.
 

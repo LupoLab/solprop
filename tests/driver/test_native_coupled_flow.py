@@ -302,22 +302,15 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
 def test_auto_runs_a_wall_on_native_through_the_entry_point():
     """`"auto"` resolves to Kokkos where it is installed, and ``native`` runs the wall.
 
-    The record and the final plane are the reference's: the same schedule, the same
-    flow, within the parity bound's order (a millionth of the launch is generous for
-    ten steps of a nanojoule, where the source is below rounding).
+    The record names native; the split guide's flow is translated for it. The final
+    plane against the reference's is a row of the case catalogue
+    (``tests/backends/flow_rows.py``, ``scalar wall driver``).
     """
-    reference = run_capillary(wall=CoherentWall())
     automatic = run_capillary(wall=CoherentWall(), backend="auto")
     assert automatic.metadata is not None
     record = automatic.metadata.backend
     assert record is not None
     assert record.name == "native"
-    expected = reference.planes()[-1].field
-    actual = automatic.planes()[-1].field
-    start = reference.planes()[0].field
-    assert expected is not None and actual is not None and start is not None
-    scale = float(np.max(np.abs(start)))
-    assert float(np.max(np.abs(actual - expected))) <= 1e-12 * scale
     grid = general_grid()
     simulation = guide_simulation(split_guide(grid), grid, backend="auto")
     assert simulation.translate().linear.coupled_flow is not None
