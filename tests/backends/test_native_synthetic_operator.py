@@ -11,7 +11,10 @@ real medium has those together, so no native run met them. Native's kernels cann
 called alone, but its operator is read from the leaf: these tests put the same values
 on the leaf of a small real problem, with order-one steps and an order-one state, and
 compare a whole step, on the low-storage march and on the Runge-Kutta march, with
-``numpy_ref``, whose operator is ``separable_values``.
+``numpy_ref``, whose operator is ``separable_values``: the catalogue's rows
+(``backends/geometry_rows.py``), which build their leaves here. What stays here is
+what a row does not compare: the inactive bin's hard zero, the norm the march hands its
+accept, and a diverged march's refusal.
 
 **The bound.** The original's was 128 eps per kernel on order-one operands, with no
 transform between them. A step here has four evaluations of a transform pair, so it
@@ -31,9 +34,10 @@ import os
 import numpy as np
 import pytest
 
+from backends.geometry_rows import SYNTHETIC_CASES, synthetic
 from backends.low_storage_cases import parity_bound
 from backends.test_low_storage import MARCH
-from bounds import assert_within, gamma, propagation_growth, step_evaluations
+from bounds import gamma, propagation_growth, step_evaluations
 from sessions.runs import load_native
 from sessions.runs import run as session_run
 from solprop.backends.host.low_storage import HostLowStorageMarch
@@ -312,61 +316,20 @@ def assert_the_leaf_is_pathological(leaf):
     assert np.any(leaf.kperp_rate != 0.0)
 
 
-def assert_step_agrees(problem, run_request, grid, leaf):
-    """One step on native within the bound of ``numpy_ref``, and the mask exact."""
-    limit = step_limit(problem, run_request, grid, leaf)
-    expected = run(NumpyRefBackend, problem, run_request, grid)
-    actual = run(NativeBackend, problem, run_request, grid)
-    assert_within(actual, expected, limit, what="against numpy_ref")
-    # Class P: the inactive bin's state is a hard zero on both, whatever went in.
+@pytest.mark.parametrize(("case", "mode", "n_pol"), SYNTHETIC_CASES)
+def test_the_inactive_bin_stays_a_hard_zero(case, mode, n_pol):
+    """Class P: after the step the inactive bin is a hard zero on both backends.
+
+    The step itself is held to the reference by the catalogue's rows
+    (``backends/geometry_rows.py``).
+    """
+    built = synthetic(case, mode, n_pol)
+    leaf = built.problem.linear.separable
+    assert leaf is not None
     inactive = ~np.asarray(leaf.active)
-    np.testing.assert_array_equal(expected[..., inactive], 0.0)
-    np.testing.assert_array_equal(actual[..., inactive], 0.0)
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-@pytest.mark.parametrize("n_pol", [1, 2])
-def test_the_cartesian_march_on_the_original_leaf_is_the_reference_s(n_pol, mode):
-    """Inventory 31 (a): loss, gain, Re q = 0, evanescent rows and an inactive bin."""
-    problem, run_request, grid = free_problem(responses=[KERR], n_pol=n_pol, mode=mode)
-    leaf = free_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_planar_march_on_the_original_leaf_is_the_reference_s(mode):
-    """Inventory 32: the wall's gain and negative part, 1e-17 low words, the ramp.
-
-    One scalar channel per column: translation refuses ``n_pol = 2`` on the slab, so
-    the original's second polarisation has nothing to reach.
-    """
-    problem, run_request, grid = slab_problem(responses=[KERR], mode=mode)
-    leaf = slab_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
-
-
-@pytest.mark.parametrize(
-    ("material", "absorbed"),
-    [(True, True), (True, False), (False, True), (False, False)],
-)
-def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, absorbed):
-    """Inventory 34: gain, an inactive bin and a ramp together, on the seven stages.
-
-    The original's ``finish_stage`` with each term present or absent: a response and an
-    in-stage absorber here. The channels are distinct: the same ``k_y`` is another rate.
-    """
-    problem, run_request, grid = slab_problem(
-        responses=[KERR] if material else [],
-        collar=absorbed,
-        integrator=None,  # pyright: ignore[reportArgumentType]
-    )
-    leaf = slab_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    operator = separable_values(leaf)[0][0]
-    assert not np.allclose(operator[0], operator[1])
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
+    for implementation in (NumpyRefBackend, NativeBackend):
+        state = run(implementation, built.problem, built.run_request, built.grid)
+        np.testing.assert_array_equal(state[..., inactive], 0.0)
 
 
 def with_masked_bin(problem, leaf):

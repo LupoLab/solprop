@@ -690,15 +690,20 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
         for name, march in (("rk", RungeKutta()), ("adams", Multistep()))
     ],
 )
-def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
+def test_a_collar_run_s_monitor_record_matches_numpy_ref_on_a_matched_schedule(
     route: str, march: object
 ) -> None:
+    """The edge reads, status, current, removed power and strip of the two backends.
+
+    The run's field at its end, on the same schedule, is the row ``geometry edge
+    collar ...`` (``backends/geometry_rows.py``).
+    """
     # A controlled witness: one schedule, so the same reads at the same places, and a
     # converging beam reaching the collar, so that the current's truly inward and above
     # rounding, and the relative comparison means something.
     steps = 16 * STEPS if route == "planar" else STEPS
 
-    def run(backend: str) -> tuple[np.ndarray, dict[str, Any]]:
+    def run(backend: str) -> dict[str, Any]:
         simulation = _case(
             route,
             **INWARD,
@@ -713,12 +718,10 @@ def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             output = cast("Any", simulation.run(progress="none"))
-        record = output.outcome.execution["boundary_monitor"]["transverse"]
-        return np.asarray(output["field"][-1]), record
+        return output.outcome.execution["boundary_monitor"]["transverse"]
 
-    expected, reference = run("numpy_ref")
-    found, native = run("native")
-    assert np.linalg.norm(found - expected) <= 1e-10 * np.linalg.norm(expected)
+    reference = run("numpy_ref")
+    native = run("native")
     assert native["reads"] == reference["reads"] > 0
     assert native["transverse_status"] == reference["transverse_status"]
     # A planar launch can't converge, so its current stays at rounding: what's left to

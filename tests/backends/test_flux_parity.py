@@ -12,7 +12,9 @@ media are lossy (or the planar walls are), so the admittance is complex and the
 local statistics' cross terms ``Im(eta)`` are far above rounding; the radial argon
 gradient reads the plane measure's material table at a position past the entrance.
 Every comparison is a matched discrete computation, held to a rounding budget fixed
-here before the comparison (SEP 25).
+here before the comparison (SEP 25). The comparisons are the catalogue's rows
+(``backends/geometry_rows.py``), which build these cases and read these budgets; what
+stays here is a width's refusal and native's ledger.
 """
 
 import importlib.util
@@ -21,7 +23,7 @@ import numpy as np
 import pytest
 
 from backends.planar_cases import planar_case
-from bounds import assert_within, gamma
+from bounds import gamma
 from sessions.runs import launch_statistics
 from solprop.backends import select
 from solprop.backends.spatial import fluence_budget, signed_fluence_widths
@@ -128,7 +130,9 @@ def _planar():
 
 
 CASES = {
-    # name: (builder, position of the plane, m)
+    # name: (builder, position of the plane, m); the state is the launch with a
+    # chirp-like phase on every column, so that the frequencies and the columns
+    # interfere at the nodes and the closure's cross terms enter every local value.
     "radial-lossy": (lambda: _radial(LOSSY), 0.0),
     "radial-gradient": (
         lambda: _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3))),
@@ -138,28 +142,6 @@ CASES = {
     "line-lossy": (lambda: _free(LineGrid(4e-4, 24)), 0.0),
     "planar": (_planar, 0.0),
 }
-
-
-@pytest.fixture(scope="module", params=sorted(CASES))
-def measured(request):
-    """Every backend's statistics of one state at one plane."""
-    build, z = CASES[request.param]
-    grid, problem, run_request = build()
-    rng = np.random.default_rng(34)
-    field = problem.initial.field0
-    # A chirp-like phase on every column makes the frequencies and the columns
-    # interfere at the nodes, so the closure's cross terms enter every local value.
-    field = field * np.exp(1j * rng.uniform(-0.3, 0.3, field.shape[-1]))
-    values = {}
-    for name in BACKENDS:
-        backend = select(name, problem, run_request, grid=grid)
-        try:
-            values[name] = launch_statistics(
-                backend, problem, field=field, stats=run_request.observation.stats, z=z
-            )
-        finally:
-            backend.close()
-    return request.param, grid, problem, run_request, values
 
 
 def _budget(name, grid, problem):
@@ -181,20 +163,6 @@ def _budget(name, grid, problem):
     # which a factor of eight covers.
     synthesis = 16 * (n_columns + n_pol * grid.n_t + 64 * int(np.log2(grid.n_t)))
     return gamma(8 * synthesis if name in ("beam_radius", "fwhm_r") else synthesis)
-
-
-def test_every_backend_measures_the_same_flux(measured):
-    case, grid, problem, run_request, values = measured
-    reference = values["numpy_ref"]
-    assert set(reference) == set(run_request.observation.stats.names)
-    for backend in BACKENDS[1:]:
-        for name in run_request.observation.stats.names:
-            assert_within(
-                values[backend][name],
-                reference[name],
-                _budget(name, grid, problem),
-                what=f"{case} {backend} {name}",
-            )
 
 
 def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
