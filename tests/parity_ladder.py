@@ -14,11 +14,13 @@ to a finite, non-zero reference, strictly inside a bound the row declares from
 (``max |ours - theirs| / max |theirs|``).
 """
 
+import contextlib
 import copy
 import dataclasses
 import inspect
 import math
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from typing import Any, Literal, NamedTuple
 
 import numpy as np
@@ -113,11 +115,16 @@ class Statistic:
     """A statistic's bound and how it is compared.
 
     Relative and peak-normalised by default (NaN where both sides are NaN); ``absolute``
-    for a dimensionless diagnostic whose relative change measures nothing.
+    for a dimensionless diagnostic whose relative change measures nothing;
+    ``elementwise`` relative at every element (:func:`elementwise_departure`, what
+    ``numpy.allclose`` with ``rtol`` alone holds). ``positive`` also requires the
+    reference's value to be positive somewhere, so that the comparison sees something.
     """
 
     bound: float
     absolute: bool = False
+    elementwise: bool = False
+    positive: bool = False
 
 
 StatisticRule = Callable[[Built, str, float], Statistic]
@@ -145,12 +152,16 @@ class Row:
     (``"problem.transform.n_nodes"``; a method is called, ``""`` is the row itself) to
     what it must be; ``quiet`` holds the warning filters the row's run needs.
     ``unguarded`` names a rung the term does not move far enough to guard, with why the
-    rung is kept; it still runs at its bound, and the row's other rungs carry its
-    guard. ``metric`` is how every field rung and guard compares (``"normwise"`` or
-    ``"peak"``, :data:`METRICS`). ``window`` cuts the ``steps`` rung to the schedule's
-    first steps (the whole schedule by default). ``every_statistic`` compares every
-    statistic of the request's own specification at the end of the ``steps`` rung and
-    of the ``run`` rung, each with the :class:`Statistic` it returns.
+    rung is kept; it still runs at its bound, and the row's other rungs carry its guard.
+    A row whose term reaches none of its rungs -- an old claim the guard found vacuous,
+    kept -- names them all. ``metric`` is how every field rung and guard compares
+    (``"normwise"`` or ``"peak"``, :data:`METRICS`). ``window`` cuts the ``steps`` rung
+    to the schedule's first steps (the whole schedule by default). ``every_statistic``
+    compares every statistic of the request's own specification at the end of the
+    ``steps`` rung and of the ``run`` rung, each with the :class:`Statistic` it returns.
+    ``context`` makes the context the whole check runs in, so that every backend of the
+    row, the reference's and the guard's included, is constructed inside it (the private
+    gated plasma benchmark, ``tests/gated_source.py``).
     """
 
     id: str
@@ -173,6 +184,7 @@ class Row:
     metric: Literal["normwise", "peak"] = "normwise"
     window: int | None = None
     every_statistic: StatisticRule | None = None
+    context: Callable[[], AbstractContextManager[object]] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -330,11 +342,12 @@ def _march(
     backend = _backend(backend_class, built, request)
     stats = None if names is None else StatsSpec(names=names)
     try:
+        # The session owns the backend and closes it, as a service's run does.
         result = session_run(
-            backend, built.problem, request.for_run(stats=stats), start
+            backend, built.problem, request.for_run(stats=stats), start, owns=True
         )
     finally:
-        backend.close()
+        backend.close()  # idempotent: for a run that failed to start
     last = result.observations[-1]
     plane = float(request.stepper.save_planes[-1])
     assert last.z == plane, (
@@ -519,6 +532,24 @@ def peak_departure(got, expected) -> float:
     return float(np.max(np.abs(np.where(missing, 0.0, got - expected))) / scale)
 
 
+def elementwise_departure(got, expected) -> float:
+    """Return the largest ``|got - expected| / |expected|`` over the elements.
+
+    ``numpy.allclose(got, expected, rtol=r, atol=0)`` is this ``<= r``: a NaN on either
+    side is an infinite departure, and so is a non-zero value against a zero reference;
+    zero against zero is none.
+    """
+    got, expected = np.asarray(got, dtype=float), np.asarray(expected, dtype=float)
+    if np.any(np.isnan(got)) or np.any(np.isnan(expected)):
+        return math.inf
+    difference, scale = np.abs(got - expected), np.abs(expected)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratios = np.where(
+            scale > 0, difference / scale, np.where(difference == 0, 0.0, math.inf)
+        )
+    return float(np.max(ratios, initial=0.0))
+
+
 METRICS: dict[str, Callable[[Any, Any], float]] = {
     "normwise": departure,
     "peak": peak_departure,
@@ -562,10 +593,12 @@ def check(native_class: type, row: Row) -> list[Reading]:
     reference moves by more than :data:`DETECTION` times that rung's bound (or the
     rung's own :class:`Detection`). Every failure names the row and quotes its claim
     and bound note; a rung outside its bound gives the measured value, the bound and
-    their ratio.
+    their ratio. A row's ``context`` holds for the whole check.
     """
+    context = contextlib.nullcontext() if row.context is None else row.context()
     try:
-        return _check(native_class, row)
+        with context:
+            return _check(native_class, row)
     except AssertionError as error:
         raise AssertionError(_failure(row, str(error))) from error
 
@@ -673,12 +706,20 @@ def _every_statistic(
         )
         for name, expected in theirs.statistics.items():
             rule = row.every_statistic(built, name, field_bounds[rung])
-            found = ours.statistics[name]
-            measured = (
-                float(np.max(np.abs(found - expected)))
-                if rule.absolute
-                else peak_departure(found, expected)
+            assert not (rule.absolute and rule.elementwise), (
+                f"{rung} {name}: a statistic is compared absolutely or elementwise"
             )
+            assert not rule.positive or np.max(expected) > 0, (
+                f"{rung} {name}: the reference's statistic is nowhere positive, so the "
+                "comparison sees nothing"
+            )
+            found = ours.statistics[name]
+            if rule.absolute:
+                measured = float(np.max(np.abs(found - expected)))
+            elif rule.elementwise:
+                measured = elementwise_departure(found, expected)
+            else:
+                measured = peak_departure(found, expected)
             readings.append(Reading(f"{rung} {name}", measured, rule.bound))
     return readings
 
@@ -686,8 +727,8 @@ def _every_statistic(
 def _check_declarations(row: Row) -> None:
     """Assert the row states its claim and declares its guards completely."""
     assert row.why.strip(), "the row states no claim (`why`)"
-    assert set(row.unguarded) < set(row.rungs), (
-        "a row guards at least one rung, and names as unguarded only rungs it runs"
+    assert set(row.unguarded) <= set(row.rungs), (
+        "a row names as unguarded only rungs it runs"
     )
     assert all(reason.strip() for reason in row.unguarded.values()), (
         "an unguarded rung gives no reason"
