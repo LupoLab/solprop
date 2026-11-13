@@ -58,6 +58,7 @@ import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this f
 import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 import solprop.driver.settings as driver_settings  # noqa: E402 - needs the hook above
+import tier_budget  # noqa: E402 - test helper beside conftest
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
 from solprop import _process  # noqa: E402 - needs the hook above
 from solprop.backends import registry  # noqa: E402 - needs the hook above
@@ -122,9 +123,13 @@ def pytest_collection_modifyitems(config, items):
         if no_native and item.get_closest_marker("child_runs_auto") is not None:
             item.add_marker(pytest.mark.skip(reason="auto refuses in a child process"))
         remember_nodeid(item)
-        _COLLECTED_TIERS[item.nodeid] = tuple(
+        tiers = tuple(
             name for name in TIER_MARKERS if item.get_closest_marker(name) is not None
         )
+        _COLLECTED_TIERS[item.nodeid] = tiers
+        # The tier travels with the test's report into a JUnit file's properties, where
+        # tests/tier_budget.py reads it to hold each tier to its budget.
+        item.user_properties.append((tier_budget.PROPERTY, tier_budget.tier_of(tiers)))
     # Workers reset ``dist`` to "no" and retain the selected strategy in
     # ``loadgroup``; checking only the controller option would split fixtures.
     if config.getoption("loadgroup", default=False) or (
