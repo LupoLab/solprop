@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 from backends.general_rows import MARCHES, split_collar, with_content_out_of_band
-from driver.test_native_moving_guide import grin_kinked, moving_parity_bound, propagate
+from coupled_flow_cases import propagate
 from general_parity import (
     LENGTH,
     conditioning,
@@ -35,6 +35,7 @@ from general_parity import (
     source_bound,
     ten_step_bound,
 )
+from moving_guide_cases import grin_kinked, moving_parity_bound
 from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps

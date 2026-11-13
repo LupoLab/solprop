@@ -22,15 +22,15 @@ import numpy as np
 import pytest
 
 import flow_parity
-from driver.test_moving_guide import (
-    STEP_RADIUS,
-    build,
-    grin_taper,
-    kinked_radius,
-    step_grid,
-)
 from general_parity import conditioning, moving_count, source_bound
 from modal_provider_cases import GENERAL_CHI3, grin_grid, make_provider
+from moving_guide_cases import (
+    STEP_RADIUS,
+    grin_taper,
+    kinked_radius,
+    moving_simulation,
+    step_grid,
+)
 from sessions.runs import load_native
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
@@ -77,7 +77,7 @@ def kinked():
     """The kinked graded-index taper with a Kerr core: the problem and grid."""
     grid = grin_grid()
     guide = grin_taper(kinked_radius(), kerr=True)
-    simulation = build(guide, grid, energy=ENERGY)
+    simulation = moving_simulation(guide, grid, energy=ENERGY)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     return simulation.translate(), simulation._run_request(), grid
 

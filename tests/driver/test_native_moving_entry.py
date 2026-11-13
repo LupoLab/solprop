@@ -18,14 +18,16 @@ import pytest
 pytest.importorskip("solprop_native")
 
 
-from driver.test_moving_guide import grin_grid, grin_taper, kinked_radius
-from driver.test_native_moving_guide import (
+from coupled_flow_cases import propagate
+from modal_provider_cases import grin_grid
+from moving_guide_cases import (
     GRIN_ENERGY,
     GRIN_PULSE,
-    _simulation,
     grin_kinked,
+    grin_taper,
+    kinked_radius,
     moving_parity_bound,
-    propagate,
+    ten_step_simulation,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.output.memory import MemoryOutput
@@ -49,7 +51,7 @@ def test_a_moving_guide_runs_end_to_end_on_native_as_on_the_reference():
     for backend in ("numpy_ref", "native"):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            simulation = _simulation(
+            simulation = ten_step_simulation(
                 grin_taper(kinked_radius(), kerr=True),
                 grin_grid(),
                 **(GRIN_PULSE | {"energy": GRIN_ENERGY}),
