@@ -10,20 +10,25 @@ name.
 """
 
 import dataclasses
+import functools
 import json
 from collections.abc import Mapping
+from datetime import UTC
 
 import h5py
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import OutputError
-from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output import HDF5Output, check_cache, open_file
 from solprop.output.hdf5 import _read_record, _write_record
 from solprop.output.metadata import RunMetadata, _example_metadata
+from solprop.output.records import GridRecord, NoiseRecord
 from solprop.output.scan import PointResult, ScanWriter, read_point
 from solprop.output.serialisation import RECORD_ARRAY_LIMIT
 from solprop.processing.planes import field_plane
@@ -197,6 +202,110 @@ def _written(path, record: RunMetadata):
     """Write `record` into a new file at `path`."""
     with HDF5Output(path) as handler:
         handler.open(record)
+
+
+# A record's configuration is whatever `serialise` makes of the physics objects: JSON
+# primitives (non-finite floats, signed zeros, integers beyond 64 bits, any text),
+# containers, and arrays in the text or beside it (the limit itself is the parametrised
+# test's above; an inline array of 4096 elements costs the type-checked lane seconds).
+ARRAYS = st.builds(
+    lambda size, seed, dtype: (
+        np.random.default_rng(seed).standard_normal(size).astype(dtype)
+    ),
+    st.sampled_from([0, 1, 7, LARGE]),
+    st.integers(min_value=0, max_value=2**32 - 1),
+    st.sampled_from([np.float64, np.complex128, np.int64, np.bool_]),
+)
+LEAVES = (
+    st.none()
+    | st.booleans()
+    | st.integers(min_value=-(2**70), max_value=2**70)
+    | st.floats()
+    | st.text(max_size=12)
+    | ARRAYS
+)
+CONFIGURATIONS = st.dictionaries(
+    st.text(min_size=1, max_size=8),
+    st.recursive(
+        LEAVES,
+        lambda inner: (
+            st.lists(inner, max_size=4)
+            | st.dictionaries(st.text(min_size=1, max_size=8), inner, max_size=4)
+        ),
+        max_leaves=12,
+    ),
+    max_size=5,
+)
+GRID_RECORDS = st.sampled_from(
+    [
+        GridRecord.from_grid(
+            EnvelopeGrid.from_limits(1.0, 835e-9, (400e-9, 2e-6), 2e-12)
+        ),
+        GridRecord.from_grid(FieldGrid.from_limits(1.0, 800e-9, (200e-9, 2e-6), 4e-13)),
+    ]
+)
+
+
+@st.composite
+def record_fields(draw):
+    """Return every stored field of a run record that a run varies, drawn."""
+    grid = draw(GRID_RECORDS)
+    noise = draw(
+        st.none()
+        | st.builds(
+            lambda model, seed, phase: NoiseRecord(
+                model=model,
+                seed=seed,
+                spectrum=np.exp(
+                    2j
+                    * np.pi
+                    * np.random.default_rng(phase).random((1, 1, grid.n_omega))
+                ),
+            ),
+            st.sampled_from(["input", "modified"]),
+            st.none() | st.integers(min_value=0, max_value=2**128 - 1),
+            st.integers(min_value=0, max_value=2**32 - 1),
+        )
+    )
+    return {
+        "grid": grid,
+        "configuration": draw(CONFIGURATIONS),
+        "noise": noise,
+        "created": draw(st.datetimes(timezones=st.just(UTC))).isoformat(),
+        "initial_z": draw(st.floats(min_value=0.0, max_value=1e3)),
+        "versions": draw(
+            st.dictionaries(st.text(min_size=1, max_size=8), st.text(max_size=8))
+        ),
+        "git": None,
+    }
+
+
+@functools.cache
+def example_record() -> RunMetadata:
+    """Return the example record once: building one detects the git checkout."""
+    return _example_metadata()
+
+
+@settings(max_examples=30, deadline=None)
+@given(fields=record_fields())
+def test_a_record_written_to_a_file_reads_back_equal(fields, tmp_path_factory):
+    record = dataclasses.replace(example_record(), **fields)
+    path = tmp_path_factory.mktemp("record") / "run.h5"
+    _written(path, record)
+    with open_file(path) as stored:
+        back = stored.metadata
+    assert back is not None
+    # Lossless storage (class P): the whole record, every field and not only the
+    # hashed ones, comes back as the same canonical text, and its arrays as the same
+    # values of the same dtype and shape.
+    assert back.to_json() == record.to_json()
+    assert back.configuration_hash() == record.configuration_hash()
+    written, read = record.record_arrays(), back.record_arrays()
+    assert read.keys() == written.keys()
+    for digest, values in written.items():
+        assert read[digest].dtype == values.dtype
+        np.testing.assert_array_equal(read[digest], values)
+    assert check_cache(path, record)
 
 
 def test_a_file_holds_the_arrays_beside_the_record(tmp_path):
