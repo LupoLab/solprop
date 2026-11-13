@@ -4,6 +4,7 @@
 
 """Synthetic mixture data and analytic rates shared by channel qualification tests."""
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -12,6 +13,7 @@ from legacy_geometry import LEGACY_GRID
 from solprop.constants import C
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode
+from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import (
     Component,
@@ -20,11 +22,13 @@ from solprop.physdata import (
     Species,
     TabulatedSusceptibility,
 )
-from solprop.profiles import Constant
+from solprop.profiles import Constant, Linear
 from solprop.pulses import GaussianPulse
-from solprop.stepper import PIController
+from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
+from solprop.translate.problem import Flags
+from solprop.translate.responses import compile_responses
 
 
 @dataclass(frozen=True)
@@ -146,3 +150,95 @@ def mixture_translation(
         schedule=schedule,
     )
     return mixture, grid, mode, tuple(responses), translation
+
+
+def construct(mixture, responses, grid, original, original_request):
+    """Assemble `mixture` in the mixture case's capillary on sixteen fixed steps.
+
+    The launch, controller and steps are :func:`mixture_translation`'s (`original` and
+    `original_request`); returns the mode, the problem and its run's request.
+    """
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    problem, run_request = assemble(
+        grid,
+        mode,
+        responses,
+        original.initial.field0,
+        controller=original_request.stepper.controller,
+        save_planes=[grid.length],
+        dz_max=original_request.stepper.dz_max,
+        dz_init=original_request.stepper.dz_init,
+        schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 16),
+    )
+    return mode, problem, run_request
+
+
+def independent_profiles(*, frozen=False):
+    """Return the mixture case with three independent density profiles along z.
+
+    The two populations' densities fall and rise linearly and an inert third falls
+    from 7e24 to 0.8e24 m^-3, so the operator and the prefactor are z tables; sixteen
+    fixed steps (:func:`construct`). `frozen` holds every density at its launch value
+    instead. Returns the mixture, the grid, the mode, the problem and its run's request.
+    """
+    mixture, grid, _, responses, (original, original_request) = mixture_translation()
+
+    def density(start, end):
+        return Constant(start) if frozen else Linear(start, end, grid.length)
+
+    components = tuple(
+        dataclasses.replace(
+            component, density=density((index + 1) * 1e24, (4 - index) * 1e24)
+        )
+        for index, component in enumerate(mixture.components)
+    )
+    third = Component(
+        dataclasses.replace(components[0].species, gamma3=0.0, ionisation=None),
+        density(7e24, 0.8e24),
+        "inert",
+    )
+    mixture = Mixture.of(*components, third)
+    mode, problem, run_request = construct(
+        mixture, responses, grid, original, original_request
+    )
+    return mixture, grid, mode, problem, run_request
+
+
+def raman_mixture():
+    """Return the mixture case with an independent Raman oscillator per population.
+
+    Population ``i`` takes an undamped oscillator of amplitude ``(i + 1) 1e-37`` and
+    rate ``(i + 1) 2e14 1/s``, compiled beside the case's own responses into one
+    problem. Returns the grid, the problem and its run's request.
+    """
+    mixture, grid, mode, responses, (problem, run_request) = mixture_translation()
+    extra = tuple(
+        RamanResponse(
+            models=(
+                DampedOscillator((i + 1) * 1e-37, (i + 1) * 2e14, undamped_dephasing()),
+            ),
+            thg=False,
+            species=label,
+        )
+        for i, label in enumerate(mixture.labels)
+    )
+    compiled = compile_responses(
+        (*responses, *extra),
+        grid,
+        mode,
+        density=mode.density,
+        z_max=grid.length,
+        mixture=mixture,
+    )
+    problem = dataclasses.replace(problem, responses=compiled)
+    problem = dataclasses.replace(
+        problem,
+        flags=Flags.from_content(
+            shape=problem.shape,
+            linear=problem.linear,
+            transform=problem.transform,
+            responses=compiled,
+            initial=problem.initial,
+        ),
+    )
+    return grid, problem, run_request

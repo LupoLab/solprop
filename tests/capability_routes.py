@@ -411,6 +411,7 @@ def catalogue() -> tuple[Row, ...]:
         free_rows,
         general_rows,
         geometry_rows,
+        mixture_rows,
         optmat_rows,
         planar_rows,
         plasma_rows,
@@ -427,6 +428,7 @@ def catalogue() -> tuple[Row, ...]:
         *geometry_rows.rows(),
         *session_rows.rows(),
         *general_rows.rows(),
+        *mixture_rows.rows(),
     )
     assert len({row.id for row in rows}) == len(rows)
     return rows

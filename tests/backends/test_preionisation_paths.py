@@ -6,65 +6,36 @@
 
 The seam already carried the initial ionised fraction as a per-channel table along z;
 these tests make the front end supply a real path and check that each backend reads
-it per stage: a constant path is the number, to the run's rounding, a stepped and a
-smooth path agree across the backends within the derived plasma bounds the mixture
-ladder already uses,
-steps land on the path's kinks, and at a field too weak to ionise the final electron
-density is the analytic ``f0(z) rho(z)``.
+it per stage: a constant path is the number, to the run's rounding, steps land on the
+path's kinks, and at a field too weak to ionise the final electron density is the
+analytic ``f0(z) rho(z)``. A stepped and a smooth path on native against the reference,
+within the derived plasma bounds the mixture ladder uses, are the catalogue's rows
+(``backends/mixture_rows.py``, ``mixture preionisation ...``).
 """
 
 import dataclasses
-from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
+from backends.preionisation_cases import (
+    ENVELOPE_LENGTH,
+    FIELD_DZ,
+    FIELD_LENGTH,
+    FIELD_PATHS,
+    FIELD_STEPS,
+    NAMES,
+    envelope_case,
+    field_case,
+    smooth,
+    stepped,
+)
 from bounds import assert_within
-from mixture_cases import AnalyticRate, mixture_case, mixture_translation
+from mixture_cases import mixture_translation
 from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.grid import EnvelopeGrid
-from solprop.modes import MarcatiliMode
-from solprop.nonlinear import EnvelopePlasmaResponse
-from solprop.profiles import Constant, FromCallable, PiecewiseLinear
-from solprop.pulses import GaussianPulse
+from solprop.profiles import Constant
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.assembly import assemble
-from solprop.translate.ionisation import build_rate_table
-
-NAMES = (
-    "species_ionisation",
-    "species_electron_density",
-    "species_peak_ionisation_rate",
-    "species_density",
-    "species_ionisation_energy",
-    "electron_density",
-    "peak_ionisation_rate",
-)
-
-FIELD_LENGTH = 1e-3
-"""The mixture case's fibre, m; its fixed ladder takes steps of ``dz_init = 1e-5``."""
-
-FIELD_STEPS = 8
-FIELD_DZ = 1e-5
-
-
-def stepped(length, low, high, start, end):
-    """Return a fraction that ramps from `low` to `high` between two kinks, in m."""
-    return PiecewiseLinear(
-        np.array([0.0, start, end, length]), np.array([low, low, high, high])
-    )
-
-
-def smooth(length, low, high):
-    """Return a fraction rising smoothly along the fibre, with no kink at all."""
-    return FromCallable(
-        lambda z: (
-            low + (high - low) * np.sin(0.5 * np.pi * np.asarray(z) / length) ** 2
-        ),
-        (0.0, length),
-    )
 
 
 def run(backend_class, problem, run_request, grid, stop, *, stats=NAMES):
@@ -83,29 +54,6 @@ def run(backend_class, problem, run_request, grid, stop, *, stats=NAMES):
     plane = session_run(backend, problem, run_request, owns=True, until=stop).final
     assert plane.z == stop
     return plane.field, plane.summary, plane.history, plane.stats
-
-
-def field_case(preionisation):
-    """Return the two-population field case on its fixed eight-step ladder."""
-    _, grid, _, _, (problem, run_request) = mixture_translation(
-        preionisation=preionisation,
-        schedule=FixedSchedule.uniform(0.0, FIELD_LENGTH, FIELD_DZ),
-    )
-    return problem, run_request, grid
-
-
-# Kinks on the ladder's edges (a fixed schedule must land on every one), inside the
-# eight steps that are taken.
-FIELD_PATHS = {
-    "stepped-smooth": (
-        stepped(FIELD_LENGTH, 0.02, 0.2, 3 * FIELD_DZ, 5 * FIELD_DZ),
-        smooth(FIELD_LENGTH, 0.05, 0.3),
-    ),
-    "smooth-stepped": (
-        smooth(FIELD_LENGTH, 0.01, 0.1),
-        stepped(FIELD_LENGTH, 0.3, 0.05, 2 * FIELD_DZ, 6 * FIELD_DZ),
-    ),
-}
 
 
 @pytest.mark.medium
@@ -132,123 +80,19 @@ def test_a_constant_path_is_the_number_on_every_backend(backend_class):
         )
 
 
-@pytest.mark.medium
 @pytest.mark.parametrize("paths", sorted(FIELD_PATHS))
-def test_field_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_class):
+def test_the_final_fraction_starts_from_the_path(paths):
+    """The path is read: each final fraction is at least its local initial fraction."""
     problem, run_request, grid = field_case(FIELD_PATHS[paths])
     stop = FIELD_STEPS * FIELD_DZ
-    # The bound of tests/backends/test_mixture_ladder.py, unchanged: seven stages per
-    # step, each with two FFTs, a cubic evaluation and two accumulated current
-    # integrals per channel, 64 eps per fine sample, per channel, per stage and step.
-    # A path changes only the per-stage scalar each backend reads from the same table.
-    bound = 64 * grid.n_to * 2 * 7 * FIELD_STEPS * np.finfo(float).eps
-    assert bound > 0
-    ours = run(equivalence_backend_class, problem, run_request, grid, stop)
     oracle = run(NumpyRefBackend, problem, run_request, grid, stop)
-    assert ours[1].n_steps == oracle[1].n_steps == FIELD_STEPS
-    difference = float(np.linalg.norm(ours[0] - oracle[0]) / np.linalg.norm(oracle[0]))
-    assert difference < bound
-    for name in NAMES:
-        np.testing.assert_allclose(
-            ours[3][name],
-            oracle[3][name],
-            rtol=bound,
-            atol=bound if name == "species_ionisation" else 0.0,
-        )
-    # The path is read: the final fraction starts from the local initial fraction.
+    assert oracle[1].n_steps == FIELD_STEPS
     initial = np.array(
         [float(path(np.array([stop]))[0]) for path in FIELD_PATHS[paths]]
     )
     # Shape (n_species, n_nodes); one node here.
     final = oracle[3]["species_ionisation"][:, 0]
     assert np.all(final >= initial * (1 - 1e-12))
-
-
-ENVELOPE_LENGTH = 8e-6
-
-
-@dataclass(frozen=True)
-class _InstantaneousRate(AnalyticRate):
-    """The synthetic power law, declared an instantaneous isotropic rate."""
-
-    convention: str = "instantaneous-isotropic"
-
-
-def envelope_case(preionisation):
-    """Return the two-population envelope case on a four-step fixed ladder."""
-    mixture, _, _, _, _ = mixture_case(kerr=False, preionisation=preionisation)
-    responses = tuple(
-        EnvelopePlasmaResponse(
-            component.species,
-            build_rate_table(
-                _InstantaneousRate(scale=(index + 1) * 1e13), (1e7, 1e11), rtol=1e-7
-            ),
-            preionisation=component.preionisation,
-            species=component.label,
-        )
-        for index, component in enumerate(mixture.components)
-    )
-    grid = EnvelopeGrid.from_limits(ENVELOPE_LENGTH, 800e-9, (500e-9, 1.2e-6), 80e-15)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
-    initial = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7).build(grid)
-    step = ENVELOPE_LENGTH / 4
-    problem, run_request = assemble(
-        grid,
-        mode,
-        responses,
-        initial,
-        controller=PIController(rtol=1e-7, atol=1e-14),
-        save_planes=[ENVELOPE_LENGTH],
-        dz_max=step,
-        dz_init=step,
-        schedule=FixedSchedule.uniform(0.0, ENVELOPE_LENGTH, step),
-    )
-    return problem, run_request, grid
-
-
-ENVELOPE_PATHS = {
-    "stepped-smooth": (
-        stepped(ENVELOPE_LENGTH, 0.02, 0.2, ENVELOPE_LENGTH / 4, ENVELOPE_LENGTH / 2),
-        smooth(ENVELOPE_LENGTH, 0.05, 0.3),
-    ),
-    "smooth-stepped": (
-        smooth(ENVELOPE_LENGTH, 0.01, 0.1),
-        stepped(
-            ENVELOPE_LENGTH, 0.3, 0.05, ENVELOPE_LENGTH / 2, 3 * ENVELOPE_LENGTH / 4
-        ),
-    ),
-}
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("paths", sorted(ENVELOPE_PATHS))
-def test_envelope_plasma_paths_agree_with_the_oracle(paths, equivalence_backend_class):
-    problem, run_request, grid = envelope_case(ENVELOPE_PATHS[paths])
-    assert problem.flags.n_channels == 2
-    # The bound of tests/backends/test_envelope_plasma_geometries.py for the same
-    # two-population envelope case: the polynomial rate's integrals converge to
-    # rounding, and FFTs, two-channel scans and projections contribute under 128 eps
-    # per sample per RK stage; here over four steps rather than two.
-    bound = 128 * grid.n_to * 7 * 4 * np.finfo(float).eps
-    assert bound > 0
-    names = ("species_ionisation", "species_electron_density", "electron_density")
-    ours = run(
-        equivalence_backend_class,
-        problem,
-        run_request,
-        grid,
-        ENVELOPE_LENGTH,
-        stats=names,
-    )
-    oracle = run(
-        NumpyRefBackend, problem, run_request, grid, ENVELOPE_LENGTH, stats=names
-    )
-    assert ours[1].n_steps == oracle[1].n_steps == 4
-    np.testing.assert_allclose(
-        ours[0], oracle[0], rtol=bound, atol=bound * np.max(np.abs(oracle[0]))
-    )
-    for name in names:
-        np.testing.assert_allclose(ours[3][name], oracle[3][name], rtol=bound, atol=0)
 
 
 @pytest.mark.medium

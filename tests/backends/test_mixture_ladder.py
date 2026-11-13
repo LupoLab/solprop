@@ -2,7 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Mixture propagation, channel statistics, repeatability and accepted-stage stashes."""
+"""Mixture propagation, channel statistics, repeatability and accepted-stage stashes.
+
+The ladder's first step and first eight on native against the reference, the field
+and every species statistic, are the catalogue's rows (``backends/mixture_rows.py``);
+the adaptive run, held to the oracle's accuracy rather than its trajectory (#809),
+stays here.
+"""
 
 import dataclasses
 from pathlib import Path
@@ -24,7 +30,6 @@ from bounds import (
 from mixture_cases import mixture_case, mixture_translation
 from sessions.runs import launch_statistics
 from sessions.runs import run as session_run
-from solprop.backends.events import ObservationKind
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.stats import StatsSpec
@@ -33,85 +38,42 @@ from solprop.stepper import FixedSchedule
 PROBE = Path(__file__).with_name("host_cases_mixture_threads.py")
 
 
-def run(backend_type, problem, run_request, grid, *, steps=None):
-    """Run the session to the end, or to its first `steps` accepted steps.
+def run(backend_type, problem, run_request, grid):
+    """Run the session to the end.
 
     Return the field there, the summary since the launch, and every statistic of
-    :data:`NAMES` at the launch and there. A short run observes the end of every
-    `steps`-th accepted step (``step_planes``), which changes no step, and closes the
-    session at the first.
+    :data:`NAMES` at the launch and there.
     """
-    stepper = run_request.stepper
-    if steps is not None:
-        stepper = dataclasses.replace(stepper, step_planes=steps)
-    backend = backend_type(problem, run_request.with_stepper(stepper), grid=grid)
+    backend = backend_type(problem, run_request, grid=grid)
     try:
         result = session_run(
-            backend,
-            problem,
-            backend.request.for_run(stats=StatsSpec(names=NAMES)),
-            observations=None if steps is None else 2,
+            backend, problem, backend.request.for_run(stats=StatsSpec(names=NAMES))
         )
-        launch, there = result.observations[0], result.observations[1]
-        if steps is not None:
-            assert there.kind is ObservationKind.STEP
-        else:
-            assert len(result.observations) == 2
+        assert len(result.observations) == 2
+        launch, there = result.observations
         return result.fields[1], there.summary, launch.stats, there.stats
     finally:
         backend.close()
 
 
-@pytest.mark.parametrize("steps", [1, 8, pytest.param(None, marks=pytest.mark.medium)])
-def test_mixture_propagation_ladder_and_every_species_statistic(
-    thread_budget_lifted, steps, equivalence_backend_class
+@pytest.mark.medium
+def test_an_adaptive_mixture_run_meets_the_oracle_s_accuracy(
+    thread_budget_lifted, equivalence_backend_class
 ):
+    """The whole millimetre adaptively, from the declared maximum step.
+
+    A 1e-5 m start seeds the controller with an embedded norm of 7.45e-7; libm rounding
+    then selects 59 versus 60 steps and the final fields differ by 1.98e-6. The
+    maximum-step start resolves the first error estimate; neither the controller, its
+    tolerances, nor the bounds are changed.
+    """
     _, grid, _, _, (problem, run_request) = mixture_translation()
-    if steps is not None:
-        # A one/eight-step ladder uses the declared initial step. Forcing the
-        # entire 1 mm into one step amplifies FFT plan roundoff beyond the fixed
-        # bound; the adaptive full run below still reaches the fibre end with the
-        # unchanged controller.
-        run_request = run_request.with_stepper(
-            dataclasses.replace(
-                run_request.stepper,
-                schedule=FixedSchedule.uniform(
-                    0.0, grid.length, run_request.stepper.dz_init
-                ),
-            )
-        )
-    else:
-        # Start this adaptive qualification at its declared maximum step. A 1e-5 m
-        # start seeds the controller with an embedded norm of 7.45e-7; libm rounding
-        # then selects 59 versus 60 steps and the final fields differ by 1.98e-6.
-        # The maximum-step start resolves the first error estimate; neither the
-        # controller, its tolerances, nor the bounds below are changed.
-        run_request = run_request.with_stepper(
-            dataclasses.replace(run_request.stepper, dz_init=run_request.stepper.dz_max)
-        )
-    # Seven stages per step, each with two FFTs, a cubic evaluation and two
-    # accumulated current integrals per channel. Budget 64 eps per fine sample,
-    # per channel, per stage.
-    if steps is None:
-        assert_adaptive_run_is_accurate(
-            equivalence_backend_class, problem, run_request, grid
-        )
-        return
-    bound = 64 * grid.n_to * 2 * 7 * steps * np.finfo(float).eps
-    assert bound > 0
-    ours = run(equivalence_backend_class, problem, run_request, grid, steps=steps)
-    oracle = run(NumpyRefBackend, problem, run_request, grid, steps=steps)
-    assert ours[1].n_steps == oracle[1].n_steps == steps
-    difference = float(np.linalg.norm(ours[0] - oracle[0]) / np.linalg.norm(oracle[0]))
-    assert difference < bound
-    for measured, expected in zip(ours[2:], oracle[2:], strict=True):
-        for name in NAMES:
-            assert_allclose(
-                measured[name],
-                expected[name],
-                rtol=bound,
-                atol=bound if name == "species_ionisation" else 0.0,
-            )
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, dz_init=run_request.stepper.dz_max)
+    )
+    assert_adaptive_run_is_accurate(
+        equivalence_backend_class, problem, run_request, grid
+    )
 
 
 def assert_adaptive_run_is_accurate(backend_class, problem, run_request, grid):
