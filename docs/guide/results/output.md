@@ -491,18 +491,9 @@ build of the same schema may be refused, by name where the difference is known (
 Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
 were one integer per step before), and is read with the build that wrote it.
 
-**Four columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
-same way, and the first column became the collar alone. A file from an earlier development
-build still **reads**, showing the four columns as they were written, in the same positions
-as the first four now, its first column holding the spectral collar and any custom rate
-together. It is not **continued**: its run record differs from the one this build writes, so an
-append, a resume, a cache check and a scan writer each refuse it, as they refuse any
-changed record ([what a resume compares](resuming.md#what-a-resume-compares)). Start a
-new file, or launch a new segment from a saved plane.
-
-A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
-even a file with no `absorbed_power` is not continued: the comparison names that field as
-absent from the stored record. A run with no custom rate keeps its record.
+**Five columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
+same way, and the first column became the collar alone. A file from a development build
+before it, with four columns, is not supported: read it with the build that wrote it.
 
 ## A worked example
 

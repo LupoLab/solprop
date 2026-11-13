@@ -1080,60 +1080,21 @@ def test_the_floor_is_measured_in_the_acceptance_tests_own_norm():
 # ------------------------------------------------------ the size the change is for
 
 
-def ctc_sized_problem(length=1.5):
-    """Return ``(grid, modes)`` at the comb-to-continuum target's size.
-
-    The target is a 16 um bore, 1.5 m, hydrogen, six HE_1m modes, 170 nm to 4 um on a 4
-    ps window -- a field grid of 16 385 bins. Its fill is a constant 40 bar, which would
-    take the exact constant path and have no table to compare, so the fill here is a
-    gradient of the same size: what is measured is the representation's cost at that
-    shape.
-    """
-    grid = FieldGrid.from_limits(length, 515e-9, (170e-9, 4e-6), 4e-12)
-    fill = PressureGradient.two_point(length, 40.0, 0.4)
-    return grid, [MarcatiliMode(16e-6, "H2", fill, m=m) for m in range(1, 7)]
-
-
-@pytest.mark.benchmark
-def test_the_ctc_sized_problem_costs_a_fraction_of_the_version_two_table():
-    """The gigabyte, measured both ways at the size that motivated the change.
-
-    Measured once: the z table is 8 intervals of degree 64 and 792.0 MB, built in 3.53
-    s, with `delta_phi` at 17.80 ms; the expansion is 33 terms and 49.7 MB, built in
-    0.88 s, with `delta_phi` at 1.20 ms. With the prefactor's 759.0 MB beside it the
-    version-2 pair is 1.55 GB, the order of a gigabyte that motivated the expansion; the
-    pair of expansions is 64.8 MB.
-
-    Marked `benchmark` because it builds the gigabyte for real, so no lane runs it; run
-    it by hand with
-    ``pytest tests/translate/test_linop.py -m benchmark``. The slow lane guards the same
-    property at a reduced size below.
-    """
-    grid, modes = ctc_sized_problem()
-    assert grid.n_omega == 16385
-    frame = Frame.comoving(grid)
-    expansion = build_phi(modes, grid, frame, z_max=1.5)
-    table = build_phi(modes, grid, frame, z_max=1.5, representation="table")
-    assert expansion.phi_representation == "expansion"
-    # An order of magnitude, against the sixteen measured: the assertion is what the
-    # change is for and not the machine it was measured on.
-    assert expansion.nbytes * 10 < table.nbytes
-    assert table.nbytes > 500 * 2**20
-    rng = np.random.default_rng(20260906)
-    worst = 0.0
-    for _ in range(10):
-        z1, z2 = sorted(rng.uniform(0.0, 1.5, 2))
-        reference = delta_phi(table, z1, z2)
-        deviation = np.abs(delta_phi(expansion, z1, z2) - reference)
-        worst = max(worst, float(np.max(deviation)) / float(np.max(np.abs(reference))))
-    # The round-off floor of this operator is 5.4e-9, so both are built to 5.4e-7 and
-    # may differ by it; measured 5.0e-9, a hundred times inside the bound.
-    assert worst < 5.4e-7
-
-
 @pytest.mark.slow
 def test_the_expansion_is_a_fraction_of_the_z_table_at_the_ctc_shape():
-    """The same property as the benchmark, at a size the slow lane can afford."""
+    """The expansion is a fraction of the z table at the comb-to-continuum shape.
+
+    A 0.2 m, 0.4 ps cut of the full target (16 um bore, 1.5 m of hydrogen falling from
+    40 to 0.4 bar, six HE_1m modes, 170 nm to 4 um on a 4 ps window, 16 385 bins),
+    which the slow lane can afford. At the full size, measured once by hand: the z table
+    is 8 intervals of degree 64 and 792.0 MB, built in 3.53 s, ``delta_phi`` 17.80 ms;
+    the expansion is 33 terms and 49.7 MB, built in 0.88 s, ``delta_phi`` 1.20 ms; the
+    two agree to 5.0e-9 of the peak over ten random intervals (both built to 5.4e-7).
+    With the prefactor's 759.0 MB the version-2 pair is 1.55 GB against 64.8 MB for the
+    pair of expansions. To repeat it, build both representations with
+    ``FieldGrid.from_limits(1.5, 515e-9, (170e-9, 4e-6), 4e-12)`` and the fill
+    ``PressureGradient.two_point(1.5, 40.0, 0.4)``; it needs about 1.6 GB.
+    """
     grid = FieldGrid.from_limits(0.2, 515e-9, (170e-9, 4e-6), 4e-13)
     fill = PressureGradient.two_point(0.2, 40.0, 0.4)
     modes = [MarcatiliMode(16e-6, "H2", fill, m=m) for m in range(1, 7)]

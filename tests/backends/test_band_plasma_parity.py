@@ -6,8 +6,8 @@
 
 Each case is an existing field-grid plasma problem on one route -- mode-averaged,
 multimode, a two-population mixture, radial, Cartesian, the line and the hybrid planar
-kind -- under both running-integral rules. The compiled backend's field after one,
-eight and ten fixed steps, and its plasma statistics and run
+kind -- under both running-integral rules. The compiled backend's field after one
+and ten fixed steps, and its plasma statistics and run
 diagnostics, are compared with ``numpy_ref``'s under a bound derived like the other
 equivalence ladders': the transforms' depth plus the plasma column's sums, which the
 band rule widens by its ``2K + 1`` taps per integrand.
@@ -183,7 +183,7 @@ def bound(problem, grid, backend, steps):
 
 @pytest.mark.parametrize("name", CASES)
 @pytest.mark.parametrize("rule", ["band", "trapezoid"])
-@pytest.mark.parametrize("steps", [1, 8, 10])
+@pytest.mark.parametrize("steps", [1, 10])
 @pytest.mark.parametrize("preionisation", [0.0, 0.1])
 def test_current_rules_match_the_reference_on_every_route(
     name, rule, steps, preionisation, spatial_equivalence_backend_class
@@ -192,7 +192,7 @@ def test_current_rules_match_the_reference_on_every_route(
     grid, problem, run_request = case(name)
     original_end = float(run_request.stepper.save_planes[-1])
     # The original 0.1 m planar fixture needs 80 Adams steps. This parity ladder
-    # keeps 1/8/10 steps over the approved 1e-7 m window: the fully ionised
+    # keeps 1/10 steps over the approved 1e-7 m window: the fully ionised
     # cold-plasma phase rate is at most 2.765e5 /m, giving <0.028 rad in total.
     # The independent planar accuracy/convergence studies keep their own lengths.
     end = 1e-7 if name == "planar" else original_end

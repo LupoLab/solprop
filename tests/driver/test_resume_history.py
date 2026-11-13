@@ -354,10 +354,6 @@ def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
         )
         backend.set_initial(problem.initial.field0, None, z=snapshot.z)
         assert "history was kept by" in str(backend.restore_march(moved))
-        # A snapshot that names no key was written before SEP 42: start afresh.
-        unnamed = snapshot.__class__(**{**vars(snapshot), "history_key": None})
-        backend.set_initial(problem.initial.field0, None, z=snapshot.z)
-        assert "names no history key" in str(backend.restore_march(unnamed))
     finally:
         backend.close()
     runge_kutta = build_simulation(
@@ -405,6 +401,7 @@ def march(**changes):
         "identities": ("accepted", "predicted"),
         "slots": np.array([0, 1]),
         "rows": {"store": np.zeros((4, 1, 1, 1, 4), complex)},
+        "history_key": "adams",
     }
     return MarchSnapshot(**{**fields, **changes})
 
@@ -459,15 +456,14 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
     assert np.array_equal(snapshot.rows["store"], store + 3)
 
 
-def test_the_history_key_crosses_the_file_and_a_rewrite_clears_it(tmp_path):
+def test_the_history_key_crosses_the_file_and_a_rewrite_replaces_it(tmp_path):
     path = tmp_path / "run.h5"
     saved_with(path, march(history_key="adams-pec2/3"))
     snapshot = resume(path).march
     assert snapshot is not None and snapshot.history_key == "adams-pec2/3"
-    # A snapshot that names none, written over one that did, names none either.
     saved_with(path, march(history_key="adams-pec2/3"), march())
     snapshot = resume(path).march
-    assert snapshot is not None and snapshot.history_key is None
+    assert snapshot is not None and snapshot.history_key == "adams"
 
 
 @pytest.mark.parametrize("quiet", [False, True])
@@ -497,6 +493,8 @@ def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
         (lambda group: group.attrs.__setitem__("identities", "not json"), "Expecting"),
         # A snapshot without its collar flag (SEP 39) cannot set the next step.
         (lambda group: group.attrs.__delitem__("collar_was_quiet"), "collar_was_quiet"),
+        # Every release that writes this schema names the history's key.
+        (lambda group: group.attrs.__delitem__("history_key"), "history_key"),
     ],
 )
 def test_an_unreadable_snapshot_is_ignored_with_a_warning(
