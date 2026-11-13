@@ -363,9 +363,17 @@ Backend parity is moving onto one **case catalogue**: `tests/capability_routes.p
 the rows, each a built problem with the axes it covers (route, response, stepper,
 features) and the bound of each rung it runs, and `tests/parity_ladder.py` runs a row on
 native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family's rows live
-beside its cases (`tests/backends/dispersive_rows.py`). Every row says how to switch its
-term off, and each guarded rung's reference must move by more than a hundred bounds when it
-is, so a parity rung cannot pass vacuously. A new parity case is a row, not a new ladder.
+beside its cases (`tests/backends/dispersive_rows.py`, whose docstring shows how to read
+one). A row states the physical claim it holds in one sentence (`why`), and explains a
+bound with a floor, a margin or a choice in `bound_note` (what was measured against it,
+what a wrong backend would miss by); every failure quotes both, and a rung outside its
+bound gives the measured value, the bound and their ratio. Every row says how to switch
+its term off, and each guarded rung's reference must then move by more than a thousand
+bounds (`parity_ladder.DETECTION`, the optmat response parity tests' guard), so a parity
+rung cannot pass vacuously. A rung that cannot clear a thousand declares its own lower
+guard, at least a hundred bounds, with the measured margin that limits it
+(`parity_ladder.Detection`); a rung the term cannot move that far is listed as unguarded,
+with why it is kept. A new parity case is a row, not a new ladder.
 
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
