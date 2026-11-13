@@ -12,13 +12,18 @@ Shared by the coupled-flow tests and the catalogue's rows
   their grid, collar, taper and vector modes);
 - a general guide launching one channel, ten steps over the millimetre
   (:func:`guide_simulation`, ``tests/driver/test_split_block.py``'s);
+- the wide lossless tapers and the routing of bins off the flow's eigenbasis of
+  ``tests/driver/test_native_flow_session.py`` (:func:`wide_simulation`,
+  :func:`off_route`);
 - the strong coupled-flow cases of ``tests/driver/test_native_coupled_flow.py``
   (:data:`CASES`), each a :class:`Case`, their ten-step run (:func:`propagate`) and the
   parity bound written before any measurement (:func:`parity_bound`), relative to the
   launch's peak.
 """
 
+import dataclasses
 import math
+import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -49,6 +54,8 @@ from solprop.modes.protocol import Mode
 from solprop.physdata.mixtures import Pressure
 from solprop.profiles import PiecewiseLinear, ZProfile
 from solprop.stepper import FixedSchedule
+from solprop.stepper.multistep import Multistep
+from solprop.translate.coupled import schur_eigenbasis
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
@@ -471,3 +478,100 @@ def reference_and_linear(case: Case) -> tuple[np.ndarray, np.ndarray]:
 def lossless(**overrides):
     """Return the ten-step three-channel qualification taper, lossless, no wall."""
     return varying(loss=False, cladding=1.45, **overrides)
+
+
+# --- the wide flows and the bins off the route ---------------------------------------
+
+WIDE_LENGTH = 2e-5
+"""Length of the wide cases, m: ten steps of 2 um.
+
+At 24 channels ``||h T||`` stays near two, so that the scaling and squaring share of
+the formation bound, ``exp(2 ||h T||)`` times the rounding, stays below a millionth
+(a step of 20 um puts it above one)."""
+
+
+WIDE = (17, 24)
+"""Channel counts past the 16 a host task holds on its stack."""
+
+
+def wide_simulation(modes: int, backend: str = "numpy_ref") -> Simulation:
+    """Return the lossless taper with `modes` channels, ten fixed steps.
+
+    Parameters
+    ----------
+    modes : int
+        The channels.
+    backend : str, optional
+        The backend the simulation names.
+
+    Returns
+    -------
+    solprop.driver.Simulation
+        The simulation.
+    """
+    length = WIDE_LENGTH
+    return Simulation.from_capillary(
+        PiecewiseLinear.from_stages((0.0, length), [50e-6, 48e-6]),
+        length,
+        "He",
+        PRESSURE,
+        wall=None,
+        loss=False,
+        cladding=1.45,
+        modes=modes,
+        wavelength=800e-9,
+        grid=GRID,
+        absorber=WEAK_COLLAR,
+        fwhm=30e-15,
+        energy=ENERGY,
+        n_save=2,
+        backend=backend,
+        dz_max=length / STEPS,
+        dz_init=length / STEPS,
+        schedule=FixedSchedule(np.full(STEPS, length / STEPS)),
+        plasma=False,
+        raman=False,
+        noise=None,
+    )
+
+
+OFF_ROUTES = ("off", "mixed")
+"""Every bin off the eigenbasis route, and every other active bin of every section."""
+
+
+def every_other_off_route(vectors, triangular):
+    """``schur_eigenbasis`` with every other bin taken off the route."""
+    left, right, eigenvalues, route = schur_eigenbasis(vectors, triangular)
+    route = route.copy()
+    route[1::2] = False
+    left[~route] = 0.0
+    right[~route] = 0.0
+    return left, right, eigenvalues, route
+
+
+def off_route(monkeypatch, route: str) -> None:
+    """Route a problem's bins off the eigenbasis, all of them or every other one.
+
+    Each problem's decomposition is kept while it lives, routed as it was when formed:
+    a fresh cache forms this route's.
+    """
+    monkeypatch.setattr(
+        "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
+    )
+    if route == "off":
+        monkeypatch.setattr(
+            "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        )
+    else:
+        monkeypatch.setattr(
+            "solprop_native.backend.schur_eigenbasis", every_other_off_route
+        )
+
+
+def on_adams(request):
+    """Return a request on the exponential Adams march, the split block's included."""
+    if isinstance(request.stepper.integrator, Multistep):
+        return request
+    return request.with_stepper(
+        dataclasses.replace(request.stepper, integrator=Multistep())
+    )

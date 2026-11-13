@@ -89,6 +89,7 @@ inside ``B_10``. ``switch_off`` removes the row's term for the guard; ``why`` is
 claim a failure quotes.
 """
 
+import contextlib
 import dataclasses
 import functools
 from collections.abc import Callable
@@ -96,6 +97,7 @@ from functools import partial
 from typing import Any
 
 import numpy as np
+import pytest
 
 import coupled_flow_cases
 import flow_parity
@@ -175,6 +177,32 @@ def bound_case(descriptors: tuple, **basis: Any) -> Built:
         descriptors, **basis
     )
     return Built(problem, run_request, grid)
+
+
+def off_route_case(name: str) -> Built:
+    """Return a ``flow_parity`` case on the exponential Adams march, ten fixed steps."""
+    simulation, problem = _translated(name)
+    run_request = coupled_flow_cases.on_adams(simulation._run_request())
+    return Built(problem, run_request, simulation.grid)
+
+
+def wide_case(modes: int) -> Built:
+    """Return the lossless taper with `modes` channels, ten fixed steps of 2 um."""
+    simulation = coupled_flow_cases.wide_simulation(modes)
+    return Built(simulation.translate(), simulation._run_request(), simulation.grid)
+
+
+@contextlib.contextmanager
+def routed_off(route: str):
+    """Hold native's flow off the eigenbasis route, every bin or every other one.
+
+    ``coupled_flow_cases.off_route``, for the whole check: every backend the row
+    constructs forms its flow under it (the reference's augmented exponential takes no
+    route).
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        coupled_flow_cases.off_route(patch, route)
+        yield
 
 
 def driver_case(simulation: Any) -> Built:
@@ -311,6 +339,57 @@ def moving_bound(built: Built) -> float:
 def bound_below_a_billionth(built: Built) -> bool:
     """Return whether ``B_10`` is below 1e-9, where the retired tests held it."""
     return 0.0 < marches_bound(built) < 1e-9
+
+
+def off_route_bound(built: Built) -> float:
+    """Return ``B_10`` at the larger of the actions' and the augmented exponential's
+    formation bounds (``flow_parity.adams_formation_bound``)."""
+    scales = flow_parity.flow_scales(
+        built.problem, built.run_request, built.grid, reference_steps(built)
+    )
+    formation = max(
+        scales.formation,
+        flow_parity.adams_formation_bound(built.problem, built.run_request, built.grid),
+    )
+    return flow_parity.ten_step_bound(dataclasses.replace(scales, formation=formation))
+
+
+def routed(route: str) -> Callable[[Built], bool]:
+    """Return a check that native holds the row's bins off the route, as declared.
+
+    Every bin off it (``"off"``) or some (``"mixed"``), the Schur factor's lower
+    triangle zero, the resident Adams engine stepping it, and ``B_10`` below 1e-8, as
+    the old test asserted.
+    """
+
+    def check(built: Built) -> bool:
+        from solprop_native import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+            NativeBackend,
+            backend,
+        )
+
+        held = backend._host_flow(built.problem)
+        assert held is not None
+        off = not np.any(held.route) if route == "off" else not np.all(held.route)
+        native = NativeBackend(built.problem, built.run_request, grid=built.grid)
+        try:
+            resident = type(native._resident).__name__ == "_ResidentAdams"
+        finally:
+            native.close()
+        return (
+            off
+            and bool(np.any(held.route)) == (route == "mixed")
+            and bool(np.all(np.tril(held.triangular, -1) == 0.0))
+            and resident
+            and 0.0 < off_route_bound(built) < 1e-8
+        )
+
+    return check
+
+
+def exercised_below_a_millionth(built: Built) -> bool:
+    """Return whether ``rho > 1e-5`` and the bound is under 1e-6 of the launch."""
+    return exercises_the_nonlinear_half(built) and 0.0 < coupled_bound(built) < 1e-6
 
 
 def wall_gas_bound(name: str) -> Callable[[Built], float]:
@@ -458,7 +537,8 @@ def flow_row(
 ) -> Row:
     """Return a coupled-flow row; it marches, so it is medium.
 
-    Its id is `name`; `fields` are the rest of :class:`parity_ladder.Row`.
+    Unless it is slow by cost (``slow``, the reason). Its id is `name`; `fields` are
+    the rest of :class:`parity_ladder.Row`.
     """
     return Row(
         id=name,
@@ -469,7 +549,7 @@ def flow_row(
             "features": features,
         },
         build=build,
-        medium=True,
+        medium=not fields.get("slow"),
         quiet=QUIET,
         **fields,
     )
@@ -773,6 +853,70 @@ def _entry_rows() -> tuple[Row, ...]:
     )
 
 
+def _off_route_rows() -> tuple[Row, ...]:
+    """Return ``flow_parity``'s eight cases with bins off the eigenbasis route."""
+    return tuple(
+        flow_row(
+            name=f"flow off route {name} {route}",
+            stepper="adams",
+            route=ROUTES[name],
+            features=f"{FEATURES[name]}; "
+            + ("every bin" if route == "off" else "every other bin")
+            + " off the eigenbasis route, the augmented exponential",
+            why=f"Ten fixed Adams steps of the {name} case with "
+            + ("every bin" if route == "off" else "every other bin")
+            + " off the flow's eigenbasis route, formed by the augmented exponential, "
+            "are the reference's.",
+            bound_note="flow_parity's B_10 at the larger of the actions' and the "
+            "augmented exponential's formation bounds (adams_formation_bound), "
+            "written before any measurement; the row's `expect` holds the routing "
+            "and B_10 below 1e-8, as the old test did.",
+            build=partial(off_route_case, name),
+            switch_off=without_flow,
+            rungs={"steps": off_route_bound},
+            expect={"": routed(route)},
+            context=partial(routed_off, route),
+            window=flow_parity.STEPS if name == "split" else None,
+        )
+        for name in flow_parity.CASES
+        for route in coupled_flow_cases.OFF_ROUTES
+    )
+
+
+WIDE_SLOW = {
+    17: "",
+    24: "slow by cost (#792): the old test's mark, beside its 24-channel session; "
+    "14 s on the Mac",
+}
+"""Each wide flow's slow-by-cost reason (none: medium)."""
+
+
+def _wide_rows() -> tuple[Row, ...]:
+    """Return the wide lossless tapers, past the 16 channels a host task holds."""
+    return tuple(
+        flow_row(
+            name=f"flow wide {modes} channels",
+            stepper="adams",
+            route="capillary (taper coupling)",
+            features=f"the lossless taper coupling over {modes} channels, the "
+            "resident Adams engine, ten steps of 2 um",
+            why=f"Ten fixed steps of a {modes}-channel coupled flow, wider than a host "
+            "task's stack, on the resident Adams engine are the reference's.",
+            bound_note="coupled_flow_cases.parity_bound relative to the launch's "
+            "peak, written before any measurement; the row's `expect` holds rho > "
+            "1e-5 and the bound below a millionth, as the old test did.",
+            build=partial(wide_case, modes),
+            switch_off=without_flow,
+            rungs={"steps": coupled_bound},
+            metric="peak",
+            scale=launch_peak,
+            expect={"": exercised_below_a_millionth},
+            slow=WIDE_SLOW[modes],
+        )
+        for modes in coupled_flow_cases.WIDE
+    )
+
+
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the coupled linear flow on a fixed schedule."""
@@ -784,4 +928,6 @@ def rows() -> tuple[Row, ...]:
         *_wall_gas_rows(),
         *_noise_rows(),
         *_entry_rows(),
+        *_off_route_rows(),
+        *_wide_rows(),
     )
