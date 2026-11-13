@@ -469,7 +469,7 @@ def mixture_rows(evaluator: str) -> Iterator[Row]:
             build=helium_and_argon,
             rungs={"projected": capillary_evaluation},
             expect={"problem.responses.dispersive_kerr.n_channels": 2},
-            medium=True,  # one test with its window, below, before
+            medium=True,  # as the old test, which also ran the window below
         )
         yield dispersive_row(
             name=f"capillary {case} helium and argon window",
@@ -547,7 +547,7 @@ def leg_bound_rows() -> Iterator[Row]:
             build=krypton_and_xenon,
             rungs={"projected": capillary_evaluation},
             expect=one_group,
-            medium=True,  # one test with its window, below, before
+            medium=True,  # as the old test, which also ran the window below
         )
         yield dispersive_row(
             name=f"capillary {case} krypton and xenon window",
@@ -614,7 +614,7 @@ def beside_rows(evaluator: str) -> Iterator[Row]:
             rungs={"projected": capillary_evaluation},
             metadata=dispersive_path(alone=False, in_place=False, borrowed=False),
             expect={"problem.flags.has_raman": True},
-            medium=True,  # one test with its window, below, before
+            medium=True,  # as the old test, which also ran the window below
         )
         yield dispersive_row(
             name=f"capillary beside Raman thg={thg} window",
@@ -665,7 +665,7 @@ def beside_rows(evaluator: str) -> Iterator[Row]:
                 ),
                 "problem": embedded,
             },
-            medium=True,  # one test with its window, below, before
+            medium=True,  # as the old test, which also ran the window below
         )
         yield dispersive_row(
             name=f"capillary {grid} beside plasma window",
@@ -921,7 +921,7 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
         why="One Runge-Kutta step through the whole planar stage is the reference's.",
         build=partial(planar_problem, [response], integrator=RungeKutta(), steps=1),
         rungs={"one_step": one_step_of(route_evaluation)},
-        medium=True,  # as its test was
+        medium=True,  # as the old test was
     )
 
 
