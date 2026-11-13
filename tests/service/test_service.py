@@ -15,6 +15,9 @@ import numpy as np
 import pytest
 
 from service.cases import TINY, pipe
+from solprop.backends.session import StopToken
+from solprop.driver.plane_view import PlaneView
+from solprop.output import open_file
 from solprop.recipe import Recipe
 from solprop.service import handlers, kernel, run
 from solprop.service.messages import PROTOCOL, Event, Reply, Request
@@ -288,10 +291,56 @@ def test_a_run_reduced_on_both_axes_within_a_band(tmp_path: Path):
     assert rows[0]["power"].max() < 0.9 * whole["rows"][0]["power"].max()
 
 
-def test_a_stopped_run_returns_and_resumes(tmp_path: Path):
+def _stop_at_row(
+    spec: RunSpec, index: int, monkeypatch: pytest.MonkeyPatch
+) -> Collector:
+    """Pause the real observer until the real stop-file watcher sets its token."""
+    paused, release, stopped = threading.Event(), threading.Event(), threading.Event()
+    original_watch = run.watch_stop
+    original_observe = run.LiveObserver.observe_plane
+    detach = []
+
+    def watch(
+        folder: Path,
+        stop: StopToken,
+        done: threading.Event,
+        *,
+        owner: tuple[int, str | None] | None = None,
+    ) -> threading.Thread:
+        detach.append(stop.attach(stopped.set))
+        return original_watch(folder, stop, done, owner=owner)
+
+    def observe(observer: run.LiveObserver, z: float, plane: PlaneView) -> None:
+        original_observe(observer, z, plane)
+        if plane.index == index:
+            paused.set()
+            assert release.wait(60), "the test did not release the selected plane"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(run, "watch_stop", watch)
+        patch.setattr(run.LiveObserver, "observe_plane", observe)
+        collector = Collector(spec).start()
+        try:
+            assert paused.wait(120), "the run did not reach the selected plane"
+            request_stop(collector.folder)
+            assert stopped.wait(30), "the stop-file watcher did not set the token"
+        finally:
+            # Complete the current plane transaction, but permit no new numerical
+            # work before the requested stop has actually reached the run.
+            release.set()
+            collector.thread.join(30)
+            for remove in detach:
+                remove()
+        assert not collector.thread.is_alive(), "the stopped run did not return"
+    collector.collect()
+    return collector
+
+
+def test_a_stopped_run_returns_and_resumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     folder = tmp_path / "r2"
-    collector = Collector(RunSpec("r2", str(folder), recipe=TINY)).start()
-    collector.collect(until="row", then="stop")
+    collector = _stop_at_row(RunSpec("r2", str(folder), recipe=TINY), 1, monkeypatch)
     assert collector.kinds()[-1] == "stopped"
     assert "stop flag" in str(collector.events[-1].data["message"])
     found = ask("check_resume", {"path": str(folder / OUTPUT)})
@@ -301,7 +350,45 @@ def test_a_stopped_run_returns_and_resumes(tmp_path: Path):
     assert again.kinds()[-1] == "finished"
     first = {e.data["index"] for e in collector.events if e.kind == "row"}
     second = {e.data["index"] for e in again.events if e.kind == "row"}
+    assert first == {0, 1}
+    assert second == {2, 3, 4, 5}
     assert max(first) < min(second) and max(second) == 5
+    assert collector.kinds().count("row") + again.kinds().count("row") == 6
+    with open_file(folder / OUTPUT) as output:
+        assert output.n_saved == 6
+        assert output.outcome is not None and output.outcome.status == "complete"
+        assert np.all(np.diff(output["z"]) > 0)
+
+
+def test_a_stop_at_the_final_plane_resumes_without_duplicate_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    folder = tmp_path / "late-stop"
+    collector = _stop_at_row(
+        RunSpec("late-stop", str(folder), recipe=TINY), 5, monkeypatch
+    )
+    assert collector.kinds()[-1] == "stopped"
+    assert "stop flag" in str(collector.events[-1].data["message"])
+    assert [e.data["index"] for e in collector.events if e.kind == "row"] == list(
+        range(6)
+    )
+    found = ask("check_resume", {"path": str(folder / OUTPUT)})
+    assert found["resumable"]
+    with open_file(folder / OUTPUT) as output:
+        previous_z = np.asarray(output["z"]).copy()
+        previous_fields = [output.plane_field(index, "fft") for index in range(6)]
+    again = Collector(RunSpec("late-stop", str(folder), resume=found["mode"])).start()
+    again.collect()
+    assert again.kinds()[-1] == "finished"
+    assert "row" not in again.kinds()
+    with open_file(folder / OUTPUT) as output:
+        assert output.n_saved == 6
+        assert output.outcome is not None and output.outcome.status == "complete"
+        # The resume does no additional propagation or output writes. Existing
+        # coordinates and saved fields are a lossless storage contract.
+        np.testing.assert_array_equal(output["z"], previous_z)
+        for index, field in enumerate(previous_fields):
+            np.testing.assert_array_equal(output.plane_field(index, "fft"), field)
 
 
 def test_a_run_that_fails_says_why(tmp_path: Path):
