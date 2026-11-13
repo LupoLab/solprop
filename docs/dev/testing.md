@@ -198,9 +198,9 @@ The fast and medium budgets are judged on CI's macOS arm64 test lane, from each 
 JUnit time: setup, call and teardown, so a shared fixture counts against the first test
 that builds it. A fast test takes under a second and a medium test under 30 s. The medium
 tier's total, the sum of its tests' times over the lane's shards, is held to a ratchet:
-`max_total` in `tests/tier_budget.toml`, set from the measured total when the rule was
-adopted, which may only go down. Lower it when medium tests are trimmed or moved to slow;
-never raise it to let a change through. Time a new medium test
+`max_total` in `tests/tier_budget.toml`, which may only go down. Lower it when medium
+tests are trimmed or moved to slow; never raise it to let a change through. It was reset
+once, when the first baseline turned out to be one low run (#792). Time a new medium test
 (`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
 compile one kernel per parametrisation, so parametrise a compiled test only over what the
 kernel actually branches on.
