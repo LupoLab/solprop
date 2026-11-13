@@ -8,8 +8,8 @@ One :class:`NumpyRefBackend` steps one mode-averaged problem with the Kerr term,
 plain NumPy, calling the named passes of :mod:`solprop.backends.numpy_ref.passes` in the
 order of ``docs/dev/architecture.md`` section 8. The step control follows
 ``docs/dev/stepper.md`` section 3 exactly: the controller's *proposal* is its state, the
-executed step's own norm decides acceptance, and the equivalent norm of the proposal is
-what the history and a rejection see.
+executed step's own norm decides acceptance and is what the history records, and the
+equivalent norm of the proposal is what the controller and a rejection see.
 
 The contract is consumed only through its evaluation functions --
 :func:`solprop.translate.linop.delta_phi`,

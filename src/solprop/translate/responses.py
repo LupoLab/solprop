@@ -276,8 +276,10 @@ class KerrCoefficients:
     Attributes
     ----------
     coefficient : float
-        ``eps0 chi3`` per unit of the density path, in m^2/V^2 when the density is
-        dimensionless and m^5/V^2 when it is a number density in m^-3. The density is
+        ``eps0 chi3`` per unit of the density path, in C m/V^3 when the density is
+        dimensionless and C m^4/V^3 when it is a number density in m^-3, so that
+        coefficient, density and the cube of the field give a polarisation in C/m^2.
+        ``eps0`` is already included: a backend applies it unchanged. The density is
         the contract's ``density`` table and multiplies this at every position.
     cubic_form : {'real', 'analytic'}
         Which of the two forms above the pass evaluates.
@@ -610,7 +612,7 @@ class DispersiveKerrTerms:
         -------
         tuple of tuple
             ``(channel, factor, weights)``: the first channel of the term, whose
-            region it acts in; ``eps0 gamma3_0 rho`` summed over its channels, C/V^3;
+            region it acts in; ``eps0 gamma3_0 rho`` summed over its channels, C m/V^3;
             and its multipliers.
         """
         factors = [
