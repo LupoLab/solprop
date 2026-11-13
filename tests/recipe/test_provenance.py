@@ -49,7 +49,13 @@ def test_the_resolved_recipe_rebuilds_the_run(name):
     assert _hash(Recipe.from_dict(document).build()) == _hash(simulation)
 
 
-@pytest.mark.parametrize("name", EXAMPLES)
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(name, marks=pytest.mark.medium) if name == "rdw" else name
+        for name in EXAMPLES
+    ],
+)
 def test_each_resolvable_keyword_written_back_keeps_the_hash(name):
     recipe = Recipe.example(name)
     simulation, document = _resolved(recipe)

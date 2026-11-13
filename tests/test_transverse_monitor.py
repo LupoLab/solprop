@@ -111,6 +111,7 @@ def test_a_bare_wall_further_out_completes_clear() -> None:
     assert not [one for one in messages if "transverse edge" in one]
 
 
+@pytest.mark.medium
 def test_a_requested_collar_completes_clear_and_credits_its_removal() -> None:
     output, _ = quietly(suite(2.6, SpatialAbsorber()))
     record = edge_record(output)

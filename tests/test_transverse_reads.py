@@ -363,11 +363,8 @@ def test_the_scaled_miss_steps_as_part_ii_tabulates(
         assert reads > STOP
 
 
-@pytest.mark.parametrize(
-    "integrator",
-    [Multistep(), pytest.param(RungeKutta(), marks=pytest.mark.medium)],
-    ids=["ms", "rk"],
-)
+@pytest.mark.medium
+@pytest.mark.parametrize("integrator", [Multistep(), RungeKutta()], ids=["ms", "rk"])
 def test_the_scaled_miss_is_stopped_under_the_ceiling(
     integrator: Multistep | RungeKutta,
 ) -> None:
@@ -379,6 +376,7 @@ def test_the_scaled_miss_is_stopped_under_the_ceiling(
     assert z - packet.length / 16 * (1 + 1e-9) < true_stop(packet) <= z
 
 
+@pytest.mark.medium
 def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     # With the edge's budget relaxed the run completes, and the record shows what
     # the ceiling's reads saw: sixteen of them, at most L/16 apart (the relaxed budget
@@ -488,6 +486,7 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
     assert short["reads"] < 40
 
 
+@pytest.mark.medium
 def test_the_scaled_miss_on_its_own_committed_steps_is_coarse() -> None:
     # Part II's committed positions as a fixed schedule: every read misses the
     # crossing, as unmonitored, but the run reports coarse with its largest gap,

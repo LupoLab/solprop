@@ -151,10 +151,10 @@ def gaussian_efficiency(w1, w2, shift, tilt_kappa, curvature_k=0.0):
 @pytest.mark.parametrize(
     ("w2", "shift", "tilt", "curvature"),
     [
-        (30e-6, 0.0, 0.0, math.inf),
+        pytest.param(30e-6, 0.0, 0.0, math.inf, marks=pytest.mark.medium),
         (45e-6, 0.0, 0.0, math.inf),
         (30e-6, 12e-6, 0.0, math.inf),
-        (30e-6, 0.0, 4e-3, math.inf),
+        pytest.param(30e-6, 0.0, 4e-3, math.inf, marks=pytest.mark.medium),
         (30e-6, 0.0, 0.0, 0.02),
     ],
 )

@@ -201,7 +201,9 @@ def test_scan_equals_single_points_and_reruns_skip(tmp_path, executor):
 
 
 @pytest.mark.parametrize(
-    "executor", [Local(), Pool(2), Batch(2)], ids=["local", "pool", "batch"]
+    "executor",
+    [Local(), pytest.param(Pool(2), marks=pytest.mark.medium), Batch(2)],
+    ids=["local", "pool", "batch"],
 )
 def test_a_rerun_with_the_same_record_skips_and_any_change_conflicts(
     tmp_path, executor

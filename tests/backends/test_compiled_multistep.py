@@ -365,7 +365,15 @@ def assert_sources_the_reference(backend_class, route):
     )
 
 
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize(
+    "route",
+    [
+        pytest.param(route, marks=pytest.mark.medium)
+        if route == "envelope plasma"
+        else route
+        for route in ROUTES
+    ],
+)
 def test_native_sources_the_analytic_field_and_the_envelope_plasma(route):
     native = pytest.importorskip("solprop_native")
     assert_sources_the_reference(native.NativeBackend, ROUTES[route])
