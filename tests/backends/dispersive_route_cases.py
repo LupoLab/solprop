@@ -5,7 +5,7 @@
 """SEP 6's dispersive electronic response: the spatial and general routes' cases.
 
 The problems, measurements and rounding bound of a compiled backend's ladder on these
-routes (``test_native_dispersive_routes.py``) against ``numpy_ref``, which applies the
+routes (``dispersive_rows.py``) against ``numpy_ref``, which applies the
 multipliers at every node and is the oracle.
 
 **The bounds are derived from summation lengths**, as on the fused path
@@ -28,9 +28,6 @@ import numpy as np
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
-from sessions.runs import native_source
-from solprop.backends.numpy_ref.passes import apply_hard_mask
-from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import SolpropWarning
@@ -39,6 +36,7 @@ from solprop.modes import PlanarGrid, SlabMode, StepIndexMode
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import GasKerr, IndexMaterial, MaterialKerr, MaterialRegion
 from solprop.nonlinear.raman import response_for
+from solprop.nonlinear.responses import DispersiveKerrResponse
 from solprop.physdata import MaterialSelection, Mixture
 from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
@@ -186,34 +184,6 @@ def raman(thg: bool) -> object:
 # --- the measurements ------------------------------------------------------------
 
 
-def source(
-    backend_class: type,
-    problem: PropagationProblem,
-    run_request: RunRequest,
-    grid: TimeGrid,
-    options: ExecutionOptions | None = None,
-) -> np.ndarray:
-    """Return one evaluation of the source at the masked launch, in the lab frame.
-
-    The reference's lab-frame sample, and the native state's own evaluation of it
-    (:func:`sessions.runs.native_source`), both at the launch as the
-    native state loads it: hard-masked to the active band. The native state masks what
-    it loads, and the reference's sample takes its field as given, so an unmasked
-    launch would be two inputs. The hybrid planar launch has content outside the band,
-    which moved the samples 3e-11 to 6e-11 apart; at the one input they meet to
-    about 5 eps.
-    """
-    launch = apply_hard_mask(problem.initial.field0[None], problem.grids.active_mask)[0]
-    backend = backend_class(problem, run_request, grid=grid, options=options)
-    try:
-        if backend.name == "native":
-            return native_source(backend, launch)
-        backend.set_initial(launch, None)
-        return np.array(backend._adams_lab_source(launch[None], 0.0))
-    finally:
-        backend.close()
-
-
 def evaluation_bound(problem: PropagationProblem) -> float:
     """Bound one evaluation's rounding on a spatial or general route (the docstring)."""
     leaf = problem.responses.dispersive_kerr
@@ -317,3 +287,17 @@ STRANDS = {
     "beside a solid core": (ARGON_FILL, CORE_CHI3),
     "helium and argon": (Mixture.fill({"He": 0.5, "Ar": 0.5}, 2.0), None),
 }
+
+
+def route_case(
+    route: str, evaluator: str
+) -> tuple[PropagationProblem, RunRequest, Any]:
+    """Return the ten-step case of a route the repeatability and thread tests run."""
+    response = DispersiveKerrResponse(ARGON, evaluator)
+    if route == "free":
+        grid = free_grid("field", True)
+        problem, run_request = free_problem([response], grid)
+        return problem, run_request, grid
+    if route == "planar":
+        return planar_problem([response])
+    return general_problem(strand(ARGON_FILL, core=CORE_CHI3), evaluator, "analytic")

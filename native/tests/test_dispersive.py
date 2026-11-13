@@ -7,10 +7,9 @@
 The native response executes the layout the adapter packs (``_lower_dispersive``):
 these tests hold the layout to
 the leaf (the general modal route's regions among it), the field family to the sector
-and one evaluation to solprop's reference. The full parity ladders are solprop's
-``tests/backends/test_native_dispersive_kerr.py`` (the fused node path) and
-``test_native_dispersive_routes.py`` (the Cartesian, line, planar and general modal
-routes).
+and one evaluation to solprop's reference. The full parity ladder is solprop's
+case catalogue (``tests/capability_routes.py``, the dispersive rows: the fused node
+path and the Cartesian, line, planar and general modal routes).
 """
 
 from __future__ import annotations

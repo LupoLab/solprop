@@ -19,7 +19,7 @@ nodes of that region. Per route:
   constant cubic itself (below), and the dispersive response adds no work to that.
 
 The compiled backends run the leaf on these routes against this one
-(``test_native_dispersive_routes.py``).
+(the dispersive rows of ``tests/capability_routes.py``).
 
 The general modal route also takes a guide with a constant solid region beside a gas
 one, the carrier policy's constant cubic for a gas region, and the record of both.
