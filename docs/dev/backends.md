@@ -545,7 +545,8 @@ interval. The four on-axis plasma statistics are the plan's too: the axis row th
 synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad scale in it) is formed
 from the modal state on the fine grid and scanned natively in the first node's buffer by the node
 scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
-read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
+read when the evaluation scans the nodes anyway (`populations.axis_node`; never on a transform that
+drops a component the modes have on the axis, whose node scan lacks that row); the species reduction is finished natively. A
 one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope's scan
 reads the polarisation ellipse, so on a one-component transform whose modes have a y field on the
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
