@@ -190,6 +190,9 @@ public:
     host_z_ = z;
     host_purpose_ = purpose;
   }
+  void arm_source_fault(std::function<void()> fault) noexcept {
+    source_fault_ = std::move(fault);
+  }
   /** The team a compact problem's FFTW loops take (`CpuTeamScope`): its pools'
       widest instance, which every threaded kernel and transform of it uses. Zero for
       any other problem: the runtime's team. */
@@ -750,6 +753,9 @@ public:
   ComplexView2 host_input_, host_spectrum_;
   double host_z_ = 0.0;
   HostPurpose host_purpose_ = HostPurpose::startup;
+  // A test hook (solprop issue #129): run, once, as the next Adams source evaluation
+  // starts.
+  std::function<void()> source_fault_;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
   // A) and its flows.

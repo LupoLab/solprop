@@ -2073,8 +2073,13 @@ public:
       fault.stage = march::Stage::trial;
     else if (stage == "accept")
       fault.stage = march::Stage::accept;
-    else
-      throw std::invalid_argument("a march fault's stage is startup, trial or accept");
+    else if (stage == "trial_source") {
+      // Inside the trial's source evaluation, its prediction in the state.
+      fault.stage = march::Stage::trial;
+      fault.in_source = true;
+    } else
+      throw std::invalid_argument(
+          "a march fault's stage is startup, trial, trial_source or accept");
     if (category == "convergence")
       fault.category = march::Category::convergence;
     else if (category == "value")
@@ -3850,7 +3855,8 @@ NB_MODULE(_core, module_) {
           "partials"_a.noconvert(), "rtol"_a, "atol"_a)
       .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
            "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)
-      // A test hook: fail the resident engine's `stage` after `after` more calls.
+      // A test hook: fail the resident engine's `stage` after `after` more calls;
+      // `trial_source` fails inside the trial's source evaluation.
       .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
            "category"_a)
       .def(
