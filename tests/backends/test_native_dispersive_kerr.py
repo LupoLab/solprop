@@ -26,6 +26,7 @@ from backends.dispersive_cases import (
     POLICIES,
     averaged,
     capillary,
+    falling,
     radial,
     run,
 )
@@ -39,12 +40,7 @@ from backends.dispersive_route_cases import (
     route_case,
     strand,
 )
-from backends.dispersive_rows import (
-    capillary_evaluation,
-    falling_mixture,
-    route_evaluation,
-    window_of,
-)
+from backends.dispersive_rows import capillary_evaluation, route_evaluation, window_of
 from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within
@@ -162,7 +158,7 @@ def test_a_vacuum_has_exactly_no_source(evaluator):
     A vacuum's filter is a unit one by contract, the C++ test's explicit no-op; its
     source, the multiplier's product, must be an exact zero on both, not a rounding.
     """
-    case = built(falling_mixture(evaluator, 0.0, 0.0))
+    case = built(falling(evaluator, 0.0, 0.0))
     end = float(case.run_request.stepper.save_planes[-1])
     densities = scalars(case.problem, 0.0, end).dispersive_kerr_densities
     assert np.all(np.asarray(densities) == 0.0)

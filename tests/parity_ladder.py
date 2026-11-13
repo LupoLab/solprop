@@ -13,6 +13,7 @@ inside a bound the row declares from ``tests/bounds.py`` before the run.
 """
 
 import dataclasses
+import inspect
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -68,10 +69,12 @@ class Row:
     source at the launch hard-masked to the active band on both sides, as the native
     state loads it; ``source_z`` is where the source is evaluated, m. ``metadata`` is
     what the native backend's ``metadata()`` must report (a callable value is a
-    predicate on it); ``expect`` asserts what the built problem must be; ``quiet`` holds
-    the warning filters the row's run needs. ``unguarded`` names a rung the term does
-    not move far enough to guard, with why the rung is kept; it still runs at its
-    bound, and the row's other rungs carry its guard.
+    predicate on it); ``expect`` maps a dotted path into the built row
+    (``"problem.transform.n_nodes"``; a method is called, ``""`` is the row itself) to
+    what it must be; ``quiet`` holds the warning filters the row's run needs.
+    ``unguarded`` names a rung the term does not move far enough to guard, with why the
+    rung is kept; it still runs at its bound, and the row's other rungs carry its
+    guard.
     """
 
     id: str
@@ -84,7 +87,7 @@ class Row:
     masked_launch: bool = False
     source_z: float = 0.0
     metadata: Mapping[str, object] = dataclasses.field(default_factory=dict)
-    expect: Callable[[Built], None] | None = None
+    expect: Mapping[str, object] = dataclasses.field(default_factory=dict)
     medium: bool = False
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
@@ -272,8 +275,7 @@ def check(native_class: type, row: Row) -> list[tuple[str, float, float]]:
     Returns ``(rung, measured, bound)``.
     """
     built = row.build()
-    if row.expect is not None:
-        row.expect(built)
+    _matches({path: _resolve(built, path) for path in row.expect}, row.expect)
     if row.metadata:
         backend = _backend(native_class, built)
         try:
@@ -315,6 +317,14 @@ def check(native_class: type, row: Row) -> list[tuple[str, float, float]]:
     outside = [one for one in rows if not one[1] < one[2]]
     assert not outside, f"{row.id}: {outside}"
     return rows
+
+
+def _resolve(built: Built, path: str) -> object:
+    """Return the attribute at a dotted path from the built row, a method called."""
+    found: Any = built
+    for name in filter(None, path.split(".")):
+        found = getattr(found, name)
+    return found() if inspect.ismethod(found) else found
 
 
 def _matches(actual: Mapping[str, Any], expected: Mapping[str, Any]) -> None:

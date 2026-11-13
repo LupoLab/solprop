@@ -35,8 +35,9 @@ from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.responses import DispersiveKerrResponse
-from solprop.physdata import MaterialSelection
+from solprop.physdata import MaterialSelection, Mixture
 from solprop.physdata.nonlinear_data import OptmatKerr
+from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
@@ -66,7 +67,8 @@ GRID_CASES: dict[str, dict[str, Any]] = {
 def capillary(
     evaluator: str,
     *,
-    gas: str | Mapping[str, float] = "Ar",
+    gas: str | Mapping[str, float] | Mixture = "Ar",
+    pressure: float | None = 2.0,
     stepped: bool = False,
     **overrides: object,
 ) -> Simulation:
@@ -74,7 +76,8 @@ def capillary(
 
     Its quadrature has 33 nodes with an embedded rule. A stepped one takes the
     split-step absorber, whose collar is stable at a tenth of the guide, and ten fixed
-    steps. Nitrogen's band starts at 180 nm, inside its index fit.
+    steps. Nitrogen's band starts at 180 nm, inside its index fit. A fill carries its
+    own pressures (``pressure=None``).
     """
     arguments: dict[str, Any] = {
         "wavelength": 800e-9,
@@ -96,8 +99,16 @@ def capillary(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         return Simulation.from_capillary(
-            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
+            75e-6, LENGTH, gas, pressure, **{"noise": None, **arguments}
         )
+
+
+def falling(evaluator: str, helium_end: float, argon_end: float) -> Simulation:
+    """Return helium from 2 bar and argon from 0.5 bar, linear along z, stepped."""
+    fill = Mixture.partial_pressures(
+        {"He": Linear(2.0, helium_end, LENGTH), "Ar": Linear(0.5, argon_end, LENGTH)}
+    )
+    return capillary(evaluator, gas=fill, pressure=None, stepped=True)
 
 
 def grid_for(envelope: bool) -> FieldGrid | EnvelopeGrid:

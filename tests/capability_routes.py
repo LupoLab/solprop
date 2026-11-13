@@ -382,8 +382,8 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
 
 def catalogue() -> tuple[Row, ...]:
     """Return every row of the parity catalogue, their ids unique."""
-    from backends.dispersive_rows import ROWS as DISPERSIVE  # noqa: PLC0415
+    from backends import dispersive_rows  # noqa: PLC0415
 
-    rows = (*DISPERSIVE,)
+    rows = (*dispersive_rows.rows(),)
     assert len({row.id for row in rows}) == len(rows)
     return rows
