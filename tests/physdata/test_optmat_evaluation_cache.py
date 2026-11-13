@@ -32,7 +32,7 @@ from solprop.physdata import _optmat, fused_silica
 from solprop.physdata.glasses import OptmatGlass
 from solprop.physdata.selection import MaterialLog
 from solprop.physdata.sellmeier import OptmatSusceptibility
-from solprop.translate import problem as problem_module
+from solprop.translate import assembly as assembly_module
 
 OMEGA = 2.0 * math.pi * C / np.geomspace(300e-9, 2e-6, 33)
 """A band inside fit/SiO2's and fit/Ar's qualified intervals, rad/s."""
@@ -294,7 +294,7 @@ def test_a_gradient_translates_exactly_as_before_and_samples_its_wall_a_few_time
             return compute()
 
     monkeypatch.setattr(_optmat.EvaluationCache, "evaluate", uncached)
-    monkeypatch.setattr(problem_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
     walls["refractive_index"] = 0
     unshared = _gradient_capillary()
     before = unshared.translate()

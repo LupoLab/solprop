@@ -9,14 +9,14 @@ schema 12 added -- the E/H reference and its execution
 maps (``transform.modal_tables``), the basis metric (``linear.modal_metric``) and the
 per-region response (``responses.regional_responses``) -- plus the ordinary diagonal
 linear operator every modal route has. :class:`GeneralModalRoute` is what
-:func:`solprop.translate.problem.assemble` is handed: the leaves that were built
+:func:`solprop.translate.assembly.assemble` is handed: the leaves that were built
 together, with the certificate that binds them.
 
 The fourth leaf, ``linear.coupled_flow``, is filled for exactly one case: a
 **declared unitary basis of a split block**,
 where ``U.H diag(beta) U`` is not diagonal and the channels genuinely beat. The
 route carries the transformed generator relative to one reference channel
-(:func:`coupled_block`) and :func:`solprop.translate.problem.assemble` turns it into
+(:func:`coupled_block`) and :func:`solprop.translate.assembly.assemble` turns it into
 the leaf with its certificate, because the largest step the flow's conditioning is
 declared over is the assembly's to know. A guide in the provider's own coordinates,
 and a declared basis of an exactly degenerate block, leave it ``None`` and propagate
@@ -176,7 +176,7 @@ class GeneralModalRoute(Displayed):
     """Own the leaves of one general modal guide and the certificate that binds them.
 
     The record a run is assembled from. It is not itself a kernel-contract field:
-    :func:`solprop.translate.problem.assemble` takes it apart into the three leaves
+    :func:`solprop.translate.assembly.assemble` takes it apart into the three leaves
     of the groups they belong to, and the metric it derives from the declared Gram
     defect rather than storing a second copy of the same certificate.
 
@@ -246,7 +246,7 @@ class GeneralModalRoute(Displayed):
         writes it: the provider's own identity, the sampling the reference is
         rebuilt from, and each material region with its declared Kerr response. It
         is carried here because the route is the last object that sees the guide --
-        :func:`solprop.translate.problem.assemble` takes the leaves apart and the
+        :func:`solprop.translate.assembly.assemble` takes the leaves apart and the
         guide never reaches a
         :class:`~solprop.translate.problem.PropagationProblem` -- and the run record
         persists it inside :attr:`solprop.output.metadata.RunMetadata.modal`.
@@ -896,7 +896,7 @@ def _moving_route(
     * the **maps** ``S`` and ``Q``
       (:func:`solprop.translate.modal_path.path_transform_tables`);
     * the **generator** less the reference channel's entrance diagonal, which is what
-      ``Phi`` carries (:func:`solprop.translate.problem._general_assembly`): every
+      ``Phi`` carries (:func:`solprop.translate.assembly._general_assembly`): every
       channel's own dispersion and all of the motion is the flow's;
     * the **connection** ``Gamma = W^-1 S`` of
       :func:`solprop.modes.connection.band_connection`, measured at every position in

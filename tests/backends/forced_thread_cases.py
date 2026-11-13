@@ -38,7 +38,8 @@ from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import Translation
 from solprop.translate.run_request import RunRequest
 
 CAPILLARY_ROW_NAMES = ("energy", "peak_power", "fwhm_t")

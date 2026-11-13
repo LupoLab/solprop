@@ -26,7 +26,7 @@ from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from vector_raman_cases import CHUNK, vector_translation
 
 envelope_mixture = plasma_cases.envelope_mixture

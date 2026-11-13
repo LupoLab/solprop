@@ -31,6 +31,7 @@ from solprop.driver.run import open_run
 from solprop.driver.settings import SimulationSettings, _scheme
 from solprop.exceptions import DriverError, TDSEArchiveError, TDSECostWarning
 from solprop.grid import TimeGrid
+from solprop.log import StopFlag
 from solprop.modes.material import JsonValue
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
@@ -77,8 +78,11 @@ def _prepare_atomic(
     problem: PropagationProblem,
     context: _AtomicContext,
     tdse_archive: TDSEArchive | None,
+    stop: StopFlag | None = None,
 ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
     """Open a TDSE run's archive and prepare its binding.
+
+    The binding's waits on its provider worker poll `stop` (SEP 49).
 
     - Returns: the binding and the open archive session, or None without a request.
       A failure closes the archive before it propagates.
@@ -108,6 +112,7 @@ def _prepare_atomic(
             problem.transform.n_nodes,
             defer_plans=descriptor.model == "hacc",
             archive=archive,
+            stop=stop,
         )
     except BaseException as error:
         _close_tdse_archive(archive, error)
@@ -166,7 +171,7 @@ def _consistency_gate(  # noqa: PLR0917 - called positionally
         binding,
         declared,
         reference_wavelength=simulation.grid.reference_wavelength,
-        provider_revision=tdse_runtime.pinned_revision(),
+        provider_revision=tdse_runtime.provider_revision(build),
         computed_on={
             "execution_space": native.get("execution_space"),
             "build": build,
@@ -273,7 +278,6 @@ def _open_tdse_archive(  # noqa: PLR0917 - called positionally
         "node_weights_m2": None if weights is None else weights.tolist(),
         "quadrature": metadata.quadrature,
         "execution": dataclasses.asdict(execution),
-        "provider_pin": tdse_runtime.pinned_revision(),
         # The file's own record on a resume, which the session holds and a snapshot
         # compares with.
         "optical_configuration_hash": (
@@ -367,13 +371,11 @@ def _check_tdse_execution(
         if settings.tdse_execution is not None:
             raise DriverError("tdse_execution requires a TDSEGasResponse")
         return
-    if (
-        settings.tdse_execution is None
-        or settings.backend != "numpy_ref"
-        or not isinstance(settings.integrator, Multistep)
+    if settings.tdse_execution is None or not isinstance(
+        settings.integrator, Multistep
     ):
         raise DriverError(
-            "TDSE requires explicit NumPy, Multistep and tdse_execution settings"
+            "TDSE requires explicit Multistep and tdse_execution settings"
         )
     if simulation.noise is not None and simulation.noise.model == "modified":
         raise DriverError("TDSE refuses noise='modified'; use 'input' or None")
@@ -530,9 +532,9 @@ def _tdse_entry(
                 tdse, atomic_window=dataclasses.replace(window, duration=trange)
             )
             duration_source = "trange"
-    resolved_backend = "numpy_ref" if backend == "auto" else backend
-    if backend == "auto":
-        logger.info("backend='auto' resolves to numpy_ref for a TDSE response")
+    # Both backends run the TDSE response; "auto" is native, as for every run
+    # (SEP 49).
+    resolved_backend = "native" if backend == "auto" else backend
     final_only = save_planes is None and n_save is None
     resolved_steps = 1 if step_planes is None else step_planes
     record: dict[str, JsonValue] = {

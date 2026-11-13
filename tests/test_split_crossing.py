@@ -22,7 +22,7 @@ import math
 import numpy as np
 import pytest
 
-import solprop.translate.problem as problem_module
+import solprop.translate.assembly as assembly_module
 from monitor_cases import as_driver
 from solprop.backends.protocol import stepping
 from solprop.backends.registry import available, select
@@ -265,7 +265,7 @@ def test_a_free_space_beam_keeps_its_steps(
     # is, the limit stays above every step the runs take.
     _require(backend)
     clamped = _accepted(_beam(backend, nodes, trange, 0.01))
-    monkeypatch.setattr(problem_module, "_split_crossing", lambda *_: None)
+    monkeypatch.setattr(assembly_module, "_split_crossing", lambda *_: None)
     assert clamped == _accepted(_beam(backend, nodes, trange, 0.01))
 
 
@@ -299,7 +299,7 @@ def test_nothing_walking_sets_no_limit() -> None:
 
 
 def test_lowering_dz_max_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
+    with caplog.at_level(logging.INFO, logger="solprop.translate.assembly"):
         _gnlse("numpy_ref", Multistep(), dz_max=1.0).translate()
     assert any("crossing limit holds dz_max" in one.message for one in caplog.records)
 
@@ -307,7 +307,7 @@ def test_lowering_dz_max_is_logged(caplog: pytest.LogCaptureFixture) -> None:
 def test_a_dz_max_within_the_limit_is_kept_and_not_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.INFO, logger="solprop.translate.problem"):
+    with caplog.at_level(logging.INFO, logger="solprop.translate.assembly"):
         run_request = _gnlse("numpy_ref", Multistep(), dz_max=5e-3)._run_request()
     assert run_request.stepper.dz_max == 5e-3
     assert not any("crossing limit" in one.message for one in caplog.records)

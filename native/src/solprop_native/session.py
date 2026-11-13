@@ -62,13 +62,16 @@ following and refuses every other feature by name before allocating anything
   native monitor and the draw's readings by the native transverse edge, and the noise
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
-- no group (:mod:`solprop_native.group` runs one native session per member); and no
-  TDSE response, which the backend refuses by name where it is built, before it
-  allocates (SEP 47 section 6.3).
+- no group (:mod:`solprop_native.group` runs one native session per member);
+- the TDSE response on a CPU build, through the march's host source (solprop SEP 49):
+  each ``advance`` opens an interruptible scope beside its commit, so a signal held
+  while the host source waits is raised there, and a host source's failure is the
+  exception it kept.
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import itertools
 import logging
@@ -78,7 +81,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
-from solprop._interrupts import committing
+from solprop._interrupts import committing, interruptible
 from solprop._ownership import hold
 from solprop.backends.events import (
     Eligibility,
@@ -113,6 +116,7 @@ from solprop.exceptions import (
     BackendError,
     ConvergenceError,
     GridError,
+    ResponseBudgetError,
     StopRequested,
 )
 from solprop.monitor import (
@@ -158,6 +162,8 @@ from .backend import (
 )
 
 _LOG = logging.getLogger(__name__)
+# A march failure a host source raised (`march::Category::host`, solprop SEP 49).
+_HOST = 5
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -236,7 +242,8 @@ def refusal(
 
     Decided from the problem, the request and the start alone, before anything is
     allocated: the statistics the session does not evaluate. Everything else native
-    does not run -- a TDSE response, a coupled flow beside the interaction formulation,
+    does not run -- a TDSE response on a device build, a coupled flow beside the
+    interaction formulation,
     stage rows the native tables do not read -- the backend refuses by name where it is
     built (``NativeBackend``), still before any native state (SEP 47 section 6.3).
 
@@ -858,8 +865,10 @@ class NativeSession:
         # the commit would otherwise drop beside it.
         failure: BaseException | None = None
         translated: tuple[BackendHistory, Event] | None = None
+        # A host source's waits inside the call take a held signal (SEP 49, 6.7).
+        hosted = self._host_source() is not None
         try:
-            with committing():
+            with committing(), interruptible() if hosted else contextlib.nullcontext():
                 try:
                     batch = self._native.advance(limit, float(deadline))
                 except _core.SessionLifecycleError as error:
@@ -1765,6 +1774,38 @@ class NativeSession:
             field,
         )
 
+    def _host_source(self) -> Any:
+        """Return the backend's TDSE host source, or None (solprop SEP 49)."""
+        if self._backend is None:
+            return None
+        return self._driver(self._backend)._host_source
+
+    def _host_error(
+        self, kept: BaseException, event: _core.SessionEvent
+    ) -> BaseException:
+        """Return a host source's kept exception as the reference raises it.
+
+        A reservation the atomic budget refused names the last accepted step and
+        carries its field, as `NumpyRefBackend._reserve_source_calls` does; any other
+        exception is returned unchanged.
+        """
+        if not isinstance(kept, ResponseBudgetError):
+            return kept
+        field = np.empty(self._shape, dtype=np.complex128)
+        self._native.export(self._sequence, event.generation, False, False, None, field)
+        z = float(event.z)
+        error = ResponseBudgetError(
+            "the TDSE atomic-call budget cannot reserve the next trial "
+            f"at z = {z:.6g} m ({kept.calls} charged); "
+            "the run stops at its last accepted step, unfinished",
+            z=z,
+            field=field,
+            calls=kept.calls,
+        )
+        error.__cause__ = None
+        error.__suppress_context__ = True
+        return error
+
     def _abandoned_step(self, event: _core.SessionEvent) -> float:
         """Return the length of the step a poisoned terminal event left in flight.
 
@@ -1815,6 +1856,21 @@ class NativeSession:
     def _error(self, event: _core.SessionEvent, outcome: Outcome) -> BaseException:
         """Return the exception a stopped or failed session reports.
 
+        A host source's exception the march did not stop for, the abandoned attempt's
+        failed release, is attached to it as a note, never raised in its place (SEP 49
+        section 6.3), as the reference's `_trial` attaches it.
+        """
+        error = self._reported_error(event, outcome)
+        host = self._host_source()
+        if host is not None and (kept := host.take()) is not None and kept is not error:
+            error.add_note(f"releasing the source reservation failed: {kept}")
+        return error
+
+    def _reported_error(
+        self, event: _core.SessionEvent, outcome: Outcome
+    ) -> BaseException:
+        """Return the exception the march's event reports.
+
         A failure is formatted by the backend's own march adapter, as its native call
         would have raised it.
         """
@@ -1836,6 +1892,14 @@ class NativeSession:
                 f"the replayed schedule ends at {end:.6g} m and cannot reach "
                 f"z = {event.target:.6g} m"
             )
+        # A host source's failure (SEP 49 section 6.3): the exception it kept,
+        # unchanged; a refused reservation as the reference reports it, from the last
+        # accepted step.
+        host = self._host_source()
+        if int(event.category) == _HOST and host is not None:
+            kept = host.take()
+            if kept is not None:
+                return self._host_error(kept, event)
         # A statistics evaluation the native plan refused: the reference's exception.
         failure = BackendError(event.message)
         refused = translated(failure)

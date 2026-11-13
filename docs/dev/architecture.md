@@ -117,8 +117,12 @@ binding from its step record. It changes no numerical step and adds no call; the
 optical file records the archive's run UUID and relative path.
 
 Plan lifetime, allocation admission and attempted-call budgets
-belong to the driver/binding; modal synthesis, P/J projection and spectral
-assembly belong to the reference backend. See the [TDSE manual](../guide/media/tdse.md).
+belong to the driver/binding, which runs the provider in a worker process of its own
+(`driver/_source_worker.py`, provider-agnostic, with `driver/_pyroraptor.py` as the
+provider's adapter): framed pipes, no pickle, cancellation while waiting; modal synthesis to the nodes, the assembly of the
+macroscopic sources and their projection belong to `backends/tdse_source.py`, which
+imports neither backend and which a backend calls from its source evaluation
+([SEP 49](seps/archive/sep-0049-tdse-on-native.md)). See the [TDSE manual](../guide/media/tdse.md).
 
 Geometry: mode-averaged propagation is the single-node case of multimode propagation (the
 effective-area normalisation replaces the quadrature); the GNLSE is the mode-averaged
@@ -213,8 +217,8 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
-| `backends/` | Registry and protocols, sessions, the Adams call ledger both backends keep (`ledger.py`), node chunks, scalar bodies, spatial and population statistics | B |
+| `translate/` | Validated `PropagationProblem` (`translate/problem.py`) and its route union (`translate/routes.py`), assembled by `assemble` (`translate/assembly.py`), with a capillary's coherent wall and taper coupling in `translate/walls.py` and the refusals and advisories assembly applies in `translate/validation.py`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
+| `backends/` | Registry and protocols, sessions, the Adams call ledger both backends keep (`ledger.py`), node chunks, scalar bodies, spatial and population statistics, and the TDSE response's host source assembly (`tdse_source.py`) | B |
 | `backends/numpy_ref/` | Reference execution, its Adams kernels and tables (`multistep.py`) and its on-axis scan (`populations.py`) | B |
 | `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the parts the Python sessions compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
@@ -481,7 +485,13 @@ allocates ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2). Beside the p
 returns the run's `RunRequest` (`translate/run_request.py`): the stepper settings with
 the route's defaults filled and the collars' limits applied, the save planes and the
 statistics, which are how the problem is run and not what it means (SEP 47 §5.2;
-`assemble` returns `Translation(problem, request)`). What it computes, once per problem:
+`assemble` returns `Translation(problem, request)`). Four modules carry it:
+`translate/problem.py` the contract's dataclasses and their own checks,
+`translate/assembly.py` `assemble` and the route builders (mode set, general modal guide,
+spatial geometry, the collars' step limits), `translate/walls.py` the coupled flows of a
+capillary's mode set (the coherent wall and the taper coupling), and
+`translate/validation.py` what assembly refuses and warns about beyond the contract's own
+checks. What it computes, once per problem:
 
 | product | from | representation |
 |---|---|---|

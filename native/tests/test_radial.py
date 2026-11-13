@@ -18,7 +18,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 from solprop_native import NativeBackend, build_info
 

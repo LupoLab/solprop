@@ -35,7 +35,7 @@ from tests.edge_source_cases import (
 from tests.hacc_cases import plain
 
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.tdse_source import (
     FFT_ERROR_CONSTANT,
     atomic_edge_source,
     project_atomic_sources,
@@ -46,7 +46,7 @@ from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.tdse import TDSEAtomicWindow
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.tdse import TDSEResult
 from solprop.translate.tdse_source import (
     STEADY_CURRENT_CERTIFICATE_LIMIT,
@@ -681,8 +681,8 @@ def test_a_gate_with_no_sample_in_its_leading_taper_says_so():
 def test_a_cubic_closure_records_an_ungated_source_and_no_certificate():
     # The cubic replacements are never gated (the source filter's removal): the run
     # metadata says so and carries no certificate to qualify a gate.
-    from solprop.backends.numpy_ref.backend import _source_record  # noqa: PLC0415
+    from solprop.backends.tdse_source import source_record  # noqa: PLC0415
 
     case = make_case(kerr_model="optmat_cubic")
     assert not case.descriptor.gated
-    assert _source_record(case.problem) == {"gated": False}
+    assert source_record(case.problem) == {"gated": False}

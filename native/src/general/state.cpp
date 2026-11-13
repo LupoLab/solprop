@@ -456,6 +456,18 @@ std::size_t GeneralState::rk_source_evaluations() const noexcept {
 std::size_t GeneralState::axis_scans() const noexcept {
   return workspace_ ? workspace_->axis_scans() : 0;
 }
+void GeneralState::bind_host_source(std::shared_ptr<HostSource> source) {
+  with_team([&](GeneralWorkspace& workspace) {
+    workspace.bind_host_source(std::move(source));
+  });
+}
+HostSource* GeneralState::host_source() const noexcept {
+  return workspace_ ? workspace_->host_source() : nullptr;
+}
+void GeneralState::host_evaluation(const double z, const HostPurpose purpose) noexcept {
+  if (workspace_)
+    workspace_->host_evaluation(z, purpose);
+}
 bool GeneralState::closed() const noexcept { return !workspace_; }
 void GeneralState::close() noexcept { workspace_.reset(); }
 

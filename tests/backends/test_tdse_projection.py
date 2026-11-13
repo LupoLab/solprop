@@ -12,7 +12,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.tdse_source import (
     atomic_edge_source,
     atomic_sources,
     project_atomic_sources,
@@ -28,8 +28,8 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars

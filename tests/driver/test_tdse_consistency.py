@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 from scipy.integrate import solve_ivp
 from tests.hacc_cases import (
+    FakeBuild,
     alpha_law,
     hacc_response,
     helium_alpha,
@@ -62,7 +63,7 @@ from solprop.translate.tdse import TDSEDescriptor
 
 _LAMBDA = 800e-9
 _SUPPORT = (0.0, 2 * math.pi * C / 60e-9)
-_REVISION = tdse.pinned_revision()
+_REVISION = FakeBuild().source_revision  # the manufactured provider's
 
 
 def _reference(omega):

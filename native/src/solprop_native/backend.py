@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import functools
 import logging
@@ -23,6 +24,7 @@ import numpy.typing as npt
 from solprop import transverse_monitor
 from solprop._helpers import Helpers
 from solprop._process import acquire_host_blas, thread_budget
+from solprop.backends import tdse_source
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -120,6 +122,7 @@ from solprop.translate.routes import (
     ModalRoute,
     SpatialRoute,
     flux_of,
+    tdse_descriptor,
     transverse_of,
 )
 from solprop.translate.run_request import RunRequest
@@ -130,6 +133,8 @@ from solprop.translate.stage import (
     require_device_ready,
     terms,
 )
+from solprop.translate.tdse import AtomicCallLedger, TDSEBinding
+from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.transverse_monitor import (
     TransverseEdge,
     _EdgeReading,  # pyright: ignore[reportPrivateUsage] - released together
@@ -153,6 +158,7 @@ from . import (
 )
 from ._execution import ExecutionRecord
 from ._helpers import NATIVE
+from ._host_source import TDSEHostSource
 from ._load import Loaded, StageCache, collar_rests, load, propagator_mode
 from ._probe import NativeProbe
 from ._statistics import (
@@ -314,6 +320,7 @@ class NativeBackend:
         fft_planning: Mapping[str, object] | None = None,
         far_field: FarFieldTables | None = None,
         options: ExecutionOptions | None = None,
+        tdse_binding: TDSEBinding | None = None,
     ) -> None:
         check_build()
         # The private gated benchmark is captured where the backend is built, as the
@@ -321,6 +328,7 @@ class NativeBackend:
         self._gated_plasma = _BENCHMARK_GATED.get()
         stepper = request.stepper
         _refuse_unsupported(problem, stepper)
+        _refuse_tdse(problem, request, tdse_binding)
         if self._gated_plasma:
             _refuse_gated_route(problem)
         validate_run(problem, request)
@@ -441,6 +449,13 @@ class NativeBackend:
                     self._native_state.cpu_execution
                 )
         self._native_state.set_crossing_workers(thread_budget().threads)
+        # solprop SEP 49: the TDSE response is the march's host source, bound here for
+        # the backend's life; the driver owns the binding and closes it.
+        self._tdse_binding = tdse_binding
+        self._host_source: TDSEHostSource | None = None
+        if tdse_binding is not None:
+            self._host_source = TDSEHostSource(tdse_binding, problem, self._terms)
+            self._native_state.bind_host_source(self._host_source)
         if fft_planning is None:
             _keep_plans(self._native_state, wisdom)
         self._wisdom_digest = (
@@ -580,8 +595,13 @@ class NativeBackend:
         if start.ledgers is not None:
             atomic = start.ledgers.get("atomic", {})
             if atomic:
-                raise BackendError(
-                    f"{self.name} does not restore atomic response call ledgers"
+                if self._tdse_binding is None:
+                    raise BackendError(
+                        f"{self.name} does not restore atomic response call ledgers "
+                        "without a TDSE binding"
+                    )
+                self._tdse_binding.restore_ledger(
+                    AtomicCallLedger.from_record(cast("Mapping[str, object]", atomic))
                 )
             if adams is not None:
                 adams.restore_ledger(
@@ -1407,6 +1427,12 @@ class NativeBackend:
         work["node_chunk_rule"] = (
             "device" if _on_device() and self.chunk_plan.automatic else "host"
         )
+        if self._tdse_binding is not None and self._host_source is not None:
+            # As the reference records them (solprop SEP 49 section 5.1).
+            work["atomic_calls"] = dataclasses.asdict(self._tdse_binding.ledger)
+            work["tdse_execution"] = dict(self._tdse_binding.metadata())
+            work["tdse_last_evaluation"] = dict(self._host_source.last)
+            work["tdse_source"] = tdse_source.source_record(self._problem)
         return {
             **work,
             **facts.info,
@@ -1500,6 +1526,11 @@ class NativeBackend:
             # ones, so that an estimate made before the run counts them.
             field = int(ledger.get("state", 0))
             ledger["rk_dense"] = 6 * field + field // 16
+        if self._tdse_binding is not None:
+            ledger |= {
+                f"tdse_{name}": int(size)
+                for name, size in self._tdse_binding.memory_ledger().items()
+            }
         return ledger
 
     def prepare(
@@ -1561,7 +1592,16 @@ class NativeBackend:
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
+            # Closing the state drops a host source with the engine that borrowed it,
+            # also while a session still leases the state (SEP 49). The state's own
+            # reference to the source is invisible to the garbage collector, which
+            # could then never free a cycle through it (a kept exception's traceback
+            # reaching the session), so it is dropped once the state is closed. A
+            # session that could not close still uses the state, and keeps it.
             self._native_state.close()
+            if self._host_source is not None:
+                with contextlib.suppress(RuntimeError):
+                    self._native_state.bind_host_source(None)
             _host_blas.release()
         self._closed = True
 
@@ -2871,6 +2911,28 @@ class _ZTables:
         return self._native.table_terms_to_host(kind, slot)
 
 
+def _refuse_tdse(
+    problem: PropagationProblem, request: RunRequest, binding: TDSEBinding | None
+) -> None:
+    """Refuse a TDSE problem without its binding, or a binding without one.
+
+    And the legacy statistics the TDSE response does not define, by name, as the
+    reference refuses them, before anything is allocated.
+    """
+    if (tdse_descriptor(problem.route) is None) != (binding is None):
+        raise BackendError("TDSE problems require an explicit host response binding")
+    if binding is None:
+        return
+    stats = request.observation.stats
+    unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
+        (*stats.names, *stats.periodic)
+    )
+    if unavailable:
+        raise BackendError(
+            f"TDSE does not define legacy statistics {sorted(unavailable)}"
+        )
+
+
 def _refuse_unknown_method(stepper: StepperSettings) -> None:
     """Refuse a method object the native marches do not step, by name."""
     integrator = stepper.integrator
@@ -2945,11 +3007,11 @@ def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -
     # Read as any object: a variant this build does not know is refused by name too.
     route = cast("object", problem.route)
     match route:
-        case ModalRoute(tdse=tdse) if tdse is not None:
+        case ModalRoute(tdse=tdse) if tdse is not None and _on_device():
+            space = str(_build_facts().info["device_backend"]).upper()
             raise BackendError(
-                "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
-                "use backend='numpy_ref' with the independent solprop-tdse atomic "
-                "engine"
+                "the TDSE response runs on the native CPU build; this build is "
+                f"{space} (solprop SEP 49)"
             )
         case (
             ModalRoute()

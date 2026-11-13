@@ -18,7 +18,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.hankel import QDHT
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius, fwhm_r
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from spatial_records import record_metric
 
 

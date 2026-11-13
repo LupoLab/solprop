@@ -21,7 +21,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, ResponseBudgetError
+from solprop.exceptions import BackendError, ResponseBudgetError, TDSEArchiveError
 from solprop.nonlinear.tdse import (
     TDSEBasis,
     TDSECalibration,
@@ -232,27 +232,83 @@ def test_failed_chunk_is_charged_and_unused_trial_reservation_is_released(
         backend.close()
 
 
-@pytest.mark.parametrize("backend_name", ["native"])
-def test_registry_refuses_tdse_before_constructing_a_backend(
-    march_problem, monkeypatch, backend_name
+class _ArchiveFailsOnAcceptance(ManufacturedBinding):
+    """Fail to record an accepted trial, as an archive that cannot write would."""
+
+    def record_trial(self, *, accepted):
+        if accepted:
+            raise TDSEArchiveError("synthetic archive failure")
+
+
+class _ReleaseFails(ManufacturedBinding):
+    """Fail to release a reservation, after releasing it, while ``failing`` is set."""
+
+    failing = True
+
+    def release_reservation(self):
+        super().release_reservation()
+        if self.failing:
+            raise RuntimeError("synthetic release failure")
+
+
+def test_an_archive_failure_after_an_accepted_commit_keeps_the_new_state(
+    march_problem,
 ):
-    """An unsupported explicit backend never silently redirects the atomic problem."""
+    """The commit is the failure boundary (SEP 49, section 6.3)."""
     problem, run_request, grid = march_problem
+    binding = _ArchiveFailsOnAcceptance(tdse_descriptor(problem.route), 20)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
+    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    try:
+        with pytest.raises(TDSEArchiveError, match="synthetic archive failure"):
+            backend.propagate_to(1e-5)
+        # The accepted step stands and is booked; nothing stays reserved.
+        assert backend.observe().z > 0.0
+        assert backend._adams is not None
+        assert backend._adams.ledger.accepted_steps == 1
+        assert binding.ledger.reserved == 0
+        # The startup and the predictor, two chunks each, stay charged.
+        assert binding.ledger.attempted == 4
+    finally:
+        backend.close()
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("no backend is constructed for an unsupported TDSE route")
 
-    monkeypatch.setattr(registry, "_construct", forbidden)
-    with pytest.raises(BackendError, match=f"{backend_name} does not execute TDSE"):
-        registry.select(backend_name, problem, run_request, grid=grid)
-
-
-def test_direct_native_construction_refuses_tdse_before_allocating(march_problem):
-    """The direct constructor enforces the same named refusal as the registry."""
-    native = pytest.importorskip("solprop_native")
+def test_a_failed_release_is_a_note_on_the_trial_s_own_error(march_problem):
     problem, run_request, grid = march_problem
-    with pytest.raises(BackendError, match="native does not execute TDSE"):
-        native.NativeBackend(problem, run_request, grid=grid)
+    binding = _ReleaseFails(tdse_descriptor(problem.route), 8, fail_at=2)
+    backend = NumpyRefBackend(problem, run_request, grid=grid, tdse_binding=binding)
+    backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    try:
+        with pytest.raises(BackendError, match="second-chunk failure") as caught:
+            backend.propagate_to(1e-5)
+        assert "synthetic release failure" in "\n".join(caught.value.__notes__)
+        assert binding.ledger.reserved == 0
+        assert backend.observe().z == 0.0
+    finally:
+        binding.failing = False
+        backend.close()
+
+
+def test_registry_hands_a_tdse_binding_to_either_backend(march_problem, monkeypatch):
+    """Both backends run the TDSE response (SEP 49); the binding goes to the factory."""
+    problem, run_request, grid = march_problem
+    constructed = []
+
+    class ConstructedError(Exception):
+        pass
+
+    def construct(name, *args, **kwargs):
+        constructed.append((name, kwargs.get("tdse_binding")))
+        raise ConstructedError
+
+    monkeypatch.setattr(registry, "_construct", construct)
+    monkeypatch.setattr(registry, "_native_installed", lambda: True)
+    monkeypatch.setattr("solprop.calibration.first_use.ensure", lambda: None)
+    binding = ManufacturedBinding(tdse_descriptor(problem.route), 10)
+    for name in ("numpy_ref", "native"):
+        with pytest.raises(ConstructedError):
+            registry.select(name, problem, run_request, grid=grid, tdse_binding=binding)
+    assert constructed == [("numpy_ref", binding), ("native", binding)]
 
 
 def test_tdse_problem_requires_a_binding_even_at_the_direct_backend(march_problem):

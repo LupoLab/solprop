@@ -59,7 +59,8 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import _printed_down, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import _printed_down
 
 BETA2 = -11.83e-27  # s^2/m
 GAMMA = 0.11  # 1/(W m)

@@ -35,8 +35,9 @@ from solprop.physdata.nonlinear_data import OptmatKerr
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import profile_table
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import dispersive_terms
 from solprop.translate.run_request import RunRequest
 

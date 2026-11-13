@@ -17,7 +17,7 @@ orthogonal partner of every degenerate mode, `mode.rotated(np.pi / 2)` gives one
 hand, and {py:meth}`~solprop.modes.collection.ModeCollection.marcatili` builds a set of
 HE, TE and TM capillary modes. The keyword pulse then excites the first row only; an
 input spread over several rows, such as the elliptical launch below, is given as an
-explicit initial field to a `Simulation` or to `solprop.translate.problem.assemble`. A
+explicit initial field to a `Simulation` or to `solprop.translate.assembly.assemble`. A
 polarisation-resolved capillary run through the drivers is not validated end to end
 (the refusal of `polarisation=` says so). The free-space routes take a Jones vector on
 {py:class}`~solprop.pulses.SpatialPulse` (`jones=`), and a
@@ -133,7 +133,7 @@ row_rule = transverse_quadrature(row_modes, n_r=24)
 ```
 
 Pass the corresponding modes, input and quadrature to
-`solprop.translate.problem.assemble`; the solver and nonlinear response declarations
+`solprop.translate.assembly.assemble`; the solver and nonlinear response declarations
 are otherwise identical. When comparing the representations, use total energy and
 `peak_power_total`: individual mode powers label different pieces of the state.
 Fibre `peak_intensity` retains its definition as peak intensity on the waveguide axis.

@@ -28,8 +28,8 @@ from solprop.physdata import (
 )
 from solprop.profiles import Constant
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import constant_phi, power_weight_at, tabulate
-from solprop.translate.problem import assemble
 
 DATA = json.loads(
     (Path(__file__).parents[1] / "data/luna_mixture_propagation.json").read_text()

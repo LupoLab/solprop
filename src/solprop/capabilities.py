@@ -598,12 +598,6 @@ _RULES: Final = (
         _CAPILLARY,
     ),
     Rule(
-        "tdse-numpy-ref",
-        ("tdse_execution", "backend"),
-        "The TDSE response runs on numpy_ref alone, named explicitly.",
-        _CAPILLARY,
-    ),
-    Rule(
         "tdse-multistep",
         ("tdse_execution", "integrator"),
         "The TDSE response steps with the Multistep integrator.",
@@ -683,7 +677,7 @@ def route(name: str) -> RouteCapabilities:
     >>> capillary.choices["shape"], capillary.choices["noise"]
     (('gauss', 'sech'), ('default', 'input', 'modified', 'none'))
     >>> [rule.id for rule in capillary.rules_for("tdse_execution")][:2]
-    ['tdse-execution-needs-tdse', 'tdse-numpy-ref']
+    ['tdse-execution-needs-tdse', 'tdse-multistep']
     """
     # The recipe layer sits above this module, which the driver imports.
     from solprop.recipe.core import ROUTES  # noqa: PLC0415 - layer above

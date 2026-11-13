@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-import solprop.translate.problem as problem_module
+import solprop.translate.assembly as assembly_module
 from modal_provider_cases import (
     GENERAL_Z_END,
     SPLIT_DESCRIPTORS,
@@ -373,7 +373,7 @@ def test_a_declared_block_whose_exponent_is_too_large_is_refused_by_name(
     a ten-step schedule, so the limit is lowered here rather than the guide made
     absurd. What is under test is the door, its message and the numbers it names.
     """
-    monkeypatch.setattr(problem_module, "MAX_GENERAL_FLOW_EXPONENT", 1e-3)
+    monkeypatch.setattr(assembly_module, "MAX_GENERAL_FLOW_EXPONENT", 1e-3)
     with pytest.raises(TranslationError, match=re.escape("above the 0.001")):
         build(rotated, grid).translate()
 
