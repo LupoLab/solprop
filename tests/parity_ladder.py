@@ -135,7 +135,7 @@ class Statistic:
 
 
 StatisticRule = Callable[[Built, str, float], Statistic]
-"""A statistic's bound from the built row, its name and its rung's field bound."""
+"""A statistic's bound from the built row, its name and its rung's bound."""
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -166,11 +166,15 @@ class Row:
     field rung and guard compares (``"normwise"`` or ``"peak"``, :data:`METRICS`).
     ``window`` cuts the ``steps`` rung to the schedule's first steps (the whole schedule
     by default). ``every_statistic``
-    compares every statistic of the request's own specification at the end of the
-    ``steps`` rung and of the ``run`` rung, each with the :class:`Statistic` it returns.
+    compares every statistic of the request's own specification at the launch (the
+    ``launch`` rung's, one by one), at the end of the ``steps`` rung and of the ``run``
+    rung, each with the :class:`Statistic` it returns.
     ``context`` makes the context the whole check runs in, so that every backend of the
     row, the reference's and the guard's included, is constructed inside it (the private
-    gated plasma benchmark, ``tests/gated_source.py``).
+    gated plasma benchmark, ``tests/gated_source.py``). ``record`` writes the row's
+    readings into an accuracy record once every rung is inside its bound: it takes the
+    test's pytest ``request`` and the readings (``tests/spatial_records.py`` and
+    ``docs/dev/accuracy.md``).
     """
 
     id: str
@@ -195,6 +199,7 @@ class Row:
     window: int | None = None
     every_statistic: StatisticRule | None = None
     context: Callable[[], AbstractContextManager[object]] | None = None
+    record: Callable[[Any, list["Reading"]], None] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -616,7 +621,7 @@ def _field(measured):
     return measured.field if isinstance(measured, Marched) else measured
 
 
-def check(native_class: type, row: Row) -> list[Reading]:
+def check(native_class: type, row: Row, request: Any = None) -> list[Reading]:
     """Run every rung of a row on native and the reference; assert each in its bound.
 
     Also asserts the row's expectations, its native metadata and the guard: with the
@@ -625,14 +630,18 @@ def check(native_class: type, row: Row) -> list[Reading]:
     reference moves by more than :data:`DETECTION` times that rung's bound (or the
     rung's own :class:`Detection`). Every failure names the row and quotes its claim
     and bound note; a rung outside its bound gives the measured value, the bound and
-    their ratio. A row's ``context`` holds for the whole check.
+    their ratio. A row's ``context`` holds for the whole check. A row that keeps a
+    record writes its readings with the test's `request` once they all pass.
     """
     context = contextlib.nullcontext() if row.context is None else row.context()
     try:
         with context:
-            return _check(native_class, row)
+            readings = _check(native_class, row)
     except AssertionError as error:
         raise AssertionError(_failure(row, str(error))) from error
+    if row.record is not None:
+        row.record(request, readings)
+    return readings
 
 
 def _failure(row: Row, what: str) -> str:
@@ -661,7 +670,7 @@ def _check(native_class: type, row: Row) -> list[Reading]:
     floor = None if row.floor is None else row.floor()
     off = dataclasses.replace(built, problem=row.switch_off(built.problem))
     field_bounds: dict[str, float] = {}
-    marched: dict[str, tuple[Marched, Marched]] = {}
+    observed: dict[str, tuple[Mapping[str, Any], Mapping[str, Any]]] = {}
     readings: list[Reading] = []
     failures: list[str] = []
     for rung, bound_of in row.rungs.items():
@@ -670,7 +679,9 @@ def _check(native_class: type, row: Row) -> list[Reading]:
         ours = RUNGS[rung](native_class, built, row)
         theirs = reference(built, rung, row)
         if isinstance(theirs, Marched):
-            marched[rung] = (ours, theirs)
+            observed[rung] = (ours.statistics, theirs.statistics)
+        elif rung == "launch":
+            observed[rung] = (ours, theirs)
         reference_off = None
         if floor is not None:
             reference_off = _field(reference(floor, rung, row))
@@ -694,8 +705,8 @@ def _check(native_class: type, row: Row) -> list[Reading]:
                 )
         measured = disagreement(_field(ours), _field(theirs), row.metric)
         readings.append(Reading(rung, measured, bound, guard))
-    readings += _named_statistics(row, built, marched)
-    readings += _every_statistic(row, built, marched, field_bounds)
+    readings += _named_statistics(row, built, observed)
+    readings += _every_statistic(row, built, observed, field_bounds)
     failures += [
         f"{one.rung}: native departs from the reference by {one.measured:.3e}, "
         f"not inside its bound {one.bound:.3e} ({one.measured / one.bound:.3g} bounds)"
@@ -707,15 +718,17 @@ def _check(native_class: type, row: Row) -> list[Reading]:
 
 
 def _named_statistics(
-    row: Row, built: Built, marched: Mapping[str, tuple[Marched, Marched]]
+    row: Row,
+    built: Built,
+    observed: Mapping[str, tuple[Mapping[str, Any], Mapping[str, Any]]],
 ) -> list[Reading]:
     """Compare the row's named statistics at the end of its steps, absolutely."""
     if not row.statistics:
         return []
-    ours, theirs = marched["steps"]
+    ours, theirs = observed["steps"]
     readings = []
     for name, bound_of in row.statistics.items():
-        found, expected = float(ours.statistics[name]), float(theirs.statistics[name])
+        found, expected = float(ours[name]), float(theirs[name])
         assert expected > 0, f"{name}: the reference's statistic is not positive"
         readings.append(Reading(name, abs(found - expected), bound_of(built)))
     return readings
@@ -724,19 +737,19 @@ def _named_statistics(
 def _every_statistic(
     row: Row,
     built: Built,
-    marched: Mapping[str, tuple[Marched, Marched]],
+    observed: Mapping[str, tuple[Mapping[str, Any], Mapping[str, Any]]],
     field_bounds: Mapping[str, float],
 ) -> list[Reading]:
-    """Compare every statistic the steps and run rungs read, as the row's rule says."""
+    """Compare every statistic the launch, steps and run rungs read, by its rule."""
     if row.every_statistic is None:
         return []
     readings = []
-    for rung, (ours, theirs) in marched.items():
-        assert set(ours.statistics) == set(theirs.statistics), (
-            f"{rung}: native reads the statistics {sorted(ours.statistics)}, the "
-            f"reference {sorted(theirs.statistics)}"
+    for rung, (ours, theirs) in observed.items():
+        assert set(ours) == set(theirs), (
+            f"{rung}: native reads the statistics {sorted(ours)}, the "
+            f"reference {sorted(theirs)}"
         )
-        for name, expected in theirs.statistics.items():
+        for name, expected in theirs.items():
             rule = row.every_statistic(built, name, field_bounds[rung])
             assert rule.absolute + rule.elementwise + rule.nan <= 1, (
                 f"{rung} {name}: a statistic is compared absolutely, elementwise or as "
@@ -750,7 +763,7 @@ def _every_statistic(
                 f"{rung} {name}: the reference's statistic is not NaN everywhere: it "
                 "measures something on this row"
             )
-            found = ours.statistics[name]
+            found = ours[name]
             if rule.absolute:
                 measured = float(np.max(np.abs(found - expected)))
             elif rule.elementwise:
@@ -782,9 +795,9 @@ def _check_declarations(row: Row) -> None:
     assert row.every_statistic is None or not row.statistics, (
         "a row compares its named statistics or every statistic, not both"
     )
-    assert row.every_statistic is None or {"steps", "run"} & set(row.rungs), (
-        "every statistic is read at the end of the steps or run rung, which the row "
-        "does not run"
+    assert row.every_statistic is None or {"launch", "steps", "run"} & set(row.rungs), (
+        "every statistic is read at the launch or the end of the steps or run rung, "
+        "none of which the row runs"
     )
     assert row.window is None or "steps" in row.rungs, (
         "a window cuts the steps rung, which the row does not run"

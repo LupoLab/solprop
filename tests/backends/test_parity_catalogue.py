@@ -25,5 +25,5 @@ def _param(row: parity_ladder.Row):
 
 
 @pytest.mark.parametrize("row", [_param(row) for row in catalogue()])
-def test_every_rung_agrees_with_the_reference(row):
-    parity_ladder.check(solprop_native.NativeBackend, row)
+def test_every_rung_agrees_with_the_reference(row, request):
+    parity_ladder.check(solprop_native.NativeBackend, row, request)
