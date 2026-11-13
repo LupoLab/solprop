@@ -426,16 +426,20 @@ def reading_refusal(
     return refusal_for(capability, [measured], withheld=withheld_from(metadata))
 
 
-def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
-    """Return a spatial file's refusal of a column reader, with its route's advice."""
+def _spatial_route(metadata: RunMetadata) -> str:
+    """Return a spatial record's route: radial, Cartesian, line or planar."""
     kind = metadata.simulation_kind
     if kind == "free":
         # A line grid runs as the free transform with one y sample, and is the only
         # free grid measured per metre of y.
         per_width = metadata.transverse_measure == "per_unit_width"
-        route = "line" if per_width else "Cartesian"
-    else:
-        route = "planar" if kind == "slab" else kind
+        return "line" if per_width else "Cartesian"
+    return "planar" if kind == "slab" else kind
+
+
+def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
+    """Return a spatial file's refusal of a column reader, with its route's advice."""
+    route = _spatial_route(metadata)
     advice = COLUMN_READINGS[name].format(
         spectrum=_SPECTRUM_ADVICE.get(route, _SPECTRUM_ADVICE["radial"]),
         slab=" (planar_mode_energy per slab mode)" if route == "planar" else "",
