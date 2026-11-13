@@ -761,16 +761,25 @@ def _bound_row(name: str) -> Row:
     )
 
 
-WALL_GAS = {
-    "scalar": ("capillary (coherent wall)", "the scalar wall"),
-    "te_tm": ("capillary (coherent wall)", "the TE/TM wall's azimuthal block"),
-    "taper": ("capillary (coherent wall)", "the scalar wall on a taper"),
-}
-"""Each wall-beside-gas case's route and what it is, by ``wall_gas_cases.CASES`` name.
+SLOW_AS_THE_OLD_TEST = "slow as the old test was (#792 re-tiers on CI times)"
+"""The reason of a row whose old test was slow and gave no reason: a migration keeps
+each test's tier."""
 
-The old test marked the TE/TM wall and the taper slow; each of their parity tests,
-both backends' runs and both responses switched off, took 2.8 to 6.6 s on the Mac, so
-their rows are medium."""
+WALL_GAS = {
+    "scalar": ("capillary (coherent wall)", "the scalar wall", ""),
+    "te_tm": (
+        "capillary (coherent wall)",
+        "the TE/TM wall's azimuthal block",
+        SLOW_AS_THE_OLD_TEST,
+    ),
+    "taper": (
+        "capillary (coherent wall)",
+        "the scalar wall on a taper",
+        SLOW_AS_THE_OLD_TEST,
+    ),
+}
+"""Each wall-beside-gas case's route, what it is and its slow tier's reason (none:
+medium), by ``wall_gas_cases.CASES`` name: the old test's tiers."""
 
 
 def _wall_gas_rows() -> tuple[Row, ...]:
@@ -792,6 +801,7 @@ def _wall_gas_rows() -> tuple[Row, ...]:
             build=partial(wall_gas_case, name),
             switch_off=without_the_response(name, response),
             rungs={"last_plane": wall_gas_bound(name)},
+            slow=WALL_GAS[name][2],
         )
         for name in wall_gas_cases.CASES
         for response in ("plasma", "raman")
@@ -972,7 +982,7 @@ def _moving_entry_row() -> Row:
         metric="peak",
         scale=launch_peak,
         every_statistic=twice_the_field_s,
-        medium=True,
+        slow=SLOW_AS_THE_OLD_TEST,
         quiet=MOVING_QUIET,
     )
 
