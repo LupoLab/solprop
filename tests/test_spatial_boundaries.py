@@ -19,7 +19,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec, collect, default_spec
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.responses import compile_responses
 
 

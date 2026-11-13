@@ -1992,7 +1992,7 @@ def advisory_step(
     growth relative to the frozen attenuating frame, and no positive step makes that
     residual alone contractive. In a lossy or nonnormal case this is advisory only and
     a growth certificate is still required
-    (:func:`solprop.translate.problem.validate_coupled_flow` says so in the warning).
+    (:func:`solprop.translate.validation.validate_coupled_flow` says so in the warning).
 
     A section with an exactly zero residual -- every constant one -- returns infinity,
     because there is no explicit term to resolve. So does a bin outside `scored`: the
@@ -2444,7 +2444,7 @@ def taper_identity(
     with the wall's own entries -- its validity ratios, its radius and its impedance
     -- absent, because no wall block was built; ``flow.model`` is
     ``"taper coupling"`` and the certificate is
-    :data:`solprop.translate.problem.TAPER_FLOW_CERTIFICATE`. A new key entry and not
+    :data:`solprop.translate.validation.TAPER_FLOW_CERTIFICATE`. A new key entry and not
     a new schema, as for :func:`wall_identity`. The basis is still the orthogonal
     ``"capillary HE_1m"`` set, so the ordinary accessors stay admitted.
 

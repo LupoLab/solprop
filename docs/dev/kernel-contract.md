@@ -60,7 +60,7 @@ of a fixed set of arrays, and false when either took the z table.
 The problem is the run's numerical meaning and nothing of how it is run
 ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
 statistics request of §8 are run policy: they travel in the immutable
-`translate.run_request.RunRequest` that `translate.problem.assemble` returns beside the
+`translate.run_request.RunRequest` that `translate.assembly.assemble` returns beside the
 problem (`Translation(problem, request)`), and a backend receives both where it is built
 (`registry.select(name, problem, request, ...)`). `PropagationProblem.validate()` checks
 what the problem promises alone; `translate.problem.validate_run(problem, request)` runs
@@ -567,7 +567,7 @@ diagnostic **plus** the relative Chebyshev tail of the z expansion, `residual_no
 is the enclosure `Σ_k ‖r_k‖₂` of the explicit residual over the **whole** section (`|T_k|
 ≤ 1`, so it bounds the extrema no sample sees), and `inverse_condition_bound` is
 `exp(dz_max (μ_max − μ_min))` of the frozen block. `0.9/(K · cond)` from the last two is
-the advisory step `solprop.translate.problem.validate_coupled_flow` warns `dz_init`,
+the advisory step `solprop.translate.validation.validate_coupled_flow` warns `dz_init`,
 `dz_max` and a fixed schedule against; no row carries it.
 
 **What executes.** Two families of combinations, either of which may carry the vector

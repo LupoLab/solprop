@@ -31,11 +31,11 @@ public interfaces sees the difference. Open: which definition the statistic shou
 so that the backends also agree on a hand-built grid.
 
 **Transverse components resolved at the entrance only.** With a transverse quadrature and
-`components=None`, {func}`~solprop.translate.problem.assemble` decides which Cartesian
+`components=None`, {func}`~solprop.translate.assembly.assemble` decides which Cartesian
 field components (x, y or both) the transform carries from each mode's
 `principal_component(0.0)`, and refuses an explicitly requested component that is zero
 for every mode by the same z = 0 reading (`_components` and `_transform` in
-`solprop/translate/problem.py`). The mode protocol's `principal_component(z)` takes a
+`solprop/translate/assembly.py`). The mode protocol's `principal_component(z)` takes a
 position, so a mode whose polarisation changed along the guide would gain a component the
 transform does not carry. Every mode class today ignores `z`, so no run is affected. Open:
 whether the resolution should take the union over the run's length, or the protocol

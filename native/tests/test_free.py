@@ -21,7 +21,8 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core

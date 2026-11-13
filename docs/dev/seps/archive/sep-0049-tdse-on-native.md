@@ -127,7 +127,7 @@ a `StopToken` also forwards a stop to the native march, which reads it between a
 
 The TDSE response ([TDSE response](../../../guide/media/tdse.md); SEPs 12, 20 and 26) is
 admitted on one route only, by `PropagationProblem._check_tdse` and
-`translate.problem._check_tdse_assembly_route`:
+`translate.validation._check_tdse_assembly_route`:
 
 - the **modal route** (`ModalRoute(tdse=TDSESource(...))`), **scalar** (`n_pol = 1`),
   **one mode**, **resolved** over the fixed radial quadrature, on the **field grid**;

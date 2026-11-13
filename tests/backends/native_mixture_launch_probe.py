@@ -34,7 +34,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 NAMES = ("species_ionisation", "species_peak_ionisation_rate")
 PEAK = 3.6e10

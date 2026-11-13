@@ -23,8 +23,8 @@ from solprop.physdata import (
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 
 @dataclass(frozen=True)

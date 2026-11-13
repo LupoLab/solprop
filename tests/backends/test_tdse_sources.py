@@ -32,7 +32,7 @@ from solprop.nonlinear.tdse import (
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
 from solprop.translate.tdse import TDSEDescriptor, TDSEResult, waveform_identity

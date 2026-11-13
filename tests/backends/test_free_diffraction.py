@@ -18,7 +18,7 @@ from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from spatial_records import record_metric
 
 

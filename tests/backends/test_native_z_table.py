@@ -34,9 +34,10 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import build
 from solprop.translate.linop import delta_phi, phi_rate
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.problem import Translation
 from solprop.translate.responses import prefactor_at
 
 native = pytest.importorskip("solprop_native")

@@ -37,9 +37,10 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import terms
 
 import solprop_native

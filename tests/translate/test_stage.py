@@ -35,10 +35,11 @@ from solprop.physdata import Gas
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi, unitary_phase
-from solprop.translate.problem import Flags, PropagationProblem, assemble, validate_run
+from solprop.translate.problem import Flags, PropagationProblem, validate_run
 from solprop.translate.responses import prefactor_at
 from solprop.translate.stage import (
     anchor,

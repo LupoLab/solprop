@@ -20,7 +20,8 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 # A machine calibration (solprop SEP 46) neither runs nor applies in the suite unless a

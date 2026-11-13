@@ -27,8 +27,8 @@ from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stats import StatsSpec, _poynting_statistics, analytic_field, energy
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import _dispersion_phi, power_weight_at
-from solprop.translate.problem import assemble
 
 
 def _first_steps(backend, problem, request, count):

@@ -270,7 +270,7 @@ def build_masks(
     harmonic_carrier : bool, optional
         Whether to carry ``exp(2 i omega_0 t)`` on the fine time axis, which an
         envelope grid's third-harmonic Kerr term needs and nothing else does. Default
-        ``False``. :func:`solprop.translate.problem.assemble` passes the compiled Kerr
+        ``False``. :func:`solprop.translate.assembly.assemble` passes the compiled Kerr
         term's own answer, so the field is present exactly when the term is.
     region : str, optional
         The bins the error norm scores, the controller's ``region``: ``"active"`` (the

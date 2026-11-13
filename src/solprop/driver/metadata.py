@@ -185,7 +185,7 @@ def metadata_for(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11)
     >>> start = SechPulse(wavelength=835e-9, width=1e-13, peak_power=1.0).build(grid)

@@ -57,7 +57,8 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import Translation
 
 native_session = pytest.importorskip("solprop_native.session")
 
