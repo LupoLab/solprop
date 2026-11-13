@@ -2,12 +2,45 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Tiny builders for every propagation route, shared by the multistep and memory tests.
+"""The case catalogue: every route's probe, and the rows of the parity ladder.
 
-Each builder takes the noise model (``None``, ``"input"`` or ``"modified"``) and returns
-an untranslated :class:`solprop.driver.Simulation` on a problem a fifth of a millimetre
-long with steps of a tenth: small enough to translate and step in a test. They began
-as SEP 16's capability audit, which asked which routes each integrator admits.
+**Routes.** :data:`ROUTES` holds a tiny builder per propagation route. Each takes the
+noise model (``None``, ``"input"`` or ``"modified"``) and returns an untranslated
+:class:`solprop.driver.Simulation` a fifth of a millimetre long with steps of a tenth,
+small enough to translate and step in a test (SEP 16's capability audit began them).
+
+**Rows.** :func:`catalogue` holds the rows that
+``tests/backends/test_parity_catalogue.py`` runs on native against ``numpy_ref``
+(``tests/parity_ladder.py``). A row (:class:`parity_ladder.Row`) is a factory of one
+built problem -- the translated problem, its run request, its grid and execution
+options -- with an id and the axes it covers: route family, response, stepper and
+features. Rows cover the axes pairwise (each route with each response and each
+stepper it admits, each feature on at least one route), not their full product. A
+family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``)
+and is collected here.
+
+**Rungs.** One source evaluation (``source``: the whole stage source at the launch),
+one evaluation's projected polarisation on both quadrature rules (``projected``), one
+step (``one_step``: the schedule cut to its first step), the schedule's fixed window
+(``steps``), and statistics at its end. A row names the rungs it runs, each with its
+bound: a function of the built problem from ``tests/bounds.py`` and the family's
+summation counts, fixed before either backend runs. A rung compares normwise
+relative to a finite, non-zero reference and must be strictly inside its bound; a
+``floor`` row adds its own measured native disagreement where a term beside the row's
+is known to disagree by more than the row's budget. Rungs go through the native state
+(its trial, march and projections), never a Python re-implementation.
+
+**Non-vacuity.** Every row says how to switch its term off (``switch_off``, on the
+translated problem). At every field rung the reference with the term off must differ
+from the reference with it on by more than ``parity_ladder.DETECTION`` (a hundred)
+times that rung's bound, so that a backend that dropped the term, or got it wrong by
+one per cent of itself, fails. A rung the term cannot move that far is named in the
+row's ``unguarded`` with the reason it is kept; every row guards at least one rung.
+
+**Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
+the linear-operator rung and the complete run through the output layer
+(``tests/optmat_parity.py``), and the plasma, mixture, general-route, session and
+coupled-flow ladders.
 """
 
 from __future__ import annotations
@@ -18,6 +51,7 @@ from typing import Any
 
 import numpy as np
 
+from parity_ladder import Row
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import (
@@ -344,3 +378,12 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
     "capillary (taper coupling)": capillary_taper,
 }
 """Each route's builder, which takes the noise model."""
+
+
+def catalogue() -> tuple[Row, ...]:
+    """Return every row of the parity catalogue, their ids unique."""
+    from backends.dispersive_rows import ROWS as DISPERSIVE  # noqa: PLC0415
+
+    rows = (*DISPERSIVE,)
+    assert len({row.id for row in rows}) == len(rows)
+    return rows
