@@ -629,7 +629,8 @@ def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
     other once per stage, on the same constant table: one method by two routes on
     one schedule, within the eight-step rung's budget. On the reference alone: native's
     Runge-Kutta march has one route and ignores the mode, so there it would compare a
-    run with itself (the next test holds it to this one instead).
+    run with itself (the catalogue's rows ``ladder soliton propagators ...`` hold it to
+    the reference instead).
     """
     (tabulated, tabulated_request), (recomputed, recomputed_request) = (
         _both_propagator_modes(soliton_problem, soliton_grid)
@@ -639,23 +640,6 @@ def test_the_two_propagator_modes_agree(soliton_problem, soliton_grid):
         NumpyRefBackend, recomputed, recomputed_request, soliton_grid, LENGTH
     )
     assert_within(second.field, first.field, REPEAT_BOUND, what="propagator modes")
-
-
-def test_native_is_the_reference_under_either_propagator_mode(
-    soliton_problem, soliton_grid
-):
-    """Native's one route, asked for by either name, against the reference's tabulation.
-
-    Within the same budget, which is the eight-step rung's for two backends too.
-    """
-    native = pytest.importorskip("solprop_native")
-    problems = _both_propagator_modes(soliton_problem, soliton_grid)
-    reference = run_to(NumpyRefBackend, *problems[0], grid=soliton_grid, z=LENGTH)
-    for (problem, run_request), mode in zip(
-        problems, ("tabulate", "recompute"), strict=True
-    ):
-        plane = run_to(native.NativeBackend, problem, run_request, soliton_grid, LENGTH)
-        assert_within(plane.field, reference.field, REPEAT_BOUND, what=mode)
 
 
 # -------------------------------------------------- the third harmonic on an envelope

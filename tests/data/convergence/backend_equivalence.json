@@ -440,7 +440,7 @@
    "order": 2.0,
    "series": "native against numpy_ref",
    "write": 3,
-   "written_by": "tests/backends/test_backend_ladder.py::test_eight_steps_of_the_soliton_agree[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton eight steps]"
   },
   {
    "axis": "one linear application",
@@ -458,7 +458,7 @@
    "order": 1.0,
    "series": "native against numpy_ref",
    "write": 3,
-   "written_by": "tests/backends/test_backend_ladder.py::test_one_step_of_the_soliton_agrees[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton one step]"
   },
   {
    "axis": "the analytic field family",
@@ -503,7 +503,7 @@
    "order": 2.0,
    "series": "native_cuda against numpy_ref",
    "write": 1,
-   "written_by": "tests/backends/test_backend_ladder.py::test_eight_steps_of_the_soliton_agree[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton eight steps]"
   },
   {
    "axis": "one linear application",
@@ -521,7 +521,7 @@
    "order": 1.0,
    "series": "native_cuda against numpy_ref",
    "write": 1,
-   "written_by": "tests/backends/test_backend_ladder.py::test_one_step_of_the_soliton_agrees[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton one step]"
   },
   {
    "axis": "the analytic field family",
@@ -566,7 +566,7 @@
    "order": 2.0,
    "series": "native_hip against numpy_ref",
    "write": 5,
-   "written_by": "tests/backends/test_backend_ladder.py::test_eight_steps_of_the_soliton_agree[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton eight steps]"
   },
   {
    "axis": "one linear application",
@@ -584,7 +584,7 @@
    "order": 1.0,
    "series": "native_hip against numpy_ref",
    "write": 5,
-   "written_by": "tests/backends/test_backend_ladder.py::test_one_step_of_the_soliton_agrees[native]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[ladder soliton one step]"
   },
   {
    "axis": "the analytic field family",

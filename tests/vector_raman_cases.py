@@ -11,6 +11,7 @@ They are test inputs for the tensor numerics, not the built-in gases, whose
 responses are optmat's (SEP 3).
 """
 
+import dataclasses
 import math
 
 import numpy as np
@@ -28,10 +29,11 @@ from sessions.runs import load_native, native_trial, saved
 from sessions.runs import run as run_session
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
-from solprop.modes import MarcatiliMode, transverse_quadrature
+from solprop.modes import MarcatiliMode, ModeKind, transverse_quadrature
 from solprop.nonlinear.raman import RamanResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import MolecularRaman
+from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
@@ -158,3 +160,79 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
         )
     finally:
         backend.close()
+
+
+def direction_translation(kind: ModeKind, n: int):
+    """Return a two-mode run whose Raman acts along a position-dependent direction.
+
+    A ``kind`` mode of azimuthal order `n` beside HE11, each rotated (0.37 and 0.19
+    rad), synthesised on 4 x 8 transverse nodes from :func:`vector_translation`'s
+    elliptically polarised launch, hydrogen's Raman alone, two fixed steps. Returns
+    the problem, its run's request and the grid.
+    """
+    original, original_request, grid, _ = vector_translation(steps=2)
+    modes = [
+        MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss=False),
+        MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss=False),
+    ]
+    initial = original.initial.field0.transpose(1, 0, 2).copy()
+    problem, run_request = assemble(
+        grid,
+        modes,
+        [former_response(FORMER_H2, thg=False)],
+        initial,
+        density=1e25,
+        quadrature=transverse_quadrature(modes, n_r=4, n_theta=8),
+        controller=original_request.stepper.controller,
+        save_planes=[grid.length],
+        dz_max=grid.length / 2,
+        dz_init=grid.length / 2,
+        schedule=original_request.stepper.schedule,
+    )
+    assert problem.transform.n_pol * problem.shape[1] == 2
+    return problem, run_request, grid
+
+
+def raman_populations(varying_density: bool, geometry: str = "modal"):
+    """Return the two envelope plasma populations, each with its own Raman kernel.
+
+    ``host_cases_envelope_plasma``'s two synthetic populations with hydrogen's and
+    nitrogen's former Raman responses labelled to them, on `geometry`; with
+    `varying_density` each population's density falls linearly to a fifth over the
+    8 um. Returns the problem, its run's request and the grid.
+    """
+    # Imported here: the module imports the native wheel where it is installed.
+    from backends.host_cases_envelope_plasma import (  # noqa: PLC0415
+        build_envelope_mixture,
+        geometry_case,
+    )
+
+    mixture, plasma = build_envelope_mixture()
+    if varying_density:
+        mixture = dataclasses.replace(
+            mixture,
+            components=tuple(
+                dataclasses.replace(
+                    component,
+                    density=Linear(
+                        float(component.density(np.array([0.0]))[0]),
+                        float(component.density(np.array([0.0]))[0]) * 0.2,
+                        8e-6,
+                    ),
+                )
+                for component in mixture.components
+            ),
+        )
+    # Synthetic population labels with independently audited molecular kernels
+    # isolate density routing from any proposed new molecular ionisation model.
+    responses = plasma + tuple(
+        dataclasses.replace(
+            former_response(material, thg=False), species=component.label
+        )
+        for material, component in zip(
+            (FORMER_H2, FORMER_N2), mixture.components, strict=True
+        )
+    )
+    problem, run_request, grid = geometry_case((mixture, responses), geometry, 2)
+    assert len(problem.responses.raman_terms) == 2
+    return problem, run_request, grid

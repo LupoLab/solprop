@@ -363,8 +363,8 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | ladder rung | bound | measured | where |
 |---|---|---|---|
 | one linear application | 32 ε | 3.1e-22 (not bitwise: the contraction above) | `tests/backends/test_backend_ladder.py` |
-| one step | 16 ε | 3.8e-18 | `tests/backends/test_backend_ladder.py` |
-| eight steps | 128 ε | 2.2e-17 | `tests/backends/test_backend_ladder.py` |
+| one step | 16 ε | 3.8e-18 | the case catalogue's `ladder soliton` rows (`tests/backends/ladder_rows.py`) |
+| eight steps | 128 ε | 2.2e-17 | the case catalogue's `ladder soliton` rows (`tests/backends/ladder_rows.py`) |
 | a full adaptive soliton run | 1600 ε | 4.9e-16 | `tests/backends/test_backend_ladder.py` |
 | a capillary with an absorber and a kink | 3200 ε | 9.3e-16 | `tests/backends/test_backend_ladder.py` |
 | the analytic field family | 1e-13 | 2.2e-18 | `tests/backends/test_backend_ladder.py` |
