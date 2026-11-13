@@ -1,0 +1,350 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The coupled linear flow on a fixed schedule: its rows of the case catalogue.
+
+**What is compared.** Native against ``numpy_ref`` on the coupled-flow cases, the field
+after each case's ten fixed steps (``steps``):
+
+- ``flow marches ...`` rows: the eight cases of ``tests/flow_parity.py`` -- the scalar,
+  TE/TM, TE and TM walls, the walled taper and pressure gradient, the lossless taper
+  coupling and the split general block -- on the default march and on the Runge-Kutta
+  march (from ``tests/driver/test_native_flow_marches.py``, which keeps the flow's
+  actions against the reference's and the random-block formation);
+- ``coupled flow ...`` rows: the strong cases of ``tests/coupled_flow_cases.py`` -- the
+  scalar, TE/TM, TE and TM walls, the walled taper under a pressure gradient and the
+  lossless taper coupling, a millijoule at ten bar so that the source is carried
+  through the flow -- on the default march (from
+  ``tests/driver/test_native_coupled_flow.py``, which keeps the split block's run: it
+  declares no schedule and its controller takes 147 steps, an adaptive comparison,
+  #809).
+
+**The bounds are the old tests', fixed before native runs.** A ``flow marches`` row is
+bounded by ``flow_parity.ten_step_bound`` (``B_10``): the declared conditioning ``C``
+carried over ten steps, ``exp(Phi)`` at the launch's nonlinear scale, the reference's
+attenuation ``||a_0|| / ||a_L||`` and each step's diagonal half, source and flow
+products. The attenuation reads the reference's own ten steps, which the bound runs
+once (:func:`reference_steps`) through the same session as the old test did.
+
+A ``coupled flow`` row is bounded by ``coupled_flow_cases.parity_bound``, which is
+absolute and reads the reference's ten steps and its linear propagation (the launch
+scaled down by a thousand and back up), run once (:func:`reference_and_linear`): these
+rows compare peaks relative to the launch's peak (``Row.scale``), as the old test did,
+and assert its nonlinear increment ``rho > 1e-5`` (``expect``).
+
+**The guard.** Every row's term is the coupled flow: :func:`without_flow` drops
+``linear.coupled_flow``, so the channels propagate on their diagonal alone. The
+reference's ten steps must then move by more than ``parity_ladder.DETECTION`` (a
+thousand) of the row's bound. The old marches test asked the same of native's run
+without the flow; the old strong-case test guarded the flow not at all, only that the
+source moved the field (``rho``).
+
+**How to read a row.** Every row is a :func:`flow_row` call, for example::
+
+    flow_row(
+        name="flow marches te_tm runge_kutta",
+        stepper="rk",
+        features="the TE/TM wall's azimuthal block, one constant section",
+        why="Ten fixed Runge-Kutta steps of the TE/TM wall ...",
+        build=partial(marches_case, "te_tm", "runge_kutta"),
+        switch_off=without_flow,
+        rungs={"steps": marches_bound},
+    )
+
+``name`` makes the test id; ``stepper`` and ``features`` are the axes the row covers.
+``build`` makes the problem: here the TE/TM wall on the Runge-Kutta march.
+``rungs`` names what is compared, with its bound: the field after the ten steps,
+inside ``B_10``. ``switch_off`` removes the row's term for the guard; ``why`` is the
+claim a failure quotes.
+"""
+
+import dataclasses
+import functools
+from collections.abc import Callable
+from functools import partial
+from typing import Any
+
+import numpy as np
+
+import coupled_flow_cases
+import flow_parity
+from parity_ladder import Built, Row
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.translate.problem import PropagationProblem
+
+QUIET = (
+    *(
+        f"ignore::{category.__module__}.{category.__name__}"
+        for category in flow_parity.QUIET
+    ),
+    "ignore:the temporal absorber attenuates",
+    # Noise-free launches into time windows kept tight for speed: the boundary monitor
+    # warns (SEP 21), and the window's edge is not what these rows hold.
+    "ignore::solprop.exceptions.BoundaryWarning",
+    "ignore::solprop.exceptions.HostMarchWarning",
+)
+"""The warning filters of the old modules, which every row's run needs."""
+
+# --- the cases ------------------------------------------------------------------------
+
+
+@functools.cache
+def _translated(name: str) -> tuple[Any, PropagationProblem]:
+    """Return a ``flow_parity`` case's simulation and its problem, built once."""
+    simulation = flow_parity.build(name)
+    return simulation, simulation.translate()
+
+
+MARCHES = ("default", "runge_kutta")
+"""The default march (the exponential Adams method, the split block's Runge-Kutta)
+and the Runge-Kutta march."""
+
+
+def marches_case(name: str, march: str) -> Built:
+    """Return a ``flow_parity`` case on `march` (:data:`MARCHES`), ten fixed steps."""
+    simulation, problem = _translated(name)
+    run_request = simulation._run_request()
+    if march == "runge_kutta":
+        run_request = run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, integrator=None)
+        )
+    return Built(problem, run_request, simulation.grid)
+
+
+def coupled_case(name: str) -> Built:
+    """Return a strong case of ``coupled_flow_cases``: ten fixed steps, its march."""
+    case = coupled_flow_cases.CASES[name]()
+    assert case.run_request.stepper.schedule is not None
+    return Built(case.problem, case.run_request, case.grid)
+
+
+# --- the bounds -----------------------------------------------------------------------
+
+
+def reference_steps(built: Built) -> np.ndarray:
+    """Return the reference's state after the built row's ten steps, run once.
+
+    ``flow_parity.run``, the old test's own run; kept with the row's readings under a
+    key that names no rung.
+    """
+    key = "reference ten steps"
+    if key not in built.readings:
+        built.readings[key] = flow_parity.run(
+            NumpyRefBackend, built.problem, built.run_request, built.grid
+        )
+    return built.readings[key]
+
+
+def marches_bound(built: Built) -> float:
+    """Return ``flow_parity.ten_step_bound`` on the case's scales (``B_10``)."""
+    scales = flow_parity.flow_scales(
+        built.problem, built.run_request, built.grid, reference_steps(built)
+    )
+    return flow_parity.ten_step_bound(scales)
+
+
+def launch_peak(built: Built) -> float:
+    """Return the launch's peak modulus: the scale of the strong cases' bounds."""
+    return float(np.max(np.abs(built.problem.initial.field0)))
+
+
+def _as_case(built: Built) -> coupled_flow_cases.Case:
+    """Return the built row as the coupled-flow harness's case, its length the end's."""
+    length = float(built.run_request.stepper.z_end)
+    return coupled_flow_cases.Case(built.problem, built.run_request, built.grid, length)
+
+
+def reference_and_linear(built: Built) -> tuple[np.ndarray, np.ndarray]:
+    """Return the reference's ten steps and its linear propagation, run once.
+
+    ``coupled_flow_cases.reference_and_linear``: the launch, and the launch scaled
+    down by a thousand and back up, which is the same launch propagated linearly to a
+    millionth of its nonlinear increment.
+    """
+    key = "reference and linear ten steps"
+    if key not in built.readings:
+        built.readings[key] = coupled_flow_cases.reference_and_linear(_as_case(built))
+    return built.readings[key]
+
+
+def increment(built: Built) -> float:
+    """Return ``rho``, the nonlinear increment per step relative to the launch's peak.
+
+    The reference's ten steps less its linear propagation, over the launch's peak and
+    the step count.
+    """
+    expected, linear = reference_and_linear(built)
+    scale = launch_peak(built)
+    return float(np.max(np.abs(expected - linear))) / scale / coupled_flow_cases.STEPS
+
+
+def coupled_bound(built: Built) -> float:
+    """Return ``coupled_flow_cases.parity_bound`` relative to the launch's peak."""
+    expected, linear = reference_and_linear(built)
+    return coupled_flow_cases.parity_bound(
+        _as_case(built), expected, linear
+    ) / launch_peak(built)
+
+
+def exercises_the_nonlinear_half(built: Built) -> bool:
+    """Return whether the source moves the field through the flow: ``rho > 1e-5``."""
+    return increment(built) > 1e-5
+
+
+# --- the switch-offs ------------------------------------------------------------------
+
+
+def without_flow(problem: PropagationProblem) -> PropagationProblem:
+    """Return the problem without its coupled flow: each channel on its diagonal."""
+    assert problem.linear.coupled_flow is not None
+    return dataclasses.replace(
+        problem, linear=dataclasses.replace(problem.linear, coupled_flow=None)
+    )
+
+
+# --- the rows -------------------------------------------------------------------------
+
+ROUTES = {
+    "scalar": "capillary (coherent wall)",
+    "te_tm": "capillary (coherent wall)",
+    "taper": "capillary (coherent wall)",
+    "gradient": "capillary (coherent wall)",
+    "te": "capillary (coherent wall)",
+    "tm": "capillary (coherent wall)",
+    "lossless": "capillary (taper coupling)",
+    "split": "general guide (split block)",
+}
+"""Each ``flow_parity`` case's route."""
+
+FEATURES = {
+    "scalar": "the scalar wall over three channels, one constant section",
+    "te_tm": "the TE/TM wall's azimuthal block, one constant section",
+    "taper": "the scalar wall on a taper, a frozen residual per section",
+    "gradient": "the scalar wall under a pressure gradient, frozen residuals",
+    "te": "the TE/TM wall beside TE_01 and TE_02, E_x and E_y resolved",
+    "tm": "the TE/TM wall beside TM_01 and TM_02, E_x and E_y resolved",
+    "lossless": "the lossless taper coupling, no wall",
+    "split": "the split pair's declared rotation, a Kerr core",
+}
+"""Each ``flow_parity`` case's features."""
+
+
+def flow_row(
+    *,
+    name: str,
+    stepper: str,
+    features: str,
+    build: Callable[[], Built],
+    route: str,
+    response: str = "kerr",
+    **fields: Any,
+) -> Row:
+    """Return a coupled-flow row; it marches, so it is medium.
+
+    Its id is `name`; `fields` are the rest of :class:`parity_ladder.Row`.
+    """
+    return Row(
+        id=name,
+        axes={
+            "route": route,
+            "stepper": stepper,
+            "response": response,
+            "features": features,
+        },
+        build=build,
+        medium=True,
+        quiet=QUIET,
+        **fields,
+    )
+
+
+def _stepper(name: str, march: str) -> str:
+    """Return the stepper axis of a case on a march: the split block's default is RK."""
+    return "adams" if march == "default" and name != "split" else "rk"
+
+
+def _marches_rows() -> tuple[Row, ...]:
+    """Return the eight ``flow_parity`` cases on both marches."""
+    return tuple(
+        flow_row(
+            name=f"flow marches {name} {march}",
+            stepper=_stepper(name, march),
+            route=ROUTES[name],
+            features=FEATURES[name],
+            why=f"Ten fixed steps of the {name} case's coupled flow on the {march} "
+            "march are the reference's, the flow's actions formed natively.",
+            bound_note="flow_parity's B_10, written before any measurement: the "
+            "declared conditioning over ten steps, exp(Phi) at the launch and the "
+            "reference's attenuation, times each step's diagonal half, source and "
+            "flow products.",
+            build=partial(marches_case, name, march),
+            switch_off=without_flow,
+            rungs={"steps": marches_bound},
+            window=flow_parity.STEPS if name == "split" else None,
+        )
+        for name in flow_parity.CASES
+        for march in MARCHES
+    )
+
+
+COUPLED = {
+    "scalar_wall": (
+        "capillary (coherent wall)",
+        "the scalar wall over three channels, 1 mJ at 10 bar",
+    ),
+    "te_tm_wall": (
+        "capillary (coherent wall)",
+        "the TE/TM wall's azimuthal block over two families, 1 mJ at 10 bar",
+    ),
+    "te_wall": (
+        "capillary (coherent wall)",
+        "the TE/TM wall beside TE_01 and TE_02, 1 mJ at 10 bar",
+    ),
+    "tm_wall": (
+        "capillary (coherent wall)",
+        "the TE/TM wall beside TM_01 and TM_02, 1 mJ at 10 bar",
+    ),
+    "taper_gradient": (
+        "capillary (coherent wall)",
+        "the scalar wall on a taper under a pressure gradient, frozen residuals",
+    ),
+    "lossless_taper": (
+        "capillary (taper coupling)",
+        "the lossless taper coupling, no wall, 1 mJ at 10 bar",
+    ),
+}
+"""Each strong case's route and features, by ``coupled_flow_cases.CASES`` name."""
+
+
+def _coupled_rows() -> tuple[Row, ...]:
+    """Return the strong cases of ``coupled_flow_cases``, ten steps each."""
+    return tuple(
+        flow_row(
+            name=f"coupled flow {name}",
+            stepper="adams",
+            route=COUPLED[name][0],
+            features=COUPLED[name][1],
+            why=f"Ten fixed steps of the {name} case, launched strong enough that "
+            "its source is carried through the flow, are the reference's.",
+            bound_note="coupled_flow_cases.parity_bound, written before any "
+            "measurement and relative to the launch's peak: the shared linear work, "
+            "the flow's formation and carries, the source on each stage's "
+            "nonlinear increment rho and the explicit residual, over ten steps that "
+            "each amplify by 1 + 3 rho + r. The row asserts rho > 1e-5 (the old "
+            "test's own check, `expect`).",
+            build=partial(coupled_case, name),
+            switch_off=without_flow,
+            rungs={"steps": coupled_bound},
+            metric="peak",
+            scale=launch_peak,
+            expect={"": exercises_the_nonlinear_half},
+        )
+        for name in COUPLED
+    )
+
+
+@functools.cache
+def rows() -> tuple[Row, ...]:
+    """Return every row of the coupled linear flow on a fixed schedule."""
+    return (*_marches_rows(), *_coupled_rows())

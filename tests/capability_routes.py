@@ -413,6 +413,7 @@ def catalogue() -> tuple[Row, ...]:
     from backends import (  # noqa: PLC0415
         column_rows,
         dispersive_rows,
+        flow_rows,
         free_rows,
         general_rows,
         geometry_rows,
@@ -436,6 +437,7 @@ def catalogue() -> tuple[Row, ...]:
         *general_rows.rows(),
         *mixture_rows.rows(),
         *ladder_rows.rows(),
+        *flow_rows.rows(),
     )
     assert len({row.id for row in rows}) == len(rows)
     return rows

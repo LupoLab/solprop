@@ -12,11 +12,11 @@ where that basis is ill-conditioned, and applied natively; the explicit residual
 combined and added natively, and the whole step's conditioning is measured natively and
 checked against the certificate per step as the reference checks it.
 
-Every case propagates ten fixed steps on both backends from the same problem, and the
-fields are compared against a bound written before the run (:func:`parity_bound`).
-The launches are strong enough that the nonlinear half is exercised through the flow:
-the bound is taken on each case's measured nonlinear increment, which is asserted
-non-negligible.
+The strong cases' ten fixed steps against the reference are rows of the case catalogue
+(``tests/backends/flow_rows.py``, ``coupled flow ...``), which also guard the flow.
+What stays here: the split block's run, which is adaptive (#809); the actions' formation
+on either route; the refusal of a step past the certificate; a native group, a batched
+scan and the ledger; the entry point's ``auto`` run; and the thread count.
 """
 
 import subprocess
@@ -94,10 +94,15 @@ def measured(name: str) -> tuple[float, float, float]:
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_native_runs_ten_steps_of_the_flow_as_numpy_ref_does(name, record_property):
-    """Ten fixed steps of each admitted flow on ``native``, within the derived bound."""
-    departure, bound, rho = measured(name)
+def test_the_split_block_s_adaptive_run_is_the_reference_s(record_property):
+    """The split block's run on ``native``, within :func:`parity_bound`.
+
+    Not a fixed schedule: the case declares none, and its controller takes 147 steps
+    (two rejected) of the default collar's stable length, not ten. The bound counts ten
+    steps, so it is not derived for this run (#807); an adaptive comparison waits for
+    #809's policy. The other cases' ten fixed steps are catalogue rows.
+    """
+    departure, bound, rho = measured("split_block")
     record_property("departure", departure)
     record_property("bound", bound)
     record_property("rho", rho)
