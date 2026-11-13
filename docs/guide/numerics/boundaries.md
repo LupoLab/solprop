@@ -330,7 +330,8 @@ and nothing else. So:
   long drift through a narrow collar is better served by a wider window.
 
 A linear packet walking through this collar at the stated drift leaves `exp(−2Γ)` of its
-power, a millionth, to within the one sample the sizing's integral leaves out of the period.
+power, a millionth: the sizing sums the rate over the periodic axis, which is exact for this
+taper, and the measured exponent agrees with it to a few parts in `10⁹`.
 The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off that starts
 late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
 less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default

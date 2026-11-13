@@ -579,8 +579,10 @@ def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
         \ell_c = \frac{L}{\Delta\tau\,\Gamma}\,\frac{A}{2}\int (1 - W)\,dt.
 
     The integral is taken as :func:`warn_walkoff` takes it, so that the two agree on any
-    grid. For two edges of width ``w`` the Planck taper's symmetry makes it ``w``,
-    giving ``ell_c = 6.3 w L / (Gamma dtau)``.
+    grid: the rectangle sum over the samples, exact on the periodic axis, where a
+    trapezoid would drop the one sample that closes the period. For two edges of width
+    ``w`` the Planck taper's symmetry makes it ``w``, giving
+    ``ell_c = 6.3 w L / (Gamma dtau)``.
 
     - ``walkoff``: the drift over ``grid.length``, s.
     - Returns: the collar length in metres.
@@ -592,7 +594,7 @@ def _walkoff_collar_length(grid: TimeGrid, walkoff: float) -> float:
         )
         raise GridError(msg)
     unit_rate = temporal_collar_rate(grid.t, grid.t_collar, 1.0)
-    integral = float(np.trapezoid(unit_rate, dx=grid.dt))
+    integral = float(np.sum(unit_rate)) * grid.dt
     length = (
         0.5 * integral * grid.length / (MIN_COLLAR_ATTENUATION * walkoff)
     ) * _WALKOFF_ROUNDING_MARGIN
@@ -1372,9 +1374,9 @@ def warn_walkoff(
     if group_delay_span <= 0.0:
         return
     rate = temporal_collar_rate(grid.t, grid.t_collar, length)
-    crossing = (
-        0.5 * float(np.trapezoid(rate, dx=grid.dt)) * grid.length / group_delay_span
-    )
+    # The rectangle sum, not a trapezoid: the axis is periodic, and the sum is exact
+    # for the taper the packet crosses.
+    crossing = 0.5 * float(np.sum(rate)) * grid.dt * grid.length / group_delay_span
     if crossing >= MIN_COLLAR_ATTENUATION:
         return
     warnings.warn(
