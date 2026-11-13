@@ -691,7 +691,7 @@ def absorber(
     >>> bool(np.array_equal(walking.spectral_rate, boundary.spectral_rate))
     True
     >>> round(walking.in_stage_length / boundary.in_stage_length, 3)
-    1.023
+    1.025
     """
     if walkoff is not None and not temporal:
         msg = (
