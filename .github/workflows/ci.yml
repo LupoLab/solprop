@@ -646,6 +646,11 @@ jobs:
           export PATH="/usr/local/cuda-12.8/bin:$PATH"
           cmake --build --preset cuda --parallel 4
           df -h /
+      - name: No device lambda in two of the extension's files (#815)
+        working-directory: native/build/presets/cuda
+        run: |
+          python3 ../../../ci/check_lambda_tags.py \
+            $(find CMakeFiles/solprop_native_core.dir CMakeFiles/_core.dir -name '*.o')
 
   device-compile-hip:
     needs: changes
