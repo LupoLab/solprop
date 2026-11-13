@@ -196,6 +196,7 @@ def test_the_recipe_records_a_seed_per_point_and_a_rerun_skips_them(tmp_path):
     assert again.status.tolist() == ["done", "done"]
 
 
+@pytest.mark.medium
 def test_the_recipe_seeds_do_not_depend_on_the_execution(tmp_path):
     scan = Scan("order", pressure=FOUR)
     local = tmp_path / "local.h5"
@@ -225,6 +226,7 @@ def test_the_recipe_takes_the_base_seed(tmp_path):
     assert recorded_seeds(path) == [point.seed for point in scan.points()]
 
 
+@pytest.mark.medium
 def test_the_recipe_matches_points_built_from_nothing(tmp_path):
     scan = Scan("pressure_energy", pressure=TWO, energy=[200e-6, 275e-6])
     base.cache_clear()

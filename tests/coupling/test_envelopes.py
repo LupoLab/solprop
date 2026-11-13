@@ -1089,7 +1089,7 @@ FACET_LARGEST = 1.371e-3
 field in the cone, order one (HE11, EH11 and HE12 guided) at V = 3.905."""
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_vector_step_index_envelope_bounds_the_omitted_facet():
     """The vector model against the full facet solution, over every field in the cone.
 

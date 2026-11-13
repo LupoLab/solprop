@@ -272,7 +272,7 @@ def outside() -> Collared:
     return collared(SpatialAbsorber(kappa=OUTSIDE))
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_a_protected_sideband_returns_what_the_design_reports(
     reference: Reference,
 ) -> None:
@@ -289,7 +289,7 @@ def test_a_protected_sideband_returns_what_the_design_reports(
     assert transverse(protected.output)["transverse_status"] == "clear"
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_a_sideband_declared_outside_the_band_returns_what_the_design_reports(
     reference: Reference, outside: Collared
 ) -> None:
@@ -302,7 +302,7 @@ def test_a_sideband_declared_outside_the_band_returns_what_the_design_reports(
     assert transverse(outside.output)["transverse_status"] == "clear"
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_design_s_own_intermediate_report_predicts_the_return(
     reference: Reference, outside: Collared
 ) -> None:
@@ -324,6 +324,7 @@ def test_the_design_s_own_intermediate_report_predicts_the_return(
     assert notes["intermediate_return"] == pytest.approx(back * share, rel=0.1, abs=0.0)
 
 
+@pytest.mark.slow
 def test_a_wrapped_sideband_is_wrong_by_its_own_field(reference: Reference) -> None:
     # Part II: wrong by 0.97 of its own field, asserted above 0.5 (any wrap). The
     # same line with its collar room inert: the packet leaves through one face and

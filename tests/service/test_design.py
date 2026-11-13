@@ -64,6 +64,7 @@ def test_a_sweep_over_a_pinned_keyword_replaces_the_pin():
     assert "modes" in alone["sets"][0]
 
 
+@pytest.mark.medium
 def test_a_route_without_modes_or_a_pump_says_so():
     beam = Recipe.example("cartesian_beam").to_text()
     reply = ask("modes", {"text": beam})
@@ -115,6 +116,7 @@ DESIGN_PINS = {
 """The design tool's two targets: the ZDW at 500 nm, then a third-order soliton."""
 
 
+@pytest.mark.medium
 def test_a_design_solves_two_values_without_keeping_its_pins():
     solved = ask("design", {"text": TINY, "pins": DESIGN_PINS})
     pressure, energy = solved["values"]["pressure"], solved["values"]["energy"]
@@ -205,6 +207,7 @@ SCAN = TINY.replace("n_save = 6", "n_save = 2") + (
 """The tiny capillary at two pressures."""
 
 
+@pytest.mark.medium
 def test_a_scan_runs_point_by_point_and_stops(tmp_path: Path):
     spec = RunSpec("s1", str(tmp_path / "s1"), recipe=SCAN, base=str(tmp_path))
     collector = Collector(spec).start()

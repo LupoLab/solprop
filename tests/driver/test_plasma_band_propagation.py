@@ -145,6 +145,7 @@ def _run(gas, ffac, *, plasma, integration=None):
     return np.asarray(run["field"])[-1, 0, 0], run, grid
 
 
+@pytest.mark.medium
 @pytest.mark.parametrize("gas", list(CASES))
 def test_ten_band_steps_meet_their_targets(request, gas):
     off, _, base = _run(gas, 96.0, plasma=False)

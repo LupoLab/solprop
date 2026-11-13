@@ -1890,7 +1890,7 @@ def _routed_true_power(block, index, steps=None, rtol=1e-10):
     return np.conj(internal) * np.sqrt(weight)
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 @pytest.mark.xdist_group("coherent-channel-power-reference")
 def test_every_channel_carries_its_own_normalisation_against_a_true_power_solve(
     monkeypatch,
@@ -2975,7 +2975,7 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
     )
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_prop_capillary_runs_a_vector_wall_on_a_taper_end_to_end_and_is_pinned(
     ndarrays_regression,
 ):
@@ -3121,7 +3121,7 @@ def _implemented_link(modes, profile, z, relative=1e-5):
     )
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 @pytest.mark.xdist_group("coherent-vector-power-reference")
 def test_a_vector_taper_matches_a_true_power_solve_with_a_measured_connection():
     """The route against a reference that does not contain the connection's formula.

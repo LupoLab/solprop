@@ -137,7 +137,7 @@ def _held(build) -> tuple[dict[str, Any], dict[str, Any]]:
     [
         # The reference's moving guide takes most of a minute.
         pytest.param(route, marks=pytest.mark.medium)
-        if route == "general guide (moving)"
+        if route in {"general guide (constant)", "general guide (moving)"}
         else route
         for route in ROUTED
     ],

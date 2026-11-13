@@ -251,12 +251,35 @@ def _accepted(simulation: Simulation) -> int:
     )
 
 
+BEAMS = {
+    "256-169fs": (256, 800e-15),
+    "256-70fs": (256, 500e-15),
+    "512-169fs": (512, 800e-15),
+    "512-70fs": (512, 500e-15),
+}
+"""The free-space beams by their test IDs: nodes and time window."""
+
+MEDIUM_BEAMS = {
+    ("numpy_ref", "256-169fs"),
+    ("numpy_ref", "512-70fs"),
+    ("native", "512-169fs"),
+}
+"""The beams whose two runs take more than ten seconds (CI, macOS arm64)."""
+
+
 @pytest.mark.parametrize(
-    ("nodes", "trange"),
-    [(256, 800e-15), (256, 500e-15), (512, 800e-15), (512, 500e-15)],
-    ids=["256-169fs", "256-70fs", "512-169fs", "512-70fs"],
+    ("backend", "nodes", "trange"),
+    [
+        pytest.param(
+            backend,
+            *BEAMS[beam],
+            id=f"{backend}-{beam}",
+            marks=[pytest.mark.medium] if (backend, beam) in MEDIUM_BEAMS else [],
+        )
+        for backend in ("numpy_ref", "native")
+        for beam in BEAMS
+    ],
 )
-@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_free_space_beam_keeps_its_steps(
     backend: str, nodes: int, trange: float, monkeypatch: pytest.MonkeyPatch
 ) -> None:

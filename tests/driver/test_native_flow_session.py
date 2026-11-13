@@ -261,8 +261,13 @@ def session_run(
     return run.fields[-1].reshape(case.problem.shape), run.status
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("modes", WIDE)
+@pytest.mark.parametrize(
+    "modes",
+    [
+        pytest.param(17, marks=pytest.mark.medium),
+        pytest.param(24, marks=pytest.mark.slow),
+    ],
+)
 def test_the_session_runs_a_wide_flow_within_the_bound(cases, modes):
     """The session is ``numpy_ref``'s in bound, and repeatable.
 
