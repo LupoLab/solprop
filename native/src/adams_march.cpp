@@ -372,6 +372,13 @@ bool reached(const double position, const double target, const int ulps) {
 
 namespace {
 
+/** End the march at the step floor that the proposal `next` fell below. */
+Result& floored(Result& result, const double next) {
+  result.reason = Reason::floor;
+  result.floor_proposal = next;
+  return result;
+}
+
 /** Record a native failure's stage, its solprop error class and its message. */
 void fail(Result& result, const Stage stage, const std::exception& error) {
   result.reason = Reason::error;
@@ -574,14 +581,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       }
       const double next = proposal(policy, step.dz, outcome.factor);
       const bool floor = next < policy.dz_min;
-      if (bounds.replay) {
-        // A replay cannot reject: the field has diverged (`replay_step`), and the
-        // attempt is not recorded; a floor is raised first, inside the rejection.
-        if (floor) {
-          result.reason = Reason::floor;
-          result.floor_proposal = next;
-          return result;
-        }
+      if (bounds.replay && !floor) {
+        // A replay cannot reject: its field has diverged (`replay_step`).
         state.proposal = next;
         result.reason = Reason::diverged;
         result.replay_dz = step.dz;
@@ -589,21 +590,20 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.replay_norm = norm;
         return result;
       }
-      record(step.end, step.dz, norm, false, trial.order);
       if (floor) {
-        // A floor leaves the proposal and is the reason the march stops once the
-        // completed attempt is recorded (`HostAdamsMarch._reject`, solprop issue
-        // #651). The reference raises it inside its trial's scope, so a failure of
-        // the attempt's release is the host's to keep beside the floor, as an
-        // abandoned attempt's is, never in its place.
-        try {
-          attempt.end(HostOutcome::rejected);
-        } catch (...) { // NOLINT(bugprone-empty-catch) - kept by the host, see above
+        // A floor leaves the proposal; a replay's is raised unrecorded. Any other
+        // attempt is recorded first (`HostAdamsMarch._reject`, solprop issue #651);
+        // a failure of its release is the host's to keep beside the floor.
+        if (!bounds.replay) {
+          record(step.end, step.dz, norm, false, trial.order);
+          try {
+            attempt.end(HostOutcome::rejected);
+          } catch (...) { // NOLINT(bugprone-empty-catch) - kept by the host, see above
+          }
         }
-        result.reason = Reason::floor;
-        result.floor_proposal = next;
-        return result;
+        return floored(result, next);
       }
+      record(step.end, step.dz, norm, false, trial.order);
       state.proposal = next;
       try {
         attempt.end(HostOutcome::rejected);
@@ -667,11 +667,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         fail(result, Stage::accept, error);
         return result;
       }
-      if (next < policy.dz_min) {
-        result.reason = Reason::floor;
-        result.floor_proposal = next;
-        return result;
-      }
+      if (next < policy.dz_min)
+        return floored(result, next);
       state.proposal = next;
       ++accepted;
       if (bounds.replay)
