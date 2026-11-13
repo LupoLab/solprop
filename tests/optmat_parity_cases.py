@@ -367,8 +367,8 @@ def build_case(name: str) -> Case:
 def variant(name: str, **changes: Any) -> Case:
     """Return a capillary case with some of its keywords changed, built afresh.
 
-    ``variant("ar_field", plasma=False)`` is the same run without its plasma, which
-    the tests use to show that a rung can see the term it qualifies.
+    ``variant("silver_wall", cladding=None)`` is the same capillary walled in optmat's
+    silica, its default, whose linear operator the silver wall's row switches to.
     """
     with warnings.catch_warnings():
         for category in QUIET:

@@ -22,9 +22,8 @@ import pytest
 
 from backends.planar_cases import planar_case
 from backends.test_radial_nonlinear import LENGTH, QuadraticRate, make_problem
-from bounds import gamma, ladder_bound
+from bounds import INTEGRATION_AGREEMENT, gamma, ladder_bound
 from driver.test_prop_capillary import SHORT, build
-from optmat_parity import INTEGRATION_AGREEMENT
 from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
