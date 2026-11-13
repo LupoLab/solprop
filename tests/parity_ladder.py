@@ -7,41 +7,58 @@
 The data model and the rungs; the rows and the design are in
 ``tests/capability_routes.py``. Every rung constructs both backends on the row's built
 problem and goes through the native binding (the native state's own trial, march and
-projections), never a Python re-implementation. A comparison is normwise relative
-(``||ours - theirs|| / ||theirs||``) against a finite, non-zero reference, strictly
-inside a bound the row declares from ``tests/bounds.py`` before the run.
+projections) or the driver, never a Python re-implementation. A comparison is relative
+to a finite, non-zero reference, strictly inside a bound the row declares from
+``tests/bounds.py`` before the run, in the row's metric: normwise
+(``||ours - theirs|| / ||theirs||``) or peak-normalised
+(``max |ours - theirs| / max |theirs|``).
 """
 
+import copy
 import dataclasses
 import inspect
+import math
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 
 from bounds import departure
-from sessions.runs import native_source
+from builders import launch_derivative
+from sessions.runs import native_source, saved, to_planes
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.passes import apply_hard_mask
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, Start
+from solprop.driver import Simulation
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
-FIELD_RUNGS = ("source", "projected", "one_step", "steps")
+FIELD_RUNGS = (
+    "source",
+    "derivative",
+    "projected",
+    "linear",
+    "one_step",
+    "steps",
+    "run",
+)
 """The field rungs, cheapest first; a row's statistics follow them."""
+
+LINEAR_SCALE = 1e-20
+"""Factor on the launch of the ``linear`` rung: its cubic terms are ``1e-40`` of it."""
 
 DETECTION = 1000.0
 """How far above a rung's bound switching the row's term off must move the reference.
 
 A backend that dropped the term then misses by a thousand bounds, and one that got the
-term wrong by a tenth of a per cent of itself fails the rung: the guard of the optmat
-response parity tests (``tests/backends/test_optmat_plasma_parity.py``), so that their
-move onto this engine weakens none. A rung that cannot clear it lowers it with a
-:class:`Detection` that says why, never below :data:`LEAST_DETECTION`."""
+term wrong by a tenth of a per cent of itself fails the rung: the guard the optmat
+response parity tests held their first stage to, which their rows
+(``tests/backends/optmat_rows.py``) now hold at every guarded rung. A rung that cannot
+clear it lowers it with a :class:`Detection` that says why, never below
+:data:`LEAST_DETECTION`."""
 
 LEAST_DETECTION = 100.0
 """The lowest guard a rung may declare: a term wrong by one per cent still fails it."""
@@ -62,16 +79,49 @@ class Detection:
 
 @dataclasses.dataclass(frozen=True)
 class Built:
-    """A row's translated problem, its run's request, its grid and execution options."""
+    """A row's translated problem, its run's request, its grid and execution options.
+
+    ``modes`` and ``simulation`` are the mode set and the driver's run the problem came
+    from, when it came from one: a backend takes the mode set and the run's profiles
+    (the statistics need them), and the ``run`` rung runs the driver. ``readings``
+    holds the reference's measurement of each rung on this build, made once
+    (:func:`reference`), so that a bound can read one; a copy made with
+    :func:`dataclasses.replace` starts without them.
+    """
 
     problem: PropagationProblem
     run_request: RunRequest
     grid: Any
     options: ExecutionOptions | None = None
+    modes: tuple[Any, ...] | None = None
+    simulation: Simulation | None = None
+    readings: dict[str, Any] = dataclasses.field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
 
 Bound = Callable[[Built], float]
-"""A rung's bound from the built row, fixed before either backend runs."""
+"""A rung's bound from the built row, fixed before native runs.
+
+A bound may read the reference's own measurement of a rung that needs nothing of the
+row (``derivative``, ``run``) through :func:`reference`: a growth factor or a rate's
+sensitivity taken from the reference run, never from the backend under test."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Statistic:
+    """A statistic's bound and how it is compared.
+
+    Relative and peak-normalised by default (NaN where both sides are NaN); ``absolute``
+    for a dimensionless diagnostic whose relative change measures nothing.
+    """
+
+    bound: float
+    absolute: bool = False
+
+
+StatisticRule = Callable[[Built, str, float], Statistic]
+"""A statistic's bound from the built row, its name and its rung's field bound."""
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -96,7 +146,11 @@ class Row:
     what it must be; ``quiet`` holds the warning filters the row's run needs.
     ``unguarded`` names a rung the term does not move far enough to guard, with why the
     rung is kept; it still runs at its bound, and the row's other rungs carry its
-    guard.
+    guard. ``metric`` is how every field rung and guard compares (``"normwise"`` or
+    ``"peak"``, :data:`METRICS`). ``window`` cuts the ``steps`` rung to the schedule's
+    first steps (the whole schedule by default). ``every_statistic`` compares every
+    statistic of the request's own specification at the end of the ``steps`` rung and
+    of the ``run`` rung, each with the :class:`Statistic` it returns.
     """
 
     id: str
@@ -116,6 +170,9 @@ class Row:
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
     detection: Mapping[str, Detection] = dataclasses.field(default_factory=dict)
+    metric: Literal["normwise", "peak"] = "normwise"
+    window: int | None = None
+    every_statistic: StatisticRule | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,13 +192,30 @@ class Reading:
 # --- the rungs ----------------------------------------------------------------------
 
 
+class Marched(NamedTuple):
+    """A march's field (a complete run's: every saved plane's) and its statistics."""
+
+    field: np.ndarray
+    statistics: dict[str, np.ndarray]
+
+
 def _backend(backend_class: type, built: Built, request: RunRequest | None = None):
-    """Construct a backend on the built row, its own request by default."""
+    """Construct a backend on the built row, its own request by default.
+
+    With the row's mode set and its run's profiles where it has them, as the driver
+    constructs one: the statistics read them.
+    """
+    given: dict[str, Any] = {}
+    if built.modes is not None:
+        given["modes"] = built.modes
+    if built.simulation is not None and built.simulation.profiles:
+        given["profiles"] = built.simulation.profiles
     return backend_class(
         built.problem,
         built.run_request if request is None else request,
         grid=built.grid,
         options=built.options,
+        **given,
     )
 
 
@@ -163,6 +237,27 @@ def source(
             return native_source(backend, launch, z)
         backend.set_initial(launch, None)
         return np.array(backend._adams_lab_source(launch[None], z))
+    finally:
+        backend.close()
+
+
+def derivative(backend_class: type, built: Built) -> np.ndarray:
+    """Return the first stage's derivative at the launch, ``N(a_0)``.
+
+    The probe of ``tests/backends/test_radial_nonlinear.py``: the reference's own
+    nonlinear pass hoisted to the launch (:func:`builders.launch_derivative`), and
+    native's state's zero-length trial on its staged rows, whose first stage is the same
+    quantity in the interaction picture at its origin. The reference's lab-frame sample
+    (:func:`source`) is not hoisted, and departs from this by 4.3e-13 of the peak on the
+    optmat argon capillary (measured), where native agrees with it to 1.3e-15.
+    """
+    problem = built.problem
+    assert problem.initial.noise0 is None, "the rung's launches carry no noise"
+    backend = _backend(backend_class, built)
+    try:
+        if backend.name == "native":
+            return native_source(backend, problem.initial.field0)
+        return np.asarray(launch_derivative(backend, problem))
     finally:
         backend.close()
 
@@ -203,31 +298,40 @@ def embedded(problem: PropagationProblem) -> bool:
     )
 
 
-def first_step(request: RunRequest) -> RunRequest:
-    """Return the request cut to the first step of its schedule."""
+def first_steps(request: RunRequest, count: int) -> RunRequest:
+    """Return the request ending after the first `count` steps of its schedule.
+
+    The schedule is kept whole, since a cut one would miss a hard kink further along
+    it; the run observes the `count`-th edge and ends there
+    (:func:`sessions.runs.to_planes`).
+    """
     schedule = request.stepper.schedule
-    assert schedule is not None
-    length = float(schedule.edges[1])
-    return request.with_stepper(
-        dataclasses.replace(
-            request.stepper,
-            schedule=FixedSchedule.uniform(0.0, length, length),
-            save_planes=(length,),
-        )
-    )
+    assert schedule is not None and 0 < count <= len(schedule.steps)
+    return to_planes(request, [float(schedule.edges[count])])
+
+
+def first_step(request: RunRequest) -> RunRequest:
+    """Return the request ending after the first step of its schedule."""
+    return first_steps(request, 1)
 
 
 def _march(
-    backend_class: type, built: Built, request: RunRequest, names: tuple[str, ...] = ()
+    backend_class: type,
+    built: Built,
+    request: RunRequest,
+    names: tuple[str, ...] | None = (),
+    start: Start | None = None,
 ):
     """Run the session to the request's last plane, observing the statistics `names`.
 
-    Returns the last field, the run's summary and the last observation's statistics.
+    ``None`` observes the request's own statistics. Returns the last field, the run's
+    summary and the last observation's statistics.
     """
     backend = _backend(backend_class, built, request)
+    stats = None if names is None else StatsSpec(names=names)
     try:
         result = session_run(
-            backend, built.problem, request.for_run(stats=StatsSpec(names=names))
+            backend, built.problem, request.for_run(stats=stats), start
         )
     finally:
         backend.close()
@@ -237,13 +341,17 @@ def _march(
         f"{backend.name}'s last observation is at z = {last.z} m, not at the request's "
         f"last plane, {plane} m"
     )
-    statistics = {name: float(last.stats[name]) for name in names}
+    statistics = {name: np.asarray(value) for name, value in last.stats.items()}
     return result.fields[-1], run_summary(result), statistics
 
 
-def one_step(backend_class: type, built: Built) -> np.ndarray:
+def one_step(
+    backend_class: type, built: Built, start: Start | None = None
+) -> np.ndarray:
     """Return the field after the schedule's first step, which must be one step."""
-    field, summary, _ = _march(backend_class, built, first_step(built.run_request))
+    field, summary, _ = _march(
+        backend_class, built, first_step(built.run_request), start=start
+    )
     assert summary.n_steps == 1, (
         f"{backend_class.__name__} took {summary.n_steps} steps over the schedule's "
         "first step, not one"
@@ -251,37 +359,130 @@ def one_step(backend_class: type, built: Built) -> np.ndarray:
     return field
 
 
-def steps(
-    backend_class: type, built: Built, names: tuple[str, ...] = ()
-) -> tuple[np.ndarray, dict[str, float]]:
-    """Return the field after the whole schedule, every step taken, and statistics.
+def linear(backend_class: type, built: Built) -> np.ndarray:
+    """Return one step of the launch scaled by :data:`LINEAR_SCALE`.
 
-    The statistics `names` are read at the schedule's end, from the same run.
+    Every pass of the step runs, and the cubic and delayed terms are ``1e-40`` of the
+    linear one: what the rung compares is the linear operator.
+    """
+    problem = built.problem
+    launch = problem.initial.field0 * LINEAR_SCALE
+    return one_step(
+        backend_class, built, Start(field=launch, z=float(problem.initial.z))
+    )
+
+
+def steps(
+    backend_class: type,
+    built: Built,
+    names: tuple[str, ...] | None = (),
+    window: int | None = None,
+) -> Marched:
+    """Return the field after the schedule, every step taken, and its statistics.
+
+    `window` ends the march after the schedule's first steps; the statistics `names`
+    (``None``: the request's own) are read at its end, from the same run.
     """
     schedule = built.run_request.stepper.schedule
     assert schedule is not None, "the row's request has no fixed schedule to march"
-    assert float(built.run_request.stepper.save_planes[-1]) == float(
-        schedule.edges[-1]
-    ), "the request's last plane is not the schedule's end"
-    field, summary, statistics = _march(backend_class, built, built.run_request, names)
-    assert summary.n_steps == len(schedule.steps), (
-        f"{backend_class.__name__} took {summary.n_steps} steps of the schedule's "
-        f"{len(schedule.steps)}"
+    if window is None:
+        request, count = built.run_request, len(schedule.steps)
+        assert float(request.stepper.save_planes[-1]) == float(schedule.edges[-1]), (
+            "the request's last plane is not the schedule's end"
+        )
+    else:
+        request, count = first_steps(built.run_request, window), window
+    field, summary, statistics = _march(backend_class, built, request, names)
+    assert summary.n_steps == count, (
+        f"{backend_class.__name__} took {summary.n_steps} steps of the "
+        f"{count} it marches"
     )
-    return field, statistics
+    return Marched(field, statistics)
 
 
-RUNGS: dict[str, Callable[[type, Built, Row], Any]] = {
+def run(backend_class: Any, built: Built) -> Marched:
+    """Return the complete run's saved fields and statistics, every step taken.
+
+    A driver's row runs :meth:`solprop.driver.Simulation.run` through the output
+    layer: the saved planes in the optics convention, the per-plane statistics and the
+    periodic rows (``rows/<name>``), on the row's problem -- the simulation's own
+    translation unless the row's term was switched off. An assembled row runs at the
+    seam, through the backend's session.
+    """
+    schedule = built.run_request.stepper.schedule
+    assert schedule is not None, "the row's request has no fixed schedule to run"
+    if built.simulation is None:
+        backend = _backend(backend_class, built)
+        try:
+            # The session owns the backend and closes it, as a service's run does.
+            result = session_run(backend, built.problem, built.run_request, owns=True)
+        finally:
+            backend.close()  # idempotent: for a run that failed to start
+        planes = saved(result)
+        field = np.array([state for _, state in planes])
+        statistics = {
+            name: np.array([np.asarray(event.stats[name]) for event, _ in planes])
+            for name in planes[-1][0].stats
+        }
+        accepted = run_summary(result).n_steps
+    else:
+        # A shallow copy whose settings name the backend and whose translation is the
+        # row's, so the translation is shared and a switched-off problem runs too.
+        simulation = copy.copy(built.simulation)
+        simulation.settings = dataclasses.replace(
+            simulation.settings, backend=backend_class.name
+        )
+        simulation._problem = built.problem
+        handler = simulation.run(progress="none")
+        field = handler.fields("optics")
+        statistics = {
+            name: np.asarray(handler[f"stats/{name}"]) for name in handler.stat_names
+        } | {
+            f"rows/{name}": np.asarray(handler[f"step_stats/{name}"])
+            for name in handler.step_stat_names
+        }
+        accepted = int(np.count_nonzero(handler["step_history/accepted"]))
+    assert accepted == len(schedule.steps), (
+        f"{backend_class.name}'s complete run accepted {accepted} steps of the "
+        f"schedule's {len(schedule.steps)}"
+    )
+    return Marched(field, statistics)
+
+
+RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
     "source": lambda backend_class, built, row: source(
         backend_class, built, masked=row.masked_launch, z=row.source_z
     ),
+    "derivative": lambda backend_class, built, row: derivative(backend_class, built),
     "projected": lambda backend_class, built, row: projected(backend_class, built),
+    "linear": lambda backend_class, built, row: linear(backend_class, built),
     "one_step": lambda backend_class, built, row: one_step(backend_class, built),
     "steps": lambda backend_class, built, row: steps(
-        backend_class, built, tuple(row.statistics)
-    )[0],
+        backend_class,
+        built,
+        None if row.every_statistic is not None else tuple(row.statistics),
+        row.window,
+    ),
+    "run": lambda backend_class, built, row: run(backend_class, built),
 }
 """Each field rung's measurement, by name."""
+
+ROW_FREE_RUNGS = frozenset({"derivative", "projected", "linear", "one_step", "run"})
+"""The rungs a bound may read the reference's measurement of (:func:`reference`)."""
+
+
+def reference(built: Built, rung: str, row: Row | None = None) -> Any:
+    """Return the reference's measurement of a rung on the built row, made once.
+
+    A bound reads one without the row, of a rung in :data:`ROW_FREE_RUNGS`; the check
+    passes its row, and both read the same measurement.
+    """
+    if rung not in built.readings:
+        assert row is not None or rung in ROW_FREE_RUNGS, (
+            f"the {rung} rung reads the row: a bound cannot read it"
+        )
+        built.readings[rung] = RUNGS[rung](NumpyRefBackend, built, row)
+    return built.readings[rung]
 
 
 # --- the comparison -------------------------------------------------------------------
@@ -302,8 +503,33 @@ def _pairs(ours, theirs) -> list[tuple[np.ndarray, np.ndarray]]:
     ]
 
 
-def disagreement(ours, theirs) -> float:
-    """Return the worst normwise relative departure over a rung's arrays.
+def peak_departure(got, expected) -> float:
+    """Return ``max |got - expected| / max |expected|``, NaN where both are NaN.
+
+    A NaN on one side only is an infinite departure; against a zero reference, zero
+    when the other side is zero too.
+    """
+    got, expected = np.asarray(got), np.asarray(expected)
+    if np.any(np.isnan(got) != np.isnan(expected)):
+        return math.inf
+    missing = np.isnan(expected)
+    scale = float(np.max(np.abs(np.where(missing, 0.0, expected)), initial=0.0))
+    if scale == 0.0:
+        return 0.0 if np.all(np.where(missing, 0.0, got) == 0.0) else math.inf
+    return float(np.max(np.abs(np.where(missing, 0.0, got - expected))) / scale)
+
+
+METRICS: dict[str, Callable[[Any, Any], float]] = {
+    "normwise": departure,
+    "peak": peak_departure,
+}
+"""How a row compares its fields: ``||a - b|| / ||b||``, or the peak-normalised
+``max |a - b| / max |b|`` of the optmat response parity, whose bounds count roundings
+per sample of the peak."""
+
+
+def disagreement(ours, theirs, metric: str = "normwise") -> float:
+    """Return the worst relative departure over a rung's arrays, in `metric`.
 
     Every array finite, of one size on both sides (a backend may hold a column's
     polarisation axis flattened), and the reference's non-zero, so that a backend
@@ -318,8 +544,13 @@ def disagreement(ours, theirs) -> float:
         assert np.linalg.norm(b) > 0, (
             "the reference's output is zero: nothing to compare"
         )
-        worst = max(worst, departure(a, b))
+        worst = max(worst, METRICS[metric](a, b))
     return worst
+
+
+def _field(measured):
+    """Return a rung's field: a march's, or the measurement itself."""
+    return measured.field if isinstance(measured, Marched) else measured
 
 
 def check(native_class: type, row: Row) -> list[Reading]:
@@ -364,30 +595,29 @@ def _check(native_class: type, row: Row) -> list[Reading]:
         _matches(metadata, row.metadata, "native metadata")
     floor = None if row.floor is None else row.floor()
     off = dataclasses.replace(built, problem=row.switch_off(built.problem))
-    names = tuple(row.statistics)
-    found: dict[str, float] = {}
-    expected: dict[str, float] = {}
+    field_bounds: dict[str, float] = {}
+    marched: dict[str, tuple[Marched, Marched]] = {}
     readings: list[Reading] = []
     failures: list[str] = []
     for rung, bound_of in row.rungs.items():
         bound = bound_of(built)
         assert bound > 0, f"{rung}: the bound is {bound}, not positive"
-        measure = RUNGS[rung]
-        if rung == "steps":
-            ours, found = steps(native_class, built, names)
-            theirs, expected = steps(NumpyRefBackend, built, names)
-        else:
-            ours = measure(native_class, built, row)
-            theirs = measure(NumpyRefBackend, built, row)
+        ours = RUNGS[rung](native_class, built, row)
+        theirs = reference(built, rung, row)
+        if isinstance(theirs, Marched):
+            marched[rung] = (ours, theirs)
         reference_off = None
         if floor is not None:
-            reference_off = measure(NumpyRefBackend, floor, row)
-            bound += disagreement(measure(native_class, floor, row), reference_off)
+            reference_off = _field(reference(floor, rung, row))
+            bound += disagreement(
+                _field(RUNGS[rung](native_class, floor, row)), reference_off, row.metric
+            )
+        field_bounds[rung] = bound
         guard = None
         if rung not in row.unguarded:
             if reference_off is None:
-                reference_off = measure(NumpyRefBackend, off, row)
-            guard = _share(reference_off, theirs) / bound
+                reference_off = _field(reference(off, rung, row))
+            guard = _share(reference_off, _field(theirs), row.metric) / bound
             lowered = row.detection.get(rung)
             threshold = DETECTION if lowered is None else lowered.threshold
             if not guard > threshold:
@@ -397,11 +627,10 @@ def _check(native_class: type, row: Row) -> list[Reading]:
                     "that dropped the term could pass"
                     + ("" if lowered is None else f" (lowered: {lowered.reason})")
                 )
-        readings.append(Reading(rung, disagreement(ours, theirs), bound, guard))
-    for name, bound_of in row.statistics.items():
-        assert expected[name] > 0, f"{name}: the reference's statistic is not positive"
-        measured = abs(found[name] - expected[name])
-        readings.append(Reading(name, measured, bound_of(built)))
+        measured = disagreement(_field(ours), _field(theirs), row.metric)
+        readings.append(Reading(rung, measured, bound, guard))
+    readings += _named_statistics(row, built, marched)
+    readings += _every_statistic(row, built, marched, field_bounds)
     failures += [
         f"{one.rung}: native departs from the reference by {one.measured:.3e}, "
         f"not inside its bound {one.bound:.3e} ({one.measured / one.bound:.3g} bounds)"
@@ -409,6 +638,48 @@ def _check(native_class: type, row: Row) -> list[Reading]:
         if not one.measured < one.bound
     ]
     assert not failures, "\n".join(failures)
+    return readings
+
+
+def _named_statistics(
+    row: Row, built: Built, marched: Mapping[str, tuple[Marched, Marched]]
+) -> list[Reading]:
+    """Compare the row's named statistics at the end of its steps, absolutely."""
+    if not row.statistics:
+        return []
+    ours, theirs = marched["steps"]
+    readings = []
+    for name, bound_of in row.statistics.items():
+        found, expected = float(ours.statistics[name]), float(theirs.statistics[name])
+        assert expected > 0, f"{name}: the reference's statistic is not positive"
+        readings.append(Reading(name, abs(found - expected), bound_of(built)))
+    return readings
+
+
+def _every_statistic(
+    row: Row,
+    built: Built,
+    marched: Mapping[str, tuple[Marched, Marched]],
+    field_bounds: Mapping[str, float],
+) -> list[Reading]:
+    """Compare every statistic the steps and run rungs read, as the row's rule says."""
+    if row.every_statistic is None:
+        return []
+    readings = []
+    for rung, (ours, theirs) in marched.items():
+        assert set(ours.statistics) == set(theirs.statistics), (
+            f"{rung}: native reads the statistics {sorted(ours.statistics)}, the "
+            f"reference {sorted(theirs.statistics)}"
+        )
+        for name, expected in theirs.statistics.items():
+            rule = row.every_statistic(built, name, field_bounds[rung])
+            found = ours.statistics[name]
+            measured = (
+                float(np.max(np.abs(found - expected)))
+                if rule.absolute
+                else peak_departure(found, expected)
+            )
+            readings.append(Reading(f"{rung} {name}", measured, rule.bound))
     return readings
 
 
@@ -424,6 +695,17 @@ def _check_declarations(row: Row) -> None:
     assert not row.statistics or "steps" in row.rungs, (
         "statistics are read at the end of the steps rung, which the row does not run"
     )
+    assert row.every_statistic is None or not row.statistics, (
+        "a row compares its named statistics or every statistic, not both"
+    )
+    assert row.every_statistic is None or {"steps", "run"} & set(row.rungs), (
+        "every statistic is read at the end of the steps or run rung, which the row "
+        "does not run"
+    )
+    assert row.window is None or "steps" in row.rungs, (
+        "a window cuts the steps rung, which the row does not run"
+    )
+    assert row.metric in METRICS, f"no metric {row.metric!r}"
     for rung, lowered in row.detection.items():
         assert rung in row.rungs and rung not in row.unguarded, (
             f"{rung}: a lowered guard names a guarded rung the row runs"
@@ -457,8 +739,6 @@ def _matches(actual: Mapping[str, Any], expected: Mapping[str, Any], what: str) 
             )
 
 
-def _share(off, on) -> float:
+def _share(off, on, metric: str) -> float:
     """Return how far the term-off output is from the row's, relative to the row's."""
-    return max(
-        float(np.linalg.norm(a - b) / np.linalg.norm(b)) for a, b in _pairs(off, on)
-    )
+    return max(METRICS[metric](a, b) for a, b in _pairs(off, on))
