@@ -15,7 +15,9 @@ fixed -- and is held to ``numpy_ref``'s run of the same problem within a hundred
 the controller's relative tolerance of the field's peak. The two adaptive runs take
 their own steps (SEP 25 class T), and each keeps its local error within the tolerance;
 a hundred covers the error's growth over these short runs (measured at most 4.2e-8 of
-the peak, against tolerances of 1e-6 and looser).
+the peak, against tolerances of 1e-6 and looser). The replays on a fixed schedule are
+held to the reference by the catalogue's rows ``rk replay ...``
+(``backends/driver_rows.py``); here they take the schedule's steps exactly.
 """
 
 from __future__ import annotations
@@ -94,10 +96,10 @@ def _one_thread() -> bool:
     }
 
 
-def _held(build) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run natively twice and on ``numpy_ref``; hold them as the module says.
+def _repeated(build) -> dict[str, Any]:
+    """Run natively twice, on the native march, the same run bit for bit on one thread.
 
-    Returns the native run and the reference's.
+    Returns the native run.
     """
     native, again = _run(build), _run(build)
     assert native["march"] == again["march"] == "native"
@@ -105,6 +107,15 @@ def _held(build) -> tuple[dict[str, Any], dict[str, Any]]:
         for name in ("z", "h", "norm", "accepted", "field", "fields"):
             np.testing.assert_array_equal(native[name], again[name], name)
         assert native["record"] == again["record"]
+    return native
+
+
+def _held(build) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run natively twice and on ``numpy_ref``; hold them as the module says.
+
+    Returns the native run and the reference's.
+    """
+    native = _repeated(build)
     reference = _run(build, "numpy_ref")
     expected = reference["fields"]
     assert native["fields"].shape == expected.shape
@@ -195,11 +206,17 @@ def test_a_z_table_s_march(dense):
     "route",
     ["gnlse", pytest.param("capillary (coherent wall)", marks=pytest.mark.medium)],
 )
-def test_a_replay(route):
-    """A fixed schedule's steps, taken as given: the reference's steps exactly."""
-    native, reference = _held(lambda: replayed(route, 400))
-    np.testing.assert_array_equal(native["h"], reference["h"])
-    np.testing.assert_array_equal(native["accepted"], reference["accepted"])
+def test_a_replay_takes_the_schedule_s_steps(route):
+    """A fixed schedule's steps, taken as given: the schedule's steps exactly.
+
+    The reference takes the same steps; the planes against its run are the
+    catalogue's rows ``rk replay ...`` (``backends/driver_rows.py``).
+    """
+    native = _repeated(lambda: replayed(route, 400))
+    schedule = replayed(route, 400)._run_request().stepper.schedule
+    assert schedule is not None
+    np.testing.assert_array_equal(native["h"], schedule.steps)
+    np.testing.assert_array_equal(native["accepted"], np.ones_like(native["accepted"]))
 
 
 def test_a_weighted_norm_s_march():

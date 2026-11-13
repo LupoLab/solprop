@@ -17,7 +17,12 @@ the output layer, read back as a test reads them:
   (``tests/legacy_entry_cases.py``); the last saved plane (``last_plane``), from the
   native instance of ``tests/driver/test_coherent_capillary.py``'s
   ``test_the_legacy_entry_points_are_what_they_were``, which keeps each run's record and
-  native's repeat of its own run.
+  native's repeat of its own run;
+- ``rk replay ...`` rows: the GNLSE and coherent-wall capillary routes of
+  ``capability_routes.ROUTES`` replaying 400 uniform steps on the Runge-Kutta march
+  (``tests/rk_route_cases.py``); every saved plane (``run``), from
+  ``tests/driver/test_native_rk_march.py``'s ``test_a_replay``, which keeps native's
+  repeat of its own run, its march and its steps.
 
 **The bounds are the old tests', fixed before native runs.** A slab row is bounded by
 ``slab_cases.parity_bound``: the ten steps' seven DOPRI5 stages, each one transform
@@ -25,7 +30,10 @@ round trip each way and the modal synthesis and projection over the rule's nodes
 errors adding. A legacy row is bounded by ``legacy_entry_cases.legacy_parity_bound``,
 the same count over the march's evaluations a step (DOPRI5's seven, or the Adams
 march's weights' absolute sum) and the plane's samples. Both are relative to the
-plane's peak, as the old tests compared them.
+plane's peak, as the old tests compared them. A replay row holds every saved plane to a
+hundred times the controller's relative tolerance of their common peak, the old test's
+gate for the adaptive runs it shares its helper with, which no derivation backs for a
+replay (#807).
 
 **The guard.** A slab or legacy row's term is the Kerr response
 (``optmat_rows.without_kerr``): the reference's last plane must move by more than
@@ -59,6 +67,7 @@ from functools import partial
 from typing import Any
 
 import legacy_entry_cases
+import rk_route_cases
 import slab_cases
 from backends.flow_rows import driver_case
 from backends.optmat_rows import without_kerr
@@ -100,6 +109,11 @@ def legacy_entry(entry: str) -> Built:
     return driver_case(legacy_entry_cases.legacy_simulation(entry))
 
 
+def replay(route: str) -> Built:
+    """Return a route replaying 400 uniform steps on the Runge-Kutta march."""
+    return driver_case(rk_route_cases.replayed(route, 400))
+
+
 # --- the bounds -----------------------------------------------------------------------
 
 
@@ -122,6 +136,13 @@ def legacy_bound(built: Built) -> float:
     return legacy_entry_cases.legacy_parity_bound(samples, built.simulation)
 
 
+def a_hundred_tolerances(built: Built) -> float:
+    """Return a hundred times the request's controller's relative tolerance."""
+    controller = built.run_request.stepper.controller
+    assert controller is not None
+    return 100.0 * float(controller.rtol)
+
+
 # --- the rows -------------------------------------------------------------------------
 
 
@@ -133,10 +154,12 @@ def driver_row(
     response: str,
     features: str,
     build: Callable[[], Built],
+    medium: bool = True,
     **fields: Any,
 ) -> Row:
-    """Return a driver run's row; it marches, so it is medium unless it says slow.
+    """Return a driver run's row; it marches, so it is medium unless it says otherwise.
 
+    A row keeps its old test's tier: ``medium=False`` for one whose test was fast.
     Its id is `name`; `fields` are the rest of :class:`parity_ladder.Row`.
     """
     return Row(
@@ -148,7 +171,7 @@ def driver_row(
             "features": features,
         },
         build=build,
-        medium=not fields.get("slow"),
+        medium=medium,
         **fields,
     )
 
@@ -220,7 +243,58 @@ def _legacy_rows() -> tuple[Row, ...]:
     )
 
 
+REPLAY_QUIET = (
+    # The test's own filter: the window's edge is not what these rows hold.
+    "ignore::solprop.exceptions.BoundaryWarning",
+)
+"""The replays' warning filter; a host march's warning stays an error, as it was."""
+
+
+REPLAY_VACUOUS = {
+    "gnlse": "The Kerr term moves the reference's planes by 10.8 bounds (measured), "
+    "under the least guard of 100: the gate is a hundred controller tolerances, 1e-5 "
+    "of the peak, against a nonlinear phase of 2e-4 rad over the route's 0.2 mm "
+    "(#806, #807). Kept as the old test's comparison.",
+    "capillary (coherent wall)": "The Kerr term moves the reference's planes by "
+    "0.069 bounds and the coherent wall's flow by 0.99 (measured), under the least "
+    "guard of 100: the gate is a hundred controller tolerances, 1e-4 of the peak "
+    "(#806, #807). Kept as the old test's comparison.",
+}
+"""Each replayed route's reason its row is vacuous: no term clears the gate's guard."""
+
+
+REPLAY_MEDIUM = {"gnlse": False, "capillary (coherent wall)": True}
+"""Each replay's tier, its old test's: the GNLSE replay was fast, the wall's medium
+(#792 re-tiers on CI times)."""
+
+
+def _replay_rows() -> tuple[Row, ...]:
+    """Return the GNLSE and coherent-wall routes replayed on the Runge-Kutta march."""
+    return tuple(
+        driver_row(
+            name=f"rk replay {route}",
+            route=route,
+            stepper="rk",
+            response="kerr",
+            features="400 uniform fixed steps landing on the route's save planes",
+            why=f"The {route} route's 400 replayed Runge-Kutta steps leave the "
+            "reference's saved planes on native.",
+            bound_note="A hundred times the controller's relative tolerance of the "
+            "planes' common peak, the old test's gate for its adaptive runs, which no "
+            "derivation backs for a replay (#807).",
+            build=partial(replay, route),
+            switch_off=without_kerr,
+            rungs={"run": a_hundred_tolerances},
+            metric="peak",
+            vacuous=REPLAY_VACUOUS[route],
+            medium=REPLAY_MEDIUM[route],
+            quiet=REPLAY_QUIET,
+        )
+        for route in REPLAY_VACUOUS
+    )
+
+
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the driver's runs on a fixed schedule."""
-    return (*_slab_rows(), *_legacy_rows())
+    return (*_slab_rows(), *_legacy_rows(), *_replay_rows())
