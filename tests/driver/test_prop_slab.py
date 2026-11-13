@@ -34,6 +34,7 @@ from slab_cases import (
     launched,
     options,
     parity_bound,
+    projected_multimode,
 )
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
@@ -51,7 +52,6 @@ from solprop.log import NullReporter
 from solprop.modes import (
     MarcatiliMode,
     SlabMode,
-    gaussian_coupling,
     transverse_measure,
 )
 from solprop.nonlinear.gnlse import SpecifiedMode
@@ -165,34 +165,21 @@ def test_the_mode_averaged_slab_is_the_one_mode_run():
 
 @pytest.mark.medium
 @pytest.mark.parametrize("taper", [False, True], ids=["constant", "tapered"])
-def test_a_projected_multimode_slab_agrees_on_every_backend(taper):
+def test_a_projected_multimode_slab_launches_the_coupled_share(taper):
     """TE1/TE3/TE5 (TE1/TE3 tapered), launched as Arnold's 0.735a Gaussian.
 
-    A centred beam reaches the odd orders only. Each backend's final field is
-    within :func:`parity_bound` of ``numpy_ref``'s (measured below 1e-15 of a
-    1.6e-10 bound), and the energy launched is the coupled share of 0.5 J/m. The
-    inert collar cannot stop the modes' 40 fs group-delay walk-off from wrapping,
-    which the driver says; ten steps of a 100 fs pulse in a 1.2 ps window never
-    reach the edge.
+    A centred beam reaches the odd orders only. On each backend the energy launched is
+    the coupled share of 0.5 J/m, on the slab's Kronrod rule. The inert collar cannot
+    stop the modes' 40 fs group-delay walk-off from wrapping, which the driver says;
+    ten steps of a 100 fs pulse in a 1.2 ps window never reach the edge. Native's final
+    field against ``numpy_ref``'s is the catalogue's rows ``slab projected multimode
+    ...`` (``backends/driver_rows.py``).
     """
-    gap = Linear(HALF_GAP, 50e-6, LENGTH) if taper else HALF_GAP
-    orders = (1, 3) if taper else (1, 3, 5)
-    modes = [SlabMode(gap, cladding=1.45, order=order) for order in orders]
-    shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
-    fields = {}
-    n_nodes = 0
     for backend in BACKENDS:
         with pytest.warns(SolpropWarning, match="walking off"):
-            simulation = Simulation.from_waveguide(
-                modes,
-                LENGTH,
-                "Ar",
-                1.0,
-                **({"noise": None, **options(backend=backend)}),
-            )
+            simulation, shares = projected_multimode(taper, backend)
         rule = simulation.settings.quadrature
         assert rule is not None and rule.kind == "slab" and rule.kronrod
-        n_nodes = rule.n_nodes
         # A taper couples TE1 to TE3 through <psi_m|d_z psi_n>, which this route
         # omits and says so: each channel follows its local mode adiabatically.
         with (
@@ -201,15 +188,8 @@ def test_a_projected_multimode_slab_agrees_on_every_backend(taper):
             else contextlib.nullcontext()
         ):
             output = launched(simulation, shares).run(progress="none")
-        fields[backend] = output["field"][-1]
         energy = output["stats/energy"]
         assert_allclose(float(np.sum(energy[0])), 0.5 * shares.sum(), rtol=1e-12)
-    reference = fields["numpy_ref"]
-    scale = float(np.max(np.abs(reference)))
-    for backend in BACKENDS[1:]:
-        assert float(np.max(np.abs(fields[backend] - reference))) <= (
-            parity_bound(n_nodes) * scale
-        )
 
 
 @pytest.mark.medium

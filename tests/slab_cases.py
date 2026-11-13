@@ -90,14 +90,15 @@ def parity_bound(n_nodes: int) -> float:
 def projected_multimode(
     taper: bool, backend: str = "numpy_ref"
 ) -> tuple[Simulation, np.ndarray]:
-    """Return TE1/TE3/TE5 (TE1/TE3 tapered), launched as Arnold's 0.735a Gaussian.
+    """Return TE1/TE3/TE5 (TE1/TE3 tapered) and the 0.735a Gaussian's shares of them.
 
-    A centred beam reaches the odd orders only; the launch is the Gaussian's projection
-    onto each mode (:func:`launched`). The modes' 40 fs group-delay walk-off, which the
-    inert collar cannot stop from wrapping, makes the constructor warn; ten steps of a
-    100 fs pulse in a 1.2 ps window never reach the edge. A taper couples TE1 to TE3
-    through ``<psi_m|d_z psi_n>``, which this route omits and says so when it runs.
-    Returns the launched simulation on `backend` and the modes' coupled shares.
+    A centred beam reaches the odd orders only. The simulation launches the
+    single-mode pulse; :func:`launched` replaces it by the Gaussian's projection onto
+    every mode, at the returned coupled shares. The modes' 40 fs group-delay walk-off,
+    which the inert collar cannot stop from wrapping, makes the constructor warn; ten
+    steps of a 100 fs pulse in a 1.2 ps window never reach the edge. A taper couples
+    TE1 to TE3 through ``<psi_m|d_z psi_n>``, which this route omits and says so once
+    the launch is replaced. Returns the simulation on `backend` and the shares.
     """
     gap = Linear(HALF_GAP, 50e-6, LENGTH) if taper else HALF_GAP
     orders = (1, 3) if taper else (1, 3, 5)
@@ -110,4 +111,4 @@ def projected_multimode(
         1.0,
         **({"noise": None, **options(backend=backend)}),
     )
-    return launched(simulation, shares), shares
+    return simulation, shares
