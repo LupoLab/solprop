@@ -17,7 +17,9 @@ held current; the private gated form of the original equation
 ``numpy_ref``:
 
 - ``derivative``: one nonlinear evaluation, the first stage's derivative at the
-  launch, ``N(a_0)``;
+  launch, ``N(a_0)``; and, on the mode-averaged capillary and the radial route, the
+  same under a band rule of one tap (``K = 0``), which the retired compiled backend's
+  band-kernel test held to the reference;
 - ``steps``: one, eight or ten fixed steps over the case, a row each (one step over
   the whole case is not the first of ten), with every statistic of the case's
   specification read at their end for the held current -- the electron density, the
@@ -80,11 +82,20 @@ from collections.abc import Callable, Iterator
 from functools import partial
 from typing import Any
 
+import numpy as np
+
 from backends.optmat_rows import without_plasma
-from backends.plasma_column_cases import CASES, bound, column_case, options_for
+from backends.plasma_column_cases import (
+    CASES,
+    bound,
+    column_case,
+    options_for,
+)
+from backends.plasma_column_cases import case as band_case
 from bounds import INTEGRATION_AGREEMENT
 from gated_source import _gated_source
 from parity_ladder import Bound, Built, Detection, Row, Statistic, StatisticRule
+from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 
 # --- bounds ---------------------------------------------------------------------------
@@ -280,6 +291,69 @@ def held_current_rows() -> Iterator[Row]:
                 rungs={"derivative": one_evaluation},
                 vacuous=HELIUM_FREES_NOTHING_AT_THE_LAUNCH if name in HELIUM else "",
             )
+
+
+# --- a band rule of one tap -----------------------------------------------------------
+
+
+def one_tap(name: str) -> Built:
+    """Return a case of ``plasma_column_cases.py`` under a band rule of one tap."""
+    grid, problem, run_request = band_case(name)
+    flat = RunningIntegral(
+        "band", np.ones(1), dt=grid.dt_fine, band_edge=grid.omega_max_window
+    )
+    problem = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(problem.responses, plasma_integral=flat),
+    )
+    return Built(problem, run_request, grid, options=options_for(name))
+
+
+def one_tap_budget(built: Built) -> float:
+    """Bound one evaluation under a one-tap band rule: the retired ``64 n_to eps``."""
+    return 64 * built.grid.n_to * float(np.finfo(float).eps)
+
+
+ONE_TAP_FREES_NOTHING = (
+    "The helium launch frees no electron at the launch: switching the plasma off "
+    "moves the reference's derivative by 1.1e-4 bounds (measured), rounding. Kept as "
+    "the retired compiled backend's test held it, the one-tap rule assembled beside "
+    "the Kerr term on a population that frees nothing; the radial row carries the "
+    "rule's guard."
+)
+"""Why the one-tap rule on the helium capillary is kept, though vacuous (#800)."""
+
+
+def one_tap_rows() -> Iterator[Row]:
+    """Yield the band rule of one tap, ``K = 0``, in one evaluation at the launch.
+
+    The retired compiled backend's band-kernel test held it to the reference on two of
+    this module's cases; native took over the claim.
+    """
+    yield plasma_row(
+        name="one-tap band mode_averaged",
+        route=ROUTES["mode_averaged"].route,
+        stepper="none",
+        features="band rule of one tap",
+        why="On the mode-averaged helium capillary the band rule of one tap, "
+        "K = 0, is the reference's in one evaluation at the launch.",
+        build=partial(one_tap, "mode_averaged"),
+        rungs={"derivative": one_tap_budget},
+        vacuous=ONE_TAP_FREES_NOTHING,
+    )
+    yield plasma_row(
+        name="one-tap band radial",
+        route=ROUTES["radial"].route,
+        stepper="none",
+        features="band rule of one tap",
+        why="On argon on the radial route the band rule of one tap, K = 0, is "
+        "the reference's in one evaluation at the launch.",
+        bound_note="The retired 64 n_to eps for the one tap (1.1e-11 here). "
+        "Measured 3.1e-16; native's own test of this rule compares two native "
+        "columns and is marked for a device only.",
+        build=partial(one_tap, "radial"),
+        rungs={"derivative": one_tap_budget},
+    )
 
 
 # --- the plasma column over fixed steps -----------------------------------------------
@@ -504,6 +578,7 @@ def rows() -> tuple[Row, ...]:
     """Return every plasma column row."""
     return (
         *held_current_rows(),
+        *one_tap_rows(),
         *preionised_column_rows(),
         *cold_column_rows(),
         *gated_rows(),

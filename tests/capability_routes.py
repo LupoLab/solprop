@@ -17,7 +17,8 @@ options -- with an id and the axes it covers: route family, response, stepper an
 features. Rows cover the axes pairwise (each route with each response and each
 stepper it admits, each feature on at least one route), not their full product. A
 family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``,
-``backends/optmat_rows.py``, ``backends/plasma_rows.py``) and is collected here.
+``backends/optmat_rows.py``, ``backends/plasma_rows.py``, ``backends/column_rows.py``)
+and is collected here.
 
 **Claims.** Every row states the physical claim it holds (``why``, one sentence, such
 as "the response must not filter the drive"), and a row whose bound has a floor, a
@@ -26,7 +27,8 @@ margin or a choice worth explaining says what was measured against it
 bound gives the measured value, the bound and their ratio.
 
 **Rungs.** One source evaluation (``source``: the whole stage source at the launch),
-the first stage's derivative at the launch (``derivative``), one evaluation's projected
+the first stage's derivative at the launch (``derivative``), the statistics the session
+observes at the launch, nothing stepped (``launch``), one evaluation's projected
 polarisation on both quadrature rules (``projected``), one step of the launch scaled
 to ``1e-20`` (``linear``: the linear operator alone), one step (``one_step``: the
 schedule's first), the schedule's fixed window or its first steps (``steps``), and
@@ -53,7 +55,11 @@ unless the guard found an old claim vacuous: such a row is kept, but declares it
 ``vacuous`` with what was measured, so that every exception is named where the row is.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the mixture, general-route, session and coupled-flow ladders.
+the mixture, session and coupled-flow ladders. Of the general-route march's modules the
+retired column tests have joined (``backends/column_rows.py``); an adaptive march's
+periodic rows, which no rung marches, stay, and so do the modules that hold native to
+the recorded decision traces, to solprop's own translation or reduction, or to its
+admission rules, which compare nothing with the reference.
 """
 
 from __future__ import annotations
@@ -395,8 +401,18 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
 
 def catalogue() -> tuple[Row, ...]:
     """Return every row of the parity catalogue, their ids unique."""
-    from backends import dispersive_rows, optmat_rows, plasma_rows  # noqa: PLC0415
+    from backends import (  # noqa: PLC0415
+        column_rows,
+        dispersive_rows,
+        optmat_rows,
+        plasma_rows,
+    )
 
-    rows = (*dispersive_rows.rows(), *optmat_rows.rows(), *plasma_rows.rows())
+    rows = (
+        *dispersive_rows.rows(),
+        *optmat_rows.rows(),
+        *plasma_rows.rows(),
+        *column_rows.rows(),
+    )
     assert len({row.id for row in rows}) == len(rows)
     return rows
