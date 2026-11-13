@@ -454,7 +454,9 @@ How a run resumes from its last plane depends on what that plane is:
   whatever `interpolate_planes` the resuming run asks for;
   `resume="interpolated"` continues afresh from it and
   appends its position to the annotation `interpolated_resumes`
-  (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash.
+  (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash. The position is
+  written before the continuation's first step, so a session that stops or fails later
+  still records where it restarted.
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass

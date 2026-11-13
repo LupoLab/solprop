@@ -304,6 +304,7 @@ def run_problem(
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
     restoration: Mapping[str, object] | None = None,
+    interpolated_resume: bool = False,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -413,6 +414,12 @@ def run_problem(
         method history (``start.march``), this is the record of its restoration, and
         a history the session cannot install is warned about and recorded as reset
         instead.
+    interpolated_resume : bool, optional
+        Whether a resume continues afresh from a plane interpolated inside a step
+        (``resume="interpolated"``). A plane store then appends the start's position
+        to the annotation
+        :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION` before the
+        first step, so a run stopped or failed later still records it.
 
     Raises
     ------
@@ -541,6 +548,7 @@ def run_problem(
                 start_plane=start_plane,
                 stop=stop,
                 restoration=restoration,
+                interpolated_resume=interpolated_resume,
             ),
         )
     finally:

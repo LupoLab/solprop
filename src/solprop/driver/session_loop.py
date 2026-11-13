@@ -71,7 +71,11 @@ from solprop.fourier import GridKind, spectrum_to_internal
 from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import HDF5Output
-from solprop.output.metadata import RUN_SUMMARY_ANNOTATION, RunMetadata
+from solprop.output.metadata import (
+    INTERPOLATED_RESUMES_ANNOTATION,
+    RUN_SUMMARY_ANNOTATION,
+    RunMetadata,
+)
 from solprop.output.records import (
     RecipeRecord,
     RunOutcome,
@@ -149,6 +153,10 @@ class ServiceContext:
         What a resumed execution restored of the method history
         (``solprop.driver.resume._continue_march``), for its
         execution record; ``None`` for a fresh run or a caller that says nothing.
+    interpolated_resume : bool, optional
+        Whether a resumed run continues afresh from a plane interpolated inside a
+        step (``resume="interpolated"``), whose position a plane store then records
+        before the first step.
     """
 
     problem: PropagationProblem
@@ -164,6 +172,7 @@ class ServiceContext:
     start_plane: int
     stop: StopFlag | None = None
     restoration: Mapping[str, object] | None = None
+    interpolated_resume: bool = False
 
 
 def _rows(rows: BackendRows) -> StepStats:
@@ -489,6 +498,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         request=context.request,
         boundary_check=None if monitor is None else monitor.check,
     )
+    if context.interpolated_resume and isinstance(output, PlaneStore):
+        _record_interpolated_resume(output, reached)
     keeper = _MarchKeeper(
         output,
         backend,
@@ -970,6 +981,21 @@ def _announce(  # noqa: PLR0917 - called positionally
             RUN_SUMMARY_ANNOTATION,
             [*cast("list[object]", earlier), summary.record()],
         )
+
+
+def _record_interpolated_resume(output: PlaneStore, z: float) -> None:
+    """Append the position an interpolated resume starts from to the store's record.
+
+    Written before the first step, beside the run summary, so that a session stopped
+    or failed later still names where it restarted (issue #152).
+
+    - ``z``: the position, m.
+    """
+    earlier = output.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
+    output.annotate(
+        INTERPOLATED_RESUMES_ANNOTATION,
+        [*cast("list[object]", earlier), float(z)],
+    )
 
 
 def _retain(
