@@ -150,7 +150,7 @@ validity range is cited to its primary source; say what you verified and what yo
 - `logging.getLogger(__name__)` per module; only `solprop.configure_logging()` configures
   handlers. Debug logging is welcome in the physics, translation and driver layers, guarded
   by `logger.isEnabledFor` when formatting costs anything. **Nothing logs in kernels or per-stage code**; progress goes through the
-  reporter protocols of `solprop/log.py` (`ProgressReporter` and those built on it).
+  `ProgressReporter` protocol of `solprop/log.py` (a scan's through its `ScanReporter`).
 
 ### Docstrings and comments
 

@@ -358,7 +358,9 @@ def run_problem(
         :class:`solprop.log.LogReporter` -- a periodic line, one line per plane and one
         at the end, all at ``INFO`` -- otherwise, so redirected, piped and captured
         output gets lines and never a bar. The four names force a choice; a reporter
-        is used as given.
+        is used as given, and must define all of
+        :class:`~solprop.log.ProgressReporter`'s calls (subclass
+        :class:`~solprop.log.NullReporter` to inherit no-ops).
     progress_period : float, optional
         Seconds between the line reporter's periodic lines, s; ``0`` leaves only the
         plane and closing lines. A bar has its own redraw period and a given reporter
@@ -421,7 +423,8 @@ def run_problem(
         plane of this problem; or if the field retention is not valid, names a plane
         outside the run, asks for ``fields='planes'`` beside ``step_planes`` (whose
         plane count is not known in advance), or is not ``'all'`` for an output that
-        cannot store field-free planes.
+        cannot store field-free planes; or if ``progress`` is neither a name nor a
+        :class:`~solprop.log.ProgressReporter`.
 
     Examples
     --------
@@ -471,6 +474,14 @@ def run_problem(
     ):
         raise DriverError(
             "TDSE output must support terminal checkpoints and call ledgers"
+        )
+    if progress is not None and not isinstance(
+        progress, str | ProgressReporter
+    ):  # pragma: no cover - refused by the annotation where it is checked
+        raise DriverError(
+            "progress must be 'auto', 'bar', 'log', 'none' or a ProgressReporter "
+            "(subclass solprop.log.NullReporter to inherit a no-op for each call), "
+            f"got {progress!r}"
         )
     reporter = resolve_reporter(
         progress,

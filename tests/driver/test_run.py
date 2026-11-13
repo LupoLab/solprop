@@ -702,35 +702,6 @@ def test_a_run_that_raises_tells_the_reporter_it_was_interrupted(build_simulatio
     assert events.calls == [("interrupted", 0.0, "RuntimeError")]
 
 
-def test_a_reporter_without_interrupted_is_still_accepted(build_simulation):
-    """A reporter written to the four-call protocol is not required to grow."""
-
-    class FourCalls:
-        def started(self, z_start, z_end, n_planes):
-            pass
-
-        def step(self, z, dz, accepted):
-            pass
-
-        def plane(self, z, summary):
-            pass
-
-        def finished(self, total):
-            pass
-
-    simulation = build_simulation(n_save=2)
-    problem = simulation.translate()
-    with pytest.raises(RuntimeError, match="the card caught fire"):
-        run_problem(
-            problem,
-            failing_backend(simulation, RuntimeError("the card caught fire")),
-            MemoryOutput(),
-            start=Start.entrance(problem),
-            metadata=simulation.metadata(),
-            progress=FourCalls(),  # type: ignore[arg-type] - the older protocol on purpose
-        )
-
-
 def testhistory_of_stores_start_positions_and_per_attempt_times():
     history = BackendHistory(
         np.array([0.5, 1.0]),

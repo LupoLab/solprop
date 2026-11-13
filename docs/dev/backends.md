@@ -259,7 +259,7 @@ natural stops, the noise models and **the progress reporter**. A backend supplie
 and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
 
 `set_progress` attaches the observer the loop calls (the driver, not the backend, also
-tells an `InterruptibleReporter` when its loop raised). `HostDriver` calls
+tells the reporter when its loop raised). `HostDriver` calls
 `ProgressReporter.step` from `_record`, which every attempted step of every backend already
 passes through, so a host backend gets the per-step channel for nothing; a backend whose
 loop runs on a **device** -- where a per-step host callback would mean a synchronisation per
