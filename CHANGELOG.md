@@ -270,6 +270,10 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- Preserved the original error and retained a retry owner when acquiring host BLAS
+  limits and rolling them back both fail. The next acquisition retries the rollback
+  before applying new limits, so a failed request no longer leaves a BLAS pool at its
+  width indefinitely ([#697](https://github.com/LupoLab/solprop/issues/697)).
 - A run request changed after translation to dense observation (`interpolate_planes`) is now refused where a backend is prepared, as at translation, beside the per-step temporal collar (`absorber_scheme="split_step"`), a coupled linear flow or the `"modified"` noise model: `validate_run` runs dense observation's admission itself, so the refusal comes before any session storage is allocated ([#682](https://github.com/LupoLab/solprop/issues/682)).
 - Fixed group construction consuming the caller's starts and closing its backends when the group was refused: a refused or failed construction, on the NumPy reference and the native group alike, now leaves every start's field and every backend to the caller to retry with, and a start already used or one start or backend shared by two members is refused before anything is loaded (#623).
 - The boundary monitor's record counts each committed step once: a step left unchecked and then checked at its saved plane is no longer counted among both the checked (`steps`) and the skipped steps, so the two add up to the committed steps. Under interpolated planes, a plane that no check read since the previous one, as a later plane inside one step, records its collar and guard occupancies as unmeasured (`None`) rather than the previous collar reading and empty guards (#133).

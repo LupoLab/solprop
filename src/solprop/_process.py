@@ -216,6 +216,13 @@ class _BlasLease(contextlib.AbstractContextManager[None]):
                 del pool.requests[self.owner]
                 if not pool.requests:
                     del _BLAS_POOLS[path]
+            _BLAS_PENDING.pop(self.owner, None)
+
+
+# An acquisition can fail together with its rollback before its caller receives
+# the lease (#697). It is retained before any setter runs, and its cleanup is
+# retried before the next acquisition, so its request cannot outlive every owner.
+_BLAS_PENDING: dict[object, _BlasLease] = {}
 
 
 def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
@@ -225,12 +232,18 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
     threadpoolctl limiters capture each other's temporary settings and restore
     them too early; this process-owned lease saves the original width once.
     Native's adapter supplies this hook explicitly, keeping standalone native
-    imports independent of solprop.
+    imports independent of solprop. A failed acquisition whose rollback also
+    fails raises its original error, with the rollback failure as a note, and
+    keeps its lease so the next acquisition retries the rollback first.
     """
     owner = object()
     paths = tuple(os.path.realpath(library.filepath) for library in libraries)
     lease = _BlasLease(owner, paths)
     with _BLAS_LOCK:
+        # A retry that fails again propagates: the abandoned request stays retained.
+        for pending in tuple(_BLAS_PENDING.values()):
+            pending.restore_original_limits()
+        _BLAS_PENDING[owner] = lease
         try:
             for library, path in zip(libraries, paths, strict=True):
                 if path not in _BLAS_POOLS:
@@ -238,9 +251,13 @@ def acquire_host_blas(libraries: Sequence[Any], threads: int) -> _BlasLease:
                 pool = _BLAS_POOLS[path]
                 pool.requests[owner] = threads
                 library.set_num_threads(min(pool.requests.values()))
-        except BaseException:
-            lease.restore_original_limits()
+        except BaseException as failure:
+            try:
+                lease.restore_original_limits()
+            except BaseException as cleanup:
+                failure.add_note(f"BLAS rollback failed; retained: {cleanup!r}")
             raise
+        del _BLAS_PENDING[owner]
     return lease
 
 
