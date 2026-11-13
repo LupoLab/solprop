@@ -77,7 +77,7 @@ def launched(simulation: Simulation, shares: np.ndarray) -> Simulation:
 def parity_bound(n_nodes: int) -> float:
     """Relative bound on a ten-step final field between two backends.
 
-    The legacy capillary bound (``test_coherent_capillary.legacy_parity_bound``):
+    The legacy capillary bound (``legacy_entry_cases.legacy_parity_bound``):
     each of the ten steps' seven DOPRI5 stages re-forms the nonlinear term from a field
     the backends built in different orders -- one FFT round trip each way and the
     modal synthesis and projection over at most the rule's nodes -- and the errors of

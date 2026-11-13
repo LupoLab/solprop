@@ -6,7 +6,8 @@
 
 A wall is an opt-in leaf, so a run that declares none must be the run it was before the
 leaf existed: ``tests/driver/test_coherent_capillary.py`` holds each run's final plane
-to its record, and native's against the reference's within
+to its record, and the catalogue's rows ``legacy entry ...``
+(``tests/backends/driver_rows.py``) hold native's against the reference's within
 :func:`legacy_parity_bound`. Both runs replay one fixed schedule at the Adams method's
 fixed top order, so that a record is a record of one discrete march.
 """

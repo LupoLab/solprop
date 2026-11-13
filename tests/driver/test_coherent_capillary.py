@@ -49,7 +49,6 @@ from coupled_flow_cases import (
 from legacy_entry_cases import (
     legacy_capillary,
     legacy_gnlse,
-    legacy_parity_bound,
     legacy_simulation,
 )
 from march_bounds import FIXED_ORDER, assert_points_matched
@@ -1351,7 +1350,8 @@ def test_the_legacy_entry_points_are_what_they_were(
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
     bits, has no record of its own. Its two runs agreeing is a repeatability check only,
     a build against itself, which a wrong operator passes; what holds its answer is the
-    reference's field within :func:`legacy_parity_bound`, looser than the record's.
+    reference's field within ``legacy_entry_cases.legacy_parity_bound``, looser than the
+    record's: the catalogue's rows ``legacy entry ...`` (``backends/driver_rows.py``).
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
@@ -1364,12 +1364,6 @@ def test_the_legacy_entry_points_are_what_they_were(
         return
     again = cast("MemoryOutput", build(backend)).planes()[-1].field
     assert_within(again, field, bound, what="a repeated Kokkos run")
-    reference = kept(cast("MemoryOutput", build("numpy_ref")).planes()[-1].field)
-    scale = float(np.max(np.abs(reference)))
-    assert (
-        float(np.max(np.abs(field - reference)))
-        <= legacy_parity_bound(field.shape[-1], legacy_simulation(entry)) * scale
-    )
 
 
 # ------------------------------------------------------------- the varying section
