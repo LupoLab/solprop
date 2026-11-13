@@ -7,8 +7,8 @@
 | **Author** | Matthieu Guer |
 | **Drafting agent** | Claude Opus 5.5 (2026-11-12) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-11-12 |
 | **Resolution** | — |
@@ -987,3 +987,349 @@ DOIs, titles and authors checked against Crossref on 2026-11-12, and for [15] on
 - 2026-11-13: Q6 deferred to phase 2; the default constant of $P_c$ and the form of the
   output (Q2, with the number of files it makes) left to the review (the author).
 - 2026-11-13: Tracking issue [#793](https://github.com/LupoLab/solprop/issues/793).
+- 2026-11-13: GPT-6 completed the AI review below, incorporating the seven Codex
+  findings on PR #794. Part I is unchanged; the findings await the author's response
+  and the maintainer's decisions.
+
+### AI review — 2026-11-13
+
+Reviewer: **GPT-6 (AI)**. Reviewed all of Part I in
+[PR #794](https://github.com/LupoLab/solprop/pull/794) at
+`d1419335614a90148b86f4572c7df43a329e8036`, against the architecture, conventions,
+SEP 0, and the existing coupling, runner, spatial-statistics, compression and scan
+contracts. These findings are part of the work tracked by
+[#793](https://github.com/LupoLab/solprop/issues/793). They are review comments and
+questions, not revisions to the proposed model or approval to implement it.
+
+**Assessment.** Composing ordinary free-space runs and existing optical elements is
+a sound direction. The separation of a sizing model from the propagated result, and
+the explicit comparison of nonlinear-index choices, are useful. Before acceptance,
+the proposal needs firmer contracts for the plate approximation, the physical output
+plane, restart, spatial compression and scan execution. Several advertised cases
+cannot be expressed by the proposed interface. **P1** below means a correctness or
+contract issue to settle before accepting the affected scope; **P2** means a necessary
+clarification, qualification change or maintainer decision.
+
+**Evidence and limits.** Code paths were read at the commit above. Short Python 3.14.5
+probes independently integrated a Gaussian plate's phase kick, checked a cavity
+matrix, compared an integrated-spectrum transform limit with two orthogonal spatial
+channels, and checked phase-only chirping and the existing medium guard. Their inputs
+and results are given below. With optmat 0.9.1, `physdata.n2` gives
+`1.0001440357542289e-23` m²/W for argon at 1030 nm, 1 bar and 293.15 K, consistent with
+the rounded value in §4.3. The publisher's full texts of
+[Hergott et al. [10]](https://link.springer.com/article/10.1007/s00340-025-08415-0)
+and [Shen et al. [12]](https://doi.org/10.1017/hpl.2024.67) were checked for the
+comparisons discussed in R17. Full text of [4] and [13] was not accessible through
+the sources attempted; their detailed numerical claims, the other experimental
+reproductions, and the author's corrections to [10] have not been independently
+verified. No cell implementation or full-length propagation was run.
+
+**Recommendations on the questions left to review.** For **Q1**, I recommend
+`critical="variance"` as the default of the moment design, with the published
+constant an explicit reproduction option. The Gaussian phase-kick check is then
+consistent with the design's coefficient. Keep the Townes default of the existing
+`critical_power` unchanged, distinguish all three powers in the record, and do not
+describe the variance scale as a physical no-collapse guarantee (R1–R2). This is a
+recommendation for a maintainer decision, not a change to Part I. For **Q2**, I support
+ordinary run files plus a versioned cell manifest, provided R7 defines the saved exit
+plane and commit/restart contract. A later packing tool is preferable to changing
+every run reader for this feature. Count the checkpoint files as well as segment
+files when reporting the storage cost.
+
+1. **R1 — P2: Finish the plate-lens derivation in the stated medium
+   (§§4.3–4.4, 5.1, Q1, Q7).** The thin-plate formula says that its focal length is
+   measured in the ambient medium but omits its index, $n_a$. Combining the proposed
+   moment law with the exit rule $U_a=(n_p/n_a)U_p$ gives the nonlinear kick
+   $$
+   \frac{1}{f_{K,a}}=
+   \frac{x_p\lambda_0^2d}{\pi^2 n_a n_p w^4}
+   =\frac{4}{\alpha}\frac{n_2P_{\rm eff}d}{\pi n_a w^4}.
+   $$
+   Here $P_{\rm eff}$ is the power in the plate. The on-axis lens likewise carries
+   $1/n_a$. For a continuous Gaussian with
+   $w=0.7$ mm, $P=10^8$ W, $n_2=2.53\times10^{-20}$ m²/W, $d=1$ mm and
+   $n_a=1.5$, direct radial integration of the phase kick gives
+   $1/f=0.00447215889$ m⁻¹ for $\alpha=2$, whereas the printed expression gives
+   $0.00670823833$ m⁻¹. This deliberately non-unity index checks the algebra; it is
+   not an added cell use case. Either retain $n_a$ or state and bound the
+   $n_a\simeq1$ approximation for the admitted gases. Also make clear that substituting
+   $\alpha=3.77/2$ rescales this exact Gaussian moment kick: it is a calibrated
+   approximation, not the same variance identity. Please retain the independent
+   phase-imprint check for $\alpha=2$ rather than validating two uses of the same
+   moment formula against each other.
+
+2. **R2 — P1: Specify stability and distinguish moment positivity from physical
+   collapse (§§4.2–4.4, 5.1, 7).** $0<L<2R$ certifies the empty symmetric cell,
+   not a cell with focusing elements. For example, $R=0.3$ m, $L=0.55$ m and a
+   centred thin lens with $f=0.05$ m give half-trip trace/2 $=-1.2916667$ although
+   $L<2R$. Define how the physical round-trip map selects a branch, establishes
+   linear stability, and tests the Jacobian of the nonlinear $(W,U)$ map; convergence
+   of `scipy.optimize` alone is not stability. Require positive $W$ throughout every
+   segment, including an interior minimum, and specify the refusal for no stable
+   solution or an ambiguous branch. Separately, $W>0$ is not proof that the actual
+   field cannot collapse: the proposal's own Gaussian collapse threshold is below
+   the zero-Hamiltonian threshold. Nor does $P_{\rm eff}<P_c$ imply
+   $P_{\rm peak}<P_c$; a Gaussian at $P_{\rm eff}=0.8P_c$ has
+   $P_{\rm peak}=1.13137P_c$. What does the promised peak-slice design report when
+   that slice has no stationary fill solution? State the diagnostic's validity and
+   failure semantics without making the full propagator's admission depend on an
+   unproved collapse criterion. Include the exactly linear/vacuum limit explicitly,
+   since `critical_power` refuses a zero susceptibility.
+
+3. **R3 — P1: Define the physical plate layout and its reverse traversal
+   (§§4.2, 4.4, 5.1–5.2, 6.1).** Incorporates
+   [Codex's plate-order finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018681).
+   Record a plate once as the interval $[p,p+d]$ measured from the first mirror.
+   A return pass must traverse the plates in reverse order, with entrance
+   $L-p-d$, the corresponding reversed gaps, and the appropriate incident/transmitted
+   interface media. Use the same sequence in the design and the executor. A pair
+   of unequal plates at asymmetric positions is necessary evidence; a centred plate
+   or a symmetric pair hides the error. How are a plate touching a mirror and its
+   two crossings around that reflection represented without a negative or duplicate
+   gap, especially for the substrate geometry mentioned in §2?
+
+4. **R4 — P1: Separate a beam-quality design parameter from a realizable launch
+   (§§4.2–4.4, 5.1, 7).** Incorporates
+   [Codex's beam-quality finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018691).
+   The specified Gaussian has $M^2=1$, whereas the acceptance numbers use 1.05 and
+   approximately 1.26. Define the measured radius and beam-quality convention and
+   derive its place in the second-moment invariant and nonlinear closure. Merely
+   enlarging a coherent Gaussian waist does not produce $M^2>1$: it changes its
+   Rayleigh range while keeping its beam quality at one. An $M^2$ value alone also
+   does not determine a unique coherent field or its Kerr response. Please choose
+   between a qualified field family/measurement for such launches and an explicitly
+   approximate design-only parameter whose output does not claim to realize it.
+   Keep ideal-Gaussian numerical checks separate from experimental comparisons with
+   measured beam quality, and test the reported quality of any generated launch.
+
+5. **R5 — P1: Bind nonlinear responses to each segment and distinguish electronic
+   and delayed indices (§§4.3–4.4, 5.1–5.2, 7).** A cell admits multiple bulk media
+   and a design `n2` for each plate, but the executor has one `responses` sequence
+   for all plates and one for the ambient. A `SpatialMedium` supplies dispersion and
+   density; it does not choose the plate's nonlinear response. Two different glasses
+   therefore cannot be assigned their respective Kerr/Raman responses through this
+   API. Specify a per-segment binding, or narrow the admitted plate family explicitly.
+   The quoted silica index includes a delayed Raman share, while `KerrResponse` is
+   instantaneous: setting its coefficient from the total index and then adding Raman
+   counts that share twice; using only the electronic share gives a different design.
+   Define the effective index used for a finite pulse, the polarization convention,
+   and what scaling a literature index changes. The instantaneous circular factor
+   $2/3$ must not silently scale a delayed tensor response. Require the recorded
+   design/run comparison to identify coefficients and response models per segment,
+   and demonstrate one glass example with consistent units and normalization.
+
+6. **R6 — P2: Bound the fixed-pulse approximation when coatings or plates change
+   the pulse (§§4.1, 4.3–4.4, 5.1).** The recurrence
+   $P_{{\rm eff},j}=R_c^jP_{{\rm eff},0}$ assumes an unchanged temporal shape and
+   identical, frequency-independent losses. Different coatings, spectral filtering,
+   plate dispersion and chirped mirrors are all admitted. A phase-only coating can
+   preserve energy while changing $P_{\rm eff}$: an initially transform-limited
+   Gaussian of 300 fs intensity FWHM with $10^5$ fs² GDD has an effective-power
+   ratio of approximately 0.308747 at unchanged energy, as checked by Fourier
+   transformation. Please define whether the design
+   propagates a temporal surrogate through these known linear elements or reports
+   a fixed-pulse estimate with an explicit limitation. In particular, distinguish
+   instantaneous matched radii at reduced power from the actual drift of one launch
+   propagated through a changing map; substituting a new $\sigma_j$ into the
+   stationary formula does not compute that drift. Give an unequal-coating example
+   and state which result is compared with the propagation.
+
+7. **R7 — P1: Define the cell's output plane and make restart a transaction
+   (§§4.1, 5.2–5.3, 5.5, 6.4, Q2).** A gas pass has one run output; a plate pass
+   has several, and its last run may end before a linear gap and the final mirror.
+   Consequently `pass_output(j)`, the scan's retained last-pass field, and the next
+   launch are not necessarily the same plane. State whether an $N$-pass result is
+   before or after the $N$th reflection, how many coating factors it contains, and
+   how callers access both sides and each segment. Retain or reproducibly reconstruct
+   the actual terminal `FieldPlane`, including its medium, geometry, calibrated
+   reference and transport reports; an ordinary final-segment output alone is
+   insufficient. Also define the terminal result when no segment has nonlinear
+   responses.
+   Define a manifest commit point after the required files are durable, the lock
+   covering a cell directory, and the identity covering launch, seed, ordered
+   elements, media/responses, settings and calibration. Specify conflict handling
+   and removal/replacement of only an incomplete attempt. Test interruption after
+   segment completion, after applying the mirror, and before publishing the pass
+   record: restart must apply each element exactly once and preserve the ledger.
+   Mandatory handoff/checkpoint retention must survive `fields="none"` in a scan,
+   and boundary stops must not be marked as completed passes.
+
+8. **R8 — P2: Expose noise selection and its single-draw identity
+   (§§4.5, 5.2–5.5).** Incorporates
+   [Codex's noise finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018703).
+   Add the public choice of supported input noise or no noise, an explicit seed,
+   and the scan reseeding contract. A `FieldPlane` contains samples, not the
+   metadata needed to decide whether to add a fresh draw. State how a caller supplies
+   an already noisy plane without adding another floor, when an unseeded draw is
+   persisted, and how restart before the first completed pass recovers it. The
+   existing scan derives a seed from its name and index when `ScanPoint.seed` is
+   absent; preserve that behavior as well as explicit-seed checks. Test noiseless,
+   seeded, initially unseeded, supplied-realization and interrupted-first-pass cases.
+   Every reused segment runner should continue to carry the proposed no-noise model.
+
+9. **R9 — P1: Admit every simultaneously live runner and account for handoff
+   allocations (§§5.5, 6.3–6.4).** Incorporates
+   [Codex's memory finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018698).
+   Keeping one backend for every nonlinear segment makes the workspace cost their
+   sum, not their maximum. Add the simultaneously held translated tables, retained
+   planes, transport/coupling workspaces and any required host/device copies, avoiding
+   double counting genuinely shared storage. Otherwise the scan can admit more cells
+   than memory can hold. Either adopt that lifecycle explicitly or document a
+   bounded-lifetime alternative and its planning cost. All retained runners need
+   deterministic cleanup on construction failure, run failure and cancellation.
+   A solid-state cell also pays a handoff at every segment boundary, not only once
+   per pass as §6.4 suggests. Benchmark a short gas case and a short multi-segment
+   case, reporting those actual allocations and transfers.
+
+10. **R10 — P1: Rebuild a pressure-scan launch in its point's medium
+    (§5.5).** Incorporates
+    [Codex's scan-launch finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018694).
+    The example reuses a nominal `launch` after changing `SpatialMedium`. The
+    `same_basis` path calls `coupling.port.check_same_medium`, which rejects a
+    different admittance; a direct call with otherwise identical metrics 1.0003
+    and 1.0006 confirms that refusal. For a matched study, construct the design and
+    plane in each point. For a mismatch study, keep the intended nominal beam
+    parameters but sample and normalize the plane in that point's medium. State
+    what is held fixed: energy/peak axial power, field amplitude, radius and
+    curvature are not interchangeable constraints. Do not relabel the old metric
+    or insert an artificial interface simply to satisfy the guard. Test both kinds
+    of pressure scan through the actual public builder.
+
+11. **R11 — P1: Specify the scan execution contract, especially `Batch`
+    (§§3, 5.5, 6.2, 6.5, 11).** This requires more than widening the builder's
+    type check. `_scan_batch.py` constructs one backend per `Simulation`, starts
+    backend group sessions, and consumes their observations. It is not an arbitrary
+    whole-task dispatcher, and a `MultipassSimulation` has no single kernel problem
+    to submit there. Define how cell points integrate with it without violating
+    the proposed absence of seam/backend changes, or explicitly defer/refuse that
+    executor. `SimulationRunner.run` also has no public `stop` argument, whereas
+    Local/Pool scans promise interruption of a running point within a step. State
+    how cancellation reaches an active segment and how reporters, failures, leases,
+    reduction schemas and retained-field choices work for each supported executor.
+    Energy/chirp scans must rerun the existing transverse checks and preserve
+    material/rate admission when they reuse a runner. Include short tests of every
+    admitted execution path and update the cost estimate for the chosen design.
+    Finally, settle the public import: §5.2 imports `MultipassSimulation` from
+    `solprop.multipass`, but §6.2 assigns that module to P and the class to D.
+    Use a driver import or a deliberate public facade without introducing a P-to-D
+    dependency.
+
+12. **R12 — P2: Materialize center observations and distinguish center from focus
+    (§§2, 4.4, 5.2, 6.4, 7).** Incorporates
+    [Codex's center-plane finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018708).
+    A `FreeSpace` element has no internal run save planes. If $L/2$ lies in a
+    linear ambient gap, split the transport there and retain or measure that
+    intermediate plane. If it lies inside a nonlinear segment, translate the
+    cell coordinate to that segment's local save position. Specify the observation
+    side if it is exactly an interface. Also, §4.4 itself describes two waists
+    around a central plate, and asymmetric layouts need not focus at $L/2$.
+    Call the fixed observation the center; a claimed focus observable needs a
+    defined search and sampling error. Define whether `mirror_radius` uses the
+    existing fluence second-moment radius or the $1/e^2$ radius, which diverge for
+    an aberrated beam.
+
+13. **R13 — P1: Define physical spatial compression before promising compressed
+    durations (§§3, 4.6, 7–8, phase 4).** The integrated spectral energy
+    $S(\omega)$ determines a conventional spectral transform limit obtained from
+    $\sqrt{S}$, but not the pulse a common compressor can produce when the beam
+    has spatially varying spectra or phase. A Fourier probe with two orthogonal
+    spatial channels on 4096 FFT-ordered bins, with amplitudes
+    $\exp[-(k\mp70)^2/(2\times20^2)]$, gives a synthetic $\sqrt{S}$ peak
+    1.99922 times the summed physical peak at the same energy.
+    `processing.compression._require_modal` explicitly
+    rejects spatial outputs; its array route merely sums squared amplitudes and
+    does not supply the missing physical-flux objective. `apply_transfer` takes
+    an output, not an arbitrary spectrum as §3 states. Please distinguish the
+    integrated-spectrum diagnostic, any on-axis/aperture diagnostic, and compression
+    by one common spectral transfer applied to the full field. Define the objective
+    and duration from the spatial axial flux, including its frequency-dependent
+    admittance, and say which measurement each literature comparison uses. Test a
+    separable beam and a beam with spatially varying chirp; the latter must expose
+    the difference between the spectral limit and attainable compression.
+
+14. **R14 — P2: Measure the named B-integral and define its sampling error
+    (§§4.3, 4.6, 7).** Spatial `peak_intensity` is the maximum over transverse
+    nodes and time (`backends/spatial.py`), not the maximum in time on the axis.
+    Those disagree for a ring or an aberrated beam. Use `on_axis_intensity` for
+    the proposed axis diagnostic and name $\int \max_t I(0,t,z)\,dz$ precisely:
+    it is not generally the nonlinear phase of one temporal slice. State the
+    effective nonlinear coefficient for vector polarization and delayed responses,
+    or restrict this diagnostic to a specified instantaneous scalar model. Join
+    sample intervals within each medium, preserving interface sides and avoiding
+    trapezoids across a coefficient jump. The center and end alone do not resolve
+    a narrow focus, and an adaptive step history alone supplies no quadrature error
+    estimate. Specify the sampling/refinement rule and verify its convergence on
+    the analytic Gaussian integral before using it to compare matching models.
+
+15. **R15 — P1: Preserve unknown coating phase/delay and test the actual mirror
+    map (§§4.1, 4.5, 6.2, 7, Q6).** `ChirpedMirror` data omit constant phase and
+    delay; `coupling.transport._reference` marks these terms uncalibrated, and
+    `FieldPlane.absolute()` then raises. Thus the unconditional promise that
+    `absolute()` is exact over every admitted cell is incompatible with an existing
+    supported coating. Specify the required calibration, or retain the unknown
+    terms and limit absolute-phase assertions to calibrated models. Restart must
+    preserve that status. Nor is the field continuous across a nontrivial mirror
+    screen: the coherent check should assert the stated screen/Jones map between
+    the two sides, with consistent references. A single flat vector/Cartesian
+    mirror still changes handedness and the transverse image; the identity
+    handoff test must restrict itself to the scalar symmetric case or undo that
+    known map before comparison. Use two reflections and an asymmetric test field
+    to check the full convention, and require scalar/vector agreement for a
+    linearly polarized input, including the coating's constant phase convention.
+
+16. **R16 — P2: Make the qualification claims match the numerical policy
+    (§7).** Restrict the per-frequency energy equality to a linear, lossless
+    propagation case with only the specified coating losses: Kerr broadening
+    redistributes energy between frequency bins, and absorbers/interfaces need
+    their own ledger terms. Across separately integrated runs use an accuracy
+    envelope plus transform/transport error bounds, not an unconditional rounding
+    budget; use rounding bounds only for matched algebraic operations. Replace
+    the scan's promise of identical numerical results by SEP 25's appropriate
+    numerical comparison. Add narrowband field/envelope parity through a mirror
+    and a plate, and short deliberately mismatched/aberrated launches as well as
+    matched Gaussians. Name the tolerance construction for each test class before
+    its reference result is known. Pass-by-pass ledgers should distinguish actual
+    joule losses from approximation bounds and specify how bounds and cumulative
+    boundary removals are combined over the whole cell, rather than resetting
+    the effective budget on every relaunch.
+
+17. **R17 — P2: Separate published data, author corrections and model uncertainty
+    (§§4.3–4.4, 7, 13).** The public text of [10] uses peak-power wording, places
+    Fig. 2 at 2 bar, and separately reports MPC3 compression at 1.2 bar in §2.4.
+    The co-author's correction may be right, but the draft's statement about Table 2
+    is not independently established by Fig. 2. Please publish a small input table
+    distinguishing the published conditions, the explicitly attributed corrections,
+    and the conditions selected for each numerical reproduction, with the author's
+    confirmation linked in the review response. A discrepancy of 5 % is not a
+    general consequence of printing two significant figures. Derive experimental
+    envelopes from input/measurement uncertainty separately from numerical error;
+    [10] itself quotes an uncertainty of $1.2/9.7$ on its argon nonlinear index.
+    A small fit residual in optmat is not automatically the total experimental
+    uncertainty. [12] reports transmission with and without its plates and beam
+    quality, and the authors have a
+    [public dataset](https://doi.org/10.57760/sciencedb.09731); inspect whether these
+    constrain the missing inputs before fitting an arbitrary loss or pulse. Choose
+    the comparison metric and tolerance before adjusting those inputs, and label
+    a tuned reproduction separately from an independent validation. Missing
+    information in [13] must not let agreement of one waist ratio alone choose
+    the plate closure for Q7.
+
+18. **R18 — P1: Keep the implementation in one PR and budget its total cost
+    (§§6.5, 11).** Incorporates
+    [Codex's implementation-process finding](https://github.com/LupoLab/solprop/pull/794#discussion_r4563018675).
+    SEP 0 requires one feature branch and one draft implementation PR, with phase
+    reports accumulated there until `Final`. Make the five phases qualified
+    milestones on that branch unless a maintainer explicitly grants an exception;
+    splitting them solely to stay below the size budget is not the established
+    process. `.github/workflows/size.yml` measures the net Python-file line growth
+    against the merge base, including docstrings and other lines, whereas the
+    proposal quotes code lines separately. Its 1550 code lines plus 520 docstring
+    lines already exceed that PR budget before comments/blanks. Re-estimate the
+    whole implementation after the response, scan and output contracts are fixed,
+    identify reuse/removals, and leave any `size-ok` decision to the maintainer.
+
+The seven linked Codex threads are incorporated above as R3, R4, R8–R10, R12 and
+R18. Resolving those GitHub threads records their transfer into this AI review;
+it does not mean that the proposal has already addressed the findings. Please
+answer each R-number in the separate response-to-review section required by SEP 0,
+with the resulting Part I changes or the reason for a different decision.
