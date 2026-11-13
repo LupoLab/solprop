@@ -14,9 +14,6 @@ over their claims against ``numpy_ref`` on the same inputs, and they are these r
   ``steps`` compares the field and every statistic of its specification at their end;
 - the same capillary under the trapezoid rule: ``launch`` compares the plasma
   statistics the session observes at the launch, nothing stepped;
-- a band rule of one tap (``K = 0``), the band column's other rule, on the
-  mode-averaged helium capillary and on argon on the radial route (cases of
-  ``plasma_column_cases.py``): ``derivative``, one evaluation at the launch;
 - the envelope's third harmonic, on a seeded launch that fills the band:
   ``derivative``.
 
@@ -27,36 +24,36 @@ statistics, which are held normwise, as their old test held them.
 bounded by their own response to the launch moved by one ulp (:func:`ulp_response`),
 measured on the reference, times the count of rounding seeds the march carries
 (:func:`held_to_their_response`); the launch's statistics by the stash bound the old
-test took from ``matched.py``; the one-tap rule and the harmonic column by the retired
-tests' own rounding counts per transform level.
+test took from ``matched.py``; the harmonic column by the retired test's own rounding
+count per transform level. The retired tests' band rule of one tap joined the plasma
+column's rows (``plasma_rows.py``), whose cases it runs.
 
 **The guard.** Each row's term is switched off on the translated problem: the plasma
 (``optmat_rows.without_plasma``, every population's density zeroed) or the harmonic
 (:func:`without_harmonic`). Each guarded rung's reference must then move by more than
 ``parity_ladder.DETECTION`` (a thousand) of that rung's bounds; every guarded rung
-clears it by 4e10 bounds or more (measured). The one-tap rule on the helium capillary
-frees no electron at the launch, so its row is kept but declared vacuous.
+clears it by 4e10 bounds or more (measured).
 
 **How to read a row.** Every row is a :func:`column_row` call, for example::
 
     column_row(
-        name="one-tap band radial",
-        route="radial",
-        response="plasma",
-        features="band rule of one tap",
-        why="On argon on the radial route, the band rule of one tap ...",
-        build=partial(one_tap, "radial"),
-        switch_off=without_plasma,
-        rungs={"derivative": one_tap_budget},
+        name="envelope harmonic",
+        route="gnlse",
+        response="kerr",
+        features="envelope grid, third harmonic, seeded launch",
+        why="On an envelope grid native's third-harmonic Kerr column is ...",
+        build=harmonic_column,
+        switch_off=without_harmonic,
+        rungs={"derivative": transform_levels},
         metric="peak",
     )
 
-``name`` makes the test id (``column one-tap band radial``); ``route``, ``response`` and
-``features`` are the axes the row covers. ``build`` makes the problem: here the radial
-case of ``plasma_column_cases.py`` with its running integral replaced by one tap.
-``rungs`` names what is compared, each with its bound: here one evaluation at the
-launch, within the retired rounding count, peak-normalised. ``switch_off`` removes the
-row's term for the guard. ``why`` is the claim a failure quotes.
+``name`` makes the test id (``column envelope harmonic``); ``route``, ``response`` and
+``features`` are the axes the row covers. ``build`` makes the problem: here a seeded
+launch on an envelope grid that resolves the third harmonic. ``rungs`` names what is
+compared, each with its bound: here one evaluation at the launch, within the retired
+rounding count per transform level, peak-normalised. ``switch_off`` removes the row's
+term for the guard. ``why`` is the claim a failure quotes.
 """
 
 import dataclasses
@@ -71,8 +68,6 @@ import numpy as np
 from backends.conftest import BETA2, GAMMA, GNLSE_SETTINGS, WAVELENGTH, soliton_field
 from backends.matched import stash_bound
 from backends.optmat_rows import without_plasma
-from backends.plasma_column_cases import case as band_case
-from backends.plasma_column_cases import options_for
 from parity_ladder import (
     Built,
     Row,
@@ -262,27 +257,6 @@ def launch_stash(built: Built) -> float:
     return stash_bound(ARGON_RATE, peak, RATE_RANGE, built.grid.n_to)
 
 
-# --- a band rule of one tap -----------------------------------------------------------
-
-
-def one_tap(name: str) -> Built:
-    """Return a case of ``plasma_column_cases.py`` under a band rule of one tap."""
-    grid, problem, run_request = band_case(name)
-    flat = RunningIntegral(
-        "band", np.ones(1), dt=grid.dt_fine, band_edge=grid.omega_max_window
-    )
-    problem = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(problem.responses, plasma_integral=flat),
-    )
-    return Built(problem, run_request, grid, options=options_for(name))
-
-
-def one_tap_budget(built: Built) -> float:
-    """Bound one evaluation under a one-tap band rule: the retired ``64 n_to eps``."""
-    return 64 * built.grid.n_to * EPS
-
-
 # --- the envelope's harmonic ----------------------------------------------------------
 
 THG_GRID = EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, thg=True)
@@ -384,15 +358,6 @@ def column_row(
     )
 
 
-HELIUM_FREES_NOTHING_AT_THE_LAUNCH = (
-    "The helium launch frees no electron at the launch: switching the plasma off "
-    "moves the reference's derivative by 1.1e-4 bounds (measured), rounding. Kept as "
-    "the retired test held it, the one-tap rule assembled beside the Kerr term on a "
-    "population that frees nothing; the radial row carries the rule's guard."
-)
-"""Why the one-tap rule on the helium capillary is kept, though vacuous."""
-
-
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the retired column tests."""
@@ -443,34 +408,6 @@ def rows() -> tuple[Row, ...]:
             ),
             switch_off=without_plasma,
             rungs={"launch": launch_stash},
-        ),
-        column_row(
-            name="one-tap band mode_averaged",
-            route="capillary (mode-averaged)",
-            response="plasma",
-            features="band rule of one tap",
-            why="On the mode-averaged helium capillary the band rule of one tap, "
-            "K = 0, is the reference's in one evaluation at the launch.",
-            build=partial(one_tap, "mode_averaged"),
-            switch_off=without_plasma,
-            rungs={"derivative": one_tap_budget},
-            metric="peak",
-            vacuous=HELIUM_FREES_NOTHING_AT_THE_LAUNCH,
-        ),
-        column_row(
-            name="one-tap band radial",
-            route="radial",
-            response="plasma",
-            features="band rule of one tap",
-            why="On argon on the radial route the band rule of one tap, K = 0, is "
-            "the reference's in one evaluation at the launch.",
-            bound_note="The retired 64 n_to eps for the one tap (1.1e-11 here). "
-            "Measured 3.1e-16; native's own test of this rule compares two native "
-            "columns and is marked for a device only.",
-            build=partial(one_tap, "radial"),
-            switch_off=without_plasma,
-            rungs={"derivative": one_tap_budget},
-            metric="peak",
         ),
         column_row(
             name="envelope harmonic",
