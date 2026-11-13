@@ -31,6 +31,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Num
 
 from solprop._helpers import PLAIN
+from solprop.backends import tdse_source
 from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
@@ -49,11 +50,6 @@ from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     general_memory,
     general_source,
-)
-from solprop.backends.numpy_ref.tdse import (
-    atomic_edge_source,
-    atomic_sources,
-    project_atomic_sources,
 )
 from solprop.backends.populations import axis_refusal, population_statistics
 from solprop.backends.session import ExecutionOptions
@@ -126,9 +122,7 @@ from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
 from solprop.translate.tdse_source import (
-    STEADY_CURRENT_CERTIFICATE_LIMIT,
     TDSE_UNAVAILABLE_STATISTICS,
-    steady_current_certificate,
 )
 
 __all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
@@ -934,7 +928,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 "z": self._tdse_last_z,
                 "projection": self._tdse_last_projection,
             }
-            record["tdse_source"] = _source_record(self._problem)
+            record["tdse_source"] = tdse_source.source_record(self._problem)
         return record
 
     def restore_call_ledgers(
@@ -1688,29 +1682,31 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         inverse_propagator: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
         purpose: TDSEPurpose,
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-        """Evaluate the declared atomic binding and combine independent P/J sources."""
+        """Evaluate the declared atomic binding and combine independent P/J sources.
+
+        Steps 1 to 4 are :mod:`solprop.backends.tdse_source`'s, shared with native;
+        the stage output is this backend's own.
+        """
         problem = self._problem
-        grids, transform = problem.grids, problem.transform
+        grids = problem.grids
         binding = self._tdse_binding
         assert binding is not None and tdse_of(problem.route) is not None
         modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind="field")
-        fields = np.ascontiguousarray(
-            passes.synthesise(modal_t, transform.synthesis, bundle.taper_scale, 1)[
-                :, 0, :
-            ]
-        )
+        fields = tdse_source.node_fields(problem, lab[0], bundle)
         result = binding.evaluate(
             fields, z=bundle.z1, purpose=purpose, density=bundle.density
         )
-        polarisation, current = atomic_sources(fields, result, problem, bundle)
-        source, projection = project_atomic_sources(
+        polarisation, current = tdse_source.atomic_sources(
+            fields, result, problem, bundle
+        )
+        source, projection = tdse_source.project_atomic_sources(
             polarisation,
             current,
             result,
             problem,
             bundle,
             self._prefactor(bundle),
-            edge=atomic_edge_source(result, problem, bundle),
+            edge=tdse_source.atomic_edge_source(result, problem, bundle),
         )
         self._tdse_last_purpose, self._tdse_last_z = purpose, bundle.z1
         self._tdse_last_projection = projection
@@ -2947,29 +2943,6 @@ def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
         float(np.max(flow.generator_error)),
     )
     return held
-
-
-def _source_record(problem: PropagationProblem) -> dict[str, object]:
-    """Record a TDSE run's source filter and, for the gated one, its certificate.
-
-    The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
-    translation. It is run metadata, never part of the descriptor or any identity.
-
-    - Returns: ``gated``, and for a gated source the certificate, its limit and the
-      taper breakpoints in s.
-    """
-    descriptor = tdse_descriptor(problem.route)
-    assert descriptor is not None
-    record: dict[str, object] = {"gated": descriptor.gated}
-    if descriptor.gated:
-        record |= {
-            "steady_current_certificate": steady_current_certificate(
-                descriptor, problem.grids.omega, problem.grids.active_mask
-            ),
-            "certificate_limit": STEADY_CURRENT_CERTIFICATE_LIMIT,
-            "gate_breakpoints": list(descriptor.source_breakpoints()),
-        }
-    return record
 
 
 def _harmonic_carrier(

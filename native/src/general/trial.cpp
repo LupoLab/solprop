@@ -5654,6 +5654,12 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
                           !problem_.raman.enabled && !absorbing() && !dispersive_;
   terms.in_stage_absorber = absorbing();
   terms.identity_crop = identity_crop_;
+  // A host source is the stage's whole source (solprop SEP 49 section 6.2).
+  terms.hosted = static_cast<bool>(host_source_);
+  terms.host_spectrum = host_spectrum_;
+  terms.host_input = host_input_;
+  if (terms.hosted)
+    terms.zero_response = false;
   return terms;
 }
 
@@ -5843,6 +5849,10 @@ void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const doub
 // low-storage march's passes. Returns whether a source was evaluated: a stage without
 // a response has none to finish.
 bool GeneralWorkspace::modal_core(const std::size_t stage) {
+  if (host_source_) {
+    host_core();
+    return true;
+  }
   if (general_) {
     const bool general_active = general_->responds() || problem_.absorber.in_stage;
     if (general_active)
@@ -5967,6 +5977,56 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (defer_quadrature_ && project_coarse_)
     coarse_pending_ = true;
   return true;
+}
+
+void GeneralWorkspace::bind_host_source(std::shared_ptr<HostSource> source) {
+  if (!source) {
+    host_source_.reset();
+    host_input_ = ComplexView2();
+    host_spectrum_ = ComplexView2();
+    return;
+  }
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  throw BackendRefusal("a host source runs on the native CPU build only");
+#else
+  if (general_ || problem_.separable_geometry() || problem_.n_columns() != 1 ||
+      problem_.dims.family != FieldFamily::field_real)
+    throw BackendRefusal("a host source takes one real-field column of a modal route");
+  const auto n = problem_.dims.n_omega;
+  host_input_ = ComplexView2("solprop_native.host_source.field", 1, n);
+  host_spectrum_ = ComplexView2("solprop_native.host_source.spectrum", 1, n);
+  host_source_ = std::move(source);
+#endif
+}
+
+// solprop SEP 49: the stage core of a host source. The stage's entry kernel left the
+// lab-frame field, unscaled and with any noise added, in the host source's field row
+// (`StageTerms::combine`); the in-stage absorber is formed from the modal time field
+// as on every route; and the host evaluates the source from the thread that called the
+// march, outside every parallel region, into the row the finish reads. Both rows are
+// host memory on the CPU builds that admit a host source. Host builds only.
+void GeneralWorkspace::host_core() {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  throw BackendRefusal("a host source runs on the native CPU build only");
+#else
+  if (absorbing()) {
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
+    form_absorber();
+    graph::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
+                   KokkosFFT::Normalization::none);
+  }
+  // The entry kernel's row and the absorber's work, on every instance, are done.
+  Kokkos::fence("solprop_native.host_source.entry");
+  const auto n = problem_.dims.n_omega;
+  // Kokkos::complex<double> and std::complex<double> share one layout, two doubles.
+  static_assert(sizeof(Complex) == sizeof(std::complex<double>));
+  const std::span<const std::complex<double>> field(
+      reinterpret_cast<const std::complex<double>*>(host_input_.data()), n);
+  const std::span<std::complex<double>> source(
+      reinterpret_cast<std::complex<double>*>(host_spectrum_.data()), n);
+  host_source_->evaluate(field, host_z_, host_purpose_, source);
+#endif
 }
 
 // The general modal route's stage core: the shared lab-frame input, the in-stage

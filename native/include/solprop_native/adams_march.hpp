@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "solprop_native/host_source.hpp"
 #include "solprop_native/watch.hpp"
 
 #include <array>
@@ -235,6 +236,11 @@ public:
   /** The last trial's carrier rotations over its `order` newest rows, for a dense
       observation of the step; empty without a carrier frame. */
   virtual std::vector<double> step_carrier(std::size_t /*order*/) { return {}; }
+  /** An attempt's start, after the budget check and before its first evaluation, and
+      its end (solprop SEP 49 section 6.2): a host source's reservation and its
+      outcome. Nothing for an engine without one. */
+  virtual void begin_attempt(std::uint64_t /*cost*/) {}
+  virtual void end_attempt(HostOutcome /*outcome*/) {}
   /** The committed state's boundary reading (`monitor_reading`), for a check the march
       takes itself (SEP 45 section 4.8). */
   virtual std::vector<double> reading() {
@@ -272,7 +278,10 @@ enum class Category : int {
   convergence = 1,
   backend = 2,
   value = 3,
-  refused = 4
+  refused = 4,
+  /** A host source's failure (solprop SEP 49 section 6.3), its exception kept by the
+      host; the stage names where, `none` for its `begin`. */
+  host = 5
 };
 
 /** The host's bounds for one call (SEP 39 section 4.8). */

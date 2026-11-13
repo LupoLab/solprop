@@ -16,7 +16,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.hacc_cases import hacc_response
 
-from solprop.backends.numpy_ref.tdse import atomic_sources
+from solprop.backends.tdse_source import atomic_sources
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.grid import FieldGrid

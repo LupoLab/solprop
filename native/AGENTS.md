@@ -22,8 +22,8 @@ contract and its conventions; where both apply, follow the stricter rule.
   C++ API are private.
 - solprop has two backends, this one and its NumPy reference, and computes in IEEE
   binary64 only (solprop's ADR-077): every field, stage and statistic here is double
-  precision, with no single or mixed mode. This backend runs every feature except the
-  TDSE response, on CPUs and GPUs.
+  precision, with no single or mixed mode. This backend runs every feature on CPUs and
+  GPUs, the TDSE response on CPU builds only (solprop SEP 49).
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
@@ -128,7 +128,10 @@ the gate.
   a device kernel's functor as its launch argument; team-level loops stay `Kokkos::`.
 - Allocate field-sized views, scratch and FFT plans once, when a state is constructed.
   A trial step performs no allocation, planning, logging, Python call or unplanned
-  fence.
+  fence. The one exception is the host source hook (solprop SEP 49,
+  `include/solprop_native/host_source.hpp`): on a CPU build, a bound host source is
+  called from the thread that called `advance`, outside every parallel region, and the
+  binding layer takes the interpreter lock for each call; device builds refuse it.
 - Keep data resident in the execution space until it is observed; `field_to_host` is
   the explicit synchronous boundary. Every persistent allocation appears in
   `memory_ledger()` with its real size in bytes.

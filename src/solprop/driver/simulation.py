@@ -1793,6 +1793,7 @@ class Simulation(Displayed):
                         problem,
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
+                        stop,
                     )
                 backend = kept or select(
                     self.settings.backend,

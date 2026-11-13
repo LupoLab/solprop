@@ -6,17 +6,17 @@
 | **Title** | The TDSE response on native |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-12) |
-| **Status** | Accepted |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-12 |
 | **Resolution** | Accepted 2026-11-12 by John Travers, in [#765](https://github.com/LupoLab/solprop/pull/765) |
-| **Requires** | [SEP 12](archive/sep-0012-tdse-nonlinear-response.md), [SEP 20](archive/sep-0020-hacc-helium-tdse.md) and [SEP 26](archive/sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](archive/sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
+| **Requires** | [SEP 12](sep-0012-tdse-nonlinear-response.md), [SEP 20](sep-0020-hacc-helium-tdse.md) and [SEP 26](sep-0026-edge-free-tdse-source.md) (the TDSE response and its source); [SEP 39](sep-0039-native-adams-march.md) (the native Adams march); [SEP 47](sep-0047-run-ownership.md) (backend-owned sessions); [SEP 25](sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); ADR-077 and the change it calls for (§3.4) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Not started |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, on `feature/sep-0049-tdse-on-native` ([#771](https://github.com/LupoLab/solprop/pull/771)); phases 0–4, started and complete 2026-11-12/13; the manual check of §7.4 done by hand on a CPU build and an NVIDIA A40 |
+| **Manual pages** | [TDSE response](../../../guide/media/tdse.md), [Choosing a backend](../../../guide/performance/backends.md) |
 
 ## Part I — Proposal
 
@@ -47,7 +47,7 @@ included. Slimming it to a test library, which this SEP first proposed, is defer
 (§10.1).
 
 Success means: a TDSE run on native agrees with the same run on `numpy_ref` within the
-rounding budgets of [testing.md](../testing.md) §3 derived for its cases, with its atomic
+rounding budgets of [testing.md](../../testing.md) §3 derived for its cases, with its atomic
 ledger, labels, reservations and archive records identical; the shared source meets
 independent analytic and manufactured expectations; the worker's contract holds in CI
 with a manufactured provider; and an explicit stop ends a run within the wait loop's
@@ -115,9 +115,9 @@ native hook. Neither the hook nor the worker is specific to TDSE or Pyroraptor (
 
 `numpy_ref` is a complete executor: its own Runge–Kutta, Adams and low-storage marches
 (`backends/host/`), sessions, group sessions, a lockstep batch and a registry row
-([backends.md](../backends.md) §1–§2). Native runs every run through its native session
+([backends.md](../../backends.md) §1–§2). Native runs every run through its native session
 (`solprop_native.session`), whose compiled marches advance to an event from one policy
-record (SEP 47; [kernel-contract.md](../kernel-contract.md) §11–§12). Each `advance` call
+record (SEP 47; [kernel-contract.md](../../kernel-contract.md) §11–§12). Each `advance` call
 returns after 256 attempts or 0.1 s of wall time; the session wraps it in
 `_interrupts.committing()`, so a SIGINT or SIGTERM arriving during the call is held and
 raised when the call returns. The run's stop flag is polled before each native call, and
@@ -125,7 +125,7 @@ a `StopToken` also forwards a stop to the native march, which reads it between a
 
 #### 3.2 The TDSE response today
 
-The TDSE response ([TDSE response](../../guide/media/tdse.md); SEPs 12, 20 and 26) is
+The TDSE response ([TDSE response](../../../guide/media/tdse.md); SEPs 12, 20 and 26) is
 admitted on one route only, by `PropagationProblem._check_tdse` and
 `translate.validation._check_tdse_assembly_route`:
 
@@ -189,14 +189,14 @@ is below $10^{-3}$ of a call (§6.8).
 
 The native Adams march runs the trial in its resident engine and evaluates the source
 natively; its rules forbid "allocation, planning, logging, Python call or unplanned fence
-in a trial step" ([backends.md](../backends.md) §3.2, `native/AGENTS.md`). A TDSE source
+in a trial step" ([backends.md](../../backends.md) §3.2, `native/AGENTS.md`). A TDSE source
 cannot be evaluated without the provider, and its evaluation is a field-dependent,
 minutes-long call that cannot be precomputed. With a trial lasting minutes, each `advance`
 call returns after one attempt anyway.
 
 #### 3.4 Decisions and changes this SEP builds on
 
-- **ADR-077** (two backends, binary64 only; [decisions.md](../decisions.md)), and the
+- **ADR-077** (two backends, binary64 only; [decisions.md](../../decisions.md)), and the
   change it calls for, which must be merged before implementation starts: in particular
   native importing nothing from `numpy_ref`. ADR-077 records that `numpy_ref` stays a
   complete, selectable backend (amended with the maintainer's decision in this SEP's
@@ -240,7 +240,7 @@ where $P$ and $S = J - j_1$ are the macroscopic polarisation and remainder curre
 $n_{\text{nodes}}$ radial nodes (density and the declared scales applied once), $Q$ the
 modal projection with the taper scale, $g$ and $g'$ the gate and its analytic derivative
 (SEP 26), $p$ the stage prefactor and $c$ the independent current factor
-([kernel-contract.md](../kernel-contract.md) §6). Each backend then forms what it forms
+([kernel-contract.md](../../kernel-contract.md) §6). Each backend then forms what it forms
 for every source: the stage output $w\,F$ with the spectral collar $w$, the in-stage
 absorber term, and in the interaction formulation the inverse propagator
 $e^{-\Delta\Phi}$. That is the composition of steps 1–5 in §3.2, split after step 4.
@@ -253,7 +253,7 @@ the collar, a sum with the absorber term, a phase factor) and its optical march 
 own, so a TDSE stage and a short TDSE run on native agree with `numpy_ref`'s within the
 one-stage and eight-step budgets `tests/bounds.py` derives for the existing source
 comparisons ($16\varepsilon$ and $128\varepsilon$ peak-normalised on those cases,
-[accuracy.md](../accuracy.md) §7). These are budgets derived for these cases, checked on
+[accuracy.md](../../accuracy.md) §7). These are budgets derived for these cases, checked on
 them, not guarantees for every TDSE problem or variable-step history. Where independently
 rounded norms fall on either side of a decision threshold, the two runs fork; such a fork
 is reported and the pair is then compared to an accuracy envelope (class T), not counted
@@ -425,9 +425,11 @@ provider: a run's evaluations, `basis_from_preset`, `hacc_preset`, `hacc_basis` 
   length is a protocol error before anything is allocated.
 - **Handshake.** The worker's first frame carries the protocol version and the provider's
   identity: its build record (source revision, execution space, Kokkos configuration) and
-  the worker's process id. The parent refuses a protocol mismatch, a revision other than
-  `_PROVIDER_REVISION` or an execution space other than `TDSEExecution.device` by name,
-  before any evaluation. The build record in a run's metadata is this report.
+  the worker's process id. The parent refuses a protocol mismatch or an execution space
+  other than `TDSEExecution.device` by name, before any evaluation. It pins no provider
+  revision: until Pyroraptor has a release, solprop uses whatever provider is installed,
+  by default the latest `main`, and records the revision it reports (maintainer,
+  2026-11-12). The build record in a run's metadata is this report.
 - **What crosses.** Preparation sends the descriptor's plain records (basis, model,
   outputs, chunks); the worker builds the models and plans and replies with its memory
   rows and plan records. Each atomic call sends one chunk's drive rows and receives its
@@ -503,9 +505,9 @@ GUI job's stop) and the run's `StopFlag` (a stop button, a scan's supervisor).
 
 **Time.** One TDSE evaluation is a complete atomic calculation at every radial node:
 93 s (production basis, 17 nodes) to 615 s (strong-field basis, 33 nodes) on compressed
-fields in [SEP 12](archive/sep-0012-tdse-nonlinear-response.md)'s node selection
+fields in [SEP 12](sep-0012-tdse-nonlinear-response.md)'s node selection
 (Part II), and 366 s (haCC(1)) and 1,307 s (haCC(5)) on one AMD MI325X
-([SEP 20](archive/sep-0020-hacc-helium-tdse.md), Part II). Per evaluation the hook adds
+([SEP 20](sep-0020-hacc-helium-tdse.md), Part II). Per evaluation the hook adds
 a GIL acquisition and a Python call (microseconds), the worker a copy each way of a few MB
 and a context switch (milliseconds), and the host source assembly, which `numpy_ref`
 already performs (of order 10–100 ms at the response lattices in use, to be measured in
@@ -532,7 +534,7 @@ is removed but `numpy_ref/tdse.py`, which moves):
 
 The kernel problem does not change: the TDSE descriptor already crosses it, and the hook
 is a session binding outside it, as the binding is today. The hook's binding joins the
-members `check_build` looks up by name, and [kernel-contract.md](../kernel-contract.md)
+members `check_build` looks up by name, and [kernel-contract.md](../../kernel-contract.md)
 §6's "the native backend refuses TDSE by name and never holds a binding" is rewritten,
 with a release-note fragment.
 
@@ -562,7 +564,8 @@ worker:
 
 1. evaluations through the worker equal calling the manufactured provider directly, bit
    for bit, and the binding's call sequence, ledgers and archive are unchanged;
-2. the handshake refuses a protocol, revision or execution-space mismatch by name;
+2. the handshake refuses a protocol or execution-space mismatch by name, and records
+   another provider revision;
 3. a provider exception, a worker exit, a closed pipe, a malformed or oversized frame, and
    a failure during start-up and preparation each end as the named failure of §6.5, with
    the worker reaped and both pipe ends closed;
@@ -611,19 +614,20 @@ three atomic calls on the smallest preset, native against `numpy_ref` (class T),
 the worker, with Pyroraptor on the CPU and, where a GPU build is in use, on a GPU; and one
 cancellation during a call. Each check is reported in Part II with its configuration
 (provider revision, build, machine, threads or device). CI establishes the manufactured
-contracts, not compatibility with an installed provider; the handshake's revision and
-execution-space check (§6.5) refuses a mismatched provider at run time.
+contracts, not compatibility with an installed provider; the handshake's protocol and
+execution-space checks (§6.5) refuse a mismatched provider at run time, and the
+provider's revision is recorded with every run.
 
 ### 8. Documentation
 
-- **Manual.** [TDSE response](../../guide/media/tdse.md): runs on native's CPU build and
+- **Manual.** [TDSE response](../../../guide/media/tdse.md): runs on native's CPU build and
   on `numpy_ref`; the provider in its worker, its threads or device, and stopping a run;
-  [Choosing a backend](../../guide/performance/backends.md): TDSE leaves the list of
+  [Choosing a backend](../../../guide/performance/backends.md): TDSE leaves the list of
   features that run only on the reference.
-- **Design pages.** [backends.md](../backends.md) §1 (the `auto` rule) and §3.2 (the
-  hook's exception); [kernel-contract.md](../kernel-contract.md) §6;
-  [architecture.md](../architecture.md) (the shared source module, the worker);
-  [testing.md](../testing.md) (the oracle boundary for shared code; worker-contract
+- **Design pages.** [backends.md](../../backends.md) §1 (the `auto` rule) and §3.2 (the
+  hook's exception); [kernel-contract.md](../../kernel-contract.md) §6;
+  [architecture.md](../../architecture.md) (the shared source module, the worker);
+  [testing.md](../../testing.md) (the oracle boundary for shared code; worker-contract
   tests); `AGENTS.md` and `native/AGENTS.md` (the hook's exception).
 - **Records.** One ADR: the host source hook (the one Python call in a native trial, its
   scope, its refusal on device builds), the provider worker, and the failure boundary;
@@ -652,8 +656,8 @@ providers.
   differ on Linux, macOS and Windows. Mitigation: §7.2 in CI on every platform CI runs;
   the reader thread avoids platform-specific polling.
 - **Provider compatibility untested in CI** (Q10). Mitigation: the handshake refuses a
-  mismatched revision or execution space by name; manual evidence with its configuration
-  (§7.4).
+  mismatched protocol or execution space by name, and records the provider's revision;
+  manual evidence with its configuration (§7.4).
 - **Python exceptions through C++.** Mitigation: caught at the binding layer, never inside
   a Kokkos kernel; §7.3 items 2–3 cover every entry point and the boundary.
 - **A shared-code defect invisible to parity.** Mitigation: §7.1's independent
@@ -722,8 +726,9 @@ Decided by the maintainer on 2026-11-12 (Part III, review follow-up):
 4. **Q9. Delivery.** One implementation pull request; Pyroraptor's changes in a linked
    companion (§11).
 5. **Q10. A real provider in CI.** None; by hand as used, reported with its configuration;
-   the optional import and revision check kept, and the worker's actual provider
-   identity reported (§6.5, §7.4).
+   the optional import kept, no revision pinned (the installed provider is used, by
+   default the latest `main`, until Pyroraptor has a release), and the worker's actual
+   provider identity recorded (§6.5, §7.4).
 6. **Q11. The transport.** Pipes only, arrays unchanged, bounded frames, transport copies
    in the memory ledger, responsive to cancellation (§6.5, §6.7).
 
@@ -811,6 +816,966 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
 
 ## Part II — Implementation record
 
+### Phase 0 — Baseline
+
+- **Scope.** Phase 0, 2026-11-12, Opus 5.5 (AI), branch
+  `feature/sep-0049-tdse-on-native`, based on `feature/two-backends-binary64` at
+  `1dc64b5f` (ADR-077's change).
+- **Delivered.** This record; no code. Commit `d33e8f24`.
+- **Size baseline** (`uv run poe size --all` at `1dc64b5f`, lines):
+
+  | tree | files | total | code |
+  |---|---:|---:|---:|
+  | `src/solprop` | 269 | 225,295 | 113,232 |
+  | `native/src/solprop_native` (Python) | 24 | 13,859 | 8,855 |
+  | `tests/` (all `.py`, `wc -l`) | — | 271,204 | — |
+  | `native/tests/` (all `.py`, `wc -l`) | — | 13,602 | — |
+  | `native/src` C++ (`.cpp`, `.hpp`, `.h`, `wc -l`) | — | 34,575 | — |
+
+  `poe size-check` is within budget. `src/solprop/backends/numpy_ref/tdse.py` is 845
+  lines; `src/solprop/driver/tdse.py` 2,575.
+- **The host assembly's time per evaluation.** Measured by a one-off script, not
+  committed: the `march_problem` problem of `tests/backends/test_tdse_march.py`
+  (256 µm helium capillary, 800 nm, one mode), the interaction formulation, a
+  manufactured binding returning analytic histories (`J = 1e-30 E + 1e-40 E^3`,
+  `j_1 = 1e-30 E`, and a third-order current for the cubic replacement), and
+  `NumpyRefBackend._nonlinear(..., purpose="predictor")` timed 60 times, the first ten
+  discarded, the binding's own time subtracted. That is steps 1 and 3–5 of §3.2: the
+  synthesis to the nodes, the assembly, the projection with every diagnostic, and the
+  stage output.
+
+  | lattice | descriptor | `n_nodes` | `n_to` | `n_omega` | median | min |
+  |---|---|---:|---:|---:|---:|---:|
+  | the test window (`n_r = 4`, 60 fs, 0.4–1.6 µm) | `tdse_native`, gated | 5 | 384 | 97 | 0.26 ms | 0.25 ms |
+  | the test window | `optmat_cubic` | 5 | 384 | 97 | 0.13 ms | 0.12 ms |
+  | production-sized (`n_r = 16`, 400 fs, 0.1–4 µm) | `tdse_native`, gated | 17 | 9,216 | 2,305 | 1.9 ms | 1.9 ms |
+  | production-sized | `optmat_cubic` | 17 | 9,216 | 2,305 | 1.3 ms | 1.2 ms |
+
+  Apple M5 Max, Python 3.14, the machine shared (load average about 10), so the medians
+  are upper estimates. §6.8 expected 10–100 ms; the measured assembly is one to two
+  milliseconds at a production-sized lattice, below $10^{-5}$ of the fastest recorded
+  atomic call (93 s).
+- **Deviations.** None. The record was kept in a draft beside the SEP until the
+  proposal's pull request brought this file to the branch.
+- **Handoff.** Phase 1 moves the assembly; the same script then times it again.
+
+### Phase 1 — The shared source
+
+- **Scope.** Phase 1, 2026-11-12, Opus 5.5 (AI), commit `a0a2f7b1`.
+- **Delivered.**
+  - `src/solprop/backends/tdse_source.py`, moved from `backends/numpy_ref/tdse.py` with
+    `git mv`: `atomic_sources`, `atomic_edge_source`, `project_atomic_sources`,
+    `FFT_ERROR_CONSTANT` and their private projection, floor and diagnostic helpers,
+    unchanged, plus `node_fields` (step 1 of §3.2, moved from
+    `NumpyRefBackend._nonlinear_tdse`). The module imports nothing from either backend:
+    its four uses of `numpy_ref.passes` (`project`, `to_frequency`, and through
+    `node_fields` `to_time` and `synthesise`) are private one-line equivalents for the
+    route's one scalar mode on a field grid, and the cubic replacement's polarisation
+    is `_cubic_polarisation`, the compiled real Kerr term alone, in the arithmetic and
+    order of `passes.kerr_polarisation` and `nonlinear_sources`, and refused by name
+    for any other compiled stage.
+  - `NumpyRefBackend._nonlinear_tdse` calls `node_fields`, the binding, the two
+    assembly functions and the projection; the stage output stays its own.
+  - `tests/backends/test_tdse_source.py` (new, 10 tests) and an optional `responses`
+    argument of `tests/edge_source_cases.py::make_case`; the four existing modules'
+    imports re-pointed, their expectations unchanged.
+  - `docs/dev/architecture.md` (the responsibility and the module table) and the
+    layers figure (`docs/dev/figures/build.py`, `layers.svg`).
+- **Deviations.**
+  - The module's entry points keep their moved names (`atomic_sources` with
+    `atomic_edge_source`, and `project_atomic_sources`) rather than §5.2's sketched
+    `assemble` and `project`, so that the move is pure and the existing tests and their
+    expectations run unchanged; `node_fields` is new. Each takes the caller's stage
+    scalars (`StageScalars`: density, Kerr density, taper scale) and the projection the
+    caller's prefactor, as `numpy_ref` passed them; native's hook will take both from the
+    same translation helpers.
+  - `numpy_ref` now transforms the modal field to time twice per TDSE evaluation: once
+    in `node_fields`, once for its own in-stage absorber term. Re-timed with phase 0's
+    script: 0.26 ms (test window, gated), 1.97 ms (production-sized, gated), 1.22 ms
+    (production-sized, cubic), no measurable change.
+- **Decisions.** A problem whose cubic replacement has no compiled Kerr term (only the
+  accumulation stage) keeps a zero polarisation, as `passes.nonlinear_polarisation`
+  gave it; manufactured test problems are built that way.
+- **Verification** (§7.1). `tests/backends/test_tdse_source.py`,
+  `test_tdse_sources.py`, `test_tdse_projection.py`, `test_tdse_edge_free.py`,
+  `test_tdse_march.py`, `tests/test_structure_figures.py`,
+  `tests/driver/test_tdse_gated_derivative_run.py` and `test_tdse_input_noise.py`:
+  485 passed; ruff and basedpyright clean on the changed files; `poe size-check` within
+  budget. The new tests state their expectations with NumPy alone: the nodal field of
+  one coarse bin, `(2/N) Re(a e^{2 pi i c n / N})` times the synthesis and the taper,
+  within `(c_F log2 N + 4) eps` of its norm; the projection's division by the taper
+  (`tau = 2` is exact, so bit for bit); the edge array `rho s g' (J - j_1)` within
+  `gamma_3`; a source exactly zero off the active band; the complete and remainder
+  floors, and a gated source's truncating and edge floors, from the formulas of the
+  docstrings and SEP 26 §4.5, within `1e-12` relative (reassociated sums); and an
+  import of the module in a fresh interpreter loading neither backend.
+
+  Each named term was then broken, one at a time, in the module, and the five modules
+  above run (a one-off script, not committed):
+
+  | defect | first failing test |
+  |---|---|
+  | `S = J + j_1` | `test_tdse_sources.py::test_each_closure_has_its_own_cubic_and_remainder_definition` |
+  | cubic replacement added, not subtracted | the same |
+  | density dropped from the current | the same |
+  | density dropped from the shadow polarisation | `test_tdse_sources.py::test_cubic_and_remainder_calibrations_are_independent` |
+  | Kerr density dropped from the cubic polarisation | `test_tdse_sources.py::test_each_closure_has_its_own_cubic_and_remainder_definition` |
+  | temporal collar dropped from the cubic polarisation | the same |
+  | projection multiplied by the taper | `test_tdse_source.py::test_the_projection_divides_by_the_taper_scale` |
+  | taper dropped from the node synthesis | `test_tdse_source.py::test_node_fields_are_the_taper_times_the_synthesis_of_each_bin` |
+  | node synthesis crop off by one bin | the same |
+  | gate dropped | `test_tdse_sources.py::test_native_scale_preserves_complete_nonlinearity_after_linear_subtraction` |
+  | density dropped from the edge array | `test_tdse_source.py::test_the_edge_array_is_density_scale_and_gate_derivative_of_the_remainder` |
+  | `X + E/(i omega)` | `test_tdse_edge_free.py::test_t2a_a_globally_steady_current_cancels_to_the_budget_and_certificate` |
+  | `1/(i omega)` of the wrong sign | the same |
+  | `1/(i omega)` formed on every bin, DC included | `test_tdse_projection.py::test_periodic_dipole_and_its_current_give_the_same_source` |
+  | spectral crop off by one bin | the same |
+  | truncating floor halved | `test_tdse_source.py::test_the_complete_floor_is_the_documented_operand_bound` |
+  | cancelled operand dropped from the floor | `test_tdse_projection.py::test_cubic_roundoff_floor_counts_the_unscaled_third_order_operand` |
+  | third-order operand dropped from the floor | the same |
+  | edge transform's constant halved | `test_tdse_source.py::test_the_edge_floors_are_the_documented_section_4_5_bounds` |
+  | derivative-error term dropped | the same |
+  | division bound dropped | the same |
+  | ratio reported below its floor | `test_tdse_projection.py::test_periodic_dipole_and_its_current_give_the_same_source` |
+
+  One variant is invisible and was not made visible: forming `1/(i omega)` on every bin
+  but DC. The current factor and the prefactor are exactly zero off the active band by
+  construction (`translate.tdse_source.current_numerator`, the prefactor), so the mask
+  is defence in depth; `test_the_source_is_exactly_zero_off_the_active_band` holds the
+  consequence.
+- **Limitations.** Native does not call the module yet (phase 3).
+- **Cost.** `tdse_source.py` 937 lines against `numpy_ref/tdse.py`'s 845 (+92:
+  `node_fields` and the private transforms); `numpy_ref/backend.py` +3 net; tests
+  +308 (new module) and +6 elsewhere.
+- **Handoff.** Native's hook calls `node_fields`, the binding, `atomic_sources`,
+  `atomic_edge_source` and `project_atomic_sources` with its own stage scalars and
+  prefactor, and finishes the stage itself (§4).
+
+### Phase 2 — The provider worker
+
+- **Scope.** Phase 2, 2026-11-12, Opus 5.5 (AI), commits `0f797abb` (`_interrupts`),
+  `ea431aa6` (the generic worker), `8f5b64bf` (Pyroraptor in the worker) and
+  `63f43686` (the trial's release), then `origin/main` merged (`7f985eb1`, with
+  ADR-077's change, #767), and a follow-up commit on the pull request (a fresh
+  worker after any failure, the documentation build, small simplifications).
+- **Delivered.**
+  - `src/solprop/driver/_source_worker.py` (new), the provider-agnostic layer of §6.5:
+    `Worker` starts `sys.executable -m solprop.driver._source_worker <adapter> <limit>`
+    with `subprocess`, in a session of its own (`CREATE_NEW_PROCESS_GROUP` on Windows),
+    with the parent's environment and import path; the worker moves the protocol off
+    descriptors 0 and 1, points standard output at standard error, ignores SIGINT and
+    SIGTERM, and its reader thread is the watchdog: end of file on the parent's pipe
+    exits the process at once (`os._exit`), during a call too. Frames are an 8-byte
+    length and a payload; a message is a JSON control frame and one raw frame per array,
+    named by dtype (byte order included) and shape; nothing is pickled; every declared
+    length is checked against the frame bound before anything is read. Values cross as
+    tagged JSON: tuples, mappings, non-finite floats, arrays, and records (a dataclass's
+    or a plain object's fields, received as `Record`, with values an adapter computes
+    beside them). The handshake carries the protocol version, the worker's process id and
+    the adapter's provider identity. Waiting is a reader thread and a queue polled every
+    `POLL_INTERVAL` (0.2 s): between polls signal handlers run, a signal a commit holds is
+    raised (`_interrupts.raise_held`, new) and the run's `StopFlag` is polled; any
+    interruption kills the worker's process group at once. `close` between calls asks
+    the worker to exit and kills it after 5 s; every path reaps it and closes both pipe
+    ends. `worker_environment` drops the OpenMP wait variables solprop-native set for
+    itself (its marker `SOLPROP_NATIVE_WAIT`), keeps a user's own, and adds explicit
+    settings.
+  - `src/solprop/driver/_pyroraptor.py` (new), Pyroraptor's adapter: `_load_provider`
+    (now only ever called in a worker), the build identity, the haCC surface, records
+    and objects, the SAE and haCC preparation, plan building and its checks, the preset
+    and basis queries, the atomic calls and the consistency diagnostic's temporary plan,
+    and the classification of provider exceptions. The manufactured provider of the
+    tests is passed to `PyroraptorAdapter(provider)`.
+  - `src/solprop/driver/tdse.py`: the binding, `basis_from_preset`, `hacc_preset`,
+    `hacc_basis` and `DiagnosticSession` talk to the adapter in a worker
+    (`_open_provider`); the queries use a short-lived one. The handshake's identity is
+    checked against `_PROVIDER_REVISION` and `TDSEExecution.device` before any request
+    (`_build_record`) and is the run's build record, unchanged in form. Budgets,
+    reservations, the archive, the validation and normalisation of every result, the
+    domain flags and the unqualified-model warning stay in solprop's process, on plain
+    records. `prepare_binding` and `DiagnosticSession` take the run's `stop`, which
+    `Simulation` passes. A stop, Ctrl-C or SIGTERM during a call leaves the call charged,
+    releases the reservation, records the evaluation in the archive as raised with
+    classification `interrupted`, and propagates; it is no provider failure. The memory
+    ledger gains `transport.solprop` and `transport.worker` (the largest chunk's drive
+    twice and its result once, in each process; `tdse_transport.*` in a run's memory
+    rows) and the estimate `estimate.transport`, admitted before the worker starts.
+  - `src/solprop/backends/host/adams.py`: a trial's reservation is released on every
+    exit (`_trial`), a failed release attached to the trial's own error as a note
+    (§6.3).
+  - Tests: `tests/driver/test_source_worker.py` (21, real workers),
+    `tests/driver/test_tdse_worker.py` (8, real workers),
+    `tests/source_adapters.py` (the manufactured adapters the worker imports),
+    `tests/source_channel.py` (the adapter served in this process through the same
+    codec, for the existing tests whose fake providers are built inside the test), two
+    failure-boundary tests in `tests/backends/test_tdse_march.py`, one in
+    `tests/driver/test_interrupts.py`; the existing binding tests re-pointed from
+    `tdse._load_provider` to the in-process channel, their claims unchanged.
+  - `docs/guide/media/tdse.md` (the worker, its threads, stopping during a call),
+    `docs/dev/architecture.md`, `changelog.d/tdse-provider-worker.changed.md`.
+- **Deviations.**
+  - Three checks that need the provider's own classes or methods run in the worker, on
+    the raw result, and their outcome crosses with it: the result's type is named there
+    (`sae.grid_response`, `hacc.total_current_response`, ...), a haCC result's atom,
+    basis and gauge are compared there with the model's (the provider's equality), and
+    the shadow's `component` is evaluated there for the components the binding reads.
+    Everything else of validation and normalisation is the binding's, as §6.5 says. The
+    plan checks of preparation and the two memory admissions between model and plans
+    (SEP 20, C7) run in the worker too, as part of preparation; a `DriverError` crosses
+    by name.
+  - `hacc_basis` takes the caller's provider objects, which cannot cross unchanged: they
+    travel as records of their dataclass fields, and the worker checks their types by
+    qualified name.
+  - The archive records an interrupted evaluation as raised with classification
+    `interrupted`, its outcome field unchanged (`returned` or `raised`), so the archive
+    format does not change. A worker that exits or breaks the protocol is classified
+    `worker`, a new value.
+  - A stopped TDSE run ends with status `failed` and the message `StopRequested: ...`,
+    as every stopped run does (§5.1 says "interrupted or stopped").
+- **Decisions.**
+  - A worker is never used again after a failure of any kind, as §6.5 says: a
+    provider exception the worker reports, a result the binding refuses, a worker exit,
+    a protocol error or a cancellation each end it, and the binding's next evaluation
+    or diagnostic starts and prepares a fresh one, which must report the same build
+    (`_ProviderBinding._ensure_worker`). Decided by the maintainer on 2026-11-12, over
+    the implementer's first proposal to keep a worker serving after a reported provider
+    exception. A retry after a failed chunk therefore pays a worker start and the
+    model's and plans' preparation again; the budget, ledger, archive and records carry
+    over. `DiagnosticSession`, which makes one call, does not restart.
+  - The thread count is `PYRORAPTOR_THREADS`, the run's `thread_budget().threads`, in
+    the worker's environment: Pyroraptor reads it once at import. A device build needs
+    no setting.
+  - The worker selects its adapter as `module` or `module:factory`, so the tests'
+    manufactured adapters are named, not configured by environment.
+  - The worker ends with `os._exit` after the adapter has closed its plans and setup,
+    skipping interpreter finalisation.
+  - The worker runs as `-W ignore::RuntimeWarning:runpy`: `solprop.driver` imports
+    the module before `-m` runs it, which runpy warns of; `__main__` delegates to the
+    imported module, so the records an adapter receives are its classes.
+- **Pyroraptor.** No companion change was needed: its results, monitors, outcomes and
+  plan records are frozen dataclasses of arrays and plain values, which cross as
+  records; its CPU thread count is already explicit at import (`PYRORAPTOR_THREADS`);
+  its atomic calls release the GIL (`nb::gil_scoped_release`), so the watchdog runs
+  during a call; and the worker skips interpreter finalisation. No real Pyroraptor
+  build was installed here, so no real call was made (§7.4 stays for phase 4).
+- **Verification** (§7.2, manufactured providers in real workers unless noted):
+  1. evaluations through the worker equal the same manufactured haCC provider served in
+     this process, bit for bit: currents, validity, monitors and outcomes, the ledger
+     and the whole metadata (`test_evaluations_through_the_worker_equal_the_provider_
+     called_directly`); arrays of several dtypes and byte orders cross unchanged;
+  2. the handshake refuses a protocol mismatch, a stale revision and another execution
+     space by name, the worker reaped;
+  3. a provider exception (by type, message, classification and traceback), a worker
+     exit (its status and standard error's tail), a closed pipe, a malformed frame, an
+     oversized frame, a start-up failure and a preparation failure each end as their
+     named failure, the worker reaped and both pipe ends closed; after a provider
+     exception the binding's retry runs on a fresh worker
+     (`test_after_a_provider_exception_the_retry_gets_a_fresh_worker`); the provider's
+     printing on standard output never corrupts a frame;
+  4. a hanging call is cancelled by the stop flag, SIGINT, SIGTERM and a SIGINT held by
+     `committing()`, each within the poll interval and the kill (a 10 s harness
+     deadline); on `numpy_ref` a binding stopped during a call keeps the call charged
+     with no failure recorded, and a run stopped during its thirteenth atomic call ends
+     with 13 calls attempted, none failed, and a terminal checkpoint at its last
+     accepted step (`z > 0`);
+  5. a Ctrl-C to the parent's whole process group interrupts the run and spares the
+     worker, which the parent then ends; a parent killed with SIGKILL during a hanging
+     call leaves no worker (the watchdog);
+  6. the worker loads neither `solprop_native` nor `numpy_ref` nor `pyroraptor`, and its
+     `__main__` is the worker module, started from a test, from a script that refuses
+     to be imported twice and from `python -c`; after a run through the worker neither
+     `pyroraptor` nor the manufactured provider's module is in solprop's `sys.modules`;
+  7. the transport rows are in the ledger and the estimate, and an admission over
+     `memory_limit` is refused before any worker starts;
+
+  and §6.3 on `numpy_ref`: an archive failure in `record_trial` after an accepted
+  commit leaves the new state, booked, with nothing reserved; a failed release is a
+  note on the trial's own error. Run on the Mac: the new modules, the existing TDSE
+  modules of `tests/driver/`, `tests/backends/` and `tests/output/test_tdse_archive.py`,
+  `tests/test_structure_figures.py`, `tests/test_seps.py`: 958 passed, 3 skipped, and
+  4 failed, all native-only (`test_tdse_march.py`'s native refusals and the shared-RK
+  refusal): the editable solprop-native here was built before the merge of `main` and
+  refuses to load ("built from other sources than this checkout's native/"); it was not
+  rebuilt (phases 0–2 change no native code), so CI decides them.
+  `tests/driver/test_interrupts.py`'s native case fails for the same reason. Ruff,
+  basedpyright and numpydoc clean on the changed files; `poe size-check` within budget.
+- **Limitations.** The isolation from a scan executor's worker process (§7.2 item 6)
+  is not tested; Windows paths (`CREATE_NEW_PROCESS_GROUP`, `TerminateProcess` instead
+  of a group kill) are written but run only in CI. The worker ignores SIGINT and SIGTERM
+  from the start of its `main`, after interpreter start-up; in its own session no
+  terminal or group signal reaches it before then. A provider that spawns processes of
+  its own outside the worker's process group is not ended by the kill.
+- **Cost.** `_source_worker.py` 761 lines, `_pyroraptor.py` 786 (part of it moved from
+  `driver/tdse.py`, which went from 2,575 to 2,506); across phase 2, `src/solprop`
+  +2,172 −682 and tests +900 −30 (physical lines, `git diff --numstat`, before the
+  follow-up commit). By `tools/size_report.py`'s split, the files phases 1 and 2
+  touched went from 11,071 to 12,107 code lines (+1,036), 5,613 to 5,950 docstring
+  lines and 447 to 493 comment lines; the driver package from 15,296 to 16,290 code
+  lines. §6.8 estimated +0.6k source and +0.6k test lines for the worker; the excess is
+  the adapter's request handlers and the parent's view of the haCC model beside the
+  generic layer, as the binding's validation stayed in solprop's process.
+- **Review follow-up** (an independent review of the pull request, 2026-11-12). The
+  worker's reader queues a failure for any exception, so a reply it cannot decode (a
+  bad tag, nesting too deep, memory) ends the wait as a protocol error instead of
+  leaving it polling; the worker's watchdog and its `main` leave through `os._exit` on
+  every path, never through interpreter finalisation with the provider loaded; a write
+  to a worker that died between calls is the worker's exit, with its status and
+  standard error; `close` kills the worker even when a signal interrupts its grace; the
+  reader threads hold the queue and stream, not the worker, and a finaliser kills a
+  worker its owner drops; a reader still blocked in its pipe leaves the stream
+  unclosed rather than blocking `kill`; a stop already asked for owns a worker exit
+  seen after it; the worker starts with `-P` and with solprop's BLAS idle defaults
+  (`child_environment`); the diagnostic closes its plan only on a live worker.
+  `_interrupts.raise_held` acts only inside an `interruptible()` scope on the main
+  thread, which native's session will open around its `advance` in phase 3, so any
+  other commit, the terminal checkpoint's `committing(deliver=False)` among them,
+  keeps or drops a held signal as before. The manufactured hangs are bounded (30 s),
+  so a broken cancellation fails a test rather than hanging it; new tests cover the
+  undecodable message, the dead worker, the interrupted close, collection, the
+  interruptible scope and its absence, another thread, and solprop-native's own wait
+  settings (`_wait.py`, read by path).
+- **Handoff.** Phase 3 (the native hook) calls `tdse_source` and the same binding; its
+  waits are inside `committing()`: the session wraps `advance` in
+  `_interrupts.interruptible()` too, and `Worker` raises a held signal there; §7.2 item 4 on native and §7.3 follow with it. The worker's
+  `request` raises `StopRequested`, `KeyboardInterrupt` or `RunTerminated` unchanged,
+  which the hook stores and the session re-raises (§6.3).
+
+### Phase 3 — The native hook
+
+- **Scope.** Phase 3, 2026-11-12, Opus 5.5 (AI), on the branch after the native
+  restructuring (#770, merged in at `42e3b22b`); one commit (below, with this report).
+- **Delivered.**
+  - C++: `include/solprop_native/host_source.hpp` (new), the generic `HostSource`
+    with `begin(cost)`, `evaluate(field, z, purpose, source)` and `end(outcome)`, and
+    `HostSourceError`; nothing in it names TDSE or Pyroraptor (P10). The march
+    (`adams_march.cpp`) calls `Engine::begin_attempt` after its budget check and
+    `end_attempt` after each decision -- after the commit for an accepted attempt --
+    through an `Attempt` guard that ends an attempt abandoned when it leaves without a
+    decision (a failure, a floor, a diverged replay); a host failure is
+    `Category::host`, naming its stage, `none` for `begin`. `ResidentEngine` forwards
+    both to the bound source and names each evaluation's position and purpose (the
+    startup at `z`, the predictor at `z + dz`). `GeneralState::bind_host_source`
+    allocates the hook's two rows once, the field and the source, listed as
+    `host_source` in the memory ledger; the stage's entry kernel
+    (`StageTerms::combine`) writes the lab-frame field into the field row, unscaled
+    and with any noise added, the workspace's stage core forms the in-stage absorber
+    as every route does and calls the source from the calling thread outside every
+    parallel region, and the stage finish (`StageTerms::finish`) takes the source with
+    the collar alone, skipping the engine's own response pass. Host builds only: a device build throws, and its
+    adapter refuses the problem first.
+  - The binding layer (`bindings.cpp`): `PythonHostSource` calls a Python object's
+    three methods under the interpreter lock the march released, handing `evaluate`
+    the two rows in place (the field read-only), catches `nb::python_error` there and
+    reports it to the march as `HostSourceError`; the state holds the object
+    (`State.bind_host_source`), the engine borrows it.
+  - Python adapter: `solprop_native/_host_source.py` (new), `TDSEHostSource`: `begin`
+    reserves, `evaluate` is `node_fields`, the binding's evaluation and the shared
+    assembly and projection with the reference's own scalars (`scalars(problem, z,
+    z)`, plain helpers) and prefactor (`prefactor_at` or the combined z table), `end`
+    records the outcome and releases in a `finally`; every exception is kept, the
+    first as the error and later ones as notes, and a new attempt starts with none.
+    `NativeBackend` takes `tdse_binding`, binds the hook for its life (closing the
+    state drops it, a leased one too), refuses a TDSE problem without
+    its binding (and the reverse) and the statistics the TDSE response does not define,
+    records `atomic_calls`, `tdse_execution`, `tdse_last_evaluation` and `tdse_source`
+    (now `tdse_source.source_record`, shared with the reference), lists the binding's
+    rows as `tdse_*`, and restores an atomic ledger into the binding. The session opens
+    `_interrupts.interruptible()` beside its commit around `advance` when a source is
+    bound, and reports a host failure as the kept exception, a reservation the budget
+    refused rewrapped with the last accepted step's position and field as the reference
+    does; a kept exception the march did not stop for, an abandoned attempt's failed
+    release, rides on the run's error as a note, as the reference's `_trial` attaches
+    it.
+  - solprop: the registry hands a TDSE binding to either backend; the driver's
+    `numpy_ref`-only rules for a TDSE run (`_admit_tdse_execution`,
+    `_check_tdse_execution`) are gone, so `backend="auto"` runs it on native; the
+    capability rule `tdse-numpy-ref` is removed.
+  - Tests: `tests/backends/test_tdse_native.py` (23); the registry, entry, defaults
+    and checkpoint tests that held the old refusals rewritten.
+  - Documentation: `docs/dev/kernel-contract.md` (§1's `TDSESource`, the source
+    reservations, §6's host source hook), `docs/dev/backends.md`, `AGENTS.md` and
+    `native/AGENTS.md` (the hook's exception to "no Python call in a trial step"),
+    the TDSE manual and *Choosing a backend*, `changelog.d/tdse-on-native.changed.md`.
+- **Deviations.**
+  - The march's `end` takes an outcome, `rejected`, `accepted` or `abandoned`, not a
+    boolean: an attempt that leaves without a decision must still release its
+    reservation, which the reference does in a `finally`, and is not recorded, as the
+    reference records none. Three entry points remain.
+  - A host failure is the march's `error` reason with a new category, `host`, and its
+    stage, rather than a reason of its own: the session already books a failed batch
+    and raises its error, which is now the kept exception.
+  - A signal taken inside the hook's wait ends the native session as its terminal
+    error, the batch booked and the state eligible for its checkpoint, where the
+    reference's session lets the signal through to the run loop; the run loop raises
+    it either way.
+  - §7.3 item 1 reads each engine's history row zero after the first attempt, not
+    the stage output alone: native has no stage output outside a run. Without the
+    in-stage absorber the initial step is accepted on both. In the exponential
+    formulation the row is the startup output, equal bit for bit. In the interaction
+    formulation it is that output carried to the step's end, by each engine's own
+    complex product, so it is within 4 eps of each value: bit for bit in CI's macOS,
+    Linux and Windows x86-64 lanes, one ulp apart on Windows on Arm.
+    With the absorber, the collar rejects the initial step, the row is the startup
+    output, and it is within one transform's bound, peak-normalised.
+  - Item 4 is two runs: eight steps of 2^-27 m without the in-stage absorber (cap and
+    length binary-exact, so no final step is split), within the eight-step 128 eps;
+    and, with the absorber, whose collar holds the steps to about a
+    two-hundredth of the run, 0.2 um in some four hundred attempts within the
+    attempts times the one-step 16 eps. Each checks that the source moves its field a
+    millionfold beyond the budget.
+  - The memory row is the generic `host_source`, not §6.2's `tdse_host_source`: the
+    engine knows no TDSE (P10). It holds §6.2's two `n_omega` rows.
+  - The reference records an accepted replayed step after releasing its reservation;
+    native's `end` records, then releases, for every decided attempt. The hook is not
+    told that a step is replayed, and the two orders differ only when the record or
+    the release fails.
+  - Item 5 is met through the driver: the TDSE run tests that ask for `auto`
+    (`test_tdse_hacc_run.py`, `test_tdse_archive_run.py`, `test_tdse_entry.py`, the
+    gated-derivative and natural-output runs) now run on native, unchanged; those
+    that name `numpy_ref` keep it. No module was duplicated over both backends.
+- **Decisions.** The Runge-Kutta and low-storage paths are not guarded against a
+  bound host source in C++: the translation admits a TDSE response with the adaptive
+  `Multistep()` only, and a zero-length Runge-Kutta trial with a source bound does not
+  give the reference's stage (above), so a later guard should refuse it there.
+- **Verification.** Native CPU build (Apple clang, editable, the `estimate` planning),
+  Apple M5 Max. `tests/backends/test_tdse_native.py`, its manufactured remainder
+  1e-18 A m, strong enough that `F` moves every compared field seven orders or
+  more beyond its budget: through the C++ gather and the binding, in both formulations, on
+  the gated and cubic descriptors, with and without input noise, the field the hook
+  receives and `F` bit for bit, the history's first row as above; the call sequence
+  (every reserve, evaluation purpose, record and release, in order), the atomic ledger
+  and the `atomic_calls` and `tdse_source` records equal to the reference's on a whole
+  run in both formulations, the evaluations' positions within 1e-9 relative and the
+  final fields within the per-attempt budget; a budget refusal, a provider failure, a
+  SIGTERM before the commit (raised as an exception, and a real signal the commit
+  holds, raised by the evaluation's `raise_held` inside the session's
+  `interruptible`), and an archive failure after it, each leaving the stated state
+  with nothing reserved and the reference's calls, the archive failure's terminal
+  state carrying the committed step's proposal; an abandoned attempt's failed release
+  as the reference's note on the floor's error; the eight-step and collar-held runs
+  within their budgets, with one attempt per call and the production bound (measured
+  5e-5 eps against 128 eps, and 5 to 6 eps against 6,480); a device build and a
+  missing binding refused by name; the memory rows; closing a backend whose state a
+  session leases, after which the binding, held in a cycle through the kept
+  exception's traceback, is collected (the state's own reference, which the collector
+  cannot see, is dropped once the state is closed). The TDSE, worker and interrupt modules of `tests/backends` and
+  `tests/driver`, the compiled-multistep, resume-ledger, capability, structure and
+  SEP modules: 1,411 passed, 3 skipped; `native/tests/test_backend.py` and
+  `test_session_failure.py`: 61 passed. Non-TDSE runs, before (the #770
+  build) and after, `SOLPROP_FFTW_PLAN=estimate SOLPROP_CALIBRATION=off`, one thread:
+  the final fields of `gnlse_soliton` (default), `rdw_one_mode` (both Adams formulations), `argon_blueshift`, `radial_filament_256` and `dense_output`, each over 0.5–2 % of its length, are identical bit for bit. `poe fmt-native`; `poe tidy-native` on the changed C++ files:
+  no finding. No CUDA or HIP compiler here: the device builds are left to CI's
+  device-compile lanes.
+- **Limitations.** TDSE on a native device build is refused by name (§12, Q2). The
+  hook is not exercised by a real provider (§7.4, phase 4).
+- **Open questions.** Q12, closed by the review below: the rows had been read at
+  different points (the reference's after an acceptance had carried it, native's
+  after a rejection), and at matched points the reviewer found them 1.3e-11 apart. The
+  mismatch hid the true one: native's `F` never reached its history.
+- **Cost** (phase 3, `git diff --numstat` from `42e3b22b`): C++ +332 −11, native Python
+  +251 −12, `src/solprop` +49 −58, tests +464 −30. §6.8 estimated +0.3k C++, +0.4k
+  native Python and +0.5k tests for the hook. The review's fixes: C++ +51 −35,
+  native Python +25 −4, tests +333 −79.
+- **Review** (independent, of `478b3808`; fixed in the following commit).
+  - Critical: the binding handed `evaluate` ownerless NumPy views, which nanobind
+    copies when it passes them to Python, so `out[:] = source` wrote into a copy and
+    native's TDSE stages were the window times zero plus the absorber. The views now
+    have an owner, a capsule that frees nothing; the field is read-only.
+  - Critical: the stage core gathered the field from the fine spectrum, which holds
+    it divided by `n_to` (and doubled on an analytic grid's interior), so the hook saw
+    the field divided by 384. The entry kernel now writes the unscaled stage input,
+    noise included, into the hook's field row; the stage core reads that row.
+  - High: the tests could not see either defect. Item 1 compared the Python adapter
+    with itself; the runs' remainder of 1e-27 A m moved the field by 581 eps against
+    a budget of 6,480 eps. The tests above replace them.
+  - Medium: `NativeBackend.close` unbound the hook first, which a leased state
+    refuses; it now only closes the state.
+  - Low: a kept exception the march did not stop for was neither taken nor reported,
+    and stayed for the next attempt; it is now a note on the run's error and cleared
+    at each attempt's start. A failed `end` after an accepted commit returned before
+    the step's proposal, count and replay cursor were kept; they now are.
+  - Each fix was checked by putting its defect back and running the module: the
+    ownerless views fail 14 tests (item 1 in every case, both run budgets, both call
+    sequences and the floor's note); the scaled field fails item 1 in all 8 cases
+    (the manufactured remainder does not depend on the field, so the runs cannot see
+    a scale); the unbind fails the close test; the missing note fails the note test;
+    the session without `interruptible` fails the held-signal test; and the lost
+    proposal fails the archive test. Non-TDSE runs stay bit for bit as before.
+- **Handoff.** Phase 4: the manual check of §7.4 through the worker on both backends,
+  the ADR, the remaining pages, and the size comparison.
+
+### Phase 4 — Qualification and documentation
+
+- **Scope.** Phase 4, 2026-11-12, Opus 5.5 (AI): the review's two follow-ups to phase 3,
+  the ADR, the remaining pages of §8, the size report against §6.8, and the manual
+  check of §7.4, its procedure and its results. The SEP stays `In progress`: it
+  becomes `Final` after CI and an A/B.
+- **Delivered.**
+  - Phase 3 follow-ups:
+    - `NativeBackend.close` now drops the host source once the state is closed
+      (`bind_host_source(None)`, which a closed state allows). Before, the state kept a
+      reference that the garbage collector cannot see. A cycle through it (a kept
+      exception's traceback reaching the session) was never freed, and the held-signal
+      test leaked eight nanobind instances.
+    - That test now checks, with a weak reference after `gc.collect()`, that the
+      binding is freed, and it fails without the fix. A session that could not close
+      keeps the source it still uses.
+    - Item 4's eight-step run actually took nine attempts, all accepted: 8e-8 m in
+      10 nm steps left a last step one ulp over the cap, which the march split in two.
+      The cap and length are now binary-exact (2^-27 m and 2^-24 m), so the run is
+      eight accepted steps. The comment no longer counts the startup as an attempt.
+  - ADR-078 (`decisions.md`) covers:
+    - the host source hook, its scope and the device refusal;
+    - the provider worker;
+    - the failure boundary;
+    - `auto`.
+
+    It amends ADR-077's "every feature except the TDSE response, for now", and
+    ADR-077's status now says so. The maintainer accepted it on 2026-11-12.
+  - No provider revision is pinned (maintainer, 2026-11-12): until Pyroraptor has a
+    release, solprop uses whatever provider is installed, by default the latest `main`.
+    `_PROVIDER_REVISION` and `pinned_revision` are gone, and the handshake no longer
+    refuses another revision. It still refuses another protocol version, and an
+    execution space other than `TDSEExecution.device`. The build record keeps the
+    revision, build and execution space the worker reports (no `source_pin`); a
+    preset's or a basis's `source` names the reported revision, the consistency cache
+    keys on it (`tdse.provider_revision`), and the archives' contexts drop
+    `provider_pin`. Tests now check that another revision is recorded, not refused;
+    the installed-provider test runs with any revision; a release note says so.
+  - `testing.md` gains *Shared code and out-of-process providers*: the oracle boundary
+    for shared code and the worker-contract tests. `backends.md` and
+    `kernel-contract.md` now cite ADR-078.
+  - The other pages of §8 were done in phases 2 and 3:
+    - the TDSE manual and *Choosing a backend*;
+    - `backends.md`, `kernel-contract.md` §6 and `architecture.md`;
+    - `AGENTS.md` and `native/AGENTS.md`;
+    - the release notes: `tdse-on-native.changed.md` for `auto`, and
+      `tdse-provider-worker.changed.md` for the worker and cancellation during an
+      atomic call.
+- **Size** against §6.8. Lines are `git diff --numstat` from the tip of #770
+  (`1f00b8f7`, which contains `main`), so #770's own changes are not counted. Code lines
+  are from `tools/size_report.py`.
+
+  | part | `src/solprop` | native Python | C++ | tests |
+  |---|---|---|---|---|
+  | estimate, total | +0.6k | +0.4k | +0.3k | +1.3k |
+  | lines | +2,448 −784 | +280 −12 | +349 −11 | +2,160 −66 |
+  | code lines | +1,052 | +166 | — | — |
+
+  By part:
+  - The shared source is a move: +34 code lines with `node_fields`, and its tests +0.3k.
+  - The worker and adapter are `_source_worker.py` (522 code lines) and `_pyroraptor.py`
+    (605), less 136 from `driver/tdse.py`: about +1.0k code lines, which is the
+    `src/solprop` overrun. Their tests are +1.0k.
+  - The hook is +166 native Python code lines and +349 C++ lines, with tests of +0.8k.
+
+  The worker is larger than §6.8 estimated. The binding's validation and normalisation
+  stay in solprop's process, as §6.5 asks, while the requests the parent's view of the
+  haCC model makes must be served in the worker. Phase 2's report records what was
+  examined for removal.
+- **The manual check of §7.4: procedure.** With Pyroraptor's latest `main` (no revision
+  is pinned), installed into solprop's environment.
+
+  1. Set up the environment on the CPU. On macOS this needs Homebrew LLVM, `libomp` and
+     FFTW; on Linux, `CXX=clang++`, as Pyroraptor's installation guide says.
+
+     ```sh
+     cd <solprop checkout>   # this branch
+     uv sync                 # solprop and its native CPU build
+     git -C <pyroraptor> switch main && git -C <pyroraptor> pull
+     uv pip install --python .venv/bin/python <pyroraptor>   # its CPU (OpenMP) build
+     uv run --no-sync python -c "import pyroraptor as p; print(p.build_info())"
+     ```
+
+     From here on, use `uv run --no-sync`: a plain `uv run` or `uv sync` removes
+     Pyroraptor.
+  2. On a GPU machine, use the same solprop environment with its native CPU build (a
+     native device build refuses TDSE). Install Pyroraptor's device build into it in
+     place of step 1's, configured as its `scripts/device_build.sh` does:
+
+     ```sh
+     cd <pyroraptor>
+     kokkos="$PWD/build/sources/kokkos-5.2.1"
+     test -f "$kokkos/CMakeLists.txt" || git clone --depth 1 --branch 5.2.1 \
+         https://github.com/kokkos/kokkos.git "$kokkos"
+     # CUDA
+     arch=$(scripts/device_build.sh cuda arch auto)
+     NVCC_WRAPPER_DEFAULT_COMPILER=g++ CMAKE_ARGS="-DPYRORAPTOR_EXECUTION_SPACE=CUDA \
+         -DPYRORAPTOR_DEVICE_ARCH=$arch -DCMAKE_CXX_COMPILER=$kokkos/bin/nvcc_wrapper \
+         -DFETCHCONTENT_SOURCE_DIR_KOKKOS=$kokkos" \
+         uv pip install --python <solprop checkout>/.venv/bin/python --reinstall .
+     # or HIP
+     arch=$(scripts/device_build.sh hip arch auto)
+     CMAKE_ARGS="-DPYRORAPTOR_EXECUTION_SPACE=HIP -DPYRORAPTOR_DEVICE_ARCH=$arch \
+         -DCMAKE_CXX_COMPILER=$(command -v hipcc) \
+         -DFETCHCONTENT_SOURCE_DIR_KOKKOS=$kokkos" \
+         uv pip install --python <solprop checkout>/.venv/bin/python --reinstall .
+     ```
+
+  3. Save this script as `sep49_check.py` in an empty directory outside the checkout:
+
+     ```python
+     """SEP 49 section 7.4: a real Pyroraptor through the worker, native against numpy_ref.
+
+     python sep49_check.py compare DEVICE   one short haCC(1) fast segment on both backends
+     python sep49_check.py cancel DEVICE    native, Ctrl-C (SIGINT) during an atomic call
+     python sep49_check.py refuse DEVICE    native, a device the build does not have: refused
+
+     DEVICE is cpu, cuda or hip, matching the installed Pyroraptor build (for refuse, one
+     it does not match).
+     """
+
+     import json
+     import os
+     import signal
+     import subprocess
+     import sys
+     import threading
+     import time
+     import warnings
+     from pathlib import Path
+
+     import numpy as np
+
+     from solprop.driver import Simulation, tdse
+     from solprop.driver.tdse import hacc_preset
+     from solprop.exceptions import BackendError, ResponseBudgetError
+     from solprop.nonlinear.tdse import (
+         TDSEConsistency,
+         TDSEExecution,
+         TDSEGasResponse,
+         TDSESampling,
+     )
+     from solprop.output import open_file
+
+     LENGTH = 2.0**-24  # one step of 60 nm: a startup and a predictor call, then a retry
+     BUDGET = 3  # atomic calls, at most (SEP 49 section 7.4)
+     RTOL = 0.1  # loose: the one step is accepted, a check of the plumbing, not accuracy
+     DELAY = float(os.environ.get("SEP49_DELAY", "5"))  # seconds into the first call
+
+
+     def simulation(backend, device, budget, length):
+         preset = hacc_preset(1, "fast")
+         response = TDSEGasResponse(
+             "helium",
+             preset.basis,
+             preset.max_atomic_step,
+             "tdse_native",
+             1.0,
+             preset.calibration(),
+             TDSESampling(4),
+             model="hacc",
+             # No weak-field consistency call: the budget is the march's alone.
+             consistency=TDSEConsistency(enforce=False),
+         )
+         return Simulation.from_capillary(
+             256e-6,
+             length,
+             "He",
+             0.1,
+             wavelength=800e-9,
+             wavelength_limits=(400e-9, 1.6e-6),
+             trange=40e-15,
+             fwhm=6e-15,
+             energy=20e-6,
+             modes=1,
+             radial_rule="field_scale",
+             n_r=2,
+             noise=None,
+             n_save=2,
+             rtol=RTOL,
+             dz_init=LENGTH,
+             dz_max=LENGTH,
+             backend=backend,
+             tdse=response,
+             tdse_execution=TDSEExecution(device=device, max_atomic_calls=budget),
+         )
+
+
+     def run(backend, device, budget=BUDGET, length=LENGTH):
+         path = Path(f"sep49-{backend}-{device}.h5")
+         path.unlink(missing_ok=True)
+         started = time.monotonic()
+         with warnings.catch_warnings():
+             warnings.simplefilter("ignore")
+             try:
+                 simulation(backend, device, budget, length).run(path, progress="none")
+             except ResponseBudgetError as error:  # the budget ends the segment
+                 print(f"{backend}: {error}")
+             finally:
+                 print(f"{backend}: {time.monotonic() - started:.1f} s", flush=True)
+         return path
+
+
+     def summary(path):
+         with open_file(path) as output:
+             outcome = output.outcome
+             plain = lambda value: json.loads(json.dumps(value, default=str))  # noqa: E731
+             return {
+                 "status": outcome.status,
+                 "z": float(outcome.z),
+                 "atomic_calls": plain(outcome.atomic_calls),
+                 "logical_calls": plain(outcome.logical_calls),
+                 "provider": plain(outcome.execution["tdse"]["build"]),
+                 "fields": np.asarray(output.fields(convention="fft")),
+             }
+
+
+     def workers():
+         """This process's provider workers and their CPU seconds."""
+         table = subprocess.run(
+             ["ps", "-A", "-o", "pid=,ppid=,time=,command="],
+             capture_output=True,
+             text=True,
+             check=True,
+         ).stdout
+         found = {}
+         for line in table.splitlines():
+             pid, ppid, cpu, command = line.split(None, 3)
+             if int(ppid) == os.getpid() and "solprop.driver._source_worker" in command:
+                 parts = [float(part) for part in cpu.replace("-", ":").split(":")]
+                 found[int(pid)] = sum(v * 60**i for i, v in enumerate(reversed(parts)))
+         return found
+
+
+     def compare(device):
+         results = {name: summary(run(name, device)) for name in ("numpy_ref", "native")}
+         reference, ours = results["numpy_ref"], results["native"]
+         for name, result in results.items():
+             print(
+                 name,
+                 result["status"],
+                 result["z"],
+                 result["atomic_calls"],
+                 result["logical_calls"],
+             )
+         print("provider:", reference["provider"])
+         if reference["logical_calls"]["accepted_steps"] == 0:
+             print("no step was accepted, so nothing to compare: lower LENGTH")
+             return 1
+         first, last = reference["fields"][0], reference["fields"][-1]
+         gap = np.linalg.norm(ours["fields"][-1] - last)
+         difference = gap / np.linalg.norm(last)
+         print(f"final field, native against numpy_ref: {difference:.3e} relative")
+         print(
+             f"... and against the segment's change: {gap / np.linalg.norm(last - first):.3e}"
+         )
+         keys = ("status", "z", "atomic_calls", "logical_calls")
+         same = all(ours[key] == reference[key] for key in keys)
+         print("same status, position and call ledgers:", same)
+         return 0 if same and difference <= 1e-9 else 1
+
+
+     def cancel(device):
+         sent = {}
+         output = Path(f"sep49-native-{device}.h5")
+         output.unlink(missing_ok=True)
+
+         # The binding's evaluation in this process is where an atomic call is in flight
+         # (a private name: this script checks solprop, it is not an API).
+         calling = threading.Event()
+         evaluate = tdse._ProviderBinding.evaluate
+
+         def marked(self, *args, **kwargs):
+             calling.set()
+             return evaluate(self, *args, **kwargs)
+
+         tdse._ProviderBinding.evaluate = marked
+
+         def watch():
+             calling.wait()
+             time.sleep(DELAY)
+             sent.update(worker=next(iter(workers()), None), at=time.monotonic())
+             os.kill(os.getpid(), signal.SIGINT)
+
+         threading.Thread(target=watch, daemon=True).start()
+         try:
+             # Many steps, so that a call is in flight whenever the signal comes.
+             run("native", device, budget=1000, length=1000 * LENGTH)
+         except KeyboardInterrupt:
+             stopped = time.monotonic() - sent["at"]
+             print(f"KeyboardInterrupt {stopped:.2f} s after SIGINT, during a call")
+         else:
+             print("the run finished before a call was interrupted: raise LENGTH")
+             return 1
+         alive = sent["worker"] in workers()
+         print("worker", sent["worker"], "still running" if alive else "gone")
+         result = summary(output)
+         print("provider:", result["provider"])
+         print(
+             result["status"], result["z"], result["atomic_calls"], result["logical_calls"]
+         )
+         charged = result["atomic_calls"].get("attempted", 0) >= 1
+         reserved = result["atomic_calls"].get("reserved")
+         return 0 if not alive and charged and reserved == 0 else 1
+
+
+     def refuse(device):
+         try:
+             run("native", device)
+         except BackendError as error:
+             print("refused:", error)
+             return 0 if "device=" in str(error) else 1
+         print(f"device={device!r} was not refused")
+         return 1
+
+
+     if __name__ == "__main__":
+         mode, device = sys.argv[1], sys.argv[2]
+         sys.exit({"compare": compare, "cancel": cancel, "refuse": refuse}[mode](device))
+     ```
+
+  4. Run it from that directory. On the CPU build, `compare cpu` and `cancel cpu`; on a
+     GPU build, `refuse cpu` and `cancel cuda` (or `hip`), and `compare` only on a GPU
+     whose FP64 rate makes an atomic call short (not an A40).
+
+     ```sh
+     uv run --no-sync --project <solprop checkout> python sep49_check.py compare cpu
+     uv run --no-sync --project <solprop checkout> python sep49_check.py cancel cpu
+     ```
+
+     `compare` runs one 60 nm step of haCC(1) fast at about 3e13 W/cm², with two radial
+     nodes, through the worker: first on `numpy_ref`, then on native. Each run makes at
+     most three atomic calls: a startup, a predictor and one retry.
+     - It passes (exit status 0) when both runs end with the same status, position and
+       call ledgers, and native's final field is within 1e-9 of `numpy_ref`'s,
+       relative.
+     - It also prints the difference against the segment's own change.
+
+     `cancel` runs native over a longer segment and sends itself SIGINT 5 s
+     (`SEP49_DELAY`) into its first atomic call. It passes when:
+     - the run raises `KeyboardInterrupt` within about a second;
+     - the worker is gone and nothing is reserved;
+     - the file records the call as charged and the last accepted step's position.
+
+     `refuse` asks for a device the installed build does not have (`cpu` with a CUDA
+     build, say) and passes when the run is refused by name.
+  5. Record here, for each run:
+     - the provider revision and build (the `provider:` line);
+     - the machine;
+     - the threads (`SOLPROP_THREADS` or the machine's) or the device;
+     - both modes' output and exit status.
+
+  Both modes were dry-run on an Apple M5 Max. The worker served the manufactured haCC
+  provider of `tests/hacc_cases.py` in place of Pyroraptor
+  (`solprop.driver.tdse._ADAPTER = "source_adapters:manufactured_tdse"`).
+  - `compare` took one accepted step on each backend with two atomic calls. The ledgers
+    were the same, and the final fields were 1.3e-13 apart, relative.
+  - `cancel` was run with every call after the second hanging
+    (`MANUFACTURED_HANG_AFTER=2`). It raised `KeyboardInterrupt` 0.11 s after the
+    signal: the worker was gone, three calls were charged, none were reserved, and the
+    run stood at its one accepted step.
+
+  This checks the script and the plumbing, not Pyroraptor.
+- **The manual check of §7.4: results** (2026-11-12, run by Opus 5.5 at the
+  maintainer's request, on a shared HPC cluster through Slurm). Done with this
+  procedure's script, and with `refuse` on the GPU.
+  - **Code.** solprop `7a5ca1f9a7e25c28007c8ee4768f834b6ffa4d51` (this branch).
+    Pyroraptor `7658b615ef99e169d30ff0b12526d2a8d8b638a8` (the latest `main`; reports
+    `source_revision='7658b61'`, version `0.0.1.dev26+g7658b615e`).
+  - **CPU builds.**
+    - solprop's native CPU wheel: LOCAL profile, Release, GCC 16.2, FFTW 3.3.11 with
+      OpenMP threads, OpenMP OpenBLAS, `-march=znver3`.
+    - Pyroraptor's OpenMP build: GCC 16.2, LOCAL, `x86-64-v3`, Kokkos 5.2.1. It was
+      installed into the same environment, so the worker ran the same interpreter.
+  - **CPU machine.** A node with two AMD EPYC 7763; a Slurm job with 32 cores
+    (`-c 32 --hint=nomultithread`). The worker reported `requested_threads=32`, the
+    run's whole budget.
+  - **`compare cpu`**: exit 0, wall 1,422 s.
+    - Both backends ended `complete` at z = 5.96e-8 m (2^-24 m). Each took one
+      accepted order-1 step: a startup call and a predictor call, 2 atomic calls,
+      none reserved. The call ledgers were equal.
+    - Native's final field was 4.1e-13 from `numpy_ref`'s, relative, and 1.4e-8 of
+      the segment's own change.
+    - Each backend's run took 707 s (`numpy_ref`) and 712 s (native). About 8.4 min of
+      that was the provider's model preparation in the worker; each atomic call took
+      about 100 s at 32 cores, below the 10 min bound set beforehand. The problem
+      therefore did not need reducing.
+  - **`cancel cpu`**: exit 0, wall 550 s.
+    - SIGINT came 5 s into the first atomic call (after the same preparation), and
+      `KeyboardInterrupt` was raised 0.13 s later.
+    - The worker was gone. The file records status `failed` at z = 0, with the startup
+      call charged (`attempted` 1) and nothing reserved.
+  - **GPU builds.**
+    - Pyroraptor's CUDA wheel: `PYRORAPTOR_EXECUTION_SPACE=CUDA`, `AMPERE86`, CUDA
+      12.8.1 with `nvcc_wrapper` over system GCC 11.5, Kokkos 5.2.1. It was compiled on
+      the login node with 4 jobs, in 26 min.
+    - It was installed into a second environment beside the same solprop native CPU
+      wheel, whose `execution_space` is `OpenMP`.
+  - **GPU machine.** A node with NVIDIA A40s; a Slurm job with one A40, 16 cores and a
+    20 min cap. The worker reported `execution_space='Cuda'`.
+  - **`refuse cpu`**: exit 0, wall 9.4 s. The run was refused by name ("TDSE requested
+    device='cpu', but the native build uses 'Cuda'"), and no worker remained.
+  - **`cancel cuda`**: exit 0, wall 681 s.
+    - The provider's model preparation on the A40 took about 11 min. SIGINT came 5 s
+      into the first atomic call, and `KeyboardInterrupt` was raised 0.47 s later.
+    - The worker was gone, and the device released: `nvidia-smi` listed no compute
+      process and 0 MiB used afterwards.
+    - The file records the startup call charged (`attempted` 1) and nothing reserved.
+  - **No GPU `compare`.** The A40's FP64 rate is about 1/64 of its FP32, so an A40
+    atomic call could take hours, and SEP 49 does not change Pyroraptor's GPU
+    numerics. The GPU numerical comparison of native against `numpy_ref` is to be done
+    by hand when the provider is next used on a production GPU (Q10).
+  - **Logs.** The build logs, and both runs' logs with every command's output, are
+    kept with the maintainer's campaign records.
+- **The wheel's strict-FMA check.** On the merge with `main`, CI's Linux wheel failed
+  `native/ci/check_strict_fma.py` with 36 fused multiply-adds "in" `march::reached`.
+  The disassembly of that wheel shows `reached` itself (0x5d bytes, its symbol's size)
+  with none. The 36 lie in 9 KB of unlabelled code that the link-time optimisation
+  placed after it: Kokkos kernels of the dispersive response, which call
+  `GeneralDispersive::respond`, `sin`, `tanh`, `pow` and `exp`. The wheel is stripped,
+  so `objdump` labels only exported functions and counted that code as `reached`'s.
+  No strict file includes a contracting header, and no strict code changed. The check
+  now bounds each strict function by its symbol's size from `objdump -T` and `-t`,
+  with a test. It passes on that wheel (333 strict functions, none fused). The
+  non-TDSE runs stay bit for bit as before.
+- **Verification.** `tests/backends/test_tdse_native.py`: 23 passed. The held-signal test
+  no longer produces nanobind's leak report, and with the unbind removed it fails its
+  weak-reference check. The non-TDSE bitwise check is unaffected, because phase 4
+  changes the native extension's comments only.
+- **Handoff.** Next are CI and an A/B; then `Final`. The GPU numerical comparison stays
+  manual, for the provider's next production GPU use (Q10).
+
+### Completion — 2026-11-13
+
+- **Coverage.** CI's coverage lane found the worker's own side uncovered: it runs in a
+  subprocess, which the parent's coverage does not see. Tests now run it in-process
+  (two pipes standing in for its standard streams, `os._exit` recorded): requests served
+  in order until `close`, adapter and codec errors reported, the provider's prints kept
+  out of the frames, signals ignored, a failed start reported in place of the handshake,
+  and the watchdog's exit on end of file. Real-worker tests cover a reply before the
+  handshake, a message out of turn, a close past its grace (killed), and a worker dying
+  mid-call (a charged `[worker]` failure with its stderr). Four defensive checks that
+  validation already guarantees became assertions, and a provider reply that is not a
+  record is now refused by name as a contract failure. `Worker._exited` waits for the
+  stderr reader once the worker has exited, so the last lines are never lost.
+- **Performance (A/B, non-TDSE).** Baseline `main` against this branch, on one NUMA
+  domain of a 128-core AMD EPYC 7763 node, production threads, 3 rounds of 3 repeats,
+  noise ε from A/A runs on the same machine. Every case did the same work:
+
+  | Case | Ratio | Min | Max | ε | Field difference |
+  |---|---|---|---|---|---|
+  | `argon_blueshift_envelope` | 0.964 | 0.958 | 0.989 | 0.064 | 0 |
+  | `rdw_one_mode` | 1.016 | 0.996 | 1.037 | 0.039 | 5.5e-15 |
+  | `kerr_beam_192` | 1.003 | 0.996 | 1.013 | 0.007 | 1.4e-16 |
+  | `radial_filament_256_saved_hdf5` | 0.973 | 0.967 | 1.021 | 0.032 | 0 |
+  | `he_rdw_averaged` | 0.998 | 0.992 | 0.999 | 0.020 | 5.6e-15 |
+  | `h2_raman_averaged` | 0.983 | 0.979 | 0.997 | 0.017 | 4.8e-15 |
+  | `ctc_reduced` | 0.949 | 0.911 | 1.048 | 0.052 | 3.6e-15 |
+  | `kerr_beam_384` | 1.002 | 1.000 | 1.019 | 0.007 | 0 |
+
+  Geometric mean 0.986, against the limit 1 + mean(ε)/2 = 1.015: no regression. With
+  estimated FFT plans and calibration off, all seven cases of the bitwise check gave a
+  field difference of exactly 0, so non-TDSE runs are unchanged bit for bit. The
+  differences above come from measured FFT plans.
+- **Open questions moved to issues.** The numerical comparison of native against
+  `numpy_ref` with the provider on a production GPU, left manual by Q10:
+  [#785](https://github.com/LupoLab/solprop/issues/785). The strict-FP check on object
+  files rather than the stripped wheel:
+  [#777](https://github.com/LupoLab/solprop/issues/777).
+- **Status.** `Final`, set in the last commit of #771; merging it completes the SEP and
+  closes [#764](https://github.com/LupoLab/solprop/issues/764).
+
 ## Part III — History
 
 - 2026-11-12: Drafted.
@@ -855,6 +1820,17 @@ cancellation of P3 to work in every case; he accepted P6–P10 the same day.
   (human)); the status stays `Draft` until accepted.
 - 2026-11-12: Accepted by John Travers (#765); implementation to start once ADR-077's
   change (#767) is merged, in one implementation pull request (§11).
+- 2026-11-12: In progress: Opus 5.5 (AI) on `feature/sep-0049-tdse-on-native`, based on
+  #767's branch; phases 0 and 1 reported in Part II.
+- 2026-11-12: Phase 2 (the provider worker) reported in Part II; implementation pull
+  request opened as a draft.
+- 2026-11-12: Phase 3 (the native hook) reported in Part II.
+- 2026-11-12: Phase 4 reported in Part II, with the manual check of §7.4 on the CPU
+  (compare and cancel) and on an A40 (device refusal and cancel). ADR-078 accepted by
+  John Travers. The
+  maintainer decided that solprop pins no Pyroraptor revision until Pyroraptor has a
+  release: the installed provider is used, by default the latest `main`, and its
+  reported revision recorded; §6.5, §7.2, §7.4, §9.3 and Q10 revised to match.
 
 ### AI review — 2026-11-12
 
@@ -952,7 +1928,7 @@ no physical constant or TDSE model was requalified by this review.
    [`test_a_full_adaptive_run_meets_the_reference_s_accuracy`](https://github.com/LupoLab/solprop/blob/63201dca4ab69d21b6d4ae0cd4611c4203ff47b1/tests/backends/test_backend_ladder.py)
    compares against a tighter reference integration and checks a declared work band.
    Replaying native's own schedule cannot replace that claim. The analytic P0–P2,
-   three-level P3 and cross-scheme checks in [testing.md](../testing.md) must remain
+   three-level P3 and cross-scheme checks in [testing.md](../../testing.md) must remain
    separately identified class-T or analytic checks, not become matched-replay tests.
 
    **Recommendation and question:** compare a third option: a small, non-production

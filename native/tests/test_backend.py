@@ -399,14 +399,22 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     source_filter: str,
     dense_output: bool,
 ) -> None:
-    """Refuse TDSE before native setup or either supported march is selected."""
+    """Refuse TDSE without its binding before native setup or a march is selected.
+
+    The CPU build runs the TDSE response through its host source (solprop SEP 49),
+    which needs the driver's binding; a problem without one is refused by name first.
+    """
     problem, run_request, grid = phase_a_case
     # This deliberately bypasses scientific validation to isolate the adapter's
     # earliest refusal. Neither a valid atomic basis nor an optional provider is
-    # needed to reject a route that this backend never executes.
+    # needed to refuse a route that comes without its binding.
     requested = copy.copy(problem)
     route = copy.copy(problem.route)
-    object.__setattr__(route, "tdse", SimpleNamespace(source_filter=source_filter))
+    object.__setattr__(
+        route,
+        "tdse",
+        SimpleNamespace(descriptor=SimpleNamespace(), source_filter=source_filter),
+    )
     object.__setattr__(requested, "route", route)
     requested_request = run_request.with_stepper(
         dataclasses.replace(
@@ -421,7 +429,7 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
 
     monkeypatch.setattr(solprop_native.backend, "require_device_ready", forbidden)
     monkeypatch.setattr(_core, "State", forbidden)
-    with pytest.raises(BackendError, match=r"TDSEGasResponse.*SEP 12"):
+    with pytest.raises(BackendError, match="explicit host response binding"):
         NativeBackend(requested, requested_request, grid=grid)
 
 
