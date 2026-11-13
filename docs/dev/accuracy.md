@@ -382,7 +382,7 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | a capillary with an absorber and a kink | 3200 ε | 9.3e-16 | `tests/backends/test_backend_ladder.py` |
 | the analytic field family | 1e-13 | 2.2e-18 | `tests/backends/test_backend_ladder.py` |
 | the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
-| the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
+| the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/driver/test_prop_capillary.py` (the slow lane on a CUDA build) |
 | native Raman kernel/convolution | operation-count and FFT-depth bounds fixed before execution | native host reference, all three drive forms and tail chunks pass | the native tests under `native/tests/native/` |
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_backend_ladder.py` |
 | same-backend resume through true-power output | 2.7e-16 of the global field peak; statistic-specific rounding bounds | field 1.77333e-16; energy up to 2.64009e-16; rate up to 5.06947e-15 | `tests/driver/test_resume.py` |
