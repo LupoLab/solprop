@@ -97,7 +97,8 @@ def test_an_unreadable_memory_limit_is_a_driver_error_naming_it(
         record.unlink()
         record.mkdir()
     _linux(monkeypatch, root)
-    with pytest.raises(DriverError, match=r"job.memory\.max"):
+    # Any separator: Windows quotes the path with doubled backslashes.
+    with pytest.raises(DriverError, match=r"job\W+memory\.max"):
         pool._memory_limit()
 
 
