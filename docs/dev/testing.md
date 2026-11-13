@@ -52,7 +52,7 @@ the default one.
 | tier | marker | what belongs in it | budget |
 |---|---|---|---|
 | **fast** | none | unit, invariant, property and error-path tests; doctests; no propagation longer than a few steps | under a second each |
-| **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | 60 s for the tier |
+| **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | under 30 s each; the tier's total held to a ratchet |
 | **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | 4 min for the lane |
 
 The benchmark harness's own tests (`tests/test_benchmark_*.py`) follow the same rule:
@@ -194,24 +194,30 @@ Pyroraptor is not tested in CI; it is checked by hand (SEP 49, section 7.4).
 
 ### Budgets and timing assertions
 
-The medium tier's budget is tight: time it with `poe test-medium` before adding to it. Most
-of the default lane's time is the compiled-kernel tests, which compile one kernel per
-parametrisation, so parametrise a compiled test only over what the kernel actually
-branches on.
+The fast and medium budgets are judged on CI's macOS arm64 test lane, from each test's
+JUnit time: setup, call and teardown, so a shared fixture counts against the first test
+that builds it. A fast test takes under a second and a medium test under 30 s. The medium
+tier's total, the sum of its tests' times over the lane's shards, is held to a ratchet:
+`max_total` in `tests/tier_budget.toml`, set from the measured total when the rule was
+adopted, which may only go down. Lower it when medium tests are trimmed or moved to slow;
+never raise it to let a change through. Time a new medium test
+(`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
+compile one kernel per parametrisation, so parametrise a compiled test only over what the
+kernel actually branches on.
 
 The budgets are read from the lanes' JUnit reports. The collection hook in
 `tests/conftest.py` writes each test's tier into its report as the property `tier`
 (`fast` where it carries no marker), and `tests/tier_budget.py` reads one lane's reports,
-the shards of one platform together, and names the fast tests that took a second or
-more and the medium tier's summed seconds against its 60 s, with its slowest tests. A
-test's time is JUnit's: setup, call and teardown, so a shared fixture counts against the
-first test that builds it. CI's **tier-budget** job writes that report for each platform
-of the test lane into the run's summary; locally,
+the shards of one platform together, and names the fast tests that took a second or more
+and the medium tests that took 30 s or more, slowest first, and the medium tier's total
+against the ratchet. CI's **tier-budget** job writes that report for each platform of the
+test lane into the run's summary; the Windows reports are for comparison. Locally,
 `uv run poe test --junitxml=report.xml` and then
-`uv run python tests/tier_budget.py report.xml`. The report is advisory: the tiers
-exceed their budgets today, so the job does not gate a pull request, and
-`--enforce` (exit 1 on an exceeded budget) is for when they hold. The slow lane's budget
-is the lane's wall time, which its CI job's duration shows.
+`uv run python tests/tier_budget.py report.xml`. The report is advisory: tests exceed
+both per-test budgets today, so the job does not gate a pull request, and `--enforce`
+(exit 1 when a test exceeds its tier's budget or the medium total exceeds the ratchet) is
+for when they hold. The slow lane's budget is the lane's wall time, which its CI job's
+duration shows.
 
 A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
 repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks

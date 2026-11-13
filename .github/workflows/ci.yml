@@ -305,7 +305,9 @@ jobs:
 
   # The tiers' budgets (docs/dev/testing.md section 2) against the test lane's JUnit
   # reports, one platform's shards at a time (tests/tier_budget.py), written to the run's
-  # summary. Report-only: the budgets are exceeded today, so ci-passed does not need it.
+  # summary. The rule is judged on macos-arm64; the Windows reports are for comparison.
+  # Report-only: the budgets are exceeded today, so the script runs without --enforce
+  # and ci-passed does not need the job.
   tier-budget:
     needs: [changes, test]
     if: ${{ !cancelled() && needs.changes.outputs.lanes == 'full' }}

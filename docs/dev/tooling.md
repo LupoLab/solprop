@@ -295,9 +295,10 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 - **test** (macOS arm64, Windows x64 and Windows on Arm, three shards each): `poe test`, the default lane,
   with the wheel installed, so `backend="auto"` and the driver tests select `native`.
 - **tier-budget** (Linux): after the test lane, `tests/tier_budget.py` on each
-  platform's JUnit reports, the tiers against their budgets ([testing.md](testing.md),
-  "Budgets and timing assertions"), written to the run's summary. Report-only: ci-passed
-  does not need it.
+  platform's JUnit reports, the tiers against their budgets and the medium total against
+  the ratchet of `tests/tier_budget.toml` ([testing.md](testing.md), "Budgets and timing
+  assertions"), written to the run's summary. The budgets are judged on macOS arm64.
+  Report-only (no `--enforce`): ci-passed does not need it.
 - **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
   paths in solprop count towards the 100 %) and `SOLPROP_TEST_BACKEND=native`. Six shards
   run `poe cov-part`.
