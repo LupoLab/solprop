@@ -184,6 +184,12 @@ public:
   std::vector<Complex> projected_to_host(bool coarse);
   std::map<std::string, bool> dispersive_path() const;
   std::map<std::string, std::size_t> memory_ledger() const;
+  void bind_host_source(std::shared_ptr<HostSource> source);
+  [[nodiscard]] HostSource* host_source() const noexcept { return host_source_.get(); }
+  void host_evaluation(const double z, const HostPurpose purpose) noexcept {
+    host_z_ = z;
+    host_purpose_ = purpose;
+  }
   /** The team a compact problem's FFTW loops take (`CpuTeamScope`): its pools'
       widest instance, which every threaded kernel and transform of it uses. Zero for
       any other problem: the runtime's team. */
@@ -319,6 +325,7 @@ public:
   void evaluate_stage_source(std::size_t stage, double dz, bool accumulate = true);
   bool modal_core(std::size_t stage);
   void general_core(std::size_t stage);
+  void host_core();
   StageTerms stage_terms(std::size_t stage) const;
   std::vector<std::pair<std::size_t, std::size_t>> fine_gap_runs() const;
   void stage_entry(std::size_t stage, double dz);
@@ -737,6 +744,12 @@ public:
   ComplexView transform_work_;
 #endif
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
+  // solprop SEP 49: a host source and its two rows, `(1, n_omega)`: the lab-frame field
+  // the entry kernel writes and the source the host writes and the finish reads.
+  std::shared_ptr<HostSource> host_source_;
+  ComplexView2 host_input_, host_spectrum_;
+  double host_z_ = 0.0;
+  HostPurpose host_purpose_ = HostPurpose::startup;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
   // A) and its flows.

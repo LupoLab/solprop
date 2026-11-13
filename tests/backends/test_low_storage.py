@@ -73,12 +73,12 @@ from solprop.stepper import (
     calibrate,
 )
 from solprop.stepper.schedule import LANDING_ULPS
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     Translation,
-    assemble,
     validate_run,
 )
 from solprop.translate.routes import TDSESource
@@ -750,6 +750,7 @@ def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, 
         identities=("accepted",),
         slots=np.array([0]),
         rows={},
+        history_key="adams",
     )
     assert "low-storage march, which keeps no history" in str(
         resumed.restore_march(snapshot)

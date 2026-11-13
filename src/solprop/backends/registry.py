@@ -36,7 +36,6 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
@@ -354,7 +353,8 @@ def select(
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name, for the profile statistics.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
-        Driver-owned host response binding for a TDSE problem on NumPy.
+        Driver-owned host response binding for a TDSE problem, on either backend
+        (SEP 49).
     options : solprop.backends.session.ExecutionOptions or None, optional
         The run's execution options, among them an explicit node budget, from which
         the backend plans its node chunk (SEP 47 section 6.5); ``None`` for the
@@ -389,10 +389,6 @@ def select(
 
         ensure()
     _check_required_device(name)
-    if (
-        tdse_descriptor(problem.route) is not None or tdse_binding is not None
-    ) and name != "numpy_ref":
-        raise BackendError(f"{name} does not execute TDSE responses; use numpy_ref")
     refusal = statistics_refusal(name, request.observation.stats.names)
     if refusal is not None:
         raise BackendError(refusal)
@@ -468,8 +464,8 @@ def _construct(
     """Import and build the named backend, whose package is installed.
 
     Imported here, not at module scope: selecting a backend must not be a reason to
-    import the other or initialize a native runtime. Only the reference is given a TDSE
-    binding; :func:`select` refuses one elsewhere.
+    import the other or initialize a native runtime. A TDSE binding goes to either
+    backend, which refuses a problem without its binding by name.
     """
     factory: Callable[..., Backend]
     if name == "native":

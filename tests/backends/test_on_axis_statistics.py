@@ -47,8 +47,8 @@ from solprop.physdata import Gas
 from solprop.pulses import GaussianPulse
 from solprop.stats import ON_AXIS_PLASMA_STATISTICS, StatsSpec
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 ENERGY = 1e-4  # J: a 10 fs pulse that ionises argon appreciably on the axis

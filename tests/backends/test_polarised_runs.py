@@ -25,9 +25,9 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 
 EPS = np.finfo(float).eps
 LENGTH = 0.002

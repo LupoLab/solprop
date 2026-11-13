@@ -28,9 +28,10 @@ from solprop.profiles import (
 from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import build_phi, constant_phi, delta_phi
-from solprop.translate.problem import _walk_arrays, assemble
+from solprop.translate.problem import _walk_arrays
 from solprop.translate.responses import response_kinks, unlanded_kinks
 
 OPERATOR = np.array([0.0, -1.5j, 0.3 - 2.0j])

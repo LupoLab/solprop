@@ -40,8 +40,20 @@ ResidentEngine::ResidentEngine(GeneralState& state, const stage::Tables& tables,
     : state_(state), tables_(tables), anchor_(anchor), fused_(fused),
       compensated_(compensated), interpolate_(interpolate), fault_(fault) {}
 
+void ResidentEngine::begin_attempt(const std::uint64_t cost) {
+  if (auto* host = state_.host_source())
+    host->begin(cost);
+}
+
+void ResidentEngine::end_attempt(const HostOutcome outcome) {
+  if (auto* host = state_.host_source())
+    host->end(outcome);
+}
+
 void ResidentEngine::start(const double z) {
   inject(march::Stage::startup);
+  // A host source evaluates the startup sample at the accepted state (SEP 49).
+  state_.host_evaluation(z, HostPurpose::startup);
   const auto row = stage::row(tables_, anchor_, z, z);
   state_.adams_start(0, stage::trial(tables_, row));
   if (compensated_)
@@ -56,6 +68,8 @@ void ResidentEngine::trial(const double z, const double dz,
   for (std::size_t index = 0; index < stencil.n_orders; ++index)
     highest = std::max(highest, stencil.orders[index]);
   const std::size_t slots = std::min(std::max(highest, stencil.order), stencil.held);
+  // The trial's one source evaluation is the predictor's, at the step's end.
+  state_.host_evaluation(z + dz, HostPurpose::predictor);
   if (fused_) {
     // The interaction formulation: the history transported to the anchor, the
     // source evaluated at the step's end (solprop's `_ResidentAdams.fused_trial`).

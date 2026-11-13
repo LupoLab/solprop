@@ -78,12 +78,13 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
+from solprop.translate.assembly import assemble
 from solprop.translate.general import (
     _log_gas_regions,
     general_modal_route,
     modal_identity,
 )
-from solprop.translate.problem import Translation, assemble
+from solprop.translate.problem import Translation
 from solprop.translate.responses import KerrForm, dispersive_terms
 
 pytestmark = [

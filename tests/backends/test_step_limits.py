@@ -24,9 +24,9 @@ from solprop.output.metadata import _example_metadata
 from solprop.output.records import StepLimits, StepperRecord
 from solprop.stepper import DOPRI5, Multistep, PIController
 from solprop.stepper.controller import START_GROWTH
+from solprop.translate.assembly import _stepper_settings, assemble
 from solprop.translate.chebyshev import build_from_paths
 from solprop.translate.coupled import constant_schur_flow
-from solprop.translate.problem import _stepper_settings, assemble
 
 LENGTH = 0.05
 

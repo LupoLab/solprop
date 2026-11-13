@@ -18,7 +18,7 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.problem import _route
+from solprop.translate.assembly import _route
 from solprop.translate.routes import (
     SPATIAL_KINDS,
     GeneralRoute,

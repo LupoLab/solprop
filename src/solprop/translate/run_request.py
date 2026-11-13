@@ -27,7 +27,7 @@ section 6.3 specifies:
 
 :func:`describe_run` builds one from the stepper section translation resolved
 (:class:`~solprop.translate.problem.StepperSettings`) and the run's settings;
-:func:`solprop.translate.problem.assemble` returns the request for a fresh run beside
+:func:`solprop.translate.assembly.assemble` returns the request for a fresh run beside
 its problem, and :meth:`RunRequest.for_run` adapts it to one run's start, retention,
 monitor and history. The problem carries none of this (SEP 47 section 5.2).
 """
@@ -489,7 +489,7 @@ def describe_run(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.run_request import describe_run
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0,

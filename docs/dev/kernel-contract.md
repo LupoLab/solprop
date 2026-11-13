@@ -60,7 +60,7 @@ of a fixed set of arrays, and false when either took the z table.
 The problem is the run's numerical meaning and nothing of how it is run
 ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2). The stepper settings of §7 and the
 statistics request of §8 are run policy: they travel in the immutable
-`translate.run_request.RunRequest` that `translate.problem.assemble` returns beside the
+`translate.run_request.RunRequest` that `translate.assembly.assemble` returns beside the
 problem (`Translation(problem, request)`), and a backend receives both where it is built
 (`registry.select(name, problem, request, ...)`). `PropagationProblem.validate()` checks
 what the problem promises alone; `translate.problem.validate_run(problem, request)` runs
@@ -88,11 +88,11 @@ mode-averaged effective-area route and the resolved quadrature, a wall's coupled
 | field | type | meaning |
 |---|---|---|
 | `transform` | frozen dataclass | §4, of kind `"mode_averaged"` or `"modal"`, with neither `geometry` nor `modal_tables` |
-| `tdse` | `TDSESource` or `None` | the TDSE response, the modal route's reference-only extension (§6); `None` without one |
+| `tdse` | `TDSESource` or `None` | the TDSE response, the modal route's extension (§6); `None` without one |
 
-`TDSESource` — the TDSE response's immutable scientific identity. Only `numpy_ref`
-executes it; `native` refuses it by name. Its execution resource, the atomic binding, is
-the driver's and crosses explicitly (§6).
+`TDSESource` — the TDSE response's immutable scientific identity. `numpy_ref` and the
+native CPU build execute it; a native device build refuses it by name. Its execution
+resource, the atomic binding, is the driver's and crosses explicitly (§6).
 
 | field | type | meaning |
 |---|---|---|
@@ -278,7 +278,7 @@ invocation, including failures. Logical source-call and atomic-attempt ledgers
 remain separate. The base driver owns `_adams`, initially `None`, and exports and
 restores its logical ledger on every Adams backend. Loading a checkpoint resets
 numerical history but preserves charged calls; startup is charged again. Atomic
-ledger restoration remains exclusive to the bound NumPy TDSE path.
+ledger restoration needs a bound TDSE binding, on either backend.
 
 **The lab-frame source of the exponential formulation.**
 `HostDriver._adams_lab_source(lab, position, *, purpose)` is the complete source
@@ -310,7 +310,8 @@ deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_s
 `TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
 observations retain their actual provenance. This is a host seam operation:
 the shared march neither accesses NumPy's private binding nor adds atomic
-physics to a compiled backend. The native backend continues to refuse TDSE by name.
+physics to a compiled backend. The native backend's march reaches the same binding
+through its host source hook (§6).
 A corrected-field diagnostic still needs an identical cached response or a
 separately charged solve; a predictor label never implies accepted-field data.
 If the corrected-field solve fails after candidate adoption, `_adams_restore`
@@ -566,7 +567,7 @@ diagnostic **plus** the relative Chebyshev tail of the z expansion, `residual_no
 is the enclosure `Σ_k ‖r_k‖₂` of the explicit residual over the **whole** section (`|T_k|
 ≤ 1`, so it bounds the extrema no sample sees), and `inverse_condition_bound` is
 `exp(dz_max (μ_max − μ_min))` of the frozen block. `0.9/(K · cond)` from the last two is
-the advisory step `solprop.translate.problem.validate_coupled_flow` warns `dz_init`,
+the advisory step `solprop.translate.validation.validate_coupled_flow` warns `dz_init`,
 `dz_max` and a fixed schedule against; no row carries it.
 
 **What executes.** Two families of combinations, either of which may carry the vector
@@ -1028,8 +1029,28 @@ stepper's decision on the latest trial. The reference backend calls it from its
 step record (`_record`), which every Adams attempt reaches, rejected or accepted;
 it changes no step, charge or reservation. None of this is part of the descriptors
 or the kernel problem, which compiled backends see, so it is
-outside the kernel schema: the native backend refuses TDSE by name and never holds a
-binding.
+outside the kernel schema.
+
+**The native host source hook** ([SEP 49](seps/archive/sep-0049-tdse-on-native.md),
+ADR-078). On the native CPU build the binding reaches the resident Adams march as a
+host source: a session binding outside the kernel problem, whose three entry points the march calls
+from the thread that called `advance`, outside every parallel region, holding the
+interpreter lock for each. `begin(cost)` reserves an attempt's calls after the march's
+budget check; `evaluate(field, z, purpose, out)` receives, read-only, the lab-frame
+spectrum the engine would hand its own source pass, unscaled and with any noise added,
+which the stage's entry kernel writes into the hook's field row, and writes `F`, the projected source before the
+spectral collar, which the shared assembly (`solprop.backends.tdse_source`) forms as
+the reference does; `end(outcome)` records an accepted or rejected attempt after its
+decision, and after its commit for an accepted one, then releases the reservation, and
+an attempt that leaves before a decision only releases it. The engine's own response
+pass does not run; its stage finish applies the spectral collar, the in-stage absorber
+and the propagator. The hook's two rows, the field and `F`, are allocated when it is
+bound, handed to it in place, and listed as `host_source` in the memory ledger. An exception in an entry point is kept on the
+Python side and reported to the march as a host failure: before the commit the
+attempt is abandoned, after it the committed attempt is returned with the failure,
+and the session raises the kept exception unchanged; an abandoned attempt's failed
+release rides on the run's own error as a note. A device build refuses a TDSE
+problem at preparation.
 
 The backend independently projects macroscopic P and J with the existing modal
 weights and crop scale. It subtracts unscaled discrete shadows, then applies
@@ -1117,7 +1138,7 @@ launch's remaining planes).
 | `schedule` | `(n_steps,) float64` or `None` | fixed schedule to replay (lockstep batches require it); its edges must contain every save plane and hard kink, which `FixedSchedule.uniform` guarantees for a plain fixed-step run |
 | `save_planes` | `(n_z,) float64` | z positions the driver will ask for; steps land on them unless `interpolate_planes` is set |
 | `propagator_mode` | `"auto" \| "tabulate" \| "recompute"` | ADR-004 and [backends.md §3.6](backends.md). `"auto"` is the default and is the backend's own choice, resolved at construction and written into the run's `backend` metadata group: `tabulate` for `numpy_ref` and `recompute` for `native` on a modal problem; `recompute` on every backend for a separable free-space operator, whose increment `D (z₂ − z₁)` is exact. Under the low-storage march `tabulate` is one volume of `exp(h D / 2)` reused while the step holds (a varying operator's `P` and `Q` for the step), admitted on the free and planar kinds too, and `"auto"` resolves to `tabulate` for a constant operator and `recompute` for a varying one (SEP 24 §4.3), and to `recompute` on a native device build, where an extra field read costs more than the exponential |
-| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); TDSE remains NumPy-only. `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
+| `integrator` | `Multistep \| LowStorageRungeKutta \| None` | The method stepping the problem instead of the tableau, or `None` for the Runge-Kutta march. `Multistep` ([SEP 13](seps/archive/sep-0013-expensive-response-steppers.md), [SEP 16](seps/archive/sep-0016-unified-multistep.md)) is the Adams march in its exponential or interaction formulation, with an optional carrier frame (`carrier_frame`, [SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md), added in version 37: `"off"` or `"scalar"`, the latter on `numpy_ref` and native CPU builds and refused by name elsewhere); it runs on `numpy_ref` and Kokkos on every diagonal-flow route, and beside the constant-Schur and frozen-residual coupled flows in the exponential formulation; with a `schedule` it replays the schedule's steps (`HostAdamsMarch._replay_to`); the TDSE response runs adaptive, on `numpy_ref` and the native CPU build (SEP 49). `LowStorageRungeKutta` ([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md)) is RK4 in the midpoint interaction picture in three registers: it replays a `schedule` and nothing else, records the norm 0.0 ("not estimated"), refuses a coupled flow, the TDSE response, interpolated planes and a step past RK4's negative-real interval 2.785, and runs on `numpy_ref` and solprop-native (a resident engine whose step is one native call) |
 | `interval_cap` | bool | whether a step is capped at the width of the operator-table interval it starts in. `assemble` turns it off on the diagonal-flow routes and on for a coupled flow or a reject-free controller, unless set ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.1) |
 | `auto_init` | bool | whether the start-up rule takes the step after the first from the first step's own scaled norm (`PIController.start_factor`, at most 100 times `dz_init`). Set by the convenience interfaces when no `dz_init` is given; off for a coupled flow or a reject-free controller ([SEP 14](seps/archive/sep-0014-stepper-efficiency.md) §4.2) |
 | `interpolate_planes` | bool | steps across the save planes and observes each inside its accepted step, through DOPRI5's continuous extension or, with an `integrator`, the Adams march's own polynomial (ADR-039); the end of the run and the hard kinks are still landed on. Refused with a schedule, a Runge-Kutta tableau without an extension, the per-step collar, a coupled flow and the `modified` noise |
@@ -1329,7 +1350,8 @@ library (#135): each strict file's probe, beside a control that fuses, in the in
 build (`tests/backends/test_native_strict_witness.py`, and the wheel stage's smoke test);
 the same probe in the native unit tests of an optimised build with fused multiply-add;
 and the wheel stage's scan of the strict files' disassembly for a fused instruction
-(`native/ci/check_strict_fma.py`). The boundary checks above and the Runge–Kutta march
+(`native/ci/check_strict_fma.py`, each function bounded by its symbol's size, since a
+stripped extension labels only exported functions). The boundary checks above and the Runge–Kutta march
 (§12) are held the same way.
 
 ## 12. The Runge–Kutta march

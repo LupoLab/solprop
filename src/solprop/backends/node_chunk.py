@@ -242,7 +242,7 @@ def plan_node_chunk(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.backends.node_chunk import plan_node_chunk
     >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11)

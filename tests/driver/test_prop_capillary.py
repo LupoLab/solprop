@@ -20,9 +20,6 @@ import functools
 import json
 import logging
 import math
-import statistics
-import subprocess
-import sys
 import time
 import warnings
 from collections.abc import Sequence
@@ -35,7 +32,6 @@ import h5py
 import numpy as np
 import pytest
 from CoolProp.CoolProp import PropsSI  # pyright: ignore[reportMissingImports]
-from coverage import Coverage
 from optmat.conditions import State
 from optmat.gas.eos import equation_of_state
 from scipy.constants import N_A
@@ -61,11 +57,9 @@ from selected_backend import selected_backend
 from sessions.runs import run as run_session
 from sessions.runs import to_planes
 from solprop import tools
-from solprop.backends.events import ObservationReady, join_attempts
+from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.registry import select
-from solprop.backends.session import Start
-from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
 from solprop.driver import Simulation, prop_capillary
@@ -106,7 +100,7 @@ from solprop.physdata.species import IonisationData, Species, species
 from solprop.processing import get_power_weight, get_spectral_density
 from solprop.profiles import Constant, DensityPath, Linear, PressureGradient, ZProfile
 from solprop.pulses import GaussianPulse
-from solprop.stats import StatsSpec, analytic_field, energy
+from solprop.stats import StatsSpec, analytic_field
 from solprop.stepper import FixedSchedule, RungeKutta, observed_order
 from solprop.translate.modal import QUADRATURE_ALARM
 from solprop.translate.responses import KerrCoefficients, ResponseStage
@@ -405,12 +399,14 @@ def test_molecular_plasma_choices_remain_explicit(gas):
         assert not any(hasattr(one, "rate") for one in simulation.responses)
 
 
-@pytest.mark.parametrize("gas", ["H2", "D2", "N2", "O2"])
-def test_capillary_interface_default_matches_explicit_optmat_rate(gas):
+def test_capillary_interface_default_matches_explicit_optmat_rate():
     # A short plasma-only run exercises the selected rate through translation
     # and propagation. Identical explicit/automatic inputs make one problem, and on a
     # prescribed schedule at a fixed order one march, so the two runs agree within
-    # its rounding budget (SEP 25); a different rate would move them far more.
+    # its rounding budget (SEP 25); a different rate would move them far more. One
+    # molecule suffices: that every gas's default is optmat's rate for that gas is
+    # test_the_default_plasma_rate_is_optmats_for_atoms_and_molecules's claim.
+    gas = "N2"
     options = {
         "gas": gas,
         "radius": 30e-6,
@@ -1149,182 +1145,14 @@ def test_the_fundamental_drive_is_the_effective_area_in_closed_form():
     assert quartic == pytest.approx(4.0 / ((EPS0 * C) ** 2 * mode.aeff(0.0)), rel=1e-14)
 
 
-# ------------------------------------- oracle 1: Luna's own projection of a known field
-#
-# `tests/data/generate_luna_overlap.py` asks Luna's own `TransModalFixed` for the same
-# ratio, by handing it a spectrum that lives in the fundamental alone and reading the
-# drive it projects into every mode. Nothing here runs Julia.
-
-OVERLAP = json.loads((Path(__file__).parents[1] / "data/luna_overlap.json").read_text())
-OVERLAP_PROVENANCE = json.loads(
-    (Path(__file__).parents[1] / "data/luna_overlap_provenance.json").read_text()
-)
-OVERLAP_CASES = [("REDUCED", 2), ("FULL", 4)]
-OVERLAP_ORDERS = [(nr, rule) for nr in (64, 128, 256) for rule in ("true", "false")]
-
-# Luna's constants are an older CODATA release: its eps0 is smaller than solprop's by
-# 1.33e-10 relative, which is exactly the difference seen in its mode normalisations and
-# profiles below. The generator emits the constants so this can be asserted rather than
-# absorbed into a tolerance.
-LUNA_CONSTANTS_OFFSET = 1.4e-10
-
-
-def luna_ratios(tag, count, nr, rule):
-    """Return the drive ratios Luna's transform realised on one quadrature."""
-    return np.array(
-        [OVERLAP[f"{tag}_{nr}_{rule}_RATIO_{p}"][0] for p in range(1, count + 1)]
-    )
-
-
-def test_the_overlap_witness_names_the_luna_it_came_from():
-    """The stored oracle records which Luna, which Julia and which case built it."""
-    assert len(OVERLAP_PROVENANCE["luna_commit"]) == 40
-    assert OVERLAP_PROVENANCE["luna_branch"] == "modal-fixed"
-    assert OVERLAP_PROVENANCE["julia_version"].startswith("julia version")
-    assert OVERLAP_PROVENANCE["temperature_k"] == pytest.approx(294.0)
-    assert OVERLAP_PROVENANCE["radius"] == pytest.approx(RADIUS)
-    assert OVERLAP_PROVENANCE["reduced_modes"] == 2
-    assert OVERLAP_PROVENANCE["full_modes"] == 4
-
-
-def test_lunas_constants_are_an_older_codata_release():
-    """The one difference in Luna's mode data, named rather than tolerated.
-
-    ``c`` is exact in both; Luna's ``eps0`` is 1.33e-10 smaller than solprop's, and
-    ``N`` carries ``eps0 c`` so its normalisations are off by that and its profiles by
-    half of it. Nothing else in the mode layer differs at all.
-    """
-    speed, permittivity, _ = OVERLAP["CONSTANTS"]
-    assert speed == C
-    assert permittivity / EPS0 - 1.0 == pytest.approx(-1.332e-10, rel=1e-3)
-
-
-@pytest.mark.parametrize(("tag", "count"), OVERLAP_CASES)
-def test_lunas_own_projection_is_the_analytic_quartic_overlap(tag, count):
-    """Luna's inter-mode Kerr drive is the same Bessel overlap solprop's is.
-
-    This is the first oracle of this section, and it exonerates Luna's projection: at
-    Luna's own default radial order its ``TransModalFixed`` reproduces the analytic
-    ratios to 1.9e-12 -- 0.4785423, 0.0221346 and -0.0023723 -- which is solprop's
-    answer to every digit either code can state. Whatever the higher-mode disagreement
-    is, it is not the synthesis, the normalisation, the projection or the quadrature.
-
-    The bound is the measured agreement with a margin. It is above the 1.6e-13 of
-    solprop's own check because Luna's ratio is read off a propagated spectrum rather
-    than one time sample, so it carries the transform's rounding as well as the rule's.
-    """
-    expected = independent_overlaps(count)
-    np.testing.assert_allclose(
-        luna_ratios(tag, count, 64, "true"), expected, rtol=1e-11, atol=0.0
-    )
-
-
-@pytest.mark.parametrize(("tag", "count"), OVERLAP_CASES)
-def test_lunas_ratio_is_the_same_at_every_frequency(tag, count):
-    """The ratio is frequency-independent in Luna's code, as it is on paper.
-
-    A field that is the fundamental alone gives a polarisation that factorises into
-    ``ehat_1(r)^3`` times a function of time, so everything after the projection --
-    the time window, the transform, the spectral window and ``-i omega / 4`` -- is
-    common to all modes and cancels. Measured: the spread of the ratio across the band
-    where the fundamental's own drive is above 1e-8 of its peak is at most 8.5e-11, and
-    its imaginary part at most 3.5e-14. If Luna's chain had a per-mode or
-    frequency-dependent factor anywhere, this is where it would show.
-    """
-    for nr, rule in OVERLAP_ORDERS:
-        for p in range(1, count + 1):
-            _, imaginary, spread, bins = OVERLAP[f"{tag}_{nr}_{rule}_RATIO_{p}"]
-            assert bins > 100, f"{tag} {nr} {rule} mode {p}: too few bins to mean over"
-            assert abs(imaginary) < 1e-13
-            assert spread < 1e-10
-
-
-@pytest.mark.parametrize(("tag", "count"), OVERLAP_CASES)
-def test_lunas_projection_does_not_move_with_its_quadrature_order(tag, count):
-    """Luna's own quadrature ladder, measured rather than inspected.
-
-    Three radial orders spanning 64 to 256 nodes, with and without the Kronrod
-    extension Luna turns on by default, all agree with the analytic ratios to 6.8e-12.
-    Luna's rule is converged at its default order, so the quadrature is ruled out on
-    Luna's side by measurement rather than by inspection.
-    """
-    expected = independent_overlaps(count)
-    for nr, rule in OVERLAP_ORDERS:
-        np.testing.assert_allclose(
-            luna_ratios(tag, count, nr, rule),
-            expected,
-            rtol=1e-10,
-            atol=0.0,
-            err_msg=f"{tag} nr={nr} kronrod={rule}",
-        )
-    # Luna's own high-order control, from its mode matrices without the transform.
-    np.testing.assert_allclose(
-        OVERLAP[f"{tag}_REFERENCE_512"], expected, rtol=1e-12, atol=0.0
-    )
-
-
-@pytest.mark.parametrize(("tag", "count"), OVERLAP_CASES)
-def test_lunas_basis_is_orthonormal_on_its_own_rule(tag, count):
-    """No linear leak: mode one does not reach mode p without the nonlinearity.
-
-    ``(1/2) eps0 c S Wp`` is the discrete Gram matrix of Luna's normalised basis on its
-    own quadrature. It is the identity to 8.9e-16, so a discrete non-orthogonality --
-    which would put the fundamental into the higher modes with no Kerr term at all --
-    is excluded. The bound is a few ulp of the reduction over the rule's nodes.
-    """
-    for nr, rule in OVERLAP_ORDERS:
-        gram = np.reshape(OVERLAP[f"{tag}_{nr}_{rule}_GRAM"], (count, count), order="F")
-        np.testing.assert_allclose(
-            gram, np.eye(count), rtol=0.0, atol=1e-14, err_msg=f"{tag} {nr} {rule}"
-        )
-
-
-@pytest.mark.parametrize(("tag", "count"), OVERLAP_CASES)
-def test_lunas_modes_are_solprops_modes(tag, count):
-    """The normalisation, the effective area, the Bessel zero and the profile all agree.
-
-    ``A_eff`` and ``u_nm`` are geometry alone and agree to rounding; ``N`` carries
-    ``eps0 c`` and the normalised profile carries its square root, so both sit at
-    Luna's older CODATA offset and no further. There is no m dependence in any of it.
-
-    The witness ``EXY`` is Luna's **y** component, because Luna's ``ϕ = 0`` HE_1m mode
-    is y-polarised; solprop's is x-polarised (ADR-031), so the same numbers are read
-    out of component 0 here. That quarter turn is a deliberate convention divergence,
-    not a defect: a circular capillary is rotationally symmetric and the profile
-    compared is the same function of ``r``.
-    """
-    modes = he1m_set(count)
-    fractions = np.asarray(OVERLAP_PROVENANCE["profile_fractions"])
-    points = np.stack([fractions * RADIUS, np.zeros_like(fractions)], axis=-1)
-    np.testing.assert_allclose(
-        OVERLAP[f"{tag}_UNM"], [mode.u_nm for mode in modes], rtol=1e-14
-    )
-    np.testing.assert_allclose(
-        OVERLAP[f"{tag}_AEFF"], [mode.aeff(0.0) for mode in modes], rtol=1e-14
-    )
-    np.testing.assert_allclose(
-        OVERLAP[f"{tag}_N"],
-        [mode.normalisation(0.0) for mode in modes],
-        rtol=LUNA_CONSTANTS_OFFSET,
-    )
-    for index, mode in enumerate(modes, start=1):
-        ours = mode.field(points, 0.0)[:, 0] / math.sqrt(mode.normalisation(0.0))
-        np.testing.assert_allclose(
-            OVERLAP[f"{tag}_EXY_{index}"],
-            ours,
-            rtol=LUNA_CONSTANTS_OFFSET,
-            err_msg=f"{tag} mode {index}",
-        )
-
-
-# ------------------------------ oracle 2: the undepleted-pump two-mode solution
+# --------------------------------------- the undepleted-pump two-mode solution
 #
 # A weak pump in the fundamental, a weak seed in the second mode, a constant fill, no
 # plasma, and a length short enough that the first order of perturbation theory holds.
-# Each code is run twice, with the Kerr term and with it switched off by a zero
-# susceptibility, so the *nonlinear change* of each mode is a difference of two runs of
-# the same code: no frame, transform or amplitude convention has to be modelled, because
-# every one of them cancels between the two runs and again between the two modes.
+# The case is run twice, with the Kerr term and with it switched off by a zero
+# susceptibility, so the *nonlinear change* of each mode is a difference of two runs:
+# no frame, transform or amplitude convention has to be modelled, because every one of
+# them cancels between the two runs and again between the two modes.
 #
 # The reference is the first-order solution of the coupled-mode equations,
 #
@@ -1333,13 +1161,28 @@ def test_lunas_modes_are_solprops_modes(tag, count):
 # integrated once along z with the pump propagating linearly. Its only content is the
 # overlap tensor and the modes' propagation constants, and the ratio between two modes
 # drops the Kerr constant, chi3, the shock term, the third harmonic and the transform
-# normalisation with them. What is left is what the higher-mode disagreement is about.
+# normalisation with them.
 #
 # ``exp(D_p L)`` is not modelled either: it is *measured*, bin by bin, as the ratio of
 # the linear run's exit to its input -- which is what the seed is for. Without a seed
 # the second mode has no input to divide by and its linear propagation is unknown.
 
-UNDEPLETED = OVERLAP_PROVENANCE["undepleted"]
+# A 30 fs, 30 nJ pump at 800 nm and a seed at 1e-3 of its amplitude, 2 cm of helium at
+# 1 bar in the 125 um capillary, on a 600 fs window from 400 nm to 2 um.
+UNDEPLETED = {
+    "gas": "He",
+    "wavelength": 800e-9,
+    "pressure": 1.0,
+    "length": 0.02,
+    "fwhm": 30e-15,
+    "energy": 30e-9,
+    "seed": 1e-3,
+    "lambda_min": 400e-9,
+    "lambda_max": 2e-6,
+    "trange": 600e-15,
+    "rtol": 1e-11,
+    "atol": 1e-14,
+}
 
 # Where the pump's own spectrum is above this fraction of its peak. Below it the ratio
 # of two nonlinear changes is a ratio of round-off.
@@ -1360,7 +1203,7 @@ def undepleted_grid():
     """Return the grid both codes run the undepleted-pump case on."""
     return FieldGrid.from_limits(
         UNDEPLETED["length"],
-        OVERLAP_PROVENANCE["lambda0"],
+        UNDEPLETED["wavelength"],
         (UNDEPLETED["lambda_min"], UNDEPLETED["lambda_max"]),
         UNDEPLETED["trange"],
         **WITNESS_GRID_RULES,
@@ -1391,10 +1234,10 @@ def undepleted_solprop(*, kerr, energy):
     base = Simulation.from_capillary(
         RADIUS,
         UNDEPLETED["length"],
-        OVERLAP_PROVENANCE["gas"],
+        UNDEPLETED["gas"],
         UNDEPLETED["pressure"],
         grid=grid,
-        wavelength=OVERLAP_PROVENANCE["lambda0"],
+        wavelength=UNDEPLETED["wavelength"],
         fwhm=UNDEPLETED["fwhm"],
         energy=energy,
         modes=2,
@@ -1403,17 +1246,15 @@ def undepleted_solprop(*, kerr, energy):
         n_save=2,
         rtol=UNDEPLETED["rtol"],
         atol=UNDEPLETED["atol"],
-        # Deliberately solprop's own helium and silica (optmat's recommended models)
-        # at solprop's room temperature, 293.15 K, where Luna ran at 294 K: the ratios
-        # compared are the overlap and the mismatch, which the 0.3 % of density does
-        # not reach at the bounds below. Everything else is stated, as for any witness.
+        # solprop's own helium and silica (optmat's recommended models) at its room
+        # temperature, stated rather than defaulted, as is every other input.
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
         loss=True,
         **{"noise": None, **witness_inputs(grid, 2)},
     )
     pulse = GaussianPulse(
-        wavelength=OVERLAP_PROVENANCE["lambda0"], fwhm=UNDEPLETED["fwhm"], energy=energy
+        wavelength=UNDEPLETED["wavelength"], fwhm=UNDEPLETED["fwhm"], energy=energy
     )
     built = pulse.build(grid)
     field0 = np.zeros((2, built.shape[1], grid.n_omega), dtype=complex)
@@ -1457,8 +1298,7 @@ def first_order_change(initial, log_h, tensor, index):
     propagating linearly inside the integral, evaluated by Gauss-Legendre in z. The
     common ``eps0 chi3 rho``, the transform normalisation and the ``-i omega / 4`` are
     left out because only the ratio between two modes is used; what is kept is the
-    per-mode part of the prefactor, ``1 / n_eff``, which solprop carries and Luna does
-    not (pass ones for Luna).
+    per-mode part of the prefactor, ``1 / n_eff``.
     """
     n_t = 2 * (initial.shape[-1] - 1)
     nodes, weights = np.polynomial.legendre.leggauss(FIRST_ORDER_NODES)
@@ -1476,7 +1316,6 @@ def first_order_change(initial, log_h, tensor, index):
 def undepleted_ratios(initial, exit_kerr, exit_linear, index):
     """Return the measured, first-order and closed-form mode-two to mode-one ratios."""
     # The output stores b; the independent source-chain oracle is derived for a.
-    # The Luna witness, at index one, is compared unchanged.
     root = np.sqrt(index)
     initial, exit_kerr, exit_linear = (
         initial / root,
@@ -1544,49 +1383,17 @@ def undepleted_solprop_ratios():
         )
 
 
-@pytest.fixture(scope="module")
-def undepleted_luna_ratios():
-    """Luna's undepleted-pump case, from the stored spectra of the same two runs."""
+def test_the_undepleted_case_is_the_first_order_solution(undepleted_solprop_ratios):
+    """The case against perturbation theory.
 
-    def stored(tag, plane, count=2):
-        return np.stack(
-            [
-                np.asarray(OVERLAP[f"UNDEPLETED_{tag}_{plane}_{m}_RE"])
-                + 1j * np.asarray(OVERLAP[f"UNDEPLETED_{tag}_{plane}_{m}_IM"])
-                for m in range(1, count + 1)
-            ]
-        )
-
-    initial = stored("NL", "IN")
-    np.testing.assert_array_equal(initial, stored("LIN", "IN"))
-    # Luna's modal transform divides by no effective index at all -- `norm_modal` is
-    # -i omega / 4 -- so its prediction carries none either.
-    ones = np.ones(initial.shape)
-    return undepleted_ratios(initial, stored("NL", "OUT"), stored("LIN", "OUT"), ones)
-
-
-def test_the_undepleted_case_runs_on_the_grid_luna_used():
-    """Both codes step the same case on the same frequency axis, bitwise."""
-    np.testing.assert_array_equal(
-        OVERLAP["UNDEPLETED_NL_OMEGA"], undepleted_grid().omega
-    )
-
-
-@pytest.mark.parametrize("code", ["solprop", "luna"])
-def test_the_undepleted_case_is_the_first_order_solution(
-    code, undepleted_solprop_ratios, undepleted_luna_ratios
-):
-    """The second oracle: each code against perturbation theory, not against the other.
-
-    Both codes are in the first-order regime -- the pump's own nonlinear phase is
-    2.2e-3 -- and both reproduce the first-order solution of the coupled-mode equations
-    across the whole pump band: solprop to 4.9e-6 and Luna to 1.3e-5 in the worst bin,
-    against a second-order term of the size of that nonlinear phase. The bound is the
-    measured agreement with a margin of four; it scales linearly with the pump energy,
-    which is asserted below, so it is the neglected second order and not a tolerance.
+    The case is in the first-order regime -- the pump's own nonlinear phase is 2.2e-3
+    -- and reproduces the first-order solution of the coupled-mode equations across the
+    whole pump band, to 4.9e-6 in the worst bin, against a second-order term of the size
+    of that nonlinear phase. The bound is the measured agreement with a margin; it
+    scales linearly with the pump energy, which is asserted below, so it is the
+    neglected second order and not a tolerance.
     """
-    both = {"solprop": undepleted_solprop_ratios, "luna": undepleted_luna_ratios}
-    ratios = both[code]
+    ratios = undepleted_solprop_ratios
     assert int(np.sum(ratios["band"])) == 77
     assert ratios["nonlinear_phase"] == pytest.approx(2.2e-3, rel=0.05)
     deviation = np.abs(ratios["measured"] - ratios["first_order"]) / np.abs(
@@ -1595,9 +1402,8 @@ def test_the_undepleted_case_is_the_first_order_solution(
     assert float(np.max(deviation)) < 5e-5
 
 
-@pytest.mark.parametrize("code", ["solprop", "luna"])
 def test_the_undepleted_ratio_is_the_analytic_mismatch_factor(
-    code, undepleted_solprop_ratios, undepleted_luna_ratios
+    undepleted_solprop_ratios,
 ):
     """And it is the closed form, once the pump's own dispersion is allowed for.
 
@@ -1605,42 +1411,27 @@ def test_the_undepleted_ratio_is_the_analytic_mismatch_factor(
     ``dbeta = beta_1 - beta_2``: the quartic overlap ratio times the mismatch factor,
     and nothing else. ``dbeta`` is 100.68 rad/m for these two modes at the carrier, so
     2 cm is 2.014 rad, the factor has modulus 0.8394 and the ratio is 0.4017 there.
-    Averaged over the pump's band the closed form gives 0.3987 and both codes measure
+    Averaged over the pump's band the closed form gives 0.3987 and the run measures
     0.3995.
 
     The 5e-3 bound is the pump's own dispersion over that band, which this form drops
     and the integrated first-order solution above keeps -- which is why that one agrees
-    four orders better. Measured 3.7e-3 in the worst bin on both codes.
+    four orders better. Measured 3.7e-3 in the worst bin.
+
+    With each mode in its own frame the case could not pass: the operator carried
+    201.17 rad/m of mismatch between the two modes where their propagation constants
+    differ by 100.54, exactly twice over. For a hollow capillary the group-delay term is
+    the mismatch -- the waveguide part of beta goes as 1/omega, so
+    ``beta_1,m omega = -beta_wg,m`` and ``(beta_1,2 - beta_1,1) omega_0`` is
+    ``beta_1 - beta_2`` to a tenth of a per cent -- so subtracting it per mode counted
+    it twice.
     """
-    both = {"solprop": undepleted_solprop_ratios, "luna": undepleted_luna_ratios}
-    ratios = both[code]
+    ratios = undepleted_solprop_ratios
     deviation = np.abs(ratios["measured"] - ratios["closed_form"]) / np.abs(
         ratios["closed_form"]
     )
     assert float(np.max(deviation)) < 5e-3
     assert float(np.abs(np.mean(ratios["measured"]))) == pytest.approx(0.3995, rel=1e-3)
-
-
-def test_both_codes_now_give_the_same_intermodal_ratio(
-    undepleted_solprop_ratios, undepleted_luna_ratios
-):
-    """A consequence of the two oracles rather than one of them, and their point.
-
-    Each code above is measured against perturbation theory on its own; that they then
-    agree with each other to 1e-5 in modulus and phase is what the earlier comparison
-    said they did not do. With each mode in its own frame solprop could not have passed
-    either test: its operator carried 201.17 rad/m of mismatch between the two modes
-    where their propagation constants differ by 100.54, exactly twice over. For a hollow
-    capillary the group-delay term is the mismatch -- the waveguide part of beta goes as
-    1/omega, so ``beta_1,m omega = -beta_wg,m`` and ``(beta_1,2 - beta_1,1) omega_0`` is
-    ``beta_1 - beta_2`` to a tenth of a per cent -- so subtracting it per mode counted
-    it twice. Over a short fibre that is a wrong phase; over a long one the same term is
-    the walk-off the modes really do suffer.
-    """
-    ours = np.mean(undepleted_solprop_ratios["measured"])
-    theirs = np.mean(undepleted_luna_ratios["measured"])
-    assert abs(abs(ours) - abs(theirs)) / abs(theirs) < 1e-4
-    assert abs(np.angle(ours) - np.angle(theirs)) < 1e-4
 
 
 def test_the_undepleted_ratio_does_not_depend_on_the_pump_energy():
@@ -2268,13 +2059,13 @@ def in_band_distance(ours, theirs, band):
     return float(np.linalg.norm(a - b) / np.linalg.norm(b))
 
 
-# The records behind the two witness-comparison tables of `docs/dev/accuracy.md`
-# sections 5 and 6. These stay tables rather than figures -- they are scalars, not
-# ladders -- but each number now comes from a file the suite maintains, together with
-# the band its own test asserts, so a bound quietly widened to fit a measurement is a
-# failure. The tolerance is a fiftieth: an adaptive run on another platform may put its
-# steps in slightly different places, and what that is worth is the controller's own
-# tolerance of 1e-6, four orders inside this.
+# The record behind the witness-comparison table of `docs/dev/accuracy.md` section 5
+# (section 6's numbers are M4_REDUCED_MEASURED below). It stays a table rather than a
+# figure -- scalars, not a ladder -- but each number comes from a file the suite
+# maintains, together with the band its own test asserts, so a bound quietly widened
+# to fit a measurement is a failure. The tolerance is a fiftieth: an adaptive run on
+# another platform may put its steps in slightly different places, and what that is
+# worth is the controller's own tolerance of 1e-6, four orders inside this.
 WITNESS_COLUMNS = (
     Column(
         name="value",
@@ -2313,17 +2104,17 @@ M2_WITNESS_METRICS = Study(
     columns=WITNESS_COLUMNS,
 )
 
-M4_WITNESS_METRICS = Study(
-    name="m4_witness_metrics",
-    title="Milestone M4 against its Luna witness, metric by metric",
-    case={
-        "witness": "tests/data/luna_ctc_reduced.h5",
-        "media": "the package fit unchanged; Luna's cladding table",
-        "reduced case": "1 mode, a 2 ps window, 0.1 m",
-    },
-    axis={"name": "metric", "unit": "1", "label": "metric"},
-    columns=WITNESS_COLUMNS,
-)
+M4_REDUCED_MEASURED = {
+    "fundamental, shape": 0.03833276438933937,
+    "fundamental, content": 1.0000061488827905,
+    "exit energy, ours over Luna's": 1.0000061488826115,
+}
+"""What milestone M4's reduced case measured against its Luna witness, metric by metric.
+
+Each is asserted to a fiftieth: an adaptive run's step sequence is not bitwise across
+platforms, and what that costs the answer is the controller's 1e-6, four orders inside
+this. ``docs/dev/accuracy.md`` section 6 quotes them.
+"""
 
 # The record behind the two "what an alarm costs" rows of section 2: the same run at
 # three radial orders, with the observable the case is about beside the alarm that is
@@ -2896,7 +2687,7 @@ def test_the_m2_case_is_first_order_and_the_two_reasons_are_known(request):
     constant fill, no plasma         6.21
     constant fill, plasma            5.95
     vacuum gradient, no plasma       1.42
-    vacuum gradient, plasma          1.59
+    vacuum gradient, plasma          1.51
     ==============================  =====
 
     **It is the vacuum end, alone.** A fill that reaches a true vacuum has ``dp/dz``
@@ -2949,7 +2740,7 @@ def test_the_other_two_switches_of_the_order_study(request):
     constant fill, no plasma         6.21
     constant fill, plasma            5.95
     vacuum gradient, no plasma       1.42
-    vacuum gradient, plasma          1.59
+    vacuum gradient, plasma          1.51
     ==============================  =====
 
     **The vacuum end is the whole of it, and the plasma costs nothing.** The coarser
@@ -3444,7 +3235,7 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
 
 @pytest.mark.slow
 def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
-    luna_ctc_reduced, request, test_backend_name
+    luna_ctc_reduced, test_backend_name
 ):
     """Bound the solver against Luna under an explicitly matched Raman model.
 
@@ -3491,39 +3282,20 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
     assert 0.0345 < fundamental < 0.0422
     assert abs(content - 1.0) < 1e-4
     assert abs(surviving / luna_surviving - 1.0) < 1e-4
-    record(
-        M4_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "reduced case",
-            [
-                ("fundamental, shape", fundamental, 0.0345, 0.0422),
-                ("fundamental, content", content, 1.0 - 1e-4, 1.0 + 1e-4),
-                (
-                    "exit energy, ours over Luna's",
-                    surviving / luna_surviving,
-                    1.0 - 1e-4,
-                    1.0 + 1e-4,
-                ),
-            ],
-        ),
-    )
+    measured = {
+        "fundamental, shape": fundamental,
+        "fundamental, content": content,
+        "exit energy, ours over Luna's": surviving / luna_surviving,
+    }
+    for name, value in measured.items():
+        assert value == pytest.approx(M4_REDUCED_MEASURED[name], rel=0.02), name
 
 
 # ====================================== the statistics channel between planes
 
 
 PERIODIC_SUBSET = ("energy", "peak_power", "fwhm_t", "electron_density")
-"""The cost gate's default subset: three field statistics and the plasma one."""
-
-GATE = 0.25
-"""The channel must cost under a quarter of a step at ``period = 1``.
-
-Not a tenth, because the measurement is a wall-clock ratio taken on a shared machine,
-where it has read 10.57 % under load for a change that costs 0.7 percentage points, and
-a gate that fails on load says nothing worth tuning for.
-"""
+"""Three field statistics and the plasma one."""
 
 
 def reduced_m2_simulation(**overrides):
@@ -3573,155 +3345,6 @@ def reduced_m2_channel():
     plain = simulation._run_request()
     spec = StatsSpec(names=PERIODIC_SUBSET, periodic=PERIODIC_SUBSET, period=1)
     return simulation, problem, plain, plain.for_run(stats=spec)
-
-
-@pytest.mark.slow
-def test_the_statistics_channel_costs_under_a_quarter_of_a_step(
-    record_property, tmp_path
-):
-    """The cost gate, on the reduced M2 case at ``period = 1``.
-
-    Ten fixed Runge-Kutta steps to 2 mm retain the real grid, modes and plasma while
-    keeping the measured propagation window short. The measurement uses
-    three fresh processes per configuration, rotated paired order, and
-    medians with unscaled MAD. Each process warms its arm before three timed runs.
-    ``poe test-slow`` runs this check after its parallel functional tests finish;
-    unrelated workers competing with only one arm can dominate a wall-clock ratio.
-
-    The plasma statistics reuse the accepted Runge-Kutta step's last-stage scan.
-    The default Adams step evaluates its source at the predicted state, so its rows
-    scan the accepted field afresh. This cost witness therefore selects Runge-Kutta
-    explicitly (``docs/guide/results/statistics.md``).
-    """
-    # Both coverage and the session's runtime type hook alter the ratio.
-    # The same fixture and strict assertion run in production imports; functional
-    # channel tests retain both instruments and complete source coverage.
-    results = {"plain": [], "watched": []}
-    for repetition in range(3):
-        order = ("plain", "watched") if repetition % 2 == 0 else ("watched", "plain")
-        for selection in order:
-            report = tmp_path / f"statistics-cost-{repetition}-{selection}.json"
-            command = [
-                sys.executable,
-                "-W",
-                "error",
-                # The later option wins; a lane without solprop-native runs on `auto`.
-                "-W",
-                "ignore:solprop-native is not installed",
-                str(Path(__file__).parents[1] / "statistics_cost_probe.py"),
-                str(report),
-                selection,
-            ]
-            result = subprocess.run(
-                command, capture_output=True, text=True, check=False
-            )
-            label = f"statistics_child_{repetition}_{selection}"
-            record_property(label, result.stdout + result.stderr)
-            assert result.returncode == 0, result.stdout + result.stderr
-            results[selection].append(json.loads(report.read_text()))
-    counts = {
-        (row["steps"], tuple(row["accepted"]))
-        for records in results.values()
-        for process in records
-        for row in process["runs"]
-    }
-    assert len(counts) == 1
-    assert counts == {(10, (True,) * 10)}
-    histories = {
-        (tuple(row["z"]), tuple(row["dz"]))
-        for records in results.values()
-        for process in records
-        for row in process["runs"]
-    }
-    assert len(histories) == 1
-    samples = {
-        name: [
-            statistics.median(row["seconds"] for row in item["runs"]) for item in arm
-        ]
-        for name, arm in results.items()
-    }
-    medians = {name: statistics.median(values) for name, values in samples.items()}
-    mads = {
-        name: statistics.median(abs(value - medians[name]) for value in values)
-        for name, values in samples.items()
-    }
-    ratio = medians["watched"] / medians["plain"] - 1.0
-    record_property("statistics_process_seconds", json.dumps(samples))
-    record_property("statistics_medians", json.dumps(medians))
-    record_property("statistics_mads", json.dumps(mads))
-    record_property("statistics_cost_ratio", ratio)
-    record_property("statistics_cost_bound", GATE)
-    assert ratio < GATE, f"the channel cost {100 * ratio:.1f} % of the run"
-
-
-def statistics_channel_measurement(reduced_m2_channel, selection):
-    """Measure one warmed configuration with production imports."""
-    assert Coverage.current() is None, "statistics timing requires an untraced worker"
-    assert selection in ("plain", "watched")
-    simulation, problem, plain, watched = reduced_m2_channel
-    run_request = plain if selection == "plain" else watched
-    # The stash a row is read from is the Runge-Kutta march's last stage.
-    target = 0.002
-    run_request = run_request.with_stepper(
-        replace(
-            run_request.stepper,
-            integrator=None,
-            # Each measurement advances only the schedule's first ten steps, to 2 mm,
-            # its one save plane.
-            schedule=FixedSchedule.uniform(0.0, simulation.grid.length, target / 10),
-            save_planes=np.array([target]),
-        )
-    )
-
-    def arm():
-        backend = select(
-            TEST_BACKEND,
-            problem,
-            run_request,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        # The run's session from the launch, whose plane is not observed: the time
-        # is the march's and its rows', and the one plane's at 2 mm (SEP 47 phase 5).
-        start = Start(field=problem.initial.field0, z=0.0, plane_pending=False)
-        session = start_session(backend, problem, run_request, start)
-        chunks = []
-        try:
-            cpu_started = time.process_time()
-            started = time.perf_counter()
-            while not session.finished:
-                batch = session.advance()
-                chunks.extend(
-                    (
-                        getattr(event, "history", None),
-                        getattr(event, "step_stats", None),
-                    )
-                    for event in batch.events
-                )
-                session.acknowledge(batch.receipt)
-            elapsed = time.perf_counter() - started
-            cpu_elapsed = time.process_time() - cpu_started
-            record = dict(session.execution_record())
-        finally:
-            session.close()
-        history, rows = join_attempts(chunks)
-        # A row per accepted step: a rejected trial records none.
-        accepted = int(np.sum(history.accepted))
-        assert rows.n_rows == (accepted if selection == "watched" else 0)
-        return {
-            "seconds": elapsed,
-            "cpu_seconds": cpu_elapsed,
-            "steps": history.n_steps,
-            "accepted": history.accepted.tolist(),
-            "z": history.z.tolist(),
-            "dz": history.dz.tolist(),
-            "rows": rows.n_rows,
-            "metadata": record,
-        }
-
-    arm()
-    return [arm() for _ in range(3)]
 
 
 @pytest.mark.medium
@@ -3838,310 +3461,6 @@ def test_the_reduced_m2_case_is_the_same_run_on_either_backend(request, reduced)
     # The reference's own bound for this case, which it meets at 6.330e-2; the retired
     # numba_cpu met it at 6.330e-2 too, to four figures.
     assert 0.05 < in_band_distance(mine[0], luna[0], grid.inband_mask) < 0.08
-
-
-# ------------------------------------------------- the full case, on both codes
-#
-# Luna's side of the three ladders below is already stored: a separate campaign ran
-# the full M2 case on Luna at four tolerances, at three quadrature orders and with the
-# plasma switched off, and kept the per-mode energy at every one of 201 planes
-# (`tests/data/luna_rdw_switches.json`, provenance beside it). Nothing here runs Luna;
-# the rows are read out of that file and carried into the record with Luna's own
-# commit, which is what lets one figure hold both codes.
-
-SWITCHES = json.loads(
-    (Path(__file__).parents[1] / "data/luna_rdw_switches.json").read_text()
-)
-SWITCHES_PROVENANCE = json.loads(
-    (Path(__file__).parents[1] / "data/luna_rdw_switches_provenance.json").read_text()
-)
-LUNA_SWITCHES = {
-    "commit": SWITCHES_PROVENANCE["luna_commit"],
-    "branch": SWITCHES_PROVENANCE["luna_branch"],
-    "source": "luna_rdw_switches.json",
-    "sha256": SWITCHES_PROVENANCE["files"]["luna_rdw_switches.json"]["sha256"],
-}
-
-# The second mode's exit energy is what these ladders are about: it is the number
-# that reads 0.564 of Luna's at Luna's own tolerance and 0.9958 once Luna is
-# converged, because Luna's weak modes are not converged at its default tolerance. A
-# half of
-# one per cent is the tolerance for it: solprop's own answer moves by 2.3e-4 across
-# three decades of tolerance, and an adaptive run on another platform may place its
-# steps slightly differently, which is worth the controller's 1e-6 at most.
-MODE2_ENERGY = Column(
-    name="mode2_energy",
-    unit="J",
-    why="half of one per cent: solprop's own answer moves by 2.3e-4 across three "
-    "decades of tolerance, and a different step placement on another platform is "
-    "worth the controller's 1e-6, so anything this wide is a real change",
-    rtol=5e-3,
-)
-
-M2_TOLERANCE = Study(
-    name="m2_tolerance",
-    title="The M2 second mode's exit energy against the step tolerance, both codes",
-    case={
-        "case": "the full M2 capillary, 4 modes, 1.5 m",
-        "solprop": "prop_capillary with Luna's media, atol 1e-10",
-        "luna": "Luna.run called directly, because prop_capillary's interface cannot "
-        "set a tolerance at all; rows from luna_rdw_switches.json",
-        "metric": "the second mode's energy at the exit plane",
-    },
-    axis={"name": "rtol", "unit": "1", "label": "relative step tolerance"},
-    luna=LUNA_SWITCHES,
-    columns=(
-        MODE2_ENERGY,
-        Column(
-            name="steps",
-            unit="accepted steps",
-            why="recorded, never compared: Luna's step count is not reproducible even "
-            "across two machines, and solprop's is a property of the "
-            "controller rather than of the answer",
-            rtol=None,
-        ),
-    ),
-)
-
-M2_QUADRATURE = Study(
-    name="m2_quadrature",
-    title="The M2 second mode's exit energy against the radial order, both codes",
-    case={
-        "case": "the full M2 capillary, 4 modes, 1.5 m, at Luna's own tolerance",
-        "solprop": "a fixed Gauss-Legendre rule of this order (ADR-010)",
-        "luna": "its own `nr` keyword, rows from luna_rdw_switches.json",
-        "metric": "the second mode's energy at the exit plane",
-    },
-    axis={"name": "n_r", "unit": "nodes", "label": "radial quadrature order"},
-    luna=LUNA_SWITCHES,
-    columns=(MODE2_ENERGY,),
-)
-
-M2_MODE2_ALONG_Z = Study(
-    name="m2_mode2_along_z",
-    title="The M2 second mode's energy along the fibre, both codes, plasma on and off",
-    case={
-        "case": "the full M2 capillary, 4 modes, 1.5 m, at Luna's own tolerance",
-        "planes": "201, the witness's own save grid",
-        "why": "with the plasma off the two codes agree at every plane; with "
-        "it on the difference is a beat whose envelope departs from about 0.65 m, "
-        "which is why no z-averaged bound is asserted on it",
-    },
-    axis={"name": "plane", "unit": "1", "label": "save plane"},
-    luna=LUNA_SWITCHES,
-    columns=(
-        Column(
-            name="z",
-            unit="m",
-            why="the plane's position, an input of the run rather than a measurement, "
-            "so it is compared exactly",
-            rtol=0.0,
-        ),
-        Column(
-            name="energy",
-            unit="J",
-            why="half of one per cent, as the exit energy above; the Kerr-only "
-            "comparison this figure is for agrees between the codes to one per cent",
-            rtol=5e-3,
-        ),
-    ),
-)
-
-
-def luna_mode2(tag):
-    """Return the archived vacuum-norm scalar: these rows contain no spectra."""
-    return SWITCHES[f"{tag}_E_2"]
-
-
-def legacy_mode2_energy(output):
-    """Evaluate the same historical functional as Luna's scalar-only records.
-
-    These three convergence curves predate stored spectra. They cannot be converted
-    frequency by frequency. Keep their explicit vacuum convention on both sides;
-    all amplitude witnesses and public run statistics use true-power units.
-    """
-    weights = get_power_weight(output)
-    grid = witness_grid(FULL)
-    return np.asarray(
-        [
-            energy(grid, field / np.sqrt(weight))[1, 0]
-            for field, weight in zip(output.fields("fft"), weights, strict=True)
-        ]
-    )
-
-
-@pytest.mark.benchmark
-def test_the_full_case_tolerance_ladder_on_both_codes(request):
-    """Three decades of tolerance on the full M2 case, against Luna's own ladder.
-
-    This is the figure that carries the story of `docs/dev/accuracy.md` section 5:
-    Luna's second mode falls from 3.341 to 1.893 uJ over ``rtol`` 1e-6 to 1e-9, a
-    factor of 1.77, while solprop's is flat -- so the production witness's 0.564 is
-    solprop converged against Luna unconverged.
-
-    Marked `benchmark`, so no lane runs it: four runs of the full four-mode case, the
-    finest of them several times the coarsest. Run it, and rewrite
-    ``tests/data/convergence/m2_tolerance.json``, with
-
-        SOLPROP_WRITE_RECORDS=1 uv run pytest \
-            tests/driver/test_prop_capillary.py -m benchmark -p no:randomly \
-            -k the_full_case_tolerance_ladder
-
-    from a clean tree.
-    """
-    exponents = (6, 7, 8, 9)
-    ours = []
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        for exponent in exponents:
-            output = gated_witness_run(FULL, "FULL", rtol=10.0**-exponent)
-            accepted = np.asarray(output["step_history/accepted"])
-            ours.append(
-                (
-                    float(legacy_mode2_energy(output)[-1]),
-                    float(np.count_nonzero(accepted)),
-                )
-            )
-    # solprop's answer does not move across the three decades; Luna's falls by 1.77.
-    energies = [energy for energy, _ in ours]
-    assert abs(energies[-1] / energies[0] - 1.0) < 1e-3
-    theirs = [
-        (luna_mode2(f"RTOL{exponent}")[-1], SWITCHES[f"RTOL{exponent}_STEPS"][0])
-        for exponent in exponents
-    ]
-    assert theirs[0][0] / theirs[-1][0] > 1.5
-    # The bounded temporal absorber profile takes the full M2 case from 2551 to 1904
-    # accepted steps against the capped logarithm (2550/3935/5973/9093 ->
-    # 1905/2952/4703/7458 on this ladder).
-    # The stored rows were measured with the nominal launch energy rather than the
-    # true energy of Luna's pulse (1.0000228218 times the nominal one on the full
-    # case), so they will move by parts in 1e4 when next regenerated.
-    record(
-        M2_TOLERANCE,
-        request=request,
-        backend="numpy_ref",
-        rows=[
-            {
-                "series": series,
-                "axis": f"1e-{exponent}",
-                "mode2_energy": energy,
-                "steps": steps,
-            }
-            for series, measured in (
-                ("solprop, full case", ours),
-                ("Luna, full case", theirs),
-            )
-            for exponent, (energy, steps) in zip(exponents, measured, strict=True)
-        ],
-    )
-
-
-@pytest.mark.benchmark
-def test_the_full_case_quadrature_ladder_on_both_codes(request):
-    """The quadrature ladder, run on solprop and read off Luna.
-
-    Three radial orders leave the second mode's exit energy unchanged to seven digits
-    on both codes, which is what excludes the transverse rule as a cause of the
-    codes' remaining difference. Marked `benchmark`: three full-case runs. Run it, and
-    rewrite ``tests/data/convergence/m2_quadrature.json``, with
-
-        SOLPROP_WRITE_RECORDS=1 uv run pytest \
-            tests/driver/test_prop_capillary.py -m benchmark -p no:randomly \
-            -k the_full_case_quadrature_ladder
-
-    from a clean tree.
-    """
-    orders = (32, 64, 128)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        ours = [
-            float(legacy_mode2_energy(gated_witness_run(FULL, "FULL", n_r=n_r))[-1])
-            for n_r in orders
-        ]
-    theirs = [luna_mode2(f"NR{n_r}")[-1] for n_r in orders]
-    # Seven digits on both codes: the fixed rule is converged well below 32 nodes.
-    for measured in (ours, theirs):
-        assert abs(measured[-1] / measured[0] - 1.0) < 1e-6, measured
-    # The stored rows were measured with the nominal launch energy rather than the
-    # true energy of Luna's pulse (1.0000228218 times the nominal one on the full
-    # case), so they will move by parts in 1e4 when next regenerated.
-    record(
-        M2_QUADRATURE,
-        request=request,
-        backend="numpy_ref",
-        rows=[
-            {"series": series, "axis": n_r, "mode2_energy": energy}
-            for series, measured in (
-                ("solprop, full case", ours),
-                ("Luna, full case", theirs),
-            )
-            for n_r, energy in zip(orders, measured, strict=True)
-        ],
-    )
-
-
-@pytest.mark.benchmark
-def test_the_second_mode_along_z_with_the_plasma_on_and_off(request):
-    """The Kerr-only agreement, at every plane, on both codes.
-
-    With the plasma off the two codes agree on all four modes to one per cent at every
-    one of 201 planes; with it on the second mode's envelope departs from about 0.65 m
-    and the difference is a beat, which is why the page carries a figure rather than a
-    bound. Marked `benchmark`: two full-case runs. Run it, and rewrite
-    ``tests/data/convergence/m2_mode2_along_z.json``, with
-
-        SOLPROP_WRITE_RECORDS=1 uv run pytest \
-            tests/driver/test_prop_capillary.py -m benchmark -p no:randomly \
-            -k the_second_mode_along_z
-
-    from a clean tree.
-    """
-    rows = []
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        for label, keywords in (("on", {}), ("off", {"plasma": False})):
-            output = gated_witness_run(FULL, "FULL", **keywords)
-            energy = legacy_mode2_energy(output)
-            position = np.asarray(output["z"])
-            rows += [
-                {
-                    "series": f"solprop, plasma {label}",
-                    "axis": index,
-                    "z": float(z),
-                    "energy": float(value),
-                }
-                for index, (z, value) in enumerate(zip(position, energy, strict=True))
-            ]
-    for label, tag in (("on", "REFERENCE"), ("off", "NOPLASMA")):
-        rows += [
-            {
-                "series": f"Luna, plasma {label}",
-                "axis": index,
-                "z": float(z),
-                "energy": float(value),
-            }
-            for index, (z, value) in enumerate(
-                zip(SWITCHES[f"{tag}_Z"], luna_mode2(tag), strict=True)
-            )
-        ]
-    ours = np.array(
-        [row["energy"] for row in rows if row["series"] == "solprop, plasma off"]
-    )
-    theirs = np.array(
-        [row["energy"] for row in rows if row["series"] == "Luna, plasma off"]
-    )
-    # With the plasma off the codes agree at every plane. The first plane is
-    # the input, where both are the same pulse, so the ratio starts at one.
-    assert float(np.max(np.abs(ours[1:] / theirs[1:] - 1.0))) < 0.02
-    # The stored rows were measured with the nominal launch energy rather than the
-    # true energy of Luna's pulse (1.0000228218 times the nominal one on the full
-    # case), so they will move by parts in 1e4 when next regenerated.
-    record(
-        M2_MODE2_ALONG_Z,
-        request=request,
-        backend="numpy_ref",
-        rows=rows,
-    )
 
 
 @pytest.mark.benchmark

@@ -18,8 +18,8 @@ from solprop.modes import MarcatiliMode, StepIndexMode, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse
 from solprop.stepper import PIController
 from solprop.translate import stage
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import assemble
 
 
 def true_watt_slope(problem, run_request, grid):

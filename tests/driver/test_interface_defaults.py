@@ -382,14 +382,17 @@ def test_a_copy_takes_the_route_s_default(route):
 def test_a_tdse_run_s_refusals_name_the_backend_and_the_integrator():
     with pytest.raises(DriverError, match=r"integrator=Multistep\(\).*RungeKutta"):
         _capillary(tdse=_sae(), integrator=RungeKutta())
-    with pytest.raises(DriverError, match="explicit backend='numpy_ref'"):
+    # Both backends run the TDSE response (SEP 49): native is no refusal.
+    assert (
         SimulationSettings(
             save_planes=[1.0],
             dz_max=1.0,
             dz_init=1e-3,
             backend="native",
             tdse_execution=TDSEExecution(),
-        )
+        ).backend
+        == "native"
+    )
     # Not a record at all: refused where the annotations are not checked at run time.
     settings = SimulationSettings(
         save_planes=[1.0], dz_max=1.0, dz_init=1e-3, backend="numpy_ref"

@@ -2,17 +2,30 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the periodic statistics channel inside propagation.
+"""Measure the periodic statistics channel inside propagation, against its budget.
 
-Each case runs three ways through the backend's session, interleaved round by round:
-``plain`` (no periodic statistics), ``stashed`` (the electron density's plasma stash
-alone) and ``watched`` (every periodic row). The JSON line reports what the channel and
-its collection cost per step and per row. ``m2_reduced`` is the two-mode helium RDW
+The channel's budget is under a quarter of a step at a row per step (``--period 1``)
+with energy, peak power, the pulse duration and the electron density, on the reduced
+M2 case; the test suite asserts no cost (``docs/dev/testing.md``), so this harness is
+where the budget is measured, by hand on an idle machine, and recorded with the
+release benchmarks.
+
+Each case runs three ways through the backend's session to ``--target``, interleaved
+round by round after one warm-up of each: ``plain`` (no periodic statistics),
+``stashed`` (the electron density's plasma stash alone) and ``watched`` (every periodic
+row). The step counts of the three must agree and the watched run must give a row per
+period, or the harness refuses. The JSON line reports, from the fastest repeat of each,
+``channel_fraction`` (watched over plain, minus one: what the channel costs per step),
+``collection_fraction`` (watched over stashed) and the per-row and per-step times, with
+``budget`` and ``within_budget`` for the channel. ``--stepper runge_kutta`` measures
+under the Runge-Kutta march, whose plasma rows reuse the accepted step's last stage;
+the default Adams step evaluates at its predicted state, so its rows scan afresh
+(``docs/guide/results/statistics.md``). ``m2_reduced`` is the two-mode helium RDW
 capillary and ``ctc_reduced`` the one-mode hydrogen comb-to-continuum capillary below,
-both at rtol 1e-6 and atol 1e-10: the workloads of the native package's former
-``statistics_cost`` harness, reproduced exactly::
+both at rtol 1e-6 and atol 1e-10::
 
     python -m benchmarks.statistics_cost --case m2_reduced --repeats 5
+    python -m benchmarks.statistics_cost --stepper runge_kutta --target 0.002
 """
 
 from __future__ import annotations
@@ -37,6 +50,9 @@ from solprop.stats import StatsSpec
 from solprop.translate.run_request import RunRequest
 
 PERIODIC = ("energy", "peak_power", "fwhm_t", "electron_density")
+
+BUDGET = 0.25
+"""The channel's budget at a row per step: under a quarter of a step."""
 
 
 class Arm(TypedDict):
@@ -88,6 +104,7 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     repeats: int,
     modes: int | None,
     period: int,
+    stepper: str,
 ) -> None:
     blas_backend = "not applicable"
     blas_threads: int | str = "not applicable"
@@ -165,8 +182,12 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
     def run(request: RunRequest) -> Arm:
         # One plane at the target, through the backend's session (SEP 47): the
         # accepted steps and the periodic rows its batches carry.
+        # An integrator of None is the Runge-Kutta march.
+        integrator = None if stepper == "runge_kutta" else request.stepper.integrator
         request = request.with_stepper(
-            dataclasses.replace(request.stepper, save_planes=(target,))
+            dataclasses.replace(
+                request.stepper, save_planes=(target,), integrator=integrator
+            )
         )
         backend = select(
             backend_name,
@@ -232,6 +253,7 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
                 "case": case_name,
                 "blas_backend": blas_backend,
                 "blas_threads": blas_threads,
+                "budget": BUDGET,
                 "channel_fraction": ratio,
                 "channel_percent": 100.0 * ratio,
                 "collection_fraction": collection_ratio,
@@ -248,8 +270,10 @@ def _worker(  # noqa: PLR0915 - one measurement: set up, run the arms, report
                 "repeats": repeats,
                 "samples": samples,
                 "stashed": best["stashed"],
+                "stepper": stepper,
                 "target": target,
                 "watched": best["watched"],
+                "within_budget": ratio < BUDGET,
             },
             sort_keys=True,
         )
@@ -269,6 +293,12 @@ def main() -> None:
         "--modes", type=int, help="m2_reduced's mode count, in place of its table's"
     )
     parser.add_argument("--period", type=int, default=1, help="steps between rows")
+    parser.add_argument(
+        "--stepper",
+        choices=("default", "runge_kutta"),
+        default="default",
+        help="the run's own integrator, or the Runge-Kutta march",
+    )
     arguments = parser.parse_args()
     if arguments.repeats < 1 or arguments.target <= 0.0 or arguments.period < 1:
         parser.error("repeats, target and period must be positive")
@@ -283,6 +313,7 @@ def main() -> None:
         repeats=arguments.repeats,
         modes=arguments.modes,
         period=arguments.period,
+        stepper=arguments.stepper,
     )
 
 

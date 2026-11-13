@@ -218,12 +218,13 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import taper_identity, wall_identity
 from solprop.translate.coupling import input_port as fill_port
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.general import GeneralModalRoute, modal_identity
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import PropagationProblem, TranslationReuse, assemble
+from solprop.translate.problem import PropagationProblem, TranslationReuse
 from solprop.translate.responses import KerrForm, declares_harmonic_carrier
 from solprop.translate.routes import SpatialRoute, tdse_descriptor, transverse_of
 from solprop.translate.run_request import RunRequest
@@ -1792,6 +1793,7 @@ class Simulation(Displayed):
                         problem,
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
+                        stop,
                     )
                 backend = kept or select(
                     self.settings.backend,

@@ -259,7 +259,7 @@ def test_the_admission_matrix_refuses_noise_outside_the_interpolant(
 
 
 def test_the_admission_matrix_refuses_a_coupled_flow(narrow_grid, soliton_problem):
-    from solprop.translate.problem import _admit_dense  # noqa: PLC0415 - private
+    from solprop.translate.validation import _admit_dense  # noqa: PLC0415 - private
 
     problem, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[0.1], interpolate_planes=True

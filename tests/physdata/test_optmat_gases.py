@@ -7,7 +7,7 @@
 import dataclasses
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -28,8 +28,12 @@ from solprop.modes.capillary import MarcatiliMode
 from solprop.physdata import Gas, Mixture, Species, gamma, species
 from solprop.physdata.mixtures import DILUTE_SCALING_THRESHOLD
 from solprop.physdata.selection import MaterialSelection
-from solprop.physdata.sellmeier import OptmatSusceptibility
-from solprop.physdata.species import OptmatGas
+from solprop.physdata.sellmeier import (
+    OptmatSusceptibility,
+    PoleSumSusceptibility,
+    ReferenceState,
+)
+from solprop.physdata.species import OptmatGas, built_in_population
 
 GASES = [gas for gas in Gas if gas is not Gas.Air]
 SELECTION = MaterialSelection()
@@ -428,3 +432,46 @@ def test_an_override_runs_through_a_species_with_status_user_and_its_base():
     # Its narrower interval is what the range policy now checks.
     with pytest.warns(MaterialRangeWarning, match="below its shortest"):
         argon.susceptibility.susceptibility(omega_of(np.array([110e-9])))
+
+
+def test_a_species_is_optmat_and_takes_no_source():
+    argon = species("Ar")
+    assert isinstance(argon.susceptibility, OptmatSusceptibility)
+    assert isinstance(argon.equation_of_state, OptmatGas)
+    assert argon.gamma3 is None and argon.kerr is not None
+    assert argon.raman is None
+    assert argon.ionisation is not None
+    with pytest.raises(TypeError, match="source"):
+        cast("Any", species)("Ar", source="kingston")
+
+
+def test_a_built_in_population_is_one_species_resolved():
+    assert built_in_population(species("N2"))
+    law = PoleSumSusceptibility(
+        gas=Gas.N2,
+        source="supplied",
+        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        wavelength_range=(400e-9, 1e-6),
+        citation="a caller's own two-pole fit",
+        b=(5.8e-4,),
+        c=(7.4e-3,),
+    )
+    assert not built_in_population(Species("N2", law))
+
+
+def test_the_electronic_policies_refuse_other_names():
+    with pytest.raises(MaterialError, match="electronic"):
+        MaterialSelection(electronic="kerr")
+
+
+def test_gas_adapters_compare_by_their_digest():
+    """Two adapters of one optmat model are one material (value equality)."""
+    argon = OptmatSusceptibility.resolve("Ar")
+    assert argon == OptmatSusceptibility.resolve("Ar")
+    assert hash(argon) == hash(OptmatSusceptibility.resolve("Ar"))
+    narrow = cast("Any", argon.model).with_parameters(
+        intervals=((120e-9, float("inf")),)
+    )
+    assert argon != OptmatSusceptibility.resolve("Ar", narrow)
+    assert argon != OptmatSusceptibility.resolve("Kr")
+    assert argon != 1.0

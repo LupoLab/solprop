@@ -40,8 +40,8 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Gas
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 U01 = float(jn_zeros(0, 1)[0])
 GAUSS_ORDERS = (2, 3, 5, 8, 16, 32)

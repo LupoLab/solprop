@@ -24,7 +24,7 @@ physics or numerics rather than style, ask rather than guess.
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
 | Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
-| Backends | `native` (required; `auto`; CPU and GPU; implements every feature except the TDSE response) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
+| Backends | `native` (required; `auto`; CPU and GPU; implements every feature, the TDSE response on CPU builds only) and `numpy_ref` (the numerical reference). No other backend. Binary64 only (ADR-077): the single-precision code, CF4 sections, `ComparisonMultistep` and `PIController` overrides that still run on `numpy_ref` are being removed |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues), not the roadmap, which lists only SEPs (ADR-062); [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write and label one |
@@ -43,7 +43,7 @@ physics or numerics rather than style, ask rather than guess.
 | Size report and ratchets | `uv run poe size [--all] [--json]`; `uv run poe size-check` |
 | Default tests (fast + medium) | `uv run poe test` (xdist, one thread per worker); `uv run pytest <path>` runs serially |
 | Medium tier, slow lane, coverage (100 %) | `uv run poe test-medium`, `uv run poe test-slow`, `uv run poe cov` |
-| GPU tests | `uv run pytest -m gpu` (a GPU build of solprop-native and a device) |
+| GPU tests | `uv run poe test-gpu` (a CUDA or HIP build of solprop-native and a device): at each release and on pull requests that change device code, with the result recorded there |
 | Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an idle machine) |
 | Build docs; run the galleries | `uv run poe docs`; `uv run poe docs-examples [plot_NN_name]` |
 
@@ -65,7 +65,7 @@ change both in the same commit. Coverage is 100 % of statements and branches; a
 `# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
 
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
-`pytest -m gpu` on a device. **No test, lane or timing runs a full-length propagation**
+`poe test-gpu` on a device. **No test, lane or timing runs a full-length propagation**
 (a 0.2 m capillary, a metre of fibre): use about ten steps or a fibre that finishes in
 seconds. Only the galleries run real problems at full length. The release tracking set
 (`python -m benchmarks track`) times complete runs by design; it runs by hand on a quiet

@@ -18,8 +18,8 @@ from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.masks import noise_spectrum
-from solprop.translate.problem import assemble
 from spatial_records import record_metric
 
 

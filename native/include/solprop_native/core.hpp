@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "solprop_native/host_source.hpp"
 #include "solprop_native/launch.hpp"
 
 #include <Kokkos_Complex.hpp>
@@ -1160,6 +1161,19 @@ public:
   [[nodiscard]] std::size_t axis_scans() const noexcept;
   [[nodiscard]] bool closed() const noexcept;
   void close() noexcept;
+  /**
+   * A host source (solprop SEP 49 section 6.2): from here on each stage source is
+   * `source`'s evaluation of the lab-frame field, the state's own response passes not
+   * run, and the stage's finish its collar, absorber and propagator alone. Its two
+   * host rows are allocated here, once, and listed in the memory ledger. Refused on a
+   * device build and for anything but one real column off the general and separable
+   * routes; null unbinds.
+   */
+  void bind_host_source(std::shared_ptr<HostSource> source);
+  /** The bound host source, or null. */
+  [[nodiscard]] HostSource* host_source() const noexcept;
+  /** The next host evaluation's position, m, and purpose, which the engine sets. */
+  void host_evaluation(double z, HostPurpose purpose) noexcept;
 
 private:
   /** `function(workspace, arguments...)` inside the workspace's CPU team scope

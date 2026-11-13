@@ -53,41 +53,20 @@ def realised_phase(final, start):
     return float(np.angle(final[peak] / start[peak]))
 
 
-# The two records of `docs/dev/accuracy.md` section 4. Both ladders run on a fixed
+# What the two ladders of `docs/dev/accuracy.md` section 4 measured: the N = 3 one as
+# constants, the N = 6 one as the record its figure is drawn from. Both run on a fixed
 # schedule, so the trajectory is deterministic and only round-off separates one machine
 # from another -- but both end at a floor where round-off is the whole of what is left,
 # and that is what `atol` carries. `rtol` is the width of each test's own claim.
-SOLITON_N3 = Study(
-    name="soliton_n3",
-    title="The N = 3 soliton's recurrence against the step count",
-    case={
-        "problem": "N = 3 soliton of the GNLSE fixture, one soliton period",
-        "grid": "the narrow soliton grid, 4096 bins over 4 ps",
-        "metric": "phase-resolved recurrence error, ||final - e^{i phi} start|| / "
-        "||start||, with phi = -pi/4 (the internal convention)",
-        "schedule": "uniform fixed steps",
-    },
-    axis={"name": "n_steps", "unit": "steps", "label": "uniform steps per period"},
-    columns=(
-        Column(
-            name="error",
-            unit="1 (relative to the input norm)",
-            why="a fixed schedule is a deterministic trajectory, so above the floor "
-            "only round-off separates two machines; atol is a hundred times the "
-            "round-off of the recurrence itself, which no rung of this ladder reaches",
-            rtol=1e-3,
-            atol=1e-12,
-        ),
-        Column(
-            name="order",
-            unit="1",
-            why="a log2 of two errors each known to 1e-3, so far tighter than the "
-            "4.5 to 8.0 the test asserts; null on the coarsest rung, which has no pair",
-            rtol=0.0,
-            atol=0.05,
-        ),
-    ),
+SOLITON_N3_ERRORS = (
+    0.037179767493445655,
+    0.0010862286070304024,
+    1.9196328794647318e-05,
 )
+"""The N = 3 recurrence errors measured at 200, 400 and 800 uniform steps."""
+
+SOLITON_N3_ORDERS = (5.097118079325008, 5.822353524763962)
+"""The orders between them."""
 
 SOLITON_N6 = Study(
     name="soliton_n6",
@@ -167,7 +146,7 @@ def n6_rows(series, counts, errors):
 
 @pytest.mark.slow
 def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
-    soliton_problem, soliton_grid, scales, request, selected_backend_class
+    soliton_problem, soliton_grid, scales, selected_backend_class
 ):
     """Three levels and an order gate, because a two-level extrapolant cannot fire."""
     errors = []
@@ -194,22 +173,14 @@ def test_the_third_order_soliton_recurs_at_the_scheme_s_order(
     # rejects anything above p + 3 = 8.
     assert errors[-1] < 1e-4
     assert all(4.5 < order < 8.0 for order in orders), orders
-    record(
-        SOLITON_N3,
-        request=request,
-        backend=selected_backend_class.name,
-        rows=[
-            {
-                "series": "N = 3, fixed schedule",
-                "axis": count,
-                "error": float(error),
-                "order": None if index == 0 else float(orders[index - 1]),
-            }
-            for index, (count, error) in enumerate(
-                zip((200, 400, 800), errors, strict=True)
-            )
-        ],
-    )
+    # The measured ladder. A fixed schedule is a deterministic trajectory, so above the
+    # floor only round-off separates two machines: a thousandth relative, with 1e-12
+    # absolute a hundred times the recurrence's own round-off, which no rung reaches;
+    # the orders, log2 ratios of errors known to a thousandth, to 0.05.
+    for error, measured in zip(errors, SOLITON_N3_ERRORS, strict=True):
+        assert error == pytest.approx(measured, rel=1e-3, abs=1e-12)
+    for order, measured in zip(orders, SOLITON_N3_ORDERS, strict=True):
+        assert order == pytest.approx(measured, rel=0.0, abs=0.05)
 
 
 @pytest.mark.slow
@@ -285,49 +256,6 @@ def test_the_reference_backend_and_the_scaffold_agree(
     assert gap == pytest.approx(scaffold_error, rel=0.05)
 
 
-@pytest.mark.benchmark
-def test_the_sixth_order_soliton_converges_on_the_scaffold_s_grid(
-    backend_class, soliton_problem, soliton_grid, scales
-):
-    """On the scaffold's grid the recurrence converges at the scheme's order once the
-    polarisation taper is off, which is the default.
-
-    With the taper on, this grid floors at 2.3e-6 (7.38e-6 at 8000 steps, 2.30e-6 at
-    16000, 2.28e-6 at 32000), because the taper removes the polarisation's content in
-    the spectral collar, which a compressed N = 6 pulse reaches; the temporal window and
-    the span change nothing. Off, the same runs give 7.4e-6 and 2.7e-7: order 4.8
-    between the rungs, the coarse one not yet asymptotic.
-
-    Marked ``benchmark``, so **no lane runs it**: at 84 s it was the third of the three
-    N = 6 ladders that made the slow lane too slow, it is a study of a taper that is off
-    by default, and nothing in the default configuration rests on it. Run it by hand
-    with
-    ``uv run pytest tests/backends/test_numpy_ref_soliton.py -m benchmark``. The ladder
-    the default configuration does rest on is the wide-band one below, which stays
-    slow as milestone M1's definition.
-    """
-    errors = []
-    for n_steps in (8000, 16000):
-        problem, run_request = soliton_problem(
-            soliton_grid,
-            6,
-            save_planes=[scales.period],
-            dz_max=scales.period,
-            dz_init=scales.period / n_steps,
-            schedule=FixedSchedule.uniform(0.0, scales.period, scales.period / n_steps),
-        )
-        _, start, final = propagate(
-            backend_class, problem, run_request, soliton_grid, scales.period
-        )
-        errors.append(recurrence_error(final, start, scales.recurrence_phase))
-        assert realised_phase(final, start) == pytest.approx(
-            scales.recurrence_phase, abs=1e-4
-        )
-    assert errors[0] < 1e-5
-    assert observed_order(errors[0], errors[1]) > 4.0
-    assert errors[1] < 5e-7
-
-
 @pytest.mark.slow
 def test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band(
     soliton_problem, wide_grid, scales, request, selected_backend_class
@@ -335,11 +263,9 @@ def test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band(
     """Milestone M1: on a band that holds the compressed pulse the ladder is the
     scheme's, down to the band's own floor.
 
-    Measured with the polarisation taper off, the default: 9.2e-6, 6.1e-8, 8.9e-9 and
-    4.7e-9 at 8000, 16000, 32000 and 64000 steps, so order 7.2 between the first two
-    rungs (the coarse one not yet asymptotic) and a floor of 5e-9 that the band sets.
-    With the taper on the ladder is 9.2e-6, 9.6e-8 and 6.1e-8 and floors at 6e-8. The
-    two cheapest rungs are run here.
+    Measured with the polarisation taper off, the default: 9.2e-6 and 6.1e-8 at 8000
+    and 16000 steps, so order 7.2 between the two rungs, the coarse one not yet
+    asymptotic.
     """
     errors = []
     for n_steps in (8000, 16000):
@@ -362,68 +288,12 @@ def test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band(
     # two of its measured value.
     assert observed_order(errors[0], errors[1]) > 4.5
     assert errors[1] < 2e-7
-    # The two cheap rungs of the record; the two fine ones and the whole taper-on
-    # ladder are the benchmark-marked writer below, which no lane runs.
     record(
         SOLITON_N6,
         request=request,
         backend=selected_backend_class.name,
         rows=n6_rows("wide band, taper off", (8000, 16000), errors),
     )
-
-
-@pytest.mark.benchmark
-def test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on(
-    soliton_problem, wide_grid, scales, request, selected_backend_class
-):
-    """The rungs of the M1 ladder that no lane runs, written into the record by hand.
-
-    The slow test above runs the two cheapest rungs, which is what milestone M1 rests
-    on; the ladder `docs/dev/accuracy.md` section 4 draws needs the two fine ones as
-    well, and the taper-on comparison. Together they are about a hundred and seventy
-    thousand steps of a 8192-bin field grid, so this is `benchmark`-marked: no lane runs
-    it, and its record is written once.
-
-    Run it, and rewrite its rows of ``tests/data/convergence/soliton_n6.json``, with
-
-        SOLPROP_WRITE_RECORDS=1 uv run pytest \
-            tests/backends/test_numpy_ref_soliton.py -m benchmark -p no:randomly
-
-    from a clean tree. Measured with the taper off: 9.2e-6, 6.1e-8, 8.9e-9 and 4.7e-9 at
-    8000, 16000, 32000 and 64000 steps -- order 7.2 between the first two, the coarse
-    rung not yet asymptotic, and then the band's own floor of about 5e-9. With the taper
-    on: 9.2e-6, 9.6e-8 and 6.1e-8, flooring an order higher, because the spectral collar
-    takes the wings off the cubic, which is why the taper is off by default.
-    """
-    for series, taper, counts in (
-        ("wide band, taper off", False, (8000, 16000, 32000, 64000)),
-        ("wide band, taper on", True, (8000, 16000, 32000)),
-    ):
-        errors = []
-        for n_steps in counts:
-            problem, run_request = soliton_problem(
-                wide_grid,
-                6,
-                save_planes=[scales.period],
-                dz_max=scales.period,
-                dz_init=scales.period / n_steps,
-                schedule=FixedSchedule.uniform(
-                    0.0, scales.period, scales.period / n_steps
-                ),
-                polarisation_taper=taper,
-            )
-            _, start, final = propagate(
-                selected_backend_class, problem, run_request, wide_grid, scales.period
-            )
-            errors.append(recurrence_error(final, start, scales.recurrence_phase))
-        # Each ladder is monotone and each ends on a floor rather than on truncation.
-        assert errors == sorted(errors, reverse=True), (series, errors)
-        record(
-            SOLITON_N6,
-            request=request,
-            backend=selected_backend_class.name,
-            rows=n6_rows(series, counts, errors),
-        )
 
 
 def test_the_recurrence_phase_is_the_conjugate_of_the_optics_convention(scales):

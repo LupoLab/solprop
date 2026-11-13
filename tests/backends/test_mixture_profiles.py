@@ -19,7 +19,7 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Component, Mixture
 from solprop.profiles import Constant, Linear
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.stage import require_device_ready
 
 

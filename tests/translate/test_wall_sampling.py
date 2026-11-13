@@ -22,7 +22,7 @@ import pytest
 from driver.test_coherent_capillary import varying
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
 from solprop.modes.capillary import CoherentWall, MarcatiliMode, _shared_sampling
-from solprop.translate import problem as problem_module
+from solprop.translate import assembly as assembly_module
 
 pytestmark = [
     pytest.mark.filterwarnings(
@@ -112,7 +112,7 @@ def test_a_varying_wall_translates_exactly_as_it_did_and_samples_far_less(
     shared = varying(wall=CoherentWall()).translate()
     shared_count = calls["count"]
     calls["count"] = 0
-    monkeypatch.setattr(problem_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
     unshared = varying(wall=CoherentWall()).translate()
     unshared_count = calls["count"]
     before = _arrays(unshared.linear)

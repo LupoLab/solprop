@@ -1333,15 +1333,14 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         exponential march, the sampled states and rates and each sample's flow
         weights, in the engine's own layout, which keeps a leading axis of one after
         the row axis.
+    history_key : str
+        What defines the history
+        (:attr:`solprop.stepper.multistep.Multistep.history_key`), which the resuming
+        method's must equal.
     collar_was_quiet : bool
         Whether the in-stage collar was left out, quiet, at the last attempt, which
         holds the first step after it returns to its stable step (SEP 39 section
         6.5.9).
-    history_key : str or None
-        What defines the history
-        (:attr:`solprop.stepper.multistep.Multistep.history_key`), which the resuming
-        method's must equal; ``None`` for a snapshot that names none, which starts the
-        history afresh.
 
     Raises
     ------
@@ -1357,6 +1356,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     ...     order=2, rejections=0, last_rejected=False,
     ...     positions=np.array([0.4, 0.5]), identities=("accepted", "predicted"),
     ...     slots=np.array([0, 1]), rows={"store": np.zeros((4, 1, 1, 1, 4), complex)},
+    ...     history_key="adams",
     ... )
     >>> snapshot.nbytes
     320
@@ -1373,8 +1373,8 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     identities: tuple[str, ...]
     slots: Int[np.ndarray, " n_entries"]
     rows: Mapping[str, np.ndarray]
+    history_key: str
     collar_was_quiet: bool = False
-    history_key: str | None = None
 
     def __post_init__(self) -> None:
         """Refuse a snapshot whose entries disagree or whose numbers are not finite.

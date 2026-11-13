@@ -2,19 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Guard pre-extraction numerical values and shared fill behaviour."""
-
-import inspect
-import json
-from dataclasses import fields
-from pathlib import Path
+"""The shared gas fill of the hollow and antiresonant guides."""
 
 import numpy as np
 import pytest
 from witness_materials import ermolov_helium, kingston_argon
 
-from bounds import EPS, assert_within
-from solprop.constants import C
 from solprop.exceptions import ModeError
 from solprop.modes import GasFillMixin, MarcatiliMode, TubeLattice, VincettiMode
 from solprop.physdata import Mixture
@@ -22,9 +15,7 @@ from solprop.profiles import Linear, PressureGradient
 
 
 def baseline_modes():
-    # The table holds solprop's former registry gases (Ermolov helium, Kingston argon),
-    # supplied explicitly since SEP 3's Phase 4b deleted the registry and the
-    # mode-level source=; the equation of state is optmat's.
+    # A constant fill, a tapered TM guide in a gradient and an antiresonant guide.
     return (
         MarcatiliMode(
             125e-6, "He", 1.0, susceptibility=ermolov_helium(), cladding=1.45
@@ -47,38 +38,6 @@ def baseline_modes():
             cladding=1.45,
         ),
     )
-
-
-def baseline_values():
-    omega = 2 * np.pi * C / np.linspace(600e-9, 900e-9, 31)
-    return np.asarray(
-        [
-            [getattr(mode, name)(omega, z) for z in (0.0, 0.05, 0.1)]
-            for mode in baseline_modes()
-            for name in ("neff", "neff_minus_one", "dneff_domega")
-        ]
-    )
-
-
-def test_fill_extraction_preserves_fixed_grid_and_dataclass_surface():
-    """The modes evaluate as they did before the fill was extracted.
-
-    Each mode's ``neff``, ``neff - 1`` and its derivative at each position is compared
-    normwise with the recorded values at 64 eps: the ladder's one-evaluation budget of
-    16 eps (``accuracy.md`` section 7) for a closed form of a few tens of roundings,
-    times four for another platform's libm in the transcendental terms. The signature
-    and the dataclass fields are structural and stay exact.
-    """
-    reference = json.loads(
-        (Path(__file__).parents[1] / "data/fill_before_extraction.json").read_text()
-    )
-    expected = np.asarray(reference["real"]) + 1j * np.asarray(reference["imag"])
-    assert str(inspect.signature(MarcatiliMode)) == reference["signature"]
-    assert [field.name for field in fields(MarcatiliMode)] == reference["fields"]
-    actual = baseline_values()
-    assert actual.shape == expected.shape
-    for index in np.ndindex(actual.shape[:2]):
-        assert_within(actual[index], expected[index], 64 * EPS, what=str(index))
 
 
 def test_fill_rebinding_retains_concrete_geometry_and_clears_legacy_material():

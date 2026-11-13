@@ -33,8 +33,8 @@ from solprop.modes import MarcatiliMode
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.envelope_plasma import cycle_moments
-from solprop.translate.problem import assemble
 from solprop.translate.stage import scalars
 
 
