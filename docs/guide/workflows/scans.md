@@ -508,8 +508,12 @@ Recovery has known limits. A live but wedged owner on the same host holds its po
 indefinitely, because the lease age is not consulted while its process is alive: stop
 that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
 crash, rather than stopped by its `stop=` flag, skips its `running` points for
-`stale_age` seconds on restart. The scan file grows on every resume, because HDF5 does
-not reclaim the groups it recreates.
+`stale_age` seconds on restart. A rerun that commits no point leaves the consolidated
+`layouts` as they are, and adds only its row to `executions`, a few kilobytes. A rerun
+that commits points rebuilds `layouts`, a copy of every completed point's arrays, and
+HDF5 does not reclaim the space of the copy it replaces, so the file grows by about the
+size of all the completed points' arrays as well as the new points' own: with 32 points
+of 256 kB of fields each, a rerun that committed one point grew the file by 8.7 MB.
 ```
 
 Inspect a generated Slurm script before submission:
