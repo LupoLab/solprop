@@ -343,6 +343,14 @@ top of `tests/` (`*_cases.py`, `*_oracles.py`, `*_parity.py`, `convergence_studi
 parametrise instead of copy-pasting; shared tolerances are named constants with their
 justification.
 
+Backend parity is moving onto one **case catalogue**: `tests/capability_routes.py` collects
+the rows, each a built problem with the axes it covers (route, response, stepper,
+features) and the bound of each rung it runs, and `tests/parity_ladder.py` runs a row on
+native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family's rows live
+beside its cases (`tests/backends/dispersive_rows.py`). Every row says how to switch its
+term off, and each guarded rung's reference must move by more than a hundred bounds when it
+is, so a parity rung cannot pass vacuously. A new parity case is a row, not a new ladder.
+
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
 header, folder, index row and roadmap link consistent with its status
