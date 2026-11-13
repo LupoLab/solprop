@@ -170,7 +170,7 @@ def _adams_free_bound(problem, run_request) -> float:
     """Bound a matched Adams run on the Cartesian route, relatively.
 
     The Cartesian ladder's ``32 eps`` per FFT level, per evaluation
-    (``test_free_ladders.py``), over every sample's weight in the step's predictor and
+    (``free_rows.py``), over every sample's weight in the step's predictor and
     corrector (:func:`bounds.step_evaluations`); and the exponent's ``2 eps k_max L``,
     the separable kinds' principal root, up to ``order + 1`` times in each of the two.
     """

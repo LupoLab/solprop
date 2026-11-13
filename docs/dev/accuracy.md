@@ -571,8 +571,9 @@ that had them.
 
 The spatial record (§10) is written the same way, with an installed native wheel built
 from the same committed tree, by every module that calls
-`spatial_records.record_metric`, radial and Cartesian, in one session, so that each
-series' largest fraction is taken over all its cases:
+`spatial_records.record_metric`, radial and Cartesian, and the case catalogue's
+free-space rows (`tests/backends/free_rows.py`), in one session, so that each series'
+largest fraction is taken over all its cases:
 
 ```
 SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
@@ -586,7 +587,8 @@ SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
     tests/backends/test_free_memory.py tests/backends/test_free_noise.py \
     tests/backends/test_free_nonlinear.py tests/backends/test_free_statistics.py \
     tests/backends/test_spatial_execution.py \
-    tests/driver/test_prop_free.py tests/driver/test_prop_radial.py
+    tests/driver/test_prop_free.py tests/driver/test_prop_radial.py \
+    tests/backends/test_parity_catalogue.py -k "not catalogue or free"
 ```
 
 **A write run is not a green run**: it says at the end which files it wrote, and those

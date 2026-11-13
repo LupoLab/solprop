@@ -84,7 +84,11 @@ def rk_bound(operator_norm, absorber_norm, steps):
 
 @pytest.fixture(params=["field_real", "field_analytic", "envelope"])
 def absorber_case(request):
-    family = request.param
+    return radial_absorber_case(request.param)
+
+
+def radial_absorber_case(family):
+    """Return a family's radial collar case and its independent Bessel operator."""
     constructor = (
         partial(EnvelopeGrid.from_limits, thg=False)
         if family == "envelope"
