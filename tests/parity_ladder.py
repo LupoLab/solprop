@@ -27,7 +27,7 @@ import numpy as np
 
 from bounds import departure
 from builders import launch_derivative
-from sessions.runs import native_source, saved, to_planes
+from sessions.runs import launch_statistics, native_source, saved, to_planes
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -41,13 +41,15 @@ from solprop.translate.run_request import RunRequest
 FIELD_RUNGS = (
     "source",
     "derivative",
+    "launch",
     "projected",
     "linear",
     "one_step",
     "steps",
     "run",
 )
-"""The field rungs, cheapest first; a row's statistics follow them."""
+"""The rungs, cheapest first, each a field's but ``launch`` (the launch's statistics); a
+row's statistics follow them."""
 
 LINEAR_SCALE = 1e-20
 """Factor on the launch of the ``linear`` rung: its cubic terms are ``1e-40`` of it."""
@@ -87,7 +89,8 @@ class Built:
     from, when it came from one: a backend takes the mode set and the run's profiles
     (the statistics need them), and the ``run`` rung runs the driver. ``readings``
     holds the reference's measurement of each rung on this build, made once
-    (:func:`reference`), so that a bound can read one; a copy made with
+    (:func:`reference`), so that a bound can read one, and what else a bound measures
+    on the reference once, under a key that names no rung; a copy made with
     :func:`dataclasses.replace` starts without them.
     """
 
@@ -118,13 +121,17 @@ class Statistic:
     for a dimensionless diagnostic whose relative change measures nothing;
     ``elementwise`` relative at every element (:func:`elementwise_departure`, what
     ``numpy.allclose`` with ``rtol`` alone holds). ``positive`` also requires the
-    reference's value to be positive somewhere, so that the comparison sees something.
+    reference's value to be positive somewhere, so that the comparison sees something;
+    ``nan`` requires it to be NaN everywhere, a statistic that measures nothing on the
+    row, which native must report as nothing too (compared peak-normalised, a NaN on
+    one side only is an infinite departure).
     """
 
     bound: float
     absolute: bool = False
     elementwise: bool = False
     positive: bool = False
+    nan: bool = False
 
 
 StatisticRule = Callable[[Built, str, float], Statistic]
@@ -138,7 +145,7 @@ class Row:
     ``why`` is the physical claim the row holds, in one sentence; every failure quotes
     it. ``bound_note`` explains a bound with a floor, a margin or a choice (what was
     measured against it, and what a wrong backend would miss by). ``rungs`` maps each
-    field rung of :data:`FIELD_RUNGS` the row runs to its bound; ``statistics`` maps a
+    rung of :data:`FIELD_RUNGS` the row runs to its bound; ``statistics`` maps a
     statistic, read at the end of the row's schedule and compared absolutely, to its
     bound. ``switch_off`` returns the problem with the row's term off: the guard that
     the term moves every field rung's reference by more than :data:`DETECTION` bounds,
@@ -273,6 +280,20 @@ def derivative(backend_class: type, built: Built) -> np.ndarray:
         if backend.name == "native":
             return native_source(backend, problem.initial.field0)
         return np.asarray(launch_derivative(backend, problem))
+    finally:
+        backend.close()
+
+
+def launch(backend_class: type, built: Built) -> dict[str, np.ndarray]:
+    """Return the statistics the session observes at the launch, nothing stepped.
+
+    Those of the request's own specification, by name: the session loads the launch
+    and reads them, as a run's first observation does
+    (:func:`sessions.runs.launch_statistics`).
+    """
+    backend = _backend(backend_class, built)
+    try:
+        return launch_statistics(backend, built.problem, built.run_request)
     finally:
         backend.close()
 
@@ -470,6 +491,7 @@ RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
         backend_class, built, masked=row.masked_launch, z=row.source_z
     ),
     "derivative": lambda backend_class, built, row: derivative(backend_class, built),
+    "launch": lambda backend_class, built, row: launch(backend_class, built),
     "projected": lambda backend_class, built, row: projected(backend_class, built),
     "linear": lambda backend_class, built, row: linear(backend_class, built),
     "one_step": lambda backend_class, built, row: one_step(backend_class, built),
@@ -483,7 +505,9 @@ RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
 }
 """Each field rung's measurement, by name."""
 
-ROW_FREE_RUNGS = frozenset({"derivative", "projected", "linear", "one_step", "run"})
+ROW_FREE_RUNGS = frozenset(
+    {"derivative", "launch", "projected", "linear", "one_step", "run"}
+)
 """The rungs a bound may read the reference's measurement of (:func:`reference`)."""
 
 
@@ -506,6 +530,11 @@ def reference(built: Built, rung: str, row: Row | None = None) -> Any:
 
 def _pairs(ours, theirs) -> list[tuple[np.ndarray, np.ndarray]]:
     """Return the arrays a rung compares, the same ones present on both sides."""
+    if isinstance(theirs, Mapping):
+        assert set(ours) == set(theirs), (
+            f"native reads {sorted(ours)}, the reference {sorted(theirs)}"
+        )
+        return [(np.asarray(ours[name]), np.asarray(theirs[name])) for name in theirs]
     if not isinstance(theirs, list):
         return [(np.asarray(ours), np.asarray(theirs))]
     assert [one is None for one in ours] == [one is None for one in theirs], (
@@ -709,12 +738,17 @@ def _every_statistic(
         )
         for name, expected in theirs.statistics.items():
             rule = row.every_statistic(built, name, field_bounds[rung])
-            assert not (rule.absolute and rule.elementwise), (
-                f"{rung} {name}: a statistic is compared absolutely or elementwise"
+            assert rule.absolute + rule.elementwise + rule.nan <= 1, (
+                f"{rung} {name}: a statistic is compared absolutely, elementwise or as "
+                "nothing"
             )
             assert not rule.positive or np.max(expected) > 0, (
                 f"{rung} {name}: the reference's statistic is nowhere positive, so the "
                 "comparison sees nothing"
+            )
+            assert not rule.nan or np.all(np.isnan(expected)), (
+                f"{rung} {name}: the reference's statistic is not NaN everywhere: it "
+                "measures something on this row"
             )
             found = ours.statistics[name]
             if rule.absolute:
