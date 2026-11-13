@@ -68,9 +68,8 @@ def run_scan(
     progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter, optional
         One outer progress display; individual runs never draw their own bars. A
         :class:`~solprop.log.ScanReporter` replaces the display and is told when the
-        scan and each point start and finish; a
-        :class:`~solprop.log.WatchingScanReporter` also receives each point's run on
-        ``Local`` and ``Pool`` (SEP 41, S4).
+        scan and each point start and finish, and the reporter its ``point_reporter``
+        returns receives each point's run on ``Local`` and ``Pool`` (SEP 41, S4).
     stop : object or None, optional
         The scan's stop flag: any object with an ``is_set()`` method, such as a
         :class:`threading.Event` (SEP 41, S17). Once it is set no further point is

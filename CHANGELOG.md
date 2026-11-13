@@ -104,6 +104,18 @@ All notable changes to solprop are recorded here. The format follows
   radial or the Cartesian transform from it, with the same keywords and the same
   defaults as before for each grid. Replace `from_radial(...)` with `from_free(...)` and
   `prop_radial(...)` with `prop_free(...)`; recipes keep the `radial` route.
+- `solprop.log` has two reporter protocols instead of six. `ProgressReporter` now declares all
+  six calls (`summary`, `started`, `step`, `plane`, `finished`, `interrupted`), each with a
+  no-op default that a subclass inherits, and `ScanReporter` declares `point_reporter`
+  (default `None`). `InterruptibleReporter`, `SummarisingReporter`, `PlaneObserver` and
+  `WatchingScanReporter` are removed: an `isinstance` test against them becomes one against
+  `ProgressReporter` or `ScanReporter`, and `observe_plane` stays an optional method that a
+  reporter may define. A reporter that subclasses `NullReporter` or `NullScanReporter` needs
+  no change. One written from scratch to the four basic calls must now also define `summary`
+  and `interrupted`, or subclass `NullReporter` (or `ProgressReporter`) to inherit them; a
+  run refuses it with a `DriverError` before it starts. Likewise a scan reporter must define
+  `point_reporter` or subclass `NullScanReporter` (or `ScanReporter`). What scripts, the GUI,
+  the service, scans and the CLI show is unchanged.
 - The general modal route's and the coupled flow's admission is part of the problem's own
   validation (`solprop.translate.admission.check_general_route`), raised once as a
   `TranslationError` naming solprop rather than as a `BackendError` from each backend;

@@ -4,12 +4,13 @@
 
 """The lazy view of a saved plane that a plane observer is shown (SEP 41, S3).
 
-A :class:`~solprop.log.PlaneObserver` is shown each saved plane as a
-:class:`PlaneView`: the plane's position, statistics row and basis at once, and its
-field, spectrum, power and spectral density only on request, computed by the same
-:mod:`solprop.processing` functions that read a file, so what an observer draws is
-what the file holds. On a device a plane whose field the output does not keep is
-fetched only when asked for, and the fetch is counted in the run's resources.
+A reporter that defines ``observe_plane`` (:class:`~solprop.log.ProgressReporter`) is
+shown each saved plane as a :class:`PlaneView`: the plane's position, statistics row
+and basis at once, and its field, spectrum, power and spectral density only on
+request, computed by the same :mod:`solprop.processing` functions that read a file, so
+what an observer draws is what the file holds. On a device a plane whose field the
+output does not keep is fetched only when asked for, and the fetch is counted in the
+run's resources.
 """
 
 import logging
@@ -23,7 +24,7 @@ import numpy as np
 from solprop._host import ObserverSpend
 from solprop.capabilities import Quantity, _quantities
 from solprop.exceptions import DriverError, SolpropWarning
-from solprop.log import PlaneObserver, ProgressReporter
+from solprop.log import ProgressReporter
 from solprop.output.capability import BasisCapability, capability_of
 from solprop.output.memory import MemoryOutput
 from solprop.output.metadata import RunMetadata
@@ -259,12 +260,12 @@ class PlaneView:
 
 
 class PlaneWatch:
-    """Show a run's saved planes to its reporter, when it is a plane observer.
+    """Show a run's saved planes to its reporter, when it defines ``observe_plane``.
 
     Parameters
     ----------
     reporter : solprop.log.ProgressReporter
-        The run's reporter; only a :class:`~solprop.log.PlaneObserver` is shown planes.
+        The run's reporter; only one that defines ``observe_plane`` is shown planes.
     metadata : solprop.output.metadata.RunMetadata
         The run's record.
     fetch : callable
@@ -281,7 +282,9 @@ class PlaneWatch:
         spend: ObserverSpend,
     ) -> None:
         """Hold the observer, or nothing for a reporter that is not one."""
-        self._observer = reporter if isinstance(reporter, PlaneObserver) else None
+        self._observe: Callable[[float, PlaneView], None] | None = getattr(
+            reporter, "observe_plane", None
+        )
         self._metadata = metadata
         self._fetch = fetch
         self._spend = spend
@@ -306,8 +309,8 @@ class PlaneWatch:
         SolpropWarning
             When the observer raised, which then sees no more planes in this run.
         """
-        observer = self._observer
-        if observer is None:
+        observe = self._observe
+        if observe is None:
             return
         view = PlaneView(
             plane,
@@ -319,11 +322,11 @@ class PlaneWatch:
         )
         started = time.perf_counter()
         try:
-            observer.observe_plane(plane.z, view)
+            observe(plane.z, view)
         except Exception as error:
             # Not a stop, an interrupt or a signal: those are BaseExceptions and stop
             # the run as they would anywhere.
-            self._observer = None
+            self._observe = None
             logger.exception("the plane observer failed at z = %.6e m", plane.z)
             msg = (
                 f"the plane observer raised {type(error).__name__}: {error}; it is "

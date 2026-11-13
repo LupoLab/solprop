@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from jaxtyping import TypeCheckError
 
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
@@ -34,12 +35,13 @@ from solprop.driver.summary import (
     resources,
     run_summary,
 )
+from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.log import (
     BarReporter,
     LogReporter,
     NullReporter,
-    SummarisingReporter,
+    ProgressReporter,
 )
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
@@ -533,7 +535,7 @@ def test_the_closing_line_of_a_bar_run_is_shown_on_its_stream():
     assert "\nresources: " in text
 
 
-def test_a_reporter_without_the_call_is_not_shown_the_summary():
+def test_a_reporter_without_every_call_is_refused_before_the_run():
     class Planes:
         def started(self, z_start, z_end, n_planes):
             pass
@@ -547,11 +549,9 @@ def test_a_reporter_without_the_call_is_not_shown_the_summary():
         def finished(self, total):
             pass
 
-    assert not isinstance(Planes(), SummarisingReporter)
-    output = gnlse().run(progress=Planes())
-    assert isinstance(output, MemoryOutput)
-    records: Any = output.annotations[RUN_SUMMARY_ANNOTATION]
-    assert len(records) == 1
+    assert not isinstance(Planes(), ProgressReporter)
+    with pytest.raises((DriverError, TypeCheckError), match="ProgressReporter"):
+        gnlse().run(progress=Planes())  # pyright: ignore[reportArgumentType]
 
 
 def test_progress_none_shows_nothing(capsys, caplog):
@@ -635,7 +635,7 @@ def test_the_line_reporter_summary_is_one_record():
     finally:
         logger.handlers.clear()
     assert stream.getvalue() == "Starting\n  noise: off\n"
-    assert isinstance(LogReporter(), SummarisingReporter)
+    assert isinstance(LogReporter(), ProgressReporter)
     assert NullReporter().summary("ignored") is None
 
 
