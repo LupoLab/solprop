@@ -400,7 +400,7 @@ class _ScanEvents:
             watcher.plane(z, summary)
         elif call == "finished":
             watcher.finished(cast(float, args[0]))
-        elif call == "interrupted":
+        else:  # "interrupted", the last of the five calls a worker sends
             z, stopped, text = cast(tuple[float, bool, str], args)
             error: BaseException = (
                 StopRequested(stop)

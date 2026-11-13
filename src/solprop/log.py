@@ -330,8 +330,8 @@ class ProgressReporter(Protocol):
     more with the run's resources. The driver holds no state on a reporter's behalf and
     never inspects what it returns.
 
-    Subclass it, or :class:`NullReporter`, to inherit a no-op for each call you do not
-    override; a class written without either must define all six.
+    Subclass it, or :class:`~solprop.log.NullReporter`, to inherit a no-op for each call
+    you do not override; a class written without either must define all six.
 
     :meth:`step` is on the hot path -- one attribute lookup and one call inside the step
     loop -- so a reporter that does real work there must do it on a wall-clock period,
