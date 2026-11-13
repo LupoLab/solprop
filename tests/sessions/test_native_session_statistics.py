@@ -27,8 +27,7 @@ import re
 import numpy as np
 import pytest
 
-from bounds import gamma
-from optmat_parity import INTEGRATION_AGREEMENT
+from bounds import INTEGRATION_AGREEMENT, gamma
 from sessions.executors import (
     PLANES,
     device_build,

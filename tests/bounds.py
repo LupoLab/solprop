@@ -92,6 +92,19 @@ def rate_log_sensitivity(rate, value: float, field_range: tuple[float, float]) -
     return rise / (math.log1p(step) - math.log1p(-step))
 
 
+INTEGRATION_AGREEMENT = 1e-7
+"""Absolute agreement of SEP 18's run diagnostics across backends: a thousandth of the
+smallest level at which one would mean anything (a work defect of 1e-4; an undershoot
+matters from about 1e-2).
+
+They are dimensionless ratios, and the work defect is a difference of nearly equal sums,
+so a relative deviation measures nothing. Nor can they be held to the sums' rounding:
+where a channel barely ionises, the fraction ``1 - (1 - p) exp(-S)`` carries an absolute
+rounding of about 1e-16, so the work defect of a peak fraction of 1e-9 is noise of order
+1e-8 that moves by tens of per cent with one ulp of ``exp``, and the platforms'
+``exp`` differ by ulps."""
+
+
 def device_backend(backend_name: str) -> str:
     """Identify the execution space without initializing a native device runtime."""
     if backend_name != "native":

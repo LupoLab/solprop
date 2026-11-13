@@ -1971,13 +1971,15 @@ that execution space.
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
 wall tables, carrier Kerr coefficients, rate tables, and Raman rows with their decay
 paths. No backend reads optmat. The native CPU build is qualified on them against
-`numpy_ref` (`tests/backends/test_optmat_*_parity.py`): argon and nitrogen plasma on
-field and envelope grids, the rate table's hold above a model's maximum field, a
-helium/argon Kerr mixture, silver and silica walls, the GNLSE with the silica bundle,
-and gas Raman leaves of 4, 72 and 126 rows — dry air's composition leaf, driven by the
-summed density of its labels — on gradients to vacuum, scalar and vector, field and
-envelope, and in lockstep batches. Each agrees with the reference to a few times
-`1e-16`, far inside its operation-count bound. `native` assumes no term
+`numpy_ref` (the `optmat` rows of the case catalogue, `tests/backends/optmat_rows.py`):
+argon and nitrogen plasma on field and envelope grids, the rate table's hold above a
+model's maximum field, a helium/argon Kerr mixture, silver and silica walls, the GNLSE
+with the silica bundle, and gas Raman leaves of 4, 72 and 126 rows — dry air's
+composition leaf, driven by the summed density of its labels — on gradients to vacuum,
+scalar and vector, field and envelope, and in lockstep batches. Each agrees with the
+reference far inside its operation-count bound: fields to `5e-15` and statistics to
+`5e-14` or better, except the complete run that holds argon's rate (`6e-13` and
+`1.1e-13`). `native` assumes no term
 count: it holds a leaf's `n_terms × 2 n_to` rows and its per-stage decay rates as
 views sized from the problem. A fill whose populations follow independent density
 paths takes the z table, which `numpy_ref` and native's CPU build run;
