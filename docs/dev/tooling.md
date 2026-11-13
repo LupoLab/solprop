@@ -306,7 +306,7 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   statements and branches, and uploads the report to Codecov for the badge.
 - **slow** (Linux and macOS): `poe test-slow` with the wheel installed. On Linux,
   `SOLPROP_TEST_BACKEND=native` selects the ladders' backend. Each job's budget is
-  about 35 min of pytest wall time ([testing.md](testing.md), "Budgets and timing
+  about 50 min of pytest wall time ([testing.md](testing.md), "Budgets and timing
   assertions"); sharding the lane is #803.
 - **oldest** (Linux, three shards): the package installed with `uv pip install
   --resolution lowest-direct`, so every dependency sits at its floor, then the wheel with
