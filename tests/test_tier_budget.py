@@ -7,7 +7,7 @@
 import pytest
 
 import tier_budget
-from tier_budget import FAST_EACH, MEDIUM_TOTAL, PROPERTY, Case
+from tier_budget import FAST_EACH, MEDIUM_EACH, PROPERTY, Case
 
 
 def report(tmp_path, cases, name="junit.xml"):
@@ -65,48 +65,84 @@ def test_read_names_a_class_and_a_windows_path_as_node_ids_do(tmp_path):
     assert case.node == "tests/a/test_b.py::TestC::test_d"
 
 
-def test_a_fast_test_of_a_second_or_more_and_the_medium_total_are_named(tmp_path):
-    medium = MEDIUM_TOTAL / 2 + 1
+RATCHET = 100.0
+"""A medium tier's ratchet for these tests, in seconds."""
+
+
+def test_the_committed_ratchet_is_a_positive_total():
+    assert tier_budget.load_ratchet() > 0
+
+
+def test_a_fast_test_of_a_second_or_more_fails_and_is_named():
     cases = [
         Case("a.py::slow_fast", "fast", FAST_EACH),
         Case("a.py::quick", "fast", FAST_EACH / 2),
-        Case("b.py::one", "medium", medium),
-        Case("b.py::two", "medium", medium),
         Case("c.py::untiered", None, 9.0),
     ]
-    verdict = tier_budget.judge(cases)
+    verdict = tier_budget.judge(cases, RATCHET)
     assert [case.node for case in verdict.slow_fast] == ["a.py::slow_fast"]
-    assert verdict.medium_seconds == 2 * medium
-    assert verdict.totals == {"fast": (2, 1.5 * FAST_EACH), "medium": (2, 2 * medium)}
+    assert verdict.totals == {"fast": (2, 1.5 * FAST_EACH)}
     assert verdict.untiered == 1
     assert not verdict.within
     text = tier_budget.render(verdict, "macos-arm64")
-    assert "1 tests take longer" in text
+    assert f"1 tests take {FAST_EACH:g} s or more" in text
     assert "`a.py::slow_fast`" in text
-    assert f"{2 * medium:.1f} s, which exceeds it" in text
     assert "1 tests carry no tier property" in text
+
+
+def test_a_medium_test_of_30_s_or_more_fails_within_the_ratchet():
+    cases = [
+        Case("b.py::long", "medium", MEDIUM_EACH),
+        Case("b.py::short", "medium", MEDIUM_EACH / 2),
+    ]
+    verdict = tier_budget.judge(cases, 2 * MEDIUM_EACH)
+    assert [case.node for case in verdict.slow_medium] == ["b.py::long"]
+    assert verdict.medium_seconds <= verdict.medium_ratchet
+    assert not verdict.within
+    text = tier_budget.render(verdict, "macos-arm64")
+    assert f"1 tests take {MEDIUM_EACH:g} s or more" in text
+    assert "`b.py::long`" in text
+    assert "which is within it." in text
+
+
+def test_a_medium_total_over_the_ratchet_fails_with_every_test_short():
+    each = MEDIUM_EACH / 2
+    cases = [Case(f"b.py::t{n}", "medium", each) for n in range(3)]
+    verdict = tier_budget.judge(cases, 3 * each - 1)
+    assert not verdict.slow_medium
+    assert verdict.medium_seconds == 3 * each
+    assert not verdict.within
+    assert f"{3 * each:.1f} s, which exceeds it." in tier_budget.render(verdict, "a")
 
 
 def test_a_lane_within_its_budgets_says_so(tmp_path):
     path = report(
         tmp_path,
-        [("a.py::t", "fast", FAST_EACH / 2), ("b.py::t", "medium", MEDIUM_TOTAL)],
+        [
+            ("a.py::t", "fast", FAST_EACH / 2),
+            ("b.py::t", "medium", MEDIUM_EACH / 2),
+            ("b.py::u", "medium", MEDIUM_EACH / 2),
+        ],
     )
-    verdict = tier_budget.judge(tier_budget.read([path]))
+    verdict = tier_budget.judge(tier_budget.read([path]), MEDIUM_EACH)
+    assert verdict.medium_seconds == verdict.medium_ratchet
     assert verdict.within
     text = tier_budget.render(verdict, "a lane")
-    assert "0 tests take longer." in text
-    assert "which is within it" in text
+    assert f"0 tests take {FAST_EACH:g} s or more." in text
+    assert f"0 tests take {MEDIUM_EACH:g} s or more." in text
+    assert "which is within it." in text
 
 
 @pytest.mark.parametrize(("enforce", "status"), [(False, 0), (True, 1)])
 def test_main_reports_and_fails_only_when_asked(tmp_path, capsys, enforce, status):
-    one = report(tmp_path, [("b.py::t", "medium", MEDIUM_TOTAL)], "one.xml")
-    two = report(tmp_path, [("c.py::t", "medium", 1.0)], "two.xml")
-    arguments = [str(one), str(two), "--title", "shards"]
+    ratchet = tmp_path / "ratchet.toml"
+    ratchet.write_text(f"[medium]\nmax_total = {RATCHET:g}\n")
+    one = report(tmp_path, [("b.py::t", "medium", RATCHET / 4)], "one.xml")
+    two = report(tmp_path, [("c.py::t", "medium", RATCHET)], "two.xml")
+    arguments = [str(one), str(two), "--title", "shards", "--ratchet", str(ratchet)]
     assert tier_budget.main([*arguments, "--enforce"] if enforce else arguments) == (
         status
     )
     out = capsys.readouterr().out
     assert out.startswith("### Tier budgets: shards")
-    assert f"{MEDIUM_TOTAL + 1:.1f} s, which exceeds it" in out
+    assert f"ratchet's {RATCHET:g} s: {1.25 * RATCHET:.1f} s, which exceeds it." in out

@@ -12,12 +12,13 @@ test once -- and prints, as Markdown, what the budgets say of them::
     uv run poe test --junitxml=report.xml
     uv run python tests/tier_budget.py report.xml
 
-The budgets are the page's, as written: a fast test takes **under a second each**, and
-the medium tier takes **60 s for the tier**, the sum of its tests' times, which is what
-``poe test-medium`` takes when it runs them one after another. A test's time is
-JUnit's: its setup, call and teardown, so a module fixture counts against the first test
-that builds it. The slow lane's budget is a lane's wall time, which no report of the
-default lane holds. Skipped tests cost nothing and are left out.
+The budgets are the page's, judged on CI's macOS arm64 test lane: a fast test takes
+**under a second each**, a medium test **under 30 s each**, and the medium tier's total,
+the sum of its tests' times, stays within the ratchet of ``tests/tier_budget.toml``,
+which may only go down. A test's time is JUnit's: its setup, call and teardown, so a
+module fixture counts against the first test that builds it. The slow lane's budget is a
+lane's wall time, which no report of the default lane holds. Skipped tests cost nothing
+and are left out.
 
 The report is advisory: it exits 0 whatever it finds, unless ``--enforce`` asks for a
 failing status when a budget is exceeded. Standard library only, so that it runs in any
@@ -26,6 +27,7 @@ environment that holds the files.
 
 import argparse
 import sys
+import tomllib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,11 +35,13 @@ from xml.etree import ElementTree
 
 __all__ = [
     "FAST_EACH",
-    "MEDIUM_TOTAL",
+    "MEDIUM_EACH",
     "PROPERTY",
+    "RATCHET",
     "Case",
     "Verdict",
     "judge",
+    "load_ratchet",
     "main",
     "read",
     "render",
@@ -50,8 +54,11 @@ PROPERTY = "tier"
 FAST_EACH = 1.0
 """The fast tier's budget: under a second each, in seconds."""
 
-MEDIUM_TOTAL = 60.0
-"""The medium tier's budget: 60 s for the tier, in seconds."""
+MEDIUM_EACH = 30.0
+"""The medium tier's budget: under 30 s each, in seconds."""
+
+RATCHET = Path(__file__).with_name("tier_budget.toml")
+"""The committed ratchet on the medium tier's total, which may only go down."""
 
 SHOWN = 15
 """How many of the slowest tests a report names per tier."""
@@ -77,8 +84,9 @@ class Verdict:
 
     totals: dict[str, tuple[int, float]]
     slow_fast: tuple[Case, ...]
-    medium: tuple[Case, ...]
+    slow_medium: tuple[Case, ...]
     untiered: int
+    medium_ratchet: float
 
     @property
     def medium_seconds(self) -> float:
@@ -88,7 +96,17 @@ class Verdict:
     @property
     def within(self) -> bool:
         """Whether every budget holds."""
-        return not self.slow_fast and self.medium_seconds <= MEDIUM_TOTAL
+        return (
+            not self.slow_fast
+            and not self.slow_medium
+            and self.medium_seconds <= self.medium_ratchet
+        )
+
+
+def load_ratchet(path: Path = RATCHET) -> float:
+    """Return the medium tier's ratchet, in seconds, from the TOML file at `path`."""
+    with path.open("rb") as stream:
+        return float(tomllib.load(stream)["medium"]["max_total"])
 
 
 def _node(case: ElementTree.Element) -> str:
@@ -119,8 +137,11 @@ def read(reports: Iterable[Path]) -> list[Case]:
     return cases
 
 
-def judge(cases: Sequence[Case]) -> Verdict:
-    """Return the per-tier counts and seconds, and the cases each budget names."""
+def judge(cases: Sequence[Case], medium_ratchet: float) -> Verdict:
+    """Return the per-tier counts and seconds, and the cases each budget names.
+
+    `medium_ratchet` is the medium tier's allowed total, in seconds.
+    """
     totals: dict[str, tuple[int, float]] = {}
     for case in cases:
         if case.tier is not None:
@@ -134,8 +155,13 @@ def judge(cases: Sequence[Case]) -> Verdict:
             for case in slowest
             if case.tier == "fast" and case.seconds >= FAST_EACH
         ),
-        medium=tuple(case for case in slowest if case.tier == "medium"),
+        slow_medium=tuple(
+            case
+            for case in slowest
+            if case.tier == "medium" and case.seconds >= MEDIUM_EACH
+        ),
         untiered=sum(case.tier is None for case in cases),
+        medium_ratchet=medium_ratchet,
     )
 
 
@@ -155,20 +181,22 @@ def render(verdict: Verdict, title: str) -> str:
     ]
     if verdict.untiered:
         lines += ["", f"{verdict.untiered} tests carry no tier property."]
-    fast = verdict.slow_fast
+    for tier, each, over in (
+        ("fast", FAST_EACH, verdict.slow_fast),
+        ("medium", MEDIUM_EACH, verdict.slow_medium),
+    ):
+        lines += [
+            "",
+            f"**{tier}**, under {each:g} s each: "
+            f"{len(over)} tests take {each:g} s or more"
+            + (", the slowest:" if over else "."),
+            *_table(over),
+        ]
+    medium, ratchet = verdict.medium_seconds, verdict.medium_ratchet
     lines += [
         "",
-        f"**fast**, under {FAST_EACH:g} s each: {len(fast)} tests take longer"
-        + (", the slowest:" if fast else "."),
-        *_table(fast),
-    ]
-    medium = verdict.medium_seconds
-    over = "exceeds" if medium > MEDIUM_TOTAL else "is within"
-    lines += [
-        "",
-        f"**medium**, {MEDIUM_TOTAL:g} s for the tier: {medium:.1f} s, which {over} "
-        f"it" + (", the slowest:" if verdict.medium else "."),
-        *_table(verdict.medium),
+        f"**medium total**, at most the ratchet's {ratchet:g} s: {medium:.1f} s, which "
+        + ("exceeds it." if medium > ratchet else "is within it."),
     ]
     return "\n".join(lines) + "\n"
 
@@ -181,10 +209,16 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser.add_argument("reports", nargs="+", type=Path, help="one lane's JUnit files")
     parser.add_argument("--title", default="the lane", help="what the reports are of")
     parser.add_argument(
+        "--ratchet",
+        default=RATCHET,
+        type=Path,
+        help="the TOML file of the medium tier's ratchet",
+    )
+    parser.add_argument(
         "--enforce", action="store_true", help="exit 1 when a budget is exceeded"
     )
     options = parser.parse_args(arguments)
-    verdict = judge(read(options.reports))
+    verdict = judge(read(options.reports), load_ratchet(options.ratchet))
     sys.stdout.write(render(verdict, options.title))
     return 1 if options.enforce and not verdict.within else 0
 
