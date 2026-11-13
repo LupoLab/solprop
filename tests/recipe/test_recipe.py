@@ -15,6 +15,8 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from builders import HASH_PROBE, run_python
 from solprop.cli import main
@@ -24,6 +26,8 @@ from solprop.profiles import PiecewiseLinear
 from solprop.pulses import DataPulse, SechPulse
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
 from solprop.recipe.core import ROUTES
+from solprop.recipe.document import FORMAT, parse_text
+from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
 from solprop.recipe.registry import (
     REGISTRY,
     BuildContext,
@@ -747,3 +751,151 @@ def test_a_launch_table_builds_the_call_s_launch():
         )
     record = cast("dict[str, Any]", built.configuration["modal_launch"])
     assert record["pulses"][0]["shares"] == [0.9, 0.1]
+
+
+# ------------------------------------------------- a canonical save is a fixed point
+#
+# Recipes are generated from the parameter metadata itself: a route, some of its
+# keywords, and for each a value of a form the metadata declares, spelled as a recipe
+# author might (a bare number in the keyword's unit, or a quantity string in that unit
+# or in its display unit). Objects, mappings and callables are left to the examples:
+# their tables are written as they stand.
+
+PLAIN_KINDS = frozenset({"integer", "boolean", "choice", "string"})
+LIST_KINDS = frozenset({"pair", "array"})
+WRITTEN_KINDS = PLAIN_KINDS | LIST_KINDS | {"number"}
+
+
+def _writable_form(parameter):
+    """Return the first form of a keyword this generator writes, or ``None``."""
+    return next(
+        (
+            form
+            for form in parameter.forms
+            if form.recipe and form.kind in WRITTEN_KINDS and form.elements is None
+        ),
+        None,
+    )
+
+
+def _numbers(form):
+    """Return a strategy of finite numbers inside the form's range."""
+    return st.floats(
+        min_value=form.minimum,
+        max_value=form.maximum,
+        exclude_min=form.exclusive and form.minimum is not None,
+        exclude_max=form.exclusive and form.maximum is not None,
+        allow_nan=False,
+        allow_infinity=False,
+    )
+
+
+def _spelled(number, form, parameter, spelling):
+    """Write a number as a recipe may: bare, or a quantity in its unit or display."""
+    if form.unit is None or spelling == "bare":
+        return number
+    unit = Unit(form.unit)
+    display = parameter.display if spelling == "display" else form.unit
+    return format_quantity(number, unit, display or form.unit)
+
+
+# Read once, outside the strategies: the first reading imports the routes' modules,
+# which Hypothesis would see touching the global random state mid-draw.
+ROUTE_TABLES = {name: parameters(name) for name in (*ROUTES, "execution")}
+
+
+def _written_form(parameter):
+    """Return the form a keyword's generated values take."""
+    form = _writable_form(parameter)
+    assert form is not None, parameter.name
+    return form
+
+
+def _plain_values(form):
+    """Return a strategy of a value that takes no unit, for the non-numeric kinds."""
+    if form.kind == "choice":
+        return st.sampled_from(form.choices)
+    low = -(2**63) if form.minimum is None else int(form.minimum)
+    return {
+        "integer": st.integers(min_value=low, max_value=2**63 - 1),
+        "boolean": st.booleans(),
+        "string": st.text(max_size=10),
+    }[form.kind]
+
+
+@st.composite
+def keyword_values(draw, parameter):
+    """Return one value of a keyword, of a form its metadata declares."""
+    form = _written_form(parameter)
+    if parameter.none and draw(st.booleans()):
+        return "none"
+    if form.kind in PLAIN_KINDS:
+        return draw(_plain_values(form))
+    spelling = draw(st.sampled_from(["bare", "unit", "display"]))
+    if form.kind == "number":
+        return _spelled(draw(_numbers(form)), form, parameter, spelling)
+    size = form.length or draw(st.integers(min_value=1, max_value=4))
+    numbers = draw(st.lists(_numbers(form), min_size=size, max_size=size))
+    return [_spelled(x, form, parameter, spelling) for x in numbers]
+
+
+@st.composite
+def recipe_documents(draw):
+    """Return a recipe document of a route, written from its parameter metadata."""
+    route = draw(st.sampled_from(ROUTES))
+    table = ROUTE_TABLES[route]
+    names = draw(
+        st.lists(
+            st.sampled_from(sorted(n for n, p in table.items() if _writable_form(p))),
+            unique=True,
+            max_size=8,
+        )
+    )
+    document: dict[str, Any] = {
+        "recipe": {"format": FORMAT, "route": route},
+        "build": {name: draw(keyword_values(table[name])) for name in names},
+    }
+    if draw(st.booleans()):
+        document["recipe"]["title"] = draw(st.text(max_size=20))
+    execution = ROUTE_TABLES["execution"]
+    chosen = draw(st.lists(st.sampled_from(["fields", "resume_history"]), unique=True))
+    if chosen:
+        document["execution"] = {
+            name: draw(keyword_values(execution[name])) for name in chosen
+        }
+    if names and draw(st.booleans()):
+        # A scan axis keyed by a parameter path, which the writer must quote.
+        path = f"{names[0]}[0]" if draw(st.booleans()) else names[0]
+        document["scan"] = {path: draw(st.lists(st.floats(0.0, 1.0), min_size=1))}
+    return document
+
+
+def _read_value(parameter, value):
+    """Return a written value as numbers: each quantity read in its keyword's unit."""
+    form = _written_form(parameter)
+    if isinstance(value, list):
+        return [_read_value(parameter, item) for item in value]
+    if form.unit is None or value == "none" or isinstance(value, bool):
+        return value
+    return parse_quantity(value, Unit(form.unit))
+
+
+@settings(max_examples=60, deadline=None)
+@given(document=recipe_documents())
+def test_a_canonical_save_reads_back_equal_and_saves_to_the_same_text(document):
+    recipe = Recipe.from_dict(document)
+    text = recipe.to_text()
+    again = Recipe.loads(text)
+    # Structural (class P): the canonical text is the recipe's value, so reading it
+    # gives an equal recipe, and saving that again writes the same text: a fixed
+    # point, which holds only if every quantity reads back to the same double and
+    # no table, key or value is dropped or reordered on the way.
+    assert again == recipe
+    assert Recipe.from_dict(again.to_dict()).to_text() == text
+    assert parse_text(text) == again.to_dict()
+    # Equality compares canonical spellings, which a lossy spelling would pass on
+    # both sides; so each value written must also read back to the same numbers.
+    table = ROUTE_TABLES[recipe.route]
+    for name, value in recipe.to_dict()["build"].items():
+        written = again.get(name)
+        assert _read_value(table[name], written) == _read_value(table[name], value)
