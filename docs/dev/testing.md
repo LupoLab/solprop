@@ -221,6 +221,11 @@ slow CI job, which the job's log shows: after the re-tiering of #792 the jobs to
 30 min on macOS arm64 (three workers) and 21 to 28 min on Ubuntu (two). Sharding the
 lane, as the default lane is sharded, is #803.
 
+A test may be in `slow` by **cost** rather than by purpose when it takes over 60 s on CI
+and can't be made cheaper without changing its claim. Its marker then carries a comment
+saying so, with its CI time and what it is: `# slow by cost (#792): ~190 s on CI macOS; a
+functional check, not a witness`. Such a test is a candidate to bring back.
+
 A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
 repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks
 ([benchmarks.md](benchmarks.md)), by hand on an idle machine and recorded with the

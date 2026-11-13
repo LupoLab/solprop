@@ -453,7 +453,8 @@ PLANAR = (
     "collar-only",
     pytest.param("raman", marks=pytest.mark.medium),
     pytest.param("field-plasma", marks=pytest.mark.medium),
-    pytest.param("envelope-plasma", marks=pytest.mark.medium),
+    # slow by cost (#792): ~105 s on CI macOS; a parity check, not a witness
+    pytest.param("envelope-plasma", marks=pytest.mark.slow),
 )
 
 
