@@ -246,7 +246,7 @@ thing at a time (coarser rungs exceed the in-stage absorber's stability limit, 5
 this metre, ADR-025). The plasma rows use the held-current source; the Luna comparisons
 below run the time-domain gated plasma source through a test-only hook
 (`tests/gated_source.py`), which `numpy_ref` and `native` both run, held to each other
-by `tests/backends/test_native_held_plasma.py`:
+by the gated rows of the case catalogue (`tests/backends/plasma_rows.py`):
 
 | fill | plasma | order |
 |---|---|---|
