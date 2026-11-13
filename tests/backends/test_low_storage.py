@@ -750,6 +750,7 @@ def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, 
         identities=("accepted",),
         slots=np.array([0]),
         rows={},
+        history_key="adams",
     )
     assert "low-storage march, which keeps no history" in str(
         resumed.restore_march(snapshot)

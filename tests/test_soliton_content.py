@@ -236,11 +236,13 @@ def test_invalid_diameter_geometry_is_rejected(radius, wall, ratio, count):
         TubeLattice.from_inner_diameter_ratio(radius, wall, ratio, count)
 
 
-# A pressure search over full mode solves: tens of seconds, not under one.
+# A pressure search over full mode solves: tens of seconds, not under one. One shape
+# serves: the search passes it through to `lambda_rdw`, whose Gaussian constituent the
+# content tests above hold; a Gaussian search here cost 67 s (Vincetti) and 26 s.
 @pytest.mark.medium
-@pytest.mark.parametrize("shape", ["sech", "gauss"])
 @pytest.mark.parametrize("vincetti", [False, True])
-def test_pressure_search_inverts_constituent_phase_for_both_modes(shape, vincetti):
+def test_pressure_search_inverts_constituent_phase_for_both_modes(vincetti):
+    shape = "sech"
     radius, pressure = (20e-6 if vincetti else 125e-6), 2.0
     lattice = (
         TubeLattice.from_inner_diameter_ratio(radius, 0.3e-6, 0.6, 6)
