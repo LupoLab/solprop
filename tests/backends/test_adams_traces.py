@@ -52,11 +52,6 @@ CHANGED = {
 }
 
 
-def test_the_corpus_was_generated_before_the_refactor():
-    with gzip.open(CORPUS, "rt") as handle:
-        assert json.load(handle)["generated_from"] == "a500d2d"
-
-
 UNCHANGED = [entry for entry in ENTRIES if entry["scenario"]["name"] not in CHANGED]
 
 

@@ -29,11 +29,11 @@ from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear import responses_for
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
-from solprop.nonlinear.responses import PlasmaResponse
+from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import open_file
 from solprop.output.hdf5 import check_cache
 from solprop.output.metadata import PEAK_FIELDS_ANNOTATION
-from solprop.physdata import Mixture, species
+from solprop.physdata import Mixture, gamma3, species
 from solprop.physdata.selection import MaterialManifest, MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -410,3 +410,52 @@ def test_a_run_without_peak_rates_reports_nothing():
     unannotated = callers.run(progress="none")
     assert callers._peak_fields == ()
     assert PEAK_FIELDS_ANNOTATION not in unannotated.annotations
+
+
+def _free_argon(responses: list[Any]) -> Any:
+    """Build a small Cartesian argon run, translating nothing."""
+    grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    space = FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0)
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[grid.length],
+        dz_max=grid.length,
+        dz_init=grid.length,
+        backend="numpy_ref",
+        ionisation_field_range=(1e7, 1e11),
+    )
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6
+    )
+    return Simulation.from_free(
+        grid,
+        space,
+        SpatialMedium("Ar", 1.0),
+        responses,
+        pulse,
+        settings=settings,
+        noise=None,
+    )
+
+
+def test_a_free_route_binds_an_optmat_rate_to_the_input_peak():
+    """The free-space rate's energy per event is taken at the input's peak."""
+    rate = OptmatRate("Ar", 800e-9)
+    assert rate.reference_field is None
+    simulation = _free_argon([PlasmaResponse("Ar", rate)])
+    bound = simulation.responses[0].rate
+    assert isinstance(bound, OptmatRate)
+    assert bound.reference_field is not None and bound.reference_field > 0
+    assert bound.field_range == (1e7, 1e11)
+    kept = _free_argon([PlasmaResponse("Ar", rate.bound(1e10))])
+    assert kept.responses[0].rate.reference_field == 1e10
+
+
+def test_a_free_kerr_response_is_the_callers():
+    """A free route takes a Kerr coefficient as given, with no substitution."""
+    coefficient = gamma3("Ar", wavelength=800e-9)
+    assert coefficient == species("Ar").kerr_coefficient(800e-9)
+    (kerr,) = _free_argon([KerrResponse(coefficient, thg=False)]).responses
+    assert kerr.chi3 == coefficient and kerr.thg is False
+    (given,) = _free_argon([KerrResponse(1.5e-51, thg=False)]).responses
+    assert given.chi3 == 1.5e-51

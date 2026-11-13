@@ -266,11 +266,6 @@ class HostAdamsMarch:
         backend = self._backend
         checks = (
             (
-                # Starting afresh is always safe.
-                snapshot.history_key is None,
-                "the snapshot names no history key",
-            ),
-            (
                 snapshot.history_key != self._method.history_key,
                 f"the snapshot's history was kept by {snapshot.history_key}, and "
                 f"this run steps with {self._method.history_key}",

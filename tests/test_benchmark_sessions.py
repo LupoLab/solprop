@@ -103,6 +103,9 @@ def test_field_free_and_scanned_cases_build_their_retention():
     assert snapshots.settings.step_planes == 1
 
 
+# A registered benchmark case propagated: the harness's real-case runs are slow
+# (testing.md section 2); its logic is tested in the default lane.
+@pytest.mark.slow
 @pytest.mark.parametrize("name", ["stats_period1_adams", "stats_period1_rk"])
 def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path):
     timed, run, counts = counted(name, tmp_path, repeats=1)
@@ -126,13 +129,16 @@ def test_period_one_statistics_take_a_row_at_every_accepted_step(name, tmp_path)
     assert (timed["accepted"], timed["rejected"]) == (run["accepted"], run["rejected"])
 
 
+# A registered benchmark case propagated: the harness's real-case runs are slow
+# (testing.md section 2); its logic is tested in the default lane.
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "every"),
     [
         ("snapshots_idle", 0),
         ("snapshots_sparse", 8),
         # A copy of the growing file at every step.
-        pytest.param("snapshots_every", 1, marks=pytest.mark.medium),
+        ("snapshots_every", 1),
     ],
 )
 def test_snapshot_cases_service_what_they_ask_for(name, every, tmp_path):
@@ -152,7 +158,9 @@ def test_snapshot_cases_service_what_they_ask_for(name, every, tmp_path):
     assert counts["field_crossings"] == {"export": run["planes"]}
 
 
-@pytest.mark.medium
+# A registered benchmark case propagated: the harness's real-case runs are slow
+# (testing.md section 2); its logic is tested in the default lane.
+@pytest.mark.slow
 def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     _, run, counts = counted("with_input_repeat", tmp_path)
     assert run["runs"] == 3
