@@ -41,10 +41,10 @@ from solprop.exceptions import DriverError, ProcessingError
 from solprop.output.capability import (
     COLUMN_READINGS,
     BasisCapability,
-    _spatial_route,  # pyright: ignore[reportPrivateUsage]
     capability_of,
     reading_refusal,
     refusal_for,
+    spatial_field_unit,
     withheld_from,
 )
 from solprop.output.hdf5 import open_file
@@ -168,13 +168,6 @@ class OutputCapabilities:
         return operation not in self.refused
 
 
-_SPATIAL_FIELD_UNITS: Final[Mapping[str, str]] = MappingProxyType(
-    {"radial": "V m", "Cartesian": "V/m", "line": "V/m", "planar": "sqrt(W/m)"}
-)
-"""The unit of a spatial route's stored field: a radial Hankel spectrum, a Cartesian
-or line field, or a planar slab amplitude per y frequency."""
-
-
 def _quantities(metadata: RunMetadata, basis: BasisCapability) -> dict[str, Quantity]:
     """Return what each derived quantity is on a basis.
 
@@ -186,8 +179,7 @@ def _quantities(metadata: RunMetadata, basis: BasisCapability) -> dict[str, Quan
       and refuse the file (``refused_readers``).
     """
     if basis == "spatial":
-        unit = _SPATIAL_FIELD_UNITS[_spatial_route(metadata)]
-        return {"field": Quantity("coordinate", unit)}
+        return {"field": Quantity("coordinate", spatial_field_unit(metadata))}
     kind: QuantityKind = "physical" if basis == "modal" else "coordinate"
     return {
         "power": Quantity(kind, "W"),

@@ -64,6 +64,7 @@ __all__ = [
     "declared_capability",
     "reading_refusal",
     "refusal_for",
+    "spatial_field_unit",
     "withheld_accessors",
     "withheld_from",
 ]
@@ -435,6 +436,30 @@ def _spatial_route(metadata: RunMetadata) -> str:
         per_width = metadata.transverse_measure == "per_unit_width"
         return "line" if per_width else "Cartesian"
     return "planar" if kind == "slab" else kind
+
+
+_SPATIAL_FIELD_UNITS: Mapping[str, str] = MappingProxyType(
+    {"radial": "V m", "Cartesian": "V/m", "line": "V/m", "planar": "sqrt(W/m)"}
+)
+"""The unit of a spatial route's stored field: a radial Hankel spectrum, a Cartesian
+or line field, or a planar slab amplitude per y frequency."""
+
+
+def spatial_field_unit(metadata: RunMetadata) -> str:
+    """Return the unit of a spatial record's stored field.
+
+    Parameters
+    ----------
+    metadata : solprop.output.metadata.RunMetadata
+        The record of a spatial run (radial, free or slab).
+
+    Returns
+    -------
+    str
+        ``"V m"`` for a radial Hankel spectrum, ``"V/m"`` for a Cartesian or line
+        field, ``"sqrt(W/m)"`` for a planar slab amplitude per y frequency.
+    """
+    return _SPATIAL_FIELD_UNITS[_spatial_route(metadata)]
 
 
 def _column_refusal(metadata: RunMetadata, name: str, recorded: Sequence[str]) -> str:
