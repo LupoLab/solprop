@@ -15,6 +15,7 @@ import pytest
 
 import convergence_records as cr
 from distribution import original_nodeid, remember_nodeid
+from tier_budget import PROPERTY
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +26,7 @@ class _Item:
         self.stash = pytest.Stash()
         self.groups = list(groups)
         self.filters = []
+        self.user_properties = []
 
     def get_closest_marker(self, name):
         assert name == "xdist_group"
@@ -101,6 +103,7 @@ def test_collection_preserves_original_tier_keys_and_serial_selection(
     config = SimpleNamespace(getoption=lambda name, **kwargs: options[name])
     collection_plugin.pytest_collection_modifyitems(config, [item])
     assert recorded == {"tests/test_one.py::test_first": ("slow",)}
+    assert item.user_properties == [(PROPERTY, "slow")]
     assert item.nodeid == "tests/test_one.py::test_first"
     assert bool(item.groups) is grouped
 
