@@ -16,7 +16,11 @@ every channel and scaled to a nonlinear scale ``Phi = 0.5`` over the millimetre:
 - the pair under the split temporal collar, launched with content outside the active
   band, on either march (from ``test_native_general_split.py``, which keeps the
   out-of-band bins' exact zeros on both backends);
-- a guide with no responding region, ten steps of its linear flow (the same module).
+- a guide with no responding region, ten steps of its linear flow (the same module);
+- through ``Simulation.from_waveguide``, the pair's ten fixed steps of a fiftieth of the
+  millimetre with an input shot-noise draw, under the split collar: the last saved
+  plane as the output gives it back (``last_plane``) and its physical energy (``general
+  entry point``, from ``test_native_general_split.py``).
 
 **The bounds are the old tests', fixed before native runs.**
 ``general_parity.source_bound`` counts one stage's roundings (synthesis, two transforms,
@@ -32,16 +36,20 @@ tests' runs ended: the rows observe its tenth edge (``window``), their field to 
 rebuilds the case with none, so the reference's source is zero and its ten steps are the
 linear flow alone (the old ten-step test's own check, now at every rung). A split-collar
 row's term is the collar (``session_rows.without_collar``), and the linear guide's its
-flow (``session_rows.without_modal_flow`` zeroes the constant exponent). Each guarded
+flow (``session_rows.without_modal_flow`` zeroes the constant exponent); the entry
+point's, its regions' cubic (:func:`without_regional_cubic`). Each guarded
 rung's reference must move by more than ``parity_ladder.DETECTION`` (a thousand) of its
 bounds.
+
+The entry point's plane is held normwise in its own norm at the ten-step bound at the
+noise-free launch's nonlinear scale over the millimetre, which covers the shorter run,
+and its physical energy elementwise within the same relative bound, as the old test held
+them.
 
 **Not here.** The moving guide under the split collar (``slow``, an absolute bound read
 from three more reference runs of the quiet launch) stays in
 ``test_native_general_split.py``, beside the coupled-flow parity of the moving guides
-(``backends/flow_rows.py``'s ``moving guide ...`` rows). So does the entry point's run:
-the saved plane in the output's own convention, which the ``last_plane`` rung reads
-now, though the run has not moved yet.
+(``backends/flow_rows.py``'s ``moving guide ...`` rows).
 
 **How to read a row.** Every row is a :func:`general_row` call, for example::
 
@@ -72,6 +80,7 @@ from typing import Any
 
 import numpy as np
 
+from backends.flow_rows import driver_case
 from backends.session_rows import without_collar, without_modal_flow
 from general_parity import (
     LENGTH,
@@ -85,10 +94,13 @@ from general_parity import (
     ten_step_bound,
 )
 from modal_provider_cases import general_grid, split_guide
-from parity_ladder import Built, Row
+from parity_ladder import Built, Row, Statistic
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.boundaries import absorber
+from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning
+from solprop.stats import StatsSpec
+from solprop.stepper import FixedSchedule
 from solprop.stepper.multistep import Multistep
 from solprop.translate.general import general_modal_route
 from solprop.translate.problem import PropagationProblem
@@ -182,6 +194,55 @@ def linear_guide() -> Built:
     return Built(problem, run_request, grid)
 
 
+ENTRY_LENGTH = LENGTH / 50
+"""The entry point's run, m: the pair's ten fixed steps of a fiftieth of the millimetre.
+
+The entry point's default collar is stable in-stage under the default Adams history
+only below 0.7 um steps, so it is split off and integrated exactly."""
+
+
+def entry_simulation(noise: str | None = "input", **keywords: Any) -> Simulation:
+    """Return the pair through ``Simulation.from_waveguide``, on the reference.
+
+    ``numba_cpu``'s retired entry-point test, on its input: a 20 fs, 20 pJ Gaussian with
+    an input shot-noise draw (seed 5) by default; `keywords` go to the constructor.
+    """
+    grid, guide, _, _ = _scaled("pair")
+    return Simulation.from_waveguide(
+        (),
+        ENTRY_LENGTH,
+        provider=guide,
+        grid=grid,
+        wavelength=835e-9,
+        fwhm=20e-15,
+        energy=2e-11,
+        shape="gauss",
+        noise=noise,  # pyright: ignore[reportArgumentType]
+        seed=None if noise is None else 5,
+        save_planes=[ENTRY_LENGTH],
+        backend="numpy_ref",
+        **keywords,
+    )
+
+
+def entry_point() -> Built:
+    """Return the entry point's run: ten fixed steps under the split collar.
+
+    Observing the physical energy alone, the old test's statistic; the field does not
+    depend on what is observed.
+    """
+    simulation = entry_simulation(
+        schedule=FixedSchedule.uniform(
+            0.0, ENTRY_LENGTH, ENTRY_LENGTH / 10, save_planes=[ENTRY_LENGTH]
+        ),
+        stats=StatsSpec(names=("physical_energy",)),
+    )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber_scheme="split_step"
+    )
+    return driver_case(simulation)
+
+
 # --- the bounds -----------------------------------------------------------------------
 
 
@@ -216,6 +277,35 @@ def ten_steps(name: str) -> Callable[[Built], float]:
     return bound
 
 
+def entry_bound(built: Built) -> float:
+    """Return the ten-step bound at the noise-free entry launch's nonlinear scale.
+
+    ``general_parity.ten_step_bound`` over the millimetre, which covers the shorter
+    run, at the scale and conditioning of the entry point's launch translated without
+    its noise draw, as the old test bounded it.
+    """
+    del built
+    grid = _scaled("pair")[0]
+    problem = entry_simulation(noise=None).translate()
+    maps = _general_maps(problem)
+    assert maps is not None
+    state = problem.initial.field0
+    return ten_step_bound(
+        nonlinear_scale(maps, state, grid),
+        source_bound(maps, grid.n_to, conditioning(maps, state, grid)),
+    )
+
+
+def within_the_field_s(built: Built, name: str, bound: float) -> Statistic:
+    """Return the physical energy's rule: relative, within the field's own bound.
+
+    The old test's ``pytest.approx(rel=bound, abs=0)``, the reference's energy positive.
+    """
+    del built
+    assert name == "physical_energy"
+    return Statistic(bound, elementwise=True, positive=True)
+
+
 def linear_flow(built: Built) -> float:
     """Return the ten-step bound at ``Phi = 0``: both backends' linear halves alone."""
     del built
@@ -234,6 +324,25 @@ def without_source(name: str) -> Callable[[PropagationProblem], PropagationProbl
         return rebuilt
 
     return switch
+
+
+def without_regional_cubic(problem: PropagationProblem) -> PropagationProblem:
+    """Return the problem whose regions' third-order susceptibility is zero.
+
+    Every regional response's ``chi3`` multiplies both its instantaneous and its
+    delayed term, so the source vanishes and the run is the linear flow alone.
+    """
+    regional = problem.responses.regional_responses
+    assert regional is not None
+    chi3 = np.zeros_like(regional.chi3)
+    chi3.setflags(write=False)
+    return dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            problem.responses,
+            regional_responses=dataclasses.replace(regional, chi3=chi3),
+        ),
+    )
 
 
 # --- the rows -------------------------------------------------------------------------
@@ -338,5 +447,29 @@ def rows() -> tuple[Row, ...]:
             build=linear_guide,
             switch_off=without_modal_flow,
             rungs={"steps": linear_flow},
+        ),
+        Row(
+            id="general entry point",
+            axes={
+                "route": "general guide (constant)",
+                "stepper": "adams",
+                "response": "kerr",
+                "features": "Simulation.from_waveguide, an input shot-noise draw, the "
+                "split collar, the physical energy",
+            },
+            why="The pair's ten fixed steps through the entry point, with a shot-noise "
+            "draw and the split collar, leave the reference's last plane and physical "
+            "energy on native.",
+            bound_note="The ten-step bound at the noise-free launch's nonlinear scale "
+            "over the millimetre, which covers the run's fiftieth of it, written "
+            "before any measurement; the energy within the same relative bound, "
+            "elementwise (the old test's pytest.approx with abs=0). The plane is held "
+            "normwise in its own norm.",
+            build=entry_point,
+            switch_off=without_regional_cubic,
+            rungs={"last_plane": entry_bound},
+            every_statistic=within_the_field_s,
+            medium=True,
+            quiet=QUIET,
         ),
     )

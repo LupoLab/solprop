@@ -9,10 +9,9 @@ general guide on a compiled backend, ``numba_cpu``'s entry-point test. It is her
 native, beside what #230 asks: a launch holding content outside the active band, on the
 constant and the moving guide, on either march. Each backend must drop that content at
 the load, so the state's out-of-band bins are held to exactly zero, a structural
-contract. The constant guide's field on every other bin, and a linear guide's, are the
-catalogue's rows (``backends/general_rows.py``); the moving guide's field and the entry
-point's saved plane are compared here, the first at an absolute bound read from more
-reference runs, the second in the output's own convention, which no rung reads.
+contract. The constant guide's field on every other bin, a linear guide's and the entry
+point's saved plane are the catalogue's rows (``backends/general_rows.py``); the moving
+guide's field is compared here, at an absolute bound read from more reference runs.
 
 The roadmap's and #90's report that the reference carries the content while native
 zeroes it is what these settle.
@@ -20,29 +19,16 @@ zeroes it is what these settle.
 
 import dataclasses
 import importlib.util
-import warnings
 
 import numpy as np
 import pytest
 
 from backends.general_rows import MARCHES, split_collar, with_content_out_of_band
 from coupled_flow_cases import propagate
-from general_parity import (
-    LENGTH,
-    conditioning,
-    nonlinear_scale,
-    scaled_case,
-    source_bound,
-    ten_step_bound,
-)
+from general_parity import LENGTH
 from moving_guide_cases import grin_kinked, moving_parity_bound
 from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _general_maps
-from solprop.driver import Simulation
-from solprop.exceptions import GeneralModalBasisWarning
-from solprop.output.memory import MemoryOutput
-from solprop.stepper import FixedSchedule
 
 pytestmark = [
     pytest.mark.skipif(
@@ -130,72 +116,3 @@ def test_the_split_collar_on_a_moving_guide_is_the_reference_on_every_bin(march)
     assert np.all(got[..., ~active] == 0.0)
     bound = moving_parity_bound(quiet, propagate(quiet, NumpyRefBackend), linear)
     assert float(np.max(np.abs(got - expected))) <= bound
-
-
-@pytest.mark.medium
-def test_a_run_through_the_entry_point_is_the_references_on_native():
-    """``Simulation.from_waveguide(..., backend="native")`` end to end, split collar.
-
-    ``numba_cpu``'s test, on its input: the user's door, with a shot-noise draw, the run
-    loop's admission, the output and the statistics. The saved field agrees with the
-    reference's run within the ten-step bound at the launch's own nonlinear scale over
-    the millimetre, which covers the shorter run, and the recorded ``physical_energy``
-    within the same relative bound.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        grid, guide, _, _ = scaled_case("pair")
-    # The entry point's default collar is stable in-stage under the default Adams
-    # history only below 0.7 um steps, so it is split off and integrated exactly.
-    short = LENGTH / 50
-    runs = {}
-    for backend in ("numpy_ref", "native"):
-        simulation = Simulation.from_waveguide(
-            (),
-            short,
-            provider=guide,
-            grid=grid,
-            wavelength=835e-9,
-            fwhm=20e-15,
-            energy=2e-11,
-            shape="gauss",
-            noise="input",
-            seed=5,
-            schedule=FixedSchedule.uniform(0.0, short, short / 10, save_planes=[short]),
-            save_planes=[short],
-            backend=backend,
-        )
-        simulation.settings = dataclasses.replace(
-            simulation.settings, absorber_scheme="split_step"
-        )
-        output = simulation.run(progress="none")
-        assert isinstance(output, MemoryOutput)
-        runs[backend] = output
-    problem = Simulation.from_waveguide(
-        (),
-        short,
-        provider=guide,
-        grid=grid,
-        wavelength=835e-9,
-        fwhm=20e-15,
-        energy=2e-11,
-        shape="gauss",
-        save_planes=[short],
-        backend="numpy_ref",
-        noise=None,
-    ).translate()
-    maps = _general_maps(problem)
-    assert maps is not None
-    state = problem.initial.field0
-    bound = ten_step_bound(
-        nonlinear_scale(maps, state, grid),
-        source_bound(maps, grid.n_to, conditioning(maps, state, grid)),
-    )
-    reference, compiled = (runs[one].planes()[-1] for one in ("numpy_ref", "native"))
-    assert departure(compiled.field, reference.field) <= bound
-    energies = [
-        float(np.ravel(plane.stats["physical_energy"])[0])
-        for plane in (reference, compiled)
-    ]
-    assert energies[0] > 0.0
-    assert energies[1] == pytest.approx(energies[0], rel=bound, abs=0.0)
