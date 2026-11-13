@@ -274,6 +274,10 @@ All notable changes to solprop are recorded here. The format follows
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its
   width indefinitely ([#697](https://github.com/LupoLab/solprop/issues/697)).
+- The desktop front end no longer builds a class's sheet twice when the kernel answers its
+  route's description twice, once for the description fetched ahead and once for the one
+  asked as the setup opened; the second build replaced every widget on the sheet for
+  nothing ([#791](https://github.com/LupoLab/solprop/issues/791)).
 - Fixed the Adams march dropping the attempt row of a rejected trial whose reduced
   proposal fell below `dz_min`: the completed trial is now recorded, on both the NumPy
   reference and the native backend, before the floor's `ConvergenceError` is raised; the
