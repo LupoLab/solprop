@@ -27,7 +27,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from backends.test_band_plasma_parity import bound, case
+from backends.plasma_column_cases import bound, case
 from backends.test_radial_nonlinear import QuadraticRate
 from bounds import UNIT_ROUNDOFF, fft_bound, gamma
 from sessions.runs import native_trial

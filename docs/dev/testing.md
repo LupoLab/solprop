@@ -385,7 +385,8 @@ features) and the bound of each rung it runs, and `tests/parity_ladder.py` runs 
 native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family's rows live
 beside its cases (`tests/backends/dispersive_rows.py`, whose docstring shows how to read
 one; `tests/backends/optmat_rows.py`, whose rows climb from the linear operator to the
-driver's complete run). A row states the physical claim it holds in one sentence
+driver's complete run; `tests/backends/plasma_rows.py`, the field plasma column on every
+route under both running-integral rules). A row states the physical claim it holds in one sentence
 (`why`), and explains a bound with a floor, a margin or a choice in `bound_note` (what
 was measured against it, what a wrong backend would miss by); every failure quotes
 both, and a rung outside its bound gives the measured value, the bound and their ratio.
@@ -395,7 +396,9 @@ rows held their first stage to before they joined), so a parity rung cannot pass
 vacuously. A rung that cannot clear a thousand declares its own lower
 guard, at least a hundred bounds, with the measured margin that limits it
 (`parity_ladder.Detection`); a rung the term cannot move that far is listed as unguarded,
-with why it is kept. A new parity case is a row, not a new ladder.
+with why it is kept. Every row guards at least one rung, unless the guard found an old
+claim vacuous: that row is kept, declared `vacuous` with what was measured. A new
+parity case is a row, not a new ladder.
 
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`
 runs the user guide's code, and `tests/test_seps.py` keeps each enhancement proposal's
