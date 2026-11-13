@@ -35,7 +35,10 @@ after each case's ten fixed steps (``steps``, or ``last_plane`` through the driv
   TE/TM wall on a taper (``vector wall taper driver``, from
   ``tests/driver/test_coherent_capillary.py``); and the scalar wall and the lossless
   taper coupling whose ``auto`` runs ``test_native_coupled_flow.py`` and
-  ``test_taper_coupling.py`` keep (``scalar wall driver``, ``taper coupling driver``).
+  ``test_taper_coupling.py`` keep (``scalar wall driver``, ``taper coupling driver``);
+  and the kinked taper through the entry point, its plane and physical energy
+  (``moving guide entry point``, from the deleted
+  ``tests/driver/test_native_moving_entry.py``).
 
 **The bounds are the old tests', fixed before native runs.** A ``flow marches`` row is
 bounded by ``flow_parity.ten_step_bound`` (``B_10``): the declared conditioning ``C``
@@ -104,7 +107,8 @@ import flow_parity
 import input_noise_cases
 import moving_guide_cases
 import wall_gas_cases
-from parity_ladder import Built, Row, reference
+from modal_provider_cases import grin_grid
+from parity_ladder import Built, Row, Statistic, reference
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.modes import CoherentWall
 from solprop.stats import StatsSpec
@@ -203,6 +207,24 @@ def routed_off(route: str):
     with pytest.MonkeyPatch.context() as patch:
         coupled_flow_cases.off_route(patch, route)
         yield
+
+
+def moving_entry_case() -> Built:
+    """Return the kinked graded-index taper through the entry point, ten steps.
+
+    Observing the physical energy alone, the old test's statistic; no absorber and no
+    window watch, as there.
+    """
+    simulation = moving_guide_cases.ten_step_simulation(
+        moving_guide_cases.grin_taper(moving_guide_cases.kinked_radius(), kerr=True),
+        grin_grid(),
+        stats=StatsSpec(names=("physical_energy",)),
+        **(moving_guide_cases.GRIN_PULSE | {"energy": moving_guide_cases.GRIN_ENERGY}),
+    )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber=None, boundary_check=None
+    )
+    return driver_case(simulation)
 
 
 def driver_case(simulation: Any) -> Built:
@@ -385,6 +407,16 @@ def routed(route: str) -> Callable[[Built], bool]:
         )
 
     return check
+
+
+def twice_the_field_s(built: Built, name: str, bound: float) -> Statistic:
+    """Return the physical energy's rule: relative, within twice the field's bound.
+
+    An energy is a quadratic form of the state, so twice the state's relative bound.
+    """
+    del built
+    assert name == "physical_energy"
+    return Statistic(2.0 * bound, elementwise=True)
 
 
 def exercised_below_a_millionth(built: Built) -> bool:
@@ -917,6 +949,34 @@ def _wide_rows() -> tuple[Row, ...]:
     )
 
 
+def _moving_entry_row() -> Row:
+    """Return the kinked taper through the entry point: its plane and its energy."""
+    return Row(
+        id="moving guide entry point",
+        axes={
+            "route": "general guide (moving)",
+            "stepper": "adams",
+            "response": "kerr",
+            "features": "the kinked graded-index taper through from_waveguide, 10 nJ",
+        },
+        why="A moving guide's ten steps through the entry point leave the "
+        "reference's last plane and physical energy on native.",
+        bound_note="moving_guide_cases.moving_parity_bound relative to the launch's "
+        "peak on the plane, written before any measurement; the energy, a quadratic "
+        "form of it, within twice that, relative. The old test held the energy alone, "
+        "with pytest.approx's default absolute 1e-12 J beside the relative bound: "
+        "1e-4 of this 1e-8 J (#806). The row holds the relative bound only.",
+        build=moving_entry_case,
+        switch_off=frozen_maps,
+        rungs={"last_plane": moving_bound},
+        metric="peak",
+        scale=launch_peak,
+        every_statistic=twice_the_field_s,
+        medium=True,
+        quiet=MOVING_QUIET,
+    )
+
+
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the coupled linear flow on a fixed schedule."""
@@ -925,6 +985,7 @@ def rows() -> tuple[Row, ...]:
         *_coupled_rows(),
         *(_moving_row(name) for name in MOVING),
         *(_bound_row(name) for name in BOUND_CASES),
+        _moving_entry_row(),
         *_wall_gas_rows(),
         *_noise_rows(),
         *_entry_rows(),
