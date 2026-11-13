@@ -111,15 +111,16 @@ class HostGroupSession:
         planes and statistics are the group's common schedule.
     starts : collections.abc.Sequence of solprop.backends.session.Start
         Each member's start: its entrance, with no method history or monitor to
-        continue. The group takes each start's field.
+        continue. The group takes each start's field once it is constructed; a
+        construction that fails leaves them to the caller.
     stop : solprop.log.StopFlag or None, optional
         A group-wide stop token, polled before every common step.
 
     Raises
     ------
     solprop.backends.session.SessionError
-        If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance.
+        If the sequences differ in length or are empty, if a start is not a fresh
+        entrance or was already used, or if two members share a start or a backend.
     solprop.exceptions.BackendError
         If the runner refuses the members (``select_batch``): another backend, or
         another schedule, planes or periodic statistics.
@@ -138,13 +139,15 @@ class HostGroupSession:
         from solprop.backends.registry import select_batch  # noqa: PLC0415 - cycle
 
         count = len(members)
-        check_group(count, problems, requests, starts)
+        check_group(members, problems, requests, starts)
         observation = requests[0].observation
         # The reference's members step on the host (`HostStepping`).
         hosted = tuple(stepping(member) for member in members)
+        # The entrances are read here and taken only once the runner admits the
+        # group, so that a refused group leaves the caller's starts to retry with.
         for member, start in zip(hosted, starts, strict=True):
             member.set_initial(
-                np.asarray(start.take_field()),
+                np.asarray(start.field),
                 start.noise,
                 z=float(start.z),
                 resume=start.resume,
@@ -158,6 +161,8 @@ class HostGroupSession:
         self._planes = np.asarray(observation.save_planes, dtype=np.float64)
         self._runner = select_batch(self._members)
         self._runner.set_stop(stop)
+        for start in starts:
+            start.take_field()
         self._ledger = SessionLedger()
         self._launched = False
         self._index = 0

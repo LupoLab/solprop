@@ -319,7 +319,8 @@ PLATES = {
 
 SLOW_BY_COST = {
     "envelope_plasma": "slow by cost (#792): 90 s serially on the Mac, 156 s under "
-    "-n 4 (the two old tests it merges took 81 s and 68 s), most of it the "
+    "-n 4 (the two old tests it merges took 81 s and 68 s; 105-136 s each on CI "
+    "macOS, 200-268 s on Windows x64, as #805 tiered them), most of it the "
     "reference's envelope-plasma cycle moments; a parity check, not a witness",
 }
 """The plates whose ten-step row is slow by cost, and why."""

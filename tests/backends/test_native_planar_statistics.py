@@ -89,8 +89,16 @@ def run(backend_class, problem, run_request, grid, length):
         backend.close()
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("name", ["kerr", "field-plasma", "envelope-plasma"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("kerr", marks=pytest.mark.medium),
+        # slow by cost (#792): ~50 s on CI macOS and 74-106 s on Windows x64; a parity
+        # check, not a witness
+        pytest.param("field-plasma", marks=pytest.mark.slow),
+        pytest.param("envelope-plasma", marks=pytest.mark.medium),
+    ],
+)
 def test_each_statistic_is_the_reference_s_on_the_same_state(name):
     """Every spatial statistic, and each plasma one, at the reference's final state.
 

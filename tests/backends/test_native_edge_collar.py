@@ -317,6 +317,13 @@ MEDIUM_READS = {
 }
 """The routes and marches whose three runs take over ten seconds (CI, macOS arm64)."""
 
+# slow by cost (#792): ~280 s and ~95 s on CI macOS; functional checks, not witnesses
+SLOW_READS = {
+    ("cartesian", "runge_kutta_in_stage"),
+    ("cartesian", "low_storage_in_stage"),
+}
+"""The routes and marches too costly for the medium tier."""
+
 
 @pytest.mark.parametrize(
     ("route", "name"),
@@ -325,7 +332,11 @@ MEDIUM_READS = {
             route,
             name,
             id=f"{route}-{name}",
-            marks=[pytest.mark.medium] if (route, name) in MEDIUM_READS else [],
+            marks=[pytest.mark.medium]
+            if (route, name) in MEDIUM_READS
+            else [pytest.mark.slow]
+            if (route, name) in SLOW_READS
+            else [],
         )
         for route in ROUTES
         for name in MARCHES
@@ -624,7 +635,15 @@ def _unmasked(problem: Any, seed: int) -> NoiseRealisation:
     return NoiseRealisation(spectrum=spectrum, seed=None, model="input")
 
 
-@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+@pytest.mark.parametrize(
+    "route",
+    [
+        "radial",
+        # slow by cost (#792): ~80 s on CI macOS; a functional check, not a witness
+        pytest.param("cartesian", marks=pytest.mark.slow),
+        "line",
+    ],
+)
 def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

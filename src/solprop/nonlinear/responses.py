@@ -787,9 +787,9 @@ class DispersiveKerrResponse:
 
     @property
     def coefficient(self) -> float:  # numpydoc ignore=RT01
-        """``eps0 gamma3_0``, the static coefficient per unit density, C m^2/V^3.
+        """``eps0 gamma3_0``, the static coefficient per unit density, C m^4/V^3.
 
-        That is m^5/V^2 times eps0; it multiplies the number density.
+        That is m^5/V^2 times eps0, in C/(V m); it multiplies the number density.
         """
         return EPS0 * self.model.gamma3_static
 

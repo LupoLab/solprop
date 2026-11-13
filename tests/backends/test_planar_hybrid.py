@@ -188,8 +188,17 @@ def field_peak_rate_allowance(problem, reference, field_bound, n_y):
     return float(max(rates[2] - rates[1], rates[1] - rates[0]) + 2 * np.max(rounding))
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("family", list(FAMILIES))
+@pytest.mark.parametrize(
+    "family",
+    [
+        # slow by cost (#792): 45-66 s on CI macOS and 61-83 s on Windows x64; a
+        # parity check, not a witness
+        pytest.param(family, marks=pytest.mark.slow)
+        if family == "field-plasma"
+        else pytest.param(family, marks=pytest.mark.medium)
+        for family in FAMILIES
+    ],
+)
 def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
     """The k_y = 0 column is the modal route's state to the operator's rounding.
 

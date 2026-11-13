@@ -233,6 +233,7 @@ def test_auto_runs_the_march_on_native_when_installed():
     assert output.outcome.execution["source_evaluations"] == 4 * schedule.n_steps
 
 
+# Medium, though ~135 s on CI macOS against ~6 s on Windows x64: #804.
 @pytest.mark.medium
 def test_the_march_agrees_across_thread_counts(tmp_path):
     """One thread twice and four threads, each in a fresh process (SEP 24 7.2).

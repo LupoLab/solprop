@@ -8,11 +8,12 @@ The policy :func:`solprop.translate.assembly.assemble` applies to its arguments 
 the problem it assembled: the refusals of a route's settings (a wall off the capillary
 route, operator settings without a spatial grid, a save plane on an index jump, a frame
 that removes ``beta_0`` beside the third harmonic, a TDSE response off its route, the
-general modal route's legacy knobs), the split collar's fixed-schedule limit, dense
-observation where its interpolant is not the run's field, and the coupled flow's
-advisory step (:func:`validate_coupled_flow`). The kernel contract's own checks are
-:meth:`solprop.translate.problem.PropagationProblem.validate` and
-:func:`solprop.translate.problem.validate_run`.
+general modal route's legacy knobs), the split collar's fixed-schedule limit and the
+coupled flow's advisory step (:func:`validate_coupled_flow`). The kernel contract's own
+checks are :meth:`solprop.translate.problem.PropagationProblem.validate` and
+:func:`solprop.translate.problem.validate_run`, which also refuses dense observation
+where its interpolant is not the run's field, so a request changed after assembly is
+refused there too.
 """
 
 import math
@@ -221,7 +222,6 @@ def _validated(problem: "PropagationProblem", request: "RunRequest") -> None:
     """Validate an assembled problem and run every diagnostic that only warns."""
     validate_run(problem, request)
     validate_coupled_flow(problem, request.stepper)
-    _admit_dense(problem, request.stepper)
 
 
 def validate_coupled_flow(
@@ -470,35 +470,6 @@ def _check_tdse_assembly_route(
         raise TranslationError(
             "TDSE takes density from its helium fill; drop the density override"
         )
-
-
-def _admit_dense(problem: "PropagationProblem", stepper: StepperSettings) -> None:
-    """Refuse dense observation where its interpolant is not the run's field.
-
-    SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
-    Adams interpolant alike. The per-step temporal collar changes the state after the
-    step, so an interpolated plane would be uncollared; a coupled flow's action and the
-    ``modified`` noise's draw are outside the interpolant.
-    """
-    if not stepper.interpolate_planes:
-        return
-    responses = problem.responses
-    reasons = []
-    if (
-        responses.temporal_absorber is not None
-        and responses.absorber_scheme == "split_step"
-    ):
-        reasons.append("the per-step temporal collar (absorber_scheme='split_step')")
-    if problem.linear.coupled_flow is not None:
-        reasons.append("a coupled linear flow")
-    if problem.initial.noise_model == "modified":
-        reasons.append("the 'modified' noise model")
-    if reasons:
-        msg = (
-            "dense observation interpolates inside an accepted step and is refused "
-            f"beside {', '.join(reasons)}: land on the save planes instead"
-        )
-        raise TranslationError(msg)
 
 
 def _check_harmonic_frame(harmonic: bool, compiled: CompiledResponses) -> None:

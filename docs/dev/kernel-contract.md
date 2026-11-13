@@ -67,8 +67,8 @@ what the problem promises alone; `translate.problem.validate_run(problem, reques
 the same checks in the same order with the request-dependent ones among them — the tables
 and leaves covering the run, a schedule landing on every plane and kink, the collar's
 stability, the split collar's crossing, the exponent budget, the method's admission on the
-route and the statistics the route admits — and every backend calls it before
-it allocates.
+route, the statistics the route admits and dense observation's admission (§7's
+`interpolate_planes`) — and every backend calls it before it allocates.
 
 ### The route union
 

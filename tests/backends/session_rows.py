@@ -932,7 +932,8 @@ def session_row(
 ) -> Row:
     """Return a row of a native march's session; it marches, so it is medium.
 
-    Its id is `name`; `fields` are the rest of :class:`parity_ladder.Row`.
+    Unless it is slow by cost (``slow``, the reason). Its id is `name`; `fields` are
+    the rest of :class:`parity_ladder.Row`.
     """
     return Row(
         id=name,
@@ -943,7 +944,7 @@ def session_row(
             "features": features,
         },
         build=build,
-        medium=True,
+        medium=not fields.get("slow"),
         quiet=QUIET,
         **fields,
     )
@@ -979,6 +980,13 @@ PLANAR_VACUOUS = {
 }
 """The planar cases whose term reaches none of the row's rungs, with what was
 measured."""
+
+PLANAR_SLOW_BY_COST = {
+    "envelope-plasma": "slow by cost (#792): ~105 s on CI macOS (44 s serially on the "
+    "Mac); a parity check, not a witness",
+}
+"""The planar cases whose low-storage row is slow by cost, and why (as #805 tiered
+the old test's case)."""
 
 TABLE_WORDS = {
     "both": "the operator and the prefactor",
@@ -1197,6 +1205,7 @@ def _spatial_rows() -> tuple[Row, ...]:
             rungs={"steps": parity(transverse="rows", sums="plasma" in name)},
             window=STEPS,
             vacuous=PLANAR_VACUOUS.get(name, ""),
+            slow=PLANAR_SLOW_BY_COST.get(name, ""),
         )
         for name, (response, features, switch_off) in PLANAR_CASES.items()
     )
