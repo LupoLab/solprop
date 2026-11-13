@@ -12,16 +12,14 @@ vector lanes -- which feeds the general modal synthesis, contraction and project
 unchanged. The connection rides in the frozen-residual coupled flow exactly as the
 capillary flows execute it.
 
-The cases are those of ``tests/driver/test_moving_guide.py``: the kinked graded-index
-taper, the step-index HE11/HE12 taper, and the same taper in a complex basis, where the
-connection's conjugation matters (a circular HE11 pair beside the parity pair of HE12).
-Each carries a Kerr core and a launch strong enough that the source moves the field
-measurably, and each is run ten fixed steps over the millimetre on both backends from
-the same problem -- over the millimetre for the graded-index taper and over its first
-fifth for the step-index ones (:data:`STEP_LENGTH`); the fields are compared against a
-bound written before the run (:func:`moving_parity_bound`). The step-index cases
-translate in minutes on a busy machine (the connection at every position and knot), so
-they are ``slow``.
+The cases are those of ``tests/driver/test_moving_guide.py`` (``moving_guide_cases``):
+the kinked graded-index taper, the step-index HE11/HE12 taper, and the same taper in a
+complex basis, where the connection's conjugation matters (a circular HE11 pair beside
+the parity pair of HE12). Their ten fixed steps against ``numpy_ref``, within the bound
+written before the run (``moving_guide_cases.moving_parity_bound``), are rows of the
+case catalogue (``tests/backends/flow_rows.py``, ``moving guide ...``), guarded by the
+maps frozen at the launch. What stays here: the reference's own witness that a stage's
+maps are not the step's first, the entry point's ``auto`` run and the thread count.
 """
 
 import dataclasses
@@ -33,7 +31,6 @@ import numpy as np
 import pytest
 
 from coupled_flow_cases import (
-    native_class,
     propagate,
     reference_and_linear,
 )
@@ -43,9 +40,7 @@ from moving_guide_cases import (
     CASES,
     GRIN_PULSE,
     LENGTH,
-    SLOW,
     STEPS,
-    combination_bound,
     grin_kinked,
     grin_taper,
     kinked_radius,
@@ -59,48 +54,6 @@ from solprop.output.memory import MemoryOutput
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
-
-
-def measured(name: str) -> dict[str, float]:
-    """Return a case's Kokkos departure and bound, relative to the launch, and rho."""
-    case = CASES[name]()
-    expected = propagate(case, NumpyRefBackend)
-    actual = propagate(case, native_class())
-    # The launch scaled down by a thousand and back up is the same launch propagated
-    # linearly, to a millionth of its nonlinear increment.
-    linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
-    scale = float(np.max(np.abs(case.problem.initial.field0)))
-    rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
-    bound = moving_parity_bound(case, expected, linear)
-    return {
-        "departure": float(np.max(np.abs(actual - expected))) / scale,
-        "bound": bound / scale,
-        "combination": combination_bound(case.problem),
-        "rho": rho,
-    }
-
-
-def _params():
-    """Every case, the step-index ones marked slow."""
-    return [
-        pytest.param(
-            name, marks=pytest.mark.slow if name in SLOW else pytest.mark.medium
-        )
-        for name in sorted(CASES)
-    ]
-
-
-@pytest.mark.parametrize("name", _params())
-def test_native_runs_ten_steps_of_a_moving_guide_as_numpy_ref_does(
-    name, record_property
-):
-    """Ten fixed steps of each moving guide on ``native``, within the derived bound."""
-    result = measured(name)
-    for key, value in result.items():
-        record_property(key, value)
-    assert result["bound"] > 0.0
-    assert result["rho"] > 1e-5, "the source must move the field through the maps"
-    assert result["departure"] <= result["bound"]
 
 
 @pytest.mark.medium

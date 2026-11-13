@@ -18,7 +18,14 @@ after each case's ten fixed steps (``steps``):
   through the flow -- on the default march (from
   ``tests/driver/test_native_coupled_flow.py``, which keeps the split block's run: it
   declares no schedule and its controller takes 147 steps, an adaptive comparison,
-  #809).
+  #809);
+- ``moving guide ...`` rows: the Kerr-cored moving guides of
+  ``tests/moving_guide_cases.py`` -- the kinked graded-index taper, the step-index
+  HE11/HE12 taper and the same taper in a complex basis -- on the default march (from
+  ``tests/driver/test_native_moving_guide.py``), and ``moving guide bound ...``: the
+  step-index pair and complex basis at the retired source-bound tests' 10 nJ over
+  0.1 mm (from ``tests/driver/test_native_moving_guide_bound.py``, which keeps their
+  sources: the source rung's zero-length trial is refused by a coupled flow).
 
 **The bounds are the old tests', fixed before native runs.** A ``flow marches`` row is
 bounded by ``flow_parity.ten_step_bound`` (``B_10``): the declared conditioning ``C``
@@ -31,10 +38,17 @@ A ``coupled flow`` row is bounded by ``coupled_flow_cases.parity_bound``, which 
 absolute and reads the reference's ten steps and its linear propagation (the launch
 scaled down by a thousand and back up), run once (:func:`reference_and_linear`): these
 rows compare peaks relative to the launch's peak (``Row.scale``), as the old test did,
-and assert its nonlinear increment ``rho > 1e-5`` (``expect``).
+and assert its nonlinear increment ``rho > 1e-5`` (``expect``). A ``moving guide``
+row is bounded the same way by ``moving_guide_cases.moving_parity_bound``, which adds
+each stage's combination of the maps; a ``moving guide bound`` row by ``B_10``, below
+1e-9 where the retired tests held it (``expect``). The kinked taper's schedule
+accumulates to an ulp past its millimetre; the run ends there, as the old tests
+accepted (``parity_ladder.lands``).
 
-**The guard.** Every row's term is the coupled flow: :func:`without_flow` drops
-``linear.coupled_flow``, so the channels propagate on their diagonal alone. The
+**The guard.** A flow row's term is the coupled flow: :func:`without_flow` drops
+``linear.coupled_flow``, so the channels propagate on their diagonal alone. A moving
+guide's is its maps' motion: :func:`frozen_maps` holds every stage at the launch's
+maps. The
 reference's ten steps must then move by more than ``parity_ladder.DETECTION`` (a
 thousand) of the row's bound. The old marches test asked the same of native's run
 without the flow; the old strong-case test guarded the flow not at all, only that the
@@ -69,9 +83,11 @@ import numpy as np
 
 import coupled_flow_cases
 import flow_parity
+import moving_guide_cases
 from parity_ladder import Built, Row
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.stage import scalars
 
 QUIET = (
     *(
@@ -85,6 +101,14 @@ QUIET = (
     "ignore::solprop.exceptions.HostMarchWarning",
 )
 """The warning filters of the old modules, which every row's run needs."""
+
+MOVING_QUIET = (
+    *QUIET,
+    # The step-index guides warn on the active band's basis, which is expected here.
+    "ignore::solprop.exceptions.GeneralModalBasisWarning",
+)
+"""The moving guides' filters: the flow's, and the basis warning of the step-index
+taper (``tests/driver/test_native_moving_guide_bound.py``'s)."""
 
 # --- the cases ------------------------------------------------------------------------
 
@@ -117,6 +141,20 @@ def coupled_case(name: str) -> Built:
     case = coupled_flow_cases.CASES[name]()
     assert case.run_request.stepper.schedule is not None
     return Built(case.problem, case.run_request, case.grid)
+
+
+def moving_case(name: str) -> Built:
+    """Return a Kerr-cored moving guide of ``moving_guide_cases.CASES``, ten steps."""
+    case = moving_guide_cases.CASES[name]()
+    return Built(case.problem, case.run_request, case.grid)
+
+
+def bound_case(descriptors: tuple, **basis: Any) -> Built:
+    """Return a step-index source-bound case, ten steps over its first 0.1 mm."""
+    problem, run_request, grid = moving_guide_cases.bound_step_problem(
+        descriptors, **basis
+    )
+    return Built(problem, run_request, grid)
 
 
 # --- the bounds -----------------------------------------------------------------------
@@ -187,6 +225,22 @@ def coupled_bound(built: Built) -> float:
     ) / launch_peak(built)
 
 
+def moving_bound(built: Built) -> float:
+    """Return ``moving_guide_cases.moving_parity_bound`` relative to the launch's peak.
+
+    The coupled flow's parity bound plus each stage's combination of the maps.
+    """
+    expected, linear = reference_and_linear(built)
+    return moving_guide_cases.moving_parity_bound(
+        _as_case(built), expected, linear
+    ) / launch_peak(built)
+
+
+def bound_below_a_billionth(built: Built) -> bool:
+    """Return whether ``B_10`` is below 1e-9, where the retired tests held it."""
+    return 0.0 < marches_bound(built) < 1e-9
+
+
 def exercises_the_nonlinear_half(built: Built) -> bool:
     """Return whether the source moves the field through the flow: ``rho > 1e-5``."""
     return increment(built) > 1e-5
@@ -200,6 +254,33 @@ def without_flow(problem: PropagationProblem) -> PropagationProblem:
     assert problem.linear.coupled_flow is not None
     return dataclasses.replace(
         problem, linear=dataclasses.replace(problem.linear, coupled_flow=None)
+    )
+
+
+def frozen_maps(problem: PropagationProblem) -> PropagationProblem:
+    """Return a moving guide's problem with its maps frozen at the launch.
+
+    Every section's synthesis and projection terms are replaced by one constant term,
+    the maps the launch's stage combines (its ``transform_weights``): a stage anywhere
+    then reads the entrance's maps, exactly, and the guide's taper reaches the source no
+    more. The flow and its connection are kept.
+    """
+    tables = problem.transform.modal_tables
+    assert tables is not None
+    assert tables.synthesis is not None and tables.projection is not None
+    weights = np.asarray(scalars(problem, 0.0, 0.0).transform_weights)
+    frozen = {}
+    for name in ("synthesis", "projection"):
+        terms = np.asarray(getattr(tables, name))
+        flat = terms.reshape(-1, *terms.shape[2:])
+        constant = np.zeros_like(terms)
+        constant[:, 0] = np.tensordot(weights, flat, axes=1)
+        frozen[name] = constant
+    transform = dataclasses.replace(
+        problem.transform, modal_tables=dataclasses.replace(tables, **frozen)
+    )
+    return dataclasses.replace(
+        problem, route=dataclasses.replace(problem.route, transform=transform)
     )
 
 
@@ -344,7 +425,101 @@ def _coupled_rows() -> tuple[Row, ...]:
     )
 
 
+MOVING = {
+    "grin_kinked": (
+        "the kinked graded-index taper, two sections of degree four, 10 nJ",
+        "",
+    ),
+    "step_taper": (
+        "HE11 and HE12 on the 10 % step-index taper, its first 0.2 mm, 1 nJ",
+        "slow by cost (#792): the step-index connection's translation takes tens of "
+        "seconds, minutes on a busy machine (the old test's mark); 7 s on the Mac",
+    ),
+    "complex_basis": (
+        "the circular HE11 pair beside the HE12 parity pair, its first 0.2 mm, 1 nJ",
+        "slow by cost (#792): the step-index connection's translation takes tens of "
+        "seconds, minutes on a busy machine (the old test's mark); 14 s on the Mac",
+    ),
+}
+"""Each Kerr-cored moving guide's features and its slow-by-cost reason (none: medium),
+by ``moving_guide_cases.CASES`` name."""
+
+BOUND_CASES = {
+    "pair": (moving_guide_cases.BOUND_PAIR, {}, "HE11 and HE12", "6.5 s"),
+    "complex": (
+        moving_guide_cases.BOUND_COMPLEX,
+        moving_guide_cases.BOUND_COMPLEX_BLOCKS,
+        "the circular HE11 pair beside the HE12 parity pair",
+        "13 s",
+    ),
+}
+"""Each source-bound step-index case: its descriptors, blocks and basis, what it is and
+its translation's time on the Mac."""
+
+
+def _moving_row(name: str) -> Row:
+    """Return a Kerr-cored moving guide's row, slow by cost or medium."""
+    features, slow = MOVING[name]
+    return Row(
+        id=f"moving guide {name}",
+        axes={
+            "route": "general guide (moving)",
+            "stepper": "adams",
+            "response": "kerr",
+            "features": features,
+        },
+        why=f"Ten fixed steps of the {name} moving guide are the reference's: native "
+        "combines the maps' Chebyshev terms per stage, as the reference does.",
+        bound_note="moving_guide_cases.moving_parity_bound, written before any "
+        "measurement and relative to the launch's peak: the coupled flow's parity "
+        "bound plus each stage's combination of the maps, carried on the nonlinear "
+        "increment rho. The row asserts rho > 1e-5 (the old test's own check, "
+        "`expect`).",
+        build=partial(moving_case, name),
+        switch_off=frozen_maps,
+        rungs={"steps": moving_bound},
+        metric="peak",
+        scale=launch_peak,
+        expect={"": exercises_the_nonlinear_half},
+        medium=not slow,
+        slow=slow,
+        quiet=MOVING_QUIET,
+        window=None,
+    )
+
+
+def _bound_row(name: str) -> Row:
+    """Return a source-bound step-index case's ten steps: slow by cost."""
+    descriptors, basis, what, seconds = BOUND_CASES[name]
+    return Row(
+        id=f"moving guide bound {name} ten steps",
+        axes={
+            "route": "general guide (moving)",
+            "stepper": "adams",
+            "response": "kerr",
+            "features": f"{what} on the step-index taper, its first 0.1 mm, 10 nJ",
+        },
+        why=f"Ten fixed steps of {what} on the step-index taper at the retired tests' "
+        "energy are the reference's, within the flow's ten-step bound.",
+        bound_note="flow_parity's B_10, written before any measurement; the row also "
+        "asserts it is below 1e-9, where the retired tests held it (`expect`).",
+        build=partial(bound_case, descriptors, **basis),
+        switch_off=frozen_maps,
+        rungs={"steps": marches_bound},
+        expect={"": bound_below_a_billionth},
+        slow="slow by cost (#792): the step-index connection's translation takes tens "
+        f"of seconds (the old test's mark); {seconds} on the Mac",
+        quiet=MOVING_QUIET,
+        window=None,
+    )
+
+
 @functools.cache
 def rows() -> tuple[Row, ...]:
     """Return every row of the coupled linear flow on a fixed schedule."""
-    return (*_marches_rows(), *_coupled_rows())
+    return (
+        *_marches_rows(),
+        *_coupled_rows(),
+        *(_moving_row(name) for name in MOVING),
+        *(_bound_row(name) for name in BOUND_CASES),
+    )

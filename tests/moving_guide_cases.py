@@ -14,6 +14,10 @@ Shared by the moving-guide tests and the catalogue's rows
   each a ``coupled_flow_cases.Case`` of ten fixed steps, and their parity bound,
   written before any measurement: the coupled flow's plus the maps' combination
   (:func:`moving_parity_bound`).
+- ``tests/driver/test_native_moving_guide_bound.py``'s cases at the launch energy of
+  the retired source-bound tests, 1e-8 J, ten steps over the kinked taper's millimetre
+  or the step-index taper's first 0.1 mm (:func:`bound_kinked`,
+  :func:`bound_step_problem`).
 """
 
 import dataclasses
@@ -319,3 +323,90 @@ def moving_parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) ->
     stages = case.run_request.stepper.tableau.n_stages
     combination = STEPS * stages * rho * combination_bound(problem) * growth * scale
     return parity_bound(case, expected, linear) + combination
+
+
+# --- the source-bound cases ----------------------------------------------------------
+
+BOUND_ENERGY = 1e-8
+"""The source-bound cases' launch energy, J: a launch ``Phi`` of about 0.14.
+
+Ten thousand times the picojoule of the reference's own moving-guide tests, so that the
+Kerr half of the step, and the map combination it reads, is exercised rather than a
+rounding of it.
+"""
+
+
+BOUND_STEP_LENGTH = 1e-4
+"""Length of the step-index runs, m: ten steps below the taper's advisory step."""
+
+
+def bound_kinked():
+    """The kinked graded-index taper with a Kerr core: the problem and grid."""
+    grid = grin_grid()
+    guide = grin_taper(kinked_radius(), kerr=True)
+    simulation = moving_simulation(guide, grid, energy=BOUND_ENERGY)
+    simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
+    return simulation.translate(), simulation._run_request(), grid
+
+
+def bound_step_problem(descriptors, *, blocks=(), basis_block=None):
+    """Return the tapered step-index guide with a Kerr core, ten steps.
+
+    ``Linear(4 -> 3.6 um, 1 mm)``, silica in 1.40, on the 835 nm grid, run over its
+    first :data:`BOUND_STEP_LENGTH` in ten steps: below the moving flow's advisory
+    step of 8e-5 m on this taper, where the flow's parity bound is sharp, with a
+    launch of ``Phi`` about 0.3.
+    """
+    grid = step_grid()
+    active = grid.omega[grid.active_mask]
+    provider = make_provider(
+        radius=STEP_RADIUS,
+        indices=(1.45, 1.40),
+        descriptors=descriptors,
+        kerr=MaterialKerr(chi3=GENERAL_CHI3),
+    )
+    frequencies = np.linspace(0.99 * float(active[0]), 1.01 * float(active[-1]), 17)
+    guide = ModalGuide.from_provider(
+        provider,
+        frequencies,
+        nodes=provider.node_rule(float(frequencies[0]), 0.0, n_r=24),
+        degenerate_blocks=blocks,
+        basis=None
+        if basis_block is None
+        else circular_pair(provider_channels(provider), basis_block),
+    )
+    simulation = Simulation.from_waveguide(
+        (),
+        BOUND_STEP_LENGTH,
+        provider=guide,
+        grid=grid,
+        wavelength=835e-9,
+        fwhm=20e-15,
+        energy=BOUND_ENERGY,
+        shape="gauss",
+        save_planes=[BOUND_STEP_LENGTH],
+        dz_max=BOUND_STEP_LENGTH / STEPS,
+        dz_init=BOUND_STEP_LENGTH / STEPS,
+        schedule=FixedSchedule(np.full(STEPS, BOUND_STEP_LENGTH / STEPS)),
+        backend="numpy_ref",
+        noise=None,
+    )
+    simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return simulation.translate(), simulation._run_request(), grid
+
+
+BOUND_PAIR = (("HE", 1, 1, "even"), ("HE", 1, 2, "even"))
+"""``HE_11`` and ``HE_12`` on the 10 % step-index taper."""
+
+BOUND_COMPLEX = (
+    ("HE", 1, 1, "even"),
+    ("HE", 1, 1, "odd"),
+    ("HE", 1, 2, "even"),
+    ("HE", 1, 2, "odd"),
+)
+"""The circular ``HE_11`` pair beside the parity pair of ``HE_12``, in that order."""
+
+BOUND_COMPLEX_BLOCKS = {"blocks": ((0, 1), (2, 3)), "basis_block": (0, 1)}
+"""The complex basis's degenerate blocks and its circular pair."""
