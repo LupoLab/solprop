@@ -15,6 +15,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <span>
@@ -1174,6 +1175,9 @@ public:
   [[nodiscard]] HostSource* host_source() const noexcept;
   /** The next host evaluation's position, m, and purpose, which the engine sets. */
   void host_evaluation(double z, HostPurpose purpose) noexcept;
+  /** A test hook (solprop issue #129): `fault` runs, once, as the next Adams source
+      evaluation starts, a trial's with its prediction in the state; empty disarms. */
+  void arm_source_fault(std::function<void()> fault) noexcept;
 
 private:
   /** `function(workspace, arguments...)` inside the workspace's CPU team scope

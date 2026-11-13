@@ -1685,6 +1685,8 @@ void GeneralWorkspace::adams_phase() {
 // The stage-zero source at an anchor-frame field held in current_, as adams_source
 // evaluates it, into stages_(0).
 void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
+  if (source_fault_)
+    std::exchange(source_fault_, {})();
   if (general_)
     general_->set_weights(scalars.transform_weights);
   if (problem_.raman.enabled)
@@ -1697,9 +1699,15 @@ void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
   has_recycled_ = false;
 }
 
-// The same, with current_ restored from adams_saved_ afterwards.
+// The same, with current_ restored from adams_saved_ afterwards, a failure's too: the
+// accepted state stands where the source failed (solprop issue #129).
 void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
-  adams_evaluate_source(scalars);
+  try {
+    adams_evaluate_source(scalars);
+  } catch (...) {
+    graph::deep_copy(execution_space_, current_, adams_saved_);
+    throw;
+  }
   graph::deep_copy(execution_space_, current_, adams_saved_);
 }
 
@@ -1891,9 +1899,10 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
           total += weights.predictor[t] * store(weights.slot[t], column, index);
         predicted(column, index) = current(column, index) + dz * total;
       });
-  std::swap(current_, adams_saved_);
-  adams_evaluate_source(scalars);
-  std::swap(current_, adams_saved_);
+  {
+    const SwappedAside aside(current_, adams_saved_);
+    adams_evaluate_source(scalars);
+  }
   const auto stages = stages_;
   const auto source = adams_source_;
   const auto propagator = adams_propagator_;
@@ -3715,11 +3724,12 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     launch::parallel_reduce("solprop_native.adams.exponential_predict", tasks, predict,
                             unused);
   }
-  std::swap(current_, adams_saved_);
-  use_uploaded_sample(sample);
-  // On a device the source's launches replay as one graph while they repeat.
-  adams_source_graph_.run(execution_space_, [&] { adams_evaluate_source(sample); });
-  std::swap(current_, adams_saved_);
+  {
+    const SwappedAside aside(current_, adams_saved_);
+    use_uploaded_sample(sample);
+    // On a device the source's launches replay as one graph while they repeat.
+    adams_source_graph_.run(execution_space_, [&] { adams_evaluate_source(sample); });
+  }
   const ExponentialCorrection reducer{.value_count = weights.n_rows,
                                       .store = store,
                                       .moments = moments,

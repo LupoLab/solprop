@@ -160,17 +160,26 @@ void ResidentEngine::inject(const march::Stage stage) {
   }
   const auto category = fault_->category;
   const int signal = fault_->signal;
+  const bool in_source = fault_->in_source;
   fault_.reset();
   if (signal != 0) {
     // Python's handler only notes it: it runs once the call returns to Python.
     static_cast<void>(std::raise(signal));
     return;
   }
-  if (category == march::Category::convergence)
-    throw EnvelopeConvergenceError("an injected native failure");
-  if (category == march::Category::value)
-    throw std::invalid_argument("an injected native failure");
-  throw std::runtime_error("an injected native failure");
+  const auto raise = [category] {
+    if (category == march::Category::convergence)
+      throw EnvelopeConvergenceError("an injected native failure");
+    if (category == march::Category::value)
+      throw std::invalid_argument("an injected native failure");
+    throw std::runtime_error("an injected native failure");
+  };
+  if (in_source) {
+    // Raised by the stage's own source evaluation, inside its swap.
+    state_.arm_source_fault(raise);
+    return;
+  }
+  raise();
 }
 
 ResidentRungeKutta::ResidentRungeKutta(GeneralState& state, Trial trial,
