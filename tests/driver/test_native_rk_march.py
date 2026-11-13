@@ -30,14 +30,13 @@ import numpy as np
 import pytest
 from tests.driver.test_native_z_table import walk_off
 
-from capability_routes import ROUTES
+from rk_route_cases import replayed, runge_kutta_route
 from sessions.runs import load_native, native_trial
 from solprop.backends import available
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
 from solprop.stepper.runge_kutta import RungeKutta
-from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.stage import anchor, scalars_at
 from test_monitor import TRANGE, walker
 
@@ -63,23 +62,6 @@ ROUTED = (
 )
 """Routes the native march takes: staged rows, beside a coupled flow or not, and the
 spatial routes with their transverse edge (phase 4)."""
-
-
-UNCHECKED = {"general guide (moving)"}
-"""Routes whose window the launch check refuses when run whole: built to translate."""
-
-
-def _route(route: str, **options: Any) -> Any:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        simulation = ROUTES[route](None)
-    settings = dataclasses.replace(
-        simulation.settings, integrator=RungeKutta(), backend="native", **options
-    )
-    if route in UNCHECKED:
-        settings = dataclasses.replace(settings, boundary_check=None)
-    simulation.settings = settings
-    return simulation
 
 
 def _run(build, backend: str = "native") -> dict[str, Any]:
@@ -143,7 +125,7 @@ def _held(build) -> tuple[dict[str, Any], dict[str, Any]]:
     ],
 )
 def test_the_native_march_runs_each_route(route):
-    _held(lambda: _route(route))
+    _held(lambda: runge_kutta_route(route))
 
 
 @pytest.mark.parametrize(
@@ -151,7 +133,7 @@ def test_the_native_march_runs_each_route(route):
 )
 def test_interpolated_planes(route):
     """The session interpolates each plane inside the step that crossed it."""
-    _held(lambda: _route(route, interpolate_planes=True))
+    _held(lambda: runge_kutta_route(route, interpolate_planes=True))
 
 
 def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
@@ -209,34 +191,24 @@ def test_a_z_table_s_march(dense):
     _held(lambda: walk_off("native", RungeKutta(), n_save=7, interpolate_planes=dense))
 
 
-def _replayed(route: str, steps: int) -> Any:
-    simulation = _route(route)
-    stepper = simulation._run_request().stepper
-    end = float(stepper.z_end)
-    schedule = FixedSchedule.uniform(
-        0.0, end, end / steps, save_planes=np.asarray(stepper.save_planes).tolist()
-    )
-    return _route(route, schedule=schedule)
-
-
 @pytest.mark.parametrize(
     "route",
     ["gnlse", pytest.param("capillary (coherent wall)", marks=pytest.mark.medium)],
 )
 def test_a_replay(route):
     """A fixed schedule's steps, taken as given: the reference's steps exactly."""
-    native, reference = _held(lambda: _replayed(route, 400))
+    native, reference = _held(lambda: replayed(route, 400))
     np.testing.assert_array_equal(native["h"], reference["h"])
     np.testing.assert_array_equal(native["accepted"], reference["accepted"])
 
 
 def test_a_weighted_norm_s_march():
     """Tightening part of the band (``weighted_norm_scale``), scored natively."""
-    n_omega = _route("gnlse").translate().grids.n_omega
+    n_omega = runge_kutta_route("gnlse").translate().grids.n_omega
     weights = np.ones(n_omega)
     weights[: n_omega // 3] = 0.1
     controller = PIController(rtol=1e-6, atol=1e-12, weights=weights)
-    _held(lambda: _route("gnlse", controller=controller))
+    _held(lambda: runge_kutta_route("gnlse", controller=controller))
 
 
 @pytest.mark.parametrize("scheme", ["nonlinear", "split_step"])
@@ -257,7 +229,7 @@ def test_a_busy_monitor_s_checks_stay_in_the_native_rk_march(scheme):
 def test_a_check_due_by_distance_beside_the_edge(route):
     # Steps shorter than the edge's read spacing but longer than the monitor's
     # interval make a check due by distance between reads.
-    _held(lambda: _route(route, dz_max=3e-6))
+    _held(lambda: runge_kutta_route(route, dz_max=3e-6))
 
 
 @pytest.mark.gpu
@@ -266,4 +238,4 @@ def test_a_device_build_s_march(route):
     """On a device the march drives the resident engine from the host (SEP 45)."""
     if not backend_module._on_device():
         pytest.skip("the installed solprop-native build has no accelerator backend")
-    _held(lambda: _route(route))
+    _held(lambda: runge_kutta_route(route))
