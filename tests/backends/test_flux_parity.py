@@ -8,9 +8,12 @@ The same state, loaded at the same plane, is measured by ``numpy_ref`` and, when
 installed, the native CPU backend: energy, the beam,
 aperture and region spectra, the aperture's on-axis spectrum, ``absorbed_power``,
 the on-axis spectrum and intensity, ``peak_intensity`` and the fluence widths. The
-media are lossy (or the planar walls are), so the admittance is complex and the
-local statistics' cross terms ``Im(eta)`` are far above rounding; the radial argon
-gradient reads the plane measure's material table at a position past the entrance.
+free-space media are lossy, so the admittance is complex and the local statistics'
+cross terms ``Im(eta)`` are far above rounding. The planar walls' loss is not:
+making them lossless moves every planar statistic by at most 0.52 of its rounding
+budget (measured), and the walls' whole term, ``kappa_sq``, moves them by 1.3e6 to
+1.7e6 budgets. The radial argon gradient reads the plane measure's material table at
+a position past the entrance.
 Every comparison is a matched discrete computation, held to a rounding budget fixed
 here before the comparison (SEP 25). The comparisons are the catalogue's rows
 (``backends/geometry_rows.py``), which build these cases and read these budgets; what
