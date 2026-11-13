@@ -5,7 +5,7 @@
 """SEP 6's dispersive electronic response: the fused path's cases and their bound.
 
 The capillary, mode-averaged and radial problems, the measurements and the rounding
-bound of a compiled backend's ladder (``test_native_dispersive_kerr.py``) against
+bound of native's rows of the case catalogue (``dispersive_rows.py``) against
 ``numpy_ref``, which applies the multipliers at every node and is the oracle.
 
 **The bounds are derived from summation lengths.** One evaluation of the constant
@@ -20,7 +20,6 @@ they are a transform looser than they need be. The reference takes as many again
 every node, so each count is doubled. Each test states what it was measured against.
 """
 
-import dataclasses
 import math
 import warnings
 from collections.abc import Mapping
@@ -31,8 +30,6 @@ import numpy as np
 from bounds import gamma
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -188,40 +185,6 @@ def radial(
 # --- the measurements ------------------------------------------------------------
 
 
-@dataclasses.dataclass(frozen=True)
-class Evaluation:
-    """One source evaluation's projected polarisation spectrum on both rules."""
-
-    projected: np.ndarray
-    coarse: np.ndarray | None
-
-
-def reference_evaluation(
-    problem: PropagationProblem,
-    run_request,
-    grid: Any,
-    options: ExecutionOptions | None = None,
-) -> Evaluation:
-    """Evaluate the reference's source once at the launch: its projected spectra.
-
-    The reference keeps both rules' projections of its last evaluation in time; their
-    unnormalised transforms are what a compiled backend's stage holds in frequency,
-    where the response joins every other's.
-    """
-    backend = NumpyRefBackend(problem, run_request, grid=grid, options=options)
-    forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0[None], 0.0)
-        coarse = backend._last_coarse
-        return Evaluation(
-            forward(np.asarray(backend._last_projected), axis=-1),
-            None if coarse is None else forward(np.asarray(coarse), axis=-1),
-        )
-    finally:
-        backend.close()
-
-
 def run(
     backend_class: type,
     problem: PropagationProblem,
@@ -244,14 +207,6 @@ def run(
         return result.fields[-1], run_summary(result)
     finally:
         backend.close()
-
-
-def disagreement(ours: np.ndarray, theirs: np.ndarray) -> float:
-    """Return the relative L2 difference of two arrays of the same size."""
-    ours, theirs = np.ravel(ours), np.ravel(theirs)
-    scale = float(np.linalg.norm(theirs))
-    assert scale > 0
-    return float(np.linalg.norm(ours - theirs) / scale)
 
 
 def evaluation_bound(problem: PropagationProblem) -> float:

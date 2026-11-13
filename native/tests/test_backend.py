@@ -545,8 +545,8 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
 
     A lone symmetric response filters each chunk's spectrum in place and, on an
     envelope grid, its product is the chunk's own polarisation; the polynomial holds
-    its products. solprop's ``test_native_dispersive_routes.py`` holds the route to
-    its reference.
+    its products. solprop's parity catalogue (``tests/capability_routes.py``) holds
+    the route to its reference.
     """
     _, base_request, grid = phase_a_case
     space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
