@@ -2,65 +2,59 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""SEP 6's dispersive electronic response on native CPU's fused node path.
+"""SEP 6's dispersive electronic response on native: what is the backend's own.
 
-solprop-native evaluates ``responses.dispersive_kerr`` with the spectral multipliers
-on the modal columns, the products at the nodes under the collar, projected and landed
-in the stage's own polarisation spectrum, the embedded rule's finished when it is
-scored, a lone symmetric response on the stage's own transforms, the symmetric mixture
-filter rebuilt when the densities change. ``numpy_ref``, which applies the multipliers
-at every node, is the oracle. The ladder of ``docs/dev/backends.md`` section 3.7 for
-the response: one nonlinear evaluation (the projected polarisation on both quadrature
-rules), one step and ten steps, on the multimode capillary, the mode-averaged and
-radial routes and a two-component field, on field and envelope grids, in both sectors,
-for both evaluators; mixtures of constant and varying composition; Raman, plasma and
-envelope plasma beside the response. Then what is the backend's own: repeatability,
-the thread count and the memory ledger.
-
-**The bounds are derived in ``dispersive_cases.py``** (:func:`evaluation_bound`,
-:func:`steps_bound`) from the transforms and node reductions of a compiled evaluation
-and counted for the reference's node-by-node arithmetic too, before any run: the
-native response takes the same transforms per channel (fewer when a lone symmetric
-response is the stage's own polarisation) and the same reductions over the nodes. Each
-test states what it measured.
+The parity ladder against ``numpy_ref`` on every route is the case catalogue's
+(``backends/dispersive_rows.py``). Here: a launch with zero-frequency content, the
+embedded rule's finish, a vacuum's exact zero, a coupled flow beside the response,
+repeatability, the thread count and the memory ledger, under the bounds of
+``dispersive_cases.py`` and ``dispersive_route_cases.py``.
 """
 
 import dataclasses
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import numpy as np
 import pytest
 
+import flow_parity
+import parity_ladder
 from backends.dispersive_cases import (
     GRID_CASES,
-    LENGTH,
     POLICIES,
-    STEPS,
-    Evaluation,
     averaged,
     capillary,
-    disagreement,
+    falling,
     radial,
-    reference_evaluation,
     run,
 )
-from backends.dispersive_cases import evaluation_bound as cpu_evaluation_bound
+from backends.dispersive_route_cases import (
+    ARGON,
+    EVALUATORS,
+    free_grid,
+    free_problem,
+    general_problem,
+    planar_problem,
+    route_case,
+    strand,
+)
+from backends.dispersive_rows import capillary_evaluation, route_evaluation, window_of
 from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
-from bounds import assert_within, dispersive_device_bound, step_evaluations
+from bounds import assert_within
+from parity_ladder import Built
 from sessions.runs import load_native, native_source
-from sessions.runs import run as session_run
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
-from solprop.driver import Simulation
-from solprop.exceptions import MaterialRangeWarning
+from solprop.driver import prop_capillary
+from solprop.modes import CoherentWall
+from solprop.nonlinear.responses import DispersiveKerrResponse
+from solprop.output.memory import MemoryOutput
 from solprop.physdata import MaterialSelection, Mixture
-from solprop.profiles import Linear
-from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import PropagationProblem
+from solprop.stepper import FixedSchedule
 from solprop.translate.stage import scalars
 
 solprop_native = pytest.importorskip("solprop_native")
@@ -71,17 +65,6 @@ host_only = pytest.mark.skipif(
     ON_DEVICE,
     reason="the thread count is a host notion; a device build is held run to run",
 )
-
-
-def evaluation_bound(problem: PropagationProblem) -> float:
-    """The CPU bound, or on a device build the predeclared device envelope."""
-    return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
-
-
-def steps_bound(problem: PropagationProblem, run_request) -> float:
-    """Bound a replayed window of fixed steps: every evaluation's rounding, added."""
-    return STEPS * step_evaluations(run_request) * evaluation_bound(problem)
-
 
 PROBE = Path(__file__).parent / "native_dispersive_thread_probe.py"
 
@@ -97,223 +80,8 @@ DISPERSIVE_ROWS = (
 """The response's rows of the native memory ledger, named on every problem."""
 
 
-# --- the measurements ------------------------------------------------------------
-
-
-def embedded(problem: PropagationProblem) -> bool:
-    """Return whether the quadrature has an embedded rule of its own, as packed."""
-    transform = problem.transform
-    return transform.n_nodes > 1 and not np.array_equal(
-        transform.projection, transform.projection_coarse
-    )
-
-
-def native_evaluation(
-    problem: PropagationProblem,
-    run_request,
-    grid: Any,
-    options: ExecutionOptions | None = None,
-) -> Evaluation:
-    """Evaluate the source once at the launch and return the native projected spectra.
-
-    The engine keeps both rules' projected polarisation spectra of its last
-    evaluation, unnormalised, as the reference's projections' transforms are; the
-    embedded rule's dispersive share is finished when it is read.
-    """
-    backend = NativeBackend(problem, run_request, grid=grid, options=options)
-    try:
-        native_source(backend, problem.initial.field0)
-        native = backend._native_state
-        return Evaluation(
-            native.projected_to_host(False),
-            native.projected_to_host(True) if embedded(problem) else None,
-        )
-    finally:
-        backend.close()
-
-
-def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
-    """Both rules' projected spectra within a bound, and the same rules present."""
-    assert disagreement(ours.projected, theirs.projected) < bound
-    assert (ours.coarse is None) == (theirs.coarse is None)
-    if ours.coarse is not None and theirs.coarse is not None:
-        assert disagreement(ours.coarse, theirs.coarse) < bound
-
-
-def assert_one_evaluation(
-    problem: PropagationProblem,
-    run_request,
-    grid: Any,
-    options: ExecutionOptions | None = None,
-) -> None:
-    """One evaluation, both rules, against the reference."""
-    ours = native_evaluation(problem, run_request, grid, options)
-    bound = evaluation_bound(problem)
-    assert bound > 0
-    assert_close(ours, reference_evaluation(problem, run_request, grid, options), bound)
-
-
-def source(
-    backend_class: type, problem: PropagationProblem, run_request, grid: Any
-) -> np.ndarray:
-    """Return one evaluation's whole stage source at the launch."""
-    backend = backend_class(problem, run_request, grid=grid)
-    try:
-        if backend.name == "native":
-            return native_source(backend, problem.initial.field0)
-        backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
-    finally:
-        backend.close()
-
-
-def assert_steps(problem: PropagationProblem, run_request, grid: Any) -> None:
-    """A replayed window of fixed steps, the same steps, against the reference."""
-    ours, summary = run(NativeBackend, problem, run_request, grid)
-    bound = steps_bound(problem, run_request)
-    assert bound > 0
-    theirs, reference = run(NumpyRefBackend, problem, run_request, grid)
-    assert summary.n_steps == reference.n_steps
-    assert disagreement(ours, theirs) < bound
-
-
-def path_of(
-    problem: PropagationProblem, run_request, grid: Any
-) -> dict[str, bool] | None:
-    """Return how the native response runs: alone, in place, borrowed."""
-    backend = NativeBackend(problem, run_request, grid=grid)
-    try:
-        path = backend.metadata()["dispersive_path"]
-    finally:
-        backend.close()
-    return path
-
-
-# --- the ladder --------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", list(GRID_CASES))
-def test_one_evaluation_on_the_multimode_capillary_matches_the_reference(
-    case, evaluator
-):
-    """Both rules' projected polarisation, under the in-stage absorber.
-
-    Alone, the response holds its own filtered field beside the bare one the collar
-    reads; a symmetric one projects through the stage unless its products are a field
-    grid's analytic signals. Measured 2.3-4.3 eps on both rules against the reference,
-    under bounds of 1060-1870 eps.
-    """
-    simulation = capillary(evaluator, **GRID_CASES[case])
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert problem.transform.n_nodes == 33
-    path = path_of(problem, run_request, simulation.grid)
-    analytic = case == "field conserving"
-    assert path == {
-        "alone": True,
-        "in_place": False,
-        "borrowed": evaluator == "symmetric" and not analytic,
-    }
-    assert_one_evaluation(problem, run_request, simulation.grid)
-
-
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", list(GRID_CASES))
-def test_one_step_on_the_multimode_capillary_matches_the_reference(case, evaluator):
-    """One Runge-Kutta step, seven evaluations through the whole stage.
-
-    Under the split-step absorber a lone symmetric response filters the stage's own
-    spectrum in place. Measured 1.2-1.5 eps against bounds of 7400-13100 eps.
-    """
-    simulation = capillary(
-        evaluator,
-        stepped=True,
-        integrator=RungeKutta(),
-        save_planes=[LENGTH / STEPS],
-        n_save=None,
-        **GRID_CASES[case],
-    )
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert path_of(problem, run_request, simulation.grid) == {
-        "alone": True,
-        "in_place": evaluator == "symmetric",
-        "borrowed": evaluator == "symmetric" and case != "field conserving",
-    }
-    ours, summary = run(NativeBackend, problem, run_request, simulation.grid)
-    theirs, _ = run(NumpyRefBackend, problem, run_request, simulation.grid)
-    assert summary.n_steps == 1
-    bound = step_evaluations(run_request) * evaluation_bound(problem)
-    assert bound > 0
-    assert disagreement(ours, theirs) < bound
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", list(GRID_CASES))
-def test_ten_steps_on_the_multimode_capillary_match_the_reference(case, evaluator):
-    """The default integrator (the resident Adams engine) over ten fixed steps.
-
-    Measured 5.8-6.7 eps against the reference, under bounds of 155 000-273 000 eps.
-    """
-    simulation = capillary(evaluator, stepped=True, **GRID_CASES[case])
-    assert_steps(simulation.translate(), simulation._run_request(), simulation.grid)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("sector", ["field full", "field conserving"])
-def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
-    """The statistic the embedded rule exists for, after ten steps.
-
-    The response's share of the embedded projection is finished when the step is
-    scored; without it the alarm would be near one. Both alarms agree to the window's
-    and an evaluation's bounds.
-    """
-    simulation = capillary(evaluator, stepped=True, **GRID_CASES[sector])
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    spec = StatsSpec(names=("quadrature_error",))
-    alarms = []
-    for backend_class in (NativeBackend, NumpyRefBackend):
-        backend = backend_class(problem, run_request, grid=simulation.grid)
-        try:
-            result = session_run(backend, problem, run_request.for_run(stats=spec))
-            assert result.observations[-1].z == LENGTH
-            alarms.append(float(result.observations[-1].stats["quadrature_error"]))
-        finally:
-            backend.close()
-    ours, theirs = alarms
-    assert theirs > 0
-    assert abs(ours - theirs) < steps_bound(problem, run_request) + evaluation_bound(
-        problem
-    )
-
-
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize(
-    ("case", "raman"),
-    [
-        ("field full", False),
-        ("field conserving", False),
-        ("field conserving", True),
-        ("envelope full", False),
-    ],
-)
-def test_node_chunks_accumulate_as_one(case, raman, evaluator):
-    """Five chunks of eight nodes, the last of one: every product accumulates.
-
-    The response packs each chunk's columns of the scaled projections once a stage.
-    """
-    simulation = capillary(
-        evaluator, gas="N2" if raman else "Ar", raman=raman, **GRID_CASES[case]
-    )
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert_one_evaluation(
-        problem, run_request, simulation.grid, ExecutionOptions(node_chunk=8)
-    )
+def built(simulation) -> Built:
+    return Built(simulation.translate(), simulation._run_request(), simulation.grid)
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -324,296 +92,217 @@ def test_a_state_with_zero_frequency_content_matches_the_reference(thg, evaluato
     ``Pi_+`` excludes the zero-frequency bin, which the engine's analytic family keeps.
     The bin lies outside the active band here, so the native load masks it, as every
     load and accepted step does: native's evaluation is of the masked launch, which
-    the reference's evaluation of the same state is held to. SEP 47 phase 5 deleted
-    the host-callable native evaluation that once read the unmasked field, and with
-    it the only native path that reached the bin's content.
+    the reference's evaluation of the same state is held to.
     """
-    simulation = capillary(evaluator, thg=thg)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
+    case = built(capillary(evaluator, thg=thg))
+    problem = case.problem
     active = np.asarray(problem.grids.active_mask)
     assert not active[0]
     start = problem.initial.field0.copy()
     start[..., 0] = 1e-3 * np.abs(start).max()
-    backend = NativeBackend(problem, run_request, grid=simulation.grid)
+    backend = NativeBackend(problem, case.run_request, grid=case.grid)
     try:
         held = load_native(backend, start).field_to_host().reshape(problem.shape)
     finally:
         backend.close()
     np.testing.assert_array_equal(held[..., 0], 0.0)
     np.testing.assert_array_equal(held, start * active)
-    problem = dataclasses.replace(
+    masked = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=start * active)
     )
-    assert_one_evaluation(problem, run_request, simulation.grid)
+    case = dataclasses.replace(case, problem=masked)
+    assert parity_ladder.disagreement(
+        parity_ladder.projected(NativeBackend, case),
+        parity_ladder.projected(NumpyRefBackend, case),
+    ) < capillary_evaluation(case)
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", list(GRID_CASES))
-def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
-    """One node: one evaluation and ten steps."""
-    problem, run_request, grid = averaged(evaluator, **GRID_CASES[case])
-    assert problem.transform.n_nodes == 1
-    assert_one_evaluation(problem, run_request, grid)
-    assert_steps(problem, run_request, grid)
+@pytest.mark.parametrize("evaluator", ["polynomial", "symmetric"])
+def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
+    """A second finish of the same evaluation, or one without the rule, does nothing.
 
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", ["field full", "field conserving", "envelope full"])
-def test_a_two_component_field_matches_the_reference(case, evaluator):
-    """The isotropic Kleinman contraction of an elliptical launch, on the quadrature."""
-    problem, run_request, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
-    assert problem.transform.n_pol * problem.shape[1] == 2
-    assert_one_evaluation(problem, run_request, grid)
-    assert_steps(problem, run_request, grid)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("envelope", [False, True])
-def test_the_radial_route_matches_the_reference(envelope, evaluator):
-    """The Hankel route, sixteen nodes."""
-    problem, run_request, grid = radial(evaluator, envelope=envelope, thg=envelope)
-    assert problem.transform.n_nodes == 16
-    assert_one_evaluation(problem, run_request, grid)
-    assert_steps(problem, run_request, grid)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("case", ["field full", "envelope conserving"])
-def test_a_mixture_matches_the_reference(case, evaluator):
-    """Helium and argon: one product under the mixture filter, or the polynomial's sum.
-
-    The symmetric evaluator's filter is rebuilt natively from the channels' densities by
-    the reference's arithmetic; the polynomial's ``E^3`` is shared and weighed by both
-    channels' output multipliers.
+    The embedded products are transformed once per evaluation, when the rule is read; a
+    repeated read must not land them twice. The radial route has no embedded rule, so
+    reading its fine rule leaves it untouched. Explicit no-ops, so exact.
     """
-    simulation = capillary(evaluator, gas={"He": 0.6, "Ar": 0.4}, **GRID_CASES[case])
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    leaf = problem.responses.dispersive_kerr
-    assert leaf is not None and leaf.n_channels == 2
-    assert_one_evaluation(problem, run_request, simulation.grid)
-    stepped = capillary(
-        evaluator, gas={"He": 0.6, "Ar": 0.4}, stepped=True, **GRID_CASES[case]
-    )
-    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-def test_a_mixture_of_varying_composition_matches_the_reference(evaluator):
-    """Helium falling and argon rising along the guide: the filter rebuilt per stage."""
-    fill = Mixture.partial_pressures(
-        {"He": Linear(2.0, 0.5, LENGTH), "Ar": Linear(0.5, 2.0, LENGTH)}
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        simulation = Simulation.from_capillary(
-            75e-6,
-            LENGTH,
-            fill,
-            None,
-            wavelength=800e-9,
-            wavelength_limits=(150e-9, 4e-6),
-            trange=150e-15,
-            fwhm=10e-15,
-            energy=30e-6,
-            modes=3,
-            materials=MaterialSelection(electronic=POLICIES[evaluator]),
-            plasma=False,
-            raman=False,
-            backend="numpy_ref",
-            n_save=2,
-            absorber_scheme="split_step",
-            schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
-            noise=None,
-        )
-    problem = simulation.translate()
-    start = scalars(problem, 0.0, 0.0).dispersive_kerr_densities
-    end = scalars(problem, 0.0, LENGTH).dispersive_kerr_densities
-    assert start[0] / start[1] == pytest.approx(4.0, rel=1e-2)
-    assert end[0] / end[1] == pytest.approx(0.25, rel=1e-2)
-    assert_steps(problem, simulation._run_request(), simulation.grid)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("case", ["field full", "field conserving", "envelope full"])
-def test_species_with_one_leg_bound_share_their_derivative_fields(case):
-    """Krypton and xenon: one leg bound, one group of the polynomial.
-
-    One ``D E`` and one ``D^2 E`` with their coefficient tables added,
-    density-weighted: an exact rewriting of the reference's per-species sum.
-    """
-    band = {"wavelength_limits": (180e-9, 4e-6), "energy": 5e-6}
-    simulation = capillary(
-        "polynomial", gas={"Kr": 0.5, "Xe": 0.5}, **band, **GRID_CASES[case]
-    )
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    leaf = problem.responses.dispersive_kerr
-    assert leaf is not None and leaf.n_channels == 2
-    assert leaf.groups() == ((0, 1),)
-    ledger = NativeBackend(problem, run_request, grid=simulation.grid)
+    case = built(capillary(evaluator))
+    assert parity_ladder.embedded(case.problem)
+    backend = NativeBackend(case.problem, case.run_request, grid=case.grid)
     try:
-        held = ledger.memory_ledger()
+        native_source(backend, case.problem.initial.field0)
+        native = backend._native_state
+        fine = np.array(native.projected_to_host(False))
+        landed = np.array(native.projected_to_host(True))
+        assert np.any(landed)
+        np.testing.assert_array_equal(native.projected_to_host(True), landed)
+        np.testing.assert_array_equal(native.projected_to_host(False), fine)
     finally:
-        ledger.close()
-    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
-    item = 8 if case == "field full" else 16
-    # Two filtered fields and three products: one group.
-    assert held["dispersive_filtered_time"] == 2 * n_columns * n_to * item
-    assert held["dispersive_products"] == 3 * n_columns * n_to * item
-    assert_one_evaluation(problem, run_request, simulation.grid)
-    stepped = capillary(
-        "polynomial",
-        gas={"Kr": 0.5, "Xe": 0.5},
-        stepped=True,
-        **band,
-        **GRID_CASES[case],
-    )
-    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
+        backend.close()
+    radial_problem, radial_request, grid = radial(evaluator, envelope=False, thg=True)
+    assert not parity_ladder.embedded(radial_problem)
+    backend = NativeBackend(radial_problem, radial_request, grid=grid)
+    try:
+        native_source(backend, radial_problem.initial.field0)
+        native = backend._native_state
+        before = np.array(native.projected_to_host(False))
+        assert np.any(before)
+        np.testing.assert_array_equal(native.projected_to_host(False), before)
+    finally:
+        backend.close()
 
 
-@pytest.mark.medium
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("thg", [True, False])
-def test_raman_beside_the_response_reads_the_bare_field(thg, evaluator):
-    """Nitrogen's Raman response beside it: the response must not filter the drive."""
-    simulation = capillary(evaluator, gas="N2", raman=True, thg=thg)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert problem.flags.has_raman
-    assert path_of(problem, run_request, simulation.grid) == {
-        "alone": False,
-        "in_place": False,
-        "borrowed": False,
-    }
-    assert_one_evaluation(problem, run_request, simulation.grid)
-    stepped = capillary(evaluator, gas="N2", raman=True, thg=thg, stepped=True)
-    assert_steps(stepped.translate(), stepped._run_request(), stepped.grid)
+def test_a_vacuum_has_exactly_no_source(evaluator):
+    """Every member at an exact zero: multipliers exactly zero, and no output (class P).
 
-
-@pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-@pytest.mark.parametrize("envelope", [False, True])
-def test_plasma_beside_the_response_reads_the_bare_field(envelope, evaluator):
-    """The field grid's plasma column, or the envelope's own current streams.
-
-    Compared on the whole stage source, which holds the envelope currents on both
-    backends (the engine assembles them into the projected spectrum, the reference
-    beside it). The plasma column and the prefactor's band edges already disagree with
-    the reference's, so the bound adds the carrier-policy run's disagreement on this
-    backend (268 and 178 eps measured); the dispersive runs sit within 0.2 eps of it. A
-    plasma current the response filtered would be wrong by the multiplier's departure
-    from one, about 1e-3, far above either. Ten steps: 6.8-19.5 eps against bounds of
-    155 000-273 000 eps (the carrier policy's own: 6.6-6.7 eps).
+    A vacuum's filter is a unit one by contract, the C++ test's explicit no-op; its
+    source, the multiplier's product, must be an exact zero on both, not a rounding.
     """
-    kind = {"plasma": True, "thg": False, "envelope": envelope, "energy": 60e-6}
-    simulation = capillary(evaluator, **kind)
-    problem = simulation.translate()
-    assert (problem.responses.envelope_plasma is not None) == envelope
-    baseline = capillary("carrier-kerr", **kind)
-    run_request = simulation._run_request()
-    carrier = baseline.translate()
-    carrier_request = baseline._run_request()
-    floor = disagreement(
-        source(NativeBackend, carrier, carrier_request, baseline.grid),
-        source(NumpyRefBackend, carrier, carrier_request, baseline.grid),
-    )
-    bound = evaluation_bound(problem) + floor
-    ours = source(NativeBackend, problem, run_request, simulation.grid)
-    theirs = source(NumpyRefBackend, problem, run_request, simulation.grid)
-    assert disagreement(ours, theirs) < bound
-    stepped = capillary(evaluator, stepped=True, **kind)
-    stepped_problem = stepped.translate()
-    stepped_request = stepped._run_request()
-    stepped_carrier = capillary("carrier-kerr", stepped=True, **kind)
-    carrier_problem = stepped_carrier.translate()
-    carrier_stepped = stepped_carrier._run_request()
-    step_floor = disagreement(
-        run(NativeBackend, carrier_problem, carrier_stepped, stepped_carrier.grid)[0],
-        run(NumpyRefBackend, carrier_problem, carrier_stepped, stepped_carrier.grid)[0],
-    )
-    ours_field, summary = run(
-        NativeBackend, stepped_problem, stepped_request, stepped.grid
-    )
-    theirs_field, reference = run(
-        NumpyRefBackend, stepped_problem, stepped_request, stepped.grid
-    )
-    assert summary.n_steps == reference.n_steps
-    assert (
-        disagreement(ours_field, theirs_field)
-        < steps_bound(stepped_problem, stepped_request) + step_floor
-    )
+    case = built(falling(evaluator, 0.0, 0.0))
+    end = float(case.run_request.stepper.save_planes[-1])
+    densities = scalars(case.problem, 0.0, end).dispersive_kerr_densities
+    assert np.all(np.asarray(densities) == 0.0)
+    for backend_class in (NumpyRefBackend, NativeBackend):
+        found = parity_ladder.source(backend_class, case, z=end)
+        np.testing.assert_array_equal(found, 0.0)
+    # Vacuous unless the same evaluation makes one where there is gas.
+    assert np.any(parity_ladder.source(NativeBackend, case))
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-def test_runge_kutta_steps_match_the_reference(evaluator):
-    """The Runge-Kutta march: seven stages a step, the first recycled."""
-    simulation = capillary(evaluator, stepped=True, integrator=RungeKutta())
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert run_request.stepper.integrator is None
-    assert_steps(problem, run_request, simulation.grid)
+@pytest.mark.parametrize("policy", ["symmetric-kerr", "gas-polynomial"])
+def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
+    """The flow carries each stage's input; the response is the fused path's.
+
+    The stage source is the fused path's own, so the flow's ten-step bound holds.
+    Measured 1.0e-15-1.1e-15 against a bound of 2.2e-13, where the response moves the
+    field from the carrier policy's by 2.2e-7.
+    """
+    fields = {}
+    for name in ("native", "numpy_ref"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            output = cast(
+                "MemoryOutput",
+                prop_capillary(
+                    50e-6,
+                    flow_parity.LENGTH,
+                    "He",
+                    1.0,
+                    wall=CoherentWall(),
+                    wavelength=800e-9,
+                    grid=flow_parity.GRID,
+                    absorber=flow_parity.WEAK_COLLAR,
+                    fwhm=30e-15,
+                    energy=1e-4,
+                    modes=3,
+                    n_save=2,
+                    backend=name,
+                    dz_max=flow_parity.LENGTH / flow_parity.STEPS,
+                    dz_init=flow_parity.LENGTH / flow_parity.STEPS,
+                    schedule=FixedSchedule(
+                        np.full(
+                            flow_parity.STEPS, flow_parity.LENGTH / flow_parity.STEPS
+                        )
+                    ),
+                    plasma=False,
+                    raman=False,
+                    materials=MaterialSelection(electronic=policy),
+                    noise=None,
+                ),
+            )
+        fields[name] = output.planes()[-1].field
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        simulation = flow_parity.build("scalar")
+        problem = simulation.translate()
+    bound = flow_parity.ten_step_bound(
+        flow_parity.flow_scales(
+            problem, simulation._run_request(), simulation.grid, fields["numpy_ref"]
+        )
+    )
+    assert bound > 0
+    assert flow_parity.departure(fields["native"], fields["numpy_ref"]) <= bound
 
 
-# --- what is this backend's alone ---------------------------------------------------
+# --- repeatability and the thread count ---------------------------------------------
 
 
-@pytest.mark.parametrize("evaluator", sorted(POLICIES))
-def test_two_runs_of_one_build_agree(evaluator):
+def window_case(route: str, evaluator: str) -> tuple[Built, float]:
+    """Return a route's ten-step case at a fixed order, and its window's bound."""
+    if route == "capillary":
+        case = built(capillary(evaluator, gas="N2", raman=True, stepped=True))
+        evaluation = capillary_evaluation
+    elif route == "averaged":
+        case = Built(*averaged(evaluator, envelope=False, thg=True))
+        evaluation = capillary_evaluation
+    else:
+        case = Built(*route_case(route, evaluator))
+        evaluation = route_evaluation
+    case = dataclasses.replace(case, run_request=fixed_order(case.run_request))
+    return case, window_of(evaluation)(case)
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.parametrize("evaluator", EVALUATORS)
+@pytest.mark.parametrize(
+    "route",
+    [
+        "capillary",
+        pytest.param("free", marks=pytest.mark.medium),
+        pytest.param("planar", marks=pytest.mark.medium),
+        pytest.param("general", marks=pytest.mark.medium),
+    ],
+)
+def test_two_runs_of_one_build_agree(route, evaluator):
     """Two runs of one build: the same fixed-order method on the same fixed schedule.
 
     A repeated run is the same discrete computation, so it is held to the window's
-    rounding budget (:func:`steps_bound`), not to its bits: a threaded reduction
-    may order its sums differently from one run to the next.
+    rounding budget, not to its bits: a threaded reduction may order its sums
+    differently from one run to the next.
     """
-    simulation = capillary(evaluator, gas="N2", raman=True, stepped=True)
-    problem = simulation.translate()
-    run_request = fixed_order(simulation._run_request())
-    first, _ = run(NativeBackend, problem, run_request, simulation.grid)
-    second, _ = run(NativeBackend, problem, run_request, simulation.grid)
-    assert_within(second, first, steps_bound(problem, run_request), what="repeat run")
+    case, bound = window_case(route, evaluator)
+    first, _ = run(NativeBackend, case.problem, case.run_request, case.grid)
+    second, _ = run(NativeBackend, case.problem, case.run_request, case.grid)
+    assert_within(second, first, bound, what="repeat run")
 
 
 @pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 @host_only
 def test_one_thread_and_four_agree(tmp_path):
-    """Ten steps at one thread and at four, each in a fresh process.
+    """Ten steps at one thread and at four, each in a fresh process, on every route.
 
     The same fixed-order method on the same schedule, so the two differ by the order
     of their threaded transforms and node reductions alone: the window's rounding
-    budget (:func:`steps_bound`, the transforms and reductions of every evaluation),
-    as against the reference. A repeat at one thread is held to the same budget.
+    budget, as against the reference. A repeat at one thread is held to it too.
     """
-    names = ["symmetric", "polynomial"]
+    averaged_names = ["symmetric", "polynomial"]
+    names = averaged_names + [
+        f"{route}:{evaluator}"
+        for route in ("free", "planar", "general")
+        for evaluator in EVALUATORS
+    ]
     one = native_thread_fields(PROBE, 1, names, tmp_path)
-    again = native_thread_fields(PROBE, 1, names, tmp_path)
+    again = native_thread_fields(PROBE, 1, averaged_names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
     assert_threaded(four["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft")
     for name in names:
-        problem, run_request, _ = averaged(name, envelope=False, thg=True)
-        bound = steps_bound(problem, fixed_order(run_request))
-        assert_within(again[name], one[name], bound, what=f"{name} repeat")
+        route, _, evaluator = name.rpartition(":")
+        _, bound = window_case(route or "averaged", evaluator)
+        if name in averaged_names:
+            assert_within(again[name], one[name], bound, what=f"{name} repeat")
         assert_within(four[name], one[name], bound, what=f"{name} four threads")
 
 
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(
-    problem: PropagationProblem,
-    run_request,
-    grid: Any,
-    options: ExecutionOptions | None = None,
-) -> dict[str, int]:
+def ledger_of(case: Built) -> dict[str, int]:
     """Return the backend's ledger and check its rows are released on close."""
-    backend = NativeBackend(problem, run_request, grid=grid, options=options)
+    backend = NativeBackend(
+        case.problem, case.run_request, grid=case.grid, options=case.options
+    )
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -626,25 +315,25 @@ def ledger_of(
     return ledger
 
 
+def columns_and_samples(case: Built) -> tuple[int, int]:
+    return case.problem.shape[0] * case.problem.shape[1], case.problem.grids.n_to
+
+
 def test_a_lone_symmetric_response_without_an_in_stage_absorber_holds_no_field():
     """SEP 6's memory target: the stage's own buffers, filtered in place."""
-    simulation = capillary("symmetric", stepped=True)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    ledger = ledger_of(problem, run_request, simulation.grid)
+    case = built(capillary("symmetric", stepped=True))
+    ledger = ledger_of(case)
     for row in DISPERSIVE_ROWS[:-1]:
         assert ledger[row] == 0, row
-    n_bins = problem.grids.n_to // 2 + 1
+    n_bins = case.problem.grids.n_to // 2 + 1
     # Its input and output rows, their stage copies and its weights at least.
     assert ledger["dispersive_multipliers"] >= 5 * n_bins * 8
 
 
 def test_a_lone_symmetric_mixture_holds_no_field_either():
     """A mixture is one product under its filter, so it takes the lone path too."""
-    simulation = capillary("symmetric", gas={"He": 0.6, "Ar": 0.4}, stepped=True)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    ledger = ledger_of(problem, run_request, simulation.grid)
+    mixture = {"He": 0.6, "Ar": 0.4}
+    ledger = ledger_of(built(capillary("symmetric", gas=mixture, stepped=True)))
     for row in DISPERSIVE_ROWS[:-1]:
         assert ledger[row] == 0, row
 
@@ -655,12 +344,10 @@ def test_a_lone_symmetric_response_beside_the_collar_holds_one_field():
     Its spectrum is the stage's projected spectrum, free until the stage's forward
     transform.
     """
-    simulation = capillary("symmetric")
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    assert problem.responses.absorber_scheme == "nonlinear"
-    ledger = ledger_of(problem, run_request, simulation.grid)
-    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
+    case = built(capillary("symmetric"))
+    assert case.problem.responses.absorber_scheme == "nonlinear"
+    ledger = ledger_of(case)
+    n_columns, n_to = columns_and_samples(case)
     assert ledger["dispersive_filtered_time"] == n_columns * n_to * 8
     for row in ("dispersive_node_fields", "dispersive_products"):
         assert ledger[row] == 0, row
@@ -669,11 +356,9 @@ def test_a_lone_symmetric_response_beside_the_collar_holds_one_field():
 
 def test_the_polynomial_holds_two_derivative_fields_and_its_products():
     """Two filtered fields, two node slots and three products per rule."""
-    simulation = capillary("polynomial", thg=False)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    ledger = ledger_of(problem, run_request, simulation.grid)
-    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
+    case = built(capillary("polynomial", thg=False))
+    ledger = ledger_of(case)
+    n_columns, n_to = columns_and_samples(case)
     field = n_columns * n_to * 16  # the analytic family: complex fields
     assert ledger["dispersive_filtered_time"] == 2 * field
     assert ledger["dispersive_products"] == 3 * field
@@ -684,13 +369,25 @@ def test_the_polynomial_holds_two_derivative_fields_and_its_products():
     assert ledger["dispersive_projection_chunks"] == 0
 
 
+@pytest.mark.parametrize("case", ["field full", "field conserving", "envelope full"])
+def test_species_with_one_leg_bound_hold_one_group(case):
+    """Krypton and xenon share ``D E`` and ``D^2 E``: two filtered fields, three
+    products."""
+    band = {"wavelength_limits": (180e-9, 4e-6), "energy": 5e-6}
+    gas = {"Kr": 0.5, "Xe": 0.5}
+    one = built(capillary("polynomial", gas=gas, **band, **GRID_CASES[case]))
+    ledger = ledger_of(one)
+    n_columns, n_to = columns_and_samples(one)
+    item = 8 if case == "field full" else 16
+    assert ledger["dispersive_filtered_time"] == 2 * n_columns * n_to * item
+    assert ledger["dispersive_products"] == 3 * n_columns * n_to * item
+
+
 def test_a_response_beside_raman_holds_its_own_node_field_and_products():
     """The bare field stays the column's; the products are landed in its spectrum."""
-    simulation = capillary("symmetric", gas="N2", raman=True, thg=False)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    ledger = ledger_of(problem, run_request, simulation.grid)
-    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
+    case = built(capillary("symmetric", gas="N2", raman=True, thg=False))
+    ledger = ledger_of(case)
+    n_columns, n_to = columns_and_samples(case)
     assert ledger["dispersive_node_fields"] == ledger["node_field"]
     assert ledger["dispersive_products"] == n_columns * n_to * 16
     assert ledger["dispersive_product_spectra"] == n_columns * n_to * 16
@@ -698,22 +395,18 @@ def test_a_response_beside_raman_holds_its_own_node_field_and_products():
 
 def test_chunked_nodes_pack_their_projections():
     """More than one chunk: each chunk's columns of both scaled projections, once."""
-    simulation = capillary("polynomial")
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    ledger = ledger_of(
-        problem, run_request, simulation.grid, ExecutionOptions(node_chunk=8)
+    case = dataclasses.replace(
+        built(capillary("polynomial")), options=ExecutionOptions(node_chunk=8)
     )
-    chunks = -(-problem.transform.n_nodes // 8)
-    per_rule = chunks * problem.shape[0] * 8 * problem.transform.n_pol * 8
+    ledger = ledger_of(case)
+    chunks = -(-case.problem.transform.n_nodes // 8)
+    per_rule = chunks * case.problem.shape[0] * 8 * case.problem.transform.n_pol * 8
     assert ledger["dispersive_projection_chunks"] == 2 * per_rule
 
 
 def test_a_problem_without_the_leaf_names_the_rows_at_zero():
-    simulation = capillary("carrier-kerr")
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    backend = NativeBackend(problem, run_request, grid=simulation.grid)
+    case = built(capillary("carrier-kerr"))
+    backend = NativeBackend(case.problem, case.run_request, grid=case.grid)
     try:
         ledger = backend.memory_ledger()
         metadata = backend.metadata()
@@ -721,3 +414,47 @@ def test_a_problem_without_the_leaf_names_the_rows_at_zero():
         backend.close()
     assert all(ledger[row] == 0 for row in DISPERSIVE_ROWS)
     assert metadata["dispersive_path"] is None
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_lone_symmetric_free_response_holds_no_field():
+    """Filtered in place, its product is the chunk's own polarisation."""
+    grid = free_grid("field", True)
+    response = DispersiveKerrResponse(ARGON, "symmetric")
+    ledger = ledger_of(Built(*free_problem([response], grid), grid))
+    for row in DISPERSIVE_ROWS[:-1]:
+        assert ledger[row] == 0, row
+    assert ledger["dispersive_multipliers"] > 0
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_free_polynomial_writes_its_filtered_fields_into_its_product_blocks():
+    """Three products of a chunk in time and frequency; no filtered field besides."""
+    grid = free_grid("field", False)
+    response = DispersiveKerrResponse(ARGON, "polynomial", thg=False)
+    case = Built(*free_problem([response], grid), grid)
+    ledger = ledger_of(case)
+    field = plan_node_chunk(case.problem).chunk * grid.n_to * 16  # complex products
+    assert ledger["dispersive_products"] == 3 * field
+    assert ledger["dispersive_product_spectra"] == 3 * field
+    assert ledger["dispersive_filtered_time"] == 0
+    assert ledger["dispersive_node_fields"] == 0
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_planar_polynomial_holds_two_node_slots():
+    case = Built(*planar_problem([DispersiveKerrResponse(ARGON, "polynomial")]))
+    ledger = ledger_of(case)
+    assert ledger["dispersive_node_fields"] == 2 * ledger["node_field"]
+    assert ledger["dispersive_filtered_time"] > 0
+    assert ledger["dispersive_products"] > 0
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_general_polynomial_region_forms_one_cube():
+    """Krypton and xenon in one region: two complex filtered fields, three real
+    products."""
+    gas = Mixture.fill({"Kr": 0.5, "Xe": 0.5}, 1.0)
+    case = Built(*general_problem(strand(gas), "polynomial", "real"))
+    ledger = ledger_of(case)
+    assert 4 * ledger["dispersive_products"] == 3 * ledger["dispersive_filtered_time"]

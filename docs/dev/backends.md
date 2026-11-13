@@ -1210,12 +1210,15 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   general modal route's chunk counts two buffers per node and component for each filtered field and
   each product of its workspace (`backends/node_chunk.py`, `general_dispersive_buffers`,
   `general_node_chunk`).
-- **Parity** (`tests/backends/test_native_dispersive_kerr.py`,
-  `tests/backends/test_native_dispersive_routes.py`): one evaluation, one step and ten replayed
-  steps against `numpy_ref`, under bounds derived in `tests/backends/dispersive_cases.py` from the
-  transforms and node reductions both backends perform. Beside the plasma column the bound adds
-  what the column already disagrees by. Repeats, and one against four threads, agree within the
-  same bounds.
+- **Parity** (the dispersive rows of the case catalogue, `tests/capability_routes.py` and
+  `tests/backends/dispersive_rows.py`): one evaluation, one step and ten replayed steps against
+  `numpy_ref`, under bounds derived in `tests/backends/dispersive_cases.py` and
+  `dispersive_route_cases.py` from the transforms and node reductions both backends perform.
+  Beside the plasma column the bound adds what the column already disagrees by. Each row's
+  response, its coefficients zeroed, moves every guarded rung by more than a thousand bounds
+  (or a lower guard, at least a hundred, that the row justifies).
+  Repeats, and one against four threads, agree within the same bounds
+  (`tests/backends/test_native_dispersive_kerr.py`).
 - **Ledger**: the `dispersive_*` rows, named at zero on every problem; borrowed buffers are the
   backend's own rows.
 - **Cost** against the constant cubic on the same problem, same-process medians:
