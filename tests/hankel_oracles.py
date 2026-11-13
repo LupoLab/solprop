@@ -80,6 +80,34 @@ def gram_bound(transform):
     return truncation, floating
 
 
+def round_trip_bounds(transform, values, spectrum):
+    """Bound a round trip's field error and the weighted Parseval defect of `values`.
+
+    The exact-arithmetic terms are the guide's ``b_N ||u||_1`` and ``b_N ||u||_1**2``
+    for ``u = f / d``, through the Gram bound; application adds two real GEMMs (a
+    complex input), one division and two scalings, which ``gamma(N + 8)`` covers
+    independently of construction. The two weighted energies are sums of ``N`` terms
+    with a few products each, ``gamma(N + 12)`` of their magnitudes; `spectrum` enters
+    only through that magnitude, never through the discrepancy being bounded.
+
+    - Returns: the elementwise bound on ``|inverse(forward(f)) - f|``, shaped like
+      `values`, and the bound on the two energies' difference, per leading index.
+    """
+    truncation, floating = gram_bound(transform)
+    gram = truncation + floating
+    size = transform.n_r
+    scaled = np.abs(values) / transform.j1
+    absolute = np.abs(transform.matrix)
+    application = gamma(size + 8) * (2 + gamma(size + 8)) * (absolute @ absolute)
+    field = (scaled @ (gram + application)) * transform.j1
+    radial = np.sum(np.abs(values) ** 2 * transform.radial_weights, axis=-1)
+    spectral = np.sum(np.abs(spectrum) ** 2 * transform.spectral_weights, axis=-1)
+    energy = 4 * np.pi * transform.forward_scale / transform.zeros[-1] * np.sum(
+        scaled * (scaled @ (gram + application)), axis=-1
+    ) + gamma(size + 12) * (radial + spectral)
+    return field, energy
+
+
 def gaussian_bound(transform, waist):
     """Bound the finite Fourier-Bessel expansion before testing the Gaussian."""
     radius, size = transform.radius, transform.n_r

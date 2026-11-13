@@ -303,6 +303,34 @@ jobs:
           path: junit.xml
           retention-days: 14
 
+  # The tiers' budgets (docs/dev/testing.md section 2) against the test lane's JUnit
+  # reports, one platform's shards at a time (tests/tier_budget.py), written to the run's
+  # summary. The rule is judged on macos-arm64; the Windows reports are for comparison.
+  # Report-only: the budgets are exceeded today, so the script runs without --enforce
+  # and ci-passed does not need the job.
+  tier-budget:
+    needs: [changes, test]
+    if: ${{ !cancelled() && needs.changes.outputs.lanes == 'full' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: junit-*
+          path: reports
+      - run: uv python install 3.14
+      - name: Report the tiers against their budgets
+        shell: bash
+        run: |
+          for platform in macos-arm64 windows-amd64 windows-arm64; do
+            files=(reports/junit-"$platform"-*/junit.xml)
+            [ -e "${files[0]}" ] || continue
+            uv run --no-project --python 3.14 python -I tests/tier_budget.py \
+              --title "$platform" "${files[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
   # The slow lane on Linux with the native wheel.
   slow:
     needs: [changes, native-wheel]

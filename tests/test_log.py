@@ -31,7 +31,6 @@ from solprop.log import (
     NullReporter,
     PlaneSummary,
     ProgressReporter,
-    SummarisingReporter,
     configure_logging,
     default_progress,
     default_reporter,
@@ -752,7 +751,7 @@ def test_reporter_cleanup_survives_bar_construction_failure(monkeypatch, ending)
 
 def test_every_reporter_here_takes_the_summary():
     for reporter in (NullReporter(), LogReporter(), BarReporter(file=io.StringIO())):
-        assert isinstance(reporter, SummarisingReporter)
+        assert isinstance(reporter, ProgressReporter)
 
 
 def test_the_line_reporter_logs_the_summary_as_one_record(lines):

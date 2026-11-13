@@ -816,12 +816,13 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
 (translation summaries, table sizes, schedule statistics, memory ledger) and guarded with
 `logger.isEnabledFor(logging.DEBUG)` when formatting costs anything. Nothing logs inside
 compiled kernels or per-stage code. Progress is reported by the driver through one
-`ProgressReporter` protocol (`solprop/log.py`): `started` once, `step` from inside the step
-loop on every attempted step, `plane` per save plane and `finished` at the end. Before the
-first step `run_problem` builds the run's summary from the kernel problem, the run's
-metadata and the backend's execution record (`driver/summary.py`) and hands it to a
-reporter that implements `summary` (`SummarisingReporter`); a plane store keeps it as a
-post-run-style annotation, outside the record and its hash. The default
+`ProgressReporter` protocol (`solprop/log.py`): `summary` before the first step, `started`
+once, `step` from inside the step loop on every attempted step, `plane` per save plane and
+`finished` at the end, or `interrupted` when the loop raises. Every call has a no-op default
+that a subclass of the protocol (or of `NullReporter`) inherits, so the driver makes each
+call without probing for it. The summary is built from the kernel problem, the run's
+metadata and the backend's execution record (`driver/summary.py`); a plane store keeps it as
+a post-run-style annotation, outside the record and its hash. The default
 `LogReporter` turns those into three kinds of INFO line -- a periodic one on a wall-clock
 period (`progress_period`, 10 s, `0` to disable) carrying position, counts, current step,
 elapsed and an ETA; one per plane with the step count and mean h; and a closing one with the
@@ -831,11 +832,12 @@ its steps are. Where a person is watching -- standard error a terminal, or a Jup
 kernel -- the default is instead a `BarReporter`: a `LogReporter` whose
 periodic event redraws a `tqdm` bar carrying the same content and the same measured ETA,
 with the plane line demoted to `DEBUG`; redirected or captured output always gets the
-lines. A reporter that implements `interrupted` (`InterruptibleReporter`) is told when
-the loop raises, before the error propagates, so a bar can give the terminal back. One
-that implements `observe_plane` (`PlaneObserver`, SEP 41) is shown each committed plane
-as a lazy view, and is detached if it fails; a scan reports to a `ScanReporter`, whose
-`point_reporter` may watch each point's run, relayed from a pool's workers. A bar
+lines. `interrupted` reaches the reporter before the error propagates, so a bar can give
+the terminal back. A reporter that also defines the one optional call, `observe_plane`
+(SEP 41), is shown each committed plane as a lazy view, and is detached if it fails; it
+stays optional so that a run nobody previews builds no view. A scan reports to a
+`ScanReporter`, whose `point_reporter` (default `None`) may watch each point's run,
+relayed from a pool's workers. A bar
 writes the summary and the closing line to its stream unless a console handler would
 print them, because without a handler a record reaches nobody.
 

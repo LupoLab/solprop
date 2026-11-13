@@ -39,19 +39,15 @@ __all__ = [
     "DEFAULT_PROGRESS_PERIOD",
     "NOT_ESTIMATED",
     "BarReporter",
-    "InterruptibleReporter",
     "LogReporter",
     "NullReporter",
     "NullScanReporter",
-    "PlaneObserver",
     "PlaneSummary",
     "ProgressChoice",
     "ProgressReporter",
     "ProgressStatus",
     "ScanReporter",
     "StopFlag",
-    "SummarisingReporter",
-    "WatchingScanReporter",
     "configure_logging",
     "default_progress",
     "default_reporter",
@@ -325,28 +321,55 @@ class PlaneSummary(Protocol):
 class ProgressReporter(Protocol):
     """Receive progress events from the propagation driver.
 
-    Four calls, in this order: :meth:`started` once, :meth:`step` once per **attempted**
-    step including the rejected ones, ``plane()`` once per save plane, and
-    ``finished()`` once at the end. A reporter may also implement the fifth call
-    of :class:`solprop.log.InterruptibleReporter`, which the driver makes instead
-    of ``finished()`` when the loop raises, ``KeyboardInterrupt`` included, so
-    that a reporter holding a terminal can give it back; a reporter without it is
-    still complete. The driver holds no state on a reporter's behalf and never
-    inspects what it returns.
+    Six calls, in this order: :meth:`summary` once before the first step, with the
+    block of :func:`solprop.driver.summary.run_summary`; :meth:`started` once;
+    :meth:`step` once per **attempted** step including the rejected ones; :meth:`plane`
+    once per save plane; and at the end :meth:`finished`, or :meth:`interrupted` when
+    the loop raised, ``KeyboardInterrupt`` included, so that a reporter holding a
+    terminal can give it back. After :meth:`finished`, :meth:`summary` is called once
+    more with the run's resources. The driver holds no state on a reporter's behalf and
+    never inspects what it returns.
+
+    Subclass it, or :class:`~solprop.log.NullReporter`, to inherit a no-op for each call
+    you do not override; a class written without either must define all six.
 
     :meth:`step` is on the hot path -- one attribute lookup and one call inside the step
     loop -- so a reporter that does real work there must do it on a wall-clock period,
     not on every call. Nothing a reporter does may change the propagation: a run with a
     reporter is bitwise the run without one.
 
-    Subclass :class:`solprop.log.NullReporter` to implement only the calls you care
-    about.
+    **Plane previews (SEP 41, S3).** A reporter that also defines
+    ``observe_plane(z, plane)`` is shown each saved plane, the entrance included, after
+    the plane is committed to the output and before :meth:`plane`; a resume does not
+    show the planes it continues after again. ``plane`` is a lazy
+    :class:`solprop.driver.plane_view.PlaneView`: the field and the spectral density
+    are computed only when asked for, and on a device a plane whose field the output
+    does not keep is fetched only then, a transfer the run's resource summary counts.
+    Its arrays are valid only during the call, so an observer copies what it keeps, and
+    it runs in the march's thread: reduce the plane to what is drawn, hand that to a
+    bounded queue that replaces an undelivered preview, and return. An exception from
+    it, other than a stop or an interrupt, does not fail the run: it is logged once
+    with its traceback, warned on, and the observer is not called again in that run.
+    The method is optional, and no base class defines it, so that a run whose reporter
+    does not ask builds no view.
 
     Examples
     --------
     >>> isinstance(NullReporter(), ProgressReporter)
     True
     """
+
+    def summary(self, text: str) -> None:
+        """Show what the run is about to compute, and at its end what it used.
+
+        Parameters
+        ----------
+        text : str
+            The block, one line per row, without a trailing newline: the backend, the
+            grid, the representation, the medium, the responses, the shot noise, the
+            integrator and its tolerances, the save planes, the output and whether the
+            run is a resume; at the end, the run's resources.
+        """
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
         """Record that a run has begun.
@@ -395,6 +418,20 @@ class ProgressReporter(Protocol):
             Wall time of the whole run, s.
         """
 
+    def interrupted(self, z: float, error: BaseException) -> None:
+        """Record that the run stopped before its end.
+
+        Called from the driver's ``finally`` in place of :meth:`finished`; the driver
+        re-raises the error after it.
+
+        Parameters
+        ----------
+        z : float
+            The last save plane the run reached, m.
+        error : BaseException
+            What stopped it.
+        """
+
 
 @runtime_checkable
 class StopFlag(Protocol):
@@ -416,111 +453,22 @@ class StopFlag(Protocol):
 
 
 @runtime_checkable
-class PlaneObserver(ProgressReporter, Protocol):
-    """A reporter that is shown each saved plane, for a front end to draw (SEP 41, S3).
-
-    The driver calls :meth:`observe_plane` once per save plane, the entrance included,
-    after the plane is committed to the output and before ``plane()``; a resume
-    does not show the planes it continues after again. The view is lazy: the field
-    and the spectral density are computed only when asked for, and on a device a plane
-    whose field the output does not keep is fetched only then, a transfer the run's
-    resource summary counts. Its arrays are valid only during the call, so an
-    observer copies what it keeps, and it runs in the march's thread: reduce the plane
-    to what is drawn, hand that to a bounded queue that replaces an undelivered
-    preview, and return.
-
-    An exception from the observer, other than a stop or an interrupt, does not fail
-    the run: it is logged once with its traceback, warned on, and the observer is not
-    called again in that run; ``plane()``, ``finished()`` and ``interrupted`` are
-    still delivered. Nothing an observer does may change the propagation.
-    :class:`NullReporter` does not implement it, so a quiet run builds no view.
-    """
-
-    def observe_plane(self, z: float, plane: object) -> None:
-        """Be shown one saved plane.
-
-        Parameters
-        ----------
-        z : float
-            Its position, m.
-        plane : solprop.driver.plane_view.PlaneView
-            The lazy view of it.
-        """
-        ...
-
-
-@runtime_checkable
-class InterruptibleReporter(ProgressReporter, Protocol):
-    """A reporter that also wants to hear that the run stopped before its end.
-
-    The driver calls :meth:`interrupted` from its ``finally`` when the loop raised,
-    and re-raises. :class:`NullReporter` implements it as a no-op, so a subclass has
-    it; a reporter written to the four calls alone is still a
-    :class:`ProgressReporter` and is simply not told.
-
-    Examples
-    --------
-    >>> isinstance(NullReporter(), InterruptibleReporter)
-    True
-    """
-
-    def interrupted(self, z: float, error: BaseException) -> None:
-        """Record that the run stopped before its end.
-
-        Parameters
-        ----------
-        z : float
-            The last save plane the run reached, m.
-        error : BaseException
-            What stopped it; the driver re-raises it after this call.
-        """
-
-
-@runtime_checkable
-class SummarisingReporter(ProgressReporter, Protocol):
-    """A reporter that also shows the summary a run gives before its first step.
-
-    The driver calls :meth:`summary` once, before the run's first step, with the block
-    of :func:`solprop.driver.summary.run_summary`: the backend, the grid, the
-    representation, the medium, the responses, the shot noise, the integrator and its
-    tolerances, the save planes, the output and whether the run is a resume.
-    :class:`NullReporter` implements it as a no-op; a reporter written to the four
-    basic calls alone is not shown it.
-
-    Examples
-    --------
-    >>> isinstance(NullReporter(), SummarisingReporter)
-    True
-    """
-
-    def summary(self, text: str) -> None:
-        """Show what the run is about to compute.
-
-        Parameters
-        ----------
-        text : str
-            The summary block, one line per row, without a trailing newline.
-        """
-
-
-@runtime_checkable
 class ScanReporter(Protocol):
     """Receive the progress of a parameter scan, point by point (SEP 41, S4).
 
     :func:`solprop.driver.scan.run_scan` takes one as ``progress=`` in place of its
-    named choices and then draws no display of its own. Four calls:
-    :meth:`scan_started` once, :meth:`point_started` and :meth:`point_finished` once
-    for each point dispatched or collected, and :meth:`scan_finished` once when the
-    scan returns, stopped by its flag or not; an exception from the scan propagates
-    without it. The calls are made in the controlling process, in the thread that
-    called ``run_scan``. When a point starts depends on the executor: ``Local`` at its
-    build, ``Pool`` when the point is sent to a worker, and ``Batch``, ``Queue`` and
-    ``Slurm`` only when its result is collected, just before :meth:`point_finished`. A
-    reporter that also wants each point's own run implements
-    :class:`solprop.log.WatchingScanReporter`.
+    named choices and then draws no display of its own. Five calls:
+    :meth:`scan_started` once; :meth:`point_started` and :meth:`point_finished` once
+    for each point dispatched or collected; :meth:`point_reporter` before each point
+    runs; and :meth:`scan_finished` once when the scan returns, stopped by its flag or
+    not; an exception from the scan propagates without it. The calls are made in the
+    controlling process, in the thread that called ``run_scan``. When a point starts
+    depends on the executor: ``Local`` at its build, ``Pool`` when the point is sent to
+    a worker, and ``Batch``, ``Queue`` and ``Slurm`` only when its result is collected,
+    just before :meth:`point_finished`.
 
-    Subclass :class:`solprop.log.NullScanReporter` to implement only the calls you care
-    about.
+    Subclass it, or :class:`NullScanReporter`, to inherit a no-op for each call you do
+    not override.
 
     Examples
     --------
@@ -567,27 +515,16 @@ class ScanReporter(Protocol):
     def scan_finished(self) -> None:
         """Record that the scan has returned."""
 
-
-@runtime_checkable
-class WatchingScanReporter(ScanReporter, Protocol):
-    """A scan reporter that also watches each point's own run (SEP 41, S4).
-
-    Before a point runs, the scan asks for a :class:`ProgressReporter` for it, which
-    then receives that run's calls. ``Local`` runs the point with it in this process.
-    A ``Pool`` worker sends the point's ``summary``, ``started``, ``plane``,
-    ``finished`` and ``interrupted`` calls to the controller, which makes them on the
-    reporter returned here as the messages arrive; each plane carries its position and
-    the four scalars of its :class:`PlaneSummary`, never a field, and ``step``, on the
-    hot path, is not sent. ``Batch``, ``Queue`` and ``Slurm`` ask for none.
-
-    Examples
-    --------
-    >>> isinstance(NullScanReporter(), WatchingScanReporter)
-    True
-    """
-
     def point_reporter(self, index: int) -> ProgressReporter | None:
-        """Return the reporter for one point's run, or ``None`` for none.
+        """Return the reporter for one point's run, or ``None`` to run it silently.
+
+        The returned :class:`ProgressReporter` receives that run's calls. ``Local``
+        runs the point with it in this process. A ``Pool`` worker sends the point's
+        ``summary``, ``started``, ``plane``, ``finished`` and ``interrupted`` calls to
+        the controller, which makes them on the reporter returned here as the messages
+        arrive; each plane carries its position and the four scalars of its
+        :class:`PlaneSummary`, never a field, and ``step``, on the hot path, is not
+        sent. ``Batch``, ``Queue`` and ``Slurm`` ask for none.
 
         Parameters
         ----------
@@ -597,16 +534,18 @@ class WatchingScanReporter(ScanReporter, Protocol):
         Returns
         -------
         ProgressReporter or None
-            Where the point's run reports; ``None`` runs it silently.
+            Where the point's run reports; ``None``, the default, runs it silently.
         """
-        ...
+        del index
+        return None
 
 
-class NullScanReporter:
+class NullScanReporter(ScanReporter):
     """A scan reporter that does nothing, and the base for one that does something.
 
-    Every method is a no-op and :meth:`point_reporter` returns ``None``, so a subclass
-    overrides only what it wants:
+    Every call is the no-op it inherits from :class:`ScanReporter`, and
+    :meth:`~ScanReporter.point_reporter` returns ``None``, so a subclass overrides only
+    what it wants:
 
     Examples
     --------
@@ -619,63 +558,12 @@ class NullScanReporter:
     True
     """
 
-    def scan_started(self, n_points: int) -> None:
-        """Ignore the event.
 
-        Parameters
-        ----------
-        n_points : int
-            See :meth:`ScanReporter.scan_started`.
-        """
-
-    def point_started(self, index: int, point: object) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        index : int
-            See :meth:`ScanReporter.point_started`.
-        point : object
-            See :meth:`ScanReporter.point_started`.
-        """
-
-    def point_finished(self, index: int, status: str, wall: float) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        index : int
-            See :meth:`ScanReporter.point_finished`.
-        status : str
-            See :meth:`ScanReporter.point_finished`.
-        wall : float
-            See :meth:`ScanReporter.point_finished`.
-        """
-
-    def scan_finished(self) -> None:
-        """Ignore the event."""
-
-    def point_reporter(self, index: int) -> ProgressReporter | None:
-        """Watch no point.
-
-        Parameters
-        ----------
-        index : int
-            See :meth:`WatchingScanReporter.point_reporter`.
-
-        Returns
-        -------
-        None
-            The point runs silently.
-        """
-        del index
-        return None
-
-
-class NullReporter:
+class NullReporter(ProgressReporter):
     """A reporter that does nothing, and the base class for one that does something.
 
-    Every method is a no-op, so a subclass overrides only what it wants:
+    Every call is the no-op it inherits from :class:`ProgressReporter`, so a subclass
+    overrides only what it wants:
 
     Examples
     --------
@@ -685,68 +573,6 @@ class NullReporter:
     >>> isinstance(Bar(), ProgressReporter)
     True
     """
-
-    def summary(self, text: str) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        text : str
-            See :meth:`solprop.log.SummarisingReporter.summary`.
-        """
-
-    def started(self, z_start: float, z_end: float, n_planes: int) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        z_start, z_end : float
-            See :meth:`ProgressReporter.started`.
-        n_planes : int
-            See :meth:`ProgressReporter.started`.
-        """
-
-    def step(self, z: float, dz: float, accepted: bool) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        z, dz : float
-            See :meth:`ProgressReporter.step`.
-        accepted : bool
-            See :meth:`ProgressReporter.step`.
-        """
-
-    def plane(self, z: float, summary: PlaneSummary) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        z : float
-            See :meth:`ProgressReporter.plane`.
-        summary : PlaneSummary
-            See :meth:`ProgressReporter.plane`.
-        """
-
-    def finished(self, total: float) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        total : float
-            See :meth:`ProgressReporter.finished`.
-        """
-
-    def interrupted(self, z: float, error: BaseException) -> None:
-        """Ignore the event.
-
-        Parameters
-        ----------
-        z : float
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
-        error : BaseException
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
-        """
 
 
 class LogReporter:
@@ -901,7 +727,7 @@ class LogReporter:
         Parameters
         ----------
         text : str
-            See :meth:`solprop.log.SummarisingReporter.summary`.
+            See :meth:`ProgressReporter.summary`.
         """
         self._say(self._level, "%s", text)
 
@@ -1026,9 +852,9 @@ class LogReporter:
         Parameters
         ----------
         z : float
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
+            See :meth:`ProgressReporter.interrupted`.
         error : BaseException
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
+            See :meth:`ProgressReporter.interrupted`.
         """
         if self._t0 is not None:
             self._elapsed_final = self._clock() - self._t0
@@ -1432,9 +1258,9 @@ class BarReporter(LogReporter):
         Parameters
         ----------
         z : float
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
+            See :meth:`ProgressReporter.interrupted`.
         error : BaseException
-            See :meth:`solprop.log.InterruptibleReporter.interrupted`.
+            See :meth:`ProgressReporter.interrupted`.
         """
         if self._bar is not None:
             self._bar.refresh()
