@@ -1,0 +1,1 @@
+Fixed a segmentation fault of the native radial route on an NVIDIA A40 (a CUDA build for compute capability 8.6) in the session's `advance`, with every stepper: the device GEMM's kernel is a named functor, as nvcc's host-device lambda shared between source files called a null copy function in a Release build (#815).
