@@ -53,8 +53,8 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 from solprop.translate.routes import transverse_of
 
 pytestmark = [

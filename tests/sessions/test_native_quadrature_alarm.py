@@ -27,7 +27,7 @@ from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stepper import PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 pytest.importorskip("solprop_native.session")
 

@@ -26,8 +26,9 @@ from solprop.profiles import Constant, Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate.assembly import _route, assemble
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.problem import _route, assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.responses import (
     compile_responses,
     kerr_coefficients,

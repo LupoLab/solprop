@@ -37,9 +37,9 @@ from solprop.exceptions import GeneralModalBasisWarning, TranslationError
 from solprop.modes.material import MaterialKerr
 from solprop.output.memory import MemoryOutput
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, sample_modal_table
-from solprop.translate.problem import assemble
 
 SPARSE_LONG_END = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.GeneralModalBasisWarning"

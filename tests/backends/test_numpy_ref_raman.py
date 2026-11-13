@@ -53,8 +53,8 @@ from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 from solprop.translate.raman import (
     build_raman_kernels,
     kernel_spectrum,

@@ -29,7 +29,7 @@ from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.pulses import GaussianPulse
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 
 @pytest.mark.slow

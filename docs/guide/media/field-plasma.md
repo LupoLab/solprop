@@ -272,7 +272,7 @@ between two positions has kinks the modes know nothing about, and a step straddl
 one integrates a right-hand side that is not smooth there, which costs the integrator
 its order. The translation therefore adds a response path's breakpoints -- the
 pre-ionisation of every plasma channel, and an explicit density path given to
-{func}`solprop.translate.problem.assemble` -- to the hard kinks of `Phi`: a constant
+{func}`solprop.translate.assembly.assemble` -- to the hard kinks of `Phi`: a constant
 operator is split there into exact degree-one pieces and keeps its constant `D`, so
 its flow is unchanged to the last bit, and an expansion or table takes them as further
 mandatory edges. The uncoupled modal route does this; a route that cannot (a coherent

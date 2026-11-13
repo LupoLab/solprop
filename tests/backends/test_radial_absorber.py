@@ -31,7 +31,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.routes import transverse_of
 from spatial_records import record_metric
 

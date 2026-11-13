@@ -45,8 +45,9 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.responses import KerrForm
 from solprop.translate.run_request import RunRequest
 

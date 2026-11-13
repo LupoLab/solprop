@@ -28,8 +28,8 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars

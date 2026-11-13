@@ -47,7 +47,8 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend

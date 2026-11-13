@@ -21,6 +21,7 @@ from solprop.noise import modified_noise
 from solprop.nonlinear.gnlse import SpecifiedMode, problem_from
 from solprop.profiles import Linear, PressureGradient
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import DEFAULT_TOL, build
 from solprop.translate.expansion import (
     append_endpoint_expansion,
@@ -38,7 +39,6 @@ from solprop.translate.linop import (
     power_weight_factors,
     with_power_weight,
 )
-from solprop.translate.problem import assemble
 
 
 @pytest.mark.parametrize("index", [0.0, -1.0, np.inf, np.nan])

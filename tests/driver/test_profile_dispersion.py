@@ -49,9 +49,9 @@ from solprop.physdata import n2_from_chi3
 from solprop.pulses import GaussianPulse
 from solprop.stats import analytic_field
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
 from solprop.translate.modal_tables import channel_area, sample_modal_table
-from solprop.translate.problem import assemble
 
 LENGTH = 1e-3
 """Propagated length, m: a millimetre."""

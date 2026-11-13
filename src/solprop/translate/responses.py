@@ -382,7 +382,7 @@ def declares_harmonic_carrier(responses: Sequence[object], grid: TimeGrid) -> bo
     exactly when this is true (:meth:`solprop.linear.Frame.comoving`,
     :func:`solprop.linear.frame_origin`). It is the declared form of
     :attr:`CompiledResponses.harmonic_carrier`, which
-    :func:`solprop.translate.problem.assemble` checks it against once the responses
+    :func:`solprop.translate.assembly.assemble` checks it against once the responses
     have compiled. Only the electronic responses radiate the harmonic on an envelope
     grid: the constant and the dispersive Kerr terms with ``thg=True``. A Raman
     response's ``thg`` is ignored there (:func:`solprop.nonlinear.raman.raman_drive`),
@@ -918,7 +918,7 @@ def response_kinks(
     A step lands only on the hard kinks of ``Phi``, which the mode set declares. A
     response can carry a path the modes know nothing about: a plasma response's
     pre-ionisation along z, or a density path given to
-    :func:`solprop.translate.problem.assemble` explicitly. Its breakpoints are where
+    :func:`solprop.translate.assembly.assemble` explicitly. Its breakpoints are where
     the right-hand side is not smooth, so they must become hard kinks as well, or a
     step straddles them and the integrator loses its order there.
 
@@ -2873,7 +2873,7 @@ def compile_responses(
         Which application of the temporal rate the backend will use.
     mandatory_edges : array_like, optional
         Positions in z that must be interval edges of the prefactor table.
-        :func:`solprop.translate.problem.assemble` passes the cumulative operator's
+        :func:`solprop.translate.assembly.assemble` passes the cumulative operator's
         ``hard_kinks``, which is the union of the mode set's declared breakpoints, so
         that the two tables split on the same edges; a standalone caller should do the
         same, because a table left to locate a kink by bisection spends intervals on it

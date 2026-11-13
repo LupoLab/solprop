@@ -30,7 +30,7 @@ from scipy.integrate import quad, solve_ivp
 from scipy.linalg import expm
 from scipy.special import jn_zeros, jv
 
-import solprop.translate.problem as problem_module
+import solprop.translate.walls as walls_module
 from bounds import assert_within, fft_bound, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
@@ -94,14 +94,14 @@ from solprop.translate.coupled import (
     section_expansion,
 )
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import (
-    _Assembly,
+from solprop.translate.stage import scalars
+from solprop.translate.validation import _Assembly
+from solprop.translate.walls import (
     _check_wall_route,
     _check_wall_total,
     _check_wall_total_varying,
     _normalisation_rate,
 )
-from solprop.translate.stage import scalars
 from state_records import check_state, record_bound
 
 RADIUS = 50e-6
@@ -1941,7 +1941,7 @@ def test_every_channel_carries_its_own_normalisation_against_a_true_power_solve(
         # The lowest channel's normalisation for every channel.
         with monkeypatch.context() as patch:
             patch.setattr(
-                problem_module,
+                walls_module,
                 "_channel_normalisation_at",
                 lambda modes, grid, z: np.zeros((len(modes), grid.n_omega)),
             )
@@ -1964,7 +1964,7 @@ def test_the_stored_connection_conserves_true_power():
     """
     block = tuple(MarcatiliMode(taper(), "He", 1.0, m=index + 1) for index in range(3))
     z = 0.5 * LENGTH
-    stored = problem_module._wall_connection_at(block, GRID, z)
+    stored = walls_module._wall_connection_at(block, GRID, z)
     band = GRID.omega[GRID.active_mask]
     root = np.sqrt(np.stack([np.real(mode.neff(band, z)) for mode in block]))
     active = stored[:, :, GRID.active_mask]
@@ -2545,7 +2545,7 @@ def test_the_wall_diagonal_is_the_refractivity_difference():
     """
     mode = MarcatiliMode(RADIUS, "He", 1.0)
     band = GRID.omega[GRID.active_mask]
-    generator = problem_module._wall_shifted_generator(
+    generator = walls_module._wall_shifted_generator(
         np.zeros((1, 1, GRID.n_omega), dtype=complex), mode, GRID
     )
     # The diagonal is stored as conj(i s), so s = -i conj(stored).
@@ -2697,7 +2697,7 @@ def test_a_varying_guide_beside_a_vector_wall_takes_the_frozen_residual_route():
     assert flow.certificate_id == "frozen-residual"
     assert flow.connection is not None and flow.wall_vectors is None
     z = 0.5 * LENGTH
-    stored = problem_module._wall_connection_at(tuple(modes), GRID, z, "te_tm")
+    stored = walls_module._wall_connection_at(tuple(modes), GRID, z, "te_tm")
     assert np.all(stored[:2, 2:] == 0.0) and np.all(stored[2:, :2] == 0.0)
     band = GRID.omega[GRID.active_mask]
     root = np.sqrt(np.stack([np.real(mode.neff(band, z)) for mode in modes]))

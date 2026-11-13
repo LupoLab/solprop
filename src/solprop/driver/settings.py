@@ -258,7 +258,7 @@ class SimulationSettings(Displayed):
     polarisation_taper : bool
         Whether the spectral collar tapers the nonlinear polarisation as well as
         absorbing the field through the linear operator. Default ``False``, which is
-        :func:`solprop.translate.problem.assemble`'s: the taper costs a systematic
+        :func:`solprop.translate.assembly.assemble`'s: the taper costs a systematic
         error of the size of the field's content in the collar, and the rate absorber
         acts either way (``docs/guide/numerics/boundaries.md``).
     backend : str
@@ -326,8 +326,8 @@ class SimulationSettings(Displayed):
     ------
     DriverError
         If the save planes are empty, not increasing, or not positive. The same check
-        runs again in :func:`solprop.translate.problem.assemble`; here it fires before a
-        run has built anything. Also if the field retention is not valid, asks for
+        runs again in :func:`solprop.translate.assembly.assemble`; here it fires before
+        a run has built anything. Also if the field retention is not valid, asks for
         ``fields='planes'`` beside `step_planes`.
 
     Examples
