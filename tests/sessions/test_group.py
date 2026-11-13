@@ -349,7 +349,9 @@ def test_a_group_whose_later_member_fails_to_start_can_be_retried(backend, monke
     problems = [one.translate() for one in simulations]
     requests = [one._run_request() for one in simulations]
     if backend == "native":
-        from solprop_native.session import NativeSession  # noqa: PLC0415
+        from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeSession,
+        )
 
         constructed_sessions: list[Any] = []
 
