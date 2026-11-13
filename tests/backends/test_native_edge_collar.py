@@ -424,9 +424,30 @@ MARCHES = {
 }
 """Each march and temporal collar scheme a read has to leave undisturbed."""
 
+MEDIUM_READS = {
+    ("cartesian", "runge_kutta"),
+    ("cartesian", "runge_kutta_split"),
+    ("cartesian", "adams_exponential"),
+    ("planar", "runge_kutta"),
+    ("planar", "runge_kutta_split"),
+    ("planar", "runge_kutta_in_stage"),
+}
+"""The routes and marches whose three runs take over ten seconds (CI, macOS arm64)."""
 
-@pytest.mark.parametrize("name", MARCHES)
-@pytest.mark.parametrize("route", ROUTES)
+
+@pytest.mark.parametrize(
+    ("route", "name"),
+    [
+        pytest.param(
+            route,
+            name,
+            id=f"{route}-{name}",
+            marks=[pytest.mark.medium] if (route, name) in MEDIUM_READS else [],
+        )
+        for route in ROUTES
+        for name in MARCHES
+    ],
+)
 def test_a_collars_read_leaves_the_march_where_it_was(route: str, name: str) -> None:
     march, scheme = MARCHES[name]
 
@@ -487,7 +508,13 @@ def test_a_collars_read_leaves_the_march_where_it_was(route: str, name: str) -> 
         )
 
 
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize(
+    "route",
+    [
+        pytest.param(route, marks=pytest.mark.medium) if route == "cartesian" else route
+        for route in ROUTES
+    ],
+)
 def test_a_collar_run_brings_no_state_to_the_host(route: str) -> None:
     # Native's own count of the bytes through its state's crossings.
     simulation = _case(route, fields="none")
@@ -650,8 +677,19 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
     assert read.current == whole.current
 
 
-@pytest.mark.parametrize("march", [RungeKutta(), Multistep()], ids=["rk", "adams"])
-@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize(
+    ("route", "march"),
+    [
+        pytest.param(
+            route,
+            march,
+            id=f"{route}-{name}",
+            marks=[pytest.mark.medium] if (route, name) == ("cartesian", "rk") else [],
+        )
+        for route in ROUTES
+        for name, march in (("rk", RungeKutta()), ("adams", Multistep()))
+    ],
+)
 def test_a_collar_run_matches_numpy_ref_on_a_matched_schedule(
     route: str, march: object
 ) -> None:

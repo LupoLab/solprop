@@ -438,7 +438,7 @@ def test_a_moving_guide_conserves_its_energy_under_the_default(kinked):
     assert abs(energy[-1] / energy[0] - 1.0) < 1e-9
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length():
     """No conversion in the adiabatic limit, and each mode's own phase.
 

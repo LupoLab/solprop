@@ -1508,7 +1508,9 @@ def test_with_noise_a_pulse_clear_of_the_collar_reads_no_removal() -> None:
 # Routes whose stages keep the collar never rest it.
 
 
-@pytest.mark.parametrize("route", ["planar", "cartesian", "line"])
+@pytest.mark.parametrize(
+    "route", [pytest.param("planar", marks=pytest.mark.medium), "cartesian", "line"]
+)
 def test_a_quiet_collar_option_changes_nothing_where_the_stages_keep_it(
     route: str,
 ) -> None:
