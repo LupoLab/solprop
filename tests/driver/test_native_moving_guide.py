@@ -32,6 +32,13 @@ from typing import cast
 import numpy as np
 import pytest
 
+from coupled_flow_cases import (
+    Case,
+    native_class,
+    parity_bound,
+    propagate,
+    reference_and_linear,
+)
 from driver.test_moving_guide import (
     GRIN_PULSE,
     LENGTH,
@@ -41,14 +48,7 @@ from driver.test_moving_guide import (
     kinked_radius,
     step_grid,
 )
-from driver.test_native_coupled_flow import (
-    Case,
-    native_class,
-    parity_bound,
-    propagate,
-    reference_and_linear,
-    thread_states,
-)
+from driver.test_native_coupled_flow import thread_states
 from modal_provider_cases import GENERAL_CHI3, grin_grid, make_provider
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available

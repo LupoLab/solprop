@@ -32,6 +32,20 @@ from scipy.special import jn_zeros, jv
 
 import solprop.translate.walls as walls_module
 from bounds import assert_within, fft_bound, gamma, step_evaluations
+from coupled_flow_cases import (
+    GRID,
+    LENGTH,
+    NARROW,
+    RADIUS,
+    SMOOTH_STAGES,
+    STEPS,
+    VECTOR_WALL,
+    WEAK_COLLAR,
+    capillary,
+    taper,
+    varying,
+    vector_modes,
+)
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
@@ -73,9 +87,8 @@ from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.glasses import fused_silica
-from solprop.physdata.mixtures import Pressure
 from solprop.physdata.sellmeier import gamma as gas_law
-from solprop.profiles import FromCallable, Linear, PiecewiseLinear, ZProfile
+from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
@@ -104,40 +117,6 @@ from solprop.translate.walls import (
 )
 from state_records import check_state, record_bound
 
-RADIUS = 50e-6
-"""Core radius of the qualification case, m.
-
-Small enough that a millimetre is a measurable loss -- the highest retained channel
-attenuates by several per cent over it -- and wide enough that the validity ratios stay
-inside the default limit over the whole band.
-"""
-
-LENGTH = 2e-4
-"""Length of the qualification case, m: a fifth of a millimetre."""
-
-STEPS = 10
-"""Steps of the fixed schedule, over a fifth of a millimetre."""
-
-GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID)
-"""One grid for every case here, so that a launch can be built against it.
-
-The former geometry: the records here were made on it, and nothing here is about
-the temporal window.
-"""
-
-WEAK_COLLAR = absorber(GRID, boundary_length=1.0e3)
-"""A collar five million times weaker than the default one.
-
-The default collar is an absorber, and an absorber in the **nonlinear** scheme is an
-explicit term whose stability caps the step at about 5 micrometres on this grid
-(see docs/dev/decisions.md); it also eats a continuous wave, which is what a single
-excited bin of a field grid is, so an absolute statement about the flow could not be
-made beside it. This one is present -- the masks and the band limit still are what they
-are -- and its rate over a fifth of a millimetre is below 2e-7, far under every bound
-taken here. It says so, and the module filters that warning: a collar too weak to stop a
-packet walking off the window is exactly what is wanted where nothing walks. The
-collar itself is qualified in ``tests/test_boundaries.py``."""
-
 pytestmark = [
     pytest.mark.filterwarnings(
         f"ignore::{MaterialRangeWarning.__module__}.MaterialRangeWarning"
@@ -161,49 +140,6 @@ def kept(field: np.ndarray | None) -> np.ndarray:
     """Return a saved plane's field: every plane of these runs keeps its own."""
     assert field is not None
     return field
-
-
-def capillary(
-    *,
-    wall=None,
-    modes: int | Sequence[Mode] = 3,
-    pressure: Pressure = 1.0,
-    radius: float | ZProfile = RADIUS,
-    **overrides,
-):
-    """Return a small three-channel capillary simulation, with or without a wall.
-
-    A fixed schedule, so that two runs whose operators differ in the last bits still
-    land on the same positions: an adaptive controller would otherwise take different
-    steps and agree only to its own tolerance, which is orders above the rounding a
-    flow identity is about. Its length is set by the temporal collar, which is
-    explicit in the nonlinear scheme and stable here only below 5.2 micrometres
-    (see docs/dev/decisions.md); :data:`STEPS` steps of a fifth of a millimetre clear
-    it.
-    """
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
 
 
 def run_capillary(
@@ -1542,60 +1478,6 @@ def legacy_parity_bound(samples: int, simulation) -> float:
 
 # ------------------------------------------------------------- the varying section
 
-SMOOTH_STAGES = (0.0, 6e-5, 1.4e-4, 2e-4)
-"""Where a taper of this qualification case starts and stops varying, m.
-
-The stages land on multiples of `LENGTH / STEPS`, so the fixed schedule can contain
-every hard kink of the radius, which `PropagationProblem.validate` requires of any
-schedule (`_check_schedule`).
-"""
-
-NARROW = 40e-6
-"""The taper's narrow end, m: a fifth off :data:`RADIUS` over a fifth of a millimetre.
-
-A 50 to 40 micrometre contraction has the shape of a 125 to 62.5 micrometre taper --
-straight, transition, straight -- at the radius and length a short test allows.
-"""
-
-
-def taper(stages=SMOOTH_STAGES, ends=(RADIUS, NARROW)):
-    """Return the straight-transition-straight radius profile of the varying cases."""
-    return PiecewiseLinear.from_stages(stages, [ends[0], ends[0], ends[1], ends[1]])
-
-
-def varying(
-    *,
-    wall=None,
-    radius=None,
-    pressure: Pressure = 1.0,
-    modes: int | Sequence[Mode] = 3,
-    **overrides,
-):
-    """Return the varying-guide qualification case, with or without a wall."""
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        taper() if radius is None else radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
-
 
 def test_a_moving_multimode_set_without_the_connection_warns_by_name():
     """The diagonal route omits the taper's connection and says so, once.
@@ -2606,21 +2488,6 @@ def test_a_varying_route_whose_total_generator_grows_is_refused_by_name():
 
 
 # ------------------------------------------------------------------ the vector block
-
-
-VECTOR_WALL = CoherentWall(impedance="te_tm")
-"""The declaration under test here: the coupled azimuthal block."""
-
-
-def vector_modes(
-    counts=(2, 2), *, radius: float | ZProfile = RADIUS, orders=(1, -1), **kwargs
-):
-    """Return one azimuthal order of the qualification capillary."""
-    return [
-        MarcatiliMode(radius, "He", 1.0, n=order, m=index + 1, **kwargs)
-        for order, count in zip(orders, counts, strict=True)
-        for index in range(count)
-    ]
 
 
 def test_the_vector_route_declares_one_constant_section_without_a_wall_pair():

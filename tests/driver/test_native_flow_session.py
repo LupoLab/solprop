@@ -32,10 +32,12 @@ from typing import Any
 import numpy as np
 import pytest
 
-from driver.test_coherent_capillary import GRID, STEPS, WEAK_COLLAR
-from driver.test_native_coupled_flow import (
+from coupled_flow_cases import (
     ENERGY,
+    GRID,
     PRESSURE,
+    STEPS,
+    WEAK_COLLAR,
     Case,
     parity_bound,
     propagate,

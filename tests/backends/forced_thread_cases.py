@@ -520,7 +520,7 @@ def flow(name: str):
 
 def flow_kerr(name: str):
     """Ten steps of a ``test_native_coupled_flow.py`` case, with its source."""
-    from driver.test_native_coupled_flow import CASES as FLOWS  # noqa: PLC0415
+    from coupled_flow_cases import CASES as FLOWS  # noqa: PLC0415
 
     case = FLOWS[name]()
     problem = case.problem
