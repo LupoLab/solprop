@@ -458,9 +458,8 @@ def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length
     channel, bounded by ``|b_2/b_1|``; plus the path's own held-out error times
     ``|beta| L``.
 
-    The runs are linear and the bound is the Runge-Kutta march's frozen-residual
-    truncation, so the march is named: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    The bound is the Runge-Kutta march's frozen-residual truncation, so the march is
+    named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -523,8 +522,7 @@ def test_a_graded_index_taper_converts_and_converges_under_step_refinement():
     and 40 steps fall faster than 16 per halving, so the embedded pair integrates the
     explicit residual -- the moving generator and the whole connection -- at its own
     high order, and the ten-step answer is within 1e-8 of the forty-step one. The
-    order is the Runge-Kutta march's: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    order is the Runge-Kutta march's, so the march is named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -589,11 +587,7 @@ def _step_run(guide, steps, index, launch=None):
     """Return a step-index linear single-bin run's final amplitudes.
 
     On the Runge-Kutta march, whose embedded pair integrates the flow's explicit
-    residual at its own order: a linear run has no source, so the default Adams history
-    would step the frozen block alone, at second order and unseen by its controller
-    (``docs/guide/numerics/adams.md``, a coupled flow with no source), and these bounds
-    are
-    the march's.
+    residual at its own order, on a fixed schedule: these bounds are the march's.
     """
     grid = step_grid()
     simulation = Simulation.from_waveguide(
