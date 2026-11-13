@@ -5,17 +5,20 @@
 """Exercise provider contracts without importing or running the atomic engine."""
 
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from solprop.driver import tdse
+import source_channel
+from solprop.driver import _pyroraptor, tdse
+from solprop.driver._source_worker import RemoteError
 from solprop.exceptions import (
     BackendError,
     DriverError,
@@ -199,6 +202,15 @@ def _malformed_result(raw, failure):
         return SimpleNamespace(**vars(raw))
     elif failure == "missing_diagnostics":
         del raw.monitors
+    elif failure == "no_record":
+        return None
+    elif failure in ("component_refused", "component_broken"):
+        error = ValueError if failure == "component_refused" else KeyError
+
+        def refuse(name, order):
+            raise error(f"no {name} at order {order}")
+
+        raw.shadow.component = refuse
     return raw
 
 
@@ -304,7 +316,8 @@ class _Provider:
 @pytest.fixture
 def pinned_python(monkeypatch):
     """Pass the provider's interpreter gate: these tests fake the provider itself."""
-    monkeypatch.setattr(tdse.sys, "version_info", (3, 14, 0))
+    monkeypatch.setattr(_pyroraptor.sys, "version_info", (3, 14, 0))
+    source_channel.in_process(monkeypatch)
 
 
 def _basis():
@@ -335,9 +348,7 @@ def _descriptor(model: TDSEKerrModel = "optmat_cubic", basis: TDSEBasis | None =
 
 @pytest.fixture
 def provider(monkeypatch):
-    fake = _Provider()
-    monkeypatch.setattr(tdse, "_load_provider", lambda: cast("tdse._Provider", fake))
-    return fake
+    return source_channel.install(monkeypatch, _Provider())
 
 
 @pytest.mark.parametrize("model", ["optmat_cubic", "tdse_shadow", "tdse_native"])
@@ -435,10 +446,10 @@ def test_binding_admits_memory_before_native_setup(provider):
 
 
 def test_binding_memory_estimate_does_not_import_native_engine(monkeypatch):
-    def unexpected_import():
-        pytest.fail("memory estimate imported the optional provider")
+    def unexpected_start(**options):
+        pytest.fail("memory estimate started the provider's worker")
 
-    monkeypatch.setattr(tdse, "_load_provider", unexpected_import)
+    monkeypatch.setattr(tdse, "_open_provider", unexpected_start)
     assert (
         sum(tdse.estimate_binding_memory(_descriptor(), TDSEExecution(), 2).values())
         > 0
@@ -448,7 +459,9 @@ def test_binding_memory_estimate_does_not_import_native_engine(monkeypatch):
 @pytest.mark.parametrize(
     "device,space", [("cpu", "OpenMP"), ("cuda", "Cuda"), ("hip", "HIP")]
 )
-def test_binding_requires_matching_device_and_revision(provider, device, space):
+def test_binding_requires_a_matching_device_and_records_any_revision(
+    provider, device, space
+):
     provider.build = _Build(space)
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
     assert "plan.1.state" in binding.memory_ledger()
@@ -457,9 +470,12 @@ def test_binding_requires_matching_device_and_revision(provider, device, space):
     provider.build = _Build("other")
     with pytest.raises(BackendError, match="native build"):
         tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    # No revision is pinned: another provider revision is used and recorded.
     provider.build = _Build(space, "old0000")
-    with pytest.raises(BackendError, match="pinned"):
-        tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    binding = tdse.prepare_binding(_descriptor(), TDSEExecution(device=device), 1)
+    build = cast("Any", binding.metadata())["build"]
+    assert build["native"]["source_revision"] == "old0000"
+    binding.close()
 
 
 def test_binding_input_and_resume_contract(provider):
@@ -490,7 +506,7 @@ def test_binding_missing_optional_provider_is_actionable(monkeypatch, pinned_pyt
     def missing(name):
         raise ImportError("synthetic missing dependency")
 
-    monkeypatch.setattr(tdse.importlib, "import_module", missing)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", missing)
     with pytest.raises(BackendError, match="optional pyroraptor"):
         tdse.basis_from_preset("helium", "production")
 
@@ -518,7 +534,8 @@ def test_binding_module_import_does_not_load_optional_engine():
 
 
 def test_binding_rejects_unsupported_interpreter_before_native_import(monkeypatch):
-    monkeypatch.setattr(tdse.sys, "version_info", (3, 15, 0))
+    monkeypatch.setattr(_pyroraptor.sys, "version_info", (3, 15, 0))
+    source_channel.in_process(monkeypatch)
     with pytest.raises(BackendError, match=r"Python 3\.14"):
         tdse.basis_from_preset("helium", "production")
 
@@ -527,16 +544,19 @@ def test_binding_without_distribution_metadata_still_records_native_identity(
     monkeypatch, pinned_python
 ):
     provider = _Provider()
-    monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", lambda name: provider)
 
     def missing_distribution(name):
-        raise tdse.PackageNotFoundError(name)
+        raise _pyroraptor.PackageNotFoundError(name)
 
-    monkeypatch.setattr(tdse, "distribution", missing_distribution)
+    monkeypatch.setattr(_pyroraptor, "distribution", missing_distribution)
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
     metadata = _saved_metadata(binding)
     assert metadata["build"]["distribution"] is None
-    assert metadata["build"]["source_pin"].startswith(provider.build.source_revision)
+    assert metadata["build"]["native"]["source_revision"] == (
+        provider.build.source_revision
+    )
+    assert "source_pin" not in metadata["build"]
     assert provider.assembled == 1
     assert provider.calls == []
     binding.close()
@@ -548,7 +568,7 @@ def test_binding_records_an_installed_distribution(
 ):
     """The optional extra, when installed, adds its version and source to the record."""
     provider = _Provider()
-    monkeypatch.setattr(tdse.importlib, "import_module", lambda name: provider)
+    monkeypatch.setattr(_pyroraptor.importlib, "import_module", lambda name: provider)
 
     class _Distribution:
         version = "1.2.3"
@@ -557,7 +577,7 @@ def test_binding_records_an_installed_distribution(
             assert name == "direct_url.json"
             return direct_url
 
-    monkeypatch.setattr(tdse, "distribution", lambda name: _Distribution())
+    monkeypatch.setattr(_pyroraptor, "distribution", lambda name: _Distribution())
     binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
     build = _saved_metadata(binding)["build"]
     assert build["distribution"] == "1.2.3"
@@ -719,6 +739,87 @@ def test_malformed_native_results_preserve_diagnostics_and_charge_attempt(
     binding.close()
 
 
+@pytest.mark.parametrize(
+    ("model", "failure", "message", "classification"),
+    [
+        ("optmat_cubic", "no_record", "returned no result record: None", "contract"),
+        (
+            "tdse_shadow",
+            "component_refused",
+            "no total_current at order 1",
+            "interface",
+        ),
+        (
+            "tdse_shadow",
+            "component_broken",
+            "KeyError: 'no total_current at order 1'",
+            "unexpected",
+        ),
+    ],
+)
+def test_a_missing_record_or_a_refused_component_is_a_classified_failure(
+    provider, model, failure, message, classification
+):
+    """A component the provider refused raises here as the provider raised it."""
+    binding = tdse.prepare_binding(_descriptor(model), TDSEExecution(), 2)
+    provider.failure = failure
+    binding.reserve(1)
+    expected = rf"{re.escape(message)} \[{classification}\]"
+    with pytest.raises(BackendError, match=expected):
+        binding.evaluate(np.ones((2, _SAMPLES)), z=0.5, purpose="corrected")
+    assert binding.ledger.attempted == binding.ledger.failed_calls == 1
+    failed = _saved_metadata(binding)["failures"][0]
+    assert failed["classification"] == classification
+    assert (failed["native"] is None) is (failure == "no_record")
+    binding.close()
+
+
+def test_a_fresh_worker_must_report_the_same_provider_build(provider):
+    """A worker is replaced after a failure, never by another provider's."""
+    binding = tdse.prepare_binding(_descriptor(), TDSEExecution(), 1)
+    provider.failure = "raise"
+    binding.reserve(1)
+    with pytest.raises(BackendError, match="synthetic native failure"):
+        binding.evaluate(np.ones((1, _SAMPLES)), z=0.5, purpose="corrected")
+    provider.failure = None
+    provider.build = _Build(source_revision="old0000")
+    binding.reserve(1)
+    with pytest.raises(BackendError, match="build changed between its workers"):
+        binding.evaluate(np.ones((1, _SAMPLES)), z=0.5, purpose="corrected")
+    assert binding.ledger.attempted == 1 and len(provider.calls) == 1
+    binding.close()
+
+
+def test_a_worker_s_exception_keeps_solprop_s_class_where_its_message_rebuilds_it():
+    rebuilt = tdse._local_error(
+        RemoteError("solprop.exceptions.DriverError", "too large", "contract", "tb"),
+        "TDSE preparation failed",
+    )
+    assert type(rebuilt) is DriverError and str(rebuilt) == "too large"
+    assert "raised in the TDSE provider worker:\ntb" in rebuilt.__notes__
+    # A class with required fields beyond its message is wrapped, as a foreign one is.
+    wrapped = tdse._local_error(
+        RemoteError(
+            "solprop.exceptions.ResponseBudgetError", "spent", "contract", "tb"
+        ),
+        "TDSE preparation failed",
+    )
+    assert type(wrapped) is BackendError
+    assert str(wrapped) == "TDSE preparation failed: spent [contract]"
+    assert "the worker's traceback:\ntb" in wrapped.__notes__
+
+
+def test_a_local_failure_while_preparing_is_wrapped_and_classified():
+    """This process's own non-solprop error, as a reply it cannot read would raise."""
+    error = tdse._preparation_error(ValueError("the reply has no memory record"))
+    assert type(error) is BackendError
+    assert str(error) == (
+        "TDSE preparation failed: the reply has no memory record [interface]"
+    )
+    stop = KeyboardInterrupt()
+    assert tdse._preparation_error(stop) is stop
+
+
 def test_second_chunk_failure_preserves_first_chunk_and_allows_fresh_retry(
     provider, monkeypatch
 ):
@@ -743,5 +844,8 @@ def test_second_chunk_failure_preserves_first_chunk_and_allows_fresh_retry(
     result = binding.evaluate(np.ones((3, _SAMPLES)), z=0.5, purpose="corrected")
     assert_array_equal(result.total_current, np.full((3, _SAMPLES), 6.0))
     assert binding.ledger.attempted == 4
-    assert len(provider.created) == 2
+    # The failed worker was ended with its plans; the retry's fresh worker prepared
+    # both chunk sizes' plans again (SEP 49 section 6.5).
+    assert len(provider.created) == 4
+    assert provider.closed.count("plan-2") == provider.closed.count("plan-1") == 1
     binding.close()

@@ -747,7 +747,7 @@ def _admit_tdse_execution(settings: SimulationSettings) -> None:
     """Refuse TDSE execution resources beside settings a TDSE run cannot step with.
 
     Each refusal names the setting at fault, in the order a caller would fix them:
-    the backend, then the integrator.
+    the execution record, then the integrator.
     """
     if not isinstance(settings.tdse_execution, TDSEExecution):
         msg = (
@@ -755,14 +755,6 @@ def _admit_tdse_execution(settings: SimulationSettings) -> None:
             f"{type(settings.tdse_execution).__name__}"
         )
         raise DriverError(msg, parameter="tdse_execution")
-    if settings.backend != "numpy_ref":
-        msg = (
-            f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
-            f"that runs the TDSE response; got backend={settings.backend!r}"
-        )
-        raise DriverError(
-            msg, parameter=("tdse_execution", "backend"), rule="tdse-numpy-ref"
-        )
     if not isinstance(settings.integrator, Multistep):
         msg = (
             "tdse_execution requires integrator=Multistep(), the Adams method the TDSE "

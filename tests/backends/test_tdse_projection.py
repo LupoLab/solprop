@@ -12,7 +12,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.tdse_source import (
     atomic_edge_source,
     atomic_sources,
     project_atomic_sources,

@@ -10,6 +10,7 @@
 #include "solprop_native/dense_output.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/host_source.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/low_storage.hpp"
 #include "solprop_native/refuse.hpp"
@@ -86,11 +87,61 @@ using IndexInput = nb::ndarray<const std::uint64_t, nb::c_contig, nb::device::cp
 using ComplexOutput =
     nb::ndarray<nb::numpy, std::complex<double>, nb::c_contig, nb::device::cpu>;
 using RealOutput = nb::ndarray<nb::numpy, double, nb::c_contig, nb::device::cpu>;
+// A read-only NumPy view of the engine's memory (solprop SEP 49's host source field).
+using HostField =
+    nb::ndarray<nb::numpy, const std::complex<double>, nb::c_contig, nb::device::cpu>;
 using ComplexStorage = std::vector<std::complex<double>>;
 using RealStorage = std::vector<double>;
 
 class BoundState;
 class BoundSession;
+
+// solprop SEP 49 section 6.2: a host source whose three entry points are a Python
+// object's `begin(cost)`, `evaluate(field, z, purpose, out)` and `end(outcome)`. Each
+// call takes the interpreter lock the march released; a Python exception is caught
+// here, under that lock, and reported to the march as a `HostSourceError`, the
+// exception itself kept by the Python object for solprop's session to raise. The
+// object is borrowed: its state owns it, so no reference moves without the lock.
+class PythonHostSource final : public native::HostSource {
+public:
+  explicit PythonHostSource(const nb::handle owner) : owner_(owner) {}
+  void begin(const std::uint64_t cost) override {
+    call([&] { owner_.attr("begin")(cost); });
+  }
+  void evaluate(const std::span<const std::complex<double>> field, const double z,
+                const native::HostPurpose purpose,
+                const std::span<std::complex<double>> source) override {
+    call([&] {
+      // Views of the engine's two host rows, valid for the call alone: the field
+      // read-only, the source written in place. Each has an owner, a capsule that
+      // frees nothing, because nanobind copies an ownerless array it hands to
+      // Python, and a write into that copy would never reach the engine.
+      const std::array<std::size_t, 1> in_shape{field.size()};
+      const std::array<std::size_t, 1> out_shape{source.size()};
+      const nb::capsule borrowed_in(field.data(), [](void* /*unused*/) noexcept {});
+      const nb::capsule borrowed_out(source.data(), [](void* /*unused*/) noexcept {});
+      const HostField in(field.data(), 1, in_shape.data(), borrowed_in);
+      const ComplexOutput out(source.data(), 1, out_shape.data(), borrowed_out);
+      owner_.attr("evaluate")(
+          in, z, purpose == native::HostPurpose::startup ? "startup" : "predictor",
+          out);
+    });
+  }
+  void end(const native::HostOutcome outcome) override {
+    call([&] { owner_.attr("end")(static_cast<int>(outcome)); });
+  }
+
+private:
+  template <class Call> void call(const Call& body) {
+    const nb::gil_scoped_acquire acquire;
+    try {
+      body();
+    } catch (const nb::python_error& error) {
+      throw native::HostSourceError(error.what());
+    }
+  }
+  nb::handle owner_;
+};
 
 template <class Array> Array exact_array(const nb::handle value) {
   return nb::cast<Array>(value, false);
@@ -2171,6 +2222,20 @@ public:
   }
   // Closes a session that leases this state first (below, after its class).
   void close() noexcept;
+  // solprop SEP 49: bind `owner` as the state's host source, or unbind with None (on
+  // a closed state too, which no longer borrows it). The state keeps the object; the
+  // engine borrows it.
+  void bind_host_source(nb::object owner) {
+    require_unleased();
+    if (owner.is_none()) {
+      if (general_state_)
+        general_state_->bind_host_source(nullptr);
+      host_owner_ = nb::object();
+      return;
+    }
+    open_state().bind_host_source(std::make_shared<PythonHostSource>(owner));
+    host_owner_ = std::move(owner);
+  }
 
   // solprop SEP 47: the march a native execution session runs, from the policy, the
   // schedule and the stage tables this state was configured with, its engine over the
@@ -2334,6 +2399,7 @@ private:
   bool march_compensated_ = false;
   bool march_interpolate_ = false;
   std::optional<native::engines::MarchFault> march_fault_;
+  nb::object host_owner_;
 };
 
 // solprop SEP 47: a native execution session over a leased state. It keeps that state
@@ -2613,6 +2679,8 @@ void BoundState::close() noexcept {
     general_state_->close();
     general_state_.reset();
   }
+  // A host source's owner (SEP 49) is not released here, without the interpreter
+  // lock: the engine that borrowed it is gone, and `bind_host_source(None)` drops it.
 }
 
 // solprop SEP 47 section 6.4: a statistics evaluation lowered once from the problem,
@@ -3753,6 +3821,7 @@ NB_MODULE(_core, module_) {
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())
       .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
+      .def("bind_host_source", &BoundState::bind_host_source, "owner"_a.none())
       .def(
           "rk_march_configure",
           [](BoundState& self, const nb::dict policy, const std::vector<double>& nodes,

@@ -69,6 +69,9 @@ All notable changes to solprop are recorded here. The format follows
   Slurm runs already did, so the scan controller's BLAS threads sleep instead of spinning
   between calls.
 - On Apple silicon, where the native backend's idle threads spin within native calls on the top-tier cores, it threads smaller passes: every size threshold is divided by 16, since a parallel region there costs about a microsecond and the cluster shares its L2 cache. On an Apple M5 Max at six threads the Raman GNLSE ran 0.70 of its time and the comb-to-continuum 0.91, none slower (ADR-073). Other platforms keep the previous thresholds, which measured faster there.
+- The TDSE response runs on the native backend's CPU build, and `backend="auto"` now selects native for a TDSE run as for every other; `backend="numpy_ref"` still runs it, and a native GPU build refuses it by name (SEP 49).
+- solprop no longer pins a Pyroraptor revision: a TDSE run uses whatever provider is installed (by default its latest `main`, until Pyroraptor has a release), and records the revision, build and execution space the provider reports; the provider's protocol version and its execution space against `TDSEExecution.device` are still checked (SEP 49).
+- The TDSE response's atomic provider now runs in a worker process of its own, never in solprop's process, for presets, bases, consistency checks and runs alike; Ctrl-C, SIGTERM and a run's stop flag now stop a TDSE run during an atomic call, the call charged and the last accepted step checkpointed (SEP 49).
 - `solprop.translate.problem` now holds the kernel contract alone; translation is split
   into modules by concern: `solprop.translate.assembly` (`assemble`,
   `MAX_GENERAL_FLOW_EXPONENT`), `solprop.translate.walls` (a capillary's coherent wall and

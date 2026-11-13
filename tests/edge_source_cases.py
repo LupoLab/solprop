@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.tdse import (
+from solprop.backends.tdse_source import (
     FFT_ERROR_CONSTANT,
     _current_operands,
     _current_part,
@@ -135,6 +135,7 @@ def make_case(
     fft_size: str = "pow2",
     n_r: int = 4,
     kerr_model: str = "tdse_native",
+    responses: tuple = (),
 ) -> EdgeCase:
     """Assemble a capillary problem and attach a manufactured SAE descriptor.
 
@@ -155,6 +156,9 @@ def make_case(
     kerr_model : str
         ``tdse_native`` for the gated source, or a cubic replacement, whose source
         is ungated.
+    responses : tuple
+        Optical responses compiled beside the atom: a Kerr term for a cubic
+        replacement's polarisation; none by default.
 
     Returns
     -------
@@ -167,7 +171,7 @@ def make_case(
     problem = assemble(
         grid,
         mode,
-        (),
+        responses,
         np.zeros((1, 1, grid.n_omega), dtype=np.complex128),
         controller=PIController(rtol=1e-2, atol=1e-14),
         save_planes=[0.001],

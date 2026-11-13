@@ -2,34 +2,51 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Assemble independently projected TDSE polarisation and current sources.
+"""Assemble the TDSE response's macroscopic source at one evaluation (SEP 49).
 
-The native closure's gated, edge-free source (SEP 26) multiplies the remainder current
-``S`` by its gate ``g`` before the transform and subtracts the edge term
-``DFT[g' S] / (i omega)`` on the active bins, so that the current is held after the
-window instead of switched off.
+The host source both backends call: from the lab-frame modal field to the nodal fields
+the atomic binding takes (:func:`node_fields`), from the binding's unscaled microscopic
+histories to the macroscopic polarisation, current and edge arrays
+(:func:`atomic_sources`, :func:`atomic_edge_source`), and from those to the projected
+spectral source with its diagnostics (:func:`project_atomic_sources`). Each backend then
+applies the spectral collar, its in-stage absorber term and, in the interaction
+formulation, its inverse propagator, as for every source. It imports nothing from
+either backend.
+
+The gated, edge-free source (SEP 26) multiplies the remainder current ``S`` by its gate
+``g`` before the transform and subtracts the edge term ``DFT[g' S] / (i omega)`` on the
+active bins, so that the current is held after the window instead of switched off.
+
+The TDSE route is one scalar mode on a field grid (``PropagationProblem._check_tdse``),
+so every transform here is the real-to-complex one and the polarisation axis has length
+one.
 """
 
 import math
 from dataclasses import dataclass
 
 import numpy as np
-from jaxtyping import Bool, Complex, Float
+from jaxtyping import Bool, Complex, Float, Int
 
-from solprop.backends.numpy_ref import passes
+from solprop import fourier
 from solprop.exceptions import BackendError
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.routes import tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEResult, lattice_times, waveform_identity
-from solprop.translate.tdse_source import steady_current_certificate
+from solprop.translate.tdse_source import (
+    STEADY_CURRENT_CERTIFICATE_LIMIT,
+    steady_current_certificate,
+)
 
 __all__ = [
     "FFT_ERROR_CONSTANT",
     "atomic_edge_source",
     "atomic_sources",
+    "node_fields",
     "project_atomic_sources",
+    "source_record",
 ]
 
 FFT_ERROR_CONSTANT = 8.0
@@ -44,6 +61,89 @@ spans ``log2 3`` or ``log2 5`` levels of ``log2 N``; 8 covers the 2-, 3- and
 measures the constant at a power-of-two and at a ``2^a 3^b 5^c`` size; any other size
 is flagged in the diagnostic as unqualified. doi:10.1137/1.9780898718027
 """
+
+
+def node_fields(
+    problem: PropagationProblem,
+    lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    bundle: StageScalars,
+) -> Float[np.ndarray, "n_nodes n_to"]:
+    """Synthesise the real field at every radial node, as the atomic binding takes it.
+
+    Step 1 of an evaluation: the lab-frame modal spectrum, its input noise already
+    added, is placed on the fine grid's bins with no scale (the pad scale is inside
+    ``transform.synthesis``), transformed to time and synthesised on the nodes with the
+    taper scale at the evaluation's position (``kernel-contract.md`` sections 4 and 5).
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        A TDSE problem: one scalar mode on a field grid.
+    lab : numpy.ndarray
+        Lab-frame modal spectrum in the square root of watts, shape
+        ``(n_modes, 1, n_omega)``.
+    bundle : StageScalars
+        Scalars at the evaluation's position; its ``taper_scale`` is read.
+
+    Returns
+    -------
+    numpy.ndarray
+        C-contiguous float64 fields in V/m, shape ``(n_nodes, n_to)``.
+
+    Raises
+    ------
+    BackendError
+        If the spectrum has more than one polarisation.
+    """
+    grids = problem.grids
+    n_modes = lab.shape[0]
+    if lab.shape[1] != 1:
+        raise BackendError("the TDSE source takes one polarisation")
+    fine = np.zeros((n_modes, fourier.n_omega_for(grids.n_to, "field")), np.complex128)
+    fine[:, grids.crop_index] = lab.reshape(n_modes, -1)
+    modal_t = fourier.inverse(fine, kind="field")
+    scaled = problem.transform.synthesis * bundle.taper_scale
+    return np.ascontiguousarray(np.tensordot(scaled, modal_t, axes=([1], [0])))
+
+
+def _project(
+    values: Float[np.ndarray, "n_nodes 1 n_to"],
+    projection: Float[np.ndarray, "n_modes n_nodes"],
+    taper: float,
+) -> Float[np.ndarray, "n_modes 1 n_to"]:
+    """Project nodal values onto the modes, dividing by the taper scale."""
+    return np.tensordot(projection / taper, values, axes=([1], [0]))
+
+
+def _to_frequency(
+    values: Float[np.ndarray, "n_modes 1 n_to"], crop_index: Int[np.ndarray, " n_omega"]
+) -> Complex[np.ndarray, "n_modes 1 n_omega"]:
+    """Transform modal values to frequency and gather the coarse bins, unscaled.
+
+    The crop scale is inside the prefactor and the current numerator.
+    """
+    n_modes = values.shape[0]
+    spectrum = fourier.forward(values.reshape(n_modes, -1), kind="field")
+    return spectrum[..., crop_index].reshape(n_modes, 1, -1)
+
+
+def _cubic_polarisation(
+    fields: Float[np.ndarray, "n_nodes n_to"],
+    problem: PropagationProblem,
+    bundle: StageScalars,
+) -> Float[np.ndarray, "n_nodes 1 n_to"]:
+    """Return the compiled Kerr polarisation that replaces the atom's third order.
+
+    ``P = eps0 chi3 rho E^3 w(t)`` in C/m², with the temporal collar ``w``: the real
+    cubic of a field grid, the only term the TDSE route admits beside the atom.
+    """
+    # A validated problem (``PropagationProblem.validate``) holds this real cubic for
+    # ``optmat_cubic``, and no plasma, Raman or dispersive Kerr term beside it.
+    kerr = problem.responses.kerr_coefficients
+    assert kerr is not None
+    values = fields[:, None, :]
+    polarisation = kerr.coefficient * bundle.kerr_density * values**2 * values
+    return polarisation * problem.grids.t_window_fine
 
 
 def atomic_sources(
@@ -112,17 +212,7 @@ def atomic_sources(
             * result.third_order_dipole[:, None, :]
         )
     elif descriptor.kerr_model == "optmat_cubic":
-        polarisation = passes.nonlinear_polarisation(
-            fields[:, None, :],
-            problem.responses,
-            problem.grids.t_window_fine,
-            kind="field",
-            density=bundle.density,
-            preionisation=0.0,
-            dt=problem.grids.dt_fine,
-            carrier=None,
-            scalars=bundle,
-        )
+        polarisation = _cubic_polarisation(fields, problem, bundle)
     else:
         polarisation = np.zeros_like(current)
     # The existing in-stage field absorber remains separate. An explicit source
@@ -206,8 +296,8 @@ def _project_spectrum(
     - ``values``: nodal P or J source, shape ``(n_nodes, 1, n_to)``, in C/m² or A/m².
     - Returns: raw FFT source, shape ``(n_modes, 1, n_omega)`` before source factors.
     """
-    projected = passes.project(values, projection, bundle.taper_scale, 1)
-    return passes.to_frequency(projected, problem.grids.crop_index, kind="field")
+    projected = _project(values, projection, bundle.taper_scale)
+    return _to_frequency(projected, problem.grids.crop_index)
 
 
 def _roundoff_floor(
@@ -245,8 +335,8 @@ def _roundoff_terms(
 
     Both feed :func:`_roundoff_floor`; the accumulation is ``operations * eps``.
     """
-    absolute_projected = passes.project(
-        magnitudes, np.abs(projection), abs(bundle.taper_scale), 1
+    absolute_projected = _project(
+        magnitudes, np.abs(projection), abs(bundle.taper_scale)
     )
     # A Fourier coefficient is bounded by the temporal L1 sum. Keep the raw
     # operands in this bound: using the already cancelled remainder would hide
@@ -425,10 +515,10 @@ def _edge_rounding(  # noqa: PLR0917 - called positionally
     weights = np.abs(projection)
     taper = abs(bundle.taper_scale)
     operands = np.linalg.norm(
-        passes.project(edge_magnitude, weights, taper, 1), axis=-1, keepdims=True
+        _project(edge_magnitude, weights, taper), axis=-1, keepdims=True
     )
     evaluation = np.linalg.norm(
-        passes.project(derivative_magnitude, weights, taper, 1),
+        _project(derivative_magnitude, weights, taper),
         axis=-1,
         keepdims=True,
     )
@@ -584,11 +674,8 @@ def _leading_taper(
     else:
         ratio, reason = lead_peak / peak, None
     scaled = abs(bundle.density * descriptor.remainder_scale) * remainder[:, None, lead]
-    projected = passes.project(
-        scaled,
-        np.abs(problem.transform.projection),
-        abs(bundle.taper_scale),
-        1,
+    projected = _project(
+        scaled, np.abs(problem.transform.projection), abs(bundle.taper_scale)
     )
     largest = np.max(projected, axis=-1, keepdims=True, initial=0.0)
     return {
@@ -843,3 +930,35 @@ def _current_operands(
         factor=source.current_numerator / power_weight_at(problem, bundle.z1),
         inverse=_inverse_i_omega(problem) if gated else None,
     )
+
+
+def source_record(problem: PropagationProblem) -> dict[str, object]:
+    """Record a TDSE run's source filter and, for the gated one, its certificate.
+
+    The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
+    translation. It is run metadata, never part of the descriptor or any identity;
+    both backends record it as ``tdse_source``.
+
+    Parameters
+    ----------
+    problem : PropagationProblem
+        A TDSE problem.
+
+    Returns
+    -------
+    dict
+        ``gated``, and for a gated source the certificate, its limit and the taper
+        breakpoints in s.
+    """
+    descriptor = tdse_descriptor(problem.route)
+    assert descriptor is not None
+    record: dict[str, object] = {"gated": descriptor.gated}
+    if descriptor.gated:
+        record |= {
+            "steady_current_certificate": steady_current_certificate(
+                descriptor, problem.grids.omega, problem.grids.active_mask
+            ),
+            "certificate_limit": STEADY_CURRENT_CERTIFICATE_LIMIT,
+            "gate_breakpoints": list(descriptor.source_breakpoints()),
+        }
+    return record

@@ -183,11 +183,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="307.0" y="830.5" width="251.00000000000003" height="128.0" rx="7" ry="7" class="fill-b" />
 <text x="317.0" y="852.5" font-size="15" class="bold ink-b">backends/</text>
 <text x="317.0" y="868.0" font-size="12" class="dim">protocol · registry · spatial</text>
-<text x="317.0" y="883.5" font-size="12" class="dim">populations · memory · node_chunk</text>
-<text x="317.0" y="899.0" font-size="12" class="dim">ledger · adams_core · rk_core</text>
-<text x="317.0" y="914.5" font-size="12" class="dim">exponential · low_storage · session</text>
-<text x="317.0" y="930.0" font-size="12" class="dim">events · export · session_core</text>
-<text x="317.0" y="945.5" font-size="12" class="dim">sessions</text>
+<text x="317.0" y="883.5" font-size="12" class="dim">populations · tdse_source · memory</text>
+<text x="317.0" y="899.0" font-size="12" class="dim">node_chunk · ledger · adams_core</text>
+<text x="317.0" y="914.5" font-size="12" class="dim">rk_core · exponential · low_storage</text>
+<text x="317.0" y="930.0" font-size="12" class="dim">session · events · export</text>
+<text x="317.0" y="945.5" font-size="12" class="dim">session_core · sessions</text>
 <rect x="568.0" y="830.5" width="224.60000000000002" height="128.0" rx="7" ry="7" class="fill-b" />
 <text x="578.0" y="852.5" font-size="15" class="bold ink-b">backends/host/</text>
 <text x="578.0" y="868.0" font-size="12" class="dim">driver · adams · low_storage</text>
@@ -197,7 +197,6 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="812.6" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
 <text x="812.6" y="883.5" font-size="12" class="dim">multistep · populations</text>
 <text x="812.6" y="899.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
-<text x="812.6" y="914.5" font-size="12" class="dim">tdse</text>
 <rect x="32" y="1017.5" width="1010.0" height="444.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="1222.5" width="34" height="34" rx="7" ry="7" class="fill-d" />
 <text x="63" y="1245.5" font-size="19" class="bold mid ink-d">D</text>

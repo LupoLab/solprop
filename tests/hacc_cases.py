@@ -511,6 +511,11 @@ def inject(raw, failure):  # noqa: PLR0912 - one injected malformation per branc
         raw.info = dataclasses.replace(raw.info, spacing=raw.info.spacing * 2)
     elif failure == "info_atom":
         raw.info = dataclasses.replace(raw.info, atom=FakeHelium(2, 6))
+    elif failure == "info_unreadable":
+        # An info record the provider's comparison cannot read: no atom.
+        fields = {name: getattr(raw.info, name) for name in vars(raw.info)}
+        del fields["atom"]
+        raw.info = SimpleNamespace(**fields)
     elif failure == "wrong_type":
         return SimpleNamespace(**vars(raw))
     elif failure == "extents":
@@ -704,12 +709,11 @@ class FakeHaccProvider:
 
 
 def install(monkeypatch, fake=None):
-    """Make ``solprop.driver.tdse`` load a fake provider; return it."""
-    from solprop.driver import tdse as runtime  # noqa: PLC0415 - keep tests importable
+    """Make ``solprop.driver.tdse`` serve a fake provider in this process; return it."""
+    import source_channel  # noqa: PLC0415 - keep tests importable
 
     fake = FakeHaccProvider() if fake is None else fake
-    monkeypatch.setattr(runtime, "_load_provider", lambda: fake)
-    return fake
+    return source_channel.install(monkeypatch, fake)
 
 
 def helium_alpha(omega):

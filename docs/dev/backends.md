@@ -17,8 +17,8 @@ processor is at or above a build's baseline, and otherwise raises `BackendError`
 to do; it stores that name before execution or worker transfer. `auto` has no fallback.
 Native being installed is a packaging policy ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) §5),
 so a run does not have to prove that native could execute here, and nothing loads a runtime to
-enforce it. A TDSE response's `auto` resolves before the registry, to `numpy_ref`, and
-never consults native. Explicit names are preserved, so `backend="numpy_ref"` runs where
+enforce it. A TDSE response's `auto` resolves to `native` like every other run (SEP 49, ADR-078).
+Explicit names are preserved, so `backend="numpy_ref"` runs where
 native is absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
@@ -367,9 +367,9 @@ threading beyond what `scipy.fft` does with `workers=1`. It exists to be read an
 every step of the anatomy in [architecture.md §8](architecture.md) is a named function with a
 docstring stating the formula. It is slow (tens of separate array operations per stage) and
 that is acceptable; it is the reference against which every other backend is validated, and
-the supported executor of the one feature `native` does not run yet: the TDSE
-response
-([the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
+the supported executor of any feature `native` does not run yet, of which there is none
+since the TDSE response joined the native CPU build (SEP 49, ADR-078;
+[the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
 **The fused-pass route.** `backends/numpy_ref/passes.py` holds one pure
