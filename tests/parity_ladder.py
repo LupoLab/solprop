@@ -375,7 +375,8 @@ def _march(
     """Run the session to the request's last plane, observing the statistics `names`.
 
     ``None`` observes the request's own statistics. Returns the last field, the run's
-    summary and the last observation's statistics.
+    summary and the last observation's statistics. The last observation is at the
+    plane, or at a schedule's last edge that overshoots it by rounding (:func:`lands`).
     """
     backend = _backend(backend_class, built, request)
     stats = None if names is None else StatsSpec(names=names)
@@ -388,12 +389,22 @@ def _march(
         backend.close()  # idempotent: for a run that failed to start
     last = result.observations[-1]
     plane = float(request.stepper.save_planes[-1])
-    assert last.z == plane, (
+    assert lands(last.z, plane), (
         f"{backend.name}'s last observation is at z = {last.z} m, not at the request's "
         f"last plane, {plane} m"
     )
     statistics = {name: np.asarray(value) for name, value in last.stats.items()}
     return result.fields[-1], run_summary(result), statistics
+
+
+def lands(z: float, plane: float) -> bool:
+    """Return whether a run's end at `z` is the plane, exactly or past it by rounding.
+
+    A schedule's accumulated edges can pass a plane by their rounding (ten steps of
+    0.1 mm sum to 1.0000000000000002 mm); the run's last step then ends at the edge,
+    within relative ``1e-12`` of the plane, as ``sessions.runs.final_field`` accepts.
+    """
+    return z == plane or (z > plane and math.isclose(z, plane, rel_tol=1e-12))
 
 
 def one_step(
@@ -432,15 +443,18 @@ def steps(
     """Return the field after the schedule, every step taken, and its statistics.
 
     `window` ends the march after the schedule's first steps; the statistics `names`
-    (``None``: the request's own) are read at its end, from the same run.
+    (``None``: the request's own) are read at its end, from the same run. Without one,
+    the request's last plane is the schedule's end: its last edge, or the plane that
+    edge lands on when the accumulated edges overshoot it by their rounding, as the
+    driver lands a step (``FixedSchedule.uniform``), relative ``1e-12``.
     """
     schedule = built.run_request.stepper.schedule
     assert schedule is not None, "the row's request has no fixed schedule to march"
     if window is None:
         request, count = built.run_request, len(schedule.steps)
-        assert float(request.stepper.save_planes[-1]) == float(schedule.edges[-1]), (
-            "the request's last plane is not the schedule's end"
-        )
+        plane, end = float(request.stepper.save_planes[-1]), float(schedule.edges[-1])
+        assert lands(end, plane), "the request's last plane is not the schedule's end"
+
     else:
         request, count = first_steps(built.run_request, window), window
     field, summary, statistics = _march(backend_class, built, request, names)
