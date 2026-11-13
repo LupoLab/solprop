@@ -372,9 +372,10 @@ def _silent(table: Any) -> Any:
 
 
 def without_ionisation(problem: PropagationProblem) -> PropagationProblem:
-    """Return the problem with every field channel's rate scaled by ``exp(-1000)``.
+    """Return the problem with every channel's rate scaled by ``exp(-1000)``.
 
-    No population ionises: each keeps its pre-ionisation, and its density, so its
+    A field channel's rate, and an envelope channel's, inside its cycle integral. No
+    population ionises: each keeps its pre-ionisation, and its density, so its
     pre-ionised plasma, is kept.
     """
     responses = problem.responses
@@ -383,12 +384,31 @@ def without_ionisation(problem: PropagationProblem) -> PropagationProblem:
         dataclasses.replace(channel, rate=silenced[id(channel.rate)])
         for channel in responses.plasma_channels
     )
+    tables = tuple(silenced.values())
+    envelope = responses.envelope_plasma
+    if envelope is not None:
+        envelope = dataclasses.replace(
+            envelope,
+            channels=tuple(
+                dataclasses.replace(
+                    channel,
+                    cycle=dataclasses.replace(
+                        channel.cycle, rate=silenced[id(channel.cycle.rate)]
+                    ),
+                )
+                for channel in envelope.channels
+            ),
+        )
+        # The cycle integral keeps its own copy of the table it is given: the problem
+        # reports the tables its channels carry.
+        tables = tuple(channel.rate for channel in envelope.channels)
     return dataclasses.replace(
         problem,
         responses=dataclasses.replace(
             responses,
-            ionisation_table=tuple(silenced.values()),
+            ionisation_table=tables,
             plasma_channels=channels,
+            envelope_plasma=envelope,
         ),
     )
 

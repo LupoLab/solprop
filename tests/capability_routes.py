@@ -417,6 +417,7 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
 def catalogue() -> tuple[Row, ...]:
     """Return every row of the parity catalogue, their ids unique."""
     from backends import (  # noqa: PLC0415
+        axis_plasma_rows,
         column_rows,
         dispersive_rows,
         driver_rows,
@@ -446,6 +447,7 @@ def catalogue() -> tuple[Row, ...]:
         *ladder_rows.rows(),
         *flow_rows.rows(),
         *driver_rows.rows(),
+        *axis_plasma_rows.rows(),
     )
     assert len({row.id for row in rows}) == len(rows)
     return rows
