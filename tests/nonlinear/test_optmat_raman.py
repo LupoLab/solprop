@@ -20,6 +20,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from optmat.exceptions import ModelRangeWarning
 from optmat.gas.models.registry import default_model
 from optmat.gas.raman_response import raman_response
 from optmat.solid.bundle import silica_bundle
@@ -901,6 +902,25 @@ def test_other_warnings_of_optmat_pass_through_unchanged():
         warnings.warn("not a range warning", UserWarning, stacklevel=1)
     with pytest.warns(UserWarning, match="not a range warning"):
         _reemit(caught, response, kind="density", where="N2", part="1 amagat")
+
+
+def test_optmats_tracker_ids_are_dropped_from_a_range_warning_and_its_record():
+    # Issue #166: optmat's text ends in ids of its own tracker, which users cannot
+    # look up; everything else in it is kept, other parentheses included.
+    response = pure("N2", selection=SELECTION).source
+    text = "of N2 Q (100-300 K): their mixing is not modelled"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.warn(f"{text} (TC-527, TC-688)", ModelRangeWarning, stacklevel=1)
+    with (
+        bridge.material_context() as log,
+        pytest.warns(MaterialRangeWarning) as raised,
+    ):
+        _reemit(caught, response, kind="density", where="N2", part="3 amagat")
+    (message,) = [str(w.message) for w in raised]
+    assert message.endswith(f"optmat: {text}")
+    (_, _, parts) = log.ranges[bridge.record(response).digest]
+    assert parts == {f"3 amagat: {text}"}
 
 
 def test_the_assembly_is_logged_at_debug(caplog):

@@ -486,7 +486,7 @@ class OptmatRate:
         """
         record = self.material_records[0]
         # Each evaluation of the search repeats the same warning; one is enough.
-        for text in dict.fromkeys(str(item.message) for item in ranged):
+        for text in dict.fromkeys(_optmat.optmat_text(item.message) for item in ranged):
             _optmat.record_outside(self._resolved, self.species_identity, (text,))
             _optmat.warn_once(
                 ("rate-range", record.digest, text),

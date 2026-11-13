@@ -264,6 +264,33 @@ def test_translated_converts_optmat_warnings(message, category, expected, match)
         warnings.warn(message, category, stacklevel=1)
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("capped at the Doppler widths (TC-688)", "capped at the Doppler widths"),
+        ("not modelled (TC-527, TC-688)", "not modelled"),
+        ("between (TC-1) words", "between words"),
+        # Parentheses that are not tracker ids stay.
+        ("of H2 Q (100-300 K) (TC-688)", "of H2 Q (100-300 K)"),
+        ("the HOMO (HOMO-1) orbital", "the HOMO (HOMO-1) orbital"),
+        ("no ids here", "no ids here"),
+    ],
+)
+def test_optmat_text_drops_only_optmats_tracker_ids(message, expected):
+    assert _optmat.optmat_text(message) == expected
+    assert _optmat.optmat_text(ModelRangeWarning(message)) == expected
+
+
+def test_translated_drops_optmats_tracker_ids():
+    with (
+        pytest.warns(MaterialRangeWarning) as raised,
+        _optmat.translated(ARGON, "polarizability", material="Ar"),
+    ):
+        warnings.warn("outside (TC-688)", ModelRangeWarning, stacklevel=1)
+    (message,) = [str(w.message) for w in raised]
+    assert message.endswith("optmat: outside")
+
+
 def test_translated_turns_optmat_errors_into_material_errors():
     sf6 = equation_of_state("SF6")
     with (
