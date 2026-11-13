@@ -1676,7 +1676,7 @@ def _hollow_components(*, supplied: bool) -> tuple[str, ...] | None:
     x (``docs/dev/conventions.md`` section 5), and keeps ``("x",)`` bitwise. A supplied
     set -- through either entry, with or without a coherent wall -- resolves the
     components its modes need (``None``, inferred by
-    :func:`solprop.translate.problem.assemble`), so a TE_0m, TM_0m, EH or rotated set
+    :func:`solprop.translate.assembly.assemble`), so a TE_0m, TM_0m, EH or rotated set
     keeps its E_y. A wall's coupled flow contracts the channel axis of the one-component
     state and never reads the synthesis, so the backends admit it beside two synthesised
     components. ``from_waveguide`` refuses a mode count before this, so only the

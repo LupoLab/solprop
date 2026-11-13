@@ -49,7 +49,7 @@ away beforehand.
 ## What crosses
 
 {class}`solprop.translate.problem.PropagationProblem` is built by
-{func}`solprop.translate.problem.assemble`. It describes one trajectory: a group of them,
+{func}`solprop.translate.assembly.assemble`. It describes one trajectory: a group of them,
 as a batched scan runs, is a sequence of problems. It carries the groups every route
 shares, one per section of the contract, and a `route`:
 
@@ -65,7 +65,7 @@ shares, one per section of the contract, and a `route`:
 How the problem is *run* is not part of it. The tableau, the controller, the step caps,
 the save planes, any fixed schedule and the statistics to collect are the run's policy,
 held by an immutable {class}`~solprop.translate.run_request.RunRequest` that
-{func}`~solprop.translate.problem.assemble` returns beside the problem
+{func}`~solprop.translate.assembly.assemble` returns beside the problem
 ({class}`~solprop.translate.problem.Translation`); a backend is built from the two
 together ([SEP 47](seps/archive/sep-0047-run-ownership.md) §5.2; the
 [kernel contract](kernel-contract.md), §§7 and 8). So the same problem can be run with
@@ -217,7 +217,7 @@ Cartesian component at one quadrature node, and so is one entry of the state's
 polarisation axis, so a problem carries them in the transform *or* in the state and never
 in both; `assemble` and `validate` both refuse the combination. Which components a
 multimode transform resolves is the `components` keyword of
-{func}`~solprop.translate.problem.assemble`, defaulting to
+{func}`~solprop.translate.assembly.assemble`, defaulting to
 {data}`~solprop.translate.problem.DEFAULT_COMPONENTS` — the direction an
 $\mathrm{HE}_{1m}$ mode points at $\phi = 0$, which is $x$ ([polarisation](../guide/setup/polarisation.md)).
 
@@ -238,7 +238,7 @@ mask.
    from solprop.nonlinear.gnlse import problem_from
    from solprop.pulses import SechPulse
    from solprop.stepper import PIController
-   from solprop.translate.problem import assemble
+   from solprop.translate.assembly import assemble
 
    grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
    gnlse = problem_from(

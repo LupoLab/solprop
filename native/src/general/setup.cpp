@@ -1689,6 +1689,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
                    ? general_->dispersive()->memory_ledger()
                    : DispersiveResponse::empty_ledger());
   ledger.merge(base_memory_ledger());
+  if (host_source_)
+    // solprop SEP 49: the host's field and source rows and the source's view.
+    ledger.emplace("host_source",
+                   (host_input_.size() + host_spectrum_.size()) * sizeof(Complex));
   return ledger;
 }
 

@@ -17,9 +17,10 @@ from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.free import free_transform
 from solprop.translate.linop import constant_phi, delta_phi, tabulate, unitary_phase
-from solprop.translate.problem import assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.radial import radial_transform
 from solprop.translate.responses import compile_responses, prefactor_at
 from solprop.translate.routes import ModalRoute, spatial_kind

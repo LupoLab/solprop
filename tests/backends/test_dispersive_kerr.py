@@ -45,7 +45,7 @@ from solprop.physdata.nonlinear_data import DispersiveKerrModel, OptmatKerr
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.responses import ResponseStage, dispersive_terms
 
 try:

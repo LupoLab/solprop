@@ -17,8 +17,9 @@ from solprop.modes import MarcatiliMode
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Mixture
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import tabulate
-from solprop.translate.problem import Flags, assemble
+from solprop.translate.problem import Flags
 from solprop.translate.responses import compile_responses
 
 

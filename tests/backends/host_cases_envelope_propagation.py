@@ -25,8 +25,8 @@ from solprop.physdata import Mixture
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 
 def propagate_pair(

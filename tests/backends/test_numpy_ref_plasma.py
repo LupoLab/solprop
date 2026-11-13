@@ -55,9 +55,9 @@ from solprop.profiles import Constant, PressureGradient
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi, profile_table
-from solprop.translate.problem import assemble
 from solprop.translate.responses import (
     PlasmaCoefficients,
     prefactor_at,

@@ -28,7 +28,9 @@ __all__ = [
     "committing",
     "deferred_handlers",
     "handled",
+    "interruptible",
     "poll",
+    "raise_held",
 ]
 
 
@@ -48,6 +50,8 @@ class _Guard:
         """Start outside every commit with nothing pending."""
         self.depth = 0
         self.pending: BaseException | None = None
+        # How many interruptible scopes the main thread is in (:func:`interruptible`).
+        self.interruptible = 0
 
 
 _GUARD = _Guard()
@@ -84,6 +88,42 @@ class committing:  # noqa: N801 - used as a function, ``with committing():``
         pending, _GUARD.pending = _GUARD.pending, None
         if self._deliver and kind is None:
             raise pending
+
+
+@contextmanager
+def interruptible() -> Iterator[None]:
+    """Let a long wait inside a commit take the signal the commit holds.
+
+    A native ``advance`` runs inside :class:`committing`, and a host source it calls may
+    wait minutes for an atomic call (SEP 49 section 6.7). Its session marks that wait
+    with this scope, and the wait calls :func:`raise_held` between polls, so that a
+    Ctrl-C or SIGTERM stops it there, before the trial commits. Only the main thread's
+    scope counts, since signals reach the main thread alone; any other commit -- the
+    terminal checkpoint's ``committing(deliver=False)`` among them -- keeps holding.
+    """
+    main = threading.current_thread() is threading.main_thread()
+    if main:
+        _GUARD.interruptible += 1
+    try:
+        yield
+    finally:
+        if main:
+            _GUARD.interruptible -= 1
+
+
+def raise_held() -> None:
+    """Raise, now, a signal the commit holds, inside an :func:`interruptible` scope.
+
+    Does nothing outside such a scope, on any thread but the main one, or when nothing
+    is held.
+    """
+    if not _GUARD.interruptible or threading.current_thread() is not (
+        threading.main_thread()
+    ):
+        return
+    pending, _GUARD.pending = _GUARD.pending, None
+    if pending is not None:
+        raise pending
 
 
 def _handle(signal_number: int, frame: FrameType | None) -> None:

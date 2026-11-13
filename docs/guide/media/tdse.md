@@ -13,9 +13,11 @@ electrons and the atomic resonances that a rate model omits. The physics in outl
 :class: note
 
 The atomic engine, Pyroraptor, is a separate, optional package. It is not yet publicly
-available; it is planned to be. solprop declares no dependency on it and imports it only
-when a TDSE response is prepared; without it, preparing a TDSE response raises a
-`BackendError` naming the missing provider. The records, their validation, identities
+available; it is planned to be. solprop declares no dependency on it and never imports
+it into its own process: preparing a TDSE response starts it in a worker process of its
+own, the same interpreter, given the run's whole thread budget (or, for a GPU build, its
+device). Without it, preparing a TDSE response raises a `BackendError` naming the missing
+provider. The records, their validation, identities
 and descriptors work without it. The TDSE response is a research feature, not a
 qualified replacement for the rate models.
 ```
@@ -233,8 +235,9 @@ run = prop_capillary(
 
 The response is the complete electronic response of the fill, so `plasma`, `raman`,
 `thg`, `preionisation` and the other ionisation settings must be left unset, or the call
-is refused naming them. `backend="auto"` resolves to `"numpy_ref"`, the only backend that
-runs a TDSE response; the run needs the adaptive `Multistep()` integrator and a single
+is refused naming them. `backend="auto"` resolves to `"native"`, as for every run: the
+native CPU build runs the TDSE response, and `backend="numpy_ref"` runs it too, while a
+native GPU build refuses it by name; the run needs the adaptive `Multistep()` integrator and a single
 scalar HE₁₁ mode. A TDSE run carries no shot noise by default: it is expensive, rarely
 repeated as a noise ensemble, and its checks are coherent. Input shot noise
 (`noise="input"`) can be asked for, with a warning; its draw is part of the
@@ -250,7 +253,10 @@ responses](../waveguides/radial-quadrature.md)). With `tdse=`, every accepted st
 saved and only the final plane is requested by default, so saving never forces an extra
 atomic call; an explicit `n_save`, `save_planes` or `step_planes` is honoured. Every
 attempted provider call is charged against `max_atomic_calls` before it is made, failures
-included. A capped or interrupted run resumes; the gate and window are part of the resume
+included. Ctrl-C, SIGTERM and a run's stop flag stop it during an atomic call as well as
+between steps: the worker is ended at once, the call in flight stays charged, and the run
+ends at its last accepted step with a terminal checkpoint. A call has no time limit. A
+capped or interrupted run resumes; the gate and window are part of the resume
 identity, so a run never resumes under another one.
 
 ## The raw response archive
@@ -316,7 +322,7 @@ against an exact solution.
 - **The optical band** reaches 120 nm (SAE) or 90 nm (haCC) numerically; that is not a
   claim of validated ultraviolet accuracy.
 - **Scope.** Helium only, one scalar HE₁₁ mode on the uncoupled modal capillary route,
-  `numpy_ref` only (the native backend refuses it by name). Double ionisation, ionic
+  `numpy_ref` and the native CPU build (a native GPU build refuses it by name). Double ionisation, ionic
   channels beyond $n=2$, ion motion, collisions, recombination and space charge are
   omitted.
 - **Cost.** Each source evaluation is a full atomic calculation at every node: minutes
@@ -328,4 +334,5 @@ against an exact solution.
 See also §10.6 of the primer's [ionisation chapter](../../primer/ionisation.md),
 [radial nodes for expensive responses](../waveguides/radial-quadrature.md), and the API
 reference of {mod}`solprop.nonlinear.tdse`, {mod}`solprop.driver.tdse` and
-{mod}`solprop.driver.tdse_consistency`.
+{mod}`solprop.driver.tdse_consistency`. The native backend's TDSE response and the provider's
+worker process are [SEP 49](../../dev/seps/archive/sep-0049-tdse-on-native.md).

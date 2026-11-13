@@ -11,7 +11,7 @@ each refusal has one raise site, before any buffer is allocated. It holds the po
 the leaves' consistency with the state -- channel and component counts, axes, extents
 -- is :meth:`~solprop.translate.problem.PropagationProblem.validate`'s own and runs
 first. A problem can be assembled by something other than
-:func:`solprop.translate.problem.assemble`, so nothing here relies on the assembly
+:func:`solprop.translate.assembly.assemble`, so nothing here relies on the assembly
 having refused it already.
 """
 

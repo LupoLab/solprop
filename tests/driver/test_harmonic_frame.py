@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 import solprop.driver.simulation as simulation_module
-import solprop.translate.problem as problem_module
+import solprop.translate.assembly as assembly_module
 from solprop.backends.exponential import carrier_reference
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
@@ -249,7 +249,9 @@ def test_the_spatial_routes_choose_the_frame_by_the_same_rule(
 def test_a_frame_the_compiled_carrier_disagrees_with_is_refused(thg, monkeypatch):
     # No input reaches this: the rule is replaced by its negation to stand in for a
     # compiler that drifted from it.
-    monkeypatch.setattr(problem_module, "declares_harmonic_carrier", lambda *_: not thg)
+    monkeypatch.setattr(
+        assembly_module, "declares_harmonic_carrier", lambda *_: not thg
+    )
     with pytest.raises(TranslationError, match="internal inconsistency"):
         capillary(thg=thg, raman=False).translate()
 

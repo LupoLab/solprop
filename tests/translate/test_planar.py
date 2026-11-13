@@ -21,12 +21,13 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.profiles import Linear
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.planar import (
     _warn_grazing,  # pyright: ignore[reportPrivateUsage]
     planar_operators,
     planar_transform,
 )
-from solprop.translate.problem import assemble, validate_run
+from solprop.translate.problem import validate_run
 from solprop.translate.routes import transverse_of
 from solprop.translate.spatial import (
     SeparableOperator,

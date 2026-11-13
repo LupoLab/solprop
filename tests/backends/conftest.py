@@ -47,6 +47,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse
 from solprop.stepper import PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.expansion import ParameterExpansion
 from solprop.translate.linop import LinearOperator, delta_phi
@@ -55,7 +56,6 @@ from solprop.translate.problem import (
     Flags,
     PropagationProblem,
     Translation,
-    assemble,
     validate_run,
 )
 from solprop.translate.responses import prefactor_at

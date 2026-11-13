@@ -37,8 +37,8 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec, analytic_field
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import assemble
 
 LENGTH = (
     0.02  # m: long enough for a measurable nonlinear phase, short enough to be fast

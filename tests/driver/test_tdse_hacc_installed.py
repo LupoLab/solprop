@@ -4,12 +4,13 @@
 
 """Exercise the real haCC provider surface when it is installed (SEP 20, 7.1).
 
-Skipped unless Pyroraptor at the pinned revision is importable. The check runs in a
-subprocess with one provider and one OpenMP thread, so the provider's native runtime
-never shares this test process: it resolves both presets through ``hacc_preset``,
-checks their identities and SI conversion against the records the fake-provider tests
-use, and runs one call of the provider's own tiny consumer-example haCC(1) basis
-through the binding (C3 to C5). It qualifies nothing about the atomic physics.
+Skipped unless Pyroraptor is importable, at any revision: solprop pins none (SEP 49
+section 6.5). The check runs in a subprocess with one provider and one OpenMP thread,
+so the provider's native runtime never shares this test process: it resolves both
+presets through ``hacc_preset``, checks their identities and SI conversion against the
+records the fake-provider tests use, and runs one call of the provider's own tiny
+consumer-example haCC(1) basis through the binding (C3 to C5). It qualifies nothing
+about the atomic physics.
 """
 
 import importlib.util
@@ -86,7 +87,10 @@ from pyroraptor import hacc
 from tests.hacc_cases import A0
 
 control = tiny_basis(gauge_radius=1.0 * A0)
-atom, native, gauge = tdse._hacc_objects(tdse._load_provider(), hacc, control)
+from solprop.driver import _pyroraptor
+
+provider = _pyroraptor._load_provider()
+atom, native, gauge = _pyroraptor._hacc_objects(provider, hacc, control)
 with hacc.prepare(atom, native, gauge=gauge, cut_energy=control.cut_energy) as model:
     try:
         hacc.ResponsePlan(
@@ -117,11 +121,9 @@ print(json.dumps(report))
 """
 
 
-def _pinned_provider_installed() -> bool:
+def _provider_installed() -> bool:
     if importlib.util.find_spec("pyroraptor") is None:
         return False
-    from solprop.driver import tdse  # noqa: PLC0415 - only after the spec check
-
     probe = subprocess.run(
         [
             sys.executable,
@@ -134,8 +136,7 @@ def _pinned_provider_installed() -> bool:
         env=_environment(),
         check=False,
     )
-    revision = probe.stdout.strip().splitlines()[-1] if probe.stdout.strip() else ""
-    return probe.returncode == 0 and tdse.pinned_revision().startswith(revision or "-")
+    return probe.returncode == 0 and bool(probe.stdout.strip())
 
 
 def _environment() -> dict[str, str]:
@@ -150,8 +151,8 @@ def _environment() -> dict[str, str]:
 
 
 @pytest.mark.skipif(
-    not _pinned_provider_installed(),
-    reason="Pyroraptor at the pinned revision is not installed",
+    not _provider_installed(),
+    reason="Pyroraptor is not installed",
 )
 def test_installed_provider_resolves_presets_and_runs_a_tiny_custom_call():
     completed = subprocess.run(

@@ -31,7 +31,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec, _poynting_statistics, analytic_field
 from solprop.stepper import PIController
 from solprop.translate import expansion, linop
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 
 
 @dataclass

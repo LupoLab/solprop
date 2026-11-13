@@ -24,7 +24,6 @@ repeat the first:
 |---|---|---|---|---|
 | `auto` | `native` | refuses, naming the missing features or the failed check | the load's own error, unchanged | refuses, saying how to install it |
 | `native` by name | `native` | as above | as above | as above |
-| TDSE response, `auto` | `numpy_ref`; native isn't consulted | the same | the same | the same |
 | `numpy_ref` by name | runs; native isn't consulted | the same | the same | the same |
 
 `"auto"` has no fallback. These cases stay distinct, so an import failure is never reported
@@ -79,16 +78,10 @@ and what to use for scans are on [Performance tuning](tuning.md).
 
 ## Features that run on the reference backend
 
-`numpy_ref` is the numerical reference, and it is also the supported way to run these
-features, which native does not run yet. Each is a limit of native, and each stays
-supported on the supported platforms:
-
-| feature | reached by | tracked by |
-|---|---|---|
-| the [TDSE response](../media/tdse.md) | `auto` or by name | |
-
-The TDSE row's `auto` is that of the entry points; `SimulationSettings` built by hand with
-`tdse_execution` [names the backend](../results/interior-launch.md). Running `numpy_ref` by
+`numpy_ref` is the numerical reference, and it is also the supported way to run any
+feature native does not run yet. None is listed today: the
+[TDSE response](../media/tdse.md), the last, runs on the native CPU build too (a native
+GPU build refuses it by name). Running `numpy_ref` by
 name on an unsupported platform may keep working, without a support promise. The list is not
 a general waiver: a new feature still lands on both `numpy_ref` and `native`
 ([SEP 0](../../dev/seps/sep-0000-process.md)), and joins the list only as an accepted

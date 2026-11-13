@@ -23,7 +23,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence
 from solprop.stats import StatsSpec, collect, default_spec
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.radial import radial_transform
 from spatial_records import record_metric
 

@@ -35,8 +35,8 @@ from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
-from solprop.translate.problem import assemble
 
 
 @dataclass(frozen=True)

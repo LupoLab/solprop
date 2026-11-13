@@ -76,8 +76,8 @@ from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialKerr
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.problem import assemble
 from solprop.translate.responses import KerrForm
 
 LENGTH = 1e-3
