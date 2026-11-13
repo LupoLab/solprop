@@ -1215,7 +1215,8 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
   `numpy_ref`, under bounds derived in `tests/backends/dispersive_cases.py` and
   `dispersive_route_cases.py` from the transforms and node reductions both backends perform.
   Beside the plasma column the bound adds what the column already disagrees by. Each row's
-  response, its coefficients zeroed, moves every guarded rung by more than a hundred bounds.
+  response, its coefficients zeroed, moves every guarded rung by more than a thousand bounds
+  (or a lower guard, at least a hundred, that the row justifies).
   Repeats, and one against four threads, agree within the same bounds
   (`tests/backends/test_native_dispersive_kerr.py`).
 - **Ledger**: the `dispersive_*` rows, named at zero on every problem; borrowed buffers are the

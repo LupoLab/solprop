@@ -34,11 +34,30 @@ from solprop.translate.run_request import RunRequest
 FIELD_RUNGS = ("source", "projected", "one_step", "steps")
 """The field rungs, cheapest first; a row's statistics follow them."""
 
-DETECTION = 100.0
+DETECTION = 1000.0
 """How far above a rung's bound switching the row's term off must move the reference.
 
-A backend that dropped the term then misses by a hundred bounds, and one that got the
-term wrong by one per cent of itself fails the rung."""
+A backend that dropped the term then misses by a thousand bounds, and one that got the
+term wrong by a tenth of a per cent of itself fails the rung: the guard of the optmat
+response parity tests (``tests/backends/test_optmat_plasma_parity.py``), so that their
+move onto this engine weakens none. A rung that cannot clear it lowers it with a
+:class:`Detection` that says why, never below :data:`LEAST_DETECTION`."""
+
+LEAST_DETECTION = 100.0
+"""The lowest guard a rung may declare: a term wrong by one per cent still fails it."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Detection:
+    """A rung's guard set below :data:`DETECTION`, and why that is still enough.
+
+    ``threshold`` is how many of the rung's bounds the term must move its reference by,
+    at least :data:`LEAST_DETECTION`; ``reason`` says what limits it (the measured
+    margin and what sets it).
+    """
+
+    threshold: float
+    reason: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,8 +84,8 @@ class Row:
     field rung of :data:`FIELD_RUNGS` the row runs to its bound; ``statistics`` maps a
     statistic, read at the end of the row's schedule and compared absolutely, to its
     bound. ``switch_off`` returns the problem with the row's term off: the guard that
-    the term moves every field rung's reference by more than :data:`DETECTION` bounds.
-    ``floor`` builds a row whose own native
+    the term moves every field rung's reference by more than :data:`DETECTION` bounds,
+    or by a rung's own ``detection``. ``floor`` builds a row whose own native
     disagreement at the same rung is added to the bound (a term beside the row's that
     is known to disagree by more than the row's own budget). ``masked_launch``
     evaluates the source at the launch hard-masked to the active band on both sides, as
@@ -96,6 +115,7 @@ class Row:
     medium: bool = False
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    detection: Mapping[str, Detection] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -308,8 +328,8 @@ def check(native_class: type, row: Row) -> list[Reading]:
     Also asserts the row's expectations, its native metadata and the guard: with the
     row's term switched off -- for a row with a floor, the floor's reference, which
     differs from the row by the term the floor replaces -- each guarded field rung's
-    reference moves by more than :data:`DETECTION` times that rung's bound. Every
-    failure names the row and quotes its claim
+    reference moves by more than :data:`DETECTION` times that rung's bound (or the
+    rung's own :class:`Detection`). Every failure names the row and quotes its claim
     and bound note; a rung outside its bound gives the measured value, the bound and
     their ratio.
     """
@@ -368,11 +388,14 @@ def _check(native_class: type, row: Row) -> list[Reading]:
             if reference_off is None:
                 reference_off = measure(NumpyRefBackend, off, row)
             guard = _share(reference_off, theirs) / bound
-            if not guard > DETECTION:
+            lowered = row.detection.get(rung)
+            threshold = DETECTION if lowered is None else lowered.threshold
+            if not guard > threshold:
                 failures.append(
                     f"{rung} guard: switching the term off moves the reference by "
-                    f"{guard:.3g} bounds, not more than {DETECTION:g}, so a backend "
+                    f"{guard:.3g} bounds, not more than {threshold:g}, so a backend "
                     "that dropped the term could pass"
+                    + ("" if lowered is None else f" (lowered: {lowered.reason})")
                 )
         readings.append(Reading(rung, disagreement(ours, theirs), bound, guard))
     for name, bound_of in row.statistics.items():
@@ -401,6 +424,15 @@ def _check_declarations(row: Row) -> None:
     assert not row.statistics or "steps" in row.rungs, (
         "statistics are read at the end of the steps rung, which the row does not run"
     )
+    for rung, lowered in row.detection.items():
+        assert rung in row.rungs and rung not in row.unguarded, (
+            f"{rung}: a lowered guard names a guarded rung the row runs"
+        )
+        assert LEAST_DETECTION <= lowered.threshold < DETECTION, (
+            f"{rung}: a lowered guard of {lowered.threshold:g} bounds is outside "
+            f"[{LEAST_DETECTION:g}, {DETECTION:g})"
+        )
+        assert lowered.reason.strip(), f"{rung}: a lowered guard gives no reason"
 
 
 def _resolve(built: Built, path: str) -> object:

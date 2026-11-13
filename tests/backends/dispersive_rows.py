@@ -28,7 +28,8 @@ what was measured against its bound and anything added to it.
 
 **The guard.** Each row's term is the response. :func:`without_response` zeroes every
 channel's static coefficient, and each guarded rung's reference must then move by more
-than ``parity_ladder.DETECTION`` (a hundred) of that rung's bounds.
+than ``parity_ladder.DETECTION`` (a thousand) of that rung's bounds, or by the rung's
+own lowered ``detection``, which says why that is enough.
 
 **How to read a row.** Every row is a :func:`dispersive_row` call, for example::
 
@@ -93,7 +94,7 @@ from backends.dispersive_route_cases import (
 )
 from backends.dispersive_route_cases import evaluation_bound as route_bound
 from bounds import dispersive_device_bound, step_evaluations
-from parity_ladder import Bound, Built, Row, embedded
+from parity_ladder import Bound, Built, Detection, Row, embedded
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.nonlinear.responses import DispersiveKerrResponse
@@ -723,6 +724,16 @@ def _free_runge_kutta(evaluator: str) -> Built:
     return Built(*free_problem([response], grid, adams=False), grid)
 
 
+LINE_WINDOW_GUARD = Detection(
+    threshold=100,
+    reason="the whole Kerr effect of the line's beam over its 0.1 mm window is "
+    "8.7e-9 of the field (measured, on every case and evaluator), against window "
+    "budgets of 2.3e-11 to 5.4e-11, so this rung clears 161 to 381 bounds; the "
+    "line's source rung clears a thousand by far",
+)
+"""The line's ten-step window: a guard of a hundred bounds, and why."""
+
+
 def free_space_rows(evaluator: str) -> Iterator[Row]:
     """Yield the Cartesian free-space and line routes, run chunk by chunk."""
     lone_symmetric = evaluator == "symmetric"
@@ -751,6 +762,7 @@ def free_space_rows(evaluator: str) -> Iterator[Row]:
                     in_place=lone_symmetric,
                     borrowed=lone_symmetric and case != "field conserving",
                 ),
+                detection={"steps": LINE_WINDOW_GUARD} if line else {},
             )
     for case in ("field full", "field conserving"):
         yield dispersive_row(

@@ -38,9 +38,11 @@ is known to disagree by more than the row's budget. Rungs go through the native 
 
 **Non-vacuity.** Every row says how to switch its term off (``switch_off``, on the
 translated problem). At every field rung the reference with the term off must differ
-from the reference with it on by more than ``parity_ladder.DETECTION`` (a hundred)
+from the reference with it on by more than ``parity_ladder.DETECTION`` (a thousand)
 times that rung's bound, so that a backend that dropped the term, or got it wrong by
-one per cent of itself, fails. A rung the term cannot move that far is named in the
+a tenth of a per cent of itself, fails. A rung that cannot clear a thousand lowers its
+own guard (``detection``, a :class:`parity_ladder.Detection`) with the reason, never
+below a hundred bounds. A rung the term cannot move even that far is named in the
 row's ``unguarded`` with the reason it is kept; every row guards at least one rung.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
