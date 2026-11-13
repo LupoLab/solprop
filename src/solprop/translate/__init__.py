@@ -5,13 +5,14 @@
 """The translation layer.
 
 Physics objects become validated kernel-ready arrays and the kernel contract
-(``docs/dev/kernel-contract.md``). :func:`solprop.translate.problem.assemble` is the
+(``docs/dev/kernel-contract.md``). :func:`solprop.translate.assembly.assemble` is the
 entry point: it builds the cumulative linear operator, the masks, the modal transform
 and the compiled responses, and returns the single
 :class:`~solprop.translate.problem.PropagationProblem` that crosses into a backend, its
 route one variant of the closed union of :mod:`solprop.translate.routes`.
 """
 
+from solprop.translate.assembly import assemble
 from solprop.translate.chebyshev import (
     DEFAULT_MAX_DEGREE,
     DEFAULT_MAX_INTERVALS,
@@ -52,7 +53,6 @@ from solprop.translate.problem import (
     Initial,
     PropagationProblem,
     StepperSettings,
-    assemble,
 )
 from solprop.translate.raman import (
     MAX_DECAY_EXPONENT,

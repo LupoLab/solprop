@@ -69,6 +69,13 @@ All notable changes to solprop are recorded here. The format follows
   Slurm runs already did, so the scan controller's BLAS threads sleep instead of spinning
   between calls.
 - On Apple silicon, where the native backend's idle threads spin within native calls on the top-tier cores, it threads smaller passes: every size threshold is divided by 16, since a parallel region there costs about a microsecond and the cluster shares its L2 cache. On an Apple M5 Max at six threads the Raman GNLSE ran 0.70 of its time and the comb-to-continuum 0.91, none slower (ADR-073). Other platforms keep the previous thresholds, which measured faster there.
+- `solprop.translate.problem` now holds the kernel contract alone; translation is split
+  into modules by concern: `solprop.translate.assembly` (`assemble`,
+  `MAX_GENERAL_FLOW_EXPONENT`), `solprop.translate.walls` (a capillary's coherent wall and
+  taper coupling) and `solprop.translate.validation` (`validate_coupled_flow`,
+  `DEFAULT_FLOW_CONDITION_LIMIT`, `MOVING_FLOW_CERTIFICATE`, `TAPER_FLOW_CERTIFICATE`).
+  Every name `solprop.translate.problem` exported still imports from it, and
+  `solprop.translate.assemble` is unchanged.
 - The refusals of a non-positive or non-finite number and of an unknown keyword now read
   the same across the design tools, pulses, gas flow, antiresonant tubes, the TDSE
   specifications and the processing and plotting functions: `<name> must be finite and

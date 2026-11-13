@@ -62,7 +62,7 @@ def spm_field_problem(field_grid):
     from solprop.profiles import Constant  # noqa: PLC0415
     from solprop.pulses import GaussianPulse  # noqa: PLC0415
     from solprop.stepper.controller import PIController  # noqa: PLC0415
-    from solprop.translate.problem import assemble  # noqa: PLC0415
+    from solprop.translate.assembly import assemble  # noqa: PLC0415
 
     mode = MarcatiliMode(125e-6, "He", Constant(1.0), cladding=1.45)
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)

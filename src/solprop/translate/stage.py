@@ -259,7 +259,7 @@ class StageScalars:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import scalars
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
@@ -380,7 +380,7 @@ def terms(problem: PropagationProblem) -> StageTerms:
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import terms
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,
@@ -575,7 +575,7 @@ def scalars_at(
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> from solprop.translate.problem import assemble
+    >>> from solprop.translate.assembly import assemble
     >>> from solprop.translate.stage import scalars_at
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0, gamma=0.11,

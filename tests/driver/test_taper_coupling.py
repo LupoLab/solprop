@@ -59,7 +59,9 @@ from solprop.output.memory import MemoryOutput
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, Linear
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.translate.problem import TAPER_FLOW_CERTIFICATE, _walk_arrays, assemble
+from solprop.translate.assembly import assemble
+from solprop.translate.problem import _walk_arrays
+from solprop.translate.validation import TAPER_FLOW_CERTIFICATE
 
 pytestmark = [
     pytest.mark.filterwarnings(

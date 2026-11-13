@@ -41,6 +41,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata.glasses import bk7
 from solprop.stepper import PIController
 from solprop.translate import general
+from solprop.translate.assembly import assemble
 from solprop.translate.coupled import dense_metric, metric_at, orthonormal_metric
 from solprop.translate.general import (
     check_noise_basis,
@@ -52,7 +53,7 @@ from solprop.translate.general import (
 )
 from solprop.translate.modal import general_modal_transform
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL
-from solprop.translate.problem import assemble, debug_summary
+from solprop.translate.problem import debug_summary
 from solprop.translate.responses import (
     KerrForm,
     instantaneous_model_id,
@@ -750,7 +751,7 @@ def test_noise_is_refused_in_a_basis_it_is_not_defined_in(case):
 
 def test_the_assembly_logs_its_summary_at_debug(case, caplog):
     """The translation summary reaches a log, which is what it is for."""
-    with caplog.at_level(logging.DEBUG, logger="solprop.translate.problem"):
+    with caplog.at_level(logging.DEBUG, logger="solprop.translate.assembly"):
         problem_of(case)
     assert any(
         "route general modal" in record.getMessage() for record in caplog.records

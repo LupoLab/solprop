@@ -46,7 +46,7 @@ from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.tdse import TDSEAtomicWindow
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import assemble
+from solprop.translate.assembly import assemble
 from solprop.translate.tdse import TDSEResult
 from solprop.translate.tdse_source import (
     STEADY_CURRENT_CERTIFICATE_LIMIT,

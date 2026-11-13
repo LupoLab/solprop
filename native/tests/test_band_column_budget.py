@@ -73,9 +73,10 @@ from solprop.profiles import Constant
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
-from solprop.translate.problem import PropagationProblem, Translation, assemble
+from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
 from test_band_stress import launch_statistics
 
