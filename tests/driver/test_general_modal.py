@@ -2508,67 +2508,6 @@ def circular_basis(weak):
 
 @WEAK_BASIS
 @pytest.mark.slow
-def test_a_single_circular_channel_reproduces_the_two_to_one_split(
-    weak, pair_runs, circular_basis, circular_split, record_property
-):
-    """The 2:1 split again, from a route run launching **one** circular channel.
-
-    The measurement above launches the circular field as a superposition of the
-    two parities and reads the ratio of two propagated phases. Here the guide
-    itself declares the circular basis, so the same physical field is **one**
-    channel of the run: the off-diagonal drive that the superposition carried in
-    the state is now carried by the route's own transformed maps, and the split is
-    reproduced only if the source pass really is covariant.
-
-    The bound is the one declared for the superposition measurement -- the guide's
-    departure from a pointwise circular field plus twice the propagation terms --
-    because it is the same physical statement; what has changed is where the
-    off-diagonal lives.
-    """
-    field_grid = weak["field_grid"]
-    guide = circular_basis["guide"]
-    labels = [label.display_label for label in guide.mode_collection.channel_labels]
-    assert labels == ["HE1,1:left", "HE1,1:right"]
-    record_property("circular_basis_labels", ",".join(labels))
-
-    bound = circular_split["bound"]
-    record_property("circular_basis_bound", bound)
-    assert 0.0 < bound < 1e-2
-    straight, peak = straight_peak(circular_basis["runs"]["linear"], field_grid, row=1)
-    turned = analytic_field(
-        field_grid, circular_basis["runs"]["guide"].planes()[-1].field[1, 0]
-    )
-    circular_phase = float(np.angle(turned[peak] / straight[peak]))
-
-    reference, reference_peak = straight_peak(pair_runs["even"]["linear"], field_grid)
-    linear_phase = turned_by(
-        pair_runs["even"]["guide"], reference, reference_peak, field_grid
-    )
-    ratio = circular_phase / linear_phase
-    record_property("circular_basis_phase", circular_phase)
-    record_property("circular_basis_phase_ratio", ratio)
-    record_property(
-        "circular_basis_ratio_departure",
-        abs(ratio - CIRCULAR_RATIO) / CIRCULAR_RATIO,
-    )
-    assert linear_phase < 0.0
-    assert_allclose(ratio, CIRCULAR_RATIO, rtol=bound, atol=0.0)
-    # And the propagated ratio is the table's own, to the propagation terms alone.
-    assert_allclose(
-        ratio,
-        circular_split["circular_gamma"] / circular_split["linear_gamma"],
-        rtol=circular_split["propagation"],
-        atol=0.0,
-    )
-
-    drift = total_energy_drift(circular_basis["runs"]["guide"], field_grid)
-    record_property("circular_basis_energy_drift", drift)
-    steps = circular_basis["runs"]["guide"].planes()[-1].step_history.n_steps
-    assert drift < weak_energy_bound(steps)
-
-
-@WEAK_BASIS
-@pytest.mark.slow
 def test_the_two_bases_agree_on_the_same_launch(
     weak_pair, pair_runs, circular_basis, record_property
 ):

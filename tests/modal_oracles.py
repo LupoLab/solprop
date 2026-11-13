@@ -5,9 +5,9 @@
 """Register the independent modal-design oracles under ``tests/oracles/modal_design``.
 
 The oracles are research prototypes written apart from the production solver: vector
-and graded-index mode solvers and a condensed taper model. They import each other as
-``modal_design.<module>``, so the directory is registered as that package by path
-before a test imports one of them.
+and graded-index mode solvers, and the taper note's geometry and production run. They
+import each other as ``modal_design.<module>``, so the directory is registered as that
+package by path before a test imports one of them.
 """
 
 import importlib.util

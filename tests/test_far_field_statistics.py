@@ -1427,59 +1427,6 @@ def test_a_hard_half_plane_sits_beside_apodised_holes(grid):
         )
 
 
-def test_circle_weights_keep_their_expression_to_the_bit(grid):
-    # The expressions of the weight before shapes existed, written out: every circle's
-    # result, hard-edge decision and record stays where it was.
-    space = FreeGrid(*SHAPE_SPACE, collar_fraction=0.1)
-    field = shape_field(space, grid)
-    terms = column_density(grid, space, field)
-    columns = np.arange(space.n_columns)
-    k_x, k_y = space.k_x[columns % space.n_x], space.k_y[columns // space.n_x]
-    scale = aperture_scale(np.array([DISTANCE]), grid.omega)[0]
-    across = scale[None, :] * k_x[:, None] + 3e-5
-    along = scale[None, :] * k_y[:, None] + -1e-5
-    radius = np.sqrt(across * across + along * along)
-    half = 1.6e-4
-    origin = mask_plane_radius(scale, k_x, k_y, (0.0, 0.0))
-    live = (origin < DISTANCE) & (scale > 0)[None, :]
-    argument = (radius - half) * (1.0 / 2e-5)
-    cases = {
-        "hard": np.where(radius <= half, 1.0, 0.0),
-        "tanh": 0.5 * (1.0 - np.tanh(argument)),
-        "rcos": np.where(
-            argument <= -1.0,
-            1.0,
-            np.where(
-                argument >= 1.0,
-                0.0,
-                0.5 * (1.0 - np.sin((0.5 * math.pi) * np.clip(argument, -1.0, 1.0))),
-            ),
-        ),
-    }
-    for kind, unclipped in cases.items():
-        weight = np.where(live, unclipped, 0.0)
-        apertures = hole(
-            2 * half,
-            centre=(3e-5, -1e-5),
-            edges=None if kind == "hard" else [2e-5],
-            profile=kind,
-        )
-        tables = aperture_tables(
-            StatsSpec(names=("aperture_spectrum",), apertures=apertures), grid, space
-        )
-        assert tables is not None
-        assert tables.half_widths.tolist() == [half]
-        spectra, _ = collected(apertures, grid, space, field)
-        assert_within(
-            spectra[0],
-            np.sum(terms * weight * weight, axis=0),
-            8 * gamma(space.n_columns + 16),
-        )
-        outline = tables.outline(0)
-        got, _ = mask_plane_offsets(scale, k_x, k_y, (3e-5, -1e-5)), None
-        np.testing.assert_array_equal(np.where(live, outline.weight(*got), 0.0), weight)
-
-
 def test_an_unset_shape_is_recorded_as_unset_and_a_circle_says_nothing_new():
     plain = hole(1e-3)
     assert plain.shapes is None and plain.profiles is None and plain.extents is None

@@ -43,7 +43,7 @@ physics or numerics rather than style, ask rather than guess.
 | Size report and ratchets | `uv run poe size [--all] [--json]`; `uv run poe size-check` |
 | Default tests (fast + medium) | `uv run poe test` (xdist, one thread per worker); `uv run pytest <path>` runs serially |
 | Medium tier, slow lane, coverage (100 %) | `uv run poe test-medium`, `uv run poe test-slow`, `uv run poe cov` |
-| GPU tests | `uv run pytest -m gpu` (a GPU build of solprop-native and a device) |
+| GPU tests | `uv run poe test-gpu` (a CUDA or HIP build of solprop-native and a device): at each release and on pull requests that change device code, with the result recorded there |
 | Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an idle machine) |
 | Build docs; run the galleries | `uv run poe docs`; `uv run poe docs-examples [plot_NN_name]` |
 
@@ -65,7 +65,7 @@ change both in the same commit. Coverage is 100 % of statements and branches; a
 `# pragma: no cover` gives its reason on its line. `gui/` and `native/` add their own gates.
 
 **Qualification scope:** `numpy_ref` and the native CPU build; GPU builds separately with
-`pytest -m gpu` on a device. **No test, lane or timing runs a full-length propagation**
+`poe test-gpu` on a device. **No test, lane or timing runs a full-length propagation**
 (a 0.2 m capillary, a metre of fibre): use about ten steps or a fibre that finishes in
 seconds. Only the galleries run real problems at full length. The release tracking set
 (`python -m benchmarks track`) times complete runs by design; it runs by hand on a quiet

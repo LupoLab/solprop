@@ -44,7 +44,9 @@ def test_exercise_builders_refuse_unknown_names():
             builder("absent")
 
 
-@pytest.mark.medium
+# A registered benchmark case propagated: the harness's real-case runs are slow
+# (testing.md section 2); its logic is tested in the default lane.
+@pytest.mark.slow
 def test_repeats_restart_from_the_launch_and_take_the_same_steps(tmp_path):
     configuration = CASES["noise"].configuration("default", 1, "numpy_ref")
     result = measure(configuration, 2, tmp_path / "field.npy")
@@ -59,7 +61,9 @@ def test_repeats_restart_from_the_launch_and_take_the_same_steps(tmp_path):
     assert np.isfinite(np.load(tmp_path / "field.npy")).all()
 
 
-@pytest.mark.medium
+# A registered benchmark case propagated: the harness's real-case runs are slow
+# (testing.md section 2); its logic is tested in the default lane.
+@pytest.mark.slow
 def test_repeats_of_an_input_noise_run_reach_the_same_field():
     # The tracked default noise: each repeat restarts from the same seeded launch.
     configuration = CASES["gnlse_raman_shock"].configuration(

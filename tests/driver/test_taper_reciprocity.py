@@ -143,7 +143,8 @@ def test_a_mirrored_taper_transfers_as_the_transpose_of_the_forward_one(
 
     Bound, stated first. (i) Each ten-step transfer is within its discretisation
     error ``e_10`` of the model's, and the scheme converges at an order ``p >= 1``
-    here (measured 4.87 and 4.95), so ``||T_10 - T_5|| >= e_5 - e_10 >=
+    here (above four, gated by the true-power tests of
+    ``test_coherent_capillary.py``), so ``||T_10 - T_5|| >= e_5 - e_10 >=
     e_10``: the refinement differences of the two tapers majorise their errors.
     (ii) The model's defect ``D`` is bounded by Duhamel, ``||D|| <= K^2
     int ||Delta||``, with ``K = exp(int ||E||)``, ``E = W^(1/2) G W^(-1/2) - G``,
