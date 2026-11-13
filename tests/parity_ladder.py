@@ -158,6 +158,9 @@ class Row:
     value is a predicate on it); ``expect`` maps a dotted path into the built row
     (``"problem.transform.n_nodes"``; a method is called, ``""`` is the row itself) to
     what it must be; ``quiet`` holds the warning filters the row's run needs.
+    ``slow`` puts a row in the slow tier by cost (``docs/dev/testing.md`` section 2):
+    why, with its time and what it is, ``"slow by cost (#792): ..."``; a slow row is not
+    ``medium``.
     ``unguarded`` names a rung the term does not move far enough to guard, with why the
     rung is kept; it still runs at its bound, and the row's other rungs carry its guard.
     A row guards at least one rung, unless it is ``vacuous``: why a row whose term
@@ -191,6 +194,7 @@ class Row:
     metadata: Mapping[str, object] = dataclasses.field(default_factory=dict)
     expect: Mapping[str, object] = dataclasses.field(default_factory=dict)
     medium: bool = False
+    slow: str = ""
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
     vacuous: str = ""
@@ -777,6 +781,7 @@ def _every_statistic(
 def _check_declarations(row: Row) -> None:
     """Assert the row states its claim and declares its guards completely."""
     assert row.why.strip(), "the row states no claim (`why`)"
+    assert not (row.slow and row.medium), "a row is in one tier: slow or medium"
     if row.vacuous:
         assert row.vacuous.strip(), "a vacuous row gives no reason"
         assert not row.unguarded and not row.detection, (

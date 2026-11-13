@@ -317,6 +317,14 @@ PLATES = {
 """Each plate family's axes, its claim's subject and the term its guard removes."""
 
 
+SLOW_BY_COST = {
+    "envelope_plasma": "slow by cost (#792): 90 s serially on the Mac, 156 s under "
+    "-n 4 (the two old tests it merges took 81 s and 68 s), most of it the "
+    "reference's envelope-plasma cycle moments; a parity check, not a witness",
+}
+"""The plates whose ten-step row is slow by cost, and why."""
+
+
 def plate_rows() -> list[Row]:
     """Return the plates' rows: one step with the launch, and ten steps."""
     rows = []
@@ -356,6 +364,7 @@ def plate_rows() -> list[Row]:
                 switch_off=SWITCH_OFFS[term],
                 rungs={"steps": partial(plate_bound, family, 10)},
                 every_statistic=partial(held_after_ten_steps, family),
+                slow=SLOW_BY_COST.get(family, ""),
             ),
         ]
     return rows
@@ -677,7 +686,7 @@ def planar_row(
     build: Callable[[], Built],
     **fields: Any,
 ) -> Row:
-    """Return a planar row, medium when it marches.
+    """Return a planar row, medium when it marches, unless it is slow by cost.
 
     Its id is ``planar {name}``; `fields` are the rest of :class:`parity_ladder.Row`.
     Every row quiets the old modules' warnings (:data:`QUIET`) and compares
@@ -692,7 +701,8 @@ def planar_row(
             "features": features,
         },
         build=build,
-        medium=bool({"one_step", "steps", "run"} & set(fields["rungs"])),
+        medium=not fields.get("slow")
+        and bool({"one_step", "steps", "run"} & set(fields["rungs"])),
         metric="peak",
         quiet=QUIET,
         **fields,

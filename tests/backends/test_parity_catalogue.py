@@ -6,7 +6,7 @@
 
 The catalogue, its rungs and their bounds are ``tests/capability_routes.py`` and
 ``tests/parity_ladder.py``. A row is fast when it evaluates the source or takes one
-step, medium when it marches its window.
+step, medium when it marches its window, and slow when it says it is slow by cost.
 """
 
 import pytest
@@ -19,7 +19,9 @@ solprop_native = pytest.importorskip("solprop_native")
 
 def _param(row: parity_ladder.Row):
     marks = [pytest.mark.filterwarnings(spec) for spec in row.quiet]
-    if row.medium:
+    if row.slow:
+        marks.append(pytest.mark.slow)
+    elif row.medium:
         marks.append(pytest.mark.medium)
     return pytest.param(row, id=row.id, marks=marks)
 
