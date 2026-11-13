@@ -8,7 +8,7 @@ import dataclasses
 
 import numpy as np
 import pytest
-from tests.backends.test_band_plasma_parity import CASES, case, options_for
+from tests.backends.plasma_column_cases import CASES, case, options_for
 from tests.backends.test_radial_nonlinear import derivative
 from tests.bounds import gamma
 from tests.driver.test_prop_capillary import build

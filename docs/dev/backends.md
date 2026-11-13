@@ -1267,7 +1267,7 @@ sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry i
 - **Routes.** Mode-averaged, analytic, multimode, mixture, radial, Cartesian, line and planar runs
   compare one, eight and ten fixed steps under both rules. Their fields, plasma statistics and
   diagnostics use the equivalence ladder's bound with the sums widened by $2K+1$
-  (`tests/backends/test_band_plasma_parity.py`).
+  (the plasma rows of the case catalogue, `tests/backends/plasma_rows.py`).
 - **Threads.** One and many threads agree within the same bound
   (`native/tests/test_band_plasma.py`).
 

@@ -20,8 +20,8 @@ pytest.importorskip("solprop_native")
 from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
 from backends.matched import stash_bound
-from backends.test_band_plasma_parity import case as band_case
-from backends.test_band_plasma_parity import options_for
+from backends.plasma_column_cases import case as band_case
+from backends.plasma_column_cases import options_for
 from bounds import assert_within
 from sessions.runs import launch_statistics, run
 from solprop.backends.numpy_ref import NumpyRefBackend

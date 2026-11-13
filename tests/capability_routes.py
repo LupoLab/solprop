@@ -17,7 +17,7 @@ options -- with an id and the axes it covers: route family, response, stepper an
 features. Rows cover the axes pairwise (each route with each response and each
 stepper it admits, each feature on at least one route), not their full product. A
 family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``,
-``backends/optmat_rows.py``) and is collected here.
+``backends/optmat_rows.py``, ``backends/plasma_rows.py``) and is collected here.
 
 **Claims.** Every row states the physical claim it holds (``why``, one sentence, such
 as "the response must not filter the drive"), and a row whose bound has a floor, a
@@ -48,10 +48,12 @@ times that rung's bound, so that a backend that dropped the term, or got it wron
 a tenth of a per cent of itself, fails. A rung that cannot clear a thousand lowers its
 own guard (``detection``, a :class:`parity_ladder.Detection`) with the reason, never
 below a hundred bounds. A rung the term cannot move even that far is named in the
-row's ``unguarded`` with the reason it is kept; every row guards at least one rung.
+row's ``unguarded`` with the reason it is kept. Every row guards at least one rung,
+unless the guard found an old claim vacuous: such a row is kept, but declares itself
+``vacuous`` with what was measured, so that every exception is named where the row is.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the plasma, mixture, general-route, session and coupled-flow ladders.
+the mixture, general-route, session and coupled-flow ladders.
 """
 
 from __future__ import annotations
@@ -393,8 +395,8 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
 
 def catalogue() -> tuple[Row, ...]:
     """Return every row of the parity catalogue, their ids unique."""
-    from backends import dispersive_rows, optmat_rows  # noqa: PLC0415
+    from backends import dispersive_rows, optmat_rows, plasma_rows  # noqa: PLC0415
 
-    rows = (*dispersive_rows.rows(), *optmat_rows.rows())
+    rows = (*dispersive_rows.rows(), *optmat_rows.rows(), *plasma_rows.rows())
     assert len({row.id for row in rows}) == len(rows)
     return rows
