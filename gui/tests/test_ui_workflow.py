@@ -11,10 +11,11 @@ from typing import Any
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QEvent, QSettings, QStandardPaths, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QFontDatabase, QStandardItemModel
 from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
+from shiboken6 import isValid
 from solprop.constants import C
 from solprop.output import open_file
 from solprop.service.messages import Event
@@ -1434,6 +1435,26 @@ def test_a_step_index_fibre_solves_its_mode_for_its_numbers(
     assert any(
         box.placeholderText() == "fused silica" for box in core.findChildren(QLineEdit)
     )
+
+
+def test_a_second_answer_to_a_routes_description_leaves_its_sheet_standing(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    # A route asked ahead and asked again as its setup opened is answered twice when
+    # the first answer is through before the second question is sent (#791).
+    window.begin_class("gnlse")
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is GNLSE, timeout=WAIT_MS)
+    order = sheet.derived["soliton_order"]
+    model = window.document.model
+    assert model is not None
+    route = model.route
+    again = window.document._ask("describe", {"route": route}, f"describe-{route}")
+    qtbot.waitUntil(lambda: again not in window.document._pending, timeout=WAIT_MS)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert sheet.derived["soliton_order"] is order
+    assert isValid(order)
+    qtbot.waitUntil(lambda: order.text() == "3", timeout=WAIT_MS)
 
 
 def test_a_graded_index_fibre_shows_its_profile_and_its_modes(
