@@ -250,6 +250,10 @@ A backend/RSS probe sizes workers. The estimate takes the larger of measured RSS
 and baseline RSS plus the backend ledger, then reserves retained output and transfer
 buffers. The controller's RSS and 20 % memory headroom are reserved separately. The
 file records this calculation. It refuses an allocation that cannot fit one worker.
+The allocation is the smallest of the physical memory, the Slurm limits and the
+tightest control-group memory limit from the process's own group up to the root; a
+limit file that cannot be read, or a malformed `SOLPROP_SCAN_CPU_OFFSET` or
+`SOLPROP_SCAN_CPU_COUNT`, raises {py:class}`~solprop.exceptions.DriverError`.
 This is admission control, not an operating-system memory limit; adaptive periodic
 statistics and custom reducer working memory can exceed the probe estimate.
 
@@ -504,12 +508,8 @@ Recovery has known limits. A live but wedged owner on the same host holds its po
 indefinitely, because the lease age is not consulted while its process is alive: stop
 that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
 crash, rather than stopped by its `stop=` flag, skips its `running` points for
-`stale_age` seconds on restart. Container memory limits are read
-from the root cgroup rather than the process's own cgroup, so on a shared node under a
-cgroup manager without Slurm variables the workers can be given too much memory; a failing
-platform probe raises outside the {py:class}`~solprop.exceptions.SolpropError`
-hierarchy. The scan file grows on every resume, because HDF5 does not reclaim the
-groups it recreates.
+`stale_age` seconds on restart. The scan file grows on every resume, because HDF5 does
+not reclaim the groups it recreates.
 ```
 
 Inspect a generated Slurm script before submission:

@@ -627,20 +627,14 @@ def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
     (root / "proc/self/cgroup").write_text("0::/\n")
     (root / "sys/fs/cgroup").mkdir(parents=True)
     (root / "sys/fs/cgroup/cpu.max").write_text("200000 100000")
+    (root / "sys/fs/cgroup/memory.max").write_text(str(1024**3))
     monkeypatch.setattr(
         _process, "_own_cgroup_cpus", lambda: _process.cgroup_cpus(root)
     )
+    monkeypatch.setattr(pool, "cgroup_memory", lambda: _process.cgroup_memory(root))
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
-    memory = tmp_path / "memory.max"
-    memory.write_text(str(1024**3))
-    missing = tmp_path / "missing"
-    monkeypatch.setattr(
-        pool,
-        "Path",
-        lambda name: {"/sys/fs/cgroup/memory.max": memory}.get(name, missing),
-    )
     monkeypatch.setattr(pool.sys, "platform", "linux")
     monkeypatch.setattr(
         pool.os, "sched_getaffinity", lambda pid: {2, 4, 6, 8}, raising=False

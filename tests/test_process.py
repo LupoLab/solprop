@@ -194,6 +194,59 @@ def test_no_control_groups_means_no_quota(tmp_path):
     assert _process.cgroup_cpus(tmp_path) is None
 
 
+GiB = 2**30
+
+
+@pytest.mark.parametrize(
+    ("line", "groups", "expected"),
+    [
+        # Version 2: the process's own group binds although the root says max.
+        (
+            "0::/user.slice/job.scope",
+            {
+                ".": {"memory.max": "max"},
+                "user.slice/job.scope": {"memory.max": str(GiB)},
+            },
+            GiB,
+        ),
+        # A parent's limit binds its child.
+        (
+            "0::/a/b",
+            {"a": {"memory.max": str(GiB)}, "a/b": {"memory.max": str(2 * GiB)}},
+            GiB,
+        ),
+        ("0::/a", {"a": {"memory.max": "max"}}, None),
+        ("0::/a", {"a": {"memory.max": "0"}}, None),
+        # A container without its own namespace: the mount's group is its own.
+        ("0::/docker/abc", {".": {"memory.max": str(3 * GiB)}}, 3 * GiB),
+        # Version 1, under the memory controller's own mount, and not the CPU's.
+        (
+            "4:cpu,cpuacct:/slice\n3:memory:/slice",
+            {
+                "cpu,cpuacct/slice": {"memory.limit_in_bytes": str(GiB)},
+                "memory": {"memory.limit_in_bytes": "9223372036854771712"},
+                "memory/slice": {"memory.limit_in_bytes": str(2 * GiB)},
+            },
+            2 * GiB,
+        ),
+        ("garbled\n0::/a", {"a": {"memory.max": str(GiB)}}, GiB),
+        ("0::/a", {}, None),
+    ],
+)
+def test_the_memory_limit_is_the_tightest_on_the_path(tmp_path, line, groups, expected):
+    assert _process.cgroup_memory(_cgroup(tmp_path, line, groups)) == expected
+
+
+def test_no_control_groups_means_no_memory_limit(tmp_path):
+    assert _process.cgroup_memory(tmp_path) is None
+
+
+def test_a_malformed_memory_limit_names_its_file(tmp_path):
+    root = _cgroup(tmp_path, "0::/a", {"a": {"memory.max": "lots"}})
+    with pytest.raises(ValueError, match=r"a.memory\.max"):
+        _process.cgroup_memory(root)
+
+
 @pytest.mark.parametrize(
     ("cpus", "quota", "variable", "expected"),
     [

@@ -34,13 +34,20 @@ def _fake_cpus_are_cores(monkeypatch):
     monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
 
 
-@pytest.mark.parametrize("value", ["max", "0", "4294967296"])
-def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
-    tmp_path, monkeypatch, value
-):
-    record = tmp_path / "memory.max"
-    record.write_text(value)
-    monkeypatch.setattr(pool, "Path", lambda name: record)
+def _cgroup_tree(root, line, groups):
+    """Write ``/proc/self/cgroup`` and each group's ``memory.max`` under ``root``."""
+    (root / "proc/self").mkdir(parents=True)
+    (root / "proc/self/cgroup").write_text(line + "\n")
+    for directory, value in groups.items():
+        group = root / "sys/fs/cgroup" / directory
+        group.mkdir(parents=True, exist_ok=True)
+        (group / "memory.max").write_text(value)
+    return root
+
+
+def _linux(monkeypatch, root):
+    """Simulate a Linux machine of 4 GiB whose control groups live under ``root``."""
+    monkeypatch.setattr(pool, "cgroup_memory", lambda: _process.cgroup_memory(root))
     monkeypatch.setattr(pool.sys, "platform", "linux")
     monkeypatch.setattr(
         pool.os,
@@ -50,7 +57,60 @@ def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
     )
     monkeypatch.delenv("SLURM_MEM_PER_NODE", raising=False)
     monkeypatch.delenv("SLURM_MEM_PER_CPU", raising=False)
+
+
+@pytest.mark.parametrize("value", ["max", "0", "4294967296", "8589934592"])
+def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
+    tmp_path, monkeypatch, value
+):
+    _linux(monkeypatch, _cgroup_tree(tmp_path, "0::/", {".": value}))
     assert pool._memory_limit() == 2**32
+
+
+def test_the_memory_limit_is_the_process_group_not_the_root(tmp_path, monkeypatch):
+    # A nested version 2 group limited to 1 GiB under a root that says max: a
+    # systemd slice on a shared node, with no Slurm variables.
+    root = _cgroup_tree(
+        tmp_path,
+        "0::/user.slice/job.scope",
+        {".": "max", "user.slice/job.scope": str(2**30)},
+    )
+    _linux(monkeypatch, root)
+    assert pool._memory_limit() == 2**30
+
+
+def test_a_slurm_memory_limit_below_the_group_still_binds(tmp_path, monkeypatch):
+    _linux(monkeypatch, _cgroup_tree(tmp_path, "0::/job", {"job": str(2**31)}))
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "1024")
+    assert pool._memory_limit() == 2**30
+
+
+@pytest.mark.parametrize("readable", [True, False])
+def test_an_unreadable_memory_limit_is_a_driver_error_naming_it(
+    tmp_path, monkeypatch, readable
+):
+    root = _cgroup_tree(tmp_path, "0::/job", {"job": "garbled"})
+    if not readable:
+        # A directory in the file's place fails to read on any platform and as any
+        # user, root included, unlike a permission bit.
+        record = root / "sys/fs/cgroup/job/memory.max"
+        record.unlink()
+        record.mkdir()
+    _linux(monkeypatch, root)
+    with pytest.raises(DriverError, match=r"job.memory\.max"):
+        pool._memory_limit()
+
+
+@pytest.mark.parametrize(
+    "variable", ["SOLPROP_SCAN_CPU_OFFSET", "SOLPROP_SCAN_CPU_COUNT"]
+)
+def test_a_malformed_cpu_slice_is_a_driver_error_naming_it(monkeypatch, variable):
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.delenv("SOLPROP_SCAN_CPU_OFFSET", raising=False)
+    monkeypatch.delenv("SOLPROP_SCAN_CPU_COUNT", raising=False)
+    monkeypatch.setenv(variable, "x")
+    with pytest.raises(DriverError, match=variable):
+        pool._cpus()
 
 
 @pytest.mark.parametrize("offset,count", [(-1, 1), (0, 0)])

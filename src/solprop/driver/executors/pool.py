@@ -17,13 +17,13 @@ from dataclasses import dataclass, field
 from itertools import chain
 from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
-from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
 from solprop._process import (
     LOAD_TIME_BLAS_VARIABLES,
     THREAD_VARIABLES,
     allowed_cpus,
+    cgroup_memory,
     sizes_blas_after_load,
     spawn_environment,
     thread_budget,
@@ -366,15 +366,14 @@ def _memory_limit() -> int:
         limits.append(_windows_physical_memory())
     else:
         limits.append(os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
-        for path in (
-            "/sys/fs/cgroup/memory.max",
-            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-        ):
-            file = Path(path)
-            if file.exists():
-                value = file.read_text(encoding="utf-8").strip()
-                if value.isdecimal() and int(value) > 0:
-                    limits.append(int(value))
+        try:
+            group = cgroup_memory()
+        except (OSError, ValueError) as error:
+            raise DriverError(
+                f"cannot read the control-group memory limit: {error}"
+            ) from error
+        if group is not None:
+            limits.append(group)
     slurm = os.environ.get("SLURM_MEM_PER_NODE")
     if slurm and slurm.isdecimal():
         limits.append(int(slurm) * 1024**2)
@@ -394,8 +393,8 @@ def _cpus() -> tuple[int, ...]:
     allocated = os.environ.get("SLURM_CPUS_PER_TASK")
     if allocated and allocated.isdecimal():
         available = available[: int(allocated)]
-    offset = int(os.environ.get("SOLPROP_SCAN_CPU_OFFSET", "0"))
-    count = int(os.environ.get("SOLPROP_SCAN_CPU_COUNT", str(len(available))))
+    offset = _integer("SOLPROP_SCAN_CPU_OFFSET", 0)
+    count = _integer("SOLPROP_SCAN_CPU_COUNT", len(available))
     if offset < 0 or count < 1:
         raise DriverError(
             "scan instance CPU offsets/counts must be non-negative/positive"
@@ -403,6 +402,17 @@ def _cpus() -> tuple[int, ...]:
     # The instance's own CPUs first, then the controller's budget (ADR-052) over them:
     # cut first, a budget smaller than the allocation would empty a later instance.
     return available[offset : offset + count][: budget.threads]
+
+
+def _integer(variable: str, default: int) -> int:
+    """Read an integer environment variable, refusing a malformed one by name."""
+    value = os.environ.get(variable)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise DriverError(f"{variable}={value!r} is not an integer") from None
 
 
 @dataclass(frozen=True)
