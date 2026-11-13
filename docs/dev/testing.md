@@ -397,7 +397,7 @@ vacuously. A rung that cannot clear a thousand declares its own lower
 guard, at least a hundred bounds, with the measured margin that limits it
 (`parity_ladder.Detection`); a rung the term cannot move that far is listed as unguarded,
 with why it is kept. Every row guards at least one rung, unless the guard found an old
-claim vacuous: that row is kept with every rung unguarded and what was measured. A new
+claim vacuous: that row is kept, declared `vacuous` with what was measured. A new
 parity case is a row, not a new ladder.
 
 Two tests read the documentation rather than the package: `tests/test_guide_snippets.py`

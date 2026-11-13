@@ -254,7 +254,7 @@ HELIUM_FREES_NOTHING_AT_THE_LAUNCH = (
     "assembled beside the Kerr term on a population that frees nothing; the "
     "pre-ionised helium marches carry the plasma's guard."
 )
-"""Why a cold helium capillary's evaluation is unguarded."""
+"""Why a cold helium capillary's evaluation is kept, though vacuous (#800)."""
 
 
 def held_current_rows() -> Iterator[Row]:
@@ -278,9 +278,7 @@ def held_current_rows() -> Iterator[Row]:
                 "the reference does, in one evaluation at the launch.",
                 build=partial(built_column, name, rule),
                 rungs={"derivative": one_evaluation},
-                unguarded={"derivative": HELIUM_FREES_NOTHING_AT_THE_LAUNCH}
-                if name in HELIUM
-                else {},
+                vacuous=HELIUM_FREES_NOTHING_AT_THE_LAUNCH if name in HELIUM else "",
             )
 
 
@@ -329,7 +327,7 @@ HELIUM_FREES_NOTHING = (
     "native's electron density must be exactly zero too (it is held elementwise); the "
     "pre-ionised rows carry the plasma's guard."
 )
-"""Why a cold helium capillary's march is unguarded."""
+"""Why a cold helium capillary's march is kept, though vacuous (#800)."""
 
 ARGON_BARELY_IONISES = (
     "Without pre-ionisation the mixture's argon frees 3.1e16 electrons per m^3, about "
@@ -339,7 +337,8 @@ ARGON_BARELY_IONISES = (
     "sees the plasma (a native without it fails the row, measured), and the "
     "pre-ionised mixture rows carry the plasma's guard."
 )
-"""Why a cold mixture's march is guarded by less than a thousand bounds, or not."""
+"""Why a cold mixture's march is guarded by less than a thousand bounds, or is
+vacuous (#800)."""
 
 PLANAR_COLD_BAND_WINDOW = Detection(
     threshold=100,
@@ -383,7 +382,7 @@ def cold_column_rows() -> Iterator[Row]:
                         built_column, name, rule, preionisation=0.0, steps=steps
                     ),
                     rungs={"steps": over_steps(steps)},
-                    unguarded={"steps": HELIUM_FREES_NOTHING},
+                    vacuous=HELIUM_FREES_NOTHING,
                     every_statistic=held_to_the_field(),
                 )
     mixture = ROUTES["mixture"]
@@ -404,7 +403,7 @@ def cold_column_rows() -> Iterator[Row]:
                 built_column, "mixture", rule, preionisation=0.0, steps=steps
             ),
             rungs={"steps": over_steps(steps)},
-            unguarded={"steps": ARGON_BARELY_IONISES.format(moved=moved)},
+            vacuous=ARGON_BARELY_IONISES.format(moved=moved),
             every_statistic=held_to_the_field(density_at_least=COLD_MIXTURE_DENSITY),
         )
     yield plasma_row(

@@ -153,10 +153,12 @@ class Row:
     what it must be; ``quiet`` holds the warning filters the row's run needs.
     ``unguarded`` names a rung the term does not move far enough to guard, with why the
     rung is kept; it still runs at its bound, and the row's other rungs carry its guard.
-    A row whose term reaches none of its rungs -- an old claim the guard found vacuous,
-    kept -- names them all. ``metric`` is how every field rung and guard compares
-    (``"normwise"`` or ``"peak"``, :data:`METRICS`). ``window`` cuts the ``steps`` rung
-    to the schedule's first steps (the whole schedule by default). ``every_statistic``
+    A row guards at least one rung, unless it is ``vacuous``: why a row whose term
+    reaches none of its rungs (an old claim the guard found vacuous) is kept, with what
+    was measured; its rungs run at their bounds, none guarded. ``metric`` is how every
+    field rung and guard compares (``"normwise"`` or ``"peak"``, :data:`METRICS`).
+    ``window`` cuts the ``steps`` rung to the schedule's first steps (the whole schedule
+    by default). ``every_statistic``
     compares every statistic of the request's own specification at the end of the
     ``steps`` rung and of the ``run`` rung, each with the :class:`Statistic` it returns.
     ``context`` makes the context the whole check runs in, so that every backend of the
@@ -180,6 +182,7 @@ class Row:
     medium: bool = False
     quiet: tuple[str, ...] = ()
     unguarded: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    vacuous: str = ""
     detection: Mapping[str, Detection] = dataclasses.field(default_factory=dict)
     metric: Literal["normwise", "peak"] = "normwise"
     window: int | None = None
@@ -647,7 +650,7 @@ def _check(native_class: type, row: Row) -> list[Reading]:
             )
         field_bounds[rung] = bound
         guard = None
-        if rung not in row.unguarded:
+        if not row.vacuous and rung not in row.unguarded:
             if reference_off is None:
                 reference_off = _field(reference(off, rung, row))
             guard = _share(reference_off, _field(theirs), row.metric) / bound
@@ -727,8 +730,14 @@ def _every_statistic(
 def _check_declarations(row: Row) -> None:
     """Assert the row states its claim and declares its guards completely."""
     assert row.why.strip(), "the row states no claim (`why`)"
-    assert set(row.unguarded) <= set(row.rungs), (
-        "a row names as unguarded only rungs it runs"
+    if row.vacuous:
+        assert row.vacuous.strip(), "a vacuous row gives no reason"
+        assert not row.unguarded and not row.detection, (
+            "a vacuous row guards no rung, so it names none unguarded or lowered"
+        )
+    assert row.vacuous or set(row.unguarded) < set(row.rungs), (
+        "a row guards at least one rung (or says why it is `vacuous`), and names as "
+        "unguarded only rungs it runs"
     )
     assert all(reason.strip() for reason in row.unguarded.values()), (
         "an unguarded rung gives no reason"

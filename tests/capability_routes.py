@@ -49,8 +49,8 @@ a tenth of a per cent of itself, fails. A rung that cannot clear a thousand lowe
 own guard (``detection``, a :class:`parity_ladder.Detection`) with the reason, never
 below a hundred bounds. A rung the term cannot move even that far is named in the
 row's ``unguarded`` with the reason it is kept. Every row guards at least one rung,
-unless the guard found an old claim vacuous: such a row is kept, every rung named with
-what was measured.
+unless the guard found an old claim vacuous: such a row is kept, but declares itself
+``vacuous`` with what was measured, so that every exception is named where the row is.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
 the mixture, general-route, session and coupled-flow ladders.
