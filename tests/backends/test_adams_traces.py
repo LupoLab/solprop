@@ -49,6 +49,10 @@ CHANGED = {
     # next proposal falls below the floor is recorded, and leaves the position at its
     # end, before the floor is raised. The oracle keeps the march as it was.
     "floor_short_landing",
+    # Issue #651: a rejection whose shrunk proposal falls below the floor is recorded
+    # before the floor is raised, as an accepted step's is. The corpus keeps the
+    # historical omission; it is not regenerated.
+    "floor_after_rejections",
 }
 
 
@@ -91,3 +95,29 @@ def test_a_floor_after_an_accepted_landing_is_raised_once_the_step_is_committed(
     expected = {**oracle["end"], "in_flight": {}, "position": plane}
     assert trace["end"] == expected
     assert oracle["end"]["position"] == flight["z"] != plane
+
+
+def test_a_floor_after_a_rejection_is_raised_once_the_attempt_is_recorded():
+    # Issue #651: the march's last trial is rejected and its shrunk proposal is below
+    # the floor. Before the fix the floor was raised inside the rejection and the
+    # completed trial left no row; now it has one, and everything else -- the
+    # proposal, the history, the ledger, the message -- is the corpus's.
+    (entry,) = [
+        one for one in ENTRIES if one["scenario"]["name"] == "floor_after_rejections"
+    ]
+    scenario = Scenario.from_json(entry["scenario"])
+    oracle = entry["trace"]
+    assert oracle["end"]["stop"] == "ConvergenceError"
+    trace = run_scenario(scenario)
+    flight = oracle["end"]["in_flight"]
+    state = {key: value for key, value in trace["end"].items() if key in STATE}
+    row = {
+        **flight,
+        "end": flight["z"] + flight["dz"],
+        "step": flight["dz"],
+        "norm": scenario.norms[-1][0],
+        "accepted": False,
+        **state,
+    }
+    assert trace["events"] == [*oracle["events"], row]
+    assert trace["end"] == {**oracle["end"], "in_flight": {}}

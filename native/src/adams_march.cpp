@@ -573,16 +573,16 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         ++state.ledger.failure_restarts;
       }
       const double next = proposal(policy, step.dz, outcome.factor);
-      if (next < policy.dz_min) {
-        // `limit_step` raises inside the rejection, before the attempt is recorded.
-        result.reason = Reason::floor;
-        result.floor_proposal = next;
-        return result;
-      }
-      state.proposal = next;
+      const bool floor = next < policy.dz_min;
       if (bounds.replay) {
         // A replay cannot reject: the field has diverged (`replay_step`), and the
-        // attempt is not recorded.
+        // attempt is not recorded; a floor is raised first, inside the rejection.
+        if (floor) {
+          result.reason = Reason::floor;
+          result.floor_proposal = next;
+          return result;
+        }
+        state.proposal = next;
         result.reason = Reason::diverged;
         result.replay_dz = step.dz;
         result.replay_end = step.end;
@@ -590,6 +590,21 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         return result;
       }
       record(step.end, step.dz, norm, false, trial.order);
+      if (floor) {
+        // A floor leaves the proposal and is the reason the march stops once the
+        // completed attempt is recorded (`HostAdamsMarch._reject`, solprop issue
+        // #651). The reference raises it inside its trial's scope, so a failure of
+        // the attempt's release is the host's to keep beside the floor, as an
+        // abandoned attempt's is, never in its place.
+        try {
+          attempt.end(HostOutcome::rejected);
+        } catch (...) { // NOLINT(bugprone-empty-catch) - kept by the host, see above
+        }
+        result.reason = Reason::floor;
+        result.floor_proposal = next;
+        return result;
+      }
+      state.proposal = next;
       try {
         attempt.end(HostOutcome::rejected);
       } catch (const std::exception& error) {
