@@ -247,7 +247,9 @@ def source(
     """Return one evaluation of the whole stage source at the launch, lab frame, at `z`.
 
     Native's is its state's zero-length trial (:func:`sessions.runs.native_source`),
-    the reference's its lab-frame sample; `masked` hard-masks the launch first.
+    the reference's its lab-frame sample; `masked` hard-masks the launch first. Native
+    masks what it loads and the reference's sample takes its field as given, so on a
+    launch with content outside the active band the unmasked rung compares two inputs.
     """
     problem = built.problem
     launch = problem.initial.field0
@@ -269,9 +271,11 @@ def derivative(backend_class: type, built: Built) -> np.ndarray:
     The probe of ``tests/backends/test_radial_nonlinear.py``: the reference's own
     nonlinear pass hoisted to the launch (:func:`builders.launch_derivative`), and
     native's state's zero-length trial on its staged rows, whose first stage is the same
-    quantity in the interaction picture at its origin. The reference's lab-frame sample
-    (:func:`source`) is not hoisted, and departs from this by 4.3e-13 of the peak on the
-    optmat argon capillary (measured), where native agrees with it to 1.3e-15.
+    quantity in the interaction picture at its origin. Both sides evaluate the loaded,
+    band-masked state, so this is :func:`source` with ``masked=True``, bit for bit on
+    the reference; the unmasked :func:`source` hands the reference the launch with its
+    out-of-band content, 4.3e-13 of the peak away on the optmat argon capillary
+    (``tests/backends/test_optmat_cases.py``).
     """
     problem = built.problem
     assert problem.initial.noise0 is None, "the rung's launches carry no noise"
