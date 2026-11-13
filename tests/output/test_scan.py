@@ -415,3 +415,46 @@ def test_partial_staging_never_exposes_unvalidated_metadata(tmp_path):
     writer.close()
     assert ScanOutput(path).point(0)["status"] == "todo"
     assert "metadata" not in ScanOutput(path).point(0)
+
+
+def _materialised(path):
+    """Read the global indices each consolidated layout holds."""
+    with h5py.File(path) as file:
+        return [
+            _dataset(layout, "index")[...].tolist()
+            for layout in _group(file, "layouts").values()
+        ]
+
+
+def test_a_rerun_that_commits_nothing_keeps_the_layouts_and_the_file_size(tmp_path):
+    # Every close used to delete and rebuild the layouts, and HDF5 does not reclaim
+    # a deleted group's space: an unchanged rerun grew the file each time.
+    path = tmp_path / "scan.h5"
+    scan = Scan("scan", power=[1, 2, 3])
+    writer = ScanWriter(path, scan, {})
+    for index in range(3):
+        writer.commit(result(index))
+    writer.close()
+    size = path.stat().st_size
+    for _ in range(3):
+        writer = ScanWriter(path, scan, {})
+        writer.commit(dataclasses.replace(result(0), status="skipped"))
+        writer.close()
+    assert path.stat().st_size == size
+    assert _materialised(path) == [[0, 1, 2]]
+
+
+def test_a_commit_after_an_interrupted_close_still_rebuilds_the_layouts(tmp_path):
+    path = tmp_path / "scan.h5"
+    scan = Scan("scan", power=[1, 2])
+    writer = ScanWriter(path, scan, {})
+    writer.commit(result(0))
+    writer.close()
+    writer = ScanWriter(path, scan, {})
+    writer.commit(result(1))
+    # Killed before its close consolidated: the next writer, with nothing of its
+    # own to commit, rebuilds what the last one left.
+    writer.close(consolidate=False)
+    assert _materialised(path) == [[0]]
+    ScanWriter(path, scan, {}).close()
+    assert _materialised(path) == [[0, 1]]

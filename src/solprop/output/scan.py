@@ -376,6 +376,7 @@ class ScanWriter:
             return
         if result.status not in ("done", "failed"):
             raise OutputError(f"invalid point status {result.status!r}")
+        self._layouts_stale()
         if not 0 <= result.index < len(_dataset(self.file, "points/index")):
             raise OutputError("result index is outside the scan")
         # A committed point is the only copy of its arrays on the Local, Pool and
@@ -547,10 +548,24 @@ class ScanWriter:
         )
         self.file.flush()
 
+    def _layouts_stale(self) -> None:
+        """Mark the layouts out of date, durably, before a commit changes staging.
+
+        A rebuild that follows clears the mark; one that never comes (a crash, a
+        kill) leaves it for the next writer's close to see.
+        """
+        layouts = self.file.require_group("layouts")
+        if layouts.attrs.get("current", False):
+            layouts.attrs["current"] = False
+            self.file.flush()
+
     def close(self, *, consolidate: bool = True) -> None:
         """Build layout arrays and CSR statistics, then close the writer.
 
         A hard interruption before this point is readable from committed staging.
+        Layouts already current -- no point committed since they were built, as on a
+        rerun with every point done -- are kept rather than rebuilt: HDF5 does not
+        reclaim the space of a deleted group, so each rebuild grows the file.
 
         Parameters
         ----------
@@ -558,7 +573,11 @@ class ScanWriter:
             False closes an unchanged collection without rebuilding its layouts.
         """
         try:
-            if consolidate:
+            layouts = self.file.get("layouts")
+            current = isinstance(layouts, h5py.Group) and bool(
+                layouts.attrs.get("current", False)
+            )
+            if consolidate and not current:
                 self._collect_layouts()
         finally:
             # Closes the file, then releases the sidecar lock a waiting reader
@@ -612,6 +631,9 @@ class ScanWriter:
                         target[row] = _dataset(file, f"staged/{index}/{key}")[...]
         self._common_fields(done)
         self._rectangular(done, next(iter(by_layout)) if len(by_layout) == 1 else None)
+        # Only after the whole replacement is flushed, which _rectangular ends with.
+        layouts.attrs["current"] = True
+        file.flush()
 
     def _rectangular(self, done: np.ndarray, layout_name: str | None) -> None:
         """Expose uniform arrays over the complete global point axis.
