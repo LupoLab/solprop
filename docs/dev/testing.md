@@ -393,7 +393,8 @@ native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family
 beside its cases (`tests/backends/dispersive_rows.py`, whose docstring shows how to read
 one; `tests/backends/optmat_rows.py`, whose rows climb from the linear operator to the
 driver's complete run; `tests/backends/plasma_rows.py`, the field plasma column on every
-route under both running-integral rules). A row states the physical claim it holds in one sentence
+route under both running-integral rules; `tests/backends/column_rows.py`, the retired
+compiled backend's column tests, a march's every statistic and the launch's among them). A row states the physical claim it holds in one sentence
 (`why`), and explains a bound with a floor, a margin or a choice in `bound_note` (what
 was measured against it, what a wrong backend would miss by); every failure quotes
 both, and a rung outside its bound gives the measured value, the bound and their ratio.
