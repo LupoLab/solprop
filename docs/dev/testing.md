@@ -183,6 +183,20 @@ of the default lane's time is the compiled-kernel tests, which compile one kerne
 parametrisation, so parametrise a compiled test only over what the kernel actually
 branches on.
 
+The budgets are read from the lanes' JUnit reports. The collection hook in
+`tests/conftest.py` writes each test's tier into its report as the property `tier`
+(`fast` where it carries no marker), and `tests/tier_budget.py` reads one lane's reports,
+the shards of one platform together, and names the fast tests that took a second or
+more and the medium tier's summed seconds against its 60 s, with its slowest tests. A
+test's time is JUnit's: setup, call and teardown, so a shared fixture counts against the
+first test that builds it. CI's **tier-budget** job writes that report for each platform
+of the test lane into the run's summary; locally,
+`uv run poe test --junitxml=report.xml` and then
+`uv run python tests/tier_budget.py report.xml`. The report is advisory: the tiers
+exceed their budgets today, so the job does not gate a pull request, and
+`--enforce` (exit 1 on an exceeded budget) is for when they hold. The slow lane's budget
+is the lane's wall time, which its CI job's duration shows.
+
 A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
 repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks
 ([benchmarks.md](benchmarks.md)), by hand on an idle machine and recorded with the
