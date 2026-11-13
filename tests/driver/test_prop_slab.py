@@ -7,7 +7,8 @@
 Every run is ten fixed steps of a 10 cm argon-filled gap (2a = 127 um, Akturk et
 al. 2009), under a collar weakened far below every bound here so that the explicit
 nonlinear-scheme absorber does not cap the step (ADR-025, the pattern of
-``test_coherent_capillary.py``). Energies are in **J/m**: the slab is uniform in y.
+``test_coherent_capillary.py``); the cases are ``tests/slab_cases.py``. Energies are in
+**J/m**: the slab is uniform in y.
 """
 
 import contextlib
@@ -23,10 +24,17 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from bounds import fft_bound, gamma
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
-from solprop.boundaries import absorber
+from slab_cases import (
+    GRID,
+    HALF_GAP,
+    LENGTH,
+    STEPS,
+    launched,
+    options,
+    parity_bound,
+)
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
 from solprop.driver.executors import Local
@@ -39,7 +47,6 @@ from solprop.exceptions import (
     OutputError,
     SolpropWarning,
 )
-from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.modes import (
     MarcatiliMode,
@@ -61,7 +68,6 @@ from solprop.processing.scans import (
     peak_power,
 )
 from solprop.profiles import Linear
-from solprop.stepper import DOPRI5
 from solprop.stepper.schedule import FixedSchedule
 from solprop.tools import pulse_peak_power
 
@@ -70,66 +76,9 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
 )
 
-LENGTH = 0.1
-"""Guide length, m: B is a third of a radian at 0.5 J/m and dispersion negligible."""
-
-STEPS = 10
-"""The fixed schedule's steps: the ten-step rule."""
-
-HALF_GAP = 63.5e-6
-"""Akturk et al.'s 2a = 127 um, m."""
-
-GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12)
-"""One envelope grid for every run, so that launches and bounds share it."""
-
-COLLAR = absorber(GRID, boundary_length=1.0e3)
-"""A collar a million times weaker than the default, present but inert (ADR-025)."""
-
 BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
-
-
-def options(**changes):
-    return {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": COLLAR,
-        "fwhm": 100e-15,
-        "energy": 0.5,
-        "envelope": True,
-        "plasma": False,
-        "raman": False,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        **changes,
-    }
-
-
-def launched(simulation, shares):
-    """Replace a single-mode launch by the Gaussian's projection onto every mode."""
-    pulse = simulation._field0[0]
-    initial = np.stack([math.sqrt(share) * pulse for share in shares])
-    launched = simulation.with_input(initial)
-    # The record describes the replacement spectrum, not the single-mode pulse.
-    assert "pulse" not in launched.configuration
-    return launched
-
-
-def parity_bound(n_nodes):
-    """Relative bound on a ten-step final field between two backends.
-
-    The legacy capillary bound (``test_coherent_capillary.legacy_parity_bound``):
-    each of the ten steps' seven DOPRI5 stages re-forms the nonlinear term from a
-    field the backends built in different orders -- one FFT round trip each way
-    and the modal synthesis and projection over at most the rule's nodes -- and
-    the errors of the stages add, since the linear step is unit-modulus and the
-    nonlinear phase stays below one radian. Written before the runs were compared.
-    """
-    return STEPS * DOPRI5.n_stages * (2 * fft_bound(GRID.n_to) + 2 * gamma(n_nodes))
 
 
 # ------------------------------------------------------------------ the physics
