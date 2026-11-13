@@ -183,7 +183,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
 )
 def test_dry_air_falling_to_vacuum(integrator):
     # optmat's dry air on three independent density paths; its Adams run is the
-    # parity ladder of tests/backends/test_optmat_raman_parity.py.
+    # catalogue row `optmat air_vacuum` (tests/backends/optmat_rows.py).
     case = variant("air_vacuum", integrator=integrator)
     assert case.simulation is not None
     assert case.problem.linear.phi_representation == "table"

@@ -16,8 +16,8 @@ built problem -- the translated problem, its run request, its grid and execution
 options -- with an id and the axes it covers: route family, response, stepper and
 features. Rows cover the axes pairwise (each route with each response and each
 stepper it admits, each feature on at least one route), not their full product. A
-family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``)
-and is collected here.
+family of rows lives beside the cases it builds from (``backends/dispersive_rows.py``,
+``backends/optmat_rows.py``) and is collected here.
 
 **Claims.** Every row states the physical claim it holds (``why``, one sentence, such
 as "the response must not filter the drive"), and a row whose bound has a floor, a
@@ -26,15 +26,20 @@ margin or a choice worth explaining says what was measured against it
 bound gives the measured value, the bound and their ratio.
 
 **Rungs.** One source evaluation (``source``: the whole stage source at the launch),
-one evaluation's projected polarisation on both quadrature rules (``projected``), one
-step (``one_step``: the schedule cut to its first step), the schedule's fixed window
-(``steps``), and statistics at its end. A row names the rungs it runs, each with its
-bound: a function of the built problem from ``tests/bounds.py`` and the family's
-summation counts, fixed before either backend runs. A rung compares normwise
-relative to a finite, non-zero reference and must be strictly inside its bound; a
-``floor`` row adds its own measured native disagreement where a term beside the row's
-is known to disagree by more than the row's budget. Rungs go through the native state
-(its trial, march and projections), never a Python re-implementation.
+the first stage's derivative at the launch (``derivative``), one evaluation's projected
+polarisation on both quadrature rules (``projected``), one step of the launch scaled
+to ``1e-20`` (``linear``: the linear operator alone), one step (``one_step``: the
+schedule's first), the schedule's fixed window or its first steps (``steps``), and
+the complete run through the driver and output layer (``run``), with statistics at
+the end of the last two. A row names the rungs it runs, each with its bound: a function
+of the built problem from ``tests/bounds.py`` and the family's summation counts, fixed
+before native runs (a bound may read the reference's own launch derivative or complete
+run, as a growth factor or a rate's sensitivity). A rung compares relative to a
+finite, non-zero reference -- normwise, or peak-normalised where the row's bounds count
+roundings per sample of the peak -- and must be strictly inside its bound; a ``floor``
+row adds its own measured native disagreement where a term beside the row's is known
+to disagree by more than the row's budget. Rungs go through the native state (its
+trial, march and projections) or the driver, never a Python re-implementation.
 
 **Non-vacuity.** Every row says how to switch its term off (``switch_off``, on the
 translated problem). At every field rung the reference with the term off must differ
@@ -46,9 +51,7 @@ below a hundred bounds. A rung the term cannot move even that far is named in th
 row's ``unguarded`` with the reason it is kept; every row guards at least one rung.
 
 **Still to join** (each a family of rows, the per-feature ladder deleted as it moves):
-the linear-operator rung and the complete run through the output layer
-(``tests/optmat_parity.py``), and the plasma, mixture, general-route, session and
-coupled-flow ladders.
+the plasma, mixture, general-route, session and coupled-flow ladders.
 """
 
 from __future__ import annotations
@@ -390,8 +393,8 @@ ROUTES: dict[str, Callable[[str | None], Simulation]] = {
 
 def catalogue() -> tuple[Row, ...]:
     """Return every row of the parity catalogue, their ids unique."""
-    from backends import dispersive_rows  # noqa: PLC0415
+    from backends import dispersive_rows, optmat_rows  # noqa: PLC0415
 
-    rows = (*dispersive_rows.rows(),)
+    rows = (*dispersive_rows.rows(), *optmat_rows.rows())
     assert len({row.id for row in rows}) == len(rows)
     return rows
