@@ -237,7 +237,7 @@ def committed(output: PlaneStore) -> np.ndarray:
 
 
 # ------------------------------------------------------------- the re-review's packet
-@pytest.mark.medium
+@pytest.mark.slow
 def test_the_rereview_packet_reads_as_part_ii_tabulates() -> None:
     # Part II's witness: the edge share at z = 0, L/2 and L, and the field error at L
     # against a bare line eight times wider at the same spacing. +-5 %: the same linear
@@ -335,7 +335,7 @@ def test_a_fixed_schedule_reading_on_the_wrap_stops() -> None:
             27,
             0.098,
             [0.796, 0.885, 0.984, 1.0],
-            marks=pytest.mark.medium,
+            marks=pytest.mark.slow,
         ),
     ],
     ids=["ms", "rk"],
