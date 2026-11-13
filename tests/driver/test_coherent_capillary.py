@@ -31,7 +31,7 @@ from scipy.linalg import expm
 from scipy.special import jn_zeros, jv
 
 import solprop.translate.walls as walls_module
-from bounds import assert_within, fft_bound, gamma, step_evaluations
+from bounds import assert_within
 from coupled_flow_cases import (
     GRID,
     LENGTH,
@@ -46,7 +46,12 @@ from coupled_flow_cases import (
     varying,
     vector_modes,
 )
-from legacy_geometry import LEGACY_GRID, bare_absorber
+from legacy_entry_cases import (
+    legacy_capillary,
+    legacy_gnlse,
+    legacy_parity_bound,
+    legacy_simulation,
+)
 from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
@@ -57,7 +62,7 @@ from solprop.backends.numpy_ref.backend import (
 )
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
-from solprop.driver import Simulation, prop_capillary, prop_gnlse
+from solprop.driver import Simulation, prop_capillary
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
@@ -71,7 +76,7 @@ from solprop.exceptions import (
     SolpropWarning,
     TranslationError,
 )
-from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
+from solprop.grid import FieldGrid, RadialGrid
 from solprop.linear import DEFAULT_LOSS_POLICY
 from solprop.modes import (
     CoherentWall,
@@ -92,7 +97,7 @@ from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
-from solprop.stepper import DOPRI5, FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import (
     SECTION_TOL,
@@ -1315,12 +1320,6 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 
 # ------------------------------------------------------- the legacy entry points
 
-LEGACY_LENGTH = 2e-4
-"""Length of the legacy-identity case, m: ten fixed steps of 20 micrometres."""
-
-LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
-"""The schedule both legacy runs replay, so that a record is a record of one march."""
-
 # The legacy runs' final planes were byte digests, recorded on one platform and
 # re-recorded at each deliberate change (the Multistep default, SEP 3's optmat helium
 # and silica wall, the rationalised refractivity root, the 293.15 K default
@@ -1329,90 +1328,6 @@ LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
 # Nothing here is a *reference*: the records are this package's own answer, not an
 # independent one. The physics of these two entry points is qualified in
 # ``tests/driver/test_prop_capillary.py`` and ``tests/driver/test_prop_gnlse.py``.
-
-
-def legacy_capillary_keywords(backend):
-    """Return the keywords of the ten-step two-mode capillary run of the pre-wall route.
-
-    At the Adams method's fixed top order, so that no order choice is left for
-    rounding to move: a run is the recorded run's discrete march.
-    """
-    return {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-8,
-        "modes": 2,
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-        "plasma": False,
-        "raman": False,
-    }
-
-
-def legacy_gnlse_keywords(backend):
-    """Return the keywords of the ten-step GNLSE run of the soliton case.
-
-    On the grid it was recorded on and without a collar, as the run was before
-    the default collar: the record is of that march.
-    """
-    grid = EnvelopeGrid.from_limits(
-        LEGACY_LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
-    )
-    return {
-        "wavelength": 835e-9,
-        "grid": grid,
-        "absorber": bare_absorber(grid),
-        "width": 100e-15,
-        "peak_power": 9.8,
-        "shape": "sech",
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-    }
-
-
-GNLSE_FIBRE = (0.11, LEGACY_LENGTH, [0.0, 0.0, -1.183e-26])
-"""The legacy GNLSE run's ``gamma`` (1/(W m)), length (m) and Taylor betas."""
-
-
-def legacy_capillary(backend):
-    """Return a ten-step two-mode capillary run of the pre-wall route."""
-    return prop_capillary(
-        125e-6,
-        LEGACY_LENGTH,
-        "He",
-        1.0,
-        **{"noise": None, **legacy_capillary_keywords(backend)},
-    )
-
-
-def legacy_gnlse(backend):
-    """Return a ten-step GNLSE run of the soliton case."""
-    return prop_gnlse(*GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords(backend)})
-
-
-def legacy_simulation(entry):
-    """Return the simulation a legacy entry point runs, for its rounding budget."""
-    if entry == "prop_capillary":
-        return Simulation.from_capillary(
-            125e-6,
-            LEGACY_LENGTH,
-            "He",
-            1.0,
-            **{"noise": None, **legacy_capillary_keywords("numpy_ref")},
-        )
-    return Simulation.from_gnlse(
-        *GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords("numpy_ref")}
-    )
 
 
 @pytest.mark.medium
@@ -1455,25 +1370,6 @@ def test_the_legacy_entry_points_are_what_they_were(
         float(np.max(np.abs(field - reference)))
         <= legacy_parity_bound(field.shape[-1], legacy_simulation(entry)) * scale
     )
-
-
-def legacy_parity_bound(samples: int, simulation) -> float:
-    """Relative bound on a legacy run's final field between two backends.
-
-    Every evaluation of each of the ten steps -- DOPRI5's seven stages, or the Adams
-    march's one, which reaches the step through its predictor's and corrector's
-    weights, counted by their absolute sum (``bounds.step_evaluations``) --
-    re-evaluates the nonlinear term
-    from a field the two backends formed in different orders: one FFT round trip each
-    way (``fft_bound``) and the modal synthesis and projection, whose sums run over at
-    most the transform's nodes (``gamma`` of the time samples, an over-count of any
-    node set here). Errors of the stages add; the linear step is a unit-modulus phase
-    and the case's nonlinear phase is far below one radian, so nothing amplifies them.
-    Derived before the local-build comparison was run.
-    """
-    per_stage = 2 * fft_bound(samples) + 2 * gamma(samples)
-    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation._run_request()))
-    return STEPS * evaluations * per_stage
 
 
 # ------------------------------------------------------------- the varying section
