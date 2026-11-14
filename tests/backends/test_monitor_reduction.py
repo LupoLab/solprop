@@ -32,6 +32,9 @@ from capability_routes import LENGTH
 from legacy_geometry import bare_absorber
 from monitor_cases import (
     MARCHES,
+    QUIET_BUDGET,
+    QUIET_STEPS,
+    ROUTE_MARCHES,
     ROUTE_NAMES,
     SCHEMES,
     STEPS,
@@ -50,6 +53,7 @@ from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
+from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 
 COMPILED = ("native",)
@@ -154,23 +158,48 @@ def _launch_reading(
         made.close()
 
 
-def _check_split(backend: str, route: str, march: str) -> None:
-    """Compare a backend's split removal over a fixed march with the reference's."""
-    simulation = probe(route, "split_step", MARCHES[march])
-    theirs = record_after_march(simulation, "numpy_ref")
-    ours = record_after_march(simulation, backend)
+def _steps(simulation: Simulation) -> int:
+    """Return how many steps a probe's fixed schedule takes."""
+    schedule = simulation.settings.schedule
+    assert isinstance(schedule, FixedSchedule)
+    return len(schedule.edges) - 1
+
+
+def _check_split(backend: str, route: str, march: str, *, quiet: bool = False) -> None:
+    """Compare a backend's split removal over a fixed march with the reference's.
+
+    `quiet` takes the quiet probe: more steps than the cadence and no active edge, so
+    that most steps go unchecked and the backend's own sum alone carries their removal.
+    """
+    simulation = probe(
+        route,
+        "split_step",
+        MARCHES[march],
+        steps=QUIET_STEPS if quiet else STEPS,
+        budget=QUIET_BUDGET if quiet else 1.0,
+    )
+    steps = _steps(simulation)
+    interval = math.inf if quiet else None
+    theirs = record_after_march(simulation, "numpy_ref", interval=interval)
+    ours = record_after_march(simulation, backend, interval=interval)
     assert theirs["raw_removed_fraction"] > 1e-6
+    if quiet:
+        assert theirs["skipped"] > 0
+        assert ours["skipped"] == theirs["skipped"]
     # Each step's removal carries the reading's rounding, and the matched steps' states
     # agree to the march's own rounding, amplified over the steps; a device build adds
     # its transforms' declared envelope, eight round trips a step at most.
     bound = ladder_bound(
-        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * steps
     )
-    # The guards are judged on what each step's split found (`split_sums`): the copy's
-    # tail puts 3e-15 to 5e-12 of the energy there, whose samples' rounding is a
-    # relative 1e-8 of it at most, far inside the bound.
-    assert theirs["guard_high_max"] > 1e-15
-    names = ("raw_removed_fraction", "removed_fraction", "collar_max", "guard_high_max")
+    names = ("raw_removed_fraction", "removed_fraction", "collar_max")
+    if not quiet:
+        # The guards are judged on what each step's split found (`split_sums`): the
+        # copy's tail puts 3e-15 to 5e-12 of the energy there, whose samples' rounding
+        # is a relative 1e-8 of it at most, far inside the bound. The quiet march's
+        # two checks may find no more than rounding there, and leave them out.
+        assert theirs["guard_high_max"] > 1e-15
+        names = (*names, "guard_high_max")
     for name in names:
         assert ours[name] == pytest.approx(theirs[name], rel=bound), name
     assert ours["steps"] == theirs["steps"]
@@ -191,8 +220,7 @@ def test_a_check_reads_the_reference_s_five_numbers(
     _checkreading(backend, route, scheme)
 
 
-@pytest.mark.parametrize("march", sorted(MARCHES))
-@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
 @pytest.mark.parametrize("backend", COMPILED)
 def test_the_split_s_removal_is_the_reference_s(
     backend: str, route: str, march: str
@@ -201,6 +229,48 @@ def test_the_split_s_removal_is_the_reference_s(
     # march; the steps are fixed, so the backends take the same ones.
     _require(backend)
     _check_split(backend, route, march)
+
+
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
+@pytest.mark.parametrize("backend", COMPILED)
+def test_the_split_s_removal_over_unchecked_steps_is_the_reference_s(
+    backend: str, route: str, march: str
+) -> None:
+    # Most steps go unchecked: a backend that kept only the latest step's removal
+    # would report the last one between two checks, not their sum.
+    _require(backend)
+    _check_split(backend, route, march, quiet=True)
+
+
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
+@pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])
+def test_the_split_s_removal_does_not_depend_on_the_checks(
+    backend: str, route: str, march: str
+) -> None:
+    # The same quiet march checked at every step (its steps are longer than the
+    # monitor's interval) and left to the cadence: the split takes the same light
+    # either way, and only where the backend's sum is drained differs. This holds
+    # each backend's own accumulator, the reference's included, with no oracle.
+    _require(backend)
+    simulation = probe(
+        route, "split_step", MARCHES[march], steps=QUIET_STEPS, budget=QUIET_BUDGET
+    )
+    every = record_after_march(simulation, backend)
+    sparse = record_after_march(simulation, backend, interval=math.inf)
+    assert every["skipped"] == 0
+    assert sparse["skipped"] > 0
+    assert every["steps"] + every["skipped"] == sparse["steps"] + sparse["skipped"]
+    assert every["raw_removed_fraction"] > 1e-6
+    # The two runs take the same steps; their removals differ by the order of the
+    # sum and by the march's own rounding where a threaded build reorders it, inside
+    # the bound the matched marches of `_check_split` are held to.
+    steps = _steps(simulation)
+    bound = ladder_bound(
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * steps
+    )
+    assert sparse["raw_removed_fraction"] == pytest.approx(
+        every["raw_removed_fraction"], rel=bound
+    )
 
 
 def _require_device() -> None:
@@ -220,8 +290,7 @@ def test_a_device_reads_the_reference_s_five_numbers(route: str, scheme: str) ->
 
 
 @pytest.mark.gpu
-@pytest.mark.parametrize("march", sorted(MARCHES))
-@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize(("route", "march"), ROUTE_MARCHES)
 def test_a_device_s_split_removal_is_the_reference_s(route: str, march: str) -> None:
     _require_device()
     _check_split("native", route, march)
