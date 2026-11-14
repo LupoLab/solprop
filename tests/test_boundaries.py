@@ -454,9 +454,12 @@ def test_a_malformed_absorber_is_rejected(field_grid):
 
 
 def crossing_nepers(grid, group_delay_span, boundary_n=DEFAULT_BOUNDARY_N):
-    """The field attenuation a walking packet accumulates crossing the collar."""
+    """The field attenuation a walking packet accumulates crossing the collar.
+
+    The rate summed over the periodic axis, which the packet crosses whole.
+    """
     rate = absorber(grid, boundary_N=boundary_n).temporal_rate
-    return 0.5 * float(np.trapezoid(rate, dx=grid.dt)) * grid.length / group_delay_span
+    return 0.5 * float(np.sum(rate)) * grid.dt * grid.length / group_delay_span
 
 
 def test_the_walk_off_warning_fires_when_the_absorber_is_too_weak(field_grid):
@@ -466,6 +469,32 @@ def test_the_walk_off_warning_fires_when_the_absorber_is_too_weak(field_grid):
     assert crossing_nepers(field_grid, span) < MIN_COLLAR_ATTENUATION
     with pytest.warns(SolpropWarning, match="wrapping around"):
         warn_walkoff(field_grid, span)
+
+
+@pytest.mark.parametrize("grid_name", GRIDS)
+def test_the_walk_off_warning_reads_the_periodic_sum_of_the_collar(grid_name, request):
+    """The threshold is the closed form ``6.3 w L / (Gamma ell)``, not one sample short.
+
+    Over both edges the rate integrates to ``12.6 w / ell`` exactly on the periodic
+    axis; a trapezoid over the samples would read ``w - dt`` and fire at a span
+    ``dt / w`` short of the threshold.
+    """
+    grid = request.getfixturevalue(grid_name)
+    width = edge_width(grid)
+    reference = grid.length / DEFAULT_BOUNDARY_N
+    threshold = (
+        0.5
+        * TEMPORAL_ALPHA_LENGTH
+        * width
+        * grid.length
+        / (reference * MIN_COLLAR_ATTENUATION)
+    )
+    assert grid.dt / width > 1e-4
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_walkoff(grid, threshold * (1.0 - 1e-6))
+    with pytest.warns(SolpropWarning, match="wrapping around"):
+        warn_walkoff(grid, threshold * (1.0 + 1e-6))
 
 
 def test_the_walk_off_warning_is_silent_when_the_absorber_is_strong_enough(field_grid):
@@ -554,20 +583,15 @@ def edge_width(grid):
 def test_a_walkoff_sets_the_length_the_derivation_gives(field_grid):
     """``ell_c = 6.3 w L / (Gamma dtau)``, on the integral ``warn_walkoff`` reads.
 
-    The integral of ``1 - W`` over both edges is ``w`` by the Planck taper's symmetry;
-    the trapezoid on the axis, which stops one sample short of closing the period,
-    reads ``w - dt``. So the bound is that one sample, and the sampled form is exact.
+    The integral of ``1 - W`` over both edges is ``w`` by the Planck taper's symmetry,
+    and the rectangle sum over the periodic axis reads it exactly, so the bound is the
+    rounding margin of the sizing.
     """
     drift = 3e-12
     width = edge_width(field_grid)
     collar = absorber(field_grid, walkoff=drift)
     closed_form = 6.3 * width * field_grid.length / (MIN_COLLAR_ATTENUATION * drift)
-    assert collar.in_stage_length == pytest.approx(
-        closed_form, rel=2.0 * field_grid.dt / width
-    )
-    assert collar.in_stage_length == pytest.approx(
-        closed_form * (width - field_grid.dt) / width, rel=1e-6
-    )
+    assert collar.in_stage_length == pytest.approx(closed_form, rel=1e-8)
     assert float(collar.temporal_rate.max()) == pytest.approx(
         TEMPORAL_ALPHA_LENGTH / collar.in_stage_length, rel=1e-3
     )
@@ -815,11 +839,12 @@ def test_a_walkoff_collar_removes_light_of_the_stated_walk_off(backend, stretch)
     """A packet of the stated drift leaves a millionth of its power, and no more.
 
     The packet crosses both edges rigidly, so its power falls by exactly the integral
-    of the rate over the ring divided by the speed: ``exp(-2 Gamma)`` of the sizing,
-    corrected by the one sample the sizing's trapezoid leaves out of the periodic sum.
+    of the rate over the ring divided by the speed: ``exp(-2 Gamma)``, which the sizing
+    reads from the same periodic sum.
     A drift of half the collar's or twice its stated value shows the exponent is
     linear in the speed, and that the light has no other way out. The bound on the
-    exponent is the controller's ``rtol``; measured 6e-9 on both backends.
+    exponent is the controller's ``rtol``; measured 2.4e-9 at the stated drift on
+    ``numpy_ref``.
     """
     if backend == "native":
         pytest.importorskip("solprop_native")
@@ -830,7 +855,7 @@ def test_a_walkoff_collar_removes_light_of_the_stated_walk_off(backend, stretch)
     collar = absorber(grid, walkoff=drift / stretch)
     closed_period = np.sum(temporal_collar_rate(grid.t, grid.t_collar, 1.0)) * grid.dt
     expected = closed_period * grid.length / (collar.in_stage_length * drift)
-    assert expected == pytest.approx(2.0 * MIN_COLLAR_ATTENUATION / stretch, rel=0.02)
+    assert expected == pytest.approx(2.0 * MIN_COLLAR_ATTENUATION / stretch, rel=1e-8)
     power = transmitted_power(grid, collar, drift, backend=backend)
     assert -math.log(power) == pytest.approx(expected, rel=1e-7)
 
@@ -846,8 +871,7 @@ def test_without_a_temporal_collar_the_same_packet_loses_nothing():
 def test_the_split_scheme_removes_the_same_light():
     """The split's factors telescope, within its crossing limit, to the same exponent.
 
-    The split's first-order error in the step and the sizing's left-out sample, 0.7 %
-    here, set the bound; measured 0.5 %.
+    The split's first-order error in the step sets the bound; measured 0.23 %.
     """
     grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1200e-9), 2e-12, thg=False)
     drift = 0.8 * grid.n_t * grid.dt

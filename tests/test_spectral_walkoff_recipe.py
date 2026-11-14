@@ -294,6 +294,56 @@ def test_the_per_band_loss_read_from_planes_is_the_loss(backend):
     )
 
 
+def interval_drained(spectrum, z, drain):
+    """What every drain took from each bin, read exactly between the planes.
+
+    The guide's formula: with ``dS/dz = G - a S`` and ``G`` constant over an interval,
+    ``G dz = x (S1 - S0 exp(-x)) / (1 - exp(-x))``, ``x = a dz``, and the drains took
+    ``G dz - (S1 - S0)``. Returns that sum over the intervals, divided by ``a``, so a
+    rate times it is the rate's share.
+    """
+    x = drain * np.diff(z)[:, np.newaxis]
+    weight = np.divide(x, -np.expm1(-x), out=np.ones_like(x), where=x > 0)
+    fed = weight * (spectrum[1:] - np.exp(-x) * spectrum[:-1])
+    drained = np.sum(fed - np.diff(spectrum, axis=0), axis=0)
+    return np.divide(drained, drain, out=np.zeros_like(drained), where=drain > 0)
+
+
+def test_the_guide_s_interval_formula_is_exact_on_few_planes():
+    """The bins the rate is for fall far between planes; the formula still reads them.
+
+    On four planes ``a dz`` reaches 2.7 nepers at the launch's bins, where the
+    trapezoid overcounts. The interval formula is exact for a bin that only decays, so
+    the controller's ``rtol`` and rounding are the bound, and four planes and
+    thirty-two agree to it.
+    """
+    rate = recipe_rate(math.log(1 / SURVIVAL) / LENGTH)
+    glass = np.zeros(GRID.n_omega)
+    active = GRID.active_mask
+    glass[active] = (
+        2 * GRID.omega[active] * np.imag(MEDIUM.index(GRID.omega[active])) / C
+    )
+    whole = rate + glass
+    field = launch([(carrier_at(ONSET + 0.5 * PROTECTED), 1e-9, 0.0)])
+    readings = []
+    for planes in (4, 32):
+        output = run(spectral_only(rate), field, planes=planes)
+        spectrum = np.asarray(output["stats/beam_spectrum"])
+        z = np.asarray(output["z"])
+        readings.append(rate * interval_drained(spectrum, z, whole))
+    few, many = readings
+    weak = (spectrum[0] > 1e-3 * spectrum[0].max()) & (rate > 0.0)
+    assert np.count_nonzero(weak) > 3
+    assert float(np.max(whole[weak])) * LENGTH / 4 > 2.0
+    exact = (
+        spectrum[0, weak]
+        * (rate[weak] / whole[weak])
+        * -np.expm1(-whole[weak] * LENGTH)
+    )
+    np.testing.assert_allclose(few[weak], exact, rtol=1e-6)
+    np.testing.assert_allclose(few[weak], many[weak], rtol=1e-6)
+
+
 def test_a_band_can_lose_most_of_itself_while_the_run_s_energy_barely_moves():
     """Why the check is per band: the total reads ``1e-5`` while the band reads tens of
     per cent."""

@@ -447,7 +447,10 @@ bounds read off the operator (`translate.radial.radial_rate_bounds`): a
 constant table's exact extremes of `Re D`, and, for a varying medium, a sufficient bound
 on each interval of the rate's Chebyshev series (`|T_j| ≤ 1`) for a z table or for an
 expansion's scalar weights against its terms. The refusal names the radial operator's
-attenuation and the admissible step. The modal kinds are not checked.
+attenuation and the admissible step. The modal kinds are not checked: the default
+`LossPolicy` clamps a mode's power attenuation on `D` to `2 × 708 / L`, so no step within
+the run forms an exponent past 708; gain, a raised `max_alpha` and the absorber's rates,
+added after the clamp, are outside that bound.
 
 The imaginary part of Φ is also the unitary phase for the noise field. Modal Φ
 includes the real endpoint term `-1/2 [ln w(z) - ln w(0)]`. It vanishes identically

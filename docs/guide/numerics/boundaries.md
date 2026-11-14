@@ -330,7 +330,8 @@ and nothing else. So:
   long drift through a narrow collar is better served by a wider window.
 
 A linear packet walking through this collar at the stated drift leaves `exp(−2Γ)` of its
-power, a millionth, to within the one sample the sizing's integral leaves out of the period.
+power, a millionth: the sizing sums the rate over the periodic axis, which is exact for this
+taper, and the measured exponent agrees with it to a few parts in `10⁹`.
 The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off that starts
 late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
 less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default
@@ -582,12 +583,27 @@ the spatial routes' default, and about half off the in-stage term, on the same g
 light can lose most of its band while the run's energy moves by `10⁻⁵`, and the band's loss is
 what says the window is too short. The rate is diagonal in `ω`, so each bin loses
 `α(ω) S(ω, z)`, with `S` the `beam_spectrum`, integrated in `z`. That statistic is taken at saved
-planes and not [between them](../results/statistics.md#between-the-planes), so the integral runs
-over the planes, with an error of about `(α Δz)²/12` of a bin's loss by the trapezoid. Dividing
-by what the band kept and lost together counts light the run generated part-way as well as
-light it launched. `absorbed_power` has the user's share as its `custom` channel, but over the
-whole beam: only this product reads it per band. A lossy medium's own absorption is a further
-channel: fused silica absorbs at these wavelengths, and what it takes appears in neither count.
+planes and not [between them](../results/statistics.md#between-the-planes), so the integral has
+to be read from the planes.
+
+- **Not by the trapezoid.** Its error, about `(a Δz)²/12` of a bin's loss for a bin falling at
+  the rate `a`, is small only while `a Δz` is. The bins this rate exists for have `a Δz` large:
+  light already in one is gone within a fraction of the interval, and the trapezoid charges it
+  at the plane's value over the whole of it. On a 5 µm slab of fused silica with a 1 fs launch
+  at 260 nm it overcounted a band's loss by 1.5 to 2 times, and converged slowly as planes
+  were added.
+- **Between two planes.** A bin obeys `dS/dz = G − a S`, with `a` every rate that drains it,
+  the absorber's and the medium's, and `G` whatever else feeds it. Taking `G` constant over the
+  interval, the two planes fix it:
+  `G Δz = x (S₁ − S₀ e⁻ˣ)/(1 − e⁻ˣ)` with `x = a Δz`, and the drains removed `G Δz − (S₁ − S₀)`.
+  That is exact for a bin that only decays and for one fed at a steady rate, and each rate takes
+  its share `α/a` of it.
+
+Dividing by what the band kept and lost together counts light the run generated part-way as
+well as light it launched. `absorbed_power` has the user's share as its `custom` channel, but
+over the whole beam: only this product reads it per band. A lossy medium's own absorption is a
+further channel: fused silica absorbs at these wavelengths, so its rate is one of the drains,
+and what it takes is its own share, in neither the walk-off's count nor the collar's.
 
 ```python
 planes = np.linspace(length / 32, length, 32)
@@ -611,14 +627,25 @@ output = Simulation.from_free(
 # (n_z, n_omega), J/(rad/s) per metre of y
 spectrum = np.asarray(output["stats/beam_spectrum"])
 z = np.asarray(output["z"])
-lost = np.trapezoid(walkoff_rate * spectrum, z, axis=0)
-collar_lost = np.trapezoid(
-    (boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0
-)
+glass = np.zeros(grid.n_omega)  # the medium's own power loss, 1/m
+glass[active] = 2 * grid.omega[active] * np.imag(medium.index(grid.omega[active])) / C
+drain = boundary.spectral_rate + glass  # every rate that drains a bin
+x = drain * np.diff(z)[:, np.newaxis]
+# x / (1 - exp(-x)), which is 1 where nothing drains
+weight = np.divide(x, -np.expm1(-x), out=np.ones_like(x), where=x > 0)
+fed = weight * (spectrum[1:] - np.exp(-x) * spectrum[:-1])  # G dz between the planes
+drained = np.sum(fed - np.diff(spectrum, axis=0), axis=0)
+per_rate = np.divide(drained, drain, out=np.zeros_like(drained), where=drain > 0)
+lost = walkoff_rate * per_rate
+collar_lost = (boundary.spectral_rate - walkoff_rate) * per_rate
+glass_lost = glass * per_rate
 wavelength = 2 * np.pi * C / np.where(grid.omega > 0, grid.omega, np.inf)
 band = (wavelength >= 150e-9) & (wavelength <= 190e-9)
 share = lost[band].sum() / (
-    lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum()
+    lost[band].sum()
+    + collar_lost[band].sum()
+    + glass_lost[band].sum()
+    + spectrum[-1, band].sum()
 )
 print(f"the walk-off rate took {share:.2f} of the 150-190 nm band")
 ```
