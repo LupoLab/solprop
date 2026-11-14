@@ -240,9 +240,16 @@ def test_a_resume_history_that_is_not_a_boolean_is_refused(value):
     document["execution"] = {"resume_history": value}
     recipe = Recipe.from_dict(document)
     if TYPECHECKED:
-        # The annotation refuses it first when the runtime checks are on.
+        # The annotation refuses it first when the runtime checks are on; the guard
+        # itself, which production meets unchecked, is reached past the annotation.
         with pytest.raises(TypeCheckError):
             recipe.build()
+        held = Recipe.loads(GNLSE).build().settings
+        object.__setattr__(held, "resume_history", value)
+        with pytest.raises(
+            DriverError, match="resume_history must be True, False or None"
+        ):
+            held.__post_init__()
         return
     with pytest.raises(DriverError, match="resume_history must be True, False or None"):
         recipe.build()
