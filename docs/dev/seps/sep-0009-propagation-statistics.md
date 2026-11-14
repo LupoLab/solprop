@@ -751,8 +751,7 @@ budget before comparing results; no tolerance is selected from a measured failur
     periodic/plane equality for admitted cheap names (exact where the periodic row
     reuses the data the plane stores, otherwise within a rounding bound),
     memory/HDF5 round trips, resume hash mismatches, schema compatibility and
-    scans retaining statistics without fields. Existing between-plane row-count
-    defects are repaired with regression tests before qualifying new periodic names.
+    scans retaining statistics without fields.
 
 Qualify NumPy first, then Numba CPU and Kokkos CPU. On identical sampled data derive
 parity tolerances from accumulation length, FFT errors, conditioning and the local
@@ -823,8 +822,7 @@ normalised or differently sampled statistic.
 
 The roadmap's transverse-maximum intensity item is fully covered by this SEP.
 Multiple-ZDW selection, SEP 34's shared spatial flux, and the remaining ordinary
-spatial accessor issues remain separate. The between-plane memory-output
-row-count defect is a prerequisite fix for qualification, not a statistics redesign.
+spatial accessor issues remain separate.
 
 ### 10. Alternatives considered
 
@@ -909,9 +907,8 @@ to make a diagnostic easier to compute.
 - **Q5 — phase 3 / future roadmap:** a missing embedded quadrature on general
   guides remains a named refusal. A future current-source span diagnostic needs a
   separate norm/response convention; neither extension is required for Final here.
-- **Q6 — phase 5:** confirm periodic scalar qualification after the existing
-  between-plane row-count issue is fixed. Large beam/time-series families remain
-  plane-only; a later periodic extension needs its own measured cost admission.
+- **Q6 — phase 5:** confirm periodic scalar qualification. Large beam/time-series
+  families remain plane-only; a later periodic extension needs its own measured cost admission.
 
 ### 13. References
 

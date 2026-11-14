@@ -416,9 +416,12 @@ class Initial:
         trajectories is a sequence of problems, one per member (SEP 47 section 6.7),
         never a leading axis here.
     noise0 : numpy.ndarray or None
-        The shot-noise realisation in the same layout, or ``None``. It is carried along
-        z by the unitary part of the linear flow and added at every stage; the
-        propagating field never contains it.
+        The shot-noise realisation in the same layout, or ``None``. What a backend
+        does with it depends on ``noise_model``: an ``'input'`` draw is added once to
+        a fresh state at ``z`` (not again on a resume) and is kept as the boundary
+        monitor's vacuum floor; a ``'modified'`` draw is carried along z by the
+        unitary part of the linear flow and added at every stage, so the propagating
+        field never contains it.
     noise_model : {'none', 'input', 'modified'}
         Which model the realisation belongs to.
     z : float, optional

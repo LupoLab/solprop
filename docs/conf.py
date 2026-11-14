@@ -187,8 +187,10 @@ nitpick_ignore_regex = [
 # each. A normal build executes none of them: their generated pages, figures and
 # sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's stored
 # output unchanged whenever the source's checksum matches the stored one. The build
-# that publishes the manual therefore runs no propagation (Read the Docs' builders
-# stalled on the lessons and tutorials from 2026-10-29).
+# that publishes the manual therefore runs no gallery (Read the Docs' builders stalled
+# on the lessons and tutorials from 2026-10-29); its only propagations are three short
+# `.. plot::` blocks on `numpy_ref` in `guide/waveguides/` (`vector-wall.md`, and
+# `coherent-wall.md` twice).
 #
 # `SOLPROP_RUN_EXAMPLES` executes them. "stale" (`poe docs-examples`) runs every
 # script, in any gallery, whose source no longer matches its stored output; a script

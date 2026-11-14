@@ -39,6 +39,8 @@ temporal evolution along the 1.5 m fibre, and the exit spectrum. Four coupled mo
 ionisation and plasma included; under ten seconds on a laptop.*
 
 ```python
+import matplotlib.pyplot as plt
+
 from solprop.driver import prop_capillary
 from solprop.plotting import prop_2d
 
@@ -55,6 +57,7 @@ run = prop_capillary(
     wavelength_limits=(90e-9, 4e-6),
 )
 prop_2d(run, "wavelength")
+plt.show()  # a script shows the figure only when asked
 ```
 
 ## What it does

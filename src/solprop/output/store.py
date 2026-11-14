@@ -741,14 +741,16 @@ class PlaneStore(Displayed, ABC):
 
     @property
     def annotations(self) -> Mapping[str, JsonValue]:  # numpydoc ignore=RT01
-        """Post-run annotations the store holds, by name.
+        """The annotations the store holds, by name.
 
-        An annotation is something learned only once the run has closed -- the material
-        manifest's peak-field report
-        (:data:`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`) is one -- so it is not
-        part of the run's record: the configuration hash, a resume and a scan's reuse
-        never see it. A store without any, a file written before annotations existed
-        included, answers with an empty mapping.
+        An annotation is written beside the run's record, after it: something learned
+        only once the run has closed -- the material manifest's peak-field report
+        (:data:`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`) is one -- or a
+        description for a person, such as the start-of-run summary
+        (:data:`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`), written when the run
+        starts. It is not part of the record: the configuration hash, a resume and a
+        scan's reuse never see it. A store without any, a file written before
+        annotations existed included, answers with an empty mapping.
 
         Each annotation's plain JSON values, by name; a copy.
 
@@ -761,7 +763,7 @@ class PlaneStore(Displayed, ABC):
         return cast("dict[str, JsonValue]", json.loads(json.dumps(self._annotations)))
 
     def annotate(self, name: str, value: object) -> None:
-        """Record a post-run annotation, replacing any of the same name.
+        """Record an annotation beside the run's record, replacing any of the same name.
 
         The run's record is not touched: an annotation stays outside the
         configuration hash, so a file annotated after its run is still the same run

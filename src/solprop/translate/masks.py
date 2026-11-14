@@ -61,11 +61,14 @@ flow, so it caps the observed order of the whole scheme at **one** wherever the 
 does any work, and the energy it removes drifts with the step count at the same order.
 The in-stage term keeps the scheme's own order and its absorbed energy is step-count
 independent to twelve digits. Because the split factor degrades the observed order,
-the in-stage term is the default whatever it costs.
+the in-stage term is the default of the modal routes whatever it costs. The spatial
+routes (radial, Cartesian, line and planar) default to the split factor
+(:data:`solprop.driver.defaults.ROUTE_DEFAULTS`); a run with interpolated planes that
+names no scheme takes the in-stage term on every route.
 """
 
 DEFAULT_ABSORBER_SCHEME: AbsorberScheme = "nonlinear"
-"""The default scheme, chosen on accuracy (see :data:`AbsorberScheme`)."""
+"""The modal routes' default scheme, chosen on accuracy (see :data:`AbsorberScheme`)."""
 
 
 @dataclass(frozen=True, eq=False)

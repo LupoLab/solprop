@@ -57,8 +57,10 @@ half-spectrum of a real field rotates its carrier-envelope phase, and the frame 
 `β₁ω` through the origin; an envelope grid with a third-harmonic term keeps `β₀` too, and
 with it measures the frame term `β₁ω` from the origin, because `β₁(ω − ω₀)` would still
 remove the constant `−β₁ω₀`, which `A³ e^{2iω₀t}` does not share
-(`docs/guide/numerics/linear-operator.md`, "Which terms the frame removes"). These are Luna's
-internal signs, so kernels and stored spectra compare directly with Luna's.
+(`docs/guide/numerics/linear-operator.md`, "Which terms the frame removes"). The signs
+are Luna's internal ones, so kernel arrays compare directly with Luna's. Stored spectra
+do not: they are written in the optics convention, and compare with Luna's files through
+`fields(convention="fft")` (point 3 below).
 The stored spectral state is the **raw forward DFT of the sample array**,
 `Ẽ_k = Σ_n E_n e^{−2πi kn/N}` (NumPy forward: no `1/N`, no δt), inverted by
 `E_n = (1/N) Σ_k Ẽ_k e^{+2πi kn/N}`. Its phase origin is therefore the **first sample**,

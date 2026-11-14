@@ -66,6 +66,14 @@ A saved result needs the grid, field convention, material models, response choic
    * - ``noise``
      - A :py:class:`~solprop.output.records.NoiseRecord`: the model, the seed and the
        realisation itself, so an ensemble member is reproducible.
+   * - ``noise_resolution``
+     - A :py:class:`~solprop.output.records.NoiseResolution`: the noise model asked
+       for, the one the run carries and why a default resolved to none
+       (:doc:`noise <../media/noise>`).
+   * - ``defaults``
+     - A :py:class:`~solprop.output.records.DefaultsResolution`: which of the
+       integrator, the tolerance and the collar's scheme took the route's default, and
+       which route's row that was.
    * - ``backend``
      - A :py:class:`~solprop.output.provenance.BackendRecord`: what executed the run -- the
        backend's name, the propagator mode it resolved, and its threading and planning
@@ -83,15 +91,21 @@ A saved result needs the grid, field convention, material models, response choic
        :func:`~solprop.coupling.plane.reference_at` rebuilds any saved plane's phase and time
        reference from it alone; :func:`~solprop.processing.planes.field_plane` reads it
        (:doc:`coupling simulations <../workflows/coupling>`).
+   * - ``transverse``
+     - A free-space run's resolved transverse boundary: the safety ramp's start and
+       strength, and a collar's strength, band, threshold and step limit; ``None``
+       without a transverse boundary.
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 24), the sign convention of the
+     - The version of this record layout (currently 2), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 
-`backend`, `versions`, `git`, `created` and `reference` are outside the
-[resume key](resuming.md): the plane-reference record is derived from the hashed
-problem, and a run launched from another plane carries its inherited origin and parent
-in `configuration["coupling"]`, which is inside it. Every other part is inside it, the material manifest's identities and policies included.
+`noise_resolution`, `defaults`, `backend`, `versions`, `git`, `created`, `reference`
+and `transverse` are outside the [resume key](resuming.md): the plane-reference and
+transverse records are derived from the hashed problem, the resolved noise model is in
+the hashed noise record already, and a run launched from another plane carries its
+inherited origin and parent in `configuration["coupling"]`, which is inside it. Every
+other part is inside it, the material manifest's identities and policies included.
 `versions` names optmat's full version string beside solprop's, NumPy's, SciPy's,
 h5py's and Python's.
 
@@ -195,15 +209,15 @@ Some of what a run learns about its materials is known only once it has closed. 
 record is written before the first plane, so it cannot hold it, and it must not: the
 record is the run's identity, and the identity of a run cannot depend on how far it
 got. Such results are **post-run annotations**: plain JSON, by name, written beside the
-record when the run closes and **outside the configuration hash**, so the resume gate,
-a scan's reuse of a completed point and the record's digest are exactly what they were.
+record after it, most when the run closes, and **outside the configuration hash**, so
+the resume gate, a scan's reuse of a completed point and the record's digest are exactly what they were.
 Both handlers carry them (`handler.annotations`, a mapping by name;
 `handler.annotate(name, value)` writes one, replacing one of the same name, and a
 closed file is reopened briefly for it), `MemoryOutput.to_file` copies them, and
 {py:func}`~solprop.output.hdf5.open_file` reads them back. A file without any reads with
 an empty mapping.
 
-One is defined, {py:data}`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`
+Three are defined. The first is {py:data}`~solprop.output.metadata.PEAK_FIELDS_ANNOTATION`
 (`"material_peak_fields"`): the material manifest's post-run diagnostic of a run with
 optmat ionisation rates ([ionisation](../media/ionisation.md#rates-from-optmat)), one mapping
 per population — the largest field it reached against its model's maximum field, and
@@ -219,6 +233,12 @@ with open_file("run.h5") as stored:
     (report,) = stored.annotations.get(PEAK_FIELDS_ANNOTATION, [])
     report["largest_field"], report["reached_maximum"], report["departure"]
 ```
+
+{py:data}`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION`
+(`"interpolated_resumes"`) lists the positions, in metres, of the interpolated save
+planes a densely observed run was continued from with `resume="interpolated"`
+([resuming](resuming.md)). Each is written before the continuation's first step, so a
+session stopped or failed later still records it.
 
 The run's [start-of-run summary](../performance/progress.md#what-a-run-says-before-it-starts)
 is kept the same way, as {py:data}`~solprop.output.metadata.RUN_SUMMARY_ANNOTATION`

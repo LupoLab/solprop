@@ -47,10 +47,12 @@ The two rates are applied by different mechanisms, each chosen because it is exa
   whatever sub-interval the stepper takes, at no cost.
 * ``alpha(t)`` is diagonal in t and cannot ride the propagator. It is applied as the
   term ``-alpha(t) E(t) / 2`` inside every stage evaluation
-  (:func:`nonlinear_absorber_term`), the default because the alternative -- the
-  split-step factor ``exp(-alpha(t) h / 2)`` after each accepted step
-  (:func:`split_step_factor`), exact for the absorber alone because the factors
-  telescope -- was measured to be a first-order splitting of the whole. Both are here.
+  (:func:`nonlinear_absorber_term`), the modal routes' default because the
+  alternative -- the split-step factor ``exp(-alpha(t) h / 2)`` after each accepted
+  step (:func:`split_step_factor`), exact for the absorber alone because the factors
+  telescope -- was measured to be a first-order splitting of the whole. The spatial
+  routes default to that factor (:data:`solprop.driver.defaults.ROUTE_DEFAULTS`).
+  Both are here.
 * The hard band limit outside the active mask stays a 0/1 mask
   (:func:`apply_band_mask`), which is idempotent and never had the problem.
 
@@ -1216,7 +1218,7 @@ def apply_split_step(
     """Apply the temporal absorber to a time-domain field over one accepted step.
 
     The reference implementation of the split-step absorber scheme, the alternative to
-    the default in-stage term of :func:`nonlinear_absorber_term`, and what that term is
+    the in-stage term of :func:`nonlinear_absorber_term`, and what that term is
     measured against.
 
     Parameters
@@ -1252,10 +1254,11 @@ def nonlinear_absorber_term(
     """Return the temporal absorber as a term to add inside the nonlinear evaluation.
 
     ``-alpha(t) E(t) / 2``: the derivative form of the same rate, and the reference
-    implementation of the default in-stage absorber scheme. Integrating it exactly over
-    a step would give :func:`apply_split_step`; a Runge-Kutta stage integrates it to the
-    order of the method, so the two agree to first order in the step and differ at
-    second, which is what the comparison of the two schemes measures.
+    implementation of the in-stage absorber scheme, the modal routes' default.
+    Integrating it exactly over a step would give :func:`apply_split_step`; a
+    Runge-Kutta stage integrates it to the order of the method, so the two agree to
+    first order in the step and differ at second, which is what the comparison of the
+    two schemes measures.
 
     Parameters
     ----------
