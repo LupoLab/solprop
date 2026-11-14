@@ -48,6 +48,9 @@ from solprop.stepper.multistep import Multistep
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
+    # The fixtures, borrowed from test_resume_history, launch noise-free into time
+    # windows kept tight for speed: the boundary monitor warns at the launch (SEP 21),
+    # and the window's edge is not what this module tests.
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
 ]
 

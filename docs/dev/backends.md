@@ -170,7 +170,10 @@ stages** — the partials of each column, `partials_(3, slots)`, in a team kerne
 host's sum over each row in index order (`collect_trial`) — and the device form is a
 fixed-order tree reduction (a fixed block count, each block reducing its own contiguous
 range, then one serial pass over the block results). Any other order (`parallel_reduce`, a
-threaded tree) is admissible with the bound of its own tree. The native tests
+threaded tree) is admissible with the bound of its own tree, and the resident Adams march
+takes one: its trial norms and its scale's magnitude (`adams_norms` and the
+`adams.magnitude` reduction in `native/src/general/`) are a `parallel_reduce` on every
+build, CPU and device (ADR-049). The native tests
 (`native/tests/test_api_contract.py`, driving `thread_invariance_probe.py`) compare one
 thread against many on a fixed schedule within the step's rounding bound.
 
@@ -291,7 +294,7 @@ repeat its last bit). Luna carries a
 **without releasing what it holds**, so the capacity a plane needed is the capacity the next
 plane starts with — a measured estimate of a plane's step count rather than a predicted one,
 and after the first plane a run allocates nothing per step. **On a device** the rows are the
-same host buffer: the reductions run on the device, in the fixed-order tree of rule 1 above, and
+same host buffer: the reductions run on the device, to the bound of rule 1 above, and
 each row returns one packed scalar transfer. The hooks (`_reset_step_stats`,
 `_record_step_stats`, `_drain_step_stats`) would let a backend keep rows on the device and copy
 them once per plane, but none does. A backend that
