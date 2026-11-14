@@ -1,1 +1,0 @@
-solprop no longer pins a Pyroraptor revision: a TDSE run uses whatever provider is installed (by default its latest `main`, until Pyroraptor has a release), and records the revision, build and execution space the provider reports; the provider's protocol version and its execution space against `TDSEExecution.device` are still checked (SEP 49).

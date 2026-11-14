@@ -1,1 +1,0 @@
-Rerunning a `Local` or `Pool` scan with every point already done no longer grows the scan file by rebuilding its consolidated `layouts`: they are rebuilt only when a point has been committed since they were last built, including by an earlier run that stopped before consolidating. Such a rerun now adds only its `executions` row (#169).

@@ -1,1 +1,0 @@
-A `Batch` scan on `numpy_ref` now runs points with a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) member by member, each with its own trial and flow, instead of refusing them; points without one still take the reference's member-axis batch (#241).

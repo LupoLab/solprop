@@ -7,6 +7,322 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Performance-history rows for 0.2.0 (`benchmarks/history/`) on the same nine hardware sets
+  as 0.1.0.
+- The benchmark harness has a `sep47` set of short windows for SEP 47's performance matrix: statistics rows at every step under `Multistep()` and `RungeKutta()`, snapshot controllers idle, sparse and at every endpoint, repeated `with_input` runs, a four-point scan on `Local` and the same points on `Batch(4)`, saved and field-free radial and Cartesian planes in memory and in HDF5, and coupled flows of 4 and 17 channels. `track --counters` and `ab --counters` add one separately reported run per worker with structural counters from the native backend, counted the same way whether the native execution session or the transitional driver session serves the run: its returns to Python by cause, native march calls, attempts, planes, statistics rows, transverse-edge reads, the fields copied to the host and loaded into the native state, and their bytes.
+- The desktop front end runs every simulation and scan as a process of its own, which outlives the window and is followed from its record, and runs them on other machines over SSH too: a
+  workstation, a Slurm cluster or a rented machine, picked on the Runs on line. Each run
+  keeps its record in its folder there, so it survives a closed window or a dropped network
+  and is found again on reconnecting; a Runs window lists every run on every machine, a
+  results file is analysed on its machine, and a machine can be set up with solprop from the
+  window. See [Running on other machines](docs/guide/front-end/machines.md).
+- `solprop calibrate` fits the native backend to the machine it runs on ([SEP 46](docs/dev/seps/archive/sep-0046-machine-calibration.md); [Calibrating solprop to your machine](docs/guide/performance/calibration.md)): in about 30 s (`--quick`), two minutes, or seven minutes (`--thorough`), child processes pinned to the job's CPUs measure how idle threads should wait, how wide the team should be, where each kind of operation should start to thread and which FFTW plan effort runs fastest inside the step, and a setting replaces the built-in value only if it wins every round by more than the measured noise, slows none of the problems (production-sized ones among them) and validates with the other winners. The profile is kept per user in the platform's cache directory (`SOLPROP_CACHE_DIR` moves it; `SOLPROP_CALIBRATION_PATH` adds shared read-only directories, such as a cluster's per node type), keyed by machine, build and allocation, and every later run applies it and records the settings it applied in its metadata (`calibration`). The first native run with no profile for its machine, build and allocation calibrates quickly by itself after a `CalibrationNotice`, and a scan calibrates its workers' allocation first (unless they run one thread each, which has nothing to choose); `SOLPROP_CALIBRATION=use` never measures and `off` ignores profiles. `Simulation.calibrate()` and `solprop calibrate --recipe` refine the settings for one simulation, reused by every run and scan point of the same execution. `--show`, `--export`, `--import` and `--clear` manage profiles. Benchmark series calibrate each build first and record the profile per row. Without a profile, every run uses exactly the former settings, now a built-in table keyed by operating system; `BuildInfo`'s threshold fields report that table for the process.
+
+### Changed
+
+- A `Batch` scan on `numpy_ref` now runs points with a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) member by member, each with its own trial and flow, instead of refusing them; points without one still take the reference's member-axis batch (#241).
+- The native backend's CPU transforms are faster on many threads ([#598](https://github.com/LupoLab/solprop/pull/598); [ADR-075](docs/dev/decisions.md)): a batch of transforms now threads by its shape, about one thread per row and the whole team only for many rows, instead of by its element count, and a multi-mode stage transforms its forward rows (projection, absorber, plasma currents) as one batch, as on a GPU (`SOLPROP_NATIVE_FORWARD_PACK=0` turns that off). The tracking cases ran 0.98 of their time on geometric mean on 18–36 cores of an Intel Xeon Gold 6240 and 16 of an AMD EPYC 7763, the few-mode capillaries and the one-dimensional free-space beam 0.80–0.95. `solprop calibrate` now also tunes the transforms' threading, reaches a decision on FFT plan efforts (it no longer tries `patient` plans, and skips efforts whose plans are slower alone), and takes about 30 s, two minutes or seven minutes (from 20 s, 90 s and five minutes). Existing calibration profiles no longer apply: the next native run on each machine calibrates quickly again by itself, or run `solprop calibrate`.
+- On a Mac whose chip has cores of more than one kind, the thread budget is now the cores of the fastest kind (`hw.perflevel0.physicalcpu`, 6 on an Apple M5 Max rather than all 18), unless `SOLPROP_THREADS` is set: every thread of a parallel pass waits for the slowest, and five of six benchmark cases ran 1.17 to 1.49 times faster on the 6 top-tier cores (#333, ADR-070). Set `SOLPROP_THREADS` to use every core; the run's `thread_budget_source` records `"top-tier cores"`.
+- On Arm and other non-x86-64 hosts, the native plasma column's band filter sums each sample's taps in one unrolled pass over blocks of samples, with the same values: on an Apple M5 Max the plasma cases' windows ran 1-6 % faster (#560).
+- `python -m benchmarks ab` now calibrates each build at the `standard` level by default instead of `thorough`, so a development A/B no longer spends several minutes per arm calibrating; pass `--calibrate thorough` for release benchmarks. `track` keeps `thorough`.
+- The benchmark harness (`python -m benchmarks track` and `ab`) now runs workers with the backend's own OpenMP waiting by default (`--threading backend`), so that a row measures a user's default run; `--threading passive` keeps the previous policy. History rows record the policy, so rows taken from now on start a new series.
+- Python processes solprop starts (a run from the window, directly or as a Slurm job, the window's kernel, and `Pool` workers) take `OPENBLAS_THREAD_TIMEOUT=20` unless it is set, so NumPy's and SciPy's OpenBLAS pools no longer spin on every CPU for a moment as they load: importing the driver used 13.8 CPU seconds on a 72-CPU Linux machine, and now 0.75 ([#383](https://github.com/LupoLab/solprop/issues/383)). The performance guide says how to set it for your own scripts.
+- The README, the package metadata, the desktop front end's Help and the native backend's
+  error messages now link the manual of the newest release (`/en/stable/`) rather than the
+  development version (`/en/latest/`), and the installation page's advice for a platform
+  without a native wheel now allows for the yanked 0.1.0.
+- The transverse edge's read spacing has a growing backstop: `min(B, 4g/v_q)`, with `B` starting at `L/16` and doubling at each read whose reach has not grown by a tenth since it started, up to `L/4`. A free-space run whose spectrum holds far from its edge no longer takes extra steps for its reads. On the suite's `line` case the edge costs 2.9 % of the run where it cost 12.8 %, with 13 reads where it took 23 ([#396](https://github.com/LupoLab/solprop/issues/396)). A planar run also no longer evaluates its slab modes again at each run to set up the edge. On scaled versions of SEP 40's linear witnesses (414 packets that must stop) and on a self-focusing line beam in narrowed boxes (80 configurations), every run that stopped or warned under the former spacing still does.
+- The native backend now keeps the FFTW plans its runs measure by default, so each transform shape is measured once per machine and build instead of on every run. Plans are kept per transform in `wisdom.json` in the calibration store's directory for the machine and build, and a calibration profile's own plans take precedence. `SOLPROP_FFTW_WISDOM` now only moves this file, and the file it names no longer turns off a profile's FFT planning. `SOLPROP_CALIBRATION=off` keeps no default file, and `solprop calibrate --clear` removes the plans. Plans kept by earlier releases are not read; their files can be deleted. A name that cannot be used now logs a warning and the run plans without stored plans, where it used to raise. The store is keyed by the machine fingerprint, which tells Apple silicon models apart (#136).
+- The native backend forms free space's separable stage propagators a tile at a time through its vector maths (SLEEF on x86-64 and macOS arm64), rather than one libm `sincos` per element, which took 18 % of a one-thread `line` run. `line` takes 0.89 of its time at one thread and 0.93 at 16, and the Cartesian filament 0.93 at 16 ([#338](https://github.com/LupoLab/solprop/issues/338)).
+- The front end's service layer (its kernel process, run workers, live reductions and their
+  messages) moved from `solprop_gui.service` into solprop as `solprop.service`, so a machine
+  that only runs simulations for the desktop front end needs solprop alone, without Qt. It is
+  front-end support, not part of the user interface, and may change without notice.
+- A run's fixed host cost is smaller ([#347](https://github.com/LupoLab/solprop/issues/347)): the first statistics no longer import `scipy.signal` (0.7 s), opening a run's output no longer serialises and digests its configuration a second time, and package versions are read once per process. A large free-space launch builds and translates faster, its column energies summed and its admittance copied in threads.
+- On the native backend's CPU build, the Adams carrier frame (`Multistep(carrier_frame="scalar")`) on an operator stored as a z table (a mixture of gases on independent density paths, for example) now steps natively in the native execution session, with no `HostMarchWarning`, and takes the same steps and gives the same fields as before (#255). The carrier approximation is unchanged; device builds still refuse the carrier frame by name.
+- The native backend's idle OpenMP threads now spin briefly within native work instead of sleeping at once: `GOMP_SPINCOUNT=10000` on GNU's runtime and, on LLVM's (macOS and Windows), a 1 ms block time inside native calls only. Waking sleeping threads cost 16 to 72 µs for each of a step's many short parallel regions; benchmark windows ran in about 0.8 of the time on an Apple M5 Max, two Intel Xeon Gold 6240 and a shared AMD EPYC 7763 node, and in 0.87 of it on an AMD EPYC 9B45 under Windows (ADR-071). Teams wider than a chip's fastest cores keep sleeping at once. Set `OMP_WAIT_POLICY=passive` to restore the previous behaviour.
+- The native backend evaluates and finishes its statistics natively from a plan lowered once (SEP 47 section 6.4): the half-maximum widths, the species reduction, the multi-channel electron density and peak ionisation rate, the plasma integration ratios, the profile statistics and a general modal basis's flux statistics (`omega0`, `physical_energy`, `spectral_flux`, `analytic_flux`, `fwhm_t`, `fwhm_t_outer`) no longer return to Python, and a general modal plane's statistics no longer copy the field to the host. Their z-dependent inputs are read from the problem's own tables. A profile statistic (`density`, `pressure`, `core_radius`) reads the propagation's table of its path where one reproduces the profile, or the profile tabulated once over the run; its measured error, at most 1e-13 of the profile's magnitude (about 1e-15 on a gas-filled capillary), is recorded in the run's execution record under `statistics_tables`. A modal power weight that varies in z is summed in a different order, a rounding-level change. The native execution session takes every periodic-capable statistic as a native periodic row.
+- The native C++ checks: every tracked C++ file is formatted, clang-tidy is pinned to LLVM 23.1 and enables whole check families, the sources compile with stronger warnings, the sanitizer build stops at the first report and checks Kokkos view bounds, and `uv run poe fmt-native` and `uv run poe tidy-native` format and tidy native files locally.
+- Single-mode problems on the native backend now run their synthesis and projection on the response team with Apple's Accelerate too, as they already did with OpenBLAS: on an Apple M5 Max at six threads the argon blueshift window ran 0.96 of its time.
+- Host passes too small to thread no longer read the CPU topology first, which took up to a sixth of a short window's host statistics on Linux (#556).
+- The native backend's transverse-edge reads on radial grids synthesise the rows they use in one matrix product, once for every table, rather than one sum per sample per table: on an Apple M5 Max the 256- and 512-node radial filaments ran 0.83 and 0.75 of their one-thread windows, and 0.92 and 0.87 at six threads, with the same steps.
+- A saved plane makes fewer field-sized copies, with the same stored bits. A field the backend made for the observation alone (the native backend's host copy) is converted to true-power amplitudes where it is, so a modal plane on `native` makes two field-sized arrays where it made three, and a unit-weight one no longer copies the field at all before storing it. A plane observer and a failure checkpoint at a plane that kept no field now share one fetch of it. This partly addresses [#346](https://github.com/LupoLab/solprop/issues/346), as SEP 47's early copy elisions; a large spatial plane on `native` still makes its host copy and its stored copy.
+- The native backend's Adams march takes the boundary monitor's checks inside its compiled loop: a run whose monitor is busy, as when light lingers near the time window's edge, no longer returns to Python at every step. The monitor's record, its warning and a stop are unchanged, at the same step ([SEP 45](docs/dev/seps/archive/sep-0045-native-rk-march.md)). The split collar's crossing limit sums its bucket occupancies in one sequential order, so that the compiled march reproduces it exactly (Q7); in a near-tie its bucket can move one place, which changes a split-scheme run's steps at rounding level. The native backend also steps the adaptive Runge–Kutta loop of `RungeKutta()` in compiled code, from the stage tables it already holds, taking each trial's stage rows and its error norm natively: a run's metadata says which loop stepped it (`rk_march`), including interpolated planes, replayed schedules, coupled flows, z tables, the transverse edge and a weighted error norm, on CPU and GPU builds; a controller with its own methods runs solprop's loop with a `HostMarchWarning` naming the reason. The norm, weighted or not, now sums in one sequential order in both loops, which moves native Runge–Kutta runs once at rounding level.
+- A scan's workers ask for passive waiting instead of setting `OMP_WAIT_POLICY=passive` themselves, so that a user's own `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `KMP_BLOCKTIME` now reaches them, and so does a machine calibration's row for the workers' allocation ([SEP 46](docs/dev/seps/archive/sep-0046-machine-calibration.md)); without either they wait as before. Their recorded `openmp_wait_policy` reads `passive`.
+- Snapshots now work with interpolated planes (`interpolate_planes=True`), which they refused before: a requested snapshot is taken at the end of the step that crossed the plane being saved, once every plane that step crossed has been saved, or at the next accepted endpoint, so its running checkpoint is a state the march passed through, which `resume=True` continues without `resume="interpolated"`, saving each later plane once. The native execution session (SEP 47's prototype, selected by tests and the benchmark harness) now interpolates planes itself, for Adams and the embedded Runge-Kutta tableau alike, where the state lives: no stage or field crosses to the host but the exported plane. Its Runge-Kutta march evaluates the next step's first stage afresh after an observation, as the native bridge does, so the two take the same steps to the bit and their planes differ only at the last bits. A step plane owed by a step that crossed an interpolated plane and ended on the next one is no longer saved twice at that position ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- A kept plane's field is exported once, straight into its stored form, with the same stored bits ([#346](https://github.com/LupoLab/solprop/issues/346), SEP 47). `MemoryOutput` hands the run the block row the plane will occupy, so the field is written once, where it is kept, with no host volume of its own; `HDF5Output` is handed one new array, which h5py writes into the plane's chunk without a copy. A plane observer and a failure checkpoint at the same plane share that export. On a 108 MiB Cartesian plane the native session's saved plane no longer allocates a field into memory and one fewer into a file, and the driver session's file output converts its observation where it is instead of allocating a second field. `PlaneStore` gains `takes_exports`, `field_destination` and `save_exported` for this, with `solprop.output.records.StoredField` beside them; a store subclass that overrides `save` is still given every plane, with its field, through it. Export destinations are refused by what is wrong with them (shape, dtype, layout or a read-only array).
+- A `Batch` scan's group of native points now runs in the native group session on the CPU build, and is admitted to it on a GPU build (CUDA or HIP; run on an NVIDIA A40, HIP and data-centre NVIDIA evidence to follow): each member in its own native execution session, which steps it natively from one save plane to the next and keeps its own events, statistics rows, boundary monitor and exports, with the same fields, statistics and step records as before. An Adams group no longer warns `HostMarchWarning` for its replay. A member's monitor that refuses its launch now ends it after its launch plane is committed, as a run of the point alone does, and in a group-wide failure the members that had already taken their turn report the steps they committed, eligible for a checkpoint. The native group session is the only native group: the lockstep batch it replaced is removed, and a group it does not run is refused by name before any member starts -- a feature the native session refuses, an adaptive member, step planes, or members that do not share the schedule or the general modal guide; a `Batch` scan forms none of these, since it requires a fixed schedule, refuses step planes and groups only points of one layout. A group of coupled-flow members, which the lockstep batch refused, now runs: each member carries its own flow in its own session ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- The native execution session (SEP 47's prototype, selected by tests and the benchmark harness) now runs the low-storage replay (`LowStorageRungeKutta`) itself: each step is one in-place native step whose stage scalars the native state forms from its tables, so the replay no longer returns to Python once a step, with the same steps, statistics rows and fields as before. A failure partway through a step ends the session poisoned, with no checkpoint of its own, and the run's service loop records it against the latest running checkpoint ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- The native execution session (SEP 47's prototype, selected by tests and the benchmark harness) now runs a run's temporal boundary monitor itself: its launch judgement, cadence, quiet collar, split-collar cap, warnings, stops, plane rows, finish and resumed record are native, with the same decisions and record as solprop's monitor. A boundary warning reaches the caller as a `ServiceRequired` warning barrier, which the run's service loop emits; under warning filters that raise it, the run fails at that endpoint with its field available for the checkpoint ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)). A free-space run's transverse edge now runs on the native session too, no longer refused: its launch judgement, read spacing, reads, a requested collar's current and return, warnings, stops, record and resumed record are native, with the same decisions and record as solprop's edge on the same readings, and a point that raises several warnings serves each as its own barrier. The safety ramp's share in its band at the launch and its removal over each read interval are summed natively in another order, within a rounding bound of solprop's values that accumulates across reads, so their warnings and stops may differ from solprop's for a share within that bound of a threshold.
+- On a GPU build (CUDA or HIP) of the native backend, runs are now admitted to the native execution session as on a CPU build ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)): Adams and the embedded Runge-Kutta tableaux, adaptive or replayed, the low-storage replay, dense output (`interpolate_planes`), the modal, general and spatial routes (radial, Cartesian, line and planar, with their statistics and fluence widths), saved planes, periodic statistics rows, step planes, the temporal boundary monitor and a free-space run's transverse edge with a requested collar's current, the input and modified noise models and resumed Adams history. A `Batch` scan's group of native points is admitted to the native group session on a GPU build too, and a coupled flow wider than 16 channels or with bins off its eigenbasis route to the native Adams march, rather than solprop's Python march with a `HostMarchWarning`, so its fields differ from before at the rounding level; a bin off the route takes its matrix functions from the scaled Taylor series and squaring of the augmented exponential, and a step whose exponent there would need more than 30 squarings is refused by name, as on a CPU build. These have been run on an NVIDIA A40 (CUDA), where the session takes the same steps, statistics and fields as the backend's own march on the same device (dense Runge-Kutta planes and the transverse edge's ramp sums within rounding bounds); HIP and data-centre NVIDIA evidence is to follow, and they are not yet qualified on either vendor. A saved plane's field crosses from the device once, into its destination, with no extra host copy.
+- Runs on the native backend's CPU build now go through the native execution session ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)), the only native executor once the transitional driver session it replaced was removed, with the same steps, fields, statistics, step records and call ledgers as before. The session also runs resumed runs, carrying the Adams history and the call ledgers, the input and modified noise models (also on a propagator stored as a z table, and the input noise beside a free-space run's transverse edge), the boundary monitor (including a free-space run's transverse edge), dense output and the low-storage replay, and it exports the Adams history beside each saved plane and checkpoint. A signal during a run is still handled once the native call returns, within 256 attempts or 0.1 s; the run's checkpoint then includes every attempt made. Comparison methods, controllers that override `PIController`'s methods and TDSE responses are refused by name on native (see the reference-only entries). The four on-axis plasma statistics (`on_axis_electron_density`, `on_axis_peak_ionisation_rate` and their species forms) no longer send a run to the backend's own march: the session scans the axis row natively, agreeing with the earlier host scan to the node scans' parity tolerance (1e-10 relative). A spatial run's `beam_radius` and `fwhm_r` are now finished natively, so the default statistics of a radial or free-space run no longer leave the native session, and so is `zdw`, read from a table of each mode's zero-dispersion wavelength along z made once before the run (exact for a mode that does not vary along z, otherwise within 1e-6 of the wavelength, with the measured error in the run's execution record under `statistics_tables`); the native backend records `nan` where the band holds no zero, as `numpy_ref` does, instead of raising. The native backend refuses by name the metric statistics of a general modal basis whose metric varies inside one of its intervals. Statistics a problem does not carry are refused by name before the run starts, on every backend, instead of at the first saved plane: a modal statistic such as `omega0` on a spatial run, a spatial statistic such as `beam_radius` or `absorbed_power` on a modal run (where `numpy_ref` used to return the peak ionisation rate as `absorbed_power`), the plasma integration diagnostics without a field-grid plasma column, and the electron density or peak ionisation rate without a plasma response. A `Batch` scan's group with a noise model runs in the native group session too, each member's stored noise phase its own. On a CPU build, a coupled flow wider than 16 channels or with bins off its eigenbasis route now runs on the native Adams march in the session rather than on solprop's Python march: a bin off the route takes its matrix functions from the scaled Taylor series and squaring of the augmented exponential rather than SciPy's `expm`, a difference at the rounding level, and a step whose exponent there would need more than 30 squarings is refused by name.
+- A progress reporter now hears a run's attempted steps in batches, as the run's session delivers them: once per save plane, and at least every 256 attempts or 0.1 s in between. It no longer hears each step as it is taken ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 5.3). Each attempt is still reported once and in order. As a result, a stop flag that a reporter sets lands up to one batch later, at most 256 attempts or 0.1 s, on every backend, the NumPy reference included. A flag set from outside the run is still polled between batches, as before.
+- Each execution record now states what a restart keeps and restores, under `outcome.execution["restart"]`: whether a plane's or checkpoint's method history was `retained`, `omitted` or is `not_applicable`, with a reason (`explicit_policy`, `automatic_policy`, `automatic_size_limit`, `snapshot_required`, `unavailable_history`, `output_cannot_store`, `write_failed`, `incompatible_representation`, `unsupported_method`, `no_method_history`), and in a resumed execution what it `restored`, `reset` (a Runge–Kutta resume's proposal and norm memory, an Adams history set aside) or found `not_applicable` (low-storage), and that the boundary monitor was reconstructed from its persisted records. A resume now warns once (`SolpropWarning`) when an Adams history it expected was omitted by the automatic 256 MiB limit, was not exportable, or cannot be read back (including a write cut short); `resume_history=False` is recorded without a warning. Files written before the record read as unknown, and resume as before ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- Snapshots no longer require `step_planes=1`: a requested snapshot is taken at the next accepted endpoint, and where no plane is saved there the run writes a running checkpoint, in the existing terminal-checkpoint record with a matching `running` outcome, from which the snapshot and `resume=True` continue. The attempts and periodic rows since the last plane stay with that plane, once, and a later saved plane supersedes the checkpoint. A low-storage step abandoned in flight now falls back to the latest running checkpoint, or to the checkpoint the run resumed from, rather than to the last saved plane ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md)).
+- On a CUDA or HIP build, a run with no `node_budget` and no node chunk now plans its node chunk within a quarter of the accelerator's free memory, through the same rule and response admissions as the host's plan, and never takes fewer nodes than the host plan at the route's default budget (#361). Most spatial runs on a data-centre GPU then evaluate their responses in one chunk, which took 0.74-0.92 of the default's time on an AMD Instinct MI300X, at the cost of space-domain buffers for every node at once (about 5 GB more on a 128 x 128 Cartesian filament). An explicit `node_budget` or chunk is unchanged and always wins; the run records `node_chunk_rule = "device"` in its backend metadata. CPU builds are unchanged.
+- Building a graded-index guide and run, and a large free-space launch, take less time: a mode solve evaluates its material once instead of once per finite element, a free-space launch forms each distinct column's admittance once, and neither repeats a table evaluation or a pass over the beam it already made. On the `grin_nonlinear` benchmark the build and translation go from 24 s to 16 s on one core, and on `kerr_beam_384` the launch's build from 12.6 s to 7.1 s. Every number of the translated problem is unchanged.
+- On macOS arm64 the native backend's CPU kernels now take SLEEF's 1-ulp AdvSIMD vector `exp`, `log` and `sincos` by default (`SOLPROP_NATIVE_VECTOR_MATH=AUTO`), as x86-64 builds do: on an Apple M5 Max the comb-to-continuum case ran 0.84 of its time at one thread, and the tracking cases 0.93 on geometric mean, with none slower beyond its spread (ADR-072, #339). Linux aarch64 keeps the system libm, where SLEEF measured level (1.00 on a Neoverse V2).
+- The batch script of a Slurm scan (`solprop.driver.executors.Slurm`) now sets
+  `OPENBLAS_THREAD_TIMEOUT=20` unless the job's environment sets it, as the front end's
+  Slurm runs already did, so the scan controller's BLAS threads sleep instead of spinning
+  between calls.
+- On Apple silicon, where the native backend's idle threads spin within native calls on the top-tier cores, it threads smaller passes: every size threshold is divided by 16, since a parallel region there costs about a microsecond and the cluster shares its L2 cache. On an Apple M5 Max at six threads the Raman GNLSE ran 0.70 of its time and the comb-to-continuum 0.91, none slower (ADR-073). Other platforms keep the previous thresholds, which measured faster there.
+- The TDSE response runs on the native backend's CPU build, and `backend="auto"` now selects native for a TDSE run as for every other; `backend="numpy_ref"` still runs it, and a native GPU build refuses it by name (SEP 49).
+- solprop no longer pins a Pyroraptor revision: a TDSE run uses whatever provider is installed (by default its latest `main`, until Pyroraptor has a release), and records the revision, build and execution space the provider reports; the provider's protocol version and its execution space against `TDSEExecution.device` are still checked (SEP 49).
+- The TDSE response's atomic provider now runs in a worker process of its own, never in solprop's process, for presets, bases, consistency checks and runs alike; Ctrl-C, SIGTERM and a run's stop flag now stop a TDSE run during an atomic call, the call charged and the last accepted step checkpointed (SEP 49).
+- `solprop.translate.problem` now holds the kernel contract alone; translation is split
+  into modules by concern: `solprop.translate.assembly` (`assemble`,
+  `MAX_GENERAL_FLOW_EXPONENT`), `solprop.translate.walls` (a capillary's coherent wall and
+  taper coupling) and `solprop.translate.validation` (`validate_coupled_flow`,
+  `DEFAULT_FLOW_CONDITION_LIMIT`, `MOVING_FLOW_CERTIFICATE`, `TAPER_FLOW_CERTIFICATE`).
+  Every name `solprop.translate.problem` exported still imports from it, and
+  `solprop.translate.assemble` is unchanged.
+- The refusals of a non-positive or non-finite number and of an unknown keyword now read
+  the same across the design tools, pulses, gas flow, antiresonant tubes, the TDSE
+  specifications and the processing and plotting functions: `<name> must be finite and
+  positive, got <value>` and `<name> must be 'a', 'b' or 'c', got <value>`. A numeric
+  string given where those functions expect a number is now refused rather than parsed.
+
+### Changed (breaking)
+
+- `solprop.driver.service`, the loop that services a run's execution session, is renamed
+  `solprop.driver.session_loop`, apart from the front end's `solprop.service`.
+  `solprop.driver.run.MARCH_SNAPSHOT_AUTO_BYTES` is gone; the one limit is
+  `solprop.translate.run_request.MARCH_SNAPSHOT_AUTO_BYTES`.
+- `solprop.driver.simulation` now holds the `Simulation` class alone; the rest moved
+  into modules by concern. Import `SimulationSettings` and `default_collar` from
+  `solprop.driver.settings` (or `SimulationSettings` from `solprop.driver`),
+  `SimulationRunner` and `check_derived_problem` from `solprop.driver.runner`,
+  `metadata_for` from `solprop.driver.metadata`, `default_field_range` from
+  `solprop.driver.inputs` and `default_radial_order` from
+  `solprop.driver.routes.hollow`; the names `solprop.driver` exports are unchanged.
+- `PIController` is final: defining a subclass raises `StepperError` (ADR-077). Both backends implement its decisions and its norm (`scale`, `accepts`, `propose`, `rejection_factor`, `start_factor`, `equivalent_norm`) themselves, so a subclass that overrode one would have stepped differently on each; it ran on `numpy_ref` alone and native refused it. Set the controller's fields instead.
+- `Simulation.from_radial` and `prop_radial` are removed: `Simulation.from_free` and
+  `prop_free` take a `RadialGrid` as well as a `FreeGrid` or `LineGrid`, and choose the
+  radial or the Cartesian transform from it, with the same keywords and the same
+  defaults as before for each grid. Replace `from_radial(...)` with `from_free(...)` and
+  `prop_radial(...)` with `prop_free(...)`; recipes keep the `radial` route.
+- `solprop.log` has two reporter protocols instead of six. `ProgressReporter` now declares all
+  six calls (`summary`, `started`, `step`, `plane`, `finished`, `interrupted`), each with a
+  no-op default that a subclass inherits, and `ScanReporter` declares `point_reporter`
+  (default `None`). `InterruptibleReporter`, `SummarisingReporter`, `PlaneObserver` and
+  `WatchingScanReporter` are removed: an `isinstance` test against them becomes one against
+  `ProgressReporter` or `ScanReporter`, and `observe_plane` stays an optional method that a
+  reporter may define. A reporter that subclasses `NullReporter` or `NullScanReporter` needs
+  no change. One written from scratch to the four basic calls must now also define `summary`
+  and `interrupted`, or subclass `NullReporter` (or `ProgressReporter`) to inherit them; a
+  run refuses it with a `DriverError` before it starts. Likewise a scan reporter must define
+  `point_reporter` or subclass `NullScanReporter` (or `ScanReporter`). What scripts, the GUI,
+  the service, scans and the CLI show is unchanged.
+- The general modal route's and the coupled flow's admission is part of the problem's own
+  validation (`solprop.translate.admission.check_general_route`), raised once as a
+  `TranslationError` naming solprop rather than as a `BackendError` from each backend;
+  `solprop.backends.numpy_ref.admission` and `refuse_general_leaves` are removed. The
+  general route's derivations moved to `solprop.translate.general` (`node_kerr_tensor`,
+  `node_kerr_form`, `node_delayed_maps`) and its node chunk to `solprop.backends.node_chunk`
+  (`general_node_chunk`, `general_planned_chunk`); the quadrature alarm is
+  `solprop.translate.modal.QUADRATURE_ALARM`, logged on the `solprop.translate.modal`
+  logger; the Adams call ledger is `solprop.backends.ledger.CallLedger`, and the
+  reference's Adams module is `solprop.backends.numpy_ref.multistep`.
+  `CompiledResponses.response_order` is derived from the compiled leaves and is no longer a
+  constructor argument. `solprop_native` no longer exports the `*_FIELDS` seam tuples, and
+  `check_build` no longer looks seam members up.
+- `solprop.output.schema` is split into five modules: `solprop.output.serialisation`
+  (`serialise`, `ArrayDigest`, `StatedInput`, `recorded_input`), `solprop.output.provenance`
+  (`BackendRecord`, `GitProvenance`, `package_versions`), `solprop.output.records`
+  (`GridRecord`, `ModeRecord`, `StepperRecord`, `SavedPlane`, `RunOutcome` and the other
+  record types), `solprop.output.metadata` (`RunMetadata`, `SCHEMA_VERSION`,
+  `resolve_metadata_write`) and `solprop.output.store` (`Output`, `PlaneStore`,
+  `FieldRetention` and the other save protocols). Import these names from
+  `solprop.output`, which still exports the public ones, or from their new module. A run
+  record names its record types by module (`solprop.output.records.GridRecord`), so every
+  configuration hash differs from the one an earlier version wrote: a file or a scan
+  written before cannot be resumed or continued, and is read as it was.
+- A run's configuration no longer records a `precision`, which every run recorded since SEP 33, so the resume key of every run changes once ([ADR-077](docs/dev/decisions.md)): a run started on an earlier release is refused a resume on this one, naming the change. Finish in-flight runs, and resume stopped ones, on the release that started them before upgrading; their output still opens.
+- The backend seam's problem descriptor is now one trajectory's typed description
+  ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) sections 6.2 and 6.7).
+  `solprop.translate.problem.KernelProblem` is renamed `PropagationProblem`, with no
+  alias. The nominal leading batch axis is gone: `PropagationProblem.shape`,
+  `initial.field0` and `initial.noise0`, `Backend.set_initial`, `Observation.field` and
+  `noise_phase`, `Backend.stats()`, the periodic rows of `StepStats` and
+  `ResponseBudgetError.field` are all `(n_modes, n_pol, n_omega)`-shaped with no batch
+  axis, `Initial.batch_params`, `Flags.single_batch` and `assemble(batch_params=...)` are
+  removed, `assemble` refuses a stacked field, and `RunEstimate.shape` has three entries. A
+  group of trajectories is a sequence of member problems, as a batched scan already runs
+  them; `solprop.driver.batch.split_observation` and `plane_from_observation(member=...)`
+  are removed. A march snapshot's stored state keeps its leading axis of one on disk, and
+  existing files stay readable. The route-specific optional fields `transform`, `flux`,
+  `transverse`, `tdse` and `current_numerator` move into a closed union, `problem.route`,
+  from the new module `solprop.translate.routes`: a `ModalRoute`, a `GeneralRoute` or a
+  `SpatialRoute` of kind radial, Cartesian, planar or line, each with the fields its
+  executor needs; the TDSE response is the modal route's reference-only `TDSESource`.
+  `problem.transform` still reads the route's transform, and `tdse_of`, `flux_of` and
+  `transverse_of` read a route's own leaves. Both backends refuse a route they do not
+  execute by name before they allocate. The public `Simulation` and `SimulationSettings`
+  interfaces are unchanged, and every result is bitwise the same.
+- The `Backend` protocol (`solprop.backends.protocol`) no longer declares the stepping
+  members a run drives through a session: `set_initial`, `set_progress`, `set_stop`,
+  `attach_monitor`, `propagate_to`, `observe`, `in_flight`, `stats`,
+  `restore_call_ledgers`, `march_snapshot`, `march_snapshot_nbytes` and `restore_march` move
+  to the new `HostStepping` protocol, which the NumPy reference implements and the native
+  backend does not ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 6.8). Code that
+  steps a `numpy_ref` backend directly narrows the backend `select` returns with
+  `solprop.backends.protocol.stepping(backend)`; every backend runs through
+  `backend.prepare(problem, request).start(start)`.
+- The native backend no longer steps the low-storage march (SEP 24) through its legacy
+  direct API: `propagate_to` on a native low-storage run raises a `BackendError` that names
+  the session, which replays the march natively
+  ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 6.8). Start such a run with
+  `backend.prepare(problem, request).start(start)` or
+  `solprop.backends.sessions.start_session`, as `Simulation.run` already does. A native
+  timing probe's low-storage steps are now counted in the backend's `source_evaluations`,
+  four a step, where they counted none.
+- The run's policy has left the backend seam's problem descriptor
+  ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) sections 5.2 and 6.2).
+  `PropagationProblem` no longer has `stepper` or `stats_spec`: the tableau, controller,
+  step limits, schedule, save planes and statistics travel in the immutable
+  `solprop.translate.run_request.RunRequest`. `solprop.translate.problem.assemble` returns
+  a `Translation(problem, request)` pair (`problem, request = assemble(...)`), whose
+  request has the route's step limits resolved, and `RunRequest.stepper` reads the stepper
+  settings as one `StepperSettings` record. Backends receive the request where they are
+  built: `solprop.backends.registry.select(name, problem, request, ...)` and the backend
+  constructors take it after the problem, check the pair with the new
+  `solprop.translate.problem.validate_run(problem, request)` before they allocate, and
+  expose it as `Backend.request`. A run starts through the backend's preparation:
+  `Backend.prepare(problem, request)` returns a `PreparedExecution` whose `start(...)`
+  opens the backend's own session, the reference's `HostSession`, the native backend's
+  `NativeSession` where it admits the run and the transitional session otherwise, and
+  `solprop.backends.sessions.start_session` only starts it; a preparation refuses a
+  request that is not one run of the backend's own (`RunRequest.for_run` of it). A group
+  starts the same way: `Backend.prepare_group(members, problems, requests)`, called on
+  its first member, returns a `PreparedGroup` whose `start(starts, ...)` opens the
+  backend's own group, and `start_group` only starts it. A
+  `solprop.backends.registry.BackendEntry` row now names its backend's constructor
+  (`factory`) and policies by import path, so a backend registers with one row.
+  `PropagationProblem.validate()` now checks what the problem
+  promises alone; `validate_run` adds the checks that read the run's policy, with the same
+  refusals and messages, and `validate_launch(request)` takes the request.
+  `describe_run` now takes a `StepperSettings`; `RunRequest.for_run(...)` gives one run's
+  start, retention, monitor, history and snapshot policy, and `RunRequest.with_stepper(...)`
+  replaces the stepper section. `metadata_for(problem, request, grid, ...)`,
+  `field_retention(request, ...)`, `check_snapshot_request(request, ...)`,
+  `run_summary(problem, request, metadata, ...)` and
+  `check_derived_problem(constructed, derived, constructed_request, derived_request)` take
+  the request; `run_problem` reads it from the backend. The public `Simulation` and
+  `SimulationSettings` interfaces are unchanged, configuration hashes and resume identity
+  are unchanged (a file written before this change resumes), and every result is bitwise
+  the same.
+- A run now starts from an explicit start rather than from a backend its caller loaded
+  ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 5.2):
+  `solprop.driver.run.run_problem` takes a required `start=`, a
+  `solprop.backends.session.Start` (`Start.entrance(problem)` for a fresh run), and loads
+  it into the backend through the run's session; its `start_plane=` argument is removed,
+  the start's `plane_index` taking its place. A caller no longer calls
+  `backend.set_initial` before `run_problem`. `Simulation.run`, `SimulationRunner`, scans
+  and the benchmark suite start their runs this way, and a resumed run's call ledgers
+  and Adams history travel in the start, a history the backend cannot install being
+  warned about and recorded as reset as before. A batched scan's points run as one group
+  through the group protocol (`solprop.backends.session.GroupSession`, SEP 47 section
+  6.7): each point keeps its own planes, statistics and outcome, a boundary stop still
+  fails its point alone, and a group-wide failure now reports each member's actual
+  position.
+- The backend seam's `timed_step()` is replaced by an explicit timing probe
+  ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 6.6):
+  `Backend.timing_probe(start)` loads a `solprop.backends.session.Start` and returns a
+  `solprop.backends.protocol.TimingProbe`, whose `trial(z, dz)` takes one trial step that
+  commits nothing and whose `field()` reads that trial's end state back on the host.
+  `Simulation.estimate` and the SEP 46 calibration time and compare trials through it,
+  instead of loading the backend themselves and reaching private driver members; the
+  calibration's plan comparison on the native backend now compares the trial fields,
+  where it read the unchanged launch field before.
+- The node chunk is the backend's execution choice, planned when the backend is prepared, not part of the translated problem (SEP 47, #361): `Transform.node_chunk` is gone, and `assemble`, `multimode_transform`, `free_transform`, `planar_transform` and `radial_transform` no longer take `node_budget` (`free_transform` no longer takes the time grid, nor `radial_transform` `n_pol`). `SimulationSettings.node_budget` keeps its meaning and its chunks, is now an execution setting that may change after translation and stays outside the resume key, and reaches the backend through `ExecutionOptions(node_budget=...)` (`select(..., options=...)` or the backend's `options=`); an explicit budget is authoritative. `from_capillary`, `from_waveguide`, `prop_capillary` and `prop_waveguide` now default `node_budget` to `None`, the backend's choice (the same 64 MiB on these modal routes), so a later device default can apply to them; the general-guide refusal of `node_budget` now refuses any value other than `None`. A budget may be any integral value, a NumPy integer included, and one that is not a positive integer is refused when the settings are made (`DriverError`); a budget too small for one node is refused by the backend with a `BackendError`, no longer by the translation. The default budgets and the rule are in `solprop.backends.node_chunk` (`DEFAULT_NODE_BUDGET`, `DEFAULT_SPATIAL_NODE_BUDGET`, `plan_node_chunk`), and every run records its `node_chunk`, `node_budget` and `node_chunk_source` (`"default"`, `"explicit"` or `"forced"`) in its backend metadata.
+
+### Removed
+
+- Single and mixed precision are retired: solprop computes in IEEE 754 binary64 only ([ADR-077](docs/dev/decisions.md)). The `precision` keyword of `SimulationSettings`, the `Simulation.from_*` constructors and the `prop_*` functions, and a recipe's `precision` key, are gone (a recipe's `precision = "double"` is dropped, so an old recipe still loads, and any other value is refused naming ADR-077); so are `solprop.translate.precision`, the `precision` field of `PropagationProblem` and the `precision` argument of `assemble`, the reference's binary32 path (`NumpySingleBackend`), `SINGLE_PRECISION_NOISE`, `solprop.driver.defaults.rtol_in_precision`, the `precision` argument of `default_rtol`, `default_controller`, `default_integrator`, `resolve_noise` and `solprop.backends.registry.available`, the run summary's precision row, the `precision` field of `solprop_native.BuildInfo`, and the guide's single-precision page and gallery example. The kernel's `run_options` reply lists the installed backends under `backends`, in place of `double` and `single`. Output written in single precision still opens.
+- Removed the CF4 coupled-flow sections (ADR-077): `CoherentWall`'s `method`, `growth_limit` and `fallback` keywords, `solprop.translate.coupled.cf4_flow`, `cf4_defect`, `cf4_growth_bound`, `CF4_NODES`, `CF4_WEIGHTS` and `CF4_GROWTH_LIMIT`, the `"cf4"` section method, and the `flow.cf4` entry of a coherent wall's run record. They ran on `numpy_ref` alone; a recipe that gives one is refused with that reason. A varying coherent wall is integrated by the frozen-residual split, as by default; to shorten its advisory step, divide the sections (`CoherentWall(sections=...)`) or cap the step.
+- Removed `solprop.stepper.multistep.ComparisonMultistep`, the benchmark-only Adams variants SEP 13 compared and did not select (PECE, explicit Adams–Bashforth, the matched predictor–corrector pairs and their Hermite dense interpolant), with the reference's general Adams path that stepped them, `milne_factor`, `defect_integral`, the `Corrector` and `Interpolant` types, `Multistep.corrector`, `Multistep.corrector_nodes` and `IntegrationSpec.reference_only` (ADR-077). Use `Multistep()`; `Multistep(order=q, variable_order=False, formulation="interaction")` is the one-order-higher PEC variant the comparison family also named.
+- Output files written by development builds between 0.1.0 and 0.2.0 in forms no release wrote are no longer read specially: a march snapshot without a `history_key` is now ignored with a warning and the Adams history starts afresh, and `MarchSnapshot.history_key` is required. Files written by 0.2.0 read and resume as before; read an older development file with the build that wrote it.
+- Building solprop-native from source: removed the `SOLPROP_NATIVE_GEMM_PROVIDER` option (every build uses the hybrid provider, `build_info().gemm_provider` is always `"HYBRID"`), the `cuda-custom`, `cuda-native` and `cuda-tpl` presets, `SOLPROP_NATIVE_BUILD_BENCHMARKS` and its GEMM microbenchmark, `SOLPROP_NATIVE_ENABLE_THREADS` (the Kokkos Threads host space; CPU builds run OpenMP) and IntelLLVM (`icpx`) support (Linux CPU builds take GCC 14 or newer, or Clang 14 or newer). A CPU build no longer needs a single-precision FFTW, and the wheels no longer carry one.
+- `solprop.driver.run.open_run_record` is removed in favour of `solprop.driver.run.open_run`,
+  which opens an output with the same record and also returns its checkpoint interface.
+- The native backend's private host-march switches are retired as production modes ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) §6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and `SOLPROP_RK_ROWS` are no longer read, and `NativeBackend` no longer takes an `adams_march` keyword. They selected solprop's Python march on the native engine for A/B comparisons. The test interface that replaced them is retired too, with `benchmarks.adams_host`'s `--host-march` and `--host-stages` arms: every native run is the native execution session's, and the identical-input decision traces and the comparisons with `numpy_ref` in the test suite serve their diagnostic purpose. A problem whose operator or prefactor representation the native stage tables cannot read, which no built-in configuration produces, is now refused by name when the backend is built instead of being stepped with stage rows formed on the host.
+- The experimental `mlx` backend for Apple GPUs is retired ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) §6.6): `backend="mlx"`, in a call or a recipe, raises `BackendError` and never runs on another backend, and output that records it still opens. The `solprop[mlx]` extra, the front end's MLX choice and the `metal` entry of the kernel's run options are gone; the front end shows a recipe's unavailable backend as it is named. With MLX's transform costs gone, the `transforms` keyword of `FieldGrid.from_limits` and `EnvelopeGrid.from_limits` (a recipe grid that gives it is refused, naming SEP 47 and the fix, as are the keys ADR-077 retired), the `library` argument of `solprop.grid.fft_cost`, `solprop.grid.TransformLibrary` and `TRANSFORM_LIBRARIES`, `solprop.backends.registry.metal_available` and `SINGLE_ONLY`, and the `mlx_*` and `single_precision_rows` sizes of `solprop.backends.memory` are removed.
+- The legacy step driver `solprop.backends.driver` (`StepDriver`), the Adams march class
+  `solprop.backends.multistep.AdamsMarch` and `solprop.backends.low_storage.LowStorageMarch`
+  are removed ([SEP 47](docs/dev/seps/archive/sep-0047-run-ownership.md) section 6.8): the native
+  backend runs every run in its native session and inherits no Python step loop, and the
+  NumPy reference marches with its own `solprop.backends.host` classes. `reached` and
+  `replay_tolerance` are now in `solprop.stepper.schedule`. A native backend's direct stepping members
+  (`set_initial`, `propagate_to`, `observe`, `stats`, `attach_monitor` and the rest) are
+  gone with them: start a run with `backend.prepare(problem, request).start(start)` or
+  `solprop.backends.sessions.start_session`.
+- Removed `CompiledResponses.spectral_responses` and `Flags.has_spectral_responses` from the kernel contract. The tuple could only repeat `envelope_plasma`, which carries the envelope plasma's post-transform assembly alone, and the refusals that read the flag could not be reached.
+- `StatDefinition.implemented` is removed: every statistic in `solprop.stats.CATALOGUE`
+  is implemented, and the reserved-name refusal it served had no entries. Each
+  `StatDefinition` now also says how a statistic is formed and treated (`evaluate`,
+  `metric`, `weight`, `profile`, `plasma`, `general`, `advice`), and the name sets such as
+  `METRIC_WEIGHTED_STATISTICS` and `GENERAL_MODAL_ACCESSORS` are derived from those
+  fields, with unchanged members.
+- solprop has exactly two backends, `native` and `numpy_ref`, with no tiers and no plugin backends ([ADR-077](docs/dev/decisions.md)). `solprop.backends.registry.BACKENDS`, `BackendEntry`, `REMOVED_BACKENDS` and `FAR_FIELD_BACKENDS` are removed; `BACKEND_NAMES` lists the two. A backend name that is neither, `numba_cpu` and `mlx` included, now raises `BackendError` naming both wherever it is requested, where `select` raised `ValueError` for an unknown one; output and snapshots that record a retired backend still load.
+
+### Fixed
+
+- Recorded the position of a `resume="interpolated"` continuation in the
+  `interpolated_resumes` annotation before its first step, so a session that stops or
+  fails later still names where it restarted; before, only a session that finished was
+  recorded ([#152](https://github.com/LupoLab/solprop/issues/152)).
+- Dropped optmat's internal tracker ids, such as `(TC-688)`, from the optmat warnings
+  solprop passes on as `MaterialRangeWarning` and from the run's material record; the
+  rest of each message is unchanged. A Raman response used outside its density or
+  temperature range, hydrogen at 0.5 bar for example, no longer ends its warning with a
+  reference users cannot look up ([#166](https://github.com/LupoLab/solprop/issues/166)).
+- The Adams page no longer says that a linear run beside a frozen-residual coupled flow is accurate only to its `dz_max` whatever `rtol` ([#252](https://github.com/LupoLab/solprop/issues/252)): that run's error follows `rtol`. What was measured was a launch far below `atol / rtol`, which the error norm holds to `atol` and not to `rtol`, under any integrator; the solver page now says so.
+- Preserved the original error and retained a retry owner when acquiring host BLAS
+  limits and rolling them back both fail. The next acquisition retries the rollback
+  before applying new limits, so a failed request no longer leaves a BLAS pool at its
+  width indefinitely ([#697](https://github.com/LupoLab/solprop/issues/697)).
+- `SimulationSettings` now refuses a `resume_history` that is not `True`, `False` or
+  `None`. A recipe's `[execution]` table that wrote `resume_history = "none"` built a
+  run, and a Python export, that kept the Adams history always, the opposite of what it
+  said; omit the key for the automatic choice
+  ([#703](https://github.com/LupoLab/solprop/issues/703)).
+- A `SimulationRunner`, and the backend a scan keeps between points, is no longer reused
+  for settings that name another backend or node budget: a scan point builds a backend of
+  its own, and a direct `runner.run` after such a change raises a `DriverError` before it
+  reads the input ([#705](https://github.com/LupoLab/solprop/issues/705)).
+- Fixed a run's ending being visible before its record was finished: a run now closes its events and writes its end into `job.json` before its summary records the ending, writes nothing to its record after that, and the machine helper relays a run's ending only once it is recorded. Resuming a run the moment it stops no longer fails on Windows because the old run still holds its events file, and a run reported as ended is listed as ended (#724, #825).
+- The desktop front end no longer builds a class's sheet twice when the kernel answers its
+  route's description twice, once for the description fetched ahead and once for the one
+  asked as the setup opened; the second build replaced every widget on the sheet for
+  nothing ([#791](https://github.com/LupoLab/solprop/issues/791)).
+- Fixed the Adams march dropping the attempt row of a rejected trial whose reduced
+  proposal fell below `dz_min`: the completed trial is now recorded, on both the NumPy
+  reference and the native backend, before the floor's `ConvergenceError` is raised; the
+  proposal, accepted state and call ledger are unchanged (#651).
+- `solprop.capabilities.output` now states a spatial file's field in the run's stored unit
+  (V m radially, V/m on a Cartesian or line grid, sqrt(W/m) per y frequency on a planar
+  one) instead of sqrt(W), and no longer states a modal power, energy or spectral density
+  for it, whose readers refuse a spatial file (#425).
+- A run request changed after translation to dense observation (`interpolate_planes`) is now refused where a backend is prepared, as at translation, beside the per-step temporal collar (`absorber_scheme="split_step"`), a coupled linear flow or the `"modified"` noise model: `validate_run` runs dense observation's admission itself, so the refusal comes before any session storage is allocated ([#682](https://github.com/LupoLab/solprop/issues/682)).
+- Fixed group construction consuming the caller's starts and closing its backends when the group was refused: a refused or failed construction, on the NumPy reference and the native group alike, now leaves every start's field and every backend to the caller to retry with, and a start already used or one start or backend shared by two members is refused before anything is loaded (#623).
+- The boundary monitor's record counts each committed step once: a step left unchecked and then checked at its saved plane is no longer counted among both the checked (`steps`) and the skipped steps, so the two add up to the committed steps. Under interpolated planes, a plane that no check read since the previous one, as a later plane inside one step, records its collar and guard occupancies as unmeasured (`None`) rather than the previous collar reading and empty guards (#133).
+- Fixed a native Adams trial whose source evaluation failed leaving its prediction in the
+  state, so that the failed run's terminal checkpoint and march snapshot held the
+  prediction instead of the last accepted step (#129).
+- Setting `OMP_PLACES` without `OMP_PROC_BIND` no longer caps every solprop thread pool and scan at the one core GNU OpenMP binds the main thread to: the thread budget now treats `OMP_PLACES` alone as binding on, as libgomp does, and still believes a narrowing when `OMP_PROC_BIND=false` (#172).
+- The boundaries guide reads a band's absorbed energy from saved planes with an exact interval formula in place of the trapezoid, which overcounted a strongly absorbed band's loss by up to twice; the medium's own absorption is now its own share (#573).
+- A native run on a Python thread other than the one that imported `solprop_native`, such as a front end's worker thread, now keeps to the thread budget: each native call sets that thread's OpenMP default width to the runtime's and restores it afterwards, so FFTW's threaded loops and an OpenMP OpenBLAS no longer take every CPU between narrower teams. Issue #130's reproduction ran 9 to 19 times slower on such a thread on two Intel Xeon Gold 6240, and 1.45 times slower on an Apple M5 Max, where it now matches the main thread (#130).
+- A Queue scan whose point owner exits while its process start is being read no longer fails with an unhandled `OSError`; the owner is treated as unidentified until the next check (#760).
+- The on-axis plasma statistics on a Gauss-Radau field-scale rule read the whole axis row on a one-component transform ([#663](https://github.com/LupoLab/solprop/issues/663)): when the modes have an axis field in a component the transform does not carry, as a rotated mode on `components=("x",)` does, the rule's axis node no longer stands in for the axis row, so the statistic keeps that component (its `hypot` with y on a field grid, the polarisation ellipse on an envelope grid) at the cost of one row scan.
+- `Pool` and `Batch` scans now size their workers from the tightest control-group memory limit on the process's own path (version 1 and 2), not the root group's, so a scan under a systemd slice or other cgroup manager without Slurm variables is no longer admitted against the whole machine. An unreadable or malformed limit file, and a malformed `SOLPROP_SCAN_CPU_OFFSET` or `SOLPROP_SCAN_CPU_COUNT`, now raise `DriverError` naming the file or variable instead of a bare `OSError` or `ValueError` (#170).
+- Rerunning a `Local` or `Pool` scan with every point already done no longer grows the scan file by rebuilding its consolidated `layouts`: they are rebuilt only when a point has been committed since they were last built, including by an earlier run that stopped before consolidating. Such a rerun now adds only its `executions` row (#169).
+- A snapshot interval shorter than 60 s is honoured ([#600](https://github.com/LupoLab/solprop/issues/600)): the 60 s retry back-off now follows only a failed or deferred snapshot attempt, where every successful publication used to impose it too.
+- Building a simulation no longer makes the caller's arrays read-only or keeps them by reference. Affected inputs: an absorber's rate arrays, the arrays passed to the translation layer's tables, `TabulatedDispersion`'s `omega` and `beta`, the backends' step histories, statistic rows and observations, and the `save_planes`, knots and dispersion coefficients that the stepper and simulation settings, `PathVariation`, `TaylorDispersion`, `InterpolatedDispersion` and `ModalSampling` used to keep as views. An array a caller passes in is copied once. Arrays that solprop builds itself, such as translation tables, grid axes and masks, memoised ionisation rate tables and a backend's exported state, are frozen in place and passed on without a further copy (#759).
+- The temporal collar's walk-off integral, read by `warn_walkoff` and by `absorber(grid, walkoff=...)`, is now the rectangle sum over the periodic time axis, which is exact for the taper, rather than a trapezoid that left out one sample; a collar sized for a drift now removes exactly the stated `exp(-2Γ)` of its power, and the warning fires at the exact threshold (#490).
+
 ## [0.2.0] - 2026-11-07
 
 solprop 0.2.0 adds a desktop front end, describes every run as a recipe that can be

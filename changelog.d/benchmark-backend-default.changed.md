@@ -1,1 +1,0 @@
-The benchmark harness (`python -m benchmarks track` and `ab`) now runs workers with the backend's own OpenMP waiting by default (`--threading backend`), so that a row measures a user's default run; `--threading passive` keeps the previous policy. History rows record the policy, so rows taken from now on start a new series.

@@ -1,1 +1,0 @@
-The TDSE response's atomic provider now runs in a worker process of its own, never in solprop's process, for presets, bases, consistency checks and runs alike; Ctrl-C, SIGTERM and a run's stop flag now stop a TDSE run during an atomic call, the call charged and the last accepted step checkpointed (SEP 49).
