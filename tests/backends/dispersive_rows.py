@@ -93,7 +93,7 @@ from backends.dispersive_route_cases import (
     strand,
 )
 from backends.dispersive_route_cases import evaluation_bound as route_bound
-from bounds import dispersive_device_bound, step_evaluations
+from bounds import device_backend, dispersive_device_bound, step_evaluations
 from parity_ladder import Bound, Built, Detection, Row, embedded
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
@@ -933,15 +933,30 @@ GENERAL_CASES: dict[str, tuple[Mixture, float | None, float]] = {
 """Each strand's gas fill, core susceptibility (m^2/V^2) and launch energy (J).
 
 Chosen so that the gas region moves the ten-step window by more than the guard's
-thousand bounds (issue #789): at the cases' 2 nJ launch it moved it by 0.5-3.9 bounds,
-so a native that dropped the response passed. Without a solid core the gas is the
-only nonlinearity and 50 uJ moves it by 5900-24 000 bounds (measured). Beside the
-core, whose cubic diverges the fixed ten-step march at 60 nJ and amplifies its rounding
-a hundredfold from 15 nJ, a 12 nJ launch with a 50 bar fill moves it by 2100-4000
-bounds, native's departure staying at 3e-16 to 9e-16. The ten fixed steps are
-coarser than the controller's tolerance here, as they already were beside the core at
-2 nJ: the window holds parity with the reference, not accuracy.
+thousand bounds on the CPU build (issue #789): at the cases' 2 nJ launch it moved it by
+0.5-3.9 bounds, so a native that dropped the response passed. Without a solid core the
+gas is the only nonlinearity and 50 uJ moves it by 5900-24 000 bounds (measured).
+Beside the core, whose cubic diverges the fixed ten-step march at 60 nJ and amplifies
+its rounding a hundredfold from 15 nJ, a 12 nJ launch with a 50 bar fill moves it by
+2100-4000 bounds, native's departure staying at 3e-16 to 9e-16. The ten fixed steps
+are coarser than the controller's tolerance here, as they already were beside the core
+at 2 nJ: the window holds parity with the reference, not accuracy.
+
+The window is guarded on the CPU build only. A device build's envelope
+(``bounds.dispersive_device_bound``) is 60-105 times the CPU count: the reference's
+measured movement is 34-328 of those bounds, beside the core and for helium and argon
+under even the lowest guard of a hundred. Clearing a thousand there would need about
+30 times the gas's effect beside the core, past the launch at which the march
+diverges, so on a device the window runs at its bound unguarded and the source rung
+carries the guard (:data:`GENERAL_WINDOW_ON_DEVICE`).
 """
+
+GENERAL_WINDOW_ON_DEVICE = {
+    "steps": "on a device build the window's envelope is 60-105 times the CPU count, "
+    "and the gas region moves the window by 34-328 of those bounds: the CPU build "
+    "guards the window, the source rung the response (issue #789)"
+}
+"""The general rows' unguarded window on a device build, and why."""
 
 
 def _general(
@@ -983,6 +998,7 @@ def _cut_at_the_first_gas_node(evaluator: str) -> Built:
 
 def general_rows(evaluator: str) -> Iterator[Row]:
     """Yield the general modal route: a 1.5 um strand's HE11 in a gas exterior."""
+    on_device = device_backend("native") != "none"
     for form in ("real", "analytic"):
         for strand_name, (gas, core, energy) in GENERAL_CASES.items():
             yield dispersive_row(
@@ -1006,6 +1022,7 @@ def general_rows(evaluator: str) -> Iterator[Row]:
                     "source": route_evaluation,
                     "steps": window_of(route_evaluation),
                 },
+                unguarded=GENERAL_WINDOW_ON_DEVICE if on_device else {},
                 metadata=dispersive_path(
                     alone=core is None, in_place=False, borrowed=False
                 ),
