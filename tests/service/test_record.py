@@ -241,3 +241,45 @@ def test_a_summary_held_open_is_replaced_once_let_go(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         write_json(tmp_path / "t.json", {"a": 1})
     assert not list(tmp_path.glob(".t.json.*"))  # its temporary file is gone
+
+
+def test_a_run_continued_the_moment_its_ending_is_recorded_finds_its_record_let_go(
+    tmp_path, monkeypatch
+):
+    from solprop.service.record import STATUS, set_aside  # noqa: PLC0415
+
+    real_replace = Path.replace
+    real_write_json = record.write_json
+    log: EventLog | None = None
+    failures: list[BaseException] = []
+
+    def windows_replace(self, target):
+        # Windows refuses to rename a file another handle holds open.
+        if self.name == EVENTS and log is not None and not log._stream.closed:
+            raise PermissionError("in use")
+        return real_replace(self, target)
+
+    def write_json(path, value):
+        real_write_json(path, value)
+        if path.name == STATUS and "ending" in value:
+            # The harshest schedule: a window continues the run as soon as the ending
+            # is recorded, before the old writer does anything more.
+            try:
+                job = read_job(tmp_path)
+                assert job is not None and job.ended is not None
+                set_aside(tmp_path)
+            except BaseException as error:
+                failures.append(error)
+
+    monkeypatch.setattr(Path, "replace", windows_replace)
+    monkeypatch.setattr(record, "write_json", write_json)
+    log = EventLog(tmp_path, "r1", job=lambda: Job.here("r1", "direct"))
+    log.put(Event("r1", "row", {"index": 0}))
+    log.put(Event("r1", "stopped", {"path": "run.h5"}))
+    log.put(Event("r1", "log", {"message": "after the ending"}))
+    log.close()
+    assert failures == []
+    # Every event once, in the record set aside; nothing rewritten after it.
+    assert not (tmp_path / EVENTS).exists() and not (tmp_path / STATUS).exists()
+    (tmp_path / "events-1.bin").replace(tmp_path / EVENTS)
+    assert [e.kind for e in read_events(tmp_path)[0]] == ["row", "stopped"]
