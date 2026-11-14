@@ -263,7 +263,7 @@ class PIController:  # numpydoc ignore=PR02
     ``factor = clip(safety * (1/e_n)**beta1 * (1/e_{n-1})**beta2,
     min_factor, max_factor)``,
 
-    the Lund (PI.4.2) rule of [1]_. A pure proportional controller reacts to every
+    the PI.4.2 rule of [1]_. A pure proportional controller reacts to every
     fluctuation of the estimate; the integral term damps that, which is what keeps the
     step size smooth enough for the step history to be worth replaying.
 
@@ -408,7 +408,7 @@ class PIController:  # numpydoc ignore=PR02
     ) -> "PIController":
         """Build a controller whose PI gains match an error estimate of order ``q``.
 
-        The Lund gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
+        The gains are ``beta1 = 0.6 / k`` and ``beta2 = -0.2 / k`` with
         ``k = q + 1``. Using the scheme's order in place of the estimator's is a
         standing mistake: it makes the controller oscillate rather than converge.
 

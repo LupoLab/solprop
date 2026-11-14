@@ -25,8 +25,9 @@ array itself, the raw forward DFT, is ``output.fields()``.
 frequency axis. Pass ``band="all"`` for every stored bin, remembering that a field grid
 then includes the zero-frequency bin, where a wavelength is undefined.
 
-No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
-range, and nothing happens without it.
+No window is ever applied implicitly. ``bandpass`` is a keyword -- wavelength limits,
+a :class:`~solprop.processing.spectra.Passband` on any axis, or a ready-made window on
+the stored axis -- and nothing happens without it.
 
 **A spatial file's columns are not modes.** :func:`get_power` and
 :func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
