@@ -454,7 +454,8 @@ Withdrawn (development-process record, not a design decision).
   parameter; independent profiles use the z table on the CPU backends. A total-degree
   expansion for them was measured and is not part of the contract: it failed the joint
   memory and build-cost criterion ([kernel contract](kernel-contract.md)). In the
-  kernel contract each ionising species is a **channel** (its rate table, potential, pre-ionisation, density and electrons per event),
+  kernel contract each ionising species is a **channel** (its rate table, potential,
+  pre-ionisation, density and electrons per event),
   each Raman-active species a **term** with its own amplitude path and its linewidth at the
   total density, and the Kerr coefficient one composite path; the fused column runs one
   exposure scan per channel and shares the current and loss integrals. The single-gas
