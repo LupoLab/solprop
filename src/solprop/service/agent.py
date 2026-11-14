@@ -59,7 +59,7 @@ import numpy as np
 from solprop.service.frames import Readable, Writable, read_frame, write_frame
 from solprop.service.machines import CHUNK
 from solprop.service.messages import PROTOCOL, Reply, Request, ServiceError
-from solprop.service.record import read_events, request_stop
+from solprop.service.record import read_events, read_status, request_stop
 from solprop.service.worker import spec_from_value
 
 __all__ = [
@@ -283,11 +283,16 @@ class Agent:
         memory, its job cancelled) is said ``lost``, from its state
         (:func:`~solprop.service.runs.summarise`) checked every
         :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
+
+        The terminal event is sent only once the run's summary records its ending
+        (:mod:`solprop.service.record`), so a window that hears a run has ended finds
+        it ended in a list of runs and can continue it at once; a run that goes
+        between the two has its terminal event sent as it wrote it.
         """
         checked = time.monotonic()
         while not done.is_set():
             try:
-                events, offset = read_events(folder, offset)
+                events, after = read_events(folder, offset)
             except ServiceError as error:
                 self.send(
                     {
@@ -297,6 +302,15 @@ class Agent:
                     }
                 )
                 return
+            held = any(e.terminal for e in events) and not _ending_recorded(folder)
+            if held and time.monotonic() - checked >= LIVENESS_PERIOD:
+                checked = time.monotonic()
+                held = _lost(folder) is None
+            if held:
+                # Read again: the run is still letting go of its record.
+                done.wait(period)
+                continue
+            offset = after
             if events:
                 self.send(
                     {
@@ -574,6 +588,11 @@ class Agent:
                 self._kernel.close()
 
 
+def _ending_recorded(folder: Path) -> bool:
+    """Return whether a run's summary records its ending, its record let go."""
+    return "ending" in (read_status(folder) or {})
+
+
 def _lost(folder: Path) -> str | None:
     """Return why a run that recorded no ending has gone, or ``None`` while it lives.
 
@@ -594,9 +613,9 @@ def _lost(folder: Path) -> str | None:
 def _remove_tree(folder: Path, tries: int = 20) -> None:
     """Delete a run's folder, once its process has let go of its files.
 
-    A run that has recorded its ending may still be writing its last summary as its
-    process leaves, and Windows refuses to delete a file that is open; so the folder
-    is tried again for a few seconds.
+    A run that has recorded its ending may still hold its log as its process leaves,
+    and Windows refuses to delete a file that is open; so the folder is tried again
+    for a few seconds.
 
     - ``tries``: how many times to try, a quarter of a second apart.
     """

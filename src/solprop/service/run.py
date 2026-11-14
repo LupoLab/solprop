@@ -23,7 +23,6 @@ import time
 import traceback
 import warnings
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +43,6 @@ from solprop.service.record import (
     clear_stop,
     set_aside,
     watch_stop,
-    write_job,
 )
 from solprop.service.reduce import (
     SPECTRAL_AXES,
@@ -495,9 +493,7 @@ def execute(spec: RunSpec) -> None:
     finally:
         record.put(Event(spec.run_id, kind, data))
         done.set()
-        record.close()
-        if record.job is not None:
-            write_job(folder, replace(record.job, ended=time.time()))
+        record.close()  # records the job's end too
         detach()
 
 

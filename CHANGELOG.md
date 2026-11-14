@@ -284,6 +284,7 @@ All notable changes to solprop are recorded here. The format follows
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its
   width indefinitely ([#697](https://github.com/LupoLab/solprop/issues/697)).
+- Fixed a run's ending being visible before its record was finished: a run now closes its events and writes its end into `job.json` before its summary records the ending, writes nothing to its record after that, and the machine helper relays a run's ending only once it is recorded. Resuming a run the moment it stops no longer fails on Windows because the old run still holds its events file, and a run reported as ended is listed as ended (#724, #825).
 - The desktop front end no longer builds a class's sheet twice when the kernel answers its
   route's description twice, once for the description fetched ahead and once for the one
   asked as the setup opened; the second build replaced every widget on the sheet for

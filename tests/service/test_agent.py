@@ -739,3 +739,75 @@ def test_a_folder_held_open_is_removed_once_let_go(
 def test_a_development_version_is_a_dev_release_or_has_a_local_part():
     assert not machines._development("0.2.0")
     assert machines._development("0.2.1.dev17+g8077f26c3.d20261107")
+
+
+def test_a_followed_run_s_ending_is_sent_only_once_it_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import EVENTS, STATUS, write_json  # noqa: PLC0415
+
+    here = socket.gethostname()
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    write_json(
+        folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": os.getpid()}
+    )
+    # The run has appended its ending and not yet recorded it in its summary.
+    frames = [
+        {"run_id": "r1", "kind": "row", "data": {"index": 0}},
+        {"run_id": "r1", "kind": "finished", "data": {"path": "run.h5"}},
+    ]
+    (folder / EVENTS).write_bytes(b"".join(encode(frame) for frame in frames))
+    reads = threading.Semaphore(0)
+    real = agent.read_events
+
+    def counted(*args):
+        try:
+            return real(*args)
+        finally:
+            reads.release()
+
+    monkeypatch.setattr(agent, "read_events", counted)
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    for _ in range(3):  # read, and its process found alive, three times over
+        assert reads.acquire(timeout=10)
+    assert b"finished" not in output.getvalue()
+    write_json(folder / STATUS, {"ending": {"kind": "finished", "data": {}}})
+    deadline = time.monotonic() + 10
+    while b"finished" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    (sent,) = [f for f in answers(output) if f.get("kind") == "events"]
+    assert [e["kind"] for e in sent["events"]] == ["row", "finished"]
+    helper.close()
+
+
+def test_a_followed_run_gone_before_recording_its_ending_has_it_sent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import EVENTS, write_json  # noqa: PLC0415
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    folder = tmp_path / "r1"
+    folder.mkdir()
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "direct", "host": socket.gethostname(), "pid": 0},
+    )
+    frame = {"run_id": "r1", "kind": "stopped", "data": {"path": "run.h5"}}
+    (folder / EVENTS).write_bytes(encode(frame))
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    deadline = time.monotonic() + 10
+    while b"stopped" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    (sent,) = [f for f in answers(output) if f.get("kind") == "events"]
+    assert [e["kind"] for e in sent["events"]] == ["stopped"]
+    helper.close()

@@ -1180,7 +1180,11 @@ files. It reads a stop file a few times a second from a thread of its own and pa
 solprop's stop flag. Its state is derived from these, never kept by a daemon: an ending in
 the events says finished, stopped or failed; Slurm says queued (with its reason), running,
 cancelled or out of time; a process gone with no ending is lost, and solprop says whether it
-can be resumed. Re-attaching reads the rows and events from the start and then follows them,
+can be resumed. The ending is recorded last: the run appends its terminal event, closes its
+events, writes its end into `job.json`, and only then records the ending in its summary, after
+which it writes nothing more to its record; whoever acts on a run's end (the helper relaying it,
+a list of runs, a resume setting the record aside) goes by that summary, so it finds the record
+complete and let go. Re-attaching reads the rows and events from the start and then follows them,
 which works for a scan as well as a run. On this computer the run also keeps its pipe to the
 window, so the live view does not wait on a file.
 
