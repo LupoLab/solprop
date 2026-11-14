@@ -12,6 +12,7 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.integrate import quad_vec
 
+from bounds import assert_within
 from hankel_oracles import gamma
 from solprop.constants import C
 from solprop.exceptions import TranslationError
@@ -107,6 +108,10 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
         assert isinstance(prefactor, ParameterExpansion)
         assert operator.phi_expansion.parameters == ("density",)
         assert prefactor.parameters == ("density",)
+        # Structural: one material sample serves both polarisations, so the stored
+        # terms are the same numbers; only their contraction below may round apart.
+        terms = operator.phi_expansion.terms
+        np.testing.assert_array_equal(terms[..., 0, :], terms[..., 1, :])
         for left, right in (
             (0.0, grid.length),
             (0.21 * grid.length, 0.79 * grid.length),
@@ -135,7 +140,22 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
             )
             actual = delta_phi(operator, left, right)[0]
             assert_allclose(actual[:, 0], expected, rtol=0, atol=bound)
-            np.testing.assert_array_equal(actual[:, 0], actual[:, 1])
+            # The polarisation columns hold identical terms, but the increment is one
+            # BLAS product (np.tensordot) whose kernel may round each output column
+            # differently (seen with OpenBLAS on AVX-512). Each column is a length-n
+            # sum of real weight times term: within gamma_n(u) sum |w| |t| of exact per
+            # component, so two columns differ by at most twice that per component and
+            # sqrt(2) times more in modulus; gamma(2 n) = 4 gamma_n(u) covers it.
+            expansion = operator.phi_expansion
+            weights = expansion.weights(right) - expansion.weights(left)
+            magnitude = np.tensordot(np.abs(weights), np.abs(expansion.terms), axes=1)
+            assert_within(
+                actual[:, 1],
+                actual[:, 0],
+                gamma(2 * weights.size) * magnitude[0][:, 0],
+                elementwise=True,
+                what="polarisation columns",
+            )
         for z in (0.0, 0.37 * grid.length, grid.length):
             expected = model.prefactor(space.k_r**2, z) * grid.crop_scale
             assert_allclose(
