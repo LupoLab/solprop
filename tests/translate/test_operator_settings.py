@@ -25,7 +25,8 @@ from solprop.exceptions import (
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid, LineGrid, RadialGrid
-from solprop.linear import Frame
+from solprop.linear import MAX_ATTENUATION_EXPONENT, Frame
+from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output.serialisation import serialise
 from solprop.profiles import Linear
@@ -504,3 +505,61 @@ def test_the_radial_bounds_cover_a_varying_medium():
         # And close: the series converge fast on a smooth density, so the bound
         # sits within a hundredth of the sampled extreme.
         assert bounds.loss <= 1.01 * float(np.max(-sampled))
+
+
+# ------------------------------------------------------------ the modal kinds
+
+
+def lossy_fibre(alpha: float, integrator) -> Simulation:
+    """A 4 cm fibre of power loss ``alpha``, replayed in four steps of 1 cm."""
+    length = 0.04
+    grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (600e-9, 1.2e-6), 2e-12)
+    mode = SpecifiedMode.from_taylor(
+        [0.0, 0.0, -2e-26], omega_ref=grid.omega0, loss=alpha, aeff=8e-11
+    )
+    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-9)
+    step = length / 4
+    return Simulation(
+        grid,
+        mode,
+        [],
+        pulse,
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-14),
+            save_planes=[length],
+            dz_max=step,
+            dz_init=step,
+            schedule=FixedSchedule.uniform(0.0, length, step, save_planes=[length]),
+            integrator=integrator,
+            backend="numpy_ref",
+            absorber=bare_absorber(grid),
+            boundary_check=None,
+            prefactor_index=1.0,
+        ),
+        noise=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "integrator", [RungeKutta(), Multistep()], ids=["runge_kutta", "multistep"]
+)
+def test_the_loss_clamp_keeps_a_modal_replay_inside_the_budget(integrator):
+    """The modal kinds go unchecked because ``LossPolicy`` bounds their exponent.
+
+    The loss asks for ``alpha h / 2 = 5000`` nepers a step, past ``log(DBL_MAX)``;
+    the clamp holds the rate to ``2 * 708 / L``, a quarter of 708 a step of
+    ``L / 4``, so translation neither refuses nor warns and the field stays finite.
+    """
+    alpha = 1e6
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ExponentBudgetWarning)
+        simulation = lossy_fibre(alpha, integrator)
+        problem = simulation.translate()
+    step = simulation.grid.length / 4
+    assert alpha * step / 2 > LOG_DBL_MAX
+    rate = problem.linear.phi_constant
+    assert rate is not None
+    exponent = float(np.max(-np.real(rate))) * step
+    assert exponent == pytest.approx(MAX_ATTENUATION_EXPONENT / 4, rel=1e-12)
+    output = simulation.run(progress="none")
+    assert np.all(np.isfinite(output["field"]))

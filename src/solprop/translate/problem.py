@@ -1430,8 +1430,16 @@ class PropagationProblem:
         the budget only at its floor ``dz_min``; above it, its controller rejects a
         non-finite trial and shrinks. The radial kind carries a dense operator and
         forms the same inverse factor from it, so it is bounded by
-        :func:`solprop.translate.radial.radial_rate_bounds` instead (SEP 22, Q16);
-        the modal kinds are not checked.
+        :func:`solprop.translate.radial.radial_rate_bounds` instead (SEP 22, Q16).
+
+        The modal kinds are not checked because they need no check: a mode's loss
+        reaches ``D`` through :func:`solprop.linear.dispersion_operator`, whose default
+        :class:`solprop.linear.LossPolicy` clamps the power attenuation to
+        ``2 * MAX_ATTENUATION_EXPONENT / length``, so no step within the run's length
+        forms an amplitude exponent past 708, below ``log(DBL_MAX)``. Outside that
+        reason, and so unchecked here: gain, which the policy lets through; a
+        ``max_alpha`` raised above the default limit; and the absorber's rates, which
+        are added to ``D`` after the clamp.
         """
         operator = self.linear.separable
         geometry = self.transform.geometry
