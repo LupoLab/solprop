@@ -270,6 +270,15 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- Recorded the position of a `resume="interpolated"` continuation in the
+  `interpolated_resumes` annotation before its first step, so a session that stops or
+  fails later still names where it restarted; before, only a session that finished was
+  recorded ([#152](https://github.com/LupoLab/solprop/issues/152)).
+- Dropped optmat's internal tracker ids, such as `(TC-688)`, from the optmat warnings
+  solprop passes on as `MaterialRangeWarning` and from the run's material record; the
+  rest of each message is unchanged. A Raman response used outside its density or
+  temperature range, hydrogen at 0.5 bar for example, no longer ends its warning with a
+  reference users cannot look up ([#166](https://github.com/LupoLab/solprop/issues/166)).
 - Preserved the original error and retained a retry owner when acquiring host BLAS
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its

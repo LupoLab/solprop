@@ -117,8 +117,9 @@ INTERPOLATED_RESUMES_ANNOTATION = "interpolated_resumes"
 A list of the positions of the interpolated save planes a run observed densely was
 continued from with ``resume="interpolated"``: each continuation started afresh from a
 field interpolated inside a step, not a state the march passed through (SEP 14).
-Written by :meth:`solprop.driver.simulation.Simulation.run`, outside the configuration
-hash.
+Written by :meth:`solprop.driver.simulation.Simulation.run` before the continuation's
+first step, so a session stopped or failed later still records it, outside the
+configuration hash.
 """
 
 RUN_SUMMARY_ANNOTATION = "run_summary"

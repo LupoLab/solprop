@@ -757,7 +757,7 @@ def _reemit(
     messages = []
     for item in caught:
         if issubclass(item.category, ModelRangeWarning):
-            messages.append(str(item.message))
+            messages.append(_optmat.optmat_text(item.message))
         else:
             warnings.warn_explicit(
                 item.message, item.category, item.filename, item.lineno
