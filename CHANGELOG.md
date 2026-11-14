@@ -284,6 +284,15 @@ All notable changes to solprop are recorded here. The format follows
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its
   width indefinitely ([#697](https://github.com/LupoLab/solprop/issues/697)).
+- `SimulationSettings` now refuses a `resume_history` that is not `True`, `False` or
+  `None`. A recipe's `[execution]` table that wrote `resume_history = "none"` built a
+  run, and a Python export, that kept the Adams history always, the opposite of what it
+  said; omit the key for the automatic choice
+  ([#703](https://github.com/LupoLab/solprop/issues/703)).
+- A `SimulationRunner`, and the backend a scan keeps between points, is no longer reused
+  for settings that name another backend or node budget: a scan point builds a backend of
+  its own, and a direct `runner.run` after such a change raises a `DriverError` before it
+  reads the input ([#705](https://github.com/LupoLab/solprop/issues/705)).
 - Fixed a run's ending being visible before its record was finished: a run now closes its events and writes its end into `job.json` before its summary records the ending, writes nothing to its record after that, and the machine helper relays a run's ending only once it is recorded. Resuming a run the moment it stops no longer fails on Windows because the old run still holds its events file, and a run reported as ended is listed as ended (#724, #825).
 - The desktop front end no longer builds a class's sheet twice when the kernel answers its
   route's description twice, once for the description fetched ahead and once for the one

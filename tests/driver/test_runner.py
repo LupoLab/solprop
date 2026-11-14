@@ -348,6 +348,28 @@ def test_a_runner_refuses_what_its_backend_cannot_carry(tmp_path):
     runner.close()  # idempotent
 
 
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [({"node_budget": 2**20}, "prepared with"), ({"backend": "native"}, "backend is")],
+)
+def test_a_runner_refuses_execution_choices_its_backend_was_not_built_for(
+    change, message
+):
+    # Issue #705: the backend and node budget are outside the resume key, yet the
+    # held backend was selected and prepared for the runner's own.
+    simulation = capillary("numpy_ref")
+    built = simulation.settings
+    with SimulationRunner(simulation) as runner:
+        simulation.settings = dataclasses.replace(built, **change)
+        assert not runner._takes(simulation)
+        with pytest.raises(DriverError, match=message):
+            runner.run(inputs(simulation)[0])
+        assert runner.runs == 0 and not runner.closed
+        # The same choices again, if not the same objects, are the runner's.
+        simulation.settings = dataclasses.replace(built)
+        assert runner._takes(simulation)
+
+
 def test_a_runner_closes_only_between_runs():
     simulation = cartesian("numpy_ref")
     runner = simulation.runner()

@@ -17,11 +17,13 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from jaxtyping import TypeCheckError
 
 from builders import HASH_PROBE, run_python
+from runtime_types import TYPECHECKED
 from solprop.cli import main
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, MaterialRangeWarning
+from solprop.exceptions import BackendError, DriverError, MaterialRangeWarning
 from solprop.profiles import PiecewiseLinear
 from solprop.pulses import DataPulse, SechPulse
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
@@ -228,6 +230,30 @@ def test_execution_settings_reach_the_settings_and_the_run(recipe):
         metadata = source.run().metadata
         assert metadata is not None
         assert metadata.configuration_hash() == _hash(built)
+
+
+@pytest.mark.parametrize("value", ["none", "true", 1])
+def test_a_resume_history_that_is_not_a_boolean_is_refused(value):
+    # Issue #703: a truthy string such as "none" was read by the history policy as
+    # True, the opposite of what it says, by the build and the Python export alike.
+    document = Recipe.loads(GNLSE).to_dict()
+    document["execution"] = {"resume_history": value}
+    recipe = Recipe.from_dict(document)
+    if TYPECHECKED:
+        # The annotation refuses it first when the runtime checks are on; the guard
+        # itself, which production meets unchecked, is reached past the annotation.
+        with pytest.raises(TypeCheckError):
+            recipe.build()
+        held = Recipe.loads(GNLSE).build().settings
+        object.__setattr__(held, "resume_history", value)
+        with pytest.raises(
+            DriverError, match="resume_history must be True, False or None"
+        ):
+            held.__post_init__()
+        return
+    with pytest.raises(DriverError, match="resume_history must be True, False or None"):
+        recipe.build()
+    assert [issue.parameter for issue in recipe.check()] == ["resume_history"]
 
 
 def test_a_registered_object_is_built_from_its_table():

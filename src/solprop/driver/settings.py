@@ -480,7 +480,8 @@ class SimulationSettings(Displayed):
         Raises
         ------
         DriverError
-            If the planes are empty, not increasing, or not positive.
+            If the planes are empty, not increasing, or not positive, or if
+            `resume_history` is not a boolean or ``None``.
         """
         planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
         if (
@@ -500,6 +501,16 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
+        if self.resume_history is not None and not isinstance(
+            self.resume_history, bool
+        ):
+            # A truthy string such as a recipe's "none" would otherwise be read as
+            # True by the history policy, the opposite of what it says (issue #703).
+            msg = (
+                "resume_history must be True, False or None, got "
+                f"{self.resume_history!r}"
+            )
+            raise DriverError(msg, parameter="resume_history")
         self._resolve_defaults()
         if self.fields == "planes" and self.step_planes:
             msg = (

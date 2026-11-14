@@ -32,7 +32,7 @@ from solprop.driver.inputs import (
 from solprop.driver.resume import _open_output
 from solprop.driver.routes.hollow import _warn_sampled_peak
 from solprop.driver.run import field_retention, run_problem
-from solprop.driver.settings import _same_setting
+from solprop.driver.settings import SimulationSettings, _same_setting
 from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
@@ -171,6 +171,9 @@ class SimulationRunner(Displayed):
         self._simulation = simulation
         self._problem = problem
         self._request = request
+        # A snapshot, not the simulation's settings, which the caller may replace: the
+        # backend was selected and prepared for these execution choices alone.
+        self._execution = (settings.backend, settings.execution_options())
         self._lock = threading.Lock()
         self._closed = False
         self.runs = 0
@@ -309,11 +312,12 @@ class SimulationRunner(Displayed):
         Raises
         ------
         DriverError
-            If the runner is closed or already running an input; if the derived
-            problem is not the runner's but for its input (a different launch
-            position, or a shared leaf replaced); if the noise model differs from
-            the runner's, which the backend could not carry; or if `input_identity`
-            is empty or names anything but an array input.
+            If the runner is closed or already running an input; if the
+            simulation's backend or execution options have changed since the runner
+            was built; if the derived problem is not the runner's but for its input
+            (a different launch position, or a shared leaf replaced); if the noise
+            model differs from the runner's, which the backend could not carry; or if
+            `input_identity` is empty or names anything but an array input.
         """
         if not self._lock.acquire(blocking=False):
             msg = (
@@ -347,9 +351,31 @@ class SimulationRunner(Displayed):
         finally:
             self._lock.release()
 
+    def _check_execution(self, settings: SimulationSettings) -> None:
+        """Refuse settings whose backend or execution options are not the runner's.
+
+        They are outside the resume key, so :func:`check_derived_problem` cannot see
+        them, yet the held backend was selected and prepared for the runner's own.
+        """
+        backend, options = self._execution
+        if settings.backend != backend:
+            msg = (
+                f"this runner's backend is {backend!r}, not {settings.backend!r}; "
+                "build another with simulation.runner()"
+            )
+            raise DriverError(msg)
+        if settings.execution_options() != options:
+            msg = (
+                f"this runner's backend was prepared with {options!r}, not "
+                f"{settings.execution_options()!r}; build another with "
+                "simulation.runner()"
+            )
+            raise DriverError(msg)
+
     def _takes(self, simulation: "Simulation") -> bool:
         """Return whether a simulation is this runner's but for its input."""
         try:
+            self._check_execution(simulation.settings)
             check_derived_problem(
                 self._problem,
                 simulation.translate(),
@@ -394,6 +420,7 @@ class SimulationRunner(Displayed):
         returns, and the start alone holds the converted launch of a modal route or the
         view of the input, until the run's session takes it.
         """
+        self._check_execution(self._simulation.settings)
         derived = self._simulation.with_input(
             _borrowed_input(initial, stated=input_identity is not None),
             noise=noise,
