@@ -1205,6 +1205,14 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         lab-frame source bit for bit, and every route's evaluation stays the one the
         Runge-Kutta march uses.
 
+        `lab` is taken as given: it is not masked to the active band, as
+        :meth:`set_initial` masks the state it loads. On a masked field the sample
+        equals the hoisted first stage at the same position bit for bit; a field with
+        content outside the band (an unmasked launch) is another input, whose source
+        differs by what that content makes (4.3e-13 of the peak on the optmat argon
+        capillary). The stage scalars at ``(position, position)`` do not depend on the
+        anchor last hoisted: a held anchor is reused only at its own position.
+
         - ``position``: the evaluation position, m.
         - ``purpose``: Atomic-call accounting label; ignored when no atomic service is
           bound.
