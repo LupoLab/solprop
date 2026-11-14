@@ -1953,7 +1953,7 @@ that execution space.
 | fibre: mode-averaged and multimode, field and envelope grids, Kerr, scalar and tensor Raman, field and envelope plasma, noise, both absorber schemes | yes | yes | qualified |
 | an operator or prefactor that took the z table (not `device_ready`) | yes | yes: the coefficients resident, evaluated natively into term slots | refused, naming the table's size |
 | radial and Cartesian free space (including a line, `n_y = 1`) | yes | yes | qualified (CUDA) |
-| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP; other combinations not qualified |
+| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP (under CUDA, below); one short planar Kerr case run on an NVIDIA H100 NVL and an AMD MI325X ([SEP 34](seps/archive/sep-0034-medium-flux.md#device-qualification-report--cuda-and-hip), 2026-10-23); other combinations not qualified |
 | general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
@@ -2009,9 +2009,20 @@ are the only tests skipped on a device, which has no thread count to vary.
 **Field plasma on a device.** The held field-plasma source
 ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) is qualified under HIP — native
 execution, the native and solprop GPU lanes, the held-current ladders and bounded timings on
-modal, radial, Cartesian, line and planar routes under both integration rules. Under CUDA
-it is built but not executed in qualification, so the table's CUDA entries for field
-plasma do not cover it. The far-field statistics' device pass is not qualified (§3.13).
+modal, radial, Cartesian, line and planar routes under both integration rules, on an AMD
+MI325X (2026-10-19). The committed records hold no `native_hip` rows for its Cartesian
+ladder and statistics, and a missing row is a `RecordError`, so the record-comparing
+tests of `tests/backends/test_free_ladders.py` under field plasma cannot pass on a HIP
+build until those rows are written. Under CUDA it
+has run without that pass: its Cartesian ladder on an NVIDIA H200 (2026-10-20), whose
+`native_cuda` rows are in the records
+([SEP 28](seps/archive/sep-0028-free-space-evaluation.md#phases-1-and-2-report--the-separable-core-on-both-cpu-backends));
+solprop's device lane on an NVIDIA A40 and an H200 (2026-10-29, 63 passed,
+[SEP 39](seps/archive/sep-0039-native-adams-march.md#phase-5--report-cuda-on-nvidia-a40s-hip-to-come)),
+which by reading holds a one-evaluation held-current parity test on every route under
+both rules; and the `argon_blueshift` capillary benchmark on both, timed only. The
+held-current ladders on the other routes and the bounded timings have not run under CUDA.
+The far-field statistics' device pass is not qualified (§3.13).
 
 ## 10. What each backend is for
 
@@ -2043,8 +2054,10 @@ Which backend and build to choose for a run is the user guide's
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg
   bound (§3.11).
-- The held field-plasma source is qualified on a device under HIP only (§9). On the
-  hybrid planar kind other response combinations are unqualified on a device build.
+- The held field-plasma source has had a device qualification pass under HIP only; under
+  CUDA it has run on the Cartesian ladder and solprop's device lane, not on the other
+  routes' ladders or with bounded timings (§9). On the hybrid planar kind other response
+  combinations are unqualified on a device build.
 - `native`'s device builds refuse any problem whose operator or prefactor took the z
   table; its CPU build runs it.
 - The default periodic-statistics subset is cheap under Runge–Kutta at `period = 1`, because

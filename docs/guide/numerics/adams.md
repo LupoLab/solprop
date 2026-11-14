@@ -298,7 +298,9 @@ them they are the diagonal ones. A frozen-residual section's residual $R_s(z)u$ 
 linear in the state and joins the transported compensation above: each sample keeps its
 flow weights, and a trial forms $(D(z_j)-\Delta\Phi/h)\,u_j + R_s(z_j)\,u_j$ against its
 own section's block -- rebuilding the history's residual when a step enters a new
-section -- and carries it by the reference's forward flow, never an inverse one. The
+section -- and carries it by the reference's forward flow, never an inverse one. A trial
+forms it whether or not the run has a nonlinear source, so a linear coupled run's
+residual is scored by the controller as a nonlinear one's is. The
 residual acts on the in-band bins, as the Runge-Kutta stage applies it. The lab-frame
 sample is the material source alone. The interaction formulation stays refused, since it
 would carry its history through inverse actions whose conditioning grows with loss. On
@@ -664,14 +666,6 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   native form on `native` and as per-sample weights on the host engines, so its snapshot
   continues only on a backend of the same kind; a resume elsewhere starts the history
   afresh and says why. Every other history crosses between backends.
-- **A coupled flow with no source.** Beside a frozen-residual coupled flow (a moving
-  guide, a coherent wall) the explicit residual is sampled with the source, where the
-  controller scores it. A run with no nonlinear source has no sample, so the step is
-  the frozen block's alone and its error is not seen: a linear taper is as accurate
-  as its `dz_max` allows, whatever `rtol` (second order in the step; 6e-4 on a
-  graded-index taper at ten steps). Set `dz_max` from a refinement, or step a linear
-  coupled run with `RungeKutta()`, whose embedded pair integrates the residual. A
-  diagonal operator is not affected: its chord is its exact flow.
 - **Memory.** The history holds from seven (`numpy_ref`, constant operator) to about
   sixty (`native`, a varying operator) further copies of the state. On a capillary the
   operator tables dominate and that is 8 to 55 % more; on a Cartesian free-space grid
