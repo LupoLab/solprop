@@ -357,7 +357,6 @@ def _adams_rows() -> tuple[Row, ...]:
                 medium=route == "envelope plasma",
                 switch_off=without_responses,
                 rungs={"source": one_transform},
-                masked_launch=True,
                 source_z=SOURCE_AT,
             ),
             ladder_row(
