@@ -19,7 +19,7 @@ import pytest
 from solprop.service.client import KernelClient
 from solprop.service.launch import prepare, start_direct
 from solprop.service.messages import Event, Reply
-from solprop.service.record import read_events, request_stop
+from solprop.service.record import read_events, read_status, request_stop
 from solprop.service.worker import OUTPUT, RunSpec
 
 from conftest import TINY
@@ -46,13 +46,17 @@ class Kernel:
 
 
 def run_until(spec: RunSpec, stop_after_rows: int | None = None) -> list[Event]:
-    """Run a spec as a job, following its record, stopping it after some rows."""
+    """Run a spec as a job, following its record, stopping it after some rows.
+
+    It returns once the run's summary records its ending, as a window acts on a run's
+    end: the record is then let go, so the run can be continued at once.
+    """
     folder = prepare(spec)
     start_direct(folder)
     seen: list[Event] = []
     offset = 0
     deadline = time.monotonic() + TIMEOUT
-    while not any(event.terminal for event in seen):
+    while not any(event.terminal for event in seen) or not ended(folder):
         assert time.monotonic() < deadline, "the run did not end"
         events, offset = read_events(folder, offset)
         seen.extend(events)
@@ -62,6 +66,11 @@ def run_until(spec: RunSpec, stop_after_rows: int | None = None) -> list[Event]:
             stop_after_rows = None
         time.sleep(0.05)
     return seen
+
+
+def ended(folder: Path) -> bool:
+    """Return whether a run's summary records its ending."""
+    return "ending" in (read_status(folder) or {})
 
 
 @pytest.fixture(scope="module")

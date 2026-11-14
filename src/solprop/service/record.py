@@ -22,6 +22,15 @@ and reads ``stop``, a file whose appearance asks it to stop as the window's Stop
 does. So a run needs no connection to anything: whoever can read its folder can follow
 it, and whoever can write there can stop it. Its state is read from these files
 (:func:`summary`), never kept by a daemon.
+
+The ending is recorded last. The terminal event is appended to ``events.bin``, which
+is then closed; ``job.json`` gets its end; and only then does ``status.json`` say the
+ending, after which the run writes nothing more to its record. So whoever reads an
+ending in the summary finds the record complete and let go, and may act on it at once:
+list the run as ended, relay its ending, or set the record aside to continue the run
+(Windows refuses to rename a file another process holds open). The terminal event can
+be read from ``events.bin`` a moment before the summary says it; a reader acting on
+the run's end waits for the summary.
 """
 
 from __future__ import annotations
@@ -33,7 +42,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -471,7 +480,8 @@ class EventLog:
     Attributes
     ----------
     job : Job or None
-        The run's ``job.json``, once the writer has written it.
+        The run's ``job.json``, once the writer has written it, with its end once
+        the ending is recorded.
 
     Examples
     --------
@@ -569,18 +579,48 @@ class EventLog:
             if event is None:
                 self._rewrite(force=True)
                 return
-            if self._kept(event):
-                try:
-                    self._stream.write(encode(_value(event)))
-                    self._stream.flush()
-                except OSError, ServiceError:
-                    # A full disk or an unwritable value costs the record, not the run.
-                    continue
+            if event.terminal:
+                self._end(event)
+                return
+            if self._kept(event) and not self._append(event):
+                continue
             self._summarise(event)
-            self._rewrite(force=event.terminal)
+            self._rewrite()
+
+    def _append(self, event: Event) -> bool:
+        """Append one event to ``events.bin``; return whether it was written."""
+        try:
+            self._stream.write(encode(_value(event)))
+            self._stream.flush()
+        except OSError, ServiceError:
+            # A full disk or an unwritable value costs the record, not the run.
+            return False
+        return True
+
+    def _end(self, event: Event) -> None:
+        """Record the run's ending, in the order the module describes, and stop.
+
+        The summary says the ending only once ``events.bin`` is closed and
+        ``job.json`` has its end, and nothing is rewritten after it: a run continued
+        the moment its ending is recorded sets aside a record no process holds, and
+        its fresh summary is never overwritten by this one.
+        """
+        self._append(event)
+        with contextlib.suppress(OSError):
+            self._stream.close()
+        if self.job is not None:
+            with contextlib.suppress(OSError, ValueError):
+                self.job = replace(self.job, ended=time.time())
+                write_job(self.folder, self.job)
+        self._summarise(event)
+        self._rewrite(force=True)
 
     def close(self) -> None:
-        """Write what is waiting, then close the record."""
+        """Write what is waiting, then close the record.
+
+        The record ends at its terminal event: an event handed over after it is not
+        kept.
+        """
         self._queue.put(None)
         self._thread.join(timeout=30.0)
         self._stream.close()
