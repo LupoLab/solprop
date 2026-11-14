@@ -279,6 +279,7 @@ All notable changes to solprop are recorded here. The format follows
   rest of each message is unchanged. A Raman response used outside its density or
   temperature range, hydrogen at 0.5 bar for example, no longer ends its warning with a
   reference users cannot look up ([#166](https://github.com/LupoLab/solprop/issues/166)).
+- The Adams page no longer says that a linear run beside a frozen-residual coupled flow is accurate only to its `dz_max` whatever `rtol` ([#252](https://github.com/LupoLab/solprop/issues/252)): that run's error follows `rtol`. What was measured was a launch far below `atol / rtol`, which the error norm holds to `atol` and not to `rtol`, under any integrator; the solver page now says so.
 - Preserved the original error and retained a retry owner when acquiring host BLAS
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its

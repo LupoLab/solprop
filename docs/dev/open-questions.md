@@ -54,9 +54,14 @@ required, [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
 $n_x n_y$ columns per time sample ([free space](../guide/free-space/model.md), *Memory*). The
 backend ledger counts the retained arrays exactly, and `native` also records the device's
 free-memory decrease while its FFT plans are built, but cuFFT and rocFFT plan workspace is
-opaque and these measurements are not upper bounds. No full-size Cartesian grid (for
-example 512 × 512 transverse samples on a few thousand time samples) has been run on a
-data-centre GPU, so the largest grid a given device holds is not known. Open: a
+opaque and these measurements are not upper bounds. The largest Cartesian grid recorded
+on a data-centre GPU is 768 × 768 × 600, with statistics-only planes
+([SEP 24](seps/archive/sep-0024-low-storage-interaction-picture-runge-kutta.md#closing-report--the-native-guards-the-follow-ups-and-phase-4-not-started),
+2026-10-19): the low-storage march took 610 ms a step on an AMD MI325X and 674 ms on an
+NVIDIA H200, at a device high-water of 46 and 34 GB with the transform workspace, and the
+IP-DOPRI5 replay 1077 and 1092 ms. A grid of 512 × 512 transverse samples on 2000 to 4000
+time samples is 1.5 to 3 times as many points and has not run, no record gives the Adams
+march at such a size, and the largest grid a given device holds is not known. Open: a
 measurement of plan usage and peak device memory at the largest intended grid on each
 qualified device.
 
