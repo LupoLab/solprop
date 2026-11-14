@@ -386,15 +386,20 @@ top of `tests/` (`*_cases.py`, `*_oracles.py`, `*_parity.py`, `convergence_studi
 parametrise instead of copy-pasting; shared tolerances are named constants with their
 justification.
 
-Backend parity is moving onto one **case catalogue**: `tests/capability_routes.py` collects
-the rows, each a built problem with the axes it covers (route, response, stepper,
-features) and the bound of each rung it runs, and `tests/parity_ladder.py` runs a row on
-native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family's rows live
-beside its cases (`tests/backends/dispersive_rows.py`, whose docstring shows how to read
-one; `tests/backends/optmat_rows.py`, whose rows climb from the linear operator to the
-driver's complete run; `tests/backends/plasma_rows.py`, the field plasma column on every
-route under both running-integral rules; `tests/backends/column_rows.py`, the retired
-compiled backend's column tests, a march's every statistic and the launch's among them). A row states the physical claim it holds in one sentence
+Backend parity on a fixed schedule lives in one **case catalogue**:
+`tests/capability_routes.py` collects the rows, each a built problem with the axes it
+covers (route, response, stepper, features) and the bound of each rung it runs, and
+`tests/parity_ladder.py` runs a row on native against `numpy_ref`
+(`tests/backends/test_parity_catalogue.py`). A family's rows live beside its cases in
+`tests/backends/*_rows.py`: `dispersive_rows.py` (whose docstring shows how to read one),
+`optmat_rows.py`, `plasma_rows.py`, `column_rows.py`, `free_rows.py`, `geometry_rows.py`,
+`planar_rows.py`, `session_rows.py`, `general_rows.py`, `mixture_rows.py`,
+`ladder_rows.py`, `flow_rows.py`, `driver_rows.py`, `axis_plasma_rows.py` and
+`vector_raman_rows.py`; a row's cases come from plain `*_cases.py` modules, never from a
+test module. Comparisons the catalogue does not express stay in their modules: adaptive
+marches (#809), monitors, events, resume, and checks against an oracle, a host formula
+or native itself. A row that writes an accuracy record does so through `Row.record`; a
+row slow by cost says why in `Row.slow`. A row states the physical claim it holds in one sentence
 (`why`), and explains a bound with a floor, a margin or a choice in `bound_note` (what
 was measured against it, what a wrong backend would miss by); every failure quotes
 both, and a rung outside its bound gives the measured value, the bound and their ratio.

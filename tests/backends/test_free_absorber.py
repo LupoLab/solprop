@@ -15,7 +15,8 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from backends.test_radial_absorber import LENGTH, assembled, rk_bound
+from backends.radial_absorber_cases import LENGTH, assembled
+from backends.test_radial_absorber import rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
 from sessions.runs import load_native, native_trial

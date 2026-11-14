@@ -9,7 +9,7 @@ import copy
 import numpy as np
 import pytest
 
-from backends.test_radial_nonlinear import make_problem
+from backends.spatial_cases import make_problem
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError, GridError
 from solprop.grid import EnvelopeGrid, FreeGrid

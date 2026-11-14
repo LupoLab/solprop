@@ -11,7 +11,11 @@ real medium has those together, so no native run met them. Native's kernels cann
 called alone, but its operator is read from the leaf: these tests put the same values
 on the leaf of a small real problem, with order-one steps and an order-one state, and
 compare a whole step, on the low-storage march and on the Runge-Kutta march, with
-``numpy_ref``, whose operator is ``separable_values``.
+``numpy_ref``, whose operator is ``separable_values``: the catalogue's rows
+(``backends/geometry_rows.py``), on the leaves of ``backends/synthetic_leaf_cases.py``.
+What stays here is
+what a row does not compare: the inactive bin's hard zero, the norm the march hands its
+accept, and a diverged march's refusal.
 
 **The bound.** The original's was 128 eps per kernel on order-one operands, with no
 transform between them. A step here has four evaluations of a transform pair, so it
@@ -31,24 +35,20 @@ import os
 import numpy as np
 import pytest
 
-from backends.low_storage_cases import parity_bound
-from backends.test_low_storage import MARCH
-from bounds import assert_within, gamma, propagation_growth, step_evaluations
+from backends.geometry_rows import SYNTHETIC_CASES, synthetic
+from backends.low_storage_cases import MARCH
+from backends.synthetic_leaf_cases import (
+    KERR,
+    free_leaf,
+    free_problem,
+    on_leaf,
+)
+from bounds import gamma
 from sessions.runs import load_native
 from sessions.runs import run as session_run
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.boundaries import absorber
 from solprop.exceptions import ConvergenceError
-from solprop.grid import EnvelopeGrid, FreeGrid
-from solprop.modes import PlanarGrid, SlabMode
-from solprop.nonlinear.responses import KerrResponse
-from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
-from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.assembly import assemble
-from solprop.translate.routes import flux_of
-from solprop.translate.spatial import separable_values
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
@@ -62,160 +62,6 @@ pytestmark = [
 solprop_native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
 NativeBackend = solprop_native.NativeBackend
-
-STEP = 0.3
-"""An order-one step, m, so every term of the table is of the same size."""
-
-KERR = KerrResponse(8e5, thg=False)
-"""A cubic source of the order of the order-one random state, on these unit axes."""
-
-ACTIVE = (True, True, True, True, False)
-"""The original's frequencies: four active and an inactive one, repeated."""
-
-
-def cycled(values, size):
-    """Return `values` repeated to `size`, as an array."""
-    return np.resize(np.asarray(values), size)
-
-
-def common_terms(leaf, wave):
-    """Return the leaf's shared arrays: the frame, rates, prefactor and inactive bin."""
-    n_omega = leaf.k_squared.size
-    return {
-        "k_squared": wave,
-        "frame": np.resize(np.arange(5, dtype=float) / 8, n_omega),
-        "spectral_rate": np.resize(np.arange(5, dtype=float) / 16, n_omega),
-        "prefactor_numerator": np.full(n_omega, -2j),
-        "prefactor_clamped": np.full(n_omega, -0.5j),
-        "active": cycled(ACTIVE, n_omega),
-        "evanescent_rate": 0.5,
-    }
-
-
-def free_leaf(leaf):
-    """The original's Cartesian leaf on `leaf`'s axes, whose ``kperp^2`` it must keep.
-
-    Loss and gain, a column with Re q exactly zero and an exactly zero one (bins at the
-    axes' own values), evanescent columns and an inactive bin, with a safety ramp's rate
-    on the outer columns.
-    """
-    n_omega = leaf.k_squared.size
-    axis = np.unique(leaf.kperp_sq)
-    wave = cycled(
-        [1 + 0j, axis[2] + 1j, axis[3] - 1j, axis[1] + 0j, axis[-1] + 1 + 0j], n_omega
-    )
-    ramp = np.where(leaf.kperp_sq > 0.5 * axis[-1], 1.5, 0.25)
-    return dataclasses.replace(
-        leaf,
-        **common_terms(leaf, wave),
-        k_squared_low=np.zeros(n_omega, complex),
-        kperp_rate=np.where(leaf.kperp_sq == 0.0, 0.0, ramp),
-    )
-
-
-def slab_leaf(leaf):
-    """The original's planar leaf on `leaf`'s axes.
-
-    As :func:`free_leaf`, with the wall: gain, a negative real part and a zero, low
-    words of 1e-17 and a ramp together.
-    """
-    n_omega = leaf.k_squared.size
-    axis = np.unique(leaf.kperp_sq)
-    wave = cycled([1 + 0j, 4 + 1j, 4 - 1j, axis[1] + 0j, 9 + 0j], n_omega)
-    walls = (
-        [0.25 + 0.01j, 0.5 - 0.02j, 1.0 + 0.1j, 5.0, 0],
-        [1.5, 0.5j, -0.5, 0.1j, 0],
-    )
-    n_channels = leaf.kappa_sq.shape[0]
-    ramp = np.where(leaf.kperp_sq > 0.5 * axis[-1], 1.0, 0.5)
-    return dataclasses.replace(
-        leaf,
-        **common_terms(leaf, wave),
-        k_squared_low=cycled([1e-17, 0, -1e-17, 0, 0], n_omega).astype(complex),
-        kperp_sq_low=np.where(leaf.kperp_sq == axis[1], 1e-17, 0.0),
-        kappa_sq=np.stack(
-            [cycled(walls[row % 2], n_omega) for row in range(n_channels)]
-        ).astype(complex),
-        kperp_rate=np.where(leaf.kperp_sq == 0.0, 0.0, ramp),
-    )
-
-
-def free_problem(*, responses, n_pol=1, mode="auto"):
-    """Return a small Cartesian problem on metre-wide axes: ``kperp^2`` of order one."""
-    grid = EnvelopeGrid.from_limits(STEP, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3.0, 9, 4.0, 12, collar_fraction=0)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
-        0.8,
-        jones=(1,) if n_pol == 1 else (1, 0.35j),
-    )
-    problem, run_request = assemble(
-        grid,
-        None,
-        responses,
-        pulse.build(grid, space, medium=SpatialMedium()),
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[STEP],
-        dz_max=STEP,
-        dz_init=STEP,
-        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-        integrator=MARCH,
-        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-        absorber_scheme="nonlinear",
-    )
-    return problem, run_request, grid
-
-
-def slab_problem(*, responses, mode="auto", collar=False, integrator=MARCH):
-    """Return a small slab problem on a metre-wide y axis."""
-    grid = EnvelopeGrid.from_limits(STEP, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    modes = [SlabMode(63.5e-6, order=p, cladding=1.45) for p in (1, 2, 3)]
-    space = PlanarGrid(modes, 3.0, 6)
-    pulse = PlanarPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
-        0.8,
-        waist_x=45e-6,
-        offset_x=10e-6,
-    )
-    field = pulse.build(grid, space, medium=SpatialMedium())
-    problem, run_request = assemble(
-        grid,
-        None,
-        responses,
-        field,
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[STEP],
-        dz_max=STEP,
-        dz_init=STEP,
-        schedule=FixedSchedule.uniform(0.0, STEP, STEP * 1.0000001),
-        integrator=integrator,
-        propagator_mode=mode,  # pyright: ignore[reportArgumentType]
-        absorber=absorber(grid, boundary_length=1.0) if collar else None,
-        absorber_scheme="nonlinear",
-    )
-    return problem, run_request, grid
-
-
-def on_leaf(problem, leaf, *, seed=3):
-    """Return `problem` on `leaf`, with an order-one random state on its active bins."""
-    rng = np.random.default_rng(seed)
-    shape = problem.shape
-    field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
-    field = field * np.asarray(leaf.active)
-    return dataclasses.replace(
-        problem,
-        linear=dataclasses.replace(problem.linear, separable=leaf),
-        responses=dataclasses.replace(problem.responses, separable=leaf),
-        grids=dataclasses.replace(problem.grids, active_mask=leaf.active),
-        initial=dataclasses.replace(problem.initial, field0=field),
-        route=dataclasses.replace(
-            problem.route, flux=dataclasses.replace(_flux(problem), base=leaf)
-        ),
-    )
 
 
 def run(implementation, problem, run_request, grid):
@@ -258,115 +104,20 @@ def resident_step(problem, run_request, grid):
     return squared, field
 
 
-def nonlinear_rate(problem, run_request, grid):
-    """Return ``3 |N| / |a|`` on the launch, the Kerr term's Lipschitz bound, 1/m."""
-    reference = NumpyRefBackend(problem, run_request, grid=grid)
-    try:
-        reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        state = reference._require_state()
-        stage = reference._nonlinear(
-            state,
-            reference._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )[0]
-        return 3.0 * float(np.max(np.abs(stage)) / np.max(np.abs(state)))
-    finally:
-        reference.close()
+@pytest.mark.parametrize(("case", "mode", "n_pol"), SYNTHETIC_CASES)
+def test_the_inactive_bin_stays_a_hard_zero(case, mode, n_pol):
+    """Class P: after the step the inactive bin is a hard zero on both backends.
 
-
-def step_limit(problem, run_request, grid, leaf):
-    """Return the one step's relative bound, fixed before native runs."""
-    gain = max(0.0, float(np.max(np.real(separable_values(leaf)[0]))))
-    rate = gain + nonlinear_rate(problem, run_request, grid)
-    limit = parity_bound(
-        problem,
-        run_request,
-        growth=propagation_growth(rate, STEP),
-        transverse=int(np.prod(problem.transform.geometry.shape)),
-    )
-    # parity_bound counts the march's four evaluations; a step takes this many.
-    return limit * step_evaluations(run_request) / 4.0
-
-
-def assert_the_leaf_is_pathological(leaf):
-    """Check the inputs do occur: every case the original named, on this leaf."""
-    operator, prefactor = separable_values(leaf)
-    active = np.asarray(leaf.active)
-    assert not np.all(active)
-    # Gain and loss on active bins, and an inactive bin's prefactor exactly zero.
-    assert np.max(np.real(operator)[..., active]) > 0.0
-    assert np.min(np.real(operator)[..., active]) < 0.0
-    assert np.all(prefactor[..., ~active] == 0.0)
-    q_real = np.real(leaf.k_squared)[None] - leaf.kperp_sq[:, None]
-    if leaf.kappa_sq is not None:
-        walled = np.real(leaf.kappa_sq)
-        assert np.any(walled < 0.0)
-        assert np.any(np.imag(leaf.kappa_sq) < 0.0)
-        assert np.any(leaf.k_squared_low != 0.0)
-        assert np.any(leaf.kperp_sq_low != 0.0)
-    else:
-        # Re q exactly zero at a live bin, and evanescent elsewhere.
-        assert np.any(q_real[:, active] == 0.0)
-    assert np.any(q_real[:, active] < 0.0)
-    assert np.any(leaf.kperp_rate != 0.0)
-
-
-def assert_step_agrees(problem, run_request, grid, leaf):
-    """One step on native within the bound of ``numpy_ref``, and the mask exact."""
-    limit = step_limit(problem, run_request, grid, leaf)
-    expected = run(NumpyRefBackend, problem, run_request, grid)
-    actual = run(NativeBackend, problem, run_request, grid)
-    assert_within(actual, expected, limit, what="against numpy_ref")
-    # Class P: the inactive bin's state is a hard zero on both, whatever went in.
+    The step itself is held to the reference by the catalogue's rows
+    (``backends/geometry_rows.py``).
+    """
+    built = synthetic(case, mode, n_pol)
+    leaf = built.problem.linear.separable
+    assert leaf is not None
     inactive = ~np.asarray(leaf.active)
-    np.testing.assert_array_equal(expected[..., inactive], 0.0)
-    np.testing.assert_array_equal(actual[..., inactive], 0.0)
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-@pytest.mark.parametrize("n_pol", [1, 2])
-def test_the_cartesian_march_on_the_original_leaf_is_the_reference_s(n_pol, mode):
-    """Inventory 31 (a): loss, gain, Re q = 0, evanescent rows and an inactive bin."""
-    problem, run_request, grid = free_problem(responses=[KERR], n_pol=n_pol, mode=mode)
-    leaf = free_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_planar_march_on_the_original_leaf_is_the_reference_s(mode):
-    """Inventory 32: the wall's gain and negative part, 1e-17 low words, the ramp.
-
-    One scalar channel per column: translation refuses ``n_pol = 2`` on the slab, so
-    the original's second polarisation has nothing to reach.
-    """
-    problem, run_request, grid = slab_problem(responses=[KERR], mode=mode)
-    leaf = slab_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
-
-
-@pytest.mark.parametrize(
-    ("material", "absorbed"),
-    [(True, True), (True, False), (False, True), (False, False)],
-)
-def test_the_planar_stage_on_the_original_leaf_is_the_reference_s(material, absorbed):
-    """Inventory 34: gain, an inactive bin and a ramp together, on the seven stages.
-
-    The original's ``finish_stage`` with each term present or absent: a response and an
-    in-stage absorber here. The channels are distinct: the same ``k_y`` is another rate.
-    """
-    problem, run_request, grid = slab_problem(
-        responses=[KERR] if material else [],
-        collar=absorbed,
-        integrator=None,  # pyright: ignore[reportArgumentType]
-    )
-    leaf = slab_leaf(problem.linear.separable)
-    assert_the_leaf_is_pathological(leaf)
-    operator = separable_values(leaf)[0][0]
-    assert not np.allclose(operator[0], operator[1])
-    assert_step_agrees(on_leaf(problem, leaf), run_request, grid, leaf)
+    for implementation in (NumpyRefBackend, NativeBackend):
+        state = run(implementation, built.problem, built.run_request, built.grid)
+        np.testing.assert_array_equal(state[..., inactive], 0.0)
 
 
 def with_masked_bin(problem, leaf):
@@ -440,10 +191,3 @@ def test_a_diverged_march_is_refused_by_name(implementation):
     backend = {"numpy_ref": NumpyRefBackend, "native": NativeBackend}[implementation]
     with pytest.raises(ConvergenceError, match="diverged"):
         run(backend, problem, run_request, grid)
-
-
-def _flux(problem):
-    """Return a spatial problem's flux plan."""
-    flux = flux_of(problem.route)
-    assert flux is not None
-    return flux

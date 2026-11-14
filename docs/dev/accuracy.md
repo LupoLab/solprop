@@ -363,8 +363,8 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | ladder rung | bound | measured | where |
 |---|---|---|---|
 | one linear application | 32 ε | 3.1e-22 (not bitwise: the contraction above) | `tests/backends/test_backend_ladder.py` |
-| one step | 16 ε | 3.8e-18 | `tests/backends/test_backend_ladder.py` |
-| eight steps | 128 ε | 2.2e-17 | `tests/backends/test_backend_ladder.py` |
+| one step | 16 ε | 3.8e-18 | the case catalogue's `ladder soliton` rows (`tests/backends/ladder_rows.py`) |
+| eight steps | 128 ε | 2.2e-17 | the case catalogue's `ladder soliton` rows (`tests/backends/ladder_rows.py`) |
 | a full adaptive soliton run | 1600 ε | 4.9e-16 | `tests/backends/test_backend_ladder.py` |
 | a capillary with an absorber and a kink | 3200 ε | 9.3e-16 | `tests/backends/test_backend_ladder.py` |
 | the analytic field family | 1e-13 | 2.2e-18 | `tests/backends/test_backend_ladder.py` |
@@ -374,8 +374,8 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_backend_ladder.py` |
 | same-backend resume through true-power output | 2.7e-16 of the global field peak; statistic-specific rounding bounds | field 1.77333e-16; energy up to 2.64009e-16; rate up to 5.06947e-15 | `tests/driver/test_resume.py` |
 | a run continued on the other backend | — | 2.2–2.7e-16 against either uninterrupted run | `tests/driver/test_resume.py` |
-| ten exponential Adams steps beside a coupled flow with every bin, or every other one, off the eigenbasis route (the augmented exponential's scaling and squaring against SciPy's `expm`), native CPU, eight cases | `B_10` at `flow_parity.adams_formation_bound`: 2.1e-10 to 1.5e-9 | 3.5e-16 to 5.9e-15 against `numpy_ref`, solprop's host engine and the eigenbasis route; each trial's assembled flow and moments within 1e-12 of `multistep.coupled_moments`, counts up to seven, with and without a carrier frame | `tests/driver/test_native_flow_session.py` (SEP 47 phase 4) |
-| ten exponential Adams steps beside a 17- and a 24-channel coupled flow, native CPU | `parity_bound`: 6.0e-10 and 4.6e-7 | 4.2e-16 against `numpy_ref`, 9.8e-18 and 3.3e-17 against solprop's host engine | `tests/driver/test_native_flow_session.py` (SEP 47 phase 4) |
+| ten exponential Adams steps beside a coupled flow with every bin, or every other one, off the eigenbasis route (the augmented exponential's scaling and squaring against SciPy's `expm`), native CPU, eight cases | `B_10` at `flow_parity.adams_formation_bound`: 2.1e-10 to 1.5e-9 | 3.5e-16 to 5.9e-15 against `numpy_ref`, solprop's host engine and the eigenbasis route; each trial's assembled flow and moments within 1e-12 of `multistep.coupled_moments`, counts up to seven, with and without a carrier frame | the case catalogue's `flow off route ...` rows (`tests/backends/flow_rows.py`); the eigenbasis route and the block functions in `tests/driver/test_native_flow_session.py` (SEP 47 phase 4) |
+| ten exponential Adams steps beside a 17- and a 24-channel coupled flow, native CPU | `parity_bound`: 6.0e-10 and 4.6e-7 | 4.2e-16 against `numpy_ref`, 9.8e-18 and 3.3e-17 against solprop's host engine | the case catalogue's `flow wide ...` rows (`tests/backends/flow_rows.py`, SEP 47 phase 4) |
 
 The measured columns of the ladder are the committed record. The native CPU and
 `native_cuda` series each cover all seven rungs through reduced M2; on a data-centre
@@ -571,8 +571,9 @@ that had them.
 
 The spatial record (§10) is written the same way, with an installed native wheel built
 from the same committed tree, by every module that calls
-`spatial_records.record_metric`, radial and Cartesian, in one session, so that each
-series' largest fraction is taken over all its cases:
+`spatial_records.record_metric`, radial and Cartesian, and the case catalogue's
+free-space rows (`tests/backends/free_rows.py`), in one session, so that each series'
+largest fraction is taken over all its cases:
 
 ```
 SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
@@ -586,7 +587,8 @@ SOLPROP_WRITE_RECORDS=1 SOLPROP_NATIVE_THREADS=1 OMP_PROC_BIND=false \
     tests/backends/test_free_memory.py tests/backends/test_free_noise.py \
     tests/backends/test_free_nonlinear.py tests/backends/test_free_statistics.py \
     tests/backends/test_spatial_execution.py \
-    tests/driver/test_prop_free.py tests/driver/test_prop_radial.py
+    tests/driver/test_prop_free.py tests/driver/test_prop_radial.py \
+    tests/backends/test_parity_catalogue.py -k "not catalogue or free"
 ```
 
 **A write run is not a green run**: it says at the end which files it wrote, and those

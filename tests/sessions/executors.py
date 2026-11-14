@@ -620,7 +620,7 @@ def coupled_flow(
     """
     from unittest import mock  # noqa: PLC0415
 
-    from driver.test_native_flow_session import wide_simulation  # noqa: PLC0415
+    from coupled_flow_cases import wide_simulation  # noqa: PLC0415
     from flow_parity import QUIET, build  # noqa: PLC0415
 
     with warnings.catch_warnings():

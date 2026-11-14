@@ -8,7 +8,11 @@ The ladder of ``docs/dev/backends.md`` section 3.7 -- one linear application, on
 eight steps, a full run, a capillary with an absorber and a kink, the analytic field
 family -- and repeatability and a resume on the same schedules. Each rung's measurement
 is recorded with its bound in the ``backend_equivalence`` study
-(``docs/dev/accuracy.md`` section 7). Rows of the retired ``numba_cpu`` backend, written
+(``docs/dev/accuracy.md`` section 7). The one step and the eight steps are the
+catalogue's rows ``ladder soliton ...`` (``backends/ladder_rows.py``), which write the
+same record; the linear application, the full run and the analytic family are adaptive
+(#809), and the capillary holds each of its two planes to its own norm, which no rung
+reads, so they stay here. Rows of the retired ``numba_cpu`` backend, written
 when these tests also ran on it, stay in that record as evidence of what it measured.
 
 **The bounds are derived, not fitted.** The reference and a compiled backend perform the
@@ -169,57 +173,6 @@ def test_the_linear_flow_is_the_reference_s(
     )
 
 
-def test_one_step_of_the_soliton_agrees(
-    equivalence_backend_class,
-    equivalence_backend_name,
-    soliton_problem,
-    soliton_grid,
-    request,
-):
-    """Rung P1, one step: one nonlinear evaluation through the whole pipeline."""
-    problem, run_request = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[1e-3],
-        schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-3),
-    )
-    ours, _ = run(equivalence_backend_class, problem, run_request, soliton_grid, [1e-3])
-    theirs, _ = run(NumpyRefBackend, problem, run_request, soliton_grid, [1e-3])
-    # One step is seven stages of a few complex products and two transforms each;
-    # 16 eps by Higham on log2(8192), measured 2.4e-16 on the retired numba_cpu.
-    measured = disagreement(ours[0], theirs[0])
-    bound = ladder_bound(equivalence_backend_name, 16 * EPS, soliton_grid.n_to, 7)
-    assert measured < bound
-    rung(request, equivalence_backend_name, "one step", 1, measured, bound)
-
-
-def test_eight_steps_of_the_soliton_agree(
-    equivalence_backend_class,
-    equivalence_backend_name,
-    soliton_problem,
-    soliton_grid,
-    request,
-):
-    """Rung P1, eight steps: the accumulation over a schedule, not one evaluation."""
-    problem, run_request = soliton_problem(
-        soliton_grid,
-        3,
-        save_planes=[8e-3],
-        schedule=FixedSchedule.uniform(0.0, 8e-3, 1e-3),
-    )
-    ours, summaries = run(
-        equivalence_backend_class, problem, run_request, soliton_grid, [8e-3]
-    )
-    theirs, reference = run(NumpyRefBackend, problem, run_request, soliton_grid, [8e-3])
-    assert summaries[0].n_steps == reference[0].n_steps == 8
-    measured = disagreement(ours[0], theirs[0])
-    bound = ladder_bound(
-        equivalence_backend_name, 8 * 16 * EPS, soliton_grid.n_to, 8 * 7
-    )
-    assert measured < bound
-    rung(request, equivalence_backend_name, "eight steps", 2, measured, bound)
-
-
 def test_a_full_adaptive_run_meets_the_reference_s_accuracy(
     equivalence_backend_class,
     equivalence_backend_name,
@@ -370,7 +323,7 @@ def test_two_runs_agree(equivalence_backend_class, soliton_problem, soliton_grid
     """Repeatability: two runs of the eight-step rung on its fixed schedule.
 
     The same discrete computation twice, so the rung's own budget holds (``8 x 16
-    eps``, :func:`test_eight_steps_of_the_soliton_agree`) and nothing more is promised:
+    eps``, the catalogue's ``ladder soliton eight steps``) and nothing more is promised:
     a threaded reduction may order its sums differently from one run to the next.
     """
     problem, run_request = soliton_problem(

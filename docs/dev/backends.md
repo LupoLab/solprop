@@ -1015,8 +1015,8 @@ frequency-dependent map of three Cartesian components.
   combination adds `2 u n_deg (3 kappa_S + kappa_Q)` to the source bound. A constant guide never
   combines and is the constant route exactly.
 - **Parity is a rounding statement** against `numpy_ref`, with the bound stated first
-  (`tests/general_parity.py`, `native/tests/test_general_modal.py`,
-  `tests/driver/test_native_moving_guide.py`). Not bitwise: FFTW is not pocketfft, and numpy's
+  (`tests/general_parity.py`, `native/tests/test_general_modal.py`, and the case catalogue's
+  `moving guide ...` rows in `tests/backends/flow_rows.py`). Not bitwise: FFTW is not pocketfft, and numpy's
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
   on the reference, so on one state the two agree to the statistic's rounding bound. The
@@ -1098,8 +1098,8 @@ name.
   which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
   1e-12 (`adams_block_to_host`, a test observation).
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
-  actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
-  fixed steps on each case.
+  actions and the steps, and `parity_bound` in `tests/coupled_flow_cases.py` for ten fixed steps
+  on each case (the case catalogue's rows, `tests/backends/flow_rows.py`).
 - **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
   the native group refuses a member carrying the leaf by name, as the reference's does.
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).
@@ -1129,7 +1129,8 @@ modified noise draw, and every statistic.
   natively from the flux measure (§3.13). The plasma statistics take the stage's route and read
   the stash between planes. No quadrature alarm is scored, as on the reference.
 - **Parity** is a rounding statement with the bounds of `tests/backends/test_planar_native.py` and
-  `tests/backends/planar_cases.py` stated first. What the ladder adds to the Cartesian one is the
+  `tests/backends/planar_cases.py` stated first, held by the case catalogue's planar rows
+  (`tests/backends/planar_rows.py`). What the ladder adds to the Cartesian one is the
   operator: each library's complex square root is within one ulp of the principal root, so
   `Re k_z` differs by at most `2 eps k_max` and the phase of a run of length `L` by
   `2 eps k_max L`. Repeats, and one against four threads, agree within the same bounds. §4 has the

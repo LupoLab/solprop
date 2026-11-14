@@ -2,7 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""One convolution with independent Raman amplitudes and decay rates."""
+"""One convolution with independent Raman amplitudes and decay rates.
+
+The propagated field on native against the reference is the catalogue's row
+``mixture raman components`` (``backends/mixture_rows.py``); one cached kernel per run
+is held here.
+"""
 
 import dataclasses
 
@@ -10,14 +15,11 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from mixture_cases import mixture_translation
+from mixture_cases import raman_mixture
 from sessions.runs import run as session_run
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.exceptions import BackendError
-from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import Flags
-from solprop.translate.responses import compile_responses
 from solprop.translate.stage import scalars
 
 
@@ -33,37 +35,7 @@ def prepare_raman(backend, rates, densities):
 
 @pytest.fixture
 def case():
-    mixture, grid, mode, responses, (problem, run_request) = mixture_translation()
-    extra = tuple(
-        RamanResponse(
-            models=(
-                DampedOscillator((i + 1) * 1e-37, (i + 1) * 2e14, undamped_dephasing()),
-            ),
-            thg=False,
-            species=label,
-        )
-        for i, label in enumerate(mixture.labels)
-    )
-    compiled = compile_responses(
-        (*responses, *extra),
-        grid,
-        mode,
-        density=mode.density,
-        z_max=grid.length,
-        mixture=mixture,
-    )
-    problem = dataclasses.replace(problem, responses=compiled)
-    problem = dataclasses.replace(
-        problem,
-        flags=Flags.from_content(
-            shape=problem.shape,
-            linear=problem.linear,
-            transform=problem.transform,
-            responses=compiled,
-            initial=problem.initial,
-        ),
-    )
-    return grid, problem, run_request
+    return raman_mixture()
 
 
 def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
@@ -147,7 +119,7 @@ def test_raman_component_extents_are_checked(case):
 def test_multiple_raman_components_propagate_with_one_cached_kernel(
     case, equivalence_backend_class
 ):
-
+    """Sixteen fixed steps on each backend refresh the shared kernel once."""
     grid, problem, original_request = case
     steps = 16
     run_request = original_request.with_stepper(
@@ -156,12 +128,6 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
         )
     )
-    # Each step has seven evaluations; two component kernels each carry one
-    # convolution and two plasma exposures. The same 64-eps/sample budget used
-    # by the channel ladder is summed over all four response components.
-    bound = 64 * grid.n_to * 4 * 7 * steps * np.finfo(float).eps
-    assert bound > 0.0
-    outputs = []
     for backend_type in (NumpyRefBackend, equivalence_backend_class):
         backend = backend_type(problem, run_request, grid=grid)
         try:
@@ -171,9 +137,6 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
             assert raman_refreshes(backend) == 1
         finally:
             backend.close()
-        outputs.append(ran.final.field)
-    relative = np.linalg.norm(outputs[1] - outputs[0]) / np.linalg.norm(outputs[0])
-    assert relative < bound
 
 
 def test_compiled_raman_cache_keys_include_every_component(

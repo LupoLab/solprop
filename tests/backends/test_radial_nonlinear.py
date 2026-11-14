@@ -2,7 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Radial Kerr normalisation, parity, and complete nonlinear backend ladders."""
+"""Radial Kerr normalisation, the plasma's area measure and each backend's own parity.
+
+The radial nonlinear ladder of native against ``numpy_ref`` is the case catalogue's
+(``tests/backends/free_rows.py``), which builds its cases with
+``backends/spatial_cases.make_problem``.
+"""
 
 import dataclasses
 import math
@@ -13,6 +18,8 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.special import j0
 
+from backends.free_rows import radial_case
+from backends.spatial_cases import CHI3, LENGTH, make_problem
 from backends.test_polarised_runs import QuadraticRate as EnergyRate
 from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
@@ -27,11 +34,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import ionisation_potential
-from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.assembly import assemble
 from solprop.translate.ionisation import build_rate_table
 from spatial_records import record_metric
 
@@ -106,10 +109,6 @@ def test_radial_circular_plasma_pays_for_electrons_in_the_area_measure(
     )
 
 
-LENGTH = 1e-4
-CHI3 = 1e-22
-
-
 def derivative(spatial_backend_class, problem, run_request, grid, options=None):
     """Return a backend's first stage derivative ``N(E, z=0)`` of the launch state."""
     backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
@@ -131,23 +130,6 @@ def _native_first_stage(backend, problem):
     """
     native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
     return np.asarray(backend._native_state.stage_to_host(0)).reshape(problem.shape)
-
-
-def make_problem(grid, space, start, responses, *, steps=8, density=1.0):
-    return assemble(
-        grid,
-        None,
-        responses,
-        start,
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[LENGTH],
-        dz_max=LENGTH,
-        dz_init=LENGTH / steps,
-        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
-        density=density,
-    )
 
 
 def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
@@ -265,145 +247,16 @@ def test_monochromatic_kerr_uses_the_exact_spatial_prefactor(
     )
 
 
-class QuadraticRate:
-    """An analytic ionisation law, independent of material fit data."""
-
-    threshold = 1e3
-    maximum = 1e17
-    citation = "Analytic test rate W=3e12*(E/1e9)^2 s^-1"
-    parameters = (
-        ("model", "quadratic-radial-oracle"),
-        ("reference", 1e9),
-        ("scale", 3e12),
-    )
-
-    def __call__(self, field_amplitude):
-        values = np.abs(np.asarray(field_amplitude))
-        return np.where(
-            values < self.threshold,
-            0.0,
-            np.minimum(self.maximum, 3e12 * (values / 1e9) ** 2),
-        )
-
-
 @pytest.fixture(
     params=["field_kerr", "envelope_kerr", "field_plasma", "envelope_raman"]
 )
 def nonlinear_case(request):
-    kind = request.param
-    constructor = (
-        FieldGrid.from_limits
-        if kind.startswith("field")
-        else partial(EnvelopeGrid.from_limits, thg=False)
-    )
-    # Resolve the held-current collar while preserving the non-plasma fixtures.
-    window = 200e-15 if kind == "field_plasma" else 150e-15
-    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), window)
-    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
-    jones = (1 + 0j,) if kind.endswith("raman") else (1 + 0j, 0.5j)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6, jones=jones
-    )
-    density = 1.0
-    if kind.endswith("plasma"):
-        responses = [
-            PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))
-        ]
-        density = 1e22
-    elif kind.endswith("raman"):
-        responses = [
-            RamanResponse(
-                (DampedOscillator(1e-8, 2e14, undamped_dephasing()),), thg=False
-            )
-        ]
-    else:
-        responses = [KerrResponse(CHI3, thg=False)]
-    return (
-        kind,
-        grid,
-        space,
-        pulse.build(grid, space, medium=SpatialMedium()),
-        responses,
-        density,
-    )
+    """The radial ladder's case of one response family (``free_rows.radial_case``).
 
+    Native against the reference on these cases is the case catalogue's.
+    """
 
-@pytest.mark.parametrize("steps", [0, 1, 8])
-def test_radial_nonlinear_ladder_matches_reference(
-    nonlinear_case, spatial_backend_class, steps, request
-):
-    _, grid, space, start, responses, density = nonlinear_case
-    evaluations = max(1, 7 * steps)
-    # Same CPU FFT-depth envelope as the modal ladders, two length-N radial
-    # reductions per evaluation; plasma adds three sequential temporal integrals.
-    per_call = 16 * np.finfo(float).eps * math.ceil(math.log2(grid.n_to)) + 2 * gamma(
-        space.n_r
-    )
-    if isinstance(responses[0], PlasmaResponse):
-        per_call += gamma(12 * grid.n_to)
-    bound = ladder_bound(
-        spatial_backend_class.name, evaluations * per_call, grid.n_to, evaluations
-    )
-    problem, run_request = make_problem(
-        grid, space, start, responses, steps=max(1, steps), density=density
-    )
-    if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, run_request, grid)
-        actual = derivative(spatial_backend_class, problem, run_request, grid)
-        assert_allclose(
-            actual, reference, rtol=0, atol=bound * np.max(np.abs(reference))
-        )
-        record_metric(
-            request,
-            f"nonlinear ladder {nonlinear_case[0]} (relative)",
-            "N",
-            np.max(np.abs(actual - reference)) / np.max(np.abs(reference)),
-            bound,
-            spatial_backend_class.name,
-        )
-        return
-    values = []
-    statistics = []
-    spec = StatsSpec(names=("energy", "on_axis_intensity", "peak_intensity"))
-    observed = run_request.for_run(stats=spec)
-    for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, observed, grid=grid)
-        try:
-            landed = run(backend, problem, observed)
-        finally:
-            backend.close()
-        assert landed.attempts == steps
-        values.append(landed.fields[-1])
-        statistics.append(landed.all_planes()[-1].stats)
-    assert_allclose(
-        values[1], values[0], rtol=0, atol=bound * np.max(np.abs(values[0]))
-    )
-    record_metric(
-        request,
-        f"nonlinear ladder {nonlinear_case[0]} (relative)",
-        steps,
-        np.max(np.abs(values[1] - values[0])) / np.max(np.abs(values[0])),
-        bound,
-        spatial_backend_class.name,
-    )
-    # Squared moduli double the relative amplitude perturbation; statistic
-    # transforms and positive reductions contribute their own gamma bound.
-    statistic_bound = 2 * bound + gamma(
-        128 * space.n_r + 32 * int(np.ceil(np.log2(grid.n_t))) + 8 * grid.n_t
-    )
-    for name in spec.names:
-        assert_allclose(
-            statistics[1][name], statistics[0][name], rtol=statistic_bound, atol=0
-        )
-        record_metric(
-            request,
-            f"nonlinear ladder {nonlinear_case[0]} {name} (relative)",
-            steps,
-            np.max(np.abs(statistics[1][name] - statistics[0][name]))
-            / np.max(np.abs(statistics[0][name])),
-            statistic_bound,
-            spatial_backend_class.name,
-        )
+    return request.param, *radial_case(request.param)
 
 
 def matched_parity_grids():

@@ -31,8 +31,26 @@ from scipy.linalg import expm
 from scipy.special import jn_zeros, jv
 
 import solprop.translate.walls as walls_module
-from bounds import assert_within, fft_bound, gamma, step_evaluations
-from legacy_geometry import LEGACY_GRID, bare_absorber
+from bounds import assert_within
+from coupled_flow_cases import (
+    GRID,
+    LENGTH,
+    NARROW,
+    RADIUS,
+    SMOOTH_STAGES,
+    STEPS,
+    VECTOR_WALL,
+    WEAK_COLLAR,
+    capillary,
+    taper,
+    varying,
+    vector_modes,
+)
+from legacy_entry_cases import (
+    legacy_capillary,
+    legacy_gnlse,
+    legacy_simulation,
+)
 from march_bounds import FIXED_ORDER, assert_points_matched
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
@@ -43,7 +61,7 @@ from solprop.backends.numpy_ref.backend import (
 )
 from solprop.boundaries import absorber
 from solprop.constants import EPS0, C
-from solprop.driver import Simulation, prop_capillary, prop_gnlse
+from solprop.driver import Simulation, prop_capillary
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
@@ -57,7 +75,7 @@ from solprop.exceptions import (
     SolpropWarning,
     TranslationError,
 )
-from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
+from solprop.grid import FieldGrid, RadialGrid
 from solprop.linear import DEFAULT_LOSS_POLICY
 from solprop.modes import (
     CoherentWall,
@@ -73,13 +91,12 @@ from solprop.output.capability import capability_of
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.glasses import fused_silica
-from solprop.physdata.mixtures import Pressure
 from solprop.physdata.sellmeier import gamma as gas_law
-from solprop.profiles import FromCallable, Linear, PiecewiseLinear, ZProfile
+from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
-from solprop.stepper import DOPRI5, FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.admission import check_general_route
 from solprop.translate.coupled import (
     SECTION_TOL,
@@ -104,40 +121,6 @@ from solprop.translate.walls import (
 )
 from state_records import check_state, record_bound
 
-RADIUS = 50e-6
-"""Core radius of the qualification case, m.
-
-Small enough that a millimetre is a measurable loss -- the highest retained channel
-attenuates by several per cent over it -- and wide enough that the validity ratios stay
-inside the default limit over the whole band.
-"""
-
-LENGTH = 2e-4
-"""Length of the qualification case, m: a fifth of a millimetre."""
-
-STEPS = 10
-"""Steps of the fixed schedule, over a fifth of a millimetre."""
-
-GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID)
-"""One grid for every case here, so that a launch can be built against it.
-
-The former geometry: the records here were made on it, and nothing here is about
-the temporal window.
-"""
-
-WEAK_COLLAR = absorber(GRID, boundary_length=1.0e3)
-"""A collar five million times weaker than the default one.
-
-The default collar is an absorber, and an absorber in the **nonlinear** scheme is an
-explicit term whose stability caps the step at about 5 micrometres on this grid
-(see docs/dev/decisions.md); it also eats a continuous wave, which is what a single
-excited bin of a field grid is, so an absolute statement about the flow could not be
-made beside it. This one is present -- the masks and the band limit still are what they
-are -- and its rate over a fifth of a millimetre is below 2e-7, far under every bound
-taken here. It says so, and the module filters that warning: a collar too weak to stop a
-packet walking off the window is exactly what is wanted where nothing walks. The
-collar itself is qualified in ``tests/test_boundaries.py``."""
-
 pytestmark = [
     pytest.mark.filterwarnings(
         f"ignore::{MaterialRangeWarning.__module__}.MaterialRangeWarning"
@@ -161,49 +144,6 @@ def kept(field: np.ndarray | None) -> np.ndarray:
     """Return a saved plane's field: every plane of these runs keeps its own."""
     assert field is not None
     return field
-
-
-def capillary(
-    *,
-    wall=None,
-    modes: int | Sequence[Mode] = 3,
-    pressure: Pressure = 1.0,
-    radius: float | ZProfile = RADIUS,
-    **overrides,
-):
-    """Return a small three-channel capillary simulation, with or without a wall.
-
-    A fixed schedule, so that two runs whose operators differ in the last bits still
-    land on the same positions: an adaptive controller would otherwise take different
-    steps and agree only to its own tolerance, which is orders above the rounding a
-    flow identity is about. Its length is set by the temporal collar, which is
-    explicit in the nonlinear scheme and stable here only below 5.2 micrometres
-    (see docs/dev/decisions.md); :data:`STEPS` steps of a fifth of a millimetre clear
-    it.
-    """
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
 
 
 def run_capillary(
@@ -1379,12 +1319,6 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
 
 # ------------------------------------------------------- the legacy entry points
 
-LEGACY_LENGTH = 2e-4
-"""Length of the legacy-identity case, m: ten fixed steps of 20 micrometres."""
-
-LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
-"""The schedule both legacy runs replay, so that a record is a record of one march."""
-
 # The legacy runs' final planes were byte digests, recorded on one platform and
 # re-recorded at each deliberate change (the Multistep default, SEP 3's optmat helium
 # and silica wall, the rationalised refractivity root, the 293.15 K default
@@ -1393,90 +1327,6 @@ LEGACY_SCHEDULE = FixedSchedule(np.full(STEPS, LEGACY_LENGTH / STEPS))
 # Nothing here is a *reference*: the records are this package's own answer, not an
 # independent one. The physics of these two entry points is qualified in
 # ``tests/driver/test_prop_capillary.py`` and ``tests/driver/test_prop_gnlse.py``.
-
-
-def legacy_capillary_keywords(backend):
-    """Return the keywords of the ten-step two-mode capillary run of the pre-wall route.
-
-    At the Adams method's fixed top order, so that no order choice is left for
-    rounding to move: a run is the recorded run's discrete march.
-    """
-    return {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-8,
-        "modes": 2,
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-        "plasma": False,
-        "raman": False,
-    }
-
-
-def legacy_gnlse_keywords(backend):
-    """Return the keywords of the ten-step GNLSE run of the soliton case.
-
-    On the grid it was recorded on and without a collar, as the run was before
-    the default collar: the record is of that march.
-    """
-    grid = EnvelopeGrid.from_limits(
-        LEGACY_LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
-    )
-    return {
-        "wavelength": 835e-9,
-        "grid": grid,
-        "absorber": bare_absorber(grid),
-        "width": 100e-15,
-        "peak_power": 9.8,
-        "shape": "sech",
-        "n_save": 2,
-        "backend": backend,
-        "dz_max": LEGACY_LENGTH / STEPS,
-        "dz_init": LEGACY_LENGTH / STEPS,
-        "schedule": LEGACY_SCHEDULE,
-        "integrator": FIXED_ORDER,
-    }
-
-
-GNLSE_FIBRE = (0.11, LEGACY_LENGTH, [0.0, 0.0, -1.183e-26])
-"""The legacy GNLSE run's ``gamma`` (1/(W m)), length (m) and Taylor betas."""
-
-
-def legacy_capillary(backend):
-    """Return a ten-step two-mode capillary run of the pre-wall route."""
-    return prop_capillary(
-        125e-6,
-        LEGACY_LENGTH,
-        "He",
-        1.0,
-        **{"noise": None, **legacy_capillary_keywords(backend)},
-    )
-
-
-def legacy_gnlse(backend):
-    """Return a ten-step GNLSE run of the soliton case."""
-    return prop_gnlse(*GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords(backend)})
-
-
-def legacy_simulation(entry):
-    """Return the simulation a legacy entry point runs, for its rounding budget."""
-    if entry == "prop_capillary":
-        return Simulation.from_capillary(
-            125e-6,
-            LEGACY_LENGTH,
-            "He",
-            1.0,
-            **{"noise": None, **legacy_capillary_keywords("numpy_ref")},
-        )
-    return Simulation.from_gnlse(
-        *GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords("numpy_ref")}
-    )
 
 
 @pytest.mark.medium
@@ -1500,7 +1350,8 @@ def test_the_legacy_entry_points_are_what_they_were(
     Kokkos, whose local and distribution builds (vendor BLAS, CPU target) move last
     bits, has no record of its own. Its two runs agreeing is a repeatability check only,
     a build against itself, which a wrong operator passes; what holds its answer is the
-    reference's field within :func:`legacy_parity_bound`, looser than the record's.
+    reference's field within ``legacy_entry_cases.legacy_parity_bound``, looser than the
+    record's: the catalogue's rows ``legacy entry ...`` (``backends/driver_rows.py``).
     """
     if backend not in available():
         pytest.skip(f"the {backend} backend is not installed")
@@ -1513,88 +1364,9 @@ def test_the_legacy_entry_points_are_what_they_were(
         return
     again = cast("MemoryOutput", build(backend)).planes()[-1].field
     assert_within(again, field, bound, what="a repeated Kokkos run")
-    reference = kept(cast("MemoryOutput", build("numpy_ref")).planes()[-1].field)
-    scale = float(np.max(np.abs(reference)))
-    assert (
-        float(np.max(np.abs(field - reference)))
-        <= legacy_parity_bound(field.shape[-1], legacy_simulation(entry)) * scale
-    )
-
-
-def legacy_parity_bound(samples: int, simulation) -> float:
-    """Relative bound on a legacy run's final field between two backends.
-
-    Every evaluation of each of the ten steps -- DOPRI5's seven stages, or the Adams
-    march's one, which reaches the step through its predictor's and corrector's
-    weights, counted by their absolute sum (``bounds.step_evaluations``) --
-    re-evaluates the nonlinear term
-    from a field the two backends formed in different orders: one FFT round trip each
-    way (``fft_bound``) and the modal synthesis and projection, whose sums run over at
-    most the transform's nodes (``gamma`` of the time samples, an over-count of any
-    node set here). Errors of the stages add; the linear step is a unit-modulus phase
-    and the case's nonlinear phase is far below one radian, so nothing amplifies them.
-    Derived before the local-build comparison was run.
-    """
-    per_stage = 2 * fft_bound(samples) + 2 * gamma(samples)
-    evaluations = max(DOPRI5.n_stages, step_evaluations(simulation._run_request()))
-    return STEPS * evaluations * per_stage
 
 
 # ------------------------------------------------------------- the varying section
-
-SMOOTH_STAGES = (0.0, 6e-5, 1.4e-4, 2e-4)
-"""Where a taper of this qualification case starts and stops varying, m.
-
-The stages land on multiples of `LENGTH / STEPS`, so the fixed schedule can contain
-every hard kink of the radius, which `PropagationProblem.validate` requires of any
-schedule (`_check_schedule`).
-"""
-
-NARROW = 40e-6
-"""The taper's narrow end, m: a fifth off :data:`RADIUS` over a fifth of a millimetre.
-
-A 50 to 40 micrometre contraction has the shape of a 125 to 62.5 micrometre taper --
-straight, transition, straight -- at the radius and length a short test allows.
-"""
-
-
-def taper(stages=SMOOTH_STAGES, ends=(RADIUS, NARROW)):
-    """Return the straight-transition-straight radius profile of the varying cases."""
-    return PiecewiseLinear.from_stages(stages, [ends[0], ends[0], ends[1], ends[1]])
-
-
-def varying(
-    *,
-    wall=None,
-    radius=None,
-    pressure: Pressure = 1.0,
-    modes: int | Sequence[Mode] = 3,
-    **overrides,
-):
-    """Return the varying-guide qualification case, with or without a wall."""
-    arguments = {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": WEAK_COLLAR,
-        "fwhm": 30e-15,
-        "energy": 1e-9,
-        "modes": modes,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        "plasma": False,
-        "raman": False,
-    } | overrides
-    return Simulation.from_capillary(
-        taper() if radius is None else radius,
-        LENGTH,
-        "He",
-        pressure,
-        wall=wall,
-        **{"noise": None, **arguments},
-    )
 
 
 def test_a_moving_multimode_set_without_the_connection_warns_by_name():
@@ -2608,21 +2380,6 @@ def test_a_varying_route_whose_total_generator_grows_is_refused_by_name():
 # ------------------------------------------------------------------ the vector block
 
 
-VECTOR_WALL = CoherentWall(impedance="te_tm")
-"""The declaration under test here: the coupled azimuthal block."""
-
-
-def vector_modes(
-    counts=(2, 2), *, radius: float | ZProfile = RADIUS, orders=(1, -1), **kwargs
-):
-    """Return one azimuthal order of the qualification capillary."""
-    return [
-        MarcatiliMode(radius, "He", 1.0, n=order, m=index + 1, **kwargs)
-        for order, count in zip(orders, counts, strict=True)
-        for index in range(count)
-    ]
-
-
 def test_the_vector_route_declares_one_constant_section_without_a_wall_pair():
     """The leaf is the scalar wall's constant-Schur one, with no pair and its own gauge.
 
@@ -2774,31 +2531,6 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
     # `n_pol = 2` is refused for either wall impedance by the one door
     # `test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it` exercises: the
     # capillary route has no public way to carry two components at all.
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("name", ["native"])
-def test_a_varying_vector_wall_runs_on_the_compiled_backends_to_rounding(name):
-    """Every backend executes the TE/TM wall on a taper, to the flow parity bound.
-
-    ``native`` executes every constant-Schur and frozen-residual flow the reference
-    admits, the TE/TM block on a varying guide included. The leaf is a dense
-    frozen-residual flow like the scalar taper's, so the compiled backend's parity
-    bounds cover it: at most 5.5e-12 (Kokkos) of the launch peak after ten steps. Gated
-    here at 1e-11 of the final plane's peak.
-    """
-    if name not in available():
-        pytest.skip(f"{name} is not installed")
-    arguments = {
-        "wall": VECTOR_WALL,
-        "modes": vector_modes(radius=taper()),
-        "radius_override": taper(),
-    }
-    reference = np.asarray(run_capillary(**arguments).planes()[-1].field)
-    compiled = np.asarray(run_capillary(backend=name, **arguments).planes()[-1].field)
-    peak = float(np.max(abs(reference)))
-    assert peak > 0.0
-    assert float(np.max(abs(compiled - reference))) < 1e-11 * peak
 
 
 @pytest.mark.medium

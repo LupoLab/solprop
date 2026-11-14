@@ -708,7 +708,7 @@ SPATIAL = (
 
 def test_a_beam_s_flux_and_far_field_statistics_are_native():
     """A Cartesian beam: the flux scalars and the far-field pass, plane and row."""
-    from backends.test_radial_nonlinear import make_problem  # noqa: PLC0415
+    from backends.spatial_cases import make_problem  # noqa: PLC0415
     from solprop.grid import EnvelopeGrid, FreeGrid  # noqa: PLC0415
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
