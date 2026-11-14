@@ -88,6 +88,7 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
 - [SEP 50 — Multi-pass cells assembled from free-space passes](seps/sep-0050-multipass-cells.md):
   gas-filled and solid-state multi-pass cells as ordered free-space runs joined by
   SEP 31's elements in an unfolded path, with a linear and Kerr-corrected design of the
-  cell (a moment form for cells with plates), a per-pass ledger, resume, observables and
-  scans of cells, and no change to the seam. The coupling optics, the spot pattern and
-  in-march mirror events remain follow-up work.
+  cell (a moment form for cells with plates), a per-pass ledger, resume, observables with
+  the compression of a spatial plane, and scans of cells on the executors that run whole
+  points, and no change to the seam. The coupling optics, the spot pattern, cells on the
+  `Batch` executor and in-march mirror events remain follow-up work.
