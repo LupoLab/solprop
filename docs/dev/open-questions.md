@@ -71,10 +71,21 @@ qualified device.
 (`solprop/translate/problem.py`) checks that each scalar Chebyshev table of a density or
 a preionisation fraction stays in its domain, by evaluating every interval at its ends and
 at the real roots of its derivative. A root is kept only when `numpy.isreal` holds
-exactly, so a stationary point returned with a rounding-size imaginary part is dropped,
-and an excursion out of the domain at that point would pass without a refusal. No false
-refusal and no missed excursion was seen on the fitted tables checked. Open: whether to
-admit roots whose imaginary part is below a tolerance, and which tolerance.
+exactly, so a stationary point returned with a rounding-size imaginary part is dropped.
+What is known suggests nothing beyond rounding is missed: a minimum inside an interval
+is a sign change of the derivative, a root cluster of odd size, and since the
+eigenvalues of a real companion matrix come in conjugate pairs such a cluster keeps at
+least one exactly real root; only an even cluster, where the polynomial has no minimum,
+can lose all of its roots. A search over 200 000 polynomials with a stationary point of
+multiplicity 2, 3, 4 or 6 dipping 1e-14 to 1e-2 below zero found no missed excursion
+larger than 1.4e-16 of the polynomial's largest value, and
+`test_scalar_domain_check_refuses_a_dip_at_a_clustered_stationary_point`
+(`tests/translate/test_problem.py`) holds a fourth-order minimum whose derivative's
+triple root can come back with two of its three roots complex. The argument is not written out in full, and no
+false refusal was seen on the fitted tables checked. Open: whether to settle the filter
+as it is on that argument, or to admit roots whose imaginary part is small against
+their interval, which could only add a correct refusal or a rounding-size false one and
+would first need a check against the fitted tables.
 
 **`with_mixture` and the operator's representation.**
 {meth}`Simulation.with_mixture <solprop.driver.simulation.Simulation.with_mixture>`
