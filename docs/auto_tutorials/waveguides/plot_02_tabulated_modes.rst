@@ -299,7 +299,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
     )
     nodes = np.linspace(0.3e15, 4.5e15, 200)
     solid = IndexTable(nodes, synthetic_mode.neff(nodes), area=np.full(nodes.size, area))
-    grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
+    grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1.5e-12)
     active = grid.omega[grid.active_mask]
     assert solid.omega[0] < active.min() < active.max() < solid.omega[-1]
     solid_output = prop_gnlse(
@@ -328,9 +328,7 @@ This table samples an analytic Taylor model, rather than a FEM solution.
 
  .. code-block:: none
 
-    BoundaryWarning: at the launch the square root of the time window's guard occupancy is 2.72e-03, above the 1e-03 budget: the window clips the input, which can seed spurious radiation; widen trange or move the launch
-    BoundaryWarning: the temporal collar removed 5.68e-05 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
-    Tabulated examples completed in 4.13 s
+    Tabulated examples completed in 6.63 s
 
 
 
@@ -348,7 +346,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.130 seconds)
+   **Total running time of the script:** (0 minutes 6.627 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_02_tabulated_modes.py:

@@ -39,7 +39,7 @@ response, ionisation rate and solid index -- by reading the runs' material manif
 The guide is far too short to be a physical prediction; it ranks the changes. See
 :doc:`/guide/media/materials` for the full selection guide.
 
-.. GENERATED FROM PYTHON SOURCE LINES 27-46
+.. GENERATED FROM PYTHON SOURCE LINES 27-47
 
 .. code-block:: Python
 
@@ -54,6 +54,7 @@ The guide is far too short to be a physical prediction; it ranks the changes. Se
     from solprop.boundaries import absorber
     from solprop.constants import C
     from solprop.driver import prop_capillary
+    from solprop.exceptions import MaterialRangeWarning
     from solprop.grid import FieldGrid
     from solprop.nonlinear.optmat_raman import raman_status
     from solprop.nonlinear.optmat_rates import OptmatRate
@@ -69,7 +70,7 @@ The guide is far too short to be a physical prediction; it ranks the changes. Se
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 47-53
+.. GENERATED FROM PYTHON SOURCE LINES 48-54
 
 What optmat resolves
 --------------------
@@ -78,7 +79,7 @@ and a SHA-256 digest that changes whenever the model's numbers can. The status s
 how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
 ``comparison`` for a curated alternative, ``user`` for a caller's override).
 
-.. GENERATED FROM PYTHON SOURCE LINES 53-67
+.. GENERATED FROM PYTHON SOURCE LINES 54-68
 
 .. code-block:: Python
 
@@ -116,7 +117,7 @@ how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 68-74
+.. GENERATED FROM PYTHON SOURCE LINES 69-75
 
 A quick experiment
 ------------------
@@ -125,7 +126,7 @@ result is status ``user``, lists what changed and keeps the digest of the model 
 started from, so a run's record says exactly what was declared. Here argon's rate
 with two effective electrons in place of one: twice the rate, at every field.
 
-.. GENERATED FROM PYTHON SOURCE LINES 74-82
+.. GENERATED FROM PYTHON SOURCE LINES 75-83
 
 .. code-block:: Python
 
@@ -151,7 +152,7 @@ with two effective electrons in place of one: twice the rate, at every field.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-89
+.. GENERATED FROM PYTHON SOURCE LINES 84-90
 
 One short run, four material choices
 ------------------------------------
@@ -160,7 +161,7 @@ A 50 um-radius, 0.4 mm argon capillary at 1 bar with a 30 fs, 100 uJ pulse at
 witness. The absorbing collar is lengthened, as the witness's was, because the
 default collar of so short a guide is too stiff for ten fixed steps.
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-135
+.. GENERATED FROM PYTHON SOURCE LINES 90-136
 
 .. code-block:: Python
 
@@ -174,7 +175,7 @@ default collar of so short a guide is too stiff for ten fixed steps.
         with warnings.catch_warnings():
             # The padded grid reaches beyond every model's qualified range; each run says
             # so once (MaterialRangeWarning), which is not this tutorial's point.
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", MaterialRangeWarning)
             return prop_capillary(
                 50e-6,
                 LENGTH,
@@ -217,7 +218,7 @@ default collar of so short a guide is too stiff for ten fixed steps.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 136-143
+.. GENERATED FROM PYTHON SOURCE LINES 137-144
 
 Which family each change touched
 --------------------------------
@@ -227,7 +228,7 @@ kind by kind says which family a change reached, whatever the change was declare
 as. The other columns are the change of the output: the spectrum's relative change
 in norm, and the ionised fraction and peak power at the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 143-201
+.. GENERATED FROM PYTHON SOURCE LINES 144-202
 
 .. code-block:: Python
 
@@ -311,7 +312,7 @@ in norm, and the ionised fraction and peak power at the exit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 202-209
+.. GENERATED FROM PYTHON SOURCE LINES 203-210
 
 The rate dominates: twice the rate raises the ionised fraction at the exit by
 three quarters and changes the spectrum by more than ten per cent. Another gas index
@@ -321,7 +322,7 @@ reaches the wall of a 50 um core in 0.4 mm.
 
 The figure compares the exit spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 209-233
+.. GENERATED FROM PYTHON SOURCE LINES 210-234
 
 .. code-block:: Python
 
@@ -362,12 +363,12 @@ The figure compares the exit spectra.
 
  .. code-block:: none
 
-    run time 3.0 s
+    run time 5.5 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 234-241
+.. GENERATED FROM PYTHON SOURCE LINES 235-242
 
 Related reading
 ---------------
@@ -380,7 +381,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.093 seconds)
+   **Total running time of the script:** (0 minutes 5.566 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_06_material_choices.py:

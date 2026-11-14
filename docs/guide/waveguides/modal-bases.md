@@ -107,15 +107,15 @@ rotated, so the block is the same matrix at every position.
 
 **What it costs.** The whole split is in the leaf's off-diagonal, and over a length $L$
 a launch into one rotated channel arrives with $\sin^2(|G_{01}|L)$ of its power in the
-other — 3.8e-3 over a millimetre on the `TE_01`/`TM_01` pair of a strand of 6 µm core
-radius, whose vector splitting is 120 1/m at 835 nm, 1.1e-5 of its own propagation
+other — about 3.6e-3 near 835 nm over a millimetre on the `TE_01`/`TM_01` pair of a
+strand of 6 µm core radius, whose vector splitting is 120 1/m at 835 nm, 1.1e-5 of its own propagation
 constants (on a 3 µm core it is 744 1/m and 6.9e-5). The same launch in the
-provider's own coordinates, carried through $U$, reproduces it: measured 8.4e-6 in each
-channel's modulus and 2.1e-5 rad in the phase between them, which is what says the flow
+provider's own coordinates, carried through $U$, reproduces it: measured 2.8e-6 in each
+channel's modulus and 2.1e-6 rad in the phase between them, which is what says the flow
 is the same physics in other coordinates and not a second model. Both are measured inside
 the **declared window**, where the linear operator is the guide's own; outside it the grid
 carries the absorbing collar, which two guides with different index tables carry
-differently, and the same comparison reads 1e-3.
+differently, and the same comparison reads 2e-2.
 
 **Where it runs, and what it refuses by name.** Every backend executes the leaf —
 `numpy_ref` and `native`, on the CPU and on a GPU. A **noise** model beside it is refused, because the shot-noise
