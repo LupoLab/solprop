@@ -280,7 +280,8 @@ filterwarnings = [
     "ignore:the safety ramp has removed .* above the input noise's share.*refine:Warning",
     "ignore:the launch holds .* of the requested size on its .* the aperture clips it:Warning",
 ]
-# (The boundary monitor's warnings are ignored by tests/conftest.py, as a mark: a
+# (The boundary monitor's warnings stay errors here: a module that ignores them opts
+# out with a `filterwarnings` mark and its reason, docs/dev/testing.md section 3. A
 # filter here naming solprop's class would import solprop before coverage starts.)
 markers = [
     # The three tiers of docs/dev/testing.md section 2, one marker each; a test carries
