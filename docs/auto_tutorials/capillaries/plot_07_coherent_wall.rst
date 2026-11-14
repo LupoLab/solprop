@@ -46,7 +46,7 @@ condensation of the wall, so each channel's loss departs from Marcatili's by
 being the square of the quasi-static ratio ``2N/|a k_eff|`` the run records, which is
 why raising the channel count ``N`` makes it larger rather than smaller.
 
-.. GENERATED FROM PYTHON SOURCE LINES 34-47
+.. GENERATED FROM PYTHON SOURCE LINES 34-48
 
 .. code-block:: Python
 
@@ -59,6 +59,7 @@ why raising the channel count ``N`` makes it larger rather than smaller.
     from solprop.boundaries import absorber
     from solprop.constants import C
     from solprop.driver import prop_capillary
+    from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
     from solprop.grid import FieldGrid
     from solprop.modes import CoherentWall, MarcatiliMode, wall_operator
     from solprop.stepper import FixedSchedule
@@ -70,7 +71,7 @@ why raising the channel count ``N`` makes it larger rather than smaller.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-56
+.. GENERATED FROM PYTHON SOURCE LINES 49-57
 
 The loss, without a run
 -----------------------
@@ -81,7 +82,7 @@ of its diagonal entry. Against the evacuated bore's own Marcatili rate
 ``(omega/c) Im n_eff`` it departs by the prediction above, for one channel and for
 the lowest channel of a four-channel block, whose ``4 N^2`` is sixteen times larger.
 
-.. GENERATED FROM PYTHON SOURCE LINES 56-97
+.. GENERATED FROM PYTHON SOURCE LINES 57-98
 
 .. code-block:: Python
 
@@ -144,7 +145,7 @@ the lowest channel of a four-channel block, whose ``4 N^2`` is sixteen times lar
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 98-109
+.. GENERATED FROM PYTHON SOURCE LINES 99-112
 
 The conversion, through the entry point
 ---------------------------------------
@@ -153,12 +154,14 @@ Ten fixed steps of 20 um of a 50 um helium-filled bore, three channels, launched
 into ``HE_11`` alone: once with ``wall=CoherentWall()`` and once with the ordinary
 incoherent loss. The small radius is what makes a fifth of a millimetre show a
 measurable wall; it sits near the edge of the block's validity range on purpose,
-and the construction says so with a warning, as does the band's reach past the
-fitted ranges of helium and silica. The collar is weakened so that the twenty
-micrometre steps are stable: the absorber is an explicit term in the step, so its
-strength limits the step it allows.
+and the construction says so with a warning (``GrazingIncidenceWarning``). The
+collar is weakened so that the twenty micrometre steps are stable: the absorber is
+an explicit term in the step, so its strength limits the step it allows. The
+walk-off check then warns that so weak a collar would not stop a packet wrapping
+around the window; over a fifth of a millimetre the modes walk apart by a fraction
+of a femtosecond in a 300 fs window, so both warnings are silenced by name.
 
-.. GENERATED FROM PYTHON SOURCE LINES 109-161
+.. GENERATED FROM PYTHON SOURCE LINES 112-167
 
 .. code-block:: Python
 
@@ -169,7 +172,10 @@ strength limits the step it allows.
     def run(wall):
         """Propagate the three-channel bore ten fixed steps, with or without a wall."""
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", GrazingIncidenceWarning)
+            warnings.filterwarnings(
+                "ignore", "the temporal absorber attenuates", SolpropWarning
+            )
             return prop_capillary(
                 50e-6,
                 length,
@@ -228,13 +234,13 @@ strength limits the step it allows.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 162-165
+.. GENERATED FROM PYTHON SOURCE LINES 168-171
 
 What the run recorded. ``modal.flow`` is part of the run's recorded identity, so a
 file written by this run says which block it propagated, and a resume against a
 different one is refused, naming the entry that differs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 165-195
+.. GENERATED FROM PYTHON SOURCE LINES 171-201
 
 .. code-block:: Python
 
@@ -286,7 +292,7 @@ different one is refused, naming the entry that differs.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 196-203
+.. GENERATED FROM PYTHON SOURCE LINES 202-209
 
 Related reading
 ---------------
@@ -299,7 +305,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.931 seconds)
+   **Total running time of the script:** (0 minutes 4.317 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_capillaries_plot_07_coherent_wall.py:
