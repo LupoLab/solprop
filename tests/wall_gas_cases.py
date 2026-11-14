@@ -1,0 +1,232 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""A coherent wall beside nitrogen's own plasma and Raman responses: cases and bound.
+
+Shared by ``tests/driver/test_wall_beside_gas_responses.py`` and the catalogue's rows
+(``tests/backends/flow_rows.py``), so that no row imports a test module. The cases are
+the scalar wall, the TE/TM wall and a walled taper, 30 uJ in 30 fs through a 50 um bore
+of nitrogen at one bar, ten fixed steps over a fifth of a millimetre, with ``plasma``
+and ``raman`` **omitted**, so that the entry point's defaults turn both on
+(:func:`arguments`, :func:`simulation`). The ten-step bound (:func:`parity_bound`),
+stated before any measurement, extends ``tests/flow_parity.py``'s ``B_10`` by the
+Raman and plasma sources' own rounding; the test module's docstring says how the launch
+was chosen.
+"""
+
+import math
+import warnings
+from dataclasses import replace
+
+import numpy as np
+
+from bounds import scan_bound
+from flow_parity import (
+    GRID,
+    LENGTH,
+    QUIET,
+    STEPS,
+    UNIT,
+    WEAK_COLLAR,
+    flow_scales,
+    taper,
+    ten_step_bound,
+    vector_modes,
+)
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.driver import Simulation
+from solprop.modes import CoherentWall
+from solprop.stepper import FixedSchedule
+from solprop.translate.ionisation import RateTable
+
+GAS = "N2"
+"""The fill: a molecule with optmat's molecular rate and Raman response."""
+
+
+ENERGY = 30e-6
+"""Launch energy, J (the module docstring says how it was chosen)."""
+
+
+CASES = ("scalar", "te_tm", "taper")
+"""The wall cases: constant scalar, constant TE/TM, and the varying scalar taper."""
+
+
+COMPILED = {
+    # Per backend: one transform's rounding in eps per log2(n_to), and the
+    # synthesis, tensor and projection's contraction count in eps. Kokkos's are its
+    # approved transform envelope and contraction count
+    # (tests/driver/test_native_coupled_flow).
+    "native": (512.0, 84),
+}
+"""The compiled backends and their per-transform and contraction constants."""
+
+
+def arguments(name, **overrides):
+    """Return one case's keyword arguments, with ``plasma`` and ``raman`` omitted."""
+    wall, modes, radius = {
+        "scalar": (CoherentWall(), 3, 50e-6),
+        "te_tm": (CoherentWall(impedance="te_tm"), vector_modes(), 50e-6),
+        "taper": (CoherentWall(), 3, taper()),
+    }[name]
+    return {
+        "radius": radius,
+        "wall": wall,
+        "wavelength": 800e-9,
+        "grid": GRID,
+        "absorber": WEAK_COLLAR,
+        "fwhm": 30e-15,
+        "energy": ENERGY,
+        "modes": modes,
+        "n_save": 2,
+        "backend": "numpy_ref",
+        "dz_max": LENGTH / STEPS,
+        "dz_init": LENGTH / STEPS,
+        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
+    } | overrides
+
+
+def simulation(name, **overrides):
+    """Return one case as a simulation object, for the bound's scales."""
+    keywords = arguments(name, **overrides)
+    radius = keywords.pop("radius")
+    with warnings.catch_warnings():
+        for category in QUIET:
+            warnings.simplefilter("ignore", category)
+        return Simulation.from_capillary(
+            radius, LENGTH, GAS, 1.0, **{"noise": None, **keywords}
+        )
+
+
+def launch_source(problem, run_request, grid) -> tuple[np.ndarray, float]:
+    """Return the reference's source ``N(a_0)`` at the launch, and ``||a_0||``."""
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
+    try:
+        # The backend's private state keeps its leading axis of one.
+        state = problem.initial.field0[np.newaxis]
+        bundle = backend._stage_scalars(0.0, 0.0)
+        source = backend._nonlinear(state, bundle, np.ones_like(state))
+        return np.array(source), float(np.linalg.norm(state))
+    finally:
+        backend.close()
+
+
+def without(name, switch) -> np.ndarray:
+    """Return the launch source of one case with one response switched off."""
+    reduced = simulation(name, **{switch: False})
+    return launch_source(reduced.translate(), reduced._run_request(), reduced.grid)[0]
+
+
+def rate_sensitivity(table: RateTable) -> tuple[float, float]:
+    """Return the table's largest ``|d ln W / d ln E|`` and largest ``|ln W|``.
+
+    The derivative of each interval's cubic is a quadratic in ``t``, largest at an end
+    of ``[0, d_log_field]`` or at its vertex, so the maximum is exact up to rounding.
+    """
+    c0, c1, c2, _ = table.coefficients
+    step = table.d_log_field
+    candidates = [np.abs(c2), np.abs(3 * c0 * step**2 + 2 * c1 * step + c2)]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        vertex = np.where(c0 != 0.0, -c1 / (3 * c0), 0.0)
+    inside = (vertex > 0.0) & (vertex < step)
+    candidates.append(
+        np.where(inside, np.abs(3 * c0 * vertex**2 + 2 * c1 * vertex + c2), 0.0)
+    )
+    return float(np.max(candidates)), float(np.max(np.abs(table.log_rate)))
+
+
+def shares(name, problem, run_request, grid) -> tuple[float, float, float]:
+    """Return ``Phi_r`` of Kerr, Raman and plasma at the launch of one case.
+
+    The source is a sum over the responses, so removing one and subtracting isolates
+    it; each share is its norm over the state's, times the length.
+    """
+    total, norm = launch_source(problem, run_request, grid)
+    plasma_source = total - without(name, "plasma")
+    raman_source = total - without(name, "raman")
+    kerr_source = total - plasma_source - raman_source
+    kerr, raman, plasma = (
+        LENGTH * float(np.linalg.norm(one)) / norm
+        for one in (kerr_source, raman_source, plasma_source)
+    )
+    return kerr, raman, plasma
+
+
+def lipschitz_scale(name) -> float:
+    """Return ``sum_r k_r Phi_r`` of one case: the source's growth scale over the run.
+
+    ``k = 3`` for Kerr and Raman and ``1 + S`` for the plasma, as
+    :func:`parity_bound` states.
+    """
+    built = simulation(name)
+    problem, run_request = built.translate(), built._run_request()
+    plasma_leaf = problem.responses.plasma_coefficients
+    assert plasma_leaf is not None
+    sensitivity, _ = rate_sensitivity(plasma_leaf.rate)
+    phi_kerr, phi_raman, phi_plasma = shares(name, problem, run_request, built.grid)
+    return 3 * phi_kerr + 3 * phi_raman + (1 + sensitivity) * phi_plasma
+
+
+def parity_bound(name, backend, reference) -> float:
+    """Return the relative bound on a compiled backend's final state, ten steps.
+
+    **Stated before any measurement.** ``tests/flow_parity.py``'s ``B_10`` -- the
+    flow's actions, the residual, the diagonal half's ``32 u`` per step and the
+    source carried through ``C``, ``exp(Phi)`` and the attenuation -- with the source
+    split by response, each response ``r`` entering with its own share ``Phi_r`` (its
+    source's norm over the state's, times the length; :func:`without`), its own
+    per-stage rounding ``eps_r`` relative to that source, and its own Lipschitz
+    factor ``k_r``:
+
+    * **Kerr**, ``k = 3``: flow_parity's fixed-quadrature count,
+      ``eps (n + 2 F log2 n_to + K + 3 Q + 2)`` with the backend's transform constant
+      ``F`` and contraction ``K`` (:data:`COMPILED`).
+    * **Raman**, ``k = 3``: the Kerr count plus the delayed response's convolution on
+      the doubled axis, ``eps (2 F log2 (2 n_to) + K)``, as the general source bound
+      counts a delayed response (``tests/general_parity.py``).
+    * **Plasma**, ``k = 1 + S``: the rate is ``exp`` of a cubic in ``ln |E|``, so a
+      relative error ``d`` in a node's field moves it by ``S d`` with ``S`` the
+      table's largest ``|d ln W / d ln E|`` (:func:`rate_sensitivity`, exact on the
+      cubics), and the cubic's own rounding is ``4 eps |ln W|`` absolute in ``ln W``.
+      A node field is synthesised to ``eps (n + F log2 n_to)`` relative to the
+      largest one; the rate, and so the fraction and the loss current, are carried by
+      fields within a factor two of the largest (halving the field divides the rate
+      by ``exp(S / 2)`` at least there), so the pointwise relative error on them is
+      twice that, and ``ln |E|`` adds ``2 eps`` more. The fraction's and the currents'
+      running integrals are the fixed-geometry scan chain,
+      ``192 eps log2 n_to`` (``tests/bounds.py``); the currents'
+      synthesis and projection are the Kerr count again:
+      ``eps [2 S (n + F log2 n_to + 2) + 4 max |ln W| + 2] + 192 eps log2 n_to``
+      plus the Kerr count.
+
+    ``B_10`` is then taken with ``3 Phi_eff = sum_r k_r Phi_r`` (its Lipschitz scale
+    and its ``exp(Phi)``) and ``Phi_eff eps_src = sum_r Phi_r eps_r``, which is
+    ``B_10``'s per-step source term exactly.
+    """
+    built = simulation(name)
+    problem, run_request = built.translate(), built._run_request()
+    grid = built.grid
+    transform, contraction = COMPILED[backend]
+    eps = 2.0 * UNIT
+    flow = problem.linear.coupled_flow
+    assert flow is not None
+    n_modes = flow.n_modes
+    nodes = problem.transform.n_nodes
+    log_n = math.log2(grid.n_to)
+    kerr = eps * (n_modes + 2 * transform * log_n + contraction + 3 * nodes + 2)
+    raman = kerr + eps * (2 * transform * math.log2(2 * grid.n_to) + contraction)
+    plasma_leaf = problem.responses.plasma_coefficients
+    assert plasma_leaf is not None
+    sensitivity, largest_log = rate_sensitivity(plasma_leaf.rate)
+    plasma = (
+        kerr
+        + eps
+        * (2 * sensitivity * (n_modes + transform * log_n + 2) + 4 * largest_log + 2)
+        + scan_bound(grid.n_to)
+    )
+    phi_kerr, phi_raman, phi_plasma = shares(name, problem, run_request, grid)
+    lipschitz = 3 * phi_kerr + 3 * phi_raman + (1 + sensitivity) * phi_plasma
+    phi_eff = lipschitz / 3
+    source = (phi_kerr * kerr + phi_raman * raman + phi_plasma * plasma) / phi_eff
+    scales = flow_scales(problem, run_request, grid, reference)
+    return ten_step_bound(replace(scales, phi=phi_eff, source=source))

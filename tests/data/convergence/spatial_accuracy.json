@@ -75,70 +75,70 @@
    "fraction": 4.9892280783109995e-05,
    "series": "native: Cartesian envelope_kerr energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0035208322803146506,
    "series": "native: Cartesian envelope_kerr ladder (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.88741766315362e-05,
    "series": "native: Cartesian envelope_kerr on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 3.0606876642102685e-05,
    "series": "native: Cartesian envelope_kerr on_axis_spectrum (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.3865434257601316e-05,
    "series": "native: Cartesian envelope_kerr peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 9.471077029952148e-05,
    "series": "native: Cartesian envelope_raman energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.003826869700143488,
    "series": "native: Cartesian envelope_raman ladder (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.2958618232646453e-05,
    "series": "native: Cartesian envelope_raman on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 3.0606876642102705e-05,
    "series": "native: Cartesian envelope_raman on_axis_spectrum (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native: Cartesian envelope_raman peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
@@ -173,133 +173,133 @@
    "fraction": 9.522725711754537e-05,
    "series": "native: Cartesian field_kerr energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.006653607539036549,
    "series": "native: Cartesian field_kerr ladder (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.9678969760976348e-05,
    "series": "native: Cartesian field_kerr on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.846435111160911e-05,
    "series": "native: Cartesian field_kerr on_axis_spectrum (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.08601347580589e-05,
    "series": "native: Cartesian field_kerr peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native: Cartesian field_plasma electron_density (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 6.837904365719056e-05,
    "series": "native: Cartesian field_plasma energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native: Cartesian field_plasma held current, 400 fs electron_density (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.2972929812617505e-05,
    "series": "native: Cartesian field_plasma held current, 400 fs energy (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0001403625363421534,
    "series": "native: Cartesian field_plasma held current, 400 fs ladder (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.431970048544755e-05,
    "series": "native: Cartesian field_plasma held current, 400 fs on_axis_intensity (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.4543801723316385e-06,
    "series": "native: Cartesian field_plasma held current, 400 fs on_axis_spectrum (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 9.8572304942296e-06,
    "series": "native: Cartesian field_plasma held current, 400 fs peak_intensity (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0002448730455315802,
    "series": "native: Cartesian field_plasma held current, 400 fs peak_ionisation_rate (relative)",
-   "write": 7,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 6,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0003212819575356846,
    "series": "native: Cartesian field_plasma ladder (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.131133070945425e-05,
    "series": "native: Cartesian field_plasma on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.3258542868707582e-05,
    "series": "native: Cartesian field_plasma on_axis_spectrum (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.934009676463963e-05,
    "series": "native: Cartesian field_plasma peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0007288658670561056,
    "series": "native: Cartesian field_plasma peak_ionisation_rate (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -537,112 +537,112 @@
    "fraction": 0.00994763033700379,
    "series": "native: nonlinear ladder envelope_kerr (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.0686081535922834e-05,
    "series": "native: nonlinear ladder envelope_kerr energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.000510335965225567,
    "series": "native: nonlinear ladder envelope_kerr on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0001176829269444759,
    "series": "native: nonlinear ladder envelope_kerr peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.006316742884727068,
    "series": "native: nonlinear ladder envelope_raman (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00011220759222063723,
    "series": "native: nonlinear ladder envelope_raman energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native: nonlinear ladder envelope_raman on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00010758570946925801,
    "series": "native: nonlinear ladder envelope_raman peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.008135789592064187,
    "series": "native: nonlinear ladder field_kerr (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 8.744812907182577e-05,
    "series": "native: nonlinear ladder field_kerr energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0001325755381698135,
    "series": "native: nonlinear ladder field_kerr on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 8.384217784981163e-05,
    "series": "native: nonlinear ladder field_kerr peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0002345945331772082,
    "series": "native: nonlinear ladder field_plasma (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.2876095837582152e-05,
    "series": "native: nonlinear ladder field_plasma energy (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native: nonlinear ladder field_plasma on_axis_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.2345324798055103e-05,
    "series": "native: nonlinear ladder field_plasma peak_intensity (relative)",
    "write": 1,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -775,70 +775,70 @@
    "fraction": 9.95002750661134e-06,
    "series": "native_cuda: Cartesian envelope_kerr energy (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0007549516178987907,
    "series": "native_cuda: Cartesian envelope_kerr ladder (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.430105599039118e-06,
    "series": "native_cuda: Cartesian envelope_kerr on_axis_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 2.3033236248542676e-05,
    "series": "native_cuda: Cartesian envelope_kerr on_axis_spectrum (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.5485467107147254e-05,
    "series": "native_cuda: Cartesian envelope_kerr peak_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 9.503291577681956e-05,
    "series": "native_cuda: Cartesian envelope_raman energy (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0005843230316099145,
    "series": "native_cuda: Cartesian envelope_raman ladder (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: Cartesian envelope_raman on_axis_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.3033236248542692e-05,
    "series": "native_cuda: Cartesian envelope_raman on_axis_spectrum (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.5248309762912238e-06,
    "series": "native_cuda: Cartesian envelope_raman peak_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman eight steps]"
   },
   {
    "axis": "largest",
@@ -873,133 +873,133 @@
    "fraction": 6.047549185784656e-05,
    "series": "native_cuda: Cartesian field_kerr energy (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0007935255540877236,
    "series": "native_cuda: Cartesian field_kerr ladder (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: Cartesian field_kerr on_axis_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.4657577424657317e-05,
    "series": "native_cuda: Cartesian field_kerr on_axis_spectrum (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: Cartesian field_kerr peak_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: Cartesian field_plasma electron_density (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 5.470323492575246e-05,
    "series": "native_cuda: Cartesian field_plasma energy (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs electron_density (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.2972929812617505e-05,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs energy (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0001619636737908219,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs ladder (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.431970048544755e-05,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs on_axis_intensity (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 5.345256206797966e-05,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs on_axis_spectrum (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 9.8572304942296e-06,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs peak_intensity (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0002448730455315802,
    "series": "native_cuda: Cartesian field_plasma held current, 400 fs peak_ionisation_rate (relative)",
-   "write": 8,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "write": 7,
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0005225538354614041,
    "series": "native_cuda: Cartesian field_plasma ladder (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.3906864367182214e-06,
    "series": "native_cuda: Cartesian field_plasma on_axis_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 1.3258542868707582e-05,
    "series": "native_cuda: Cartesian field_plasma on_axis_spectrum (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 8.228352994872776e-07,
    "series": "native_cuda: Cartesian field_plasma peak_intensity (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0014735766442656208,
    "series": "native_cuda: Cartesian field_plasma peak_ionisation_rate (relative)",
    "write": 4,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -1237,112 +1237,112 @@
    "fraction": 0.00030988192991425467,
    "series": "native_cuda: nonlinear ladder envelope_kerr (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.2293777968051045e-05,
    "series": "native_cuda: nonlinear ladder envelope_kerr energy (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.465658270866985e-06,
    "series": "native_cuda: nonlinear ladder envelope_kerr on_axis_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 1.0687243664766992e-05,
    "series": "native_cuda: nonlinear ladder envelope_kerr peak_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00044765860821962964,
    "series": "native_cuda: nonlinear ladder envelope_raman (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.472796735086118e-06,
    "series": "native_cuda: nonlinear ladder envelope_raman energy (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: nonlinear ladder envelope_raman on_axis_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_cuda: nonlinear ladder envelope_raman peak_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00041898761248597877,
    "series": "native_cuda: nonlinear ladder field_kerr (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.1452564862463254e-06,
    "series": "native_cuda: nonlinear ladder field_kerr energy (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 5.248808481447208e-05,
    "series": "native_cuda: nonlinear ladder field_kerr on_axis_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.2940944199497223e-06,
    "series": "native_cuda: nonlinear ladder field_kerr peak_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.00029549136311434875,
    "series": "native_cuda: nonlinear ladder field_plasma (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 6.438046570879416e-06,
    "series": "native_cuda: nonlinear ladder field_plasma energy (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.904273218013485e-05,
    "series": "native_cuda: nonlinear ladder field_plasma on_axis_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.851798332641234e-05,
    "series": "native_cuda: nonlinear ladder field_plasma peak_intensity (relative)",
    "write": 3,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -1475,70 +1475,70 @@
    "fraction": 9.95002750661134e-06,
    "series": "native_hip: Cartesian envelope_kerr energy (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0008007335113936505,
    "series": "native_hip: Cartesian envelope_kerr ladder (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.215052799519559e-06,
    "series": "native_hip: Cartesian envelope_kerr on_axis_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 2.3033236248542676e-05,
    "series": "native_hip: Cartesian envelope_kerr on_axis_spectrum (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.5485467107147254e-05,
    "series": "native_hip: Cartesian envelope_kerr peak_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 9.503291577681956e-05,
    "series": "native_hip: Cartesian envelope_raman energy (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0008418035378468207,
    "series": "native_hip: Cartesian envelope_raman ladder (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.430296831677656e-06,
    "series": "native_hip: Cartesian envelope_raman on_axis_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 2.3033236248542692e-05,
    "series": "native_hip: Cartesian envelope_raman on_axis_spectrum (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.5248309762912238e-06,
    "series": "native_hip: Cartesian envelope_raman peak_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian envelope_raman eight steps]"
   },
   {
    "axis": "largest",
@@ -1573,84 +1573,84 @@
    "fraction": 6.047549185784656e-05,
    "series": "native_hip: Cartesian field_kerr energy (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00067961508222988,
    "series": "native_hip: Cartesian field_kerr ladder (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_hip: Cartesian field_kerr on_axis_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.4657577424657317e-05,
    "series": "native_hip: Cartesian field_kerr on_axis_spectrum (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 6.487209706726452e-05,
    "series": "native_hip: Cartesian field_kerr peak_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_hip: Cartesian field_plasma electron_density (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 5.470323492575246e-05,
    "series": "native_hip: Cartesian field_plasma energy (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0004452784722920979,
    "series": "native_hip: Cartesian field_plasma ladder (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.3906864367182214e-06,
    "series": "native_hip: Cartesian field_plasma on_axis_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 1.3258542868707582e-05,
    "series": "native_hip: Cartesian field_plasma on_axis_spectrum (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 5.868019352927926e-05,
    "series": "native_hip: Cartesian field_plasma peak_intensity (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0014735766442656208,
    "series": "native_hip: Cartesian field_plasma peak_ionisation_rate (relative)",
    "write": 5,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free cartesian field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -1888,112 +1888,112 @@
    "fraction": 0.0004975076032209916,
    "series": "native_hip: nonlinear ladder envelope_kerr (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.2293777968051045e-05,
    "series": "native_hip: nonlinear ladder envelope_kerr energy (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 4.465658270866985e-06,
    "series": "native_hip: nonlinear ladder envelope_kerr on_axis_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 1.0687243664766992e-05,
    "series": "native_hip: nonlinear ladder envelope_kerr peak_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0009879401911364095,
    "series": "native_hip: nonlinear ladder envelope_raman (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.472796735086118e-06,
    "series": "native_hip: nonlinear ladder envelope_raman energy (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 0.0,
    "series": "native_hip: nonlinear ladder envelope_raman on_axis_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.0687748516998286e-05,
    "series": "native_hip: nonlinear ladder envelope_raman peak_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial envelope_raman one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.0005712020942192333,
    "series": "native_hip: nonlinear ladder field_kerr (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.1452564862463254e-06,
    "series": "native_hip: nonlinear ladder field_kerr energy (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-8]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr eight steps]"
   },
   {
    "axis": "largest",
    "fraction": 5.248808481447208e-05,
    "series": "native_hip: nonlinear ladder field_kerr on_axis_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 2.4895516564154015e-05,
    "series": "native_hip: nonlinear ladder field_kerr peak_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_kerr one step]"
   },
   {
    "axis": "largest",
    "fraction": 0.00027418734166506544,
    "series": "native_hip: nonlinear ladder field_plasma (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-0]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 6.438046570879416e-06,
    "series": "native_hip: nonlinear ladder field_plasma energy (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 3.904273218013485e-05,
    "series": "native_hip: nonlinear ladder field_plasma on_axis_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
    "fraction": 1.851798332641234e-05,
    "series": "native_hip: nonlinear ladder field_plasma peak_intensity (relative)",
    "write": 2,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-native-1]"
+   "written_by": "tests/backends/test_parity_catalogue.py::test_every_rung_agrees_with_the_reference[free radial field_plasma one step]"
   },
   {
    "axis": "largest",
@@ -2144,76 +2144,6 @@
   },
   {
    "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_kerr energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_kerr ladder (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_kerr on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_kerr on_axis_spectrum (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_kerr peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_raman energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_raman ladder (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_raman on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_raman on_axis_spectrum (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian envelope_raman peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[envelope_raman-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
    "fraction": 0.000183624461937664,
    "series": "numpy_ref: Cartesian exact linear flow (relative)",
    "write": 0,
@@ -2239,139 +2169,6 @@
    "series": "numpy_ref: Cartesian field-scalar parity with field vector (relative)",
    "write": 0,
    "written_by": "tests/backends/test_free_ladders.py::test_cartesian_field_envelope_and_scalar_vector_parity[numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_kerr energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_kerr ladder (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_kerr on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_kerr on_axis_spectrum (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_kerr peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_kerr-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma electron_density (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs electron_density (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs energy (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs ladder (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs on_axis_intensity (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs on_axis_spectrum (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs peak_intensity (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma held current, 400 fs peak_ionisation_rate (relative)",
-   "write": 6,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma ladder (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma on_axis_spectrum (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: Cartesian field_plasma peak_ionisation_rate (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_statistics_fresh_and_cached[field_plasma-numpy_ref-0]"
   },
   {
    "axis": "largest",
@@ -2705,118 +2502,6 @@
   {
    "axis": "largest",
    "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_kerr (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_kerr energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_kerr on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_kerr peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_raman (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_raman energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_raman on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder envelope_raman peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[envelope_raman-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_kerr (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_kerr energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_kerr on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_kerr peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_kerr-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_plasma (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_plasma energy (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_plasma on_axis_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
-   "series": "numpy_ref: nonlinear ladder field_plasma peak_intensity (relative)",
-   "write": 0,
-   "written_by": "tests/backends/test_radial_nonlinear.py::test_radial_nonlinear_ladder_matches_reference[field_plasma-numpy_ref-1]"
-  },
-  {
-   "axis": "largest",
-   "fraction": 0.0,
    "series": "numpy_ref: radial interface energy (relative)",
    "write": 0,
    "written_by": "tests/driver/test_prop_radial.py::test_radial_interface_caches_and_saves_geometry[envelope-numpy_ref]"
@@ -3095,37 +2780,6 @@
     "OMP_PROC_BIND": "false",
     "OMP_WAIT_POLICY": null,
     "OPENBLAS_NUM_THREADS": null,
-    "SOLPROP_BLAS_THREADS": null,
-    "SOLPROP_FFTW_THREADS": null,
-    "SOLPROP_NATIVE_THREADS": "1",
-    "SOLPROP_NUMBA_THREADS": null,
-    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
-    "VECLIB_MAXIMUM_THREADS": null
-   }
-  },
-  {
-   "backend": "numpy_ref",
-   "blas": "openblas 0.3.34.0.0",
-   "branch": "HEAD",
-   "commit": "b71045467c6c14c5c790a12431896c1cef98e799",
-   "fftw_planner": null,
-   "machine_id": "linux-x86-64",
-   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
-   "packages": {
-    "numba": "0.67.0",
-    "numpy": "2.5.2",
-    "scipy": "1.18.1"
-   },
-   "python": "3.14.7",
-   "threads": {
-    "MKL_NUM_THREADS": "1",
-    "NUMBA_NUM_THREADS": null,
-    "OMP_DYNAMIC": null,
-    "OMP_NUM_THREADS": "1",
-    "OMP_PLACES": null,
-    "OMP_PROC_BIND": "false",
-    "OMP_WAIT_POLICY": null,
-    "OPENBLAS_NUM_THREADS": "1",
     "SOLPROP_BLAS_THREADS": null,
     "SOLPROP_FFTW_THREADS": null,
     "SOLPROP_NATIVE_THREADS": "1",

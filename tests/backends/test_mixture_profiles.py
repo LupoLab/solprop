@@ -2,41 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Independent density baselines and propagation under labelled population splitting."""
+"""Independent density baselines and propagation under labelled population splitting.
 
-import dataclasses
+The three independent profiles on native against the reference are the catalogue's row
+``mixture independent profiles`` (``backends/mixture_rows.py``); their tables and
+refusals are held here.
+"""
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from mixture_cases import mixture_translation
+from mixture_cases import construct, independent_profiles, mixture_translation
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
-from solprop.modes import MarcatiliMode
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Component, Mixture
-from solprop.profiles import Constant, Linear
-from solprop.stepper import FixedSchedule
-from solprop.translate.assembly import assemble
+from solprop.profiles import Constant
 from solprop.translate.stage import require_device_ready
-
-
-def construct(mixture, responses, grid, original, original_request):
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
-    problem, run_request = assemble(
-        grid,
-        mode,
-        responses,
-        original.initial.field0,
-        controller=original_request.stepper.controller,
-        save_planes=[grid.length],
-        dz_max=original_request.stepper.dz_max,
-        dz_init=original_request.stepper.dz_init,
-        schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 16),
-    )
-    return mode, problem, run_request
 
 
 def final(backend_class, problem, run_request, grid):
@@ -49,24 +32,8 @@ def final(backend_class, problem, run_request, grid):
         backend.close()
 
 
-def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
-    mixture, grid, _, responses, (original, original_request) = mixture_translation()
-    components = tuple(
-        dataclasses.replace(
-            component,
-            density=Linear((index + 1) * 1e24, (4 - index) * 1e24, grid.length),
-        )
-        for index, component in enumerate(mixture.components)
-    )
-    third = Component(
-        dataclasses.replace(components[0].species, gamma3=0.0, ionisation=None),
-        Linear(7e24, 0.8e24, grid.length),
-        "inert",
-    )
-    mixture = Mixture.of(*components, third)
-    mode, problem, run_request = construct(
-        mixture, responses, grid, original, original_request
-    )
+def test_three_independent_profiles_are_tables_read_as_declared():
+    mixture, grid, mode, problem, _ = independent_profiles()
     assert problem.linear.phi_representation == "table"
     assert problem.responses.prefactor_representation == "table"
     # The contract refusal is testable even when the optional backend is absent.
@@ -96,17 +63,6 @@ def test_three_independent_profiles_run_on_every_cpu_backend(backend_class):
         match=r"independent profiles.*population-0.*population-1.*inert.*z table",
     ):
         require_device_ready(problem, "native")
-    # Clenshaw evaluation contributes 8(d+1)^2 eps per table. Each of sixteen
-    # seven-stage steps contributes the two-channel ladder's 64 eps/sample.
-    degree = max(
-        int(problem.linear.phi_degrees.max()),
-        int(problem.responses.prefactor.degrees.max()),
-    )
-    bound = (16 * (degree + 1) ** 2 + 64 * grid.n_to * 2) * 7 * 16 * np.finfo(float).eps
-    assert bound > 0.0
-    expected = final(NumpyRefBackend, problem, run_request, grid)
-    actual = final(backend_class, problem, run_request, grid)
-    assert np.linalg.norm(actual - expected) / np.linalg.norm(expected) < bound
 
 
 def test_splitting_a_population_preserves_propagation(backend_class):

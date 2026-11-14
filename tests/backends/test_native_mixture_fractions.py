@@ -10,7 +10,9 @@ interpolation adds log and exp error, so ``64 n_to eps`` per channel, absolute, 
 same relative for the peak rates, which have no cumulative sum. This was 14 times
 looser at the launch of ``test_mixture_ladder.py``, and 56 times looser on the spatial
 route. Both families (the real and the analytic column), one and two components, and
-serial and threaded.
+serial and threaded. The serial values are the catalogue's rows
+(``backends/geometry_rows.py``), against the reference's launch statistics, which are
+these passes to the bit; the threaded ones stay here.
 
 **Weaker than the original.** The fields are a launch of eight radial nodes, peak
 ``3.6e10`` V/m, as the state cannot carry an arbitrary time-domain field, so its two
@@ -31,11 +33,7 @@ from numpy.testing import assert_allclose
 
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
-from backends.native_mixture_launch_probe import (
-    NAMES,
-    launch_case,
-    launch_statistics,
-)
+from backends.native_mixture_launch_probe import NAMES, launch_case
 from bounds import EPS
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 
@@ -76,16 +74,14 @@ CASES = [(kerr, n_pol) for kerr in (False, True) for n_pol in (1, 2)]
 
 
 @pytest.mark.parametrize(("kerr", "n_pol"), CASES)
-def test_two_channel_fractions_and_rates_are_the_passes(kerr, n_pol, record_property):
-    fraction, rate, bound = oracle(kerr, n_pol)
-    # Both channels really ionise on axis, beyond their pre-ionisation.
+def test_both_channels_ionise_past_their_pre_ionisation(kerr, n_pol):
+    """Both channels really ionise on axis, beyond their pre-ionisation.
+
+    Native's serial values against these passes, which the reference's launch
+    statistics are to the bit, are the rows ``geometry mixture fractions ...``.
+    """
+    fraction, _, _ = oracle(kerr, n_pol)
     assert np.all(fraction[:, 0] > np.array([0.03, 0.1]) + 1e-3)
-    values = launch_statistics(native.NativeBackend, kerr, n_pol)
-    measured = float(np.max(abs(values["species_ionisation"] - fraction)))
-    record_property("measured", measured)
-    record_property("bound", bound)
-    assert_allclose(values["species_ionisation"], fraction, rtol=0, atol=bound)
-    assert_allclose(values["species_peak_ionisation_rate"], rate, rtol=bound, atol=0)
 
 
 @pytest.mark.medium

@@ -7,7 +7,8 @@
 Every run is ten fixed steps of a 10 cm argon-filled gap (2a = 127 um, Akturk et
 al. 2009), under a collar weakened far below every bound here so that the explicit
 nonlinear-scheme absorber does not cap the step (ADR-025, the pattern of
-``test_coherent_capillary.py``). Energies are in **J/m**: the slab is uniform in y.
+``test_coherent_capillary.py``); the cases are ``tests/slab_cases.py``. Energies are in
+**J/m**: the slab is uniform in y.
 """
 
 import contextlib
@@ -23,10 +24,18 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from bounds import fft_bound, gamma
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
-from solprop.boundaries import absorber
+from slab_cases import (
+    GRID,
+    HALF_GAP,
+    LENGTH,
+    STEPS,
+    launched,
+    options,
+    parity_bound,
+    projected_multimode,
+)
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
 from solprop.driver.executors import Local
@@ -39,12 +48,10 @@ from solprop.exceptions import (
     OutputError,
     SolpropWarning,
 )
-from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.modes import (
     MarcatiliMode,
     SlabMode,
-    gaussian_coupling,
     transverse_measure,
 )
 from solprop.nonlinear.gnlse import SpecifiedMode
@@ -61,7 +68,6 @@ from solprop.processing.scans import (
     peak_power,
 )
 from solprop.profiles import Linear
-from solprop.stepper import DOPRI5
 from solprop.stepper.schedule import FixedSchedule
 from solprop.tools import pulse_peak_power
 
@@ -70,66 +76,9 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
 )
 
-LENGTH = 0.1
-"""Guide length, m: B is a third of a radian at 0.5 J/m and dispersion negligible."""
-
-STEPS = 10
-"""The fixed schedule's steps: the ten-step rule."""
-
-HALF_GAP = 63.5e-6
-"""Akturk et al.'s 2a = 127 um, m."""
-
-GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12)
-"""One envelope grid for every run, so that launches and bounds share it."""
-
-COLLAR = absorber(GRID, boundary_length=1.0e3)
-"""A collar a million times weaker than the default, present but inert (ADR-025)."""
-
 BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
-
-
-def options(**changes):
-    return {
-        "wavelength": 800e-9,
-        "grid": GRID,
-        "absorber": COLLAR,
-        "fwhm": 100e-15,
-        "energy": 0.5,
-        "envelope": True,
-        "plasma": False,
-        "raman": False,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "dz_max": LENGTH / STEPS,
-        "dz_init": LENGTH / STEPS,
-        "schedule": FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        **changes,
-    }
-
-
-def launched(simulation, shares):
-    """Replace a single-mode launch by the Gaussian's projection onto every mode."""
-    pulse = simulation._field0[0]
-    initial = np.stack([math.sqrt(share) * pulse for share in shares])
-    launched = simulation.with_input(initial)
-    # The record describes the replacement spectrum, not the single-mode pulse.
-    assert "pulse" not in launched.configuration
-    return launched
-
-
-def parity_bound(n_nodes):
-    """Relative bound on a ten-step final field between two backends.
-
-    The legacy capillary bound (``test_coherent_capillary.legacy_parity_bound``):
-    each of the ten steps' seven DOPRI5 stages re-forms the nonlinear term from a
-    field the backends built in different orders -- one FFT round trip each way
-    and the modal synthesis and projection over at most the rule's nodes -- and
-    the errors of the stages add, since the linear step is unit-modulus and the
-    nonlinear phase stays below one radian. Written before the runs were compared.
-    """
-    return STEPS * DOPRI5.n_stages * (2 * fft_bound(GRID.n_to) + 2 * gamma(n_nodes))
 
 
 # ------------------------------------------------------------------ the physics
@@ -216,34 +165,21 @@ def test_the_mode_averaged_slab_is_the_one_mode_run():
 
 @pytest.mark.medium
 @pytest.mark.parametrize("taper", [False, True], ids=["constant", "tapered"])
-def test_a_projected_multimode_slab_agrees_on_every_backend(taper):
+def test_a_projected_multimode_slab_launches_the_coupled_share(taper):
     """TE1/TE3/TE5 (TE1/TE3 tapered), launched as Arnold's 0.735a Gaussian.
 
-    A centred beam reaches the odd orders only. Each backend's final field is
-    within :func:`parity_bound` of ``numpy_ref``'s (measured below 1e-15 of a
-    1.6e-10 bound), and the energy launched is the coupled share of 0.5 J/m. The
-    inert collar cannot stop the modes' 40 fs group-delay walk-off from wrapping,
-    which the driver says; ten steps of a 100 fs pulse in a 1.2 ps window never
-    reach the edge.
+    A centred beam reaches the odd orders only. On each backend the energy launched is
+    the coupled share of 0.5 J/m, on the slab's Kronrod rule. The inert collar cannot
+    stop the modes' 40 fs group-delay walk-off from wrapping, which the driver says;
+    ten steps of a 100 fs pulse in a 1.2 ps window never reach the edge. Native's final
+    field against ``numpy_ref``'s is the catalogue's rows ``slab projected multimode
+    ...`` (``backends/driver_rows.py``).
     """
-    gap = Linear(HALF_GAP, 50e-6, LENGTH) if taper else HALF_GAP
-    orders = (1, 3) if taper else (1, 3, 5)
-    modes = [SlabMode(gap, cladding=1.45, order=order) for order in orders]
-    shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
-    fields = {}
-    n_nodes = 0
     for backend in BACKENDS:
         with pytest.warns(SolpropWarning, match="walking off"):
-            simulation = Simulation.from_waveguide(
-                modes,
-                LENGTH,
-                "Ar",
-                1.0,
-                **({"noise": None, **options(backend=backend)}),
-            )
+            simulation, shares = projected_multimode(taper, backend)
         rule = simulation.settings.quadrature
         assert rule is not None and rule.kind == "slab" and rule.kronrod
-        n_nodes = rule.n_nodes
         # A taper couples TE1 to TE3 through <psi_m|d_z psi_n>, which this route
         # omits and says so: each channel follows its local mode adiabatically.
         with (
@@ -252,15 +188,8 @@ def test_a_projected_multimode_slab_agrees_on_every_backend(taper):
             else contextlib.nullcontext()
         ):
             output = launched(simulation, shares).run(progress="none")
-        fields[backend] = output["field"][-1]
         energy = output["stats/energy"]
         assert_allclose(float(np.sum(energy[0])), 0.5 * shares.sum(), rtol=1e-12)
-    reference = fields["numpy_ref"]
-    scale = float(np.max(np.abs(reference)))
-    for backend in BACKENDS[1:]:
-        assert float(np.max(np.abs(fields[backend] - reference))) <= (
-            parity_bound(n_nodes) * scale
-        )
 
 
 @pytest.mark.medium

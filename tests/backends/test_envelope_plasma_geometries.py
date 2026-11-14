@@ -2,15 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Exercise independent envelope populations across host geometry and chunk routes."""
+"""Exercise independent envelope populations across host geometry and chunk routes.
 
-from dataclasses import replace
+Native's fields and statistics against the reference's on these cases are the
+catalogue's rows (``backends/geometry_rows.py``); what stays here holds each backend to
+itself and to the case: the two fixed steps meet their tolerance, the chunks and the
+reference's ledger, the periodic rows against the saved plane, thread invariance, the
+two vector layouts, and the populations' scan against an independent response.
+"""
+
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from backends.forced_threads import assert_threaded
+from backends.geometry_rows import population_taper
 from backends.host_cases_envelope_plasma import (
     build_envelope_mixture,
     geometry_case,
@@ -25,10 +32,8 @@ from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
 from solprop.backends.session import ExecutionOptions
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear import EnvelopePlasmaResponse
-from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.translate.assembly import assemble
-from solprop.translate.stage import scalars
 
 PROBE = Path(__file__).with_name("host_cases_envelope_plasma.py")
 
@@ -56,22 +61,19 @@ def run(backend_class, problem, run_request, grid, options=None):
 def test_two_population_host_geometries_and_partial_chunks(
     thread_budget_lifted, envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
+    """Both backends meet the two steps' tolerance; the chunks and ledger are partial.
+
+    The two fields' agreement is the row ``geometry envelope populations ...``.
+    """
     problem, run_request, grid = geometry_case(envelope_mixture, geometry, n_pol)
     options = geometry_options(geometry)
-    reference, ledger = run(NumpyRefBackend, problem, run_request, grid, options)
+    _, ledger = run(NumpyRefBackend, problem, run_request, grid, options)
     actual, _ = run(equivalence_backend_class, problem, run_request, grid, options)
     assert problem.flags.n_channels == 2
     assert np.all(np.isfinite(actual))
     chunk = plan_node_chunk(problem, options).chunk
     assert chunk == (problem.transform.n_nodes if options is None else 3)
     assert ledger["envelope_source_streams"] == 2 * chunk * n_pol * grid.n_to * 16
-    # The polynomial rate's integrals converge to rounding; FFTs, two-channel
-    # scans and projections contribute < 128 eps per sample per RK stage.
-    bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
-    assert bound > 0
-    np.testing.assert_allclose(
-        actual, reference, rtol=bound, atol=bound * np.max(np.abs(reference))
-    )
 
 
 @pytest.mark.medium
@@ -142,53 +144,17 @@ def test_vector_mode_rows_match_state_polarisation(
 
 
 @pytest.mark.medium
-def test_taper_and_density_paths_reach_each_envelope_population(
-    thread_budget_lifted, envelope_mixture, equivalence_backend_class
+def test_the_taper_case_meets_its_tolerance_on_both_backends(
+    thread_budget_lifted, equivalence_backend_class
 ):
-    mixture, responses = envelope_mixture
-    original, original_request, grid = geometry_case(envelope_mixture, "modal", 2)
-    mixture = replace(
-        mixture,
-        components=tuple(
-            replace(
-                component,
-                density=Linear(
-                    float(component.density(np.array([0.0]))[0]), 0.0, grid.length
-                ),
-            )
-            for component in mixture.components
-        ),
-    )
-    mode = MarcatiliMode(
-        Linear(30e-6, 27e-6, grid.length),
-        mixture=mixture,
-        cladding=1.45,
-        loss=False,
-    )
-    problem, run_request = assemble(
-        grid,
-        mode,
-        responses,
-        original.initial.field0,
-        controller=original_request.stepper.controller,
-        save_planes=[grid.length],
-        dz_max=grid.length / 2,
-        dz_init=grid.length / 2,
-        schedule=original_request.stepper.schedule,
-    )
-    start = scalars(problem, 0.0, 0.0)
-    end = scalars(problem, grid.length, grid.length)
-    assert start.taper_scale != end.taper_scale
-    assert all(density > 0 for density in start.plasma_densities)
-    np.testing.assert_array_equal(end.plasma_densities, 0)
-    reference, _ = run(NumpyRefBackend, problem, run_request, grid)
-    actual, _ = run(equivalence_backend_class, problem, run_request, grid)
-    # Two stages of profile-table interpolation add to the same 128-eps/sample
-    # source and Fourier budget used by the other geometry witnesses.
-    bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
-    np.testing.assert_allclose(
-        actual, reference, rtol=bound, atol=bound * np.max(np.abs(reference))
-    )
+    """The radius taper whose densities fall to zero: two steps within tolerance.
+
+    The taper and the densities reaching the stage, and the two fields' agreement, are
+    the row ``geometry envelope populations taper and density``.
+    """
+    built = population_taper()
+    for implementation in (NumpyRefBackend, equivalence_backend_class):
+        run(implementation, built.problem, built.run_request, built.grid)
 
 
 @pytest.mark.medium
@@ -197,6 +163,11 @@ def test_taper_and_density_paths_reach_each_envelope_population(
 def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
     envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
+    """Each backend's last periodic row is its saved plane's scan, within the budget.
+
+    Native's statistics against the reference's, at the launch and at the end, are the
+    row ``geometry envelope populations ...``.
+    """
     problem, run_request, grid = geometry_case(envelope_mixture, geometry, n_pol)
     names = (
         "electron_density",
@@ -213,7 +184,7 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
     # interpolation and angular budgets are shared by both.
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
     run_request = run_request.for_run(stats=spec)
-    results = []
+    launches = []
     for cls in (NumpyRefBackend, equivalence_backend_class):
         backend = cls(
             problem,
@@ -236,18 +207,10 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
                     rtol=bound,
                     atol=bound * max(float(np.max(np.abs(final[name]))), 1e-300),
                 )
-            results.append((initial, final))
+            launches.append(initial)
         finally:
             backend.close()
-    for reference, actual in zip(results[0], results[1], strict=True):
-        for name in names:
-            np.testing.assert_allclose(
-                actual[name],
-                reference[name],
-                rtol=bound,
-                atol=bound * max(float(np.max(np.abs(reference[name]))), 1e-300),
-            )
-    assert np.all(results[0][0]["species_ionisation"] >= 0)
+    assert np.all(launches[0]["species_ionisation"] >= 0)
 
 
 def test_envelope_population_scan_matches_independent_response(envelope_mixture):

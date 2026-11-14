@@ -31,6 +31,7 @@ from scipy.integrate import quad
 from scipy.linalg import expm
 
 import flow_parity
+from backends.carrier_frame_cases import WINDOW, capillary, gradient
 from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
 from sessions.runs import adams_ledger, run
@@ -54,11 +55,9 @@ from solprop.backends.numpy_ref.multistep import (
     HostHistory,
     coupled_moments,
 )
-from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
-from solprop.linear import Frame
+from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -79,77 +78,6 @@ OFF = Multistep()
 SCALAR = Multistep(carrier_frame="scalar")
 
 # --- fixtures -------------------------------------------------------------------------
-
-THG = {"field": None, "envelope": False, "envelope_thg": True}
-"""The third-harmonic choice per grid: the field grid's default (on), off, on."""
-
-
-@functools.cache
-def capillary(
-    integrator: Multistep | RungeKutta,
-    length: float = 2e-3,
-    *,
-    n_save: int = 5,
-    interpolate: bool = True,
-    rtol: float = 1e-8,
-    grid_kind: str = "field",
-    energy: float = 1e-7,
-    modes: int = 1,
-    frame_offset: float = 0.0,
-    collar: str = "spectral",
-) -> Simulation:
-    """Return a 16 um, 40 bar hydrogen capillary on a 200 fs grid: kappa near -5.5e3/m.
-
-    The dense gas of SEP 35's cases C and D, reduced: Kerr only (no Raman, no plasma),
-    so that a short window runs in seconds. `frame_offset` moves a fixed custom frame's
-    reference frequency by that fraction of the grid's. `collar` is ``"spectral"`` (no
-    temporal collar: a manufactured source replaces the whole source, the collar's
-    term with it), ``"weak"`` (a 1 m reference length, so that accuracy sets a short
-    window's step) or ``"default"`` (the window's own in-stage collar, which then binds
-    the step: 1.4 um at PEC5/6 on 3 mm).
-    """
-    limits = (200e-9, 2e-6)
-    grid = (
-        FieldGrid.from_limits(length, 800e-9, limits, 200e-15)
-        if grid_kind == "field"
-        else EnvelopeGrid.from_limits(
-            length, 800e-9, limits, 200e-15, thg=grid_kind == "envelope_thg"
-        )
-    )
-    collars = {
-        "spectral": absorber(grid, temporal=False),
-        "weak": absorber(grid, boundary_length=1.0),
-        "default": None,
-    }
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        simulation = Simulation.from_capillary(
-            16e-6,
-            length,
-            "H2",
-            40.0,
-            grid=grid,
-            wavelength=800e-9,
-            fwhm=30e-15,
-            energy=energy,
-            modes=modes,
-            rtol=rtol,
-            atol=1e-12,
-            noise=None,
-            backend="numpy_ref",
-            n_save=n_save,
-            integrator=integrator,
-            raman=False,
-            plasma=False,
-            thg=THG[grid_kind],
-            interpolate_planes=interpolate,
-            absorber=collars[collar],
-        )
-    if frame_offset:
-        simulation.frame = Frame(
-            grid.omega0 * (1.0 + frame_offset), subtract_beta0=False, beta1=None
-        )
-    return simulation
 
 
 def reference_rate(problem) -> float:
@@ -807,9 +735,6 @@ def test_the_policy_is_the_present_arithmetic_where_inert():
 
 # --- physical windows: grids, collar, launches, a custom frame ------------------------
 
-WINDOW = 3e-3
-"""A short physical window, m: a strong 2 uJ pulse broadening in 40 bar of hydrogen."""
-
 
 @functools.cache
 def converged(
@@ -913,34 +838,6 @@ def test_a_custom_frame_changes_only_how_much_rotation_is_removed():
 
 
 # --- varying operators (section 4.5) --------------------------------------------------
-
-
-@functools.cache
-def gradient(integrator, rtol: float) -> Simulation:
-    """Return a 3 mm hydrogen gradient, 40 to 20 bar, weak collar: varying operator."""
-    grid = FieldGrid.from_limits(WINDOW, 800e-9, (200e-9, 2e-6), 200e-15)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        return Simulation.from_capillary(
-            16e-6,
-            WINDOW,
-            "H2",
-            (40.0, 20.0),
-            grid=grid,
-            wavelength=800e-9,
-            fwhm=30e-15,
-            energy=2e-6,
-            modes=1,
-            rtol=rtol,
-            atol=1e-12,
-            noise=None,
-            backend="numpy_ref",
-            n_save=2,
-            integrator=integrator,
-            raman=False,
-            plasma=False,
-            absorber=absorber(grid, boundary_length=1.0),
-        )
 
 
 def gradient_run(
@@ -1207,36 +1104,10 @@ def test_the_moments_at_the_reference_bin_take_the_near_branch():
 
 
 # --- the compiled backends (phases 2 and 3) ----------------------------------------
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_backend_follows_the_reference_on_a_matched_window(backend_name):
-    # A physical window replayed on the reference's own accepted steps at a fixed
-    # order, so both run the same discrete method and history (SEP 25): they differ
-    # by rounding alone, 512 eps a step relative to the field.
-    method = Multistep(variable_order=False, carrier_frame="scalar")
-    simulation = capillary(
-        method,
-        WINDOW,
-        rtol=1e-8,
-        energy=2e-6,
-        n_save=2,
-        interpolate=False,
-        collar="weak",
-    )
-    adaptive = march(simulation)
-    steps = adaptive.steps.copy()
-    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
-    schedule = FixedSchedule(steps)
-    expected = march(simulation, schedule=schedule)
-    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
-    assert_within(
-        found.fields[-1],
-        expected.fields[-1],
-        len(steps) * 512 * EPS,
-        what=f"{backend_name} against numpy_ref",
-    )
+#
+# The matched window and the gradient, replayed on the reference's accepted steps,
+# are the catalogue's rows ``ladder carrier frame matched ...``
+# (``backends/ladder_rows.py``).
 
 
 @pytest.mark.medium
@@ -1313,25 +1184,3 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
             assert np.all(np.abs(found - expected) <= bound), (found, expected)
     finally:
         backend.close()
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_backend_follows_the_reference_on_a_gradient(backend_name):
-    # The transported compensation beside the shift (section 4.5), on the reference's
-    # own accepted steps at a fixed order: rounding alone, 512 eps a step.
-    method = Multistep(variable_order=False, carrier_frame="scalar")
-    simulation = gradient(method, 1e-8)
-    adaptive = march(simulation)
-    assert adaptive.march._engine.compensated
-    steps = adaptive.steps.copy()
-    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
-    schedule = FixedSchedule(steps)
-    expected = march(simulation, schedule=schedule)
-    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
-    assert_within(
-        found.fields[-1],
-        expected.fields[-1],
-        len(steps) * 512 * EPS,
-        what=f"{backend_name} against numpy_ref on a gradient",
-    )

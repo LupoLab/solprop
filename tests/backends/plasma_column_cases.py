@@ -19,7 +19,7 @@ from typing import cast
 import numpy as np
 
 from backends.planar_cases import planar_case
-from backends.test_radial_nonlinear import LENGTH, QuadraticRate, make_problem
+from backends.spatial_cases import LENGTH, QuadraticRate, make_problem
 from bounds import gamma, ladder_bound
 from driver.test_prop_capillary import SHORT, build
 from solprop.backends.session import ExecutionOptions

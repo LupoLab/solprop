@@ -370,7 +370,7 @@ def _line() -> tuple[Any, Any, dict[str, Any]]:
 
 
 def _planar() -> tuple[Any, Any, dict[str, Any]]:
-    from backends.test_planar_native import planar_case  # noqa: PLC0415
+    from backends.planar_plate_cases import planar_case  # noqa: PLC0415
 
     grid, _, problem, run_request = planar_case("envelope_kerr")
     return problem, run_request, {"grid": grid}

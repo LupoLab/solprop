@@ -5,24 +5,20 @@
 """The safety ramp's k-perp rate on every backend (SEP 22 sections 4.2, 4.3 and 7).
 
 The rate is exact under the cumulative flow (each column falls by
-``exp(-alpha_perp L / 2)`` to a rounding bound) and never reaches the noise phase; the
-backends agree on a ten-step run carrying it; and
+``exp(-alpha_perp L / 2)`` to a rounding bound) and never reaches the noise phase, and
 on an aliased product the ramp weakens the folded wave as the weak-conversion
-integral predicts. The rate is SEP 40's designed safety ramp, read from the
-translated problem's ``transverse`` design.
+integral predicts. Native against ``numpy_ref`` on a ten-step run carrying it is the
+case catalogue's (``tests/backends/free_rows.py``). The rate is SEP 40's designed
+safety ramp, read from the translated problem's ``transverse`` design.
 """
 
 from typing import Any, cast
 
 import numpy as np
 import pytest
-from numpy.testing import assert_allclose
 
-from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
@@ -133,62 +129,6 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
             selected.close()
     # The rate is real: Im Phi is the same arithmetic, an exact structural identity.
     assert np.array_equal(phases[0], phases[1])
-
-
-def ramped_problem(steps):
-    """A ten-step Cartesian Kerr problem with a safety ramp and its grid."""
-    length = 1e-4
-    # The former grid and no temporal collar, as in column_run.
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
-    )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.1)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-6), 6e-5
-    )
-    simulation = Simulation.from_free(
-        grid,
-        space,
-        SpatialMedium(),
-        [KerrResponse(1e-22, thg=False)],
-        pulse,
-        settings=SimulationSettings(
-            boundary_check=None,
-            controller=PIController(rtol=1e-6, atol=1e-14),
-            save_planes=[length],
-            dz_max=length / steps,
-            dz_init=length / steps,
-            schedule=FixedSchedule.uniform(
-                0.0, length, length / steps, save_planes=[length]
-            ),
-            integrator=RungeKutta(),
-            backend="numpy_ref",
-            spatial_absorber=SpatialAbsorber(real_space=False, safety_fraction=0.3),
-            evanescent_rate=5e3,
-            absorber=bare_absorber(grid),
-        ),
-        noise=None,
-    )
-    return grid, space, simulation.translate(), simulation._run_request(), length
-
-
-def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, request):
-    steps = 10
-    grid, space, problem, run_request, _ = ramped_problem(steps)
-    operator = problem.linear.separable
-    assert operator is not None and operator.kperp_rate is not None
-    assert np.any(operator.kperp_rate > 0)
-    bound = amplitude_bound("envelope", grid, space, spatial_backend_class.name, steps)
-    assert bound > 0
-    values = []
-    for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, run_request, grid=grid)
-        try:
-            values.append(session_run(backend, problem).fields[-1])
-        finally:
-            backend.close()
-    reference, actual = values
-    assert_allclose(actual, reference, rtol=0, atol=bound * np.max(np.abs(reference)))
 
 
 # --- the aliased product (section 7) ---------------------------------------------

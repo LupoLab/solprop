@@ -17,23 +17,25 @@ import math
 import numpy as np
 import pytest
 
-from backends.matched import fixed_order
-from bounds import EPS, assert_within, fft_bound
-from sessions.runs import adams_ledger, native_source
+from backends.adams_source_cases import (
+    ROUTES,
+    SOURCE_AT,
+    SOURCE_STEPS,
+    matched_run,
+    one_evaluation,
+)
+from bounds import EPS, assert_within
+from sessions.runs import adams_ledger
 from sessions.runs import run as session_run
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_hard_mask
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver.settings import SimulationSettings
-from solprop.driver.simulation import Simulation
 from solprop.exceptions import BackendError
-from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
-from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import delta_phi
 
 COMPILED: list[type] = []
@@ -180,22 +182,6 @@ def test_native_marches_a_problem_without_responses(
     )
 
 
-ROUTES = {
-    "analytic field": {"thg": False, "plasma": False},
-    "envelope plasma": {"envelope": True, "plasma": True},
-}
-"""The stage pipeline's two other column families, for one evaluation of the source."""
-
-
-SOURCE_STEPS = 8
-"""The fixed steps of :func:`assert_sources_the_reference`'s matched run."""
-
-SOURCE_LENGTH = SOURCE_STEPS * 5e-6
-"""Its length, m: steps inside the in-stage collar's stability limit of 7e-6 m."""
-
-SOURCE_AT = 1e-3
-"""Where the one evaluation is taken, m, a step from the anchor at the launch."""
-
 SOURCE_SHARE_BOUND = 1e-10
 """The matched runs' source contributions' departure, relative to the reference's.
 
@@ -206,67 +192,21 @@ field. 1e-10 is about five eps of the field, 13 times the worst measured.
 """
 
 
-def source_case(route, length, **settings):
-    """Return `route`'s helium capillary of `length` and its edged launch.
+def assert_propagates_as_the_reference(backend_class, route):
+    """Assert one propagator, ``exp(Phi(position) - Phi(anchor))``, is the reference's.
 
-    The window's own grid, whose collar is the original evaluation's. The launch is the
-    pulse plus half of it rolled two fifths of the window along, which reaches into the
-    temporal collar.
+    The native stage kernels' phase sum over its ``Phi`` terms for the step's first
+    stage row, both read from the native state (``adams_stage_scalars``,
+    ``phase_sum_to_host``), against the reference's ``_adams_propagator``, a step from
+    the anchor at the launch. An exponent rounded within a few eps of its size and an
+    exponential's few eps, so 16 eps (1 + max |delta Phi|) relative; measured equal to
+    the bit. The source evaluated there is the catalogue's row ``ladder adams source
+    ...`` (``backends/ladder_rows.py``).
     """
-    limits = (0.01, 800e-9, (200e-9, 2e-6), 100e-15)
-    grid = (
-        EnvelopeGrid.from_limits(*limits, thg=False)
-        if route.get("envelope")
-        else FieldGrid.from_limits(*limits)
-    )
-    simulation = Simulation.from_capillary(
-        150e-6,
-        length,
-        "He",
-        1.0,
-        wavelength=800e-9,
-        fwhm=10e-15,
-        energy=5e-5,
-        grid=grid,
-        n_save=2,
-        noise=None,
-        integrator=Multistep(formulation="interaction"),
-        **settings,
-        **route,
-    )
-    problem = simulation.translate()
-    pulse = np.fft.ifft(problem.initial.field0, axis=-1)
-    edge = np.roll(pulse, pulse.shape[-1] * 2 // 5, axis=-1)
-    return simulation, problem, np.fft.fft(pulse + 0.5 * edge, axis=-1)
-
-
-def assert_evaluates_the_reference(backend_class, route):
-    """Assert one source evaluation and one propagator are the reference's.
-
-    The evaluation: the reference's untransported sample (``_adams_lab_source``)
-    against the native state's own, a zero-length trial's first stage at the same
-    position (:func:`sessions.runs.native_source`), at the launch as the
-    native state loads it, hard-masked to the active band (a change of 4e-16 of it
-    here). Untransported, the two are one transform round trip apart: measured 6.3e-16
-    and 4.7e-16 normwise against the one-evaluation budget ``fft_bound(n_to)``, about
-    1e-12, as the host-callable evaluation SEP 47 deleted measured 8.2e-16 and 5.1e-16.
-    The source is compared before any transport back to the anchor: ``U(anchor,
-    position)`` reaches 1e26 on the active band's edges (the capillary's loss over the
-    millimetre), where the in-stage collar's broad term is small against its own peak,
-    so transported, that small content and the whole term's rounding with it become the
-    source's peak, and a peak-relative comparison measures the grid more than the
-    backend.
-
-    The propagator, ``exp(Phi(position) - Phi(anchor))``: the native stage kernels'
-    phase sum over its ``Phi`` terms for the step's first stage row, both read from the
-    native state (``adams_stage_scalars``, ``phase_sum_to_host``), against the
-    reference's ``_adams_propagator``. An exponent rounded within a few eps of its size
-    and an exponential's few eps, so 16 eps (1 + max |delta Phi|) relative; measured
-    equal to the bit.
-    """
-    simulation, problem, lab = source_case(route, 0.01)
-    run_request = simulation._run_request()
-    launch = apply_hard_mask(lab[None], problem.grids.active_mask)[0]
+    built = one_evaluation(route)
+    problem, run_request = built.problem, built.run_request
+    simulation = built.simulation
+    assert simulation is not None
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
@@ -274,14 +214,11 @@ def assert_evaluates_the_reference(backend_class, route):
     }
     reference = NumpyRefBackend(problem, run_request, **context)
     try:
-        reference.set_initial(launch, None)
-        expected = np.array(reference._adams_lab_source(launch[None], SOURCE_AT))
         reference_back = np.array(reference._adams_propagator(0.0, SOURCE_AT))
     finally:
         reference.close()
     backend = backend_class(problem, run_request, **context)
     try:
-        found = native_source(backend, launch, SOURCE_AT)
         backend._staged_rows()
         state = backend._native_state
         stages = run_request.stepper.tableau.n_stages
@@ -291,12 +228,6 @@ def assert_evaluates_the_reference(backend_class, route):
         exponent = np.array(state.phase_sum_to_host(np.ascontiguousarray(rows[0])))
     finally:
         backend.close()
-    assert_within(
-        found,
-        expected,
-        fft_bound(problem.grids.n_to),
-        what="untransported source",
-    )
     back = np.exp(exponent).reshape(reference_back.shape)
     size = np.abs(delta_phi(problem.linear, SOURCE_AT, 0.0))
     bound = 16 * EPS * (1 + float(np.max(size)))
@@ -308,31 +239,29 @@ def assert_sources_the_reference(backend_class, route):
 
     The Adams source through the stage pipeline's two other column families: the
     analytic signal of a field without THG, and the envelope with its plasma assembly,
-    at a launch that reaches into the temporal collar. One evaluation and the
-    propagator are compared as before SEP 47 (:func:`assert_evaluates_the_reference`);
-    then the march's use of them: both backends replay :data:`SOURCE_STEPS` fixed steps
-    at the method's top order through their sessions, the same discrete method and
-    history (``backends/matched.py``), so they part by rounding alone. Each backend's
-    source contribution is its run's field less its own run of the launch scaled to the
-    linear limit (``faint``), where the source's share falls a millionfold; the two
-    contributions are held to :data:`SOURCE_SHARE_BOUND` of the reference's, and the
-    fields to the compiled backend's matched-window bound (``test_carrier_frame.py``:
-    512 eps a step relative to the field). The source moves the field by 1.1e-5 of it
-    over the run, seven decades above that bound.
+    at a launch that reaches into the temporal collar. The propagator is compared as
+    before SEP 47 (:func:`assert_propagates_as_the_reference`); then the march's use of
+    the source: both backends replay :data:`SOURCE_STEPS` fixed steps at the method's
+    top order through their sessions, the same discrete method and history
+    (``backends/matched.py``), so they part by rounding alone. Each backend's source
+    contribution is its run's field less its own run of the launch scaled to the linear
+    limit (``faint``), where the source's share falls a millionfold; the two
+    contributions are held to :data:`SOURCE_SHARE_BOUND` of the reference's. The source
+    moves the field by 1.1e-5 of it over the run, seven decades above the fields'
+    matched-window bound (512 eps a step); the fields themselves are the catalogue's
+    row ``ladder adams matched run ...``.
     """
-    assert_evaluates_the_reference(backend_class, route)
-    simulation, problem, lab = source_case(
-        route,
-        SOURCE_LENGTH,
-        schedule=FixedSchedule.uniform(0.0, SOURCE_LENGTH, 5e-6),
-    )
-    run_request = fixed_order(simulation._run_request())
-    problem = dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=lab)
-    )
+    assert_propagates_as_the_reference(backend_class, route)
+    built = matched_run(route)
+    problem, run_request = built.problem, built.run_request
+    simulation = built.simulation
+    assert simulation is not None
     faint = 1e-3
     linear = dataclasses.replace(
-        problem, initial=dataclasses.replace(problem.initial, field0=faint * lab)
+        problem,
+        initial=dataclasses.replace(
+            problem.initial, field0=faint * problem.initial.field0
+        ),
     )
     found = []
     for evaluating, launched in (
@@ -356,7 +285,6 @@ def assert_sources_the_reference(backend_class, route):
     bound = SOURCE_STEPS * 512 * EPS
     share = reference - unsourced / faint
     assert np.linalg.norm(share) / np.linalg.norm(reference) > 1e6 * bound
-    assert_within(field, reference, bound, what="matched Adams run")
     assert_within(
         field - unsourced_here / faint,
         share,
@@ -376,4 +304,4 @@ def assert_sources_the_reference(backend_class, route):
 )
 def test_native_sources_the_analytic_field_and_the_envelope_plasma(route):
     native = pytest.importorskip("solprop_native")
-    assert_sources_the_reference(native.NativeBackend, ROUTES[route])
+    assert_sources_the_reference(native.NativeBackend, route)

@@ -26,8 +26,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from backends.low_storage_cases import replay
-from backends.test_low_storage import CARTESIAN_CHUNK, cartesian_march
+from backends.low_storage_cases import CARTESIAN_CHUNK, cartesian_march, replay
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the fields.

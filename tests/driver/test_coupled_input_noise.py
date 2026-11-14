@@ -21,29 +21,20 @@ zero for one realisation -- it vanishes only on the ensemble -- so it is measure
 the same runs rather than assumed. The seed alone is the same draw beside a pulse
 :data:`SEED_ONLY` times weaker, whose interference with the seed is then below 1e-9 of
 the seed's energy.
-"""
 
-import dataclasses
-from typing import Any
+Native carrying the draw to the reference's last plane, guarded by the draw itself, is
+a row of the case catalogue per route (``tests/backends/flow_rows.py``,
+``input noise ...``).
+"""
 
 import numpy as np
 import pytest
 
-from capability_routes import (
-    GRIN_GRID,
-    LENGTH,
-    capillary_taper,
-    capillary_wall,
-    general_moving,
-)
-from modal_provider_cases import GENERAL_Z_END, general_grid, split_guide
-from solprop.boundaries import absorber
+from input_noise_cases import PULSE_ENERGY, ROUTES
 from solprop.constants import HBAR
-from solprop.driver import Simulation
 from solprop.noise import photons_per_bin
 from solprop.output.store import Output
 from solprop.processing.axes import grid_of
-from solprop.stepper import FixedSchedule, RungeKutta
 
 pytestmark = [
     pytest.mark.medium,
@@ -53,14 +44,10 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
 ]
 
-STEPS = 10
-"""Fixed steps every run takes; ten lands on the taper's kinks at 0.3 and 0.7 L."""
 
 SEED_ONLY = 1e-20
 """Energy ratio of the near-empty launch that carries the seed alone, dimensionless."""
 
-PULSE_ENERGY = 1e-12
-"""Launch energy, J: weak, so that the pulse's Kerr phase on the seed stays small."""
 
 SUPERPOSITION = {
     "capillary (coherent wall)": 1e-5,
@@ -78,75 +65,6 @@ capillary routes, 5.8e-5 on the moving guide and 2.0e-5 on the split block; each
 is above its measurement by an order of magnitude or more, and far below the 1 the
 identity would miss by if the seed were not carried.
 """
-
-
-def _fixed(length: float, backend: str) -> dict[str, Any]:
-    """Return the fixed schedule every run here takes; z = 0 is saved anyway."""
-    return {
-        "schedule": FixedSchedule(np.full(STEPS, length / STEPS)),
-        "dz_max": length / STEPS,
-        "dz_init": length / STEPS,
-        "save_planes": [length],
-        "backend": backend,
-    }
-
-
-def _wall(noise: str | None, energy: float, backend: str) -> Simulation:
-    # The split-step collar is unconditionally stable, so the default collar sits
-    # beside steps of 20 um without capping them.
-    return capillary_wall(
-        noise, energy=energy, absorber_scheme="split_step", **_fixed(LENGTH, backend)
-    )
-
-
-def _taper(noise: str | None, energy: float, backend: str) -> Simulation:
-    return capillary_taper(
-        noise, energy=energy, absorber_scheme="split_step", **_fixed(LENGTH, backend)
-    )
-
-
-def _moving(noise: str | None, energy: float, backend: str) -> Simulation:
-    # The general route has no split-step collar; a collar a thousand times longer
-    # than the default keeps the explicit Runge-Kutta march stable at these steps.
-    simulation = general_moving(
-        noise,
-        energy=energy,
-        integrator=RungeKutta(),
-        absorber=absorber(GRIN_GRID, boundary_length=1.0e3),
-        **_fixed(LENGTH, backend),
-    )
-    # The 100 fs window holds the band-limited pulse with 2e-3 of its energy in the
-    # guards from the launch on, which the boundary monitor would stop; the subject
-    # here is the draw's transport, not the window (SEP 21).
-    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
-    return simulation
-
-
-def _split(noise: str | None, energy: float, backend: str) -> Simulation:
-    grid = general_grid()
-    return Simulation.from_waveguide(
-        (),
-        GENERAL_Z_END,
-        provider=split_guide(grid),
-        grid=grid,
-        wavelength=835e-9,
-        fwhm=20e-15,
-        energy=energy,
-        shape="gauss",
-        noise=noise,  # pyright: ignore[reportArgumentType]
-        seed=None if noise is None else 37,
-        integrator=RungeKutta(),
-        absorber=absorber(grid, boundary_length=1.0e3),
-        **_fixed(GENERAL_Z_END, backend),
-    )
-
-
-ROUTES = {
-    "capillary (coherent wall)": _wall,
-    "capillary (taper coupling)": _taper,
-    "general guide (moving)": _moving,
-    "general guide (split block)": _split,
-}
 
 
 def _energy(output: Output, plane: int) -> tuple[float, np.ndarray]:
@@ -210,25 +128,3 @@ def test_input_noise_rides_a_coupled_flow_as_part_of_the_entrance_state(route):
     assert 0.0 < energy_seed <= seed_in * (1.0 + 1e-12)
     departure = energy_noisy - energy_clean - energy_seed - interference
     assert abs(departure) <= SUPERPOSITION[route] * energy_seed
-
-
-NATIVE_PARITY = 1e-12
-"""Largest relative departure of the native exit field from the reference's.
-
-Dimensionless, a rounding budget fixed before the comparison: the two backends run the
-same tableau on the same fixed schedule, so they differ by the rounding of ten steps of
-transforms, flow actions and stage sums, each a few hundred ulps of the field's peak at
-most. Measured 2.3e-15 (wall), 2.1e-15 (taper), 2.5e-16 (moving), 9.0e-16 (split).
-"""
-
-
-@pytest.mark.parametrize("route", list(ROUTES))
-def test_native_carries_the_input_draw_through_a_coupled_flow_as_the_reference(route):
-    """The input draw needs no backend path of its own, so native admits it."""
-    pytest.importorskip("solprop_native")
-    build = ROUTES[route]
-    reference = build("input", PULSE_ENERGY, "numpy_ref").run(progress="none")
-    compiled = build("input", PULSE_ENERGY, "native").run(progress="none")
-    expected = np.asarray(reference.fields("fft")[-1])
-    taken = np.asarray(compiled.fields("fft")[-1])
-    assert np.max(abs(taken - expected)) <= NATIVE_PARITY * np.max(abs(expected))

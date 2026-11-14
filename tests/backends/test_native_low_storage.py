@@ -5,24 +5,22 @@
 """The low-storage RK4IP march's resident engine on native CPU: SEP 24 7.2 and 7.3.
 
 Phase 3 runs the march in solprop-native: one native call a step, the four register
-passes in the route's own scratch, accepted in place. Its parity with ``numpy_ref`` runs
-on every route the translation admits the march on, each case one schedule of at most
-ten steps within a rounding bound fixed before the comparison
-(:func:`low_storage_cases.parity_bound`). Then what is the engine's own: the ledger and
-the estimate, which agree to the byte, the varying operator's flows, and the load. No
-agreement here is bitwise (SEP 25). Every run is the native session's (SEP 47 phase
-5), which owns the loop: a step left in flight and the poisoned session are
-``tests/sessions/test_native_session_low_storage.py``'s, and a signal during a step,
-which lands after its native call has committed it,
+passes in the route's own scratch, accepted in place. Its parity with ``numpy_ref`` on
+every route the translation admits the march on is the catalogue's ``low storage``
+rows (``tests/backends/session_rows.py``), each case one schedule of at most ten steps
+within a rounding bound fixed before the comparison
+(:func:`low_storage_cases.parity_bound`). Here is what is the engine's own: the ledger
+and the estimate, which agree to the byte, the varying operator's flows, the load, the
+march across thread counts and the refused trial. Every run is the native session's
+(SEP 47 phase 5), which owns the loop: a step left in flight and the poisoned session
+are ``tests/sessions/test_native_session_low_storage.py``'s, and a signal during a
+step, which lands after its native call has committed it,
 ``tests/backends/test_low_storage.py``'s
 ``test_an_atomic_engine_commits_its_step_whole[atomic engine]``.
 """
 
-import dataclasses
-import functools
 import gc
 import math
-import warnings
 import weakref
 from pathlib import Path
 
@@ -31,47 +29,27 @@ import pytest
 
 from backends.forced_threads import assert_threaded
 from backends.low_storage_cases import (
-    STEPS,
+    CARTESIAN_CHUNK,
+    MARCH,
+    cartesian_march,
     parity_bound,
     uniform,
     varying_capillary,
     with_mode,
 )
-from backends.low_storage_cases import assert_compiled as compiled_against_reference
-from backends.low_storage_cases import assert_parity as parity_against_reference
 from backends.matched import native_thread_fields
-from backends.planar_cases import planar_case
-from backends.test_low_storage import CARTESIAN_CHUNK, MARCH, cartesian_march, marched
-from backends.test_radial_nonlinear import CHI3, QuadraticRate
-from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
-from backends.test_radial_nonlinear import make_problem as radial_problem
 from bounds import assert_within
-from general_parity import conditioning as general_conditioning
-from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from sessions.runs import launch, load_native, run
 from solprop.backends.memory import (
     low_storage_flows,
     low_storage_stage_register,
 )
-from solprop.backends.numpy_ref.backend import _general_maps
-from solprop.backends.session import ExecutionOptions, Start
+from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
-from solprop.boundaries import Absorber, absorber
-from solprop.constants import C
-from solprop.driver import Simulation
-from solprop.exceptions import GeneralModalBasisWarning
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
-from solprop.noise import modified_noise, spatial_noise
-from solprop.nonlinear.gnlse import SpecifiedMode
-from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
-from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.noise import spatial_noise
 from solprop.output.memory import MemoryOutput
-from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
-from solprop.stats import StatsSpec
-from solprop.stepper import PIController
-from solprop.translate.assembly import assemble
-from solprop.translate.ionisation import build_rate_table
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -80,12 +58,6 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
-
-assert_compiled = functools.partial(compiled_against_reference, NativeBackend)
-"""Replay on the reference and ``native``; assert it within the limit."""
-
-assert_parity = functools.partial(parity_against_reference, NativeBackend)
-"""Replay on both backends and assert the states within the parity bound."""
 
 MARCH_ROWS = (
     "state",
@@ -108,479 +80,6 @@ RUNGE_KUTTA_ROWS = (
     "stage_inverse",
 )
 """The Runge-Kutta march's native views, none allocated under the low-storage one."""
-
-
-# --- the modal routes ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-@pytest.mark.parametrize("noisy", [False, True], ids=["plain", "modified noise"])
-def test_the_soliton_agrees_with_the_reference(
-    soliton_problem, narrow_grid, scales, mode, noisy
-):
-    """The mode-averaged soliton, the noise drawn at each pass's own position."""
-    length = scales.dispersion_length / 2
-    schedule = uniform(length)
-    noise = modified_noise(narrow_grid, np.random.default_rng(3)) if noisy else None
-    problem, run_request = soliton_problem(
-        narrow_grid,
-        3,
-        save_planes=[length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-        propagator_mode=mode,
-        noise=noise,
-    )
-    assert_parity(problem, run_request, narrow_grid, noise=noise)
-
-
-@pytest.mark.parametrize("collar", [False, True], ids=["linear", "in-stage collar"])
-def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar):
-    """No source at all, or the in-stage collar's term alone, on the modal route."""
-    extra = (
-        {"absorber": absorber(narrow_grid), "absorber_scheme": "nonlinear"}
-        if collar
-        else {}
-    )
-    length = 0.05
-    schedule = uniform(length)
-    problem, run_request = linear_problem(
-        narrow_grid,
-        save_planes=[length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-        **extra,
-    )
-    assert_parity(problem, run_request, narrow_grid, growth=1.0)
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_a_varying_capillary_with_raman_and_plasma_agrees(mode):
-    simulation = varying_capillary()
-    # The states are compared, not the statistics, whose profiles a session would
-    # need at construction.
-    problem, run_request = with_mode(
-        simulation.translate(),
-        simulation._run_request().for_run(stats=StatsSpec()),
-        mode,
-    )
-    assert not problem.flags.constant_linop
-    assert problem.flags.has_raman and problem.flags.has_plasma
-    assert_parity(
-        problem,
-        run_request,
-        simulation.grid,
-        modes=simulation.modes,
-        depth=problem.grids.n_to,
-    )
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_a_z_table_operator_agrees(mode):
-    """A dispersion declared along z takes the operator's z table, and its flows.
-
-    The modal flows are then exponentiated from the table's held difference rather
-    than from the terms of ``Phi``: on the native CPU build the difference of two
-    native slots (SEP 29 section 6.6).
-    """
-    length = 1e-3
-    grid = EnvelopeGrid.from_limits(length, 835e-9, (600e-9, 1300e-9), 2e-12)
-    beta0 = 1.45 * 2 * np.pi / 835e-9
-    beta1 = 1.47 / C
-    nodes = np.array([0.0, length])
-    # beta_1 rises by one per cent over the millimetre, the area by half.
-    fibre = SpecifiedMode.from_taylor_path(
-        [[beta0, beta1 * (1 + 0.01 * z / length)] for z in nodes],
-        nodes,
-        omega_ref=grid.omega0,
-        aeff=[1e-10, 1.5e-10],
-    )
-    simulation = Simulation.from_gnlse(
-        0.1,
-        length,
-        fibre=fibre,
-        shock=False,
-        n_save=2,
-        noise=None,
-        wavelength=835e-9,
-        wavelength_limits=(600e-9, 1300e-9),
-        trange=2e-12,
-        fwhm=200e-15,
-        energy=1e-9,
-        shape="gauss",
-        schedule=uniform(length),
-        dz_max=length / STEPS * 1.0000001,
-        dz_init=length / STEPS,
-        integrator=MARCH,
-        backend="numpy_ref",
-        # Ten replayed steps: no collar, as before the default one.
-        absorber=False,
-    )
-    problem, run_request = with_mode(
-        simulation.translate(), simulation._run_request(), mode
-    )
-    assert problem.linear.phi_representation == "table"
-    assert_compiled(
-        problem,
-        run_request,
-        simulation.grid,
-        parity_bound(problem, run_request),
-        what=f"the z table, {mode}",
-    )
-
-
-@pytest.mark.parametrize("family", ["envelope", "field_analytic"])
-def test_the_radial_route_with_its_in_stage_collar_agrees(family):
-    """The radial Hankel route: the Kerr column and the composed spatial collar."""
-    limits = (RADIAL_LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    grid = (
-        EnvelopeGrid.from_limits(*limits, thg=False)
-        if family == "envelope"
-        else FieldGrid.from_limits(*limits)
-    )
-    space = RadialGrid(3e-4, 16, collar_fraction=0.5)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
-    )
-    problem, run_request = radial_problem(
-        grid,
-        space,
-        pulse.build(grid, space, medium=SpatialMedium()),
-        [KerrResponse(CHI3, thg=False)],
-        steps=STEPS,
-    )
-    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
-    assert problem.transform.geometry is not None
-    assert_parity(problem, run_request, grid)
-
-
-@pytest.mark.parametrize(
-    "name", ["pair", pytest.param("raman", marks=pytest.mark.medium)]
-)
-def test_the_general_modal_route_agrees(name):
-    """A general modal guide's coarse source, on its case's own ten-step bound."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        grid, guide, route, state = scaled_case(name)
-        length = 1e-3
-        schedule = uniform(length)
-        problem, run_request = problem_for(
-            grid,
-            guide,
-            route,
-            state,
-            save_planes=[length],
-            schedule=schedule,
-            dz_max=schedule.max_step,
-            dz_init=schedule.max_step,
-            integrator=MARCH,
-        )
-    maps = _general_maps(problem)
-    assert maps is not None
-    phi = nonlinear_scale(maps, state, grid)
-    source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
-    # The general route's ten-step bound with RK4's weights, which sum to one.
-    limit = math.exp(phi) * (
-        phi * source + parity_bound(problem, run_request, growth=1.0)
-    )
-    assert_compiled(problem, run_request, grid, limit, what="general route")
-
-
-# --- the Cartesian, line and planar routes ------------------------------------------
-
-
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-@pytest.mark.parametrize("noisy", [False, True], ids=["plain", "modified noise"])
-def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
-    """Every flow treatment, with the exchange of section 4.3 and the fused noise."""
-    noise = (
-        spatial_noise(
-            SpatialFlux.resolve(
-                EnvelopeGrid.from_limits(
-                    1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-                ),
-                # The collar's window factor, as `cartesian_march` builds its grid.
-                FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0),
-                SpatialMedium(),
-            ),
-            np.random.default_rng(7),
-            model="modified",
-        )
-        if noisy
-        else None
-    )
-    problem, run_request, grid, space = cartesian_march(
-        mode, noise=noise, collar=collar
-    )
-    if noisy:
-        # A beam beside the draw, so that the Kerr source carries it.
-        pulse = SpatialPulse(
-            GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
-        )
-        problem = dataclasses.replace(
-            problem,
-            initial=dataclasses.replace(
-                problem.initial,
-                field0=pulse.build(grid, space, medium=SpatialMedium()),
-            ),
-        )
-    assert_parity(
-        problem,
-        run_request,
-        grid,
-        noise=noise,
-        options=CARTESIAN_CHUNK,
-        transverse=problem.transform.n_nodes,
-    )
-
-
-def test_a_recomputed_flow_keeps_a_small_loss():
-    """Only an exact zero's magnitude is one: a real part past it takes its exponential.
-
-    A loss of a thousandth of a neper per metre puts about 6e-8 in each flow's exponent,
-    well above the parity bound and far below any bin a coarser test would notice.
-    """
-    length = 1e-3
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-    )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
-    )
-    schedule = uniform(length, 4)
-    problem, run_request = assemble(
-        grid,
-        None,
-        [KerrResponse(1e-22, thg=False)],
-        pulse.build(grid, space, medium=SpatialMedium()),
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        controller=PIController(rtol=1e-8, atol=1e-14),
-        save_planes=[length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-        propagator_mode="recompute",
-        absorber=Absorber(
-            np.full(grid.n_omega, 1e-3),
-            np.zeros(grid.n_t),
-            np.zeros(grid.n_to),
-            grid.active_mask,
-            5 * length,
-        ),
-        absorber_scheme="nonlinear",
-    )
-    assert_parity(problem, run_request, grid, transverse=problem.transform.n_nodes)
-
-
-LINE_FAMILIES = ("field_kerr", "envelope_raman", "field_plasma", "field_kerr_collar")
-
-
-@pytest.mark.parametrize("family", LINE_FAMILIES)
-def test_a_line_beam_agrees(family):
-    """The line kind, ``n_y = 1``, through the Cartesian kernels."""
-    field = family.startswith("field")
-    # The held field-plasma source needs resolved collar samples; retain the
-    # shorter lattice for the unrelated envelope, Kerr and Raman controls.
-    window = 200e-15 if family == "field_plasma" else 150e-15
-    limits = (RADIAL_LENGTH, 800e-9, (600e-9, 1.2e-6), window)
-    grid = (
-        FieldGrid.from_limits(*limits)
-        if field
-        else EnvelopeGrid.from_limits(*limits, thg=False)
-    )
-    collar = family.endswith("collar")
-    space = LineGrid(
-        3e-4 if collar else 4e-4, 24, collar_fraction=0.3 if collar else 0.0
-    )
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3),
-        80e-6,
-        jones=(1,) if family.endswith("raman") else (1, 0.5j),
-    )
-    density, depth = 1.0, 0
-    if family.endswith("plasma"):
-        responses = [
-            PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))
-        ]
-        density, depth = 1e22, grid.n_to
-    elif family.endswith("raman"):
-        responses = [
-            RamanResponse(
-                (DampedOscillator(1e-8, 2e14, undamped_dephasing()),), thg=False
-            )
-        ]
-    else:
-        responses = [KerrResponse(CHI3, thg=False)]
-    problem, run_request = radial_problem(
-        grid,
-        space,
-        pulse.build(grid, space, medium=SpatialMedium()),
-        responses,
-        steps=STEPS,
-        density=density,
-    )
-    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
-    if collar:
-        problem = dataclasses.replace(
-            problem,
-            responses=dataclasses.replace(
-                problem.responses, absorber_scheme="nonlinear"
-            ),
-        )
-    assert_parity(
-        problem,
-        run_request,
-        grid,
-        options=CARTESIAN_CHUNK,
-        transverse=problem.transform.n_nodes,
-        depth=depth,
-    )
-
-
-PLANAR = (
-    "kerr",
-    "kerr-collar",
-    "kerr-split",
-    "collar-only",
-    pytest.param("raman", marks=pytest.mark.medium),
-    pytest.param("field-plasma", marks=pytest.mark.medium),
-    # slow by cost (#792): ~105 s on CI macOS; a parity check, not a witness
-    pytest.param("envelope-plasma", marks=pytest.mark.slow),
-)
-
-
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-@pytest.mark.filterwarnings(
-    "ignore:the temporal absorber attenuates a packet walking off"
-    ":solprop.exceptions.SolpropWarning"
-)
-@pytest.mark.parametrize("name", PLANAR)
-def test_a_planar_beam_agrees(name):
-    """The hybrid planar kind: both halves of the column volume folded at once."""
-    grid, _, problem, run_request = planar_case(name, steps=STEPS)
-    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
-    depth = grid.n_to if "plasma" in name else 0
-    geometry = problem.transform.geometry
-    assert geometry is not None
-    n_y = geometry.shape[1]
-    assert_parity(
-        problem,
-        run_request,
-        grid,
-        options=ExecutionOptions(node_chunk=2),
-        transverse=n_y,
-        depth=depth,
-    )
-
-
-# --- the remaining branches of each route -------------------------------------------
-
-
-def test_a_linear_cartesian_beam_agrees():
-    """No response and no collar: the pass is the fold alone, no transform."""
-    problem, run_request, grid, _ = cartesian_march("tabulate")
-    problem = dataclasses.replace(
-        problem,
-        # Without the Kerr coefficients too, which a compiled backend may read.
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=None,
-        ),
-    )
-    assert len(problem.responses.response_order) == 1
-    assert low_storage_stage_register(problem, "native")
-    assert_parity(problem, run_request, grid, options=CARTESIAN_CHUNK, growth=1.0)
-
-
-@pytest.mark.medium
-def test_the_dispersive_response_rides_the_cartesian_march():
-    """SEP 6's dispersive response, begun once per pass, on the elided route."""
-    from backends.dispersive_route_cases import (  # noqa: PLC0415
-        ARGON,
-        evaluation_bound,
-        free_grid,
-        free_problem,
-    )
-    from solprop.nonlinear.responses import DispersiveKerrResponse  # noqa: PLC0415
-
-    grid = free_grid("envelope", thg=False)
-    problem, run_request = free_problem(
-        [DispersiveKerrResponse(ARGON, "symmetric", thg=False)], grid, adams=False
-    )
-    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
-    assert problem.responses.dispersive_kerr is not None
-    limit = 4 * STEPS * evaluation_bound(problem) + parity_bound(problem, run_request)
-    assert_compiled(problem, run_request, grid, limit, what="dispersive response")
-
-
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-@pytest.mark.filterwarnings(
-    "ignore:the temporal absorber attenuates a packet walking off"
-    ":solprop.exceptions.SolpropWarning"
-)
-def test_a_planar_beam_with_neither_term_is_the_flow():
-    """No response and no collar on the planar kind: the fold of a zero source."""
-    grid, _, problem, run_request = planar_case("kerr", steps=STEPS)
-    problem, run_request = marched(problem, run_request, run_request.stepper.schedule)
-    problem = dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(
-            problem.responses,
-            kerr_coefficients=None,
-            temporal_absorber=None,
-            temporal_absorber_fine=None,
-        ),
-    )
-    geometry = problem.transform.geometry
-    assert geometry is not None
-    n_y = geometry.shape[1]
-    assert_parity(problem, run_request, grid, transverse=n_y, growth=1.0)
-
-
-@pytest.mark.parametrize("variant", ["collar", "linear"])
-def test_the_general_route_s_collar_and_a_linear_guide_agree(variant):
-    """The general route's legacy transform for the collar, or no source at all."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        grid, guide, route, state = scaled_case("pair")
-        length = 2e-5
-        schedule = uniform(length)
-        extra = (
-            {"absorber": absorber(grid), "absorber_scheme": "nonlinear"}
-            if variant == "collar"
-            else {}
-        )
-        if variant == "linear":
-            route = dataclasses.replace(route, responses=None)
-        problem, run_request = problem_for(
-            grid,
-            guide,
-            route,
-            state,
-            save_planes=[length],
-            schedule=schedule,
-            dz_max=schedule.max_step,
-            dz_init=schedule.max_step,
-            integrator=MARCH,
-            **extra,
-        )
-    limit = parity_bound(problem, run_request, growth=1.0)
-    if variant == "collar":
-        maps = _general_maps(problem)
-        assert maps is not None
-        phi = nonlinear_scale(maps, state, grid)
-        source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
-        limit = math.exp(phi) * (phi * source + limit)
-    assert_compiled(problem, run_request, grid, limit, what=f"general route, {variant}")
 
 
 # --- the engine's own --------------------------------------------------------------
