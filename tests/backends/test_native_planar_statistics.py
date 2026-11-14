@@ -227,7 +227,8 @@ def test_the_finish_on_the_band_is_the_reference_s():
     reason=(
         "SEP 43 inventory 35: native's split-step finish masks only after the temporal "
         "absorber; the reference also masks before it, so content off the band leaks "
-        "onto it (1.1e-8 against 3.2e-12). No march hands it such rows"
+        "onto it (normwise departure 2.2e-8 against a bound of 3.2e-12). No march "
+        "hands it such rows"
     ),
 )
 def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
@@ -235,7 +236,8 @@ def test_a_finish_with_content_off_the_band_is_the_reference_s_on_it():
 
     Reached only by handing the finish such rows, ``adopt`` directly: a load masks, the
     source's prefactor and the in-stage term are zero there, and the flow is the
-    identity there. Measured 1.1e-8 at unit content off the band, 4.4e6 V/m at the peak.
+    identity there. Measured on Linux x86-64 at unit content off the band: a departure
+    of 2.186e-8 relative to the norm of the reference finish, whose peak is 4.4e6 V/m.
     """
     problem, _, expected, actual = _split_step_finish(1.0 + 1.0j)
     assert_within(actual, expected, finish_bound(problem), what="the finish")
