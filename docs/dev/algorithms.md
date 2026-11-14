@@ -201,8 +201,8 @@ inconclusive rather than believed. `rtol` does not fix the global error at the o
 every run records what it achieved ({py:class}`solprop.stepper.controller.ControlRecord`);
 how far the two can differ is measured in [stepper.md §3](stepper.md).
 
-**Cost.** A few scalar operations per step, plus one reduction over the in-band mask that
-the backend fuses into its accept pass. A weighted norm costs a second traversal, and only a
+**Cost.** A few scalar operations per step, plus one reduction over the norm's region (the
+active band by default) that the backend fuses into its accept pass. A weighted norm costs a second traversal, and only a
 weighted run pays it.
 
 **Traps.** A proposal below `dz_min` raises at once rather than being clamped;

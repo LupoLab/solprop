@@ -317,8 +317,9 @@ it is qualified, [backends.md](backends.md); for the current seam,
   identical, deterministic steps.
 - **Decision:** One adaptive run discovers `h(z)`; a three-level convergence check with an
   order gate calibrates it; production runs (every ensemble member, every scan point where
-  the schedule transfers) replay the scaled schedule. Dithered schedules are an option to
-  decorrelate round-off.
+  the schedule transfers) replay the scaled schedule. Dithering a schedule to decorrelate
+  round-off is an unimplemented idea, and whether it would help at all is an open question
+  ([open questions](open-questions.md), "Round-off growth with varying operators").
 - **Consequences:** Step schedules are first-class, saved with the output and re-loadable.
 
 ## ADR-020 — Priorities: accuracy and reliability, then CPU performance, then GPU
@@ -450,9 +451,10 @@ Withdrawn (development-process record, not a design decision).
   own density paths (`physdata.mixtures.Mixture`). The linear operator forms
   `χ = Σ_s ρ_s γ_s` and `n` through the cancellation-free form; a fill (one shared
   pressure path) keeps the two-axis parameter expansion with the total pressure as the
-  parameter; independent profiles use the z table on the CPU backends and a total-degree
-  expansion where measured worth it. In the kernel contract each ionising species is a
-  **channel** (its rate table, potential, pre-ionisation, density and electrons per event),
+  parameter; independent profiles use the z table on the CPU backends. A total-degree
+  expansion for them was measured and is not part of the contract: it failed the joint
+  memory and build-cost criterion ([kernel contract](kernel-contract.md)). In the
+  kernel contract each ionising species is a **channel** (its rate table, potential, pre-ionisation, density and electrons per event),
   each Raman-active species a **term** with its own amplitude path and its linewidth at the
   total density, and the Kerr coefficient one composite path; the fused column runs one
   exposure scan per channel and shares the current and loss integrals. The single-gas
@@ -632,7 +634,9 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-035 — Enhancement proposals for major changes
 
-- **Status:** accepted; amends ADR-033
+- **Status:** accepted; amends ADR-033. Its implementation order is amended by ADR-061,
+  [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) (which retired `numba_cpu`),
+  ADR-068 and ADR-077: a feature now lands on `native` and `numpy_ref`, in either order
 - **Context:** Under ADR-033 every change is an ordinary branch and pull request. That
   suits fixes and small additions, but not a new model, route or numerical scheme: such
   work needs its theory, its implementation options and its verification agreed before
@@ -891,7 +895,9 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** two more state-sized rows per history slot (states and rates). In
   a driven bin whose state follows a smooth laboratory-frame drive the transported
   compensation is the less smooth one. The exponential-free form of the transport
-  (SEP 16 §4.2) remains a cost target.
+  (SEP 16 §4.2) was built opt-in, measured slower on `numba_cpu` (4 % on the canonical
+  run, 13 to 15 % on the M2/RDW run, with the same calls and fields) and removed at
+  review (SEP 16, phase 3b report and D26); the exponential form stays the transport.
 
 ## ADR-043 — The Adams march hands its state-sized work to an engine
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
@@ -948,7 +954,7 @@ Withdrawn (development-process record, not a design decision).
   *Amended 2026-11-10 (SEP 47 phase 4):* `native` keeps them resident at any width and
   whichever route each bin takes, on a CPU and a device build alike.
 
-## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
+## ADR-045 — `Multistep()` is a default integrator, chosen per interface by ADR-055; `RungeKutta()` names the march
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
   ADR-055, which chooses each interface's default: `RungeKutta()` on `prop_gnlse`,
   `prop_waveguide` and `prop_free`, `Multistep()` on `prop_capillary` (an override of
@@ -1198,7 +1204,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
-- **Status:** accepted
+- **Status:** accepted; amended by ADR-056 (one thread per core)
 - **Context:** each piece sized its threads its own way. `numba_cpu` read the affinity
   mask and the root control group's `cpu.max`, rounded to nearest, but not
   `NUMBA_NUM_THREADS`, so a large problem failed at construction when that was below the
@@ -1524,7 +1530,9 @@ Withdrawn (development-process record, not a design decision).
 - **Context:** ADR-021 promised nothing about stability until a first release, and
   nothing said what the first release promises. The exported surface is large
   (`solprop.translate` alone exports 61 names), and some internal seams are known to be
-  provisional: the state's vestigial batch axis, the two step loops that one march
+  provisional: the state's vestigial batch axis, the step loops (seven then, counting
+  the Runge-Kutta and Adams marches with their replays, the low-storage replay,
+  lockstep and the compiled march; `backends.md` §3 lists today's) that one march
   protocol would replace, and the integrator's tie to `PIController`. Development output
   files carry schemas up to 28, and solprop keeps readers for them.
 - **Decision:**
