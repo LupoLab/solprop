@@ -36,7 +36,7 @@ from solprop.backends.exponential import CarrierChord, CarrierReference
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
-from solprop.stepper.multistep import Multistep
+from solprop.stepper.multistep import Formulation, Multistep
 from solprop.stepper.schedule import FixedSchedule
 
 __all__ = ["LEDGER", "Scenario", "run_scenario"]
@@ -135,6 +135,7 @@ class _Engine:
 
     def __init__(self, harness: _Scripted, method: Multistep) -> None:
         self.harness = harness
+        self.formulation = method.formulation
         self.n_slots = method.order + 2
         self.dense = None
         rate = harness.scenario.carrier_rate
@@ -173,8 +174,41 @@ class _Engine:
         order: int,
         orders: list[int],
     ) -> np.ndarray:
-        """Return the scenario's norms for this attempt and record its stencil."""
+        """Return the scenario's norms for an exponential attempt (:meth:`_trial`)."""
+        return self._trial("exponential", z, dz, nodes, slots, order, orders)
+
+    def fused_trial(
+        self,
+        z: float,
+        dz: float,
+        nodes: list[float],
+        slots: np.ndarray,
+        order: int,
+        orders: list[int],
+    ) -> np.ndarray:
+        """Return the scenario's norms for a fused attempt (:meth:`_trial`)."""
+        return self._trial("interaction", z, dz, nodes, slots, order, orders)
+
+    def _trial(
+        self,
+        formulation: str,
+        z: float,
+        dz: float,
+        nodes: list[float],
+        slots: np.ndarray,
+        order: int,
+        orders: list[int],
+    ) -> np.ndarray:
+        """Return the scenario's norms for this attempt and record its stencil.
+
+        The trial of the method's own formulation only: a march that asked the other
+        family's trial would pass a decision trace, which holds no field arithmetic,
+        while taking the wrong path.
+        """
         harness = self.harness
+        if formulation != self.formulation:
+            msg = f"a {self.formulation} march asked for the {formulation} trial"
+            raise AssertionError(msg)
         index = harness.attempts
         if index >= len(harness.scenario.norms):
             msg = f"scenario {harness.scenario.name!r} ran out of norms"
@@ -193,7 +227,18 @@ class _Engine:
     def exponential_accept(
         self, rows: np.ndarray, free: int, *, interpolate: bool
     ) -> None:
+        """Record an exponential acceptance (:meth:`_accept`)."""
+        self._accept("exponential", rows, free)
+
+    def fused_accept(self, rows: np.ndarray, free: int, *, interpolate: bool) -> None:
+        """Record a fused acceptance (:meth:`_accept`)."""
+        self._accept("interaction", rows, free)
+
+    def _accept(self, formulation: str, rows: np.ndarray, free: int) -> None:
         """Record which rows the accepted step keeps and where the new one goes."""
+        if formulation != self.formulation:
+            msg = f"a {self.formulation} march asked for the {formulation} acceptance"
+            raise AssertionError(msg)
         self.harness.pending["kept"] = [int(row) for row in rows]
         self.harness.pending["free"] = int(free)
 
@@ -395,13 +440,19 @@ def _march_state(harness: _Scripted, march: Any) -> dict[str, Any]:
     }
 
 
-def run_scenario(scenario: Scenario) -> dict[str, Any]:
+def run_scenario(
+    scenario: Scenario, *, formulation: Formulation = "exponential"
+) -> dict[str, Any]:
     """Run a scenario through a Python Adams march and return its trace.
 
     Parameters
     ----------
     scenario : Scenario
         The scripted march.
+    formulation : {'exponential', 'interaction'}, optional
+        The method's formulation: the exponential trial, which the corpus was taken
+        on, or the fused one (issue #270). The controller is the same; the fused path
+        drops the in-stage collar's stability from its order choice.
 
     Returns
     -------
@@ -410,7 +461,7 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
         the march stopped (``"done"`` or the exception's class and message) with the
         controller's state at that point, including any attempt left in flight.
     """
-    method = Multistep(formulation="exponential", **scenario.method)
+    method = Multistep(formulation=formulation, **scenario.method)
     harness = _HostHarness(scenario)
     harness.engine = _Engine(harness, method)
     march = HostAdamsMarch(harness, method, engine=harness.engine)

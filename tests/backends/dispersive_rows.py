@@ -571,7 +571,6 @@ def leg_bound_rows() -> Iterator[Row]:
             _general, "polynomial", "real", gas={"Kr": 0.5, "Xe": 0.5}, core=None
         ),
         rungs={"source": route_evaluation},
-        masked_launch=True,
         expect=one_group,
     )
 
@@ -689,12 +688,11 @@ def beside_rows(evaluator: str) -> Iterator[Row]:
 
 # --- free space and the line ----------------------------------------------------------
 #
-# A source rung on the spatial and general routes evaluates the launch hard-masked to
-# the active band on both backends (``masked_launch``), as the native state loads it:
-# native masks what it loads and the reference's sample takes its field as given, so
-# an unmasked launch would be two inputs. The hybrid planar launch has content outside
-# the band, which moved the samples 3e-11 to 6e-11 apart; at the one input they meet
-# to about 5 eps.
+# A source rung evaluates the launch hard-masked to the active band on both backends
+# (``parity_ladder.masked_launch``), as the native state loads it: native masks what it
+# loads and the reference's sample takes its field as given, so an unmasked launch
+# would be two inputs. The hybrid planar launch has content outside the band, which
+# moved the samples 3e-11 to 6e-11 apart; at the one input they meet to about 5 eps.
 
 
 def _free(evaluator: str, case: str, *, line: bool = False, beside_raman: bool = False):
@@ -756,7 +754,6 @@ def free_space_rows(evaluator: str) -> Iterator[Row]:
                     "source": route_evaluation,
                     "steps": window_of(route_evaluation),
                 },
-                masked_launch=True,
                 metadata=dispersive_path(
                     alone=True,
                     in_place=lone_symmetric,
@@ -780,7 +777,6 @@ def free_space_rows(evaluator: str) -> Iterator[Row]:
                 "source": route_evaluation,
                 "steps": window_of(route_evaluation),
             },
-            masked_launch=True,
             metadata=dispersive_path(alone=False, in_place=False, borrowed=False),
             expect={"problem.flags.has_raman": True},
         )
@@ -810,7 +806,6 @@ def free_space_rows(evaluator: str) -> Iterator[Row]:
             "source": route_evaluation,
             "steps": window_of(route_evaluation),
         },
-        masked_launch=True,
         expect={"problem.responses.dispersive_kerr.n_channels": 2},
     )
     yield dispersive_row(
@@ -824,7 +819,6 @@ def free_space_rows(evaluator: str) -> Iterator[Row]:
         build=partial(_free, evaluator, "field full"),
         options=ExecutionOptions(node_chunk=20),
         rungs={"source": route_evaluation},
-        masked_launch=True,
         expect={"problem.transform.n_nodes": lambda n_nodes: n_nodes % 20 != 0},
     )
 
@@ -862,7 +856,6 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
                 "source": route_evaluation,
                 "steps": window_of(route_evaluation),
             },
-            masked_launch=True,
         )
         yield dispersive_row(
             name=f"planar thg={thg} beside Raman",
@@ -875,7 +868,6 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
             "reference.",
             build=partial(planar_problem, [response, raman(thg)]),
             rungs={"source": route_evaluation},
-            masked_launch=True,
         )
     response = DispersiveKerrResponse(ARGON, evaluator)
     yield dispersive_row(
@@ -892,7 +884,6 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
             "source": route_evaluation,
             "steps": window_of(route_evaluation),
         },
-        masked_launch=True,
         metadata={
             "dispersive_path": lambda path: (
                 path is not None and path["in_place"] == lone_symmetric
@@ -910,7 +901,6 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
         "products accumulate as in one block.",
         build=partial(_planar_blocks, evaluator),
         rungs={"source": route_evaluation},
-        masked_launch=True,
     )
     yield dispersive_row(
         name="planar one step",
@@ -980,7 +970,6 @@ def general_rows(evaluator: str) -> Iterator[Row]:
                     "source": route_evaluation,
                     "steps": window_of(route_evaluation),
                 },
-                masked_launch=True,
                 unguarded={
                     "steps": "the gas region moves the 2 nJ launch's ten steps by "
                     "1.7e-11 to 7.0e-11, the size of the bounds (1.8e-11 to 3.5e-11): "
@@ -1022,7 +1011,6 @@ def general_rows(evaluator: str) -> Iterator[Row]:
         "original test held it.",
         build=partial(_cut_at_the_first_gas_node, evaluator),
         rungs={"source": route_evaluation_cpu},
-        masked_launch=True,
         quiet=("ignore::solprop.exceptions.GeneralModalBasisWarning",),
     )
 

@@ -12,7 +12,8 @@ march's loop and decisions, its field arithmetic replaced by the script of norms
 adopts after each call is the state after that attempt, and every stencil, decision,
 proposal, order, landing, restart and ledger counter is compared exactly with the
 reference's. A second pass lets the calls run to their events with the production bound
-and compares the attempts and the end state.
+and compares the attempts and the end state. Both passes run each scenario on the fused
+trial too, against the Python march on the same trial.
 """
 
 import gzip
@@ -33,7 +34,7 @@ from tests.backends.adams_traces import (
 from solprop.backends import available
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.log import NullReporter
-from solprop.stepper.multistep import Multistep
+from solprop.stepper.multistep import Formulation, Multistep
 from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
@@ -155,10 +156,12 @@ class _NativeHarness(_HostHarness):
         self._take_step_stats()
 
 
-def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
+def run_native(
+    scenario: Scenario, max_attempts: int, formulation: Formulation = "exponential"
+) -> dict[str, Any]:
     """Run a scenario through the native adapter on the scripted native march."""
     harness = _NativeHarness(scenario, max_attempts)
-    method = Multistep(formulation="exponential", **scenario.method)
+    method = Multistep(formulation=formulation, **scenario.method)
     runner = _Runner(harness, scenario.norms)
     march = TraceAdamsMarch(harness, method, runner=runner)
     harness.march = march
@@ -183,31 +186,44 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     return {"events": harness.events, "end": end}
 
 
-def expected(entry: dict[str, Any]) -> dict[str, Any]:
+def expected(entry: dict[str, Any], formulation: Formulation) -> dict[str, Any]:
     """The reference's trace: the corpus's, or the fixed Python march's where phase 0
-    changed it."""
-    if entry["scenario"]["name"] in CHANGED:
-        return run_scenario(Scenario.from_json(entry["scenario"]))
+    changed it or on the fused trial, which the corpus was not taken on."""
+    if entry["scenario"]["name"] in CHANGED or formulation != "exponential":
+        return run_scenario(
+            Scenario.from_json(entry["scenario"]), formulation=formulation
+        )
     return entry["trace"]
 
 
-@pytest.mark.parametrize(
-    "entry", ENTRIES, ids=[entry["scenario"]["name"] for entry in ENTRIES]
-)
-def test_the_native_march_takes_the_reference_s_decisions(entry):
+CASES = [
+    pytest.param(entry, "exponential", id=entry["scenario"]["name"])
+    for entry in ENTRIES
+] + [
+    # Issue #270: the fused trial (the interaction formulation) on every scenario
+    # without a carrier frame, which that formulation refuses. The native record
+    # forms the fused path's policy itself, the collar's rate off.
+    pytest.param(entry, "interaction", id=f"fused-{entry['scenario']['name']}")
+    for entry in ENTRIES
+    if entry["scenario"]["carrier_rate"] is None
+]
+"""Each scenario on the exponential trial, then on the fused one."""
+
+
+@pytest.mark.parametrize(("entry", "formulation"), CASES)
+def test_the_native_march_takes_the_reference_s_decisions(entry, formulation):
     scenario = Scenario.from_json(entry["scenario"])
-    assert run_native(scenario, max_attempts=1) == expected(entry)
+    found = run_native(scenario, max_attempts=1, formulation=formulation)
+    assert found == expected(entry, formulation)
 
 
-@pytest.mark.parametrize(
-    "entry", ENTRIES, ids=[entry["scenario"]["name"] for entry in ENTRIES]
-)
-def test_calls_to_their_events_take_the_same_attempts(entry):
+@pytest.mark.parametrize(("entry", "formulation"), CASES)
+def test_calls_to_their_events_take_the_same_attempts(entry, formulation):
     # With the production bound, the state after each attempt within a call is not
     # handed back, so the attempts and the end are compared.
     scenario = Scenario.from_json(entry["scenario"])
-    found = run_native(scenario, max_attempts=256)
-    reference = expected(entry)
+    found = run_native(scenario, max_attempts=256, formulation=formulation)
+    reference = expected(entry, formulation)
 
     def attempts(trace):
         return [

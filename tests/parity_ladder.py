@@ -153,9 +153,8 @@ class Row:
     the term moves every field rung's reference by more than :data:`DETECTION` bounds,
     or by a rung's own ``detection``. ``floor`` builds a row whose own native
     disagreement at the same rung is added to the bound (a term beside the row's that
-    is known to disagree by more than the row's own budget). ``masked_launch``
-    evaluates the source at the launch hard-masked to the active band on both sides, as
-    the native state loads it; ``source_z`` is where the source is evaluated, m.
+    is known to disagree by more than the row's own budget). ``source_z`` is where the
+    source is evaluated, m.
     ``metadata`` is what the native backend's ``metadata()`` must report (a callable
     value is a predicate on it); ``expect`` maps a dotted path into the built row
     (``"problem.transform.n_nodes"``; a method is called, ``""`` is the row itself) to
@@ -196,7 +195,6 @@ class Row:
     bound_note: str = ""
     statistics: Mapping[str, Bound] = dataclasses.field(default_factory=dict)
     floor: Callable[[], Built] | None = None
-    masked_launch: bool = False
     source_z: float = 0.0
     metadata: Mapping[str, object] = dataclasses.field(default_factory=dict)
     expect: Mapping[str, object] = dataclasses.field(default_factory=dict)
@@ -258,20 +256,24 @@ def _backend(backend_class: type, built: Built, request: RunRequest | None = Non
     )
 
 
-def source(
-    backend_class: type, built: Built, *, masked: bool = False, z: float = 0.0
-) -> np.ndarray:
+def masked_launch(problem: PropagationProblem) -> np.ndarray:
+    """Return the launch hard-masked to the active band, as the native state loads it.
+
+    The reference's lab-frame sample takes its field as given, so a rung that handed it
+    the raw launch would compare two inputs on a launch with content outside the band
+    (issue #824); the mask is idempotent, so native loads the same field.
+    """
+    return apply_hard_mask(problem.initial.field0[None], problem.grids.active_mask)[0]
+
+
+def source(backend_class: type, built: Built, *, z: float = 0.0) -> np.ndarray:
     """Return one evaluation of the whole stage source at the launch, lab frame, at `z`.
 
     Native's is its state's zero-length trial (:func:`sessions.runs.native_source`),
-    the reference's its lab-frame sample; `masked` hard-masks the launch first. Native
-    masks what it loads and the reference's sample takes its field as given, so on a
-    launch with content outside the active band the unmasked rung compares two inputs.
+    the reference's its lab-frame sample, both of the launch masked to the active band
+    (:func:`masked_launch`).
     """
-    problem = built.problem
-    launch = problem.initial.field0
-    if masked:
-        launch = apply_hard_mask(launch[None], problem.grids.active_mask)[0]
+    launch = masked_launch(built.problem)
     backend = _backend(backend_class, built)
     try:
         if backend.name == "native":
@@ -289,9 +291,7 @@ def derivative(backend_class: type, built: Built) -> np.ndarray:
     nonlinear pass hoisted to the launch (:func:`builders.launch_derivative`), and
     native's state's zero-length trial on its staged rows, whose first stage is the same
     quantity in the interaction picture at its origin. Both sides evaluate the loaded,
-    band-masked state, so this is :func:`source` with ``masked=True``, bit for bit on
-    the reference; the unmasked :func:`source` hands the reference the launch with its
-    out-of-band content, 4.3e-13 of the peak away on the optmat argon capillary
+    band-masked state, so this is :func:`source`, bit for bit on the reference
     (``tests/backends/test_optmat_cases.py``).
     """
     problem = built.problem
@@ -336,8 +336,10 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
                 np.array(native.projected_to_host(True)) if embedded(problem) else None,
             ]
         forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
-        backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0[None], 0.0)
+        # The launch native loads (:func:`masked_launch`).
+        launch = masked_launch(problem)
+        backend.set_initial(launch, None)
+        backend._adams_lab_source(launch[None], 0.0)
         coarse = backend._last_coarse
         return [
             forward(np.asarray(backend._last_projected), axis=-1),
@@ -555,7 +557,7 @@ def last_plane(backend_class: Any, built: Built) -> Marched:
 
 RUNGS: dict[str, Callable[[type, Built, Any], Any]] = {
     "source": lambda backend_class, built, row: source(
-        backend_class, built, masked=row.masked_launch, z=row.source_z
+        backend_class, built, z=row.source_z
     ),
     "derivative": lambda backend_class, built, row: derivative(backend_class, built),
     "launch": lambda backend_class, built, row: launch(backend_class, built),
