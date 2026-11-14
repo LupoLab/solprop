@@ -132,6 +132,25 @@ private:
   std::unique_ptr<CoupledFlowAction> held_;
 };
 
+// Swaps two views for a scope and back however it is left: an Adams trial's
+// prediction stands in the state for its source evaluation alone, so that a failure
+// there leaves the accepted state in place (solprop issue #129).
+template <class View> class SwappedAside {
+public:
+  SwappedAside(View& first, View& second) : first_(first), second_(second) {
+    std::swap(first_, second_);
+  }
+  ~SwappedAside() { std::swap(first_, second_); }
+  SwappedAside(const SwappedAside&) = delete;
+  SwappedAside& operator=(const SwappedAside&) = delete;
+  SwappedAside(SwappedAside&&) = delete;
+  SwappedAside& operator=(SwappedAside&&) = delete;
+
+private:
+  View& first_;
+  View& second_;
+};
+
 // One frozen-residual weight row from the host into a View's row.
 template <class Row>
 void upload_weights(const ExecutionSpace& space, const Row& out,

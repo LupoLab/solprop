@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 from scipy.integrate import cumulative_trapezoid, trapezoid
 
+from coupled_flow_cases import lossless
 from driver.test_coherent_capillary import (
     GRID,
     LENGTH,
@@ -75,11 +76,6 @@ pytestmark = [
 ]
 """The qualification cases' deliberate warnings (``test_coherent_capillary.py``), and
 the advisory step, which a fixed schedule chosen for a test may exceed on purpose."""
-
-
-def lossless(**overrides):
-    """Return the ten-step three-channel qualification taper, lossless, no wall."""
-    return varying(loss=False, cladding=1.45, **overrides)
 
 
 # ------------------------------------------------------------------ which sets
@@ -527,20 +523,14 @@ def test_auto_runs_a_lossless_multimode_taper_on_native():
     The coupled flow's carrier is the lowest channel's parameter expansion, which the
     native backend executes (the opt-out, where its per-channel expansion does not
     resolve, takes the z table, which the native CPU build runs too:
-    ``test_native_z_table.py``). The final plane is ``numpy_ref``'s to the flow parity
-    order (a millionth of the launch is generous for ten steps of a nanojoule).
+    ``test_native_z_table.py``). The record names native; the final plane against the
+    reference's is a row of the case catalogue (``tests/backends/flow_rows.py``,
+    ``taper coupling driver``).
     """
-    reference = cast("MemoryOutput", lossless().run(progress="none"))
     automatic = cast("MemoryOutput", lossless(backend="auto").run(progress="none"))
     assert automatic.metadata is not None
     assert automatic.metadata.backend is not None
     assert automatic.metadata.backend.name == "native"
-    expected = reference.planes()[-1].field
-    start, actual = reference.planes()[0].field, automatic.planes()[-1].field
-    assert expected is not None and start is not None and actual is not None
-    scale = float(np.max(np.abs(start)))
-    departure = float(np.max(np.abs(actual - expected)))
-    assert departure <= 1e-12 * scale
 
 
 @pytest.mark.medium

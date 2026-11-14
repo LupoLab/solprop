@@ -6,8 +6,10 @@
 
 Each parity case replays one schedule of at most ten steps on the reference and on a
 compiled backend, and the states agree within a rounding bound fixed before the
-comparison (SEP 25; :func:`parity_bound`): no agreement is bitwise. The cases themselves
-are ``test_native_low_storage.py``'s.
+comparison (SEP 25; :func:`parity_bound`): no agreement is bitwise. The rows are the
+case catalogue's (``backends/session_rows.py``). The march itself (:data:`MARCH`,
+:func:`marched`) and its Cartesian Kerr beam (:func:`cartesian_march`) are here too,
+for the reference's own tests (``test_low_storage.py``) and native's.
 """
 
 import dataclasses
@@ -16,15 +18,104 @@ import math
 
 import numpy as np
 
-from backends.test_low_storage import ARGUMENT_FACTOR, MARCH, populated
 from bounds import EPS, assert_within, departure, step_budget
+from legacy_geometry import with_collar_rate
 from sessions.runs import run
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.session import Start
+from solprop.backends.session import ExecutionOptions, Start
+from solprop.boundaries import absorber
 from solprop.driver import Simulation
-from solprop.stepper import FixedSchedule
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.nonlinear.responses import KerrResponse
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import FixedSchedule, LowStorageRungeKutta, PIController
+from solprop.translate.assembly import assemble
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import Translation
+
+MARCH = LowStorageRungeKutta()
+"""The low-storage march, SEP 24's RK4IP."""
+
+# Section 4.5's argument coefficient, fixed before any measurement. Each flow's exponent
+# and the reference's carry about eps |Delta Phi|; the table is built from its key, the
+# run's mean step (Q10), so a reused flow is off by |D| |h - h_t| / 2, a few ulps of the
+# position times |D|, whose sum over a run telescopes to the run's own phase (the
+# |Phi(z_N)| term); and the products add 4 N eps. 16 covers the 8 + 1 of phase 1's
+# per-step key with a factor of about two.
+ARGUMENT_FACTOR = 16
+
+
+def marched(problem, run_request, schedule, *, mode="auto", **stepper):
+    """Return a problem and its request stepped by the low-storage march."""
+    settings = dataclasses.replace(
+        run_request.stepper,
+        integrator=MARCH,
+        schedule=schedule,
+        propagator_mode=mode,
+        dz_max=max(schedule.max_step, run_request.stepper.dz_max),
+        dz_init=min(run_request.stepper.dz_init, schedule.max_step),
+        **stepper,
+    )
+    return Translation(problem, run_request.with_stepper(settings))
+
+
+def populated(spectra, fraction=1e-2):
+    """Return the bins holding at least `fraction` of the run's peak amplitude."""
+    peak = np.max(np.abs(np.asarray(spectra)), axis=0)
+    return peak >= fraction * np.max(peak)
+
+
+CARTESIAN_CHUNK = ExecutionOptions(node_chunk=7)
+"""The node chunk :func:`cartesian_march`'s problem runs with: 7 of 108 columns."""
+
+
+def cartesian_march(mode, *, noise=None, collar=False):
+    """Return a Cartesian Kerr problem under the march, run in chunks of 7 of 108.
+
+    Its backends take :data:`CARTESIAN_CHUNK`.
+
+    With the collars, the spatial and the temporal one in-stage, it takes the 100
+    steps their stability limits ask for; otherwise 4.
+    """
+    length = 1e-3
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
+    )
+    start = (
+        pulse.build(grid, space, medium=SpatialMedium())
+        if noise is None
+        else np.zeros_like(noise.spectrum)
+    )
+    schedule = FixedSchedule.uniform(0.0, length, length / (100 if collar else 4))
+    problem, run_request = assemble(
+        grid,
+        None,
+        [KerrResponse(1e-22, thg=False)],
+        start,
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        noise=noise,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[length],
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        schedule=schedule,
+        integrator=MARCH,
+        propagator_mode=mode,
+        absorber=absorber(grid) if collar else None,
+        absorber_scheme="nonlinear",
+    )
+    if collar:
+        # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
+        # is the march's ledger beside an in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (length / 20))
+    return problem, run_request, grid, space
+
 
 STEPS = 10
 """The qualification scope's propagation (AGENTS.md): ten steps."""

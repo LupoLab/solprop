@@ -159,10 +159,8 @@ def test_the_untransported_witness_is_refused():
 def test_the_carrier_frame_is_native():
     # The chord of a constant, an expanded or a tabulated operator is formed natively
     # (tests/sessions/test_native_session_carrier_table.py for the z table's).
-    from backends.test_carrier_frame import (  # noqa: PLC0415 - a heavy module
-        SCALAR,
-        capillary,
-    )
+    from backends.carrier_frame_cases import capillary  # noqa: PLC0415
+    from backends.test_carrier_frame import SCALAR  # noqa: PLC0415 - a heavy module
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", HostMarchWarning)

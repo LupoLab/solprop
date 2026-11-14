@@ -2039,10 +2039,10 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     the save planes following the launch, the statistics the route admits, the
     request's own arrays, the propagator mode on a separable route, the tables and a
     general guide's leaves covering the run, a replayed schedule landing on every save
-    plane and hard kink, the in-stage collar's stability, the split collar's crossing
-    and the exponent budget. A backend calls this where it is built (SEP 47 section
-    5.2), so an unsupported combination is refused by name before any workspace
-    exists.
+    plane and hard kink, the in-stage collar's stability, the split collar's crossing,
+    the exponent budget and, last, dense observation's admission (SEP 14 section 5).
+    A backend calls this where it is built (SEP 47 section 5.2), so an unsupported
+    combination is refused by name before any workspace exists.
 
     Parameters
     ----------
@@ -2074,6 +2074,36 @@ def validate_run(problem: PropagationProblem, request: "RunRequest") -> None:
     True
     """
     problem._validate(_RunPolicy(request.stepper, request.observation.stats))
+    _admit_dense(problem, request.stepper)
+
+
+def _admit_dense(problem: PropagationProblem, stepper: StepperSettings) -> None:
+    """Refuse dense observation where its interpolant is not the run's field.
+
+    SEP 14 section 5's admission matrix, for the Runge-Kutta extension and for SEP 13's
+    Adams interpolant alike. The per-step temporal collar changes the state after the
+    step, so an interpolated plane would be uncollared; a coupled flow's action and the
+    ``modified`` noise's draw are outside the interpolant.
+    """
+    if not stepper.interpolate_planes:
+        return
+    responses = problem.responses
+    reasons = []
+    if (
+        responses.temporal_absorber is not None
+        and responses.absorber_scheme == "split_step"
+    ):
+        reasons.append("the per-step temporal collar (absorber_scheme='split_step')")
+    if problem.linear.coupled_flow is not None:
+        reasons.append("a coupled linear flow")
+    if problem.initial.noise_model == "modified":
+        reasons.append("the 'modified' noise model")
+    if reasons:
+        msg = (
+            "dense observation interpolates inside an accepted step and is refused "
+            f"beside {', '.join(reasons)}: land on the save planes instead"
+        )
+        raise TranslationError(msg)
 
 
 _EDGE_SLACK = 1e-9

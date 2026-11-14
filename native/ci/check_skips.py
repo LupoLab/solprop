@@ -37,6 +37,7 @@ EXPECTED: tuple[str, ...] = (
     r"Slurm is faked with POSIX shell scripts",
     r"a machine's setup script runs in a POSIX shell",
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
+    r"the CI change filter runs in Linux Bash",
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
     r"NumPy's interp may fuse off x86-64",

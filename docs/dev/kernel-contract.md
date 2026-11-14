@@ -67,8 +67,8 @@ what the problem promises alone; `translate.problem.validate_run(problem, reques
 the same checks in the same order with the request-dependent ones among them — the tables
 and leaves covering the run, a schedule landing on every plane and kink, the collar's
 stability, the split collar's crossing, the exponent budget, the method's admission on the
-route and the statistics the route admits — and every backend calls it before
-it allocates.
+route, the statistics the route admits and dense observation's admission (§7's
+`interpolate_planes`) — and every backend calls it before it allocates.
 
 ### The route union
 
@@ -1293,7 +1293,10 @@ ledger. A resume carries all of it exactly (`MarchSnapshot`).
 
 An acceptance commits the engine's state, the history, the ledger, the stored order, the
 position and a kink restart together. Only then is the next proposal tested against the
-floor. A floor so found is raised after the attempt is recorded.
+floor. A floor so found is raised after the attempt is recorded. A rejection's shrunk
+proposal is tested in the same way, and a floor it falls below leaves the proposal as
+it was and is raised after the rejected attempt is recorded (issue #651); a replay
+records no rejected attempt and raises it at once.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
 interval changes (`MarchPolicy`, every field of the record), with a replay's

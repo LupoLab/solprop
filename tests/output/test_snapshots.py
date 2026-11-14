@@ -184,6 +184,23 @@ def test_elapsed_requests_and_explicit_retry_are_coalesced(working, monkeypatch)
     assert latest is not None and latest.generation == generation
 
 
+def test_interval_below_the_retry_backoff_is_honoured(working, monkeypatch):
+    output, controller = working
+    now = controller._last_success
+    monkeypatch.setattr(module.time, "monotonic", lambda: now)
+    controller._interval = 10
+    generations = []
+    for _ in range(2):
+        now += 11
+        controller._service(
+            output, None, next_save_index=0, require_history=False, persist=lambda: None
+        )
+        latest = controller.last_result
+        assert latest is not None and latest.disposition == "published"
+        generations.append(latest.generation)
+    assert generations[0] != generations[1]
+
+
 def test_request_during_copy_remains_pending(working, monkeypatch):
     _, controller = working
     original = module._copy_generation

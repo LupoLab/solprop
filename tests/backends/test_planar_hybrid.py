@@ -24,9 +24,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from backends.planar_hybrid_cases import ENVELOPE, FAMILIES, HALF_GAP, LENGTH, ORDERS
 from backends.rate_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
-from legacy_geometry import LEGACY_GRID, bare_absorber
+from legacy_geometry import bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.spatial import (
     slab_columns,
@@ -38,7 +39,7 @@ from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.fourier import inverse
-from solprop.grid import EnvelopeGrid, FieldGrid
+from solprop.grid import EnvelopeGrid
 from solprop.modes import (
     ModeCollection,
     PlanarGrid,
@@ -68,70 +69,6 @@ pytestmark = [
 ]
 
 EPS = np.finfo(float).eps
-LENGTH = 0.1
-HALF_GAP = 63.5e-6
-ENVELOPE = EnvelopeGrid.from_limits(
-    LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12, **LEGACY_GRID
-)
-
-FAMILIES = {
-    # name: (grid, gas, energy J/m, fwhm s, plasma, raman, n_r, n_y, steps, scheme)
-    "kerr": (ENVELOPE, "Ar", 0.5, 100e-15, False, False, None, 4, 10, "nonlinear"),
-    "kerr-split": (
-        ENVELOPE,
-        "Ar",
-        0.5,
-        100e-15,
-        False,
-        False,
-        None,
-        4,
-        10,
-        "split_step",
-    ),
-    "raman": (ENVELOPE, "N2", 0.5, 100e-15, False, True, None, 4, 10, "nonlinear"),
-    # Forty steps: optmat's argon rate (SEP 3, Phase 4a) is 2.5 to 9 times the former
-    # PPT's over this launch's fields, and fixed steps must keep the plasma's loss
-    # inside the explicit history's stability. Twenty sufficed for the Runge-Kutta
-    # march; the default Adams method, whose interval at order five is forty times
-    # smaller, diverged there (to 4e192, finite: a replay cannot reject) and is stable
-    # from forty, eighty and a hundred and sixty agreeing to 1e-4.
-    "field-plasma": (
-        FieldGrid.from_limits(
-            LENGTH, 800e-9, (400e-9, 2000e-9), 600e-15, **LEGACY_GRID
-        ),
-        "Ar",
-        2.0,
-        50e-15,
-        True,
-        False,
-        None,
-        4,
-        80,
-        "nonlinear",
-    ),
-    # The envelope plasma's cycle moments dominate its cost, so the rule and the y
-    # axis are the smallest that still exercise every path.
-    "envelope-plasma": (
-        ENVELOPE,
-        "Ar",
-        0.5,
-        50e-15,
-        True,
-        False,
-        12,
-        2,
-        2,
-        "nonlinear",
-    ),
-}
-"""Each family's launch, rule, y axis and schedule."""
-
-ORDERS = {
-    # The envelope plasma's smaller rule resolves TE1's quartic products alone.
-    "envelope-plasma": (1,),
-}
-"""The slab orders of a family that does not carry TE1, TE3 and TE5."""
 
 
 def modal_and_planar(family):
@@ -251,8 +188,17 @@ def field_peak_rate_allowance(problem, reference, field_bound, n_y):
     return float(max(rates[2] - rates[1], rates[1] - rates[0]) + 2 * np.max(rounding))
 
 
-@pytest.mark.medium
-@pytest.mark.parametrize("family", list(FAMILIES))
+@pytest.mark.parametrize(
+    "family",
+    [
+        # slow by cost (#792): 45-66 s on CI macOS and 61-83 s on Windows x64; a
+        # parity check, not a witness
+        pytest.param(family, marks=pytest.mark.slow)
+        if family == "field-plasma"
+        else pytest.param(family, marks=pytest.mark.medium)
+        for family in FAMILIES
+    ],
+)
 def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
     """The k_y = 0 column is the modal route's state to the operator's rounding.
 

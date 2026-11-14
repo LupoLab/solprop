@@ -141,8 +141,8 @@ class HostAdamsMarch:
         # Whether the stages left a quiet collar out at the last attempt: the step
         # after it returns is held to the collar's stable step (`_collar_reentry`).
         self._collar_was_quiet = False
-        # A floor an accepted step's next proposal fell below, raised once the step is
-        # recorded (`_decide`, `_raise_floor`).
+        # A floor an attempt's next proposal fell below, raised once the attempt is
+        # recorded (`_propose`, `_reject`, `_raise_floor`).
         self._floor: ConvergenceError | None = None
 
     def reset(self) -> None:
@@ -619,6 +619,10 @@ class HostAdamsMarch:
         if not norm <= 1.0 and not (fixed and math.isfinite(norm)):
             self.ledger.rejected += 1
             self._reject(dz, norm, order)
+            if fixed:
+                # A replay records no rejected attempt (`replay_step`): its floor is
+                # raised at once.
+                self._raise_floor()
             return False, norm
         z = backend._z
         keep = self._history[-policy.order :] if policy.order else []
@@ -669,9 +673,9 @@ class HostAdamsMarch:
             self._floor = error
 
     def _raise_floor(self) -> None:
-        """Raise the floor an accepted step's proposal fell below, once it is recorded.
+        """Raise the floor an attempt's proposal fell below, once it is recorded.
 
-        Every caller that records an accepted step calls this straight after, and every
+        Every caller that records an attempt calls this straight after, and every
         attempt calls it before it starts (:meth:`_afford`), so a floor is never
         passed over.
         """
@@ -769,6 +773,11 @@ class HostAdamsMarch:
         :data:`~solprop.stepper.multistep.RESTART_AFTER` in a row the method restarts
         at order one from the accepted state, paying one startup call.
 
+        A proposal below the floor is left as it was, and the floor is raised once the
+        march has recorded the rejected attempt (:meth:`_raise_floor`), so that the
+        completed trial has its row (issue #651), as an accepted step's floor is
+        (:meth:`_propose`).
+
         - ``dz``: the rejected step, m.
         - ``norm``: its scaled defect, possibly not finite.
         """
@@ -782,9 +791,12 @@ class HostAdamsMarch:
         if outcome.restart:
             self._history = []
             self.ledger.failure_restarts += 1
-        self._backend._proposal = limit_step(
-            dz, outcome.factor, policy.dz_min, policy.dz_max
-        )
+        try:
+            self._backend._proposal = limit_step(
+                dz, outcome.factor, policy.dz_min, policy.dz_max
+            )
+        except ConvergenceError as error:
+            self._floor = error
 
 
 _ENGINE_MEMBERS = (

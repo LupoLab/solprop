@@ -80,10 +80,12 @@ class BackendHistory:
     dz : numpy.ndarray
         Length of each step, m, float64, shape ``(n_steps,)``, positive.
     error_norm : numpy.ndarray
-        The scaled embedded error norm of each step, float64, shape ``(n_steps,)``.
-        For a clipped or stretched step this is the equivalent norm of the controller's
-        proposal, which is what the controller's state is
-        (:meth:`solprop.stepper.controller.PIController.equivalent_norm`). A rejected
+        The scaled embedded error norm of each step as executed, float64, shape
+        ``(n_steps,)``: a clipped or stretched step records the norm it actually
+        scored, the same norm that decides its acceptance. The controller's own
+        history holds the proposal's equivalent norm instead
+        (:meth:`solprop.stepper.controller.PIController.equivalent_norm`;
+        ``docs/dev/stepper.md`` section 3), which is never recorded here. A rejected
         trial that diverged, whose norm overflowed or was NaN, is recorded as
         infinity; every other entry is finite.
     accepted : numpy.ndarray

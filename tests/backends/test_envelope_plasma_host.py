@@ -2,16 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Independent source and complete-run witnesses for the envelope host route."""
+"""Independent source and complete-run witnesses for the envelope host route.
 
-from contextlib import closing, nullcontext
+Native's field on the host route against the reference's, after one step and after
+eight, at the launch's amplitude and ten times it, is the catalogue's rows
+``mixture envelope host argon ...`` (``backends/mixture_rows.py``).
+"""
+
+from contextlib import closing
 from dataclasses import replace
 
 import numpy as np
 import pytest
 
+from backends.envelope_host_cases import argon_host_case
+from backends.mixture_rows import host
 from bounds import scan_bound
-from rate_oracles import adk_oracle
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -28,11 +34,8 @@ from solprop.exceptions import (
     SolpropWarning,
     TranslationError,
 )
-from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
 from solprop.nonlinear import EnvelopePlasmaResponse
-from solprop.pulses import GaussianPulse
-from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.assembly import assemble
 from solprop.translate.envelope_plasma import cycle_moments
 from solprop.translate.stage import scalars
@@ -40,24 +43,7 @@ from solprop.translate.stage import scalars
 
 @pytest.fixture(scope="module")
 def host_case():
-    grid = EnvelopeGrid.from_limits(0.001, 800e-9, (500e-9, 1.2e-6), 80e-15)
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, loss=False)
-    pulse = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-5).build(grid)
-    field = pulse * np.array([1.0, 0.35j])[None, :, None] / np.sqrt(1 + 0.35**2)
-    # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
-    with nullcontext():
-        problem, run_request = assemble(
-            grid,
-            mode,
-            [EnvelopePlasmaResponse("Ar", adk_oracle("Ar"), preionisation=0.1)],
-            field,
-            controller=PIController(rtol=1e-7, atol=1e-14),
-            save_planes=[1e-6, 8e-6],
-            dz_max=1e-6,
-            dz_init=1e-6,
-            ionisation_field_range=(1e9, 1e11),
-        )
-    return problem, run_request, grid
+    return argon_host_case()
 
 
 def test_reference_cycle_quantities_resolve_degenerate_axes(host_case):
@@ -148,55 +134,24 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("amplitude_scale", [1.0, 10.0])
-def test_one_eight_steps_and_complete_host_run(
-    host_case, amplitude_scale, equivalence_backend_class
-):
-    problem, run_request, grid = host_case
-    problem = replace(
-        problem,
-        initial=replace(
-            problem.initial, field0=problem.initial.field0 * amplitude_scale
-        ),
-    )
-    run_request = run_request.with_stepper(
-        replace(run_request.stepper, schedule=FixedSchedule.uniform(0.0, 8e-6, 1e-6))
-    )
-    if amplitude_scale == 10.0:
-        assembly = problem.responses.envelope_plasma
-        assert assembly is not None
-        modal = np.fft.ifft(problem.initial.field0, axis=-1)
-        physical = (problem.transform.synthesis @ modal.reshape(1, -1)).reshape(
-            2, grid.n_to
-        )
-        response = EnvelopePlasmaResponse(
-            "Ar", assembly.channels[0].rate, preionisation=0.1
-        )
-        # Qualify a run with substantial new electrons as well as the weaker
-        # prescribed-density case. This is a model-execution, not regime, witness.
-        assert response.ionised_fraction(physical, dt=grid.dt_fine)[-1] > 0.2
-    results = []
-    for cls in (NumpyRefBackend, equivalence_backend_class):
-        backend = cls(problem, run_request, grid=grid)
-        try:
-            result = session_run(backend, problem)
-            # The launch and the two save planes, 1 um and 8 um.
-            assert [event.z for event in result.observations] == [0.0, 1e-6, 8e-6]
-            first, final = (event.summary for event in result.observations[1:])
-            one, eight = result.fields[1:]
-            assert first.met_tolerance and final.met_tolerance
-            assert first.n_steps == 1 and final.n_steps == 7
-            assert np.all(np.isfinite(eight))
-            assert np.linalg.norm(eight - problem.initial.field0) > 0
-            results.append((one, eight))
-        finally:
-            backend.close()
-    # Source discrepancy is below 2e-10 and perturbs the field weakly over 8 um.
-    for level in range(2):
-        scale = np.max(np.abs(results[0][level]))
-        np.testing.assert_allclose(
-            results[1][level], results[0][level], rtol=2e-10, atol=2e-12 * scale
-        )
+@pytest.mark.parametrize("amplitude", [1.0, 10.0])
+def test_the_host_run_meets_its_tolerance_at_both_planes(amplitude, backend_class):
+    """Each backend meets its tolerance at both planes and moves the field."""
+    built = host(amplitude)
+    problem = built.problem
+    backend = backend_class(problem, built.run_request, grid=built.grid)
+    try:
+        result = session_run(backend, problem)
+    finally:
+        backend.close()
+    # The launch and the two save planes, 1 um and 8 um.
+    assert [event.z for event in result.observations] == [0.0, 1e-6, 8e-6]
+    first, final = (event.summary for event in result.observations[1:])
+    assert first.met_tolerance and final.met_tolerance
+    assert first.n_steps == 1 and final.n_steps == 7
+    eight = result.fields[2]
+    assert np.all(np.isfinite(eight))
+    assert np.linalg.norm(eight - problem.initial.field0) > 0
 
 
 def test_prescribed_density_off_carrier_drude_assembly(host_case):
@@ -352,29 +307,3 @@ def test_reference_subnormal_zero_rate_field_has_finite_sources(host_case):
     # No reciprocal of a subnormal field should enter either source.
     assert np.all(np.isfinite(reference[0]))
     np.testing.assert_array_equal(reference[1], 0)
-
-
-@pytest.mark.medium
-def test_paired_backend_executes_envelope_sources(host_case):
-    native = pytest.importorskip("solprop_native")
-    problem, run_request, grid = host_case
-    reference = NumpyRefBackend(problem, run_request, grid=grid)
-    actual = native.NativeBackend(problem, run_request, grid=grid)
-    try:
-        # The launch and the first save plane, 1 um: the sessions close there.
-        target, found = (
-            session_run(owner, problem, observations=2).fields[1]
-            for owner in (reference, actual)
-        )
-        # One seven-stage step includes temporal FFT and modal projection sums;
-        # the independent source witnesses separately bound angular error.
-        bound = 128 * grid.n_to * 7 * np.finfo(float).eps
-        np.testing.assert_allclose(
-            found,
-            target,
-            rtol=bound,
-            atol=bound * np.max(np.abs(target)),
-        )
-    finally:
-        actual.close()
-        reference.close()

@@ -354,6 +354,7 @@ class SnapshotController:
             else:
                 assert publication.path is not None
                 self._last_success = time.monotonic()
+                self._retry_at = 0.0  # Back off only after a failed or deferred try.
                 self._pending = self._requested != requested
                 logger.info(
                     "snapshot %s: %d bytes, %.6f s copying, %.6f s paused",

@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from driver.test_native_coupled_flow import (
+from coupled_flow_cases import (
     CASES,
     native_class,
     propagate,

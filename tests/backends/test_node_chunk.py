@@ -24,9 +24,9 @@ import numpy as np
 import pytest
 
 import vector_raman_cases
+from backends import edge_collar_cases as collar
 from backends import host_cases_envelope_plasma as envelope_cases
-from backends import test_native_edge_collar as collar
-from backends import test_radial_nonlinear as radial_cases
+from backends import spatial_cases as radial_cases
 from driver.test_prop_capillary import build as capillary
 from solprop.backends.node_chunk import (
     BUFFERS_PER_NODE,
@@ -155,10 +155,10 @@ def _builders():
     }
     for route in ("radial", "line", "free", "planar"):
         builders[f"collar-{route}"] = functools.partial(
-            lambda route: collar._case(route).translate(), route
+            lambda route: collar.collar_case(route).translate(), route
         )
         builders[f"collar-kerr-{route}"] = functools.partial(
-            lambda route: collar._case(route, kerr=True).translate(), route
+            lambda route: collar.collar_case(route, kerr=True).translate(), route
         )
     for kind in ("radial", "free", "line"):
         builders[f"plasma-{kind}"] = functools.partial(_held_plasma, kind)
@@ -515,7 +515,7 @@ def test_the_native_backend_executes_and_records_its_lowered_chunk(native_backen
         NativeBackend,
     )
 
-    simulation = collar._case("planar")
+    simulation = collar.collar_case("planar")
     problem, run_request = simulation.translate(), simulation._run_request()
     geometry = problem.transform.geometry
     assert geometry is not None

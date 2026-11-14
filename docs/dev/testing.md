@@ -53,7 +53,7 @@ the default one.
 |---|---|---|---|
 | **fast** | none | unit, invariant, property and error-path tests; doctests; no propagation longer than a few steps | under a second each |
 | **medium** | `medium` | a functional check that needs a real but short run — a few hundred steps — or a parameter sweep that genuinely costs seconds | under 30 s each; the tier's total held to a ratchet |
-| **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | 4 min for the lane |
+| **slow** | `slow` | regressions against a stored witness (M1, M2, M4), convergence ladders and order studies whose numbers are in the convergence records (§5), and the CtC-size build | about 50 min of wall time for each slow CI job |
 
 The benchmark harness's own tests (`tests/test_benchmark_*.py`) follow the same rule:
 its logic — plans, records, history, case definitions, builders, and the worker and
@@ -198,9 +198,9 @@ The fast and medium budgets are judged on CI's macOS arm64 test lane, from each 
 JUnit time: setup, call and teardown, so a shared fixture counts against the first test
 that builds it. A fast test takes under a second and a medium test under 30 s. The medium
 tier's total, the sum of its tests' times over the lane's shards, is held to a ratchet:
-`max_total` in `tests/tier_budget.toml`, set from the measured total when the rule was
-adopted, which may only go down. Lower it when medium tests are trimmed or moved to slow;
-never raise it to let a change through. Time a new medium test
+`max_total` in `tests/tier_budget.toml`, which may only go down. Lower it when medium
+tests are trimmed or moved to slow; never raise it to let a change through. It was reset
+once, when the first baseline turned out to be one low run (#792). Time a new medium test
 (`uv run pytest <file> --durations=0`) before adding it. Most of the default lane's time is the compiled-kernel tests, which
 compile one kernel per parametrisation, so parametrise a compiled test only over what the
 kernel actually branches on.
@@ -216,8 +216,15 @@ test lane into the run's summary; the Windows reports are for comparison. Locall
 `uv run python tests/tier_budget.py report.xml`. The report is advisory: tests exceed
 both per-test budgets today, so the job does not gate a pull request, and `--enforce`
 (exit 1 when a test exceeds its tier's budget or the medium total exceeds the ratchet) is
-for when they hold. The slow lane's budget is the lane's wall time, which its CI job's
-duration shows.
+for when they hold. The slow lane's budget is about 50 minutes of pytest wall time for each
+slow CI job, which the job's log shows: after the re-tiering of #792 the jobs took 37 min
+on macOS arm64 (three workers) and 43 min on Ubuntu (two), the larger plus 5 % rounded
+up to five minutes. Sharding the lane, as the default lane is sharded, is #803.
+
+A test may be in `slow` by **cost** rather than by purpose when it takes over 60 s on CI
+and can't be made cheaper without changing its claim. Its marker then carries a comment
+saying so, with its CI time and what it is: `# slow by cost (#792): ~190 s on CI macOS; a
+functional check, not a witness`. Such a test is a candidate to bring back.
 
 A **cost** is not asserted by a test: a wall-clock verdict needs a quiet machine and
 repeated fresh processes, which no lane has. Cost claims are measured by the benchmarks
@@ -379,14 +386,20 @@ top of `tests/` (`*_cases.py`, `*_oracles.py`, `*_parity.py`, `convergence_studi
 parametrise instead of copy-pasting; shared tolerances are named constants with their
 justification.
 
-Backend parity is moving onto one **case catalogue**: `tests/capability_routes.py` collects
-the rows, each a built problem with the axes it covers (route, response, stepper,
-features) and the bound of each rung it runs, and `tests/parity_ladder.py` runs a row on
-native against `numpy_ref` (`tests/backends/test_parity_catalogue.py`). A family's rows live
-beside its cases (`tests/backends/dispersive_rows.py`, whose docstring shows how to read
-one; `tests/backends/optmat_rows.py`, whose rows climb from the linear operator to the
-driver's complete run; `tests/backends/plasma_rows.py`, the field plasma column on every
-route under both running-integral rules). A row states the physical claim it holds in one sentence
+Backend parity on a fixed schedule lives in one **case catalogue**:
+`tests/capability_routes.py` collects the rows, each a built problem with the axes it
+covers (route, response, stepper, features) and the bound of each rung it runs, and
+`tests/parity_ladder.py` runs a row on native against `numpy_ref`
+(`tests/backends/test_parity_catalogue.py`). A family's rows live beside its cases in
+`tests/backends/*_rows.py`: `dispersive_rows.py` (whose docstring shows how to read one),
+`optmat_rows.py`, `plasma_rows.py`, `column_rows.py`, `free_rows.py`, `geometry_rows.py`,
+`planar_rows.py`, `session_rows.py`, `general_rows.py`, `mixture_rows.py`,
+`ladder_rows.py`, `flow_rows.py`, `driver_rows.py`, `axis_plasma_rows.py` and
+`vector_raman_rows.py`; a row's cases come from plain `*_cases.py` modules, never from a
+test module. Comparisons the catalogue does not express stay in their modules: adaptive
+marches (#809), monitors, events, resume, and checks against an oracle, a host formula
+or native itself. A row that writes an accuracy record does so through `Row.record`; a
+row slow by cost says why in `Row.slow`. A row states the physical claim it holds in one sentence
 (`why`), and explains a bound with a floor, a margin or a choice in `bound_note` (what
 was measured against it, what a wrong backend would miss by); every failure quotes
 both, and a rung outside its bound gives the measured value, the bound and their ratio.

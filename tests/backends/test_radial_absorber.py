@@ -11,7 +11,6 @@ its rate is the Planck profile ``alpha0 (1 - W)`` on the nodes.
 
 import dataclasses
 import math
-from functools import partial
 from itertools import pairwise
 
 import numpy as np
@@ -20,25 +19,22 @@ from numpy.testing import assert_allclose
 from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
-from legacy_geometry import LEGACY_GRID
+from backends.radial_absorber_cases import (
+    COLLAR,
+    LENGTH,
+    problem_for,
+    radial_absorber_case,
+)
 from sessions.runs import native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.spatial import collar_field_fraction
-from solprop.boundaries import Absorber, SpatialAbsorber
+from solprop.boundaries import SpatialAbsorber
 from solprop.constants import C
 from solprop.exceptions import TranslationError
-from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
-from solprop.nonlinear.responses import KerrResponse
-from solprop.spatial import SpatialMedium
-from solprop.stepper import DOPRI5, FixedSchedule, PIController
-from solprop.translate.assembly import assemble
-from solprop.translate.routes import transverse_of
+from solprop.stepper import DOPRI5
 from spatial_records import record_metric
 
 EPS = np.finfo(float).eps
-LENGTH = 1e-4
-COLLAR = SpatialAbsorber(kappa=8e4)
-"""A declared band: kappa w = 24 on the case's 300 um collar, above the floor 22.3."""
 
 
 def exponential_tail(x, order):
@@ -84,73 +80,7 @@ def rk_bound(operator_norm, absorber_norm, steps):
 
 @pytest.fixture(params=["field_real", "field_analytic", "envelope"])
 def absorber_case(request):
-    family = request.param
-    constructor = (
-        partial(EnvelopeGrid.from_limits, thg=False)
-        if family == "envelope"
-        else FieldGrid.from_limits
-    )
-    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
-    # Room as wide as the aperture, and enough columns that the declared band lies
-    # below the safety ramp.
-    space = RadialGrid(300e-6, 24, collar_fraction=1.0)
-    reference_length = 5 * LENGTH
-    boundary = Absorber(
-        np.zeros(grid.n_omega),
-        np.zeros(grid.n_t),
-        np.zeros(grid.n_to),
-        grid.active_mask,
-        reference_length,
-    )
-    index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
-    start = np.zeros((space.n_r, 2, grid.n_omega), dtype=np.complex128)
-    start[:, 0, index] = np.exp(-(((np.arange(space.n_r) - 4) / 3) ** 2))
-    start[:, 1, index] = 0.7j * start[:, 0, index]
-    responses = (
-        [KerrResponse(chi3=0.0, thg=False)] if family == "field_analytic" else []
-    )
-    design = transverse_of(
-        assembled(grid, space, boundary, start, responses, 8).problem.route
-    )
-    assert design is not None and design.has_collar
-    # Direct Fourier-Bessel forward and inverse formulas, independent of the
-    # backend's composed matrix and with no temporal pad/crop factors.
-    kernel = j0(space.r[:, None] * space.k_r[None, :])
-    forward = kernel.T * space.radial_weights[None, :] / (2 * np.pi)
-    inverse = kernel * space.spectral_weights[None, :] / (2 * np.pi)
-    rate = design.alpha0 * (1 - space.window)
-    absorption = forward @ (-0.5 * rate[:, None] * inverse)
-    wave = grid.omega[index] / C
-    # The safety ramp rides the diagonal operator as -alpha_s / 2 on each column.
-    phase = 1j * space.k_r**2 / (
-        np.sqrt(wave**2 - space.k_r**2) + wave
-    ) - 0.5 * np.asarray(design.ramp_rate)
-    return grid, space, boundary, start, index, absorption, phase, responses
-
-
-def assembled(grid, space, boundary, start, responses, steps, **options):
-    """The case's problem and request on a schedule of `steps`, with the collar."""
-    options.setdefault("spatial_absorber", COLLAR)
-    return assemble(
-        grid,
-        None,
-        responses,
-        start,
-        spatial_grid=space,
-        medium=SpatialMedium(),
-        absorber=boundary,
-        controller=PIController(rtol=1e-5, atol=1e-12),
-        save_planes=[LENGTH],
-        dz_init=LENGTH / steps,
-        dz_max=LENGTH,
-        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
-        **options,
-    )
-
-
-def problem_for(case, steps, **options):
-    grid, space, boundary, start, _, _, _, responses = case
-    return assembled(grid, space, boundary, start, responses, steps, **options)
+    return radial_absorber_case(request.param)
 
 
 @pytest.mark.parametrize("temporal_rate", [0.0, 1000.0])

@@ -69,7 +69,9 @@ def argon(m=1, phi=0.0):
     return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
 
 
-def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
+def problem_on(
+    grid, table, modes, rule, start=None, save_planes=(0.02,), components=None
+):
     """An argon capillary with Kerr and plasma on a given rule; nothing propagated."""
     if start is None:
         built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY)
@@ -87,6 +89,7 @@ def problem_on(grid, table, modes, rule, start=None, save_planes=(0.02,)):
             dz_max=0.002,
             dz_init=1e-4,
             quadrature=rule,
+            components=components,
         )
 
 
@@ -191,6 +194,33 @@ def test_a_radau_axis_node_supplies_the_row_when_the_nodes_were_scanned(
         grid, problem, run_request, [mode], StatsSpec(names=names)
     )
     assert counted == scans
+
+
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_radau_axis_node_is_declined_when_the_transform_drops_the_axis_y_row(
+    grid, table, name
+):
+    """A rotated mode on an x-only transform: its node scan lacks the axis y field.
+
+    The axis row carries both Cartesian components, so the node scan, which has only
+    the x row, must not stand in for it: the value is the row scan's, as on a Gauss
+    rule that has no axis node, and the Radau rule pays one scan for it.
+    """
+    mode = argon(phi=math.pi / 3)
+    names = ("species_ionisation", *ON_AXIS_PLASMA_STATISTICS)
+    spec = StatsSpec(names=names)
+    radau = transverse_quadrature([mode], n_r=5, radial_rule="field_scale_radau")
+    problem, run_request = problem_on(grid, table, [mode], radau, components=("x",))
+    got, counted = backend_stats(name, grid, problem, run_request, [mode], spec)
+    gauss = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
+    problem, run_request = problem_on(grid, table, [mode], gauss, components=("x",))
+    want, _ = entrance_stats(grid, problem, run_request, [mode], spec)
+    assert counted == 1
+    assert float(want["on_axis_electron_density"]) > 0.0
+    for statistic in ON_AXIS_PLASMA_STATISTICS:
+        # The same row scan; the native plasma column against the reference's
+        # multipass scan keeps the node scans' parity tolerance.
+        np.testing.assert_allclose(got[statistic], want[statistic], rtol=1e-10)
 
 
 @pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])

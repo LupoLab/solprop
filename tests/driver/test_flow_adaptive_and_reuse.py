@@ -33,11 +33,7 @@ import numpy as np
 import pytest
 
 from driver.test_moving_guide import GRIN_PULSE, grin_taper, kinked_radius
-from driver.test_wall_beside_gas_responses import (
-    entry_point,
-    lipschitz_scale,
-    simulation,
-)
+from driver.test_wall_beside_gas_responses import entry_point
 from flow_parity import LENGTH, QUIET, STEPS, build, departure, run
 from march_bounds import FIXED_ORDER, assert_matched
 from modal_provider_cases import grin_grid
@@ -53,6 +49,7 @@ from solprop.stepper import FixedSchedule
 from solprop.stepper.controller import PIController
 from solprop.translate.coupled import constant_schur_flow
 from state_records import record_bound
+from wall_gas_cases import lipschitz_scale, simulation
 
 pytestmark = [
     pytest.mark.filterwarnings(f"ignore::{category.__module__}.{category.__name__}")

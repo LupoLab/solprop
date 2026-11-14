@@ -13,8 +13,8 @@ import dataclasses
 
 import pytest
 
+from coupled_flow_cases import guide_simulation
 from driver.test_coherent_capillary import varying
-from driver.test_split_block import build
 from modal_provider_cases import general_grid, split_guide
 from solprop.exceptions import (
     GrazingIncidenceWarning,
@@ -39,7 +39,7 @@ pytestmark = [
 def split_problem():
     """The rotated split block: a general guide carrying a coupled flow."""
     grid = general_grid()
-    return build(split_guide(grid), grid).translate()
+    return guide_simulation(split_guide(grid), grid).translate()
 
 
 @pytest.fixture(scope="module")

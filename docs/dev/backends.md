@@ -545,7 +545,8 @@ interval. The four on-axis plasma statistics are the plan's too: the axis row th
 synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad scale in it) is formed
 from the modal state on the fine grid and scanned natively in the first node's buffer by the node
 scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
-read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
+read when the evaluation scans the nodes anyway (`populations.axis_node`; never on a transform that
+drops a component the modes have on the axis, whose node scan lacks that row); the species reduction is finished natively. A
 one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope's scan
 reads the polarisation ellipse, so on a one-component transform whose modes have a y field on the
 axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
@@ -1014,8 +1015,8 @@ frequency-dependent map of three Cartesian components.
   combination adds `2 u n_deg (3 kappa_S + kappa_Q)` to the source bound. A constant guide never
   combines and is the constant route exactly.
 - **Parity is a rounding statement** against `numpy_ref`, with the bound stated first
-  (`tests/general_parity.py`, `native/tests/test_general_modal.py`,
-  `tests/driver/test_native_moving_guide.py`). Not bitwise: FFTW is not pocketfft, and numpy's
+  (`tests/general_parity.py`, `native/tests/test_general_modal.py`, and the case catalogue's
+  `moving guide ...` rows in `tests/backends/flow_rows.py`). Not bitwise: FFTW is not pocketfft, and numpy's
   complex product is an FMA on some hosts (§3.1a).
 - **Statistics** are solprop's `collect` on the observed channel field with the basis metric, as
   on the reference, so on one state the two agree to the statistic's rounding bound. The
@@ -1097,8 +1098,8 @@ name.
   which also holds each trial's assembled flow and moments to `multistep.coupled_moments` at
   1e-12 (`adams_block_to_host`, a test observation).
 - **Parity** is a rounding statement with the bound stated first: `tests/flow_parity.py` for the
-  actions and the steps, and `parity_bound` in `tests/driver/test_native_coupled_flow.py` for ten
-  fixed steps on each case.
+  actions and the steps, and `parity_bound` in `tests/coupled_flow_cases.py` for ten fixed steps
+  on each case (the case catalogue's rows, `tests/backends/flow_rows.py`).
 - **FSAL** stays off beside a flow, as on the reference ([stepper.md §2](stepper.md));
   the native group refuses a member carrying the leaf by name, as the reference's does.
 - **Ledger**: the `flow_*` rows, named and zero on every other route (§4).
@@ -1128,7 +1129,8 @@ modified noise draw, and every statistic.
   natively from the flux measure (§3.13). The plasma statistics take the stage's route and read
   the stash between planes. No quadrature alarm is scored, as on the reference.
 - **Parity** is a rounding statement with the bounds of `tests/backends/test_planar_native.py` and
-  `tests/backends/planar_cases.py` stated first. What the ladder adds to the Cartesian one is the
+  `tests/backends/planar_cases.py` stated first, held by the case catalogue's planar rows
+  (`tests/backends/planar_rows.py`). What the ladder adds to the Cartesian one is the
   operator: each library's complex square root is within one ulp of the principal root, so
   `Re k_z` differs by at most `2 eps k_max` and the phase of a run of length `L` by
   `2 eps k_max L`. Repeats, and one against four threads, agree within the same bounds. §4 has the
@@ -1951,7 +1953,7 @@ that execution space.
 | fibre: mode-averaged and multimode, field and envelope grids, Kerr, scalar and tensor Raman, field and envelope plasma, noise, both absorber schemes | yes | yes | qualified |
 | an operator or prefactor that took the z table (not `device_ready`) | yes | yes: the coefficients resident, evaluated natively into term slots | refused, naming the table's size |
 | radial and Cartesian free space (including a line, `n_y = 1`) | yes | yes | qualified (CUDA) |
-| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP; other combinations not qualified |
+| the hybrid planar kind (`"slab"`) | yes | yes | held field-plasma source qualified on HIP (under CUDA, below); one short planar Kerr case run on an NVIDIA H100 NVL and an AMD MI325X ([SEP 34](seps/archive/sep-0034-medium-flux.md#device-qualification-report--cuda-and-hip), 2026-10-23); other combinations not qualified |
 | general modal route (modal tables, metric, regional responses) | yes | yes; a delayed response only as the six silica tensor channels on three components | qualified |
 | coupled flow: constant-Schur and frozen-residual sections | yes | yes | qualified |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
@@ -2007,9 +2009,20 @@ are the only tests skipped on a device, which has no thread count to vary.
 **Field plasma on a device.** The held field-plasma source
 ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)) is qualified under HIP — native
 execution, the native and solprop GPU lanes, the held-current ladders and bounded timings on
-modal, radial, Cartesian, line and planar routes under both integration rules. Under CUDA
-it is built but not executed in qualification, so the table's CUDA entries for field
-plasma do not cover it. The far-field statistics' device pass is not qualified (§3.13).
+modal, radial, Cartesian, line and planar routes under both integration rules, on an AMD
+MI325X (2026-10-19). The committed records hold no `native_hip` rows for its Cartesian
+ladder and statistics, and a missing row is a `RecordError`, so the record-comparing
+tests of `tests/backends/test_free_ladders.py` under field plasma cannot pass on a HIP
+build until those rows are written. Under CUDA it
+has run without that pass: its Cartesian ladder on an NVIDIA H200 (2026-10-20), whose
+`native_cuda` rows are in the records
+([SEP 28](seps/archive/sep-0028-free-space-evaluation.md#phases-1-and-2-report--the-separable-core-on-both-cpu-backends));
+solprop's device lane on an NVIDIA A40 and an H200 (2026-10-29, 63 passed,
+[SEP 39](seps/archive/sep-0039-native-adams-march.md#phase-5--report-cuda-on-nvidia-a40s-hip-to-come)),
+which by reading holds a one-evaluation held-current parity test on every route under
+both rules; and the `argon_blueshift` capillary benchmark on both, timed only. The
+held-current ladders on the other routes and the bounded timings have not run under CUDA.
+The far-field statistics' device pass is not qualified (§3.13).
 
 ## 10. What each backend is for
 
@@ -2041,8 +2054,10 @@ Which backend and build to choose for a run is the user guide's
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg
   bound (§3.11).
-- The held field-plasma source is qualified on a device under HIP only (§9). On the
-  hybrid planar kind other response combinations are unqualified on a device build.
+- The held field-plasma source has had a device qualification pass under HIP only; under
+  CUDA it has run on the Cartesian ladder and solprop's device lane, not on the other
+  routes' ladders or with bounded timings (§9). On the hybrid planar kind other response
+  combinations are unqualified on a device build.
 - `native`'s device builds refuse any problem whose operator or prefactor took the z
   table; its CPU build runs it.
 - The default periodic-statistics subset is cheap under Runge–Kutta at `period = 1`, because

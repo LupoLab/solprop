@@ -36,8 +36,18 @@ from modal_provider_cases import (
     GENERAL_CHI3,
     general_guide,
     grin_grid,
-    grin_provider,
     make_provider,
+)
+from moving_guide_cases import (
+    GRIN_PULSE,
+    KINK,
+    LENGTH,
+    STEP_RADIUS,
+    STEPS,
+    grin_taper,
+    kinked_radius,
+    moving_simulation,
+    step_grid,
 )
 from solprop.backends import select
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
@@ -87,80 +97,6 @@ from solprop.translate.modal_tables import apply_channel_basis, channel_area
 from solprop.translate.stage import scalars
 from solprop.translate.validation import MOVING_FLOW_CERTIFICATE
 
-LENGTH = 1e-3
-"""Length of every run here, m: a millimetre."""
-
-STEPS = 10
-"""Steps of every default-tier run."""
-
-KINK = 4e-4
-"""The kinked taper's corner, m: a multiple of ``LENGTH / STEPS``."""
-
-GRIN_PULSE = {
-    "wavelength": 1.03e-6,
-    "fwhm": 60e-15,
-    "energy": 1e-12,
-    "shape": "gauss",
-}
-
-
-def grin_knots(count=13):
-    """Return knots over the graded-index grid's active band, in rad/s."""
-    grid = grin_grid()
-    active = grid.omega[grid.active_mask]
-    return np.linspace(0.99 * float(active[0]), 1.01 * float(active[-1]), count)
-
-
-def grin_taper(radius, *, kerr=False, sections=1, knots=13):
-    """Return the graded-index sector on a declared radius path, as a guide."""
-    provider = dataclasses.replace(
-        grin_provider(
-            elements=32, kerr=MaterialKerr(chi3=GENERAL_CHI3) if kerr else None
-        ),
-        radius=radius,
-    )
-    frequencies = grin_knots(knots)
-    return ModalGuide.from_provider(
-        provider,
-        frequencies,
-        nodes=provider.node_rule(float(frequencies[0]), 0.0, n_r=2),
-        sections=sections,
-    )
-
-
-def kinked_radius():
-    """Return the kinked taper: 25 um, 24 um by the corner, 22.5 um at the end."""
-    return PiecewiseLinear(
-        np.array([0.0, KINK, LENGTH]), np.array([25e-6, 24e-6, 22.5e-6])
-    )
-
-
-def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
-    """Return a general modal simulation of a guide on a fixed schedule."""
-    simulation = Simulation.from_waveguide(
-        (),
-        length,
-        provider=guide,
-        grid=grid,
-        **(
-            {
-                "noise": None,
-                **{
-                    "save_planes": [length],
-                    "dz_max": length / steps,
-                    "dz_init": length / steps,
-                    "schedule": FixedSchedule(np.full(steps, length / steps)),
-                    "backend": "numpy_ref",
-                }
-                | GRIN_PULSE
-                | overrides,
-            }
-        ),
-    )
-    # The subject is the moving guide; the 60 fs pulse fills its window to the edge.
-    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
-    return simulation
-
 
 @pytest.fixture(scope="module")
 def kinked():
@@ -172,7 +108,7 @@ def kinked():
 def kinked_problem(kinked):
     """Its ten-step problem, with no absorber, and the grid."""
     grid = grin_grid()
-    simulation = build(kinked, grid)
+    simulation = moving_simulation(kinked, grid)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     return simulation, simulation.translate()
 
@@ -230,7 +166,7 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
     named; :func:`test_a_moving_guide_conserves_its_energy_under_the_default` runs the
     default.
     """
-    simulation = build(kinked, grin_grid(), integrator=RungeKutta())
+    simulation = moving_simulation(kinked, grin_grid(), integrator=RungeKutta())
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem, run_request = simulation.translate(), simulation._run_request()
     run = cast("MemoryOutput", simulation.run(progress="none"))
@@ -298,19 +234,21 @@ def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):
     The input draw is admitted (``tests/driver/test_coupled_input_noise.py``).
     """
     with pytest.raises(TranslationError, match="refuses the 'modified' noise model"):
-        build(kinked, grin_grid(), noise="modified", seed=3).translate()
+        moving_simulation(kinked, grin_grid(), noise="modified", seed=3).translate()
 
 
 def test_a_fixed_schedule_straddling_the_kink_is_refused(kinked):
     """Seven steps over the millimetre do not land on the corner at 0.4 mm."""
     with pytest.raises((DriverError, TranslationError), match="hard kink"):
-        build(kinked, grin_grid(), steps=7).translate()
+        moving_simulation(kinked, grin_grid(), steps=7).translate()
 
 
 def test_a_run_longer_than_the_declared_path_is_refused(kinked):
     """The geometry is declared over the provider's z domain and not past it."""
     with pytest.raises((DriverError, TranslationError, Exception), match="path"):
-        build(kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH).translate()
+        moving_simulation(
+            kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH
+        ).translate()
 
 
 @pytest.mark.medium
@@ -320,11 +258,11 @@ def test_a_resume_across_a_changed_path_is_refused_by_the_field_that_moved(
     """Two sections per kink interval is a different guide, and the file says so."""
     grid = grin_grid()
     written = tmp_path / "moving.h5"
-    first = build(kinked, grid)
+    first = moving_simulation(kinked, grid)
     first.settings = dataclasses.replace(first.settings, absorber=None)
     first.run(written, progress="none")
     stored = resume(written).metadata
-    other = build(grin_taper(kinked_radius(), kerr=True, sections=2), grid)
+    other = moving_simulation(grin_taper(kinked_radius(), kerr=True, sections=2), grid)
     other.settings = dataclasses.replace(other.settings, absorber=None)
     metadata = other.metadata()
     changed = stored.differences(metadata)
@@ -361,7 +299,7 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
     absorber is a convolution in frequency and would attenuate the channels' spectra
     differently.
     """
-    simulation = build(guide, grid, steps=steps, length=length, **overrides)
+    simulation = moving_simulation(guide, grid, steps=steps, length=length, **overrides)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
     run_request = simulation._run_request()
@@ -431,7 +369,7 @@ def test_a_moving_guide_conserves_its_energy_under_the_default(kinked):
     (ADR-042, ADR-044), where the controller scores it. Measured 5.2e-11 in 103
     steps at ``rtol=1e-8``; the bound is twenty times that.
     """
-    simulation = build(kinked, grin_grid(), schedule=None, rtol=1e-8)
+    simulation = moving_simulation(kinked, grin_grid(), schedule=None, rtol=1e-8)
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     run = cast("MemoryOutput", simulation.run(progress="none"))
     energy = [float(np.sum(plane.stats["physical_energy"])) for plane in run.planes()]
@@ -458,9 +396,8 @@ def test_a_slow_taper_is_adiabatic_its_conversion_falling_as_one_over_its_length
     channel, bounded by ``|b_2/b_1|``; plus the path's own held-out error times
     ``|beta| L``.
 
-    The runs are linear and the bound is the Runge-Kutta march's frozen-residual
-    truncation, so the march is named: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    The bound is the Runge-Kutta march's frozen-residual truncation, so the march is
+    named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -523,8 +460,7 @@ def test_a_graded_index_taper_converts_and_converges_under_step_refinement():
     and 40 steps fall faster than 16 per halving, so the embedded pair integrates the
     explicit residual -- the moving generator and the whole connection -- at its own
     high order, and the ten-step answer is within 1e-8 of the forty-step one. The
-    order is the Runge-Kutta march's: the default Adams history samples the flow's
-    residual with the source, and with none steps the frozen block alone (ADR-042).
+    order is the Runge-Kutta march's, so the march is named.
     """
     grid = grin_grid()
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
@@ -544,10 +480,6 @@ def test_a_graded_index_taper_converts_and_converges_under_step_refinement():
 # ------------------------------------------------- the step-index validations (slow)
 
 
-STEP_RADIUS = Linear(4e-6, 3.6e-6, LENGTH)
-"""A 10 % step-index taper: two HE_1m channels bound over the whole active band."""
-
-
 STEP_BASIS = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.GeneralModalBasisWarning"
 )
@@ -559,11 +491,6 @@ at a bin these single-bin and 835 nm runs never occupy. The gate the route appli
 weighted by the launch, passes; the warning covers the whole active band, which a
 broadening run may reach.
 """
-
-
-def step_grid():
-    """Return the 835 nm grid the step-index cases propagate on."""
-    return FieldGrid.from_limits(LENGTH, 835e-9, (815e-9, 860e-9), 60e-15)
 
 
 def step_guide(descriptors, *, basis_block=None, blocks=()):
@@ -589,11 +516,7 @@ def _step_run(guide, steps, index, launch=None):
     """Return a step-index linear single-bin run's final amplitudes.
 
     On the Runge-Kutta march, whose embedded pair integrates the flow's explicit
-    residual at its own order: a linear run has no source, so the default Adams history
-    would step the frozen block alone, at second order and unseen by its controller
-    (``docs/guide/numerics/adams.md``, a coupled flow with no source), and these bounds
-    are
-    the march's.
+    residual at its own order, on a fixed schedule: these bounds are the march's.
     """
     grid = step_grid()
     simulation = Simulation.from_waveguide(

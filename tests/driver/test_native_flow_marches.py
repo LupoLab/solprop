@@ -2,20 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The coupled flow on native: every case, both marches, both formation routes.
+"""The coupled flow's actions on native: every case, both formation routes.
 
-``test_native_coupled_flow.py`` runs its own launches on the default march at its own
-bound, and forms the actions on the taper alone. Here is what that leaves: the eight
-cases of ``tests/flow_parity.py`` under ``B_10`` on both marches, the Runge-Kutta march
-beside a capillary wall carrying a real Kerr source through forward and inverse actions,
-with the check that the flow matters; every stage's action on all eight cases and both
+``test_native_coupled_flow.py`` forms the actions on the taper alone. Here is what that
+leaves: every stage's action on all eight cases of ``tests/flow_parity.py`` and both
 routes at ``eps_form``; and random nonnormal blocks through up to four squarings against
 the per-bin bound, which the C++ test holds only to ``norm(lT) <= 2`` at a fixed 4096
-eps.
+eps. The eight cases' ten fixed steps under ``B_10`` on both marches, guarded by the
+flow, are rows of the case catalogue (``tests/backends/flow_rows.py``,
+``flow marches ...``).
 """
 
 import weakref
-from dataclasses import replace
 from functools import partial
 
 import numpy as np
@@ -26,14 +24,9 @@ from flow_parity import (
     QUIET,
     UNIT,
     build,
-    departure,
-    flow_scales,
     formation_bound,
-    run,
     section_formation_bounds,
-    ten_step_bound,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import (
     _coupled_flow_maps,
     _flow_action,
@@ -68,46 +61,6 @@ def cases():
         return built[name]
 
     return get
-
-
-def on_march(run_request, march):
-    """Return the request on the default integrator or on the Runge-Kutta march."""
-    if march == "default":
-        return run_request
-    return run_request.with_stepper(replace(run_request.stepper, integrator=None))
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("march", ["default", "runge_kutta"])
-@pytest.mark.parametrize("name", CASES)
-def test_ten_steps_are_the_reference_within_the_bound(
-    cases, name, march, record_property
-):
-    """Ten fixed steps on native against ``numpy_ref``, within ``B_10``.
-
-    The bound (``tests/flow_parity.py``), stated before the measurement:
-    ``C^S exp(Phi) (||a_0||/||a_L||) S eps_step`` with ``C`` the declared
-    conditioning, ``Phi`` the launch's nonlinear scale and ``eps_step`` the diagonal
-    half's 32 u, the source's share and the flow's own products. The run is also
-    checked to exercise the flow at all: without the leaf it departs by more than a
-    thousand bounds.
-    """
-    simulation, problem = cases(name)
-    run_request = on_march(simulation._run_request(), march)
-    grid = simulation.grid
-    reference = run(NumpyRefBackend, problem, run_request, grid)
-    actual = run(native.NativeBackend, problem, run_request, grid)
-    bound = ten_step_bound(flow_scales(problem, run_request, grid, reference))
-    measured = departure(actual, reference)
-    record_property("bound", bound)
-    record_property("measured", measured)
-    assert bound > 0.0
-    assert measured <= bound
-    bare = replace(problem, linear=replace(problem.linear, coupled_flow=None))
-    assert (
-        departure(run(native.NativeBackend, bare, run_request, grid), reference)
-        > 1e3 * bound
-    )
 
 
 def _spectral(stack):

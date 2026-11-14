@@ -195,7 +195,6 @@ from solprop.nonlinear.raman import (
 from solprop.nonlinear.responses import DispersiveKerrResponse, PlasmaResponse
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
 from solprop.output.metadata import (
-    INTERPOLATED_RESUMES_ANNOTATION,
     PEAK_FIELDS_ANNOTATION,
     RunMetadata,
 )
@@ -1640,7 +1639,8 @@ class Simulation(Displayed):
             its file. A file whose last plane was interpolated inside a step is refused
             unless this is ``"interpolated"``: it then continues afresh from the
             interpolated field, and the position is recorded in the annotation
-            :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION`.
+            :data:`~solprop.output.metadata.INTERPOLATED_RESUMES_ANNOTATION` before
+            the first step, so a session that stops later still records it.
         tdse_archive : solprop.output.TDSEArchive or None, optional
             Archive every raw TDSE provider evaluation of a run with a TDSE
             response in this separate HDF5 file (SEP 20 section 5.8); ``None``
@@ -1711,7 +1711,7 @@ class Simulation(Displayed):
             stop=stop,
         )
 
-    def _run(  # noqa: PLR0915 - run's controls, and the backend it may be handed
+    def _run(
         self,
         output: Output | Path | str | None = None,
         *,
@@ -1835,6 +1835,8 @@ class Simulation(Displayed):
                     stop=stop,
                     recipe=None if self._recipe is None else self._recipe.record(self),
                     restoration=restoration or None,
+                    # Allowed only by resume="interpolated"; the record says where.
+                    interpolated_resume=state is not None and _interpolated(state),
                 )
             except StopRequested as error:
                 failure = error
@@ -1853,17 +1855,6 @@ class Simulation(Displayed):
                     failure,
                 )
             self._peak_fields = _peak_field_reports(problem, handler, self.responses)
-        if (
-            state is not None
-            and _interpolated(state)
-            and isinstance(handler, PlaneStore)
-        ):
-            # Allowed only by resume="interpolated"; the record says where.
-            earlier = handler.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
-            handler.annotate(
-                INTERPOLATED_RESUMES_ANNOTATION,
-                [*cast("list[JsonValue]", earlier), float(state.plane.z)],
-            )
         if self._peak_fields and isinstance(handler, PlaneStore):
             # Learned only now the run has closed, so outside its record and its
             # configuration hash: a post-run annotation (SEP 3, Q13).

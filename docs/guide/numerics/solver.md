@@ -119,6 +119,18 @@ $$\mathrm{err} = \frac{\lVert e \rVert_2}
 
 so that $\mathrm{err} = 1$ means the step sat exactly at the requested tolerance.
 
+**A weak launch is held to `atol`, not to `rtol`.** Where the state's norm is far below
+`atol / rtol`, `atol` dominates the scale and the relative error is not controlled: the
+steps grow to `dz_max` and the error is what that step gives, whatever `rtol`. A linear
+run launched at $10^{-9}\,\sqrt{\mathrm{W}}$ in one bin of the moving-guide tests'
+graded-index taper (1 mm, a frozen-residual coupled flow, `Multistep()`, `dz_max` a tenth
+of the length, `prop_waveguide`'s `atol` of $10^{-10}\,\sqrt{\mathrm{W}}$) took ten steps
+at `rtol` of 1e-4 and of 1e-8 alike, with a relative error of 7.7e-4 against a converged
+Runge–Kutta reference. With `atol=0`, or launched at $1\,\sqrt{\mathrm{W}}$, it took 22
+and 94 steps, and its error fell from 4.4e-6 to 4.4e-10 and 4.8e-10. `numpy_ref` and the
+native CPU build gave the same errors to the digits shown. For a run far weaker than an
+interface's default `atol` expects, scale `atol` with the launch or set it to zero.
+
 The norm scores the whole **active band** ([grids](../setup/grids.md#the-active-band-and-absorbing-collars)):
 the requested band and the spectral collars around it, where light generated in the run
 propagates before the collar absorbs it. That light feeds back into the band through the

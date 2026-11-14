@@ -43,6 +43,7 @@ import contextlib
 import contextvars
 import itertools
 import math
+import re
 import threading
 import warnings
 from collections import OrderedDict
@@ -202,6 +203,19 @@ def material_context(log: MaterialLog | None = None) -> Iterator[MaterialLog]:
         yield chosen
     finally:
         _LOGS.reset(token)
+
+
+_TRACKER_IDS: Final = re.compile(r"\s*\(TC-\d+(?:,\s*TC-\d+)*\)")
+"""A parenthesis holding only optmat's internal tracker ids, ``(TC-527, TC-688)``."""
+
+
+def optmat_text(message: Warning | str) -> str:
+    """Return the text of an optmat warning without its internal tracker ids.
+
+    optmat cites its development tracker in some warnings, a reference a solprop
+    user cannot look up (issue #166); the rest of the text is kept as it is.
+    """
+    return _TRACKER_IDS.sub("", str(message))
 
 
 def warn_once(
@@ -510,13 +524,13 @@ def _reemit(
             warn_once(
                 ("range", entry.digest),
                 f"{_range_message(model, material, wavelength)}. optmat: "
-                f"{item.message}",
+                f"{optmat_text(item.message)}",
                 MaterialRangeWarning,
             )
         elif issubclass(item.category, ModelAbsorptionWarning):
             warn_once(
                 ("absorption", entry.digest),
-                f"{material}: {item.message}",
+                f"{material}: {optmat_text(item.message)}",
                 MaterialRangeWarning,
             )
         else:

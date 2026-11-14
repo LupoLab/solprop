@@ -14,7 +14,9 @@ deterministic build), and are held to the NumPy reference's host scan of the sam
 field (:func:`solprop.backends.numpy_ref.populations.axis_populations`) within the node
 scans' parity tolerance. An envelope's scan reads the polarisation ellipse, so on a
 one-component transform whose modes have a y field on the axis the session scans the
-row's two components as one node of two.
+row's two components as one node of two. The plan's axis row at the entrance, on every
+kind of row and scan, against the reference's is the catalogue's rows ``axis plasma
+launch ...`` (``backends/axis_plasma_rows.py``).
 """
 
 import dataclasses
@@ -25,6 +27,7 @@ from contextlib import ExitStack, closing
 import numpy as np
 import pytest
 
+from axis_plasma_cases import entrance_problem
 from rate_oracles import adk_oracle
 from sessions.executors import (
     EXECUTORS,
@@ -106,7 +109,7 @@ def _mixture():
 
 def _envelope_y_row():
     """``envelope-rotated-x`` over four equal steps and two saved planes."""
-    return _entrance_problem(
+    return entrance_problem(
         "envelope-rotated-x",
         schedule=FixedSchedule.uniform(0.0, 0.02, 0.005),
         save_planes=(0.01, 0.02),
@@ -330,113 +333,13 @@ def test_the_session_s_axis_statistics_are_the_host_scan_s_and_the_reference_s(c
             )
 
 
-# --- the plan's axis row at the entrance, on every kind of row ----------------------
-
-
-def _entrance_problem(kind, schedule=None, save_planes=(0.02,)):
-    """An argon capillary of one or two modes at its entrance, built for one row kind.
-
-    ``rotated-x`` carries modes with a y field on the axis on a transform resolving x
-    alone, so a field grid's one-component scan reads the magnitude of both rows;
-    ``envelope-rotated-x`` is the envelope form, whose scan reads both rows' ellipse.
-    """
-    from solprop.grid import EnvelopeGrid  # noqa: PLC0415
-    from solprop.nonlinear import EnvelopePlasmaResponse  # noqa: PLC0415
-
-    envelope = kind.startswith("envelope")
-    grid = (EnvelopeGrid if envelope else FieldGrid).from_limits(
-        0.02, 800e-9, (300e-9, 3e-6), 100e-15
-    )
-    table = build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
-
-    def argon(m=1, phi=0.0):
-        return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
-
-    rotated = kind.endswith("rotated-x")
-    modes = (
-        [argon(phi=math.pi / 4), argon(2, phi=math.pi / 3)]
-        if rotated
-        else [argon(1), argon(2)]
-        if kind.endswith("two-modes")
-        else [argon()]
-    )
-    plasma = (
-        EnvelopePlasmaResponse(Gas.Ar, table)
-        if envelope
-        else PlasmaResponse(Gas.Ar, table, integration="band")
-        if kind == "band"
-        else PlasmaResponse(Gas.Ar, table)
-    )
-    built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-4).build(grid)
-    start = np.concatenate([built, 0.4j * built][: len(modes)], axis=0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem, request = assemble(
-            grid,
-            modes,
-            [KerrResponse(chi3=2.2e-52, thg=not envelope), plasma],
-            start,
-            controller=PIController(rtol=1e-8, atol=1e-16),
-            save_planes=list(save_planes),
-            dz_max=0.002,
-            dz_init=1e-4,
-            schedule=schedule,
-            quadrature=transverse_quadrature(
-                modes, n_r=32, radial_rule="gauss_kronrod"
-            ),
-            components=("x",) if rotated else None,
-        )
-    return grid, modes, problem, request
-
-
-ENTRANCE_KINDS = (
-    "rotated-x",
-    "envelope-rotated-x",
-    "band",
-    "envelope",
-    "envelope-two-modes",
-)
-
-
-@pytest.mark.parametrize("kind", ENTRANCE_KINDS)
-def test_the_plan_s_axis_row_is_the_host_scan_s_and_the_reference_s(kind):
-    """The plan's native row scan, at the entrance, on each kind of row and scan.
-
-    A field grid's one-component scan of two rows (their magnitude), an envelope's
-    one-component scan of two rows (their ellipse), the band rule's filtered exposure,
-    and an envelope's cycle-averaged scan of one and two modes.
-    """
-    from solprop_native._statistics import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        _on_axis,
-        lower,
-    )
-
-    grid, modes, problem, request = _entrance_problem(kind)
-    names = ON_AXIS_PLASMA_STATISTICS
-    spec = StatsSpec(names=names)
-    run = request.for_run(stats=spec)
-    if kind.endswith("rotated-x"):
-        # A y field on the axis, on a transform resolving x alone.
-        assert problem.transform.n_pol == 1
-        assert np.any(_on_axis(modes)[1])
-    with closing(select("numpy_ref", problem, run, grid=grid, modes=modes)) as backend:
-        stepping(backend).set_initial(problem.initial.field0, None)
-        values = stepping(backend).stats(spec)
-    assert problem.initial.noise0 is None
-    with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
-        lowering = lower(problem, spec, names, grid=grid, modes=modes, z_end=0.02)
-        got = lowering.unpack(state.planned_statistics(lowering.plan, 0.0))
-    for name in names:
-        want = np.reshape(values[name], np.shape(got[name]))
-        assert float(np.max(want)) > 0.0
-        _within(got[name], want, f"{kind} {name} (numpy_ref)")
+# --- an envelope's y row on a one-component scan -------------------------------------
 
 
 def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
     """The ellipse of both rows is scanned natively, in the native session (SEP 47
     phase 4)."""
-    grid, modes, problem, request = _entrance_problem("envelope-rotated-x")
+    grid, modes, problem, request = entrance_problem("envelope-rotated-x")
     run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
     skip_device_refused(problem)
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:

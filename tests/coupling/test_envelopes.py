@@ -1183,7 +1183,8 @@ def facet_port(contrast, v_centre):
     return simulation.input_port(), radius, (core, core, cladding)
 
 
-@pytest.mark.medium
+# slow by cost (#792): ~95 s on CI macOS; a functional check, not a witness
+@pytest.mark.slow
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.GeneralModalBasisWarning")
 def test_vector_paraxial_launches_the_facet_reference_within_its_items():
     """``couple`` into a step-index guide against the facet solution, bin by bin.
