@@ -249,9 +249,14 @@ ARGON_FILL = Mixture.fill({"Ar": 1.0}, 2.0)
 
 
 def general_problem(
-    guide: ModalGuide, evaluator: str, form: KerrForm, *, adams: bool = True
+    guide: ModalGuide,
+    evaluator: str,
+    form: KerrForm,
+    *,
+    adams: bool = True,
+    energy: float = 2e-9,
 ) -> tuple[PropagationProblem, RunRequest, TimeGrid]:
-    """Return a general modal problem launching 2 nJ into HE11, ten fixed steps."""
+    """Return a general modal problem launching `energy`, J, into HE11: ten steps."""
     grid = general_grid()
     route = general_modal_route(
         guide,
@@ -262,7 +267,8 @@ def general_problem(
         selection=MaterialSelection(electronic=POLICIES[evaluator]),
     )
     state = np.zeros((1, 1, grid.n_omega), complex)
-    state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
+    pulse = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=energy)
+    state[0, 0] = pulse.build(grid)
     problem, run_request = assemble(
         grid,
         list(guide.mode_collection),

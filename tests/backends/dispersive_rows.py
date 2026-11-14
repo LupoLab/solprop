@@ -591,7 +591,14 @@ def beside_rows(evaluator: str) -> Iterator[Row]:
     assembled apart from those spectra on both backends, and under the carrier policy
     native's projected spectra there differ from the reference's by 1.78 (field) and
     1.81 (envelope), relative, so its floor made a bound of about 180 % that could not
-    see the response (issue #789). Both rules are held without plasma by the
+    see the response (issue #789). Nor is the response's own share of them (the
+    spectra with the response less those without it): on the embedded rule, and on an
+    envelope grid's fine rule, the shares meet to 3-10 eps, but on a field grid's fine
+    rule native's share carries the plasma column's own rounding, 1970 eps of it
+    against an evaluation's budget of 1220-2000 eps, and that rounding has no derived
+    budget. The source rung holds the claim: switching the response off moves its
+    reference by 7e9 to 1.3e10 bounds, and a native that dropped the response misses
+    by 1.5e12 to 2.7e12 (measured). Both rules are held without plasma by the
     capillary rows.
     """
     why = (
@@ -918,6 +925,25 @@ def planar_rows(evaluator: str) -> Iterator[Row]:
 # --- the general modal route ----------------------------------------------------------
 
 
+GENERAL_CASES: dict[str, tuple[Mixture, float | None, float]] = {
+    "gas alone": (STRANDS["gas alone"][0], None, 50e-6),
+    "beside a solid core": (Mixture.fill({"Ar": 1.0}, 50.0), CORE_CHI3, 12e-9),
+    "helium and argon": (STRANDS["helium and argon"][0], None, 50e-6),
+}
+"""Each strand's gas fill, core susceptibility (m^2/V^2) and launch energy (J).
+
+Chosen so that the gas region moves the ten-step window by more than the guard's
+thousand bounds (issue #789): at the cases' 2 nJ launch it moved it by 0.5-3.9 bounds,
+so a native that dropped the response passed. Without a solid core the gas is the
+only nonlinearity and 50 uJ moves it by 5900-24 000 bounds (measured). Beside the
+core, whose cubic diverges the fixed ten-step march at 60 nJ and amplifies its rounding
+a hundredfold from 15 nJ, a 12 nJ launch with a 50 bar fill moves it by 2100-4000
+bounds, native's departure staying at 3e-16 to 9e-16. The ten fixed steps are
+coarser than the controller's tolerance here, as they already were beside the core at
+2 nJ: the window holds parity with the reference, not accuracy.
+"""
+
+
 def _general(
     evaluator: str,
     form: KerrForm,
@@ -925,11 +951,17 @@ def _general(
     gas: Mixture | dict[str, float] | None,
     core: float | None,
     adams: bool = True,
+    energy: float = 2e-9,
 ):
-    """Return the general modal route on a strand of gas (a 1 bar fill) and core."""
+    """Return the general modal route on a strand of gas (a 1 bar fill) and core.
+
+    ``energy`` is the launch's, J.
+    """
     if isinstance(gas, dict):
         gas = Mixture.fill(gas, 1.0)
-    return general_problem(strand(gas, core=core), evaluator, form, adams=adams)
+    return general_problem(
+        strand(gas, core=core), evaluator, form, adams=adams, energy=energy
+    )
 
 
 def _cut_at_the_first_gas_node(evaluator: str) -> Built:
@@ -950,9 +982,9 @@ def _cut_at_the_first_gas_node(evaluator: str) -> Built:
 
 
 def general_rows(evaluator: str) -> Iterator[Row]:
-    """Yield the general modal route: a 1.5 um strand's HE11 in a gas exterior, 2 nJ."""
+    """Yield the general modal route: a 1.5 um strand's HE11 in a gas exterior."""
     for form in ("real", "analytic"):
-        for strand_name, (gas, core) in STRANDS.items():
+        for strand_name, (gas, core, energy) in GENERAL_CASES.items():
             yield dispersive_row(
                 name=f"general {strand_name} {form}",
                 evaluator=evaluator,
@@ -963,18 +995,16 @@ def general_rows(evaluator: str) -> Iterator[Row]:
                 "the products at the gas region's nodes: alone the response writes "
                 "each chunk's source, beside the solid core's constant cubic it adds "
                 "to the regional one, as in the reference.",
-                bound_note="Measured 1.2-1.8 eps on the source, under bounds of "
-                "560-1088 eps (re-measured; the old test quoted 0.5-1.6 eps).",
-                build=partial(_general, evaluator, form, gas=gas, core=core),
+                bound_note="At the launch and fill of GENERAL_CASES: measured "
+                "1.2-9.8 eps on the source, under bounds of 560-1088 eps, and "
+                "0.5-4.2 eps on the window, under 82 000-159 000 eps (at the old "
+                "test's 2 nJ the source measured 1.2-1.8 eps).",
+                build=partial(
+                    _general, evaluator, form, gas=gas, core=core, energy=energy
+                ),
                 rungs={
                     "source": route_evaluation,
                     "steps": window_of(route_evaluation),
-                },
-                unguarded={
-                    "steps": "the gas region moves the 2 nJ launch's ten steps by "
-                    "1.7e-11 to 7.0e-11, the size of the bounds (1.8e-11 to 3.5e-11): "
-                    "the window holds the general route's march, the source rung the "
-                    "response (issue #789)"
                 },
                 metadata=dispersive_path(
                     alone=core is None, in_place=False, borrowed=False
