@@ -188,7 +188,13 @@ more, shorter steps than the Runge–Kutta march at the same tolerance, each one
 Smooth propagation at tight tolerance raises its order and lengthens its steps; abrupt
 events — a fission, a kink in a profile — lower the order for a while. `rtol` means
 something different to each integrator, so compare their errors, not their
-tolerances. At `rtol` of 5e-2 or more the Adams method is unreliable and warned on.
+tolerances. On a short run the Runge–Kutta march's cost need not follow `rtol` at all:
+its steps can be held by the controller's growth limit of 1.1 per step and, with the
+in-stage collar, by a limit that does not move with `rtol`, so it ends far tighter than
+asked. On one 10 cm helium capillary on `numpy_ref`, `RungeKutta()` took 294 to 301 calls
+at every `rtol` from 1e-3 to 1e-8, with errors of 2.3e-6 or less, while `Multistep()`
+went from 87 to 384 calls between 1e-3 and 1e-7; compare short runs at matched error,
+not matched `rtol`. At `rtol` of 5e-2 or more the Adams method is unreliable and warned on.
 
 **How long the run is, and how many.** A run's first few steps rebuild the history from
 order one, a fixed cost that a short run feels most. A single short run hardly matters;

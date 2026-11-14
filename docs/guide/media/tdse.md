@@ -114,7 +114,13 @@ The sampled $g'$ must resolve the tapers. Translation computes the steady-curren
 certificate $\kappa_{\rm ss}$, the active-band norm of the discrete edge-free source of
 $S\equiv1$ relative to the full transform of the gate, and refuses a run whose value
 exceeds $10^{-10}$ with a `TranslationError`: widen the taper or raise `TDSESampling`.
-Resolved gates certify at rounding level, about $10^{-17}$. The certificate is recorded in
+Resolved gates certify at rounding level, about $10^{-17}$. Because the certificate is
+relative to the gate's transform, not to the band's own rounding budget, it can refuse a long,
+well-resolved taper on a band far above the taper's frequencies, such as a UV-only band,
+although the absolute edge error is at rounding level: a 20 fs taper on a 90–200 nm band
+was refused at $1.8\times10^{-10}$. No default configuration comes near this (the largest
+certificate in the source's qualification is $1.8\times10^{-14}$), and there is no
+truncating source to fall back to. The certificate is recorded in
 the run's execution metadata, and the last-evaluation diagnostic
 (`metadata()["tdse_last_evaluation"]`) reports the norms of the truncating source, the
 edge term and the corrected source, with their rounding floors.

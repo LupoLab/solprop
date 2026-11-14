@@ -26,15 +26,14 @@ What this example checks:
   physical launch as a combination of two of its own runs; carried back through
   ``U^H`` it must be the rotated run. The two share no execution path below the guide
   -- one is a coupled matrix flow, the other two diagonal exponentials -- and agree
-  to ``8.4e-6`` in each channel's modulus and ``2.1e-5`` rad in the phase between
+  to ``2.8e-6`` in each channel's modulus and ``2.1e-6`` rad in the phase between
   them, inside the grid's declared window;
 * **the flow moves power.** Over a millimetre a launch into one rotated channel
-  arrives with ``3.8e-3`` of it in the other, which is ``sin^2(|G_01| z)`` of the
-  block's own off-diagonal to about one per cent -- the grid's temporal-window
-  absorber, a convolution in frequency, attenuates the two channels' different
-  spectra differently, and contributes to the difference. Agreement is assessed at
-  finite
-  frequency, interpolation and stepping resolution.
+  arrives with about ``3.6e-3`` of it in the other near 835 nm (from ``2.7e-3`` at
+  773 nm to ``4.7e-3`` at 900 nm, as ``|G_01|`` grows with wavelength), which is
+  ``sin^2(|G_01| z)`` of the block's own off-diagonal to ``5e-4`` in every bin of the
+  declared window. Agreement is assessed at finite frequency, interpolation and
+  stepping resolution.
 
 **The approximation, in one sentence:** none is added to the propagation -- the
 coupled flow is the same linear physics in other coordinates -- but a rotated
@@ -61,12 +60,12 @@ from solprop.modes.protocol import ChannelLabel
 # A 6 um silica-like core in a 1.40 cladding, and its two ``LP_11`` members of
 # azimuthal order zero. Both regions are linear -- this example is about the linear
 # flow, and a guide whose regions declare no response skips the source pass
-# entirely. The knots cover the grid's whole *active* band, which is about twice the
-# declared one; seventeen of them, because the splitting is a small difference of
+# entirely. The knots cover the grid's whole *active* band, several times as wide as
+# the declared one; seventeen of them, because the splitting is a small difference of
 # two large propagation constants and reproducing it between the knots costs more
 # of them than reproducing either.
 length = 1e-3
-grid = FieldGrid.from_limits(length, 835e-9, (815e-9, 860e-9), 60e-15)
+grid = FieldGrid.from_limits(length, 835e-9, (770e-9, 910e-9), 150e-15)
 core, cladding = IndexMaterial(1.45), IndexMaterial(1.40)
 pair = tuple(
     StepIndexMode(
@@ -156,10 +155,10 @@ print(
 )
 
 # %%
-# The comparison, plane by plane, inside the declared 815--860 nm window: outside it
+# The comparison, plane by plane, inside the declared 770--910 nm window: outside it
 # the grid carries the absorbing collar, which two guides with different index tables
-# carry differently, and the same comparison reads 1e-3 there.
-low, high = (2.0 * np.pi * C / one for one in (860e-9, 815e-9))
+# carry differently, and the same comparison reads 2e-2 there.
+low, high = (2.0 * np.pi * C / one for one in (910e-9, 770e-9))
 window = (grid.omega >= low) & (grid.omega <= high)
 matrix = basis.transform
 block = problem.linear.coupled_flow.generator[0, 0]
@@ -212,25 +211,28 @@ print(
 
 fig, ax = plt.subplots(figsize=(6.4, 3.6), constrained_layout=True)
 fine = np.linspace(0.0, length, 101)
-for column in range(shares.shape[1]):
-    wavelength = 2.0 * np.pi * C / grid.omega[window][column] * 1e9
+# One colour per in-band bin, from red to blue; the legend names the three kinds of
+# mark and the colour bar the wavelengths.
+wavelengths = 2.0 * np.pi * C / grid.omega[window] * 1e9
+colours = plt.get_cmap("viridis")
+scale = plt.Normalize(float(wavelengths.min()), float(wavelengths.max()))
+for column, wavelength in enumerate(wavelengths):
+    colour = colours(scale(wavelength))
     ax.plot(
         fine * 1e3,
         np.sin(coupling[column] * fine) ** 2,
         "--",
-        color=f"C{column}",
+        color=colour,
         linewidth=0.8,
-        label=rf"$\sin^2(|G_{{01}}|z)$ at {wavelength:.0f} nm",
     )
-    ax.plot(
-        z * 1e3,
-        shares[:, column],
-        "o",
-        color=f"C{column}",
-        label=f"rotated basis, {wavelength:.0f} nm",
-    )
-    ax.plot(z * 1e3, carried_shares[:, column], "x", color="k", markersize=5)
+    ax.plot(z * 1e3, shares[:, column], "o", color=colour, markersize=4)
+    ax.plot(z * 1e3, carried_shares[:, column], "x", color="k", markersize=4)
+ax.plot([], [], "--", color="0.4", linewidth=0.8, label=r"$\sin^2(|G_{01}|z)$")
+ax.plot([], [], "o", color="0.4", markersize=4, label="rotated basis")
 ax.plot([], [], "x", color="k", label="provider's basis, carried through U^H")
+fig.colorbar(
+    plt.cm.ScalarMappable(norm=scale, cmap=colours), ax=ax, label="Wavelength (nm)"
+)
 ax.set(
     xlabel="z (mm)",
     ylabel="Share in the other rotated channel",

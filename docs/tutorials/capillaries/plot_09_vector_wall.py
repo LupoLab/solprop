@@ -43,6 +43,7 @@ import numpy as np
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver import prop_capillary
+from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall, MarcatiliMode, vector_wall_operator
 from solprop.stepper import FixedSchedule
@@ -126,9 +127,15 @@ grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
 
 def run(wall, modes):
     """Propagate `modes` ten fixed steps of the 50 um bore, with or without a wall."""
-    # A marginal geometry on purpose, and a band past the fitted ranges: both warn.
+    # A marginal geometry on purpose (GrazingIncidenceWarning), and a collar weakened
+    # for the steps' stability, which the walk-off check reports although the modes
+    # walk apart by a fraction of a femtosecond in a 300 fs window: both are silenced
+    # by name.
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
+        warnings.filterwarnings(
+            "ignore", "the temporal absorber attenuates", SolpropWarning
+        )
         return prop_capillary(
             bore,
             length,

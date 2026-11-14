@@ -40,6 +40,7 @@ import numpy as np
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver import prop_capillary
+from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
 from solprop.grid import FieldGrid
 from solprop.modes import CoherentWall, MarcatiliMode, wall_operator
 from solprop.stepper import FixedSchedule
@@ -102,10 +103,12 @@ plt.show()
 # into ``HE_11`` alone: once with ``wall=CoherentWall()`` and once with the ordinary
 # incoherent loss. The small radius is what makes a fifth of a millimetre show a
 # measurable wall; it sits near the edge of the block's validity range on purpose,
-# and the construction says so with a warning, as does the band's reach past the
-# fitted ranges of helium and silica. The collar is weakened so that the twenty
-# micrometre steps are stable: the absorber is an explicit term in the step, so its
-# strength limits the step it allows.
+# and the construction says so with a warning (``GrazingIncidenceWarning``). The
+# collar is weakened so that the twenty micrometre steps are stable: the absorber is
+# an explicit term in the step, so its strength limits the step it allows. The
+# walk-off check then warns that so weak a collar would not stop a packet wrapping
+# around the window; over a fifth of a millimetre the modes walk apart by a fraction
+# of a femtosecond in a 300 fs window, so both warnings are silenced by name.
 length, steps = 2e-4, 10
 grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
 
@@ -113,7 +116,10 @@ grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
 def run(wall):
     """Propagate the three-channel bore ten fixed steps, with or without a wall."""
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", GrazingIncidenceWarning)
+        warnings.filterwarnings(
+            "ignore", "the temporal absorber attenuates", SolpropWarning
+        )
         return prop_capillary(
             50e-6,
             length,
