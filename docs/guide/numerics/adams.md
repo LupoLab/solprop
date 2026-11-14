@@ -20,7 +20,8 @@ and limitations. Its design record is
 
 ## Using it
 
-Every run steps with `Multistep()` unless told otherwise:
+Where it is the interface's default (above) a run steps with `Multistep()` unless told
+otherwise; elsewhere, pass `integrator=Multistep()`:
 
 ```{code-block} python
 from solprop.driver import prop_capillary
@@ -52,8 +53,7 @@ the general modal route and the radial, Cartesian, line and planar free-space ro
 with constant and varying operators and every noise model the route admits. Beside a
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
 exponential formulation runs, on its constant-Schur and frozen-residual sections; the
-interaction formulation is refused by name. Another backend refuses
-`Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
+interaction formulation is refused by name. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
 ([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`
 and native CPU builds.

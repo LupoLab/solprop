@@ -58,9 +58,14 @@ DOCS = CONTRACT.parents[1]
 CURRENT_SCHEMA = re.compile(r"\b(kernel|output) schema \*\*(\d+)\*\*")
 """How a page states a current schema number: in bold, after the schema's name."""
 NUMBERED_SCHEMA = re.compile(
-    r"\b(?:(kernel|saved-output|output) )?schema:? \(?\**(\d+)\b"
+    r"\b(?:(kernel|saved-output|output) )?(?:schema|record layout):? \(?\**"
+    r"(?:currently )?(\d+)\b"
 )
-"""Any schema number, bold, bracketed or plain; one not named kernel is the output's."""
+"""Any schema number, bold, bracketed or plain; one not named kernel is the output's.
+
+The metadata record's layout is the output schema, and a page may call it that:
+``record layout (currently 2)`` is held to the number too.
+"""
 
 # The six array groups the contract's own walking rule names; everything else a field
 # holds -- Flags, StatsSpec, a Tableau, a RateTable -- is a leaf whose fields are not

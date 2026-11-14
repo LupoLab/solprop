@@ -569,14 +569,7 @@ and carry their own citations.
 
 - The gas law is linear density scaling, with the error above declared and measured,
   not removed.
-- solprop requires optmat 0.3.0 or later: the noble gases' recommended ionisation rates
-  take the frequency-dependent Coulomb factor from 0.3.0, which run records and their
-  digests assume; a gas's Raman status is read without
-  building its response, which 0.2.1 could not do; D₂'s viscosity is a smooth
-  correlation from 0.2.2, so a D₂ temperature path over its whole range has a
-  viscosity series; `Gas.Air` takes its molar mass from the equation of state, which
-  0.2.0 did not expose; and 0.1.0's density inverse (a
-  pressure from a density) failed for Ar, N₂ and CH₄ below about 255 K, 284 K and 256 K. A
+- solprop requires optmat 0.9.1 or later, the floor its dependencies declare. A
   temperature at an equation's lowest temperature, its triple point, is refused.
 - One grade and temperature per solid; N-BK7 is lossless; no OH, dopant or
   temperature absorption model.
