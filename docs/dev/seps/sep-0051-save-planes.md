@@ -563,3 +563,59 @@ or GPU numerical qualification is claimed.
     the resolver twice cannot append another plane. Complete the refusal table
     with non-finite positions, empty inputs and non-integral or boolean counts,
     so the shared rule has named errors in both Python and recipes.
+
+### Maintainer decisions following AI review — 2026-11-15
+
+John Travers adopted the decisions below in discussion with the AI reviewer.
+They are recorded here for the drafting agent to reconcile into Part I; the
+reviewer has not edited the proposal. The remaining review questions are still
+open, and these decisions do not constitute acceptance of the SEP.
+
+**Compatibility constraint.** Backwards compatibility is explicitly not a
+requirement. Preserving pre-change configuration hashes, converting old recipes
+or supporting old output files must not constrain the design. Newly created runs
+must still reproduce their recorded configuration, and numerical correctness and
+rounding bounds remain requirements. In particular, R9's preservation of old
+hashes is no longer an acceptance condition; R3's warning that changing the grid
+length changes absorber rates remains relevant when correcting scientific tests.
+
+1. **D1 — Always record the actual entrance and the end as observation planes
+   (Q1, Q2, Q5; R6, R8, R10).** The entrance is `initial_z`, and the end is the
+   resolved `length`. Both are automatic; append the end when an explicit
+   position list omits it. Refuse requested positions outside the propagation
+   interval, with the rounding policy still to be decided.
+
+   An observation does not require a stored field. Every observation, including
+   both endpoints, obeys the existing `fields` and `field_planes` policy:
+   `fields="none"` keeps statistics and step history without storing plane
+   fields, `fields="planes"` keeps fields only at the selected observation
+   indices, and `fields="all"` keeps them at every observation. The mandatory
+   endpoints never override field retention. Terminal checkpoints are separate
+   and retain their existing restart policy.
+
+2. **D2 — Specify the length once; permit an explicit consistency check
+   (R1; §§5–6).** Make `length` optional and keyword-only on the keyword routes,
+   with the same resolution rule in recipes:
+
+   | Supplied | Resolution |
+   |---|---|
+   | `length`, without `grid` | Build the grid with that length. |
+   | `grid`, without `length` | Take the run's end from `grid.length`. |
+   | Both | Require agreement and refuse a mismatch, naming both values. |
+   | Neither | Refuse, explaining that a length or a grid is required. |
+
+   All length-dependent setup uses that one resolved value. Do not silently
+   alter a supplied grid or choose between conflicting lengths. The numerical
+   allowance for agreement remains a question for the endpoint rounding policy.
+
+3. **D3 — Count the observations over the actual launched interval
+   (R4; §§5.1–5.2; Q6).** A fresh `n_save=N` request, with `N >= 2`, places
+   exactly `N` evenly spaced observations over `[initial_z, length]`, including
+   both endpoints. The entrance is observation index 0. `length` remains the
+   absolute end coordinate; the distance propagated is `length - initial_z`.
+
+   This supersedes the draft's zero-based count and R4's recommendation to
+   filter a newly requested count's zero-based lattice. An existing simulation
+   advanced with `with_input(..., initial_z=z)` instead retains its already
+   resolved future observations, with the new entrance recorded at `z`; it has
+   not requested a new count or a redistribution of the existing positions.
