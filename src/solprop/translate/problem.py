@@ -2208,6 +2208,11 @@ def _check_scalar_domain(
         roots = np.polynomial.chebyshev.chebroots(
             np.polynomial.chebyshev.chebder(coefficients)
         )
+        # Only exactly real roots are kept, and that misses nothing beyond rounding: an
+        # interior minimum is a sign change of the derivative, a root cluster of odd
+        # size, and the eigenvalues of a real companion matrix come in conjugate pairs,
+        # so such a cluster keeps at least one exactly real root. Only an even cluster,
+        # where the polynomial has no extremum, can lose all of its roots.
         interior = np.real(roots[np.isreal(roots) & (np.abs(roots) < 1)])
         values = np.polynomial.chebyshev.chebval(
             np.r_[-1.0, interior, 1.0], coefficients
