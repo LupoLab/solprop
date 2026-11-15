@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
 | **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-15 |
 | **Resolution** | — |
@@ -25,13 +25,15 @@
 Today a run's saved planes are written three different ways, depending on whether it is
 started from a keyword interface, from objects or from a recipe, and the end of the run
 is the last saved plane, never the length the run was set up for. This SEP gives every
-route the same two parameters. `n_save` is a count of planes including the entrance, and
-`save_planes` is a list of positions; a run takes one or the other, never both. It also
-makes the length the upper limit that decides how far the run goes: the route's `length`
-on a keyword route, `grid.length` on an object route. Success means one placement rule in
-one helper, the same refusals on every route, recipe, Python export and front-end sheet,
-and unchanged numbers for every run that already ends at its length, on `numpy_ref` and
-on the native CPU build.
+route one length and one pair of plane selectors. The length is stated once, as `length`
+or as `grid.length`, and it is both the upper limit and the end: every run marches from
+its entrance, `initial_z`, to its length, and always records both. `n_save` is a count of
+evenly spaced observations over that interval, both ends included, and `save_planes` is a
+list of positions inside it; a run takes one or the other, never both. Success means one
+placement rule in one helper, the same refusals on every route, recipe, Python export and
+front-end sheet, and, for every run that already ends at its length, the same numbers on
+`numpy_ref` and on the native CPU build. Backwards compatibility of configuration hashes,
+old recipes and old output files is not a requirement (§9).
 
 ### 2. Motivation and scope
 
@@ -43,15 +45,18 @@ Investigating it showed that no route ties the run's end to its length:
 - On a **keyword route**, `length` builds the grid and sets the default steps. The run
   still ends at the last of the explicit `save_planes`, and positions beyond `length` are
   accepted. With `length = 1 mm`, `save_planes=[0.5 mm]` stops at 0.5 mm, and
-  `[0.5 mm, 2 mm]` runs to 2 mm on a grid sized for 1 mm.
-- On an **object route**, `grid.length` sizes the collar and the window, but the run ends
-  at the last save plane, whatever `grid.length` says.
+  `[0.5 mm, 2 mm]` runs to 2 mm on a grid sized for 1 mm. A keyword route given both
+  `length` and `grid=` keeps the grid without comparing the two.
+- On an **object route**, `grid.length` sizes the collar, the window and the default
+  absorber rates, but the run ends at the last save plane, whatever `grid.length` says.
 
 In scope:
 
-- the meaning of `n_save`, `save_planes` and the run's end on every route that runs: the
-  keyword interfaces, `Simulation(...)`, `Simulation.from_free`, `Simulation.from_planar`,
-  recipes, scans and the front end;
+- the meaning of `length`, `n_save`, `save_planes` and the run's end on every route that
+  runs: the keyword interfaces, `Simulation(...)`, `Simulation.from_free`,
+  `Simulation.from_planar`, recipes, scans and the front end;
+- interior launches, replay schedules, settings replacement, resume and the resolved
+  recipe, as far as they read the planes or the end;
 - the refusals and their messages, and the migration;
 - how the end reaches the backends.
 
@@ -60,10 +65,12 @@ Not in scope:
 - continuing a finished run to a longer length
   ([#141](https://github.com/LupoLab/solprop/issues/141));
 - `fields=` and `field_planes=` on the `prop_*` functions
-  ([#311](https://github.com/LupoLab/solprop/issues/311));
+  ([#311](https://github.com/LupoLab/solprop/issues/311)), whose retention policy the
+  observations here obey unchanged;
 - any change to stepping, tolerances or physics defaults;
 - `FixedSchedule`'s own construction (`FixedSchedule.uniform` and replay), which keeps its
-  interface; only how its end relates to the run's length is settled here.
+  interface; only how its start and end relate to the run's interval is settled here;
+- replay for interior launches, which stays refused.
 
 ### 3. Context
 
@@ -78,25 +85,52 @@ Not in scope:
 | Front end, "Saved planes" | keyword sheets write `n_save`, counting the entrance | object sheets expand a count that **leaves out** the entrance into a list over `grid.length` (`even_planes` in `gui/src/solprop_gui/classes/problem.py`), and rewrite the list when the length changes | as the route | — |
 | TDSE capillary (`tdse=`) | given neither, the run saves the entrance and the end (`n_save = 2`) and every natural step (`step_planes = 1`) | as the keyword route | as the keyword route | accepted |
 
+**The length on keyword routes.** `length` is a required parameter, and `grid=` is an
+optional one. `_gnlse_grid` (`src/solprop/driver/routes/gnlse.py`) and `_capillary_grid`
+(`src/solprop/driver/routes/hollow.py`, shared by the general modal route) return a
+supplied grid without comparing its length with `length`.
+
+**What depends on the length.** Besides the end, `grid.length` sets the default absorber
+reference length, `grid.length / boundary_N` (`_reference_length` in
+`src/solprop/boundaries.py`), so the default spectral and temporal absorber rates scale
+inversely with it unless `boundary_length` is given. Keyword routes also derive default
+steps and longitudinal profiles from `length`.
+
 **Related mechanisms that read the planes:**
 
 - **`step_planes = k`** also saves the end of every `k`-th accepted step, beside the
   requested planes.
-- **`field_planes`** gives indices into the saved planes: the entrance is 0 and negative
-  indices count from the end. It is refused beside `step_planes`.
+- **`fields` and `field_planes`** decide which observations keep a stored field:
+  `fields="none"` keeps statistics and step history only, `fields="planes"` keeps fields at
+  the observation indices in `field_planes` (the entrance is 0 and negative indices count
+  from the end), and `fields="all"` keeps them everywhere. `field_planes` is refused
+  beside `step_planes`.
 - **`interpolate_planes`** observes planes inside steps, except the run's end and the
   hard kinks.
 - **`FixedSchedule`** has its own `z_start` and `z_end`, and its save planes must lie in
   `[z_start, z_end]`. A schedule that ends before the last plane fails at run time ("the
   replayed schedule ends at … and cannot reach …"). One that ends after it is accepted,
-  and its tail is never run.
+  and its tail is never run. `replay_tolerance` (`src/solprop/stepper/schedule.py`)
+  already bounds how far a replayed edge may sit from a target: `LANDING_ULPS = 8` or the
+  step count, whichever is larger, in ulps, because a sum of `n` rounded steps drifts by
+  about `n` ulps.
+- **Landing.** The marches land on a target within `LANDING_ULPS` ulps of it.
 - **Interior launches.** `Simulation(initial_z=...)` already requires
-  `initial_z < grid.length` and every plane to follow it (`_check_initial_position` in
-  `src/solprop/driver/inputs.py`). `Simulation.with_input(..., initial_z=z)` keeps the
+  `initial_z < grid.length` and every plane to follow it, and refuses a fixed schedule
+  (`src/solprop/driver/inputs.py`). `Simulation.with_input(..., initial_z=z)` keeps the
   *remaining* planes, those beyond `z`.
+- **Settings replacement.** The `Simulation.settings` setter accepts new settings before
+  translation, and afterwards only a change of execution resources. It compares settings
+  to protect a translated request and to decide whether an attached recipe still
+  describes the run.
 - **Resume and the configuration hash.** The configuration records the positions
-  (`configuration["save_planes"]`), so a count and the same positions hash alike, and a
-  resume continues to the stored last plane.
+  (`configuration["save_planes"]`), so a count and the same positions hash alike.
+  `driver/resume.py` distinguishes the requested planes from the last committed plane and
+  a terminal checkpoint. `recipe.resume_file` rebuilds the recipe before the resume gate,
+  and `output.hdf5.check_cache` compares the hash before opening a file for append.
+- **The resolved recipe.** `recipe/provenance.py:resolved_document` writes a keyword
+  route's resolved planes and drops its top-level `n_save`, but leaves a nested
+  `[build.settings]` table as written.
 - **Scans** count `len(settings.save_planes) + 1` planes per point.
 
 **The seam.** `assemble` (`src/solprop/translate/assembly.py`) "covers
@@ -104,62 +138,176 @@ Not in scope:
 (`src/solprop/translate/problem.py`) is `max(save_planes)`. No run end separate from the
 planes crosses the seam, in `RunRequest` or in `PropagationProblem`.
 
-**Issues:** this SEP fixes [#533](https://github.com/LupoLab/solprop/issues/533). It
-borders on [#141](https://github.com/LupoLab/solprop/issues/141), which continues a
-finished run, and [#311](https://github.com/LupoLab/solprop/issues/311), which concerns
-`prop_*` and `field_planes`; it changes neither.
+**Issues and pull requests:** this SEP fixes
+[#533](https://github.com/LupoLab/solprop/issues/533) and is tracked by
+[#846](https://github.com/LupoLab/solprop/issues/846). It supersedes the narrow draft fix
+in [PR #843](https://github.com/LupoLab/solprop/pull/843), which checked object-route
+positions against `grid.length` and read an integer as a count; that pull request closes
+in favour of this SEP's implementation. It borders on
+[#141](https://github.com/LupoLab/solprop/issues/141), which continues a finished run,
+and [#311](https://github.com/LupoLab/solprop/issues/311), which concerns `prop_*` and
+`field_planes`; it changes neither.
 
 ### 4. Theory
 
-None. No equation, approximation or default of the physics changes. The only change is
-which positions are saved and how far the run goes.
+None. No equation, approximation or default of the physics changes. What changes is
+which positions are observed and how far a run goes. The run's length is a setup input
+with numerical consequences (the default absorber rates, and a keyword route's default
+steps and profiles, §3), so a test or example whose length is *changed* to fit the new
+rule changes numerically. §7 and Q7 treat that as a deliberate, qualified change, never as
+a neutral migration.
 
 ### 5. Proposed interface
 
-**Decided by the maintainer (2026-11-15):**
+The maintainer's decisions D1–D8 (Part III) settle every choice below; the questions
+they answer are recorded in §12.
 
-1. **Length is the limit and the end.** Every run marches from its launch to its length:
-   `length` on a keyword route, and `grid.length` on an object route, where the keyword
-   route's `length` is the same number, because it builds the grid. Saved planes are
-   chosen inside `(launch, length]`.
-2. **One pair everywhere.** Every route takes the same two parameters:
-   - `n_save`: a count of planes **including `z = 0`**, at least 2, placed evenly over
-     `[0, length]`;
-   - `save_planes`: positions in m, increasing, in `(0, length]`, with `z = 0` implicit.
+**5.1 The length, stated once (D2).** On every keyword route, `length` becomes optional
+and keyword-only, and the same rule holds for a recipe's keyword-route parameters:
 
-   The two are mutually exclusive. Given neither, a run saves `DEFAULT_N_SAVE = 201`
-   planes. `SimulationSettings` gains `n_save`, and its `save_planes` becomes optional.
-3. **No bare numbers.** A bare integer in `save_planes` is refused with "pass
-   `n_save=<int>`", and a lone float with "pass `[<value>]`, or `n_save`". This holds in
-   Python and in recipes: `save_planes = 80` in `[build.settings]` gives a `RecipeError`
-   suggesting `n_save = 80`. The integer form leaves the `save_planes` metadata, and
-   `n_save` joins the object routes' settings metadata.
-4. **Recipes, export and front end.** Recipes and the Python export write `n_save` and
-   `save_planes` as given. The front end's "Saved planes" means `n_save` on every sheet,
-   counting the entrance, and it writes `n_save` rather than expanding positions, so a
-   length change no longer rewrites a list.
+| Supplied | Resolution |
+|---|---|
+| `length`, without `grid` | Build the grid with that length. |
+| `grid`, without `length` | Take the length from `grid.length`. |
+| Both | Require agreement under §5.4, then use `grid.length`; refuse a mismatch, naming both values. |
+| Neither | Refuse: "a length or a grid is required". |
 
-**Resolution.** Settings do not know the length. `n_save`, or the default, is therefore
-resolved into positions where a simulation adopts its settings and the grid is known.
-After adoption, `simulation.settings.save_planes` holds the resolved positions and
-`n_save` is `None`. Everything downstream (resume, `with_*`, metadata, the hash,
-provenance, scans) keeps reading positions, and a count still hashes like its positions.
-One private helper holds the placement rule; the keyword routes' `_save_planes` in
-`src/solprop/driver/settings.py` becomes it.
+All length-dependent setup (the grid, default steps, profiles, the absorber's default
+reference length and the run's end) uses that one value. A supplied grid is never altered
+or rebuilt, and no conflict is settled silently. On an object route the length is
+`grid.length`.
 
-**How the seam carries the end (recommended, Q1 option A).** The driver guarantees that
-the last resolved save plane *is* the length, so `StepperSettings.z_end =
-max(save_planes)` is the run end with no new field. `assemble` and below keep their
-meaning, and `RunRequest`, `PropagationProblem` and the frozen tables of
-`tests/backends/test_driver.py` are unchanged. A caller of `assemble` directly, below the
-driver, still ends at its last plane.
+**5.2 The interval and its endpoints (D1).** Every run marches over
+`[initial_z, length]`. `initial_z` is 0 unless an interior launch sets it; `length` is the
+absolute end coordinate, so the distance propagated is `length - initial_z`. The
+entrance and the end are always observations: the entrance is observation index 0 and
+the end is index −1. An observation is a position where the run records its state; it
+does not imply a stored field. Every observation, the two endpoints included, obeys
+`fields` and `field_planes` unchanged, so `fields="none"` keeps statistics and step
+history only, and `fields="planes"` keeps fields only at the selected indices. Terminal
+checkpoints are separate and keep their restart policy.
+
+**5.3 The selectors (D3, D6, D8).** Every route takes the same two parameters, which are
+mutually exclusive:
+
+- `n_save=N`: an integer `N ≥ 2`. A fresh request places exactly `N` evenly spaced
+  observations over `[initial_z, length]`, both endpoints included.
+- `save_planes`: a sequence of positions in m, finite and strictly increasing, inside
+  `[initial_z, length]`. The entrance and the end are added when absent; either may be
+  listed, and each appears once (§5.4). `save_planes=[]` requests only the two
+  endpoints.
+
+Given neither, a run takes its route's default count: `DEFAULT_N_SAVE = 201` in general,
+and `n_save = 2` with `step_planes = 1` on the TDSE capillary (D6). Explicit settings
+take precedence over a route default. `step_planes` adds its natural-step observations to
+the requested ones, so the recorded count can exceed `n_save`. `SimulationSettings`
+gains `n_save`, and its `save_planes` becomes optional.
+
+**5.4 Endpoint rounding (D5).** A supplied position within `LANDING_ULPS` ulps of the end
+(the marches' existing landing tolerance) is the end, and becomes exactly `length`; the
+same holds at the entrance. Interior positions keep their supplied values. After
+normalization, one observation remains at each endpoint, and a position beyond the end or
+before the entrance is refused. When both `length` and `grid` are given, they agree when
+they are within the same `LANDING_ULPS` ulps, and `grid.length` is then the canonical
+value. For example, `0.1 + 0.2` and `np.nextafter(0.3, 0.0)` are both the end of a run of
+length `0.3`, and `0.31` is refused.
+
+**5.5 Refusals.** Every refusal is a `DriverError` in Python and a `RecipeError` in a
+recipe, with one message naming the fix:
+
+| Input | Message names |
+|---|---|
+| `save_planes=80` (a bare integer) | "pass `n_save=80`" |
+| `save_planes=0.25` (a lone float) | "pass `[0.25]`, or `n_save`" |
+| both `n_save` and `save_planes` | "give one of `n_save` and `save_planes`" |
+| `n_save` below 2, non-integral, or boolean | "`n_save` is an integer of at least 2" |
+| a non-finite, unsorted or repeated position | the offending position |
+| a position before the entrance or beyond the end | the position, the interval and "raise `length` (or `grid.length`)" |
+| `length` and `grid.length` that disagree | both values |
+| neither `length` nor `grid` on a keyword route | "a length or a grid is required" |
+| a replay schedule that does not cover the interval | the schedule's start or end and the run's (§5.7) |
+
+The integer form leaves the `save_planes` metadata, and `n_save` joins the object routes'
+settings metadata, so `Recipe.check()` refuses `save_planes = 80` with the same message.
+
+**5.6 Resolution and adoption (D3; R5).** Settings do not know the run's interval, so a
+count, an explicit list or the default is resolved where a simulation adopts settings and
+the interval is known. *Adoption* is every place settings meet a run: the `Simulation`
+constructor, the keyword builders, the `settings` setter, and the `with_*` methods,
+scans and reseeds that copy settings into a new run. At every adoption:
+
+1. the settings are validated against the receiving run, whether they hold a count, a
+   list or resolved positions;
+2. they are resolved into the positions that follow the entrance and end exactly at
+   `length`, and `n_save` becomes `None`;
+3. comparisons (the setter's protection of a translated request, and of an attached
+   recipe) are made on the resolved settings, so a count and its own positions compare
+   equal.
+
+Resolution is idempotent: resolving resolved positions against the same run returns them
+unchanged, because the end is already present and normalization never adds a second one.
+Settings reused on a run with another length are validated afresh, as explicit positions:
+a position beyond the new end is refused, and a shorter list gains the new end. To carry
+a *count* to another run, pass the authored settings, or
+`dataclasses.replace(settings, n_save=N, save_planes=None)`; the message for "both given"
+says so. After translation the setter still refuses any change to the planes.
+
+`Simulation.with_input(..., initial_z=z)` does not request a new count. It keeps the
+already resolved observations beyond `z`, which always include the end, and records the
+new entrance at `z` (D3).
+
+One private helper holds the placement, normalization and refusal rules; the keyword
+routes' `_save_planes` in `src/solprop/driver/settings.py` becomes it.
+
+**5.7 Replay schedules (D4).** On routes that support replay, a `FixedSchedule`'s start
+must agree with the entrance under §5.4's tight rule, and its end with `length` within
+`replay_tolerance`, which allows the step sum's accumulated rounding. A shorter or longer
+schedule is refused at adoption, before execution; a longer tail is never ignored and the
+steps are never adjusted to fit. Interior launches keep refusing replay.
+
+**5.8 How the seam carries the end.** The driver guarantees that the last resolved
+position *is* `length`, so `StepperSettings.z_end = max(save_planes)` is the run's end with
+no new field. `assemble` and below keep their meaning, and `RunRequest`,
+`PropagationProblem` and the frozen tables of `tests/backends/test_driver.py` are
+unchanged. A caller of `assemble` directly, below the driver, still ends at its last
+plane, so a deliberately short test may live there.
+
+**5.9 Recipes, export, provenance and resume (R6, R7).**
+
+- *Authored text.* Recipes and the Python export keep what the author wrote: `n_save`,
+  `save_planes`, `length` or `grid`, or neither selector.
+- *The resolved recipe* (`Recipe.from_output(..., resolved=True)`) rebuilds the same run
+  without depending on defaults. It writes only the canonical resolved positions, ending
+  at the length, at the level the route reads them (top level on a keyword route,
+  `[build.settings]` on an object route), and drops `n_save`. A route default, the TDSE
+  `n_save = 2` and `step_planes = 1` included, is written out resolved, so a later change
+  of a default does not change the rebuilt configuration hash.
+- *Resume* continues a file to its *declared* end, the last requested position in
+  `configuration["save_planes"]`, which equals `grid.length` for every file written under
+  this SEP. That is distinct from the last committed plane and from a terminal
+  checkpoint: an interrupted file, or one that holds a terminal checkpoint, resumes as
+  today. No compatibility path is kept for files written before this SEP; they meet the
+  existing hash refusal.
+
+**5.10 The front end (D7).** Object and keyword sheets offer two modes for the saved
+planes: "Evenly spaced" edits `n_save`, counting both endpoints, and "Explicit positions"
+edits `save_planes`. Switching modes replaces the other selector in one undoable edit,
+so a document never holds both. A length change redistributes a count automatically.
+Explicit positions stay as entered: the automatic end follows the new length, and a
+position beyond a shortened length is a validation error shown on the field. A loaded
+document opens in the mode of the selector it holds; an arbitrary list is never shown as,
+or replaced by, its count.
 
 ```text
 Simulation.from_free(grid, space, medium, responses, beam,
-                     settings=SimulationSettings(n_save=81))      # 81 planes over grid.length
-SimulationSettings(save_planes=[0.05, 0.1])                       # grid.length = 0.1: two planes and the entrance
-SimulationSettings(save_planes=80)        -> DriverError: "... pass n_save=80"
-SimulationSettings(save_planes=[0.3])     -> DriverError at adoption: "0.3 m is beyond grid.length = 0.25 m"
+                     settings=SimulationSettings(n_save=81))     # 81 observations over [0, grid.length]
+SimulationSettings(save_planes=[0.05])                           # grid.length = 0.1: entrance, 0.05 m and the end
+SimulationSettings(save_planes=[])                               # entrance and end only
+Simulation(..., initial_z=0.04, settings=SimulationSettings(n_save=4))
+                                                                 # grid.length = 0.1: 0.04, 0.06, 0.08, 0.1 m
+SimulationSettings(save_planes=80)       -> DriverError: "... pass n_save=80"
+SimulationSettings(save_planes=[0.3])    -> DriverError at adoption: "0.3 m is beyond the end, grid.length = 0.25 m; ..."
+prop_gnlse(..., length=1e-3, grid=grid)  -> DriverError if grid.length = 1e-4: names both
 ```
 
 ```text
@@ -171,188 +319,203 @@ n_save = 81                # was a list of 80 positions in the filament recipe
 ### 6. Implementation strategies
 
 - **Layer.** The driver and the recipe layer, plus the front end. The physics and backend
-  layers are untouched, and so is the seam under option A of Q1.
-- **Where the rules apply.** In one function that the `Simulation` constructor calls for
-  the settings it adopts, and that the keyword routes call before they build their
-  `Simulation`. Settings that are already resolved, copied by `with_input`,
-  `with_mixture`, a reseed or a scan point, pass through unchanged.
+  layers are untouched, and so is the seam (§5.8).
+- **Where the rules apply.** One helper places, normalizes and refuses; one adoption
+  function calls it for every adoption in §5.6, so no route has its own copy. The keyword
+  routes resolve `length` against `grid` (§5.1) before anything that depends on the
+  length, then build their `Simulation` through the same adoption.
+- **Replay** is checked in the same adoption function, with `replay_tolerance` for the end
+  and the tight rule for the start.
+- **Resume** reads the declared end from the stored configuration in `driver/resume.py`,
+  and the recipe-driven path reaches the same gate.
 - **Backends.** Nothing backend-specific. `numpy_ref` and the native CPU build run the
-  same requests as today for every run that ends at its length.
+  same requests as today for every run that already ends at its length from `z = 0`.
 - **Cost estimate** (`poe size`):
 
   | | Added | Removed |
   |---|---|---|
-  | Code | about 150 lines: the resolver and refusals, `n_save` on settings, the recipe metadata and export, the front-end field | about 60 lines: the front end's plane rewriting and list expansion |
-  | Docstrings | about 80 lines | — |
-  | Tests | about 250 lines: the refusal table, count/positions parity, the end rule per route, recipe and export round trips, the front-end field | — |
+  | Code | about 250 lines: the helper and refusals, adoption in the setter and `with_*`, `n_save` on settings, `length`/`grid` resolution, replay checks, the resolved recipe, the front-end modes | about 60 lines: the front end's plane rewriting and list expansion, the routes' private length handling |
+  | Docstrings | about 100 lines | — |
+  | Tests | about 450 lines: the refusal table, the rounding cases, count/positions parity, the end rule and interior launches per route, adoption and reuse, replay, resume, the resolved recipe, the front-end modes | — |
 
-  Separately, an estimated 10–30 existing tests and snippets need edits (see Q7). Option
-  B of Q1 would add about 150 lines of code and a rewrite of the frozen seam tables.
+  Separately, an estimated 10–30 existing tests, snippets and examples need edits (Q7).
 - **Dependencies:** none.
 
 ### 7. Verification and validation
 
-- **Refusals.** A table of every refused form on every route kind, Python and recipe,
-  each with its message: a bare integer, a lone float, both parameters given, a count
-  below 2, positions not increasing, positions beyond the length, and a schedule that
-  does not end at the length.
+- **Refusals.** Every row of §5.5's table, on every route kind, in Python and in a
+  recipe, with its message.
+- **Endpoint rounding.** Positions one representable value below, equal to and above the
+  end (`np.nextafter(0.3, 0.0)`, `0.3`, `0.1 + 0.2`) and just beyond `LANDING_ULPS`;
+  `length` and `grid.length` agreeing within and outside the bound; and resolving twice,
+  which adds no plane.
 - **Parity.** `n_save=N` and the positions it resolves to give identical settings, hash
-  and output. This is an exact structural check, since both resolve to the same array.
-- **Unchanged numbers.** For runs that already end at their length, the request is
-  bit-identical, compared on its frozen fields. A short run (about ten steps) per route
-  kind on `numpy_ref` and native CPU matches its pre-change output within the rounding
-  budget of SEP 25.
-- **End rule.** Per route kind, the last saved plane equals the length, the plane count
-  is as specified, and `with_input(initial_z=…)` keeps the remaining planes and the end.
-- **Recipes and front end.** Round trips of `n_save` through `Recipe.check()`, build and
-  export, and the front end's field writing `n_save`.
+  and output. This is an exact structural check, since both resolve to the same array; it
+  says nothing about an independently written decimal list (R9).
+- **End rule.** Per route kind, the first observation is the entrance, the last equals the
+  length, and the count is as specified. Direct interior launches with `n_save`, on and
+  off the lattice of a zero-based count; `with_input(initial_z=…)` keeping the remaining
+  observations and the end; `save_planes=[]`; listed endpoints appearing once.
+- **Adoption.** Construction, replacement through the setter, repeated adoption, reuse of
+  resolved settings at another length, the count/list switch, and the existing refusal to
+  change a translated run's planes.
+- **Replay.** `FixedSchedule.uniform` and `from_history` schedules whose sums drift below
+  and above the length within `replay_tolerance` are accepted; genuinely shorter and
+  longer schedules, and a start that is not the entrance, are refused before execution.
+- **Resume and provenance.** Interrupted, terminally checkpointed and completed files
+  resume to the declared end, directly and through `recipe.resume_file`. Resolved recipes
+  round-trip through `Recipe.from_output(..., resolved=True)` for a count, explicit
+  positions, neither selector and the TDSE default, and the rebuilt hash does not change
+  when a default count is changed.
+- **Unchanged numbers.** For runs that already end at their length from `z = 0`, the
+  request is bit-identical on its frozen fields, and a short run (about ten steps) per
+  route kind on `numpy_ref` and native CPU matches its pre-change output within the
+  rounding budget of SEP 25. Identical numbers are not identical hashes: hash
+  preservation is not required (§9).
+- **Changed numbers.** A test or example whose length or planes change is a deliberate
+  change, recorded and re-qualified on `numpy_ref` and native CPU (Q7).
+- **Front end.** Both modes, the switch as one undoable edit, length changes in each mode,
+  uniform and non-uniform loaded lists, save and reload.
 
 ### 8. Documentation
 
 - **Manual pages:**
-  - `guide/setup/running.md`: the one rule, and the end of a run;
-  - `guide/setup/recipes.md`;
+  - `guide/setup/running.md`: the length stated once, the interval, the two selectors,
+    the endpoints and endpoint rounding;
+  - `guide/setup/recipes.md`, including the resolved recipe;
   - the free-space and planar pages that use the `np.linspace(0, length, N)[1:]` idiom,
     which becomes `n_save` where natural;
-  - the front end's page on saved planes.
-- **Docstrings:** `SimulationSettings`, `Simulation`, `from_free`, `from_planar`, the
-  keyword interfaces and the recipe metadata.
-- **Changelog:** a `.changed` fragment with the migration, and a `.fixed` fragment for
-  #533.
+  - the front end's page on saved planes and its two modes.
+- **Docstrings:** `SimulationSettings`, `Simulation` and its `settings` setter,
+  `with_input`, `from_free`, `from_planar`, the keyword interfaces (`length` and `grid`),
+  and the recipe metadata.
+- **Changelog:** a `.changed` fragment with the migration (Q7), and a `.fixed` fragment
+  for #533.
 - **Examples:** the filament and crossing-beam recipes and galleries may switch to
-  `n_save`; their output is unchanged.
+  `n_save`. A converted example is a migration whose positions, and so whose hash, may
+  differ in the last bit; an edited gallery is regenerated under the documentation
+  policy.
 
 ### 9. Compatibility and impact
 
-This is a breaking change to the public interface. Every break either is refused with a
-message naming the fix or is listed in the changelog (Q7). Under option A the output
-schema, kernel contract and frozen seam tables are unchanged. Validated results are
-unchanged wherever a run already ends at its length. No deliberate difference from Luna.jl
-is introduced.
+This is a breaking change to the public interface, and backwards compatibility is not a
+requirement (maintainer, Part III): pre-change configuration hashes, old recipes and old
+output files do not constrain it. Newly created runs must still reproduce their recorded
+configuration, and numerical correctness and rounding bounds still hold. Every break is
+either refused with a message naming the fix or listed in the changelog (Q7). The output
+schema, the kernel contract and the frozen seam tables are unchanged. Validated results
+are unchanged wherever a run already ends at its length; where a test's length or planes
+are changed instead, its numbers change deliberately (§4). No deliberate difference from
+Luna.jl is introduced.
 
 ### 10. Alternatives considered
 
 - **Keep positions as the end, and only check against `grid.length`.** This was the first
-  fix for #533. The maintainer rejected it because two conventions would remain.
+  fix for #533 (PR #843). The maintainer rejected it because two conventions would remain.
 - **Read an integer `save_planes` as a count.** This overloads one name with two meanings,
   and the keyword routes already spell the count `n_save`.
-- **Make the run end a separate field of the seam.** This is option B of Q1.
+- **Make the run end a separate field of the seam,** so positions short of the length need
+  not save the end. This needs a seam change with frozen tables; recording the end
+  always (D1) makes it unnecessary.
+- **Refuse positions that do not end at the length.** Rejected for D1: the end is added,
+  as the entrance is.
+- **Count `n_save` over `[0, length]` and filter for interior launches.** This was the
+  draft's rule and R4's recommendation; D3 counts over the launched interval instead, so a
+  count always means that many observations.
+- **Prefer one of `length` and `grid` when both are given.** Rejected for D2: a conflict
+  is refused, never settled silently.
+- **A fixed "few ulps" allowance for a replay's end.** It refuses valid schedules whose
+  step sums drift (R2); D4 uses `replay_tolerance`.
 
 ### 11. Phases
 
 1. **Driver and recipes.**
-   - Deliverables: the resolver, `n_save` on settings, the refusals, the end rule on
-     every route, the recipe metadata and export, the tests and edits, the manual pages
-     and the changelog.
-   - Survey: run the affected test modules with an instrumented adoption to count every
-     run whose end moves, before editing (Q7).
+   - Survey first: run the affected test modules with an instrumented adoption, to count
+     every run whose end moves, whose positions are refused, and whose keyword route
+     passes both `length` and `grid` (Q7).
+   - Deliverables: the helper, adoption, `n_save` on settings, `length`/`grid`
+     resolution, the refusals, the end rule on every route, replay, resume, the recipe
+     metadata, export and resolved recipe, the tests and edits, the manual pages and the
+     changelog.
    - Verify: §7 on `numpy_ref` and the native CPU build.
 2. **Front end.**
-   - Deliverables: "Saved planes" as `n_save` on every sheet, written as `n_save`, with
-     the list rewriting removed; the front-end gate.
+   - Deliverables: the two modes on every sheet, with the list rewriting removed; the
+     front-end gate.
 
-Both phases are small, and could merge as one pull request if the maintainer prefers.
+Both phases are small, and may merge as one pull request.
 
 ### 12. Open questions
 
-Each question below gives the options and a recommendation; the maintainer decides.
+None remain. The draft's questions were settled by the maintainer after the AI review
+(D1–D8, Part III):
 
-- **Q1 — Explicit positions that stop short of the length.**
-  - A: the end is always saved, appended when it is not listed, the way `z = 0` is
-    always saved.
-  - B: the run marches on to the length without saving it. This needs a run end
-    separate from the planes in `RunRequest` and `assemble`: a seam change with frozen
-    tables and a release note.
-  - C: refuse positions whose last entry is not the length.
+- **Q1 — positions short of the length:** the end is always recorded, appended when
+  absent (D1).
+- **Q2 — positions beyond the length:** refused on every route, after endpoint rounding
+  (D1, D5).
+- **Q3 — a replay schedule's ends:** both must cover the interval; the end within
+  `replay_tolerance` (D4).
+- **Q4 — the TDSE default:** kept as a route default, `n_save = 2` and `step_planes = 1`
+  (D6).
+- **Q5 — `step_planes` and `field_planes`:** unchanged; observations obey the retention
+  policy, and `-1` is always the end (D1, D6).
+- **Q6 — resume, interior launches and `with_*`:** counts are over the launched interval
+  (D3); `with_input` keeps the resolved remaining observations (D3); resume reads the
+  declared end, and no legacy path is kept (compatibility constraint).
+- **Q7 — migration and blast radius:** below.
 
-  *Recommended: A.* It is symmetric with the implicit entrance, needs no seam change, and
-  computing a stretch that is never saved has no use. `save_planes=[length]` then means
-  "only the end", as it does now.
+**Q7 — Migration and blast radius.** The breaks, each with its message:
 
-- **Q2 — Positions beyond the length.**
-  - A: refuse them on every route, keyword routes included, naming the length:
-    "z = 0.3 m is beyond the run's length 0.25 m; raise length (or grid.length)".
-  - B: refuse them only on object routes.
+1. `save_planes=N` as a bare integer: refused, "pass `n_save=N`", in Python and in
+   recipes.
+2. `save_planes=x` as a lone float: refused, "pass `[x]`, or `n_save`".
+3. A position before the entrance or beyond the end: refused, naming the interval.
+4. Positions short of the length: the run now continues to the length and records it.
+   This raises no error and is listed in the changelog. Indices counted from the end
+   (`field_planes=[-1, …]`) then point to different planes.
+5. A replay schedule that does not cover the interval: refused.
+6. `length` is keyword-only and optional on keyword routes; a positional `length` fails
+   with Python's own error, and `length` with a disagreeing `grid` is refused.
+7. `n_save` with an interior launch counts over `[initial_z, length]`.
+8. The front end's object sheets: "Saved planes" becomes a mode. A saved document holds
+   the expanded list, so it opens as "Explicit positions", unchanged. A count entered as
+   80 on an object sheet today gave 81 observations with the entrance; the same planes
+   are now "Evenly spaced" with `n_save = 81`.
 
-  *Recommended: A.* Consistency was the reason for this SEP, and a plane beyond the
-  length sits on a grid and collar sized for a shorter run.
+*Blast radius, from a static survey of the tree at 2026-11-15:*
 
-- **Q3 — `FixedSchedule`'s own end.**
-  - A: `z_start` must equal the launch and `z_end` the length, within a few ulps of the
-    length. This is refused at translation, with "the schedule ends at … and the run at
-    length …".
-  - B: require only `z_end ≥ length`, so a longer schedule's tail is silently unused.
+- **Object-route files.** About 117 files build an object-route simulation with save
+  planes: 84 in tests, 15 in the manual and galleries, 4 in benchmarks and 3 in the
+  package.
+- **Unchanged.** About half write the end as the length symbolically (`[grid.length]`,
+  `[LENGTH]`, `[length]`, a `linspace` ending at the length). Most of the rest write a
+  literal equal to the grid's literal length.
+- **Flagged.** A pattern scan flags 11 files as possible mismatches. A manual check
+  confirmed two:
+  - `tests/backends/test_far_field_statistics.py`: planes at 0.1 mm on a 1 mm grid, so
+    the run would end later;
+  - `tests/driver/test_initial_z_and_checkpoint.py`: a plane at 1 mm on a 0.1 mm grid,
+    which would be refused.
 
-  *Recommended: A.* It turns today's run-time "cannot reach" failure into an early
-  refusal, and a schedule that ends past the run would be a second, contradicting
-  statement of the length.
+  The others depend on fixtures, construct settings without running them, or call
+  `assemble` below the driver, which is unaffected.
+- **Recipe examples.** None of the nine object-route example recipes is affected: each
+  ends at its `grid.length`. Neither is any gallery script found.
+- **Keyword routes.** Explicit positions short of `length`, positional `length` and
+  `length` beside `grid=` are counted in phase 1.
 
-- **Q4 — The TDSE default.** Given neither parameter, a TDSE run saves the entrance, the
-  end and every natural step.
-  - A: keep it, stated as a route default (`n_save = 2`, `step_planes = 1`) under the
-    general rule.
-  - B: drop it for the general default of 201 planes.
+**How a flagged test is fixed (R3).** Shortening a grid is not neutral: it raises the
+default absorber rates in proportion, and on a keyword route it can change the default
+steps and profiles. A fix therefore first asks what the test means:
 
-  *Recommended: A.* A TDSE step is expensive and its natural steps are the useful record.
-  Under the new rule the default is just a different count.
+- *A deliberately short window of a longer setup* keeps its length and physics: it keeps
+  the original grid and records the end, or pins `boundary_length` (and any step or
+  profile choice) to the original values before shortening the grid, or moves below the
+  driver to `assemble`, which still ends at its last plane.
+- *A mismatched setup* is corrected to the intended length, and its numerical change is
+  recorded and re-qualified.
 
-- **Q5 — `step_planes` and `field_planes`.**
-  - `step_planes` needs no change: natural-step planes stay additional, and under Q1 A
-    the end is always among the planes.
-  - `field_planes` keeps indices into the resolved planes. Under Q1 A, `-1` is always the
-    end, which is more robust than today.
-
-  *Recommended:* the one break to document is a script that listed positions short of
-  the length: it gains an end plane, so indices counted from the end (`-1`, `-2`, …) now
-  point to different planes.
-
-- **Q6 — Resume, interior launches and `with_*`.**
-  - The remaining planes after an interior launch at `z` become "the resolved planes
-    beyond `z`", which always include the end.
-  - A resume continues to the stored length, which equals the stored last plane.
-  - `with_*` copies resolved settings unchanged.
-  - A file written before this SEP whose last plane is not its `grid.length`:
-    - A: refuse to resume it, saying it predates SEP 51, and suggest `with_input` from
-      its last plane;
-    - B: resume it to its stored last plane under the old rule.
-
-  *Recommended: A.* Such a file can only come from a script that relied on the old end,
-  and keeping the old rule alive for resume alone would be a second rule.
-
-- **Q7 — Migration and blast radius.** The breaks, each with its message:
-  1. `save_planes=N` as a bare integer: refused, "pass `n_save=N`", in Python and in
-     recipes.
-  2. `save_planes=x` as a lone float: refused, "pass `[x]`, or `n_save`".
-  3. A position beyond the length: refused, naming the length (Q2).
-  4. Positions short of the length: the run now continues to the length and saves it
-     (Q1 A). This raises no error and is listed in the changelog.
-  5. A schedule that does not end at the length: refused (Q3).
-  6. The front end's object sheets: "Saved planes" grows by one, the entrance. Saved
-     recipes are unaffected.
-
-  *Blast radius, from a static survey of the tree at 2026-11-15:*
-  - **Object-route files.** About 117 files build an object-route simulation with save
-    planes: 84 in tests, 15 in the manual and galleries, 4 in benchmarks and 3 in the
-    package.
-  - **Unchanged.** About half write the end as the length symbolically (`[grid.length]`,
-    `[LENGTH]`, `[length]`, a `linspace` ending at the length). Most of the rest write a
-    literal equal to the grid's literal length.
-  - **Flagged.** A pattern scan flags 11 files as possible mismatches. A manual check
-    confirmed two:
-    - `tests/backends/test_far_field_statistics.py`: planes at 0.1 mm on a 1 mm grid, so
-      the run would end later;
-    - `tests/driver/test_initial_z_and_checkpoint.py`: a plane at 1 mm on a 0.1 mm grid,
-      which would be refused.
-
-    The others depend on fixtures, construct settings without running them, or call
-    `assemble` below the driver, which is unaffected.
-  - **Recipe examples.** None of the nine object-route example recipes is affected: each
-    ends at its `grid.length`. Neither is any gallery script found.
-  - **Keyword routes.** Explicit positions short of `length` will be counted in phase 1.
-
-  Phase 1 replaces these estimates with a counted list before any edit. A fix never
-  changes a physics setting: it sets the grid's length to the intended end, or uses
-  `n_save`.
+Replacing the planes by `n_save` extends a short run; it never preserves the short window.
 
 ### 13. References
 
@@ -367,6 +530,8 @@ None beyond solprop's own documentation and issues, cited where used.
 - 2026-11-15: GPT-6 completed an AI review of Part I at PR #847, commit
   `4d9af1fc480399c7f8e28814a16f32ca2e257f03`. Findings and questions follow;
   Part I is unchanged.
+- 2026-11-15: John Travers reviewed the proposal and recorded decisions D1–D8. The
+  drafting agent revised Part I to match and responded to R1–R10.
 
 ### AI review — 2026-11-15
 
@@ -698,3 +863,63 @@ remain implementation and verification requirements:
 - Update scientific tests and examples deliberately, accounting for the effect
   of a changed grid length on absorber rates and other derived settings (R3),
   and qualify the new behavior on the reference and native CPU backends.
+
+### Response to review — 2026-11-15
+
+Part I was revised to reconcile D1–D8 and the compatibility constraint, and to answer
+R1–R10 point by point. The maintainer's review, recorded as the decisions above, is
+added to **Reviewers**, and **Review status** becomes `Reviewed`.
+
+- **R1 (keyword route given a grid):** taken, as D2. §3 records that `_gnlse_grid` and
+  `_capillary_grid` (and the general modal route through it) keep a supplied grid
+  unchecked. §5.1 makes `length` optional and keyword-only, with the four-row
+  resolution table; a disagreement is refused naming both values, under §5.4's rounding
+  rule, and a grid is never rebuilt. Python and recipes share the rule (§5.1, §5.5).
+  Q7 item 6 lists the break, and phase 1 counts the affected calls.
+- **R2 (replay end):** taken, as D4. §5.7 compares the end with `replay_tolerance` and the
+  start with the tight rule; §3 cites the existing bound and its drift argument. The
+  check is at adoption, so direct `assemble` callers keep their meaning (§5.8). §7 adds
+  drift on both sides for `uniform` and `from_history`, and refusals outside the bound.
+  §10 records the rejected fixed allowance.
+- **R3 (changing a grid's length is not neutral):** taken. §3 states what depends on the
+  length, §4 says a changed length is a numerical change, and Q7's closing paragraph
+  replaces "a fix never changes a physics setting" with two cases: a deliberately short
+  window keeps its physics (keep the grid, pin `boundary_length` and step or profile
+  choices, or move below the driver), and a mismatched setup is corrected and
+  re-qualified. §7 adds "Changed numbers".
+- **R4 (counts with an interior launch):** superseded by D3. §5.3 counts `n_save` over
+  `[initial_z, length]`, both endpoints included, with an example in §5.10's listing; the
+  filtering recommendation is not taken (§10). Per D8, an explicit position equal to the
+  launch is accepted and kept once; positions before it are refused (§§5.3–5.5).
+  `with_input` keeps the resolved remaining observations (§5.6). §5.7 and §2 state that
+  replay for interior launches stays refused. §7 tests direct construction on and off a
+  zero-based lattice, and `with_input`.
+- **R5 (settings replacement and reuse):** taken. §5.6 defines adoption to include the
+  setter, `with_*`, scans and reseeds; validates against the receiving run every time;
+  resolves before comparing; makes resolution idempotent; explains reuse at another
+  length and how to pass a count without supplying both. The refusal to change a
+  translated run's planes stays. §7 tests each.
+- **R6 (declared end on resume):** taken in part. §5.9 resumes to the declared end, the
+  last requested position in `configuration["save_planes"]`, distinct from the last
+  committed plane and a terminal checkpoint, through both `driver/resume.py` and
+  `recipe.resume_file` (§6). The legacy-file refusal and its message are dropped: under
+  the compatibility constraint no path for pre-SEP files is kept, and they meet the
+  existing hash refusal. `with_input` recovery is therefore not described.
+- **R7 (authored recipes versus resolved provenance):** taken. §5.9 keeps authored text and
+  export as written, and makes the resolved recipe write only canonical positions at the
+  route's level, nested `[build.settings]` included, with defaults (the TDSE default too)
+  written out. §7 adds the round trips and the default-change hash check.
+- **R8 (front end):** taken, as D7. §5.10 defines the two modes, the switch as one undoable
+  edit, length changes in each mode and loading. Q7 item 8 separates the two count cases
+  (a legacy object-sheet count of 80 is `n_save = 81`). §7 lists the front-end tests.
+- **R9 (converted lists are not identical):** taken, within the compatibility constraint.
+  §7 limits structural parity to the resolver's own array and separates unchanged numbers
+  from unchanged hashes; §8 treats a converted example as a migration and requires
+  regenerated galleries. Hash preservation is no longer required, so lists are not kept
+  for identity's sake and nothing is rounded to force a match.
+- **R10 (endpoint equality):** taken, as D5 and D8. §5.4 normalizes within `LANDING_ULPS`
+  ulps of either endpoint, keeps one endpoint observation and refuses positions genuinely
+  outside, with the `0.1 + 0.2` and `np.nextafter` cases. §5.5 completes the refusal table
+  (non-finite, unsorted, repeated, non-integral and boolean counts); an empty list is
+  accepted as endpoints only (D8). §7 tests below, at, above and just outside the bound,
+  and that resolving twice adds no plane.
