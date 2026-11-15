@@ -685,7 +685,7 @@ def test_a_selection_refuses_a_custom_species_and_a_missing_carrier():
     )
     with pytest.raises(MaterialError, match="custom species"):
         selected_rate(supplied, selection, WAVELENGTH)
-    with pytest.raises(MaterialError, match="custom species"):
+    with pytest.raises(MaterialError, match=r"dispersion-only.*use Mixture\.air"):
         selected_rate(species("Air"), selection, WAVELENGTH)
     with pytest.raises(MaterialError, match="carrier wavelength"):
         selected_rate(argon, selection, None)

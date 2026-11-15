@@ -39,11 +39,15 @@ There are two different things called air, and only one of them is nonlinear.
   Raman data. Used as a species in a fill built by hand, such as
   `Mixture.fill({"Air": 1.0}, 1.0)`, it gives the right linear index but carries no
   Raman response under the default selection, refuses a Kerr response
-  (`Air (Air) has no Kerr data`) and refuses plasma, and an explicit Raman selection of
-  its label raises. On the keyword interfaces `kerr=False, raman=True` is refused for
-  every gas (`raman=True needs kerr=True`), and with `kerr=False` and `raman` unset the
-  fill runs with no nonlinear response at all and no warning, so a hand-built `Air` fill
-  is a linear medium; use `Mixture.air` for a nonlinear one.
+  (`Air (Air): Air has no Kerr data`) and refuses plasma, and an explicit Raman
+  selection of its label raises; each of these refusals names `Mixture.air`.
+  On the keyword interfaces `kerr=False, raman=True` is refused for every gas
+  (`raman=True needs kerr=True`). With `kerr=False` and `raman` unset the fill runs with
+  no nonlinear response at all only where plasma is off too: on an envelope grid
+  (`envelope=True`), where plasma is off by default and solprop logs once at INFO that
+  the fill is linear, or with an explicit `plasma=False`. On a field grid plasma is on
+  by default, so `kerr=False` alone still meets the plasma refusal. A hand-built `Air`
+  fill is a linear medium; use `Mixture.air` for a nonlinear one.
 - **`Mixture.air(pressure, ...)`** builds separate nitrogen, oxygen and argon
   populations (optmat's CIPM-2007 composition `"dry air (N2, O2, Ar)"`, renormalised
   over the three), each with its own dispersion, Kerr coefficient,

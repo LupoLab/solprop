@@ -96,7 +96,12 @@ from solprop.physdata import Gas, Mixture, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
-from solprop.physdata.species import Species, built_in_population
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    Species,
+    built_in_population,
+    dispersion_only_air,
+)
 from solprop.profiles import PressureGradient, ZProfile, as_profile
 from solprop.pulses import Pulse
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec, default_spec
@@ -398,6 +403,22 @@ class _HollowRequest:
     tdse_execution: TDSEExecution | None = None
 
 
+def _note_linear_air(
+    request: _HollowRequest, mixture: Mixture, responses: Sequence[object]
+) -> None:
+    """Log that a fill with the dispersion-only built-in ``Air`` entry runs linear.
+
+    Only on the envelope route with plasma left at its default (off there), where
+    switching Kerr off is all it takes to leave the fill without a response; the
+    run proceeds, since a linear run in air is a fair request. An explicit
+    ``plasma=False`` beside ``kerr=False`` already says the user chose a linear run.
+    """
+    if not request.envelope or request.plasma is not None or responses:
+        return
+    if any(dispersion_only_air(component.species) for component in mixture.components):
+        logger.info("the fill has no nonlinear response: %s", MIXTURE_AIR_POINTER)
+
+
 def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
     cls: type["Simulation"], request: _HollowRequest
 ) -> "Simulation":
@@ -641,6 +662,7 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
             )
     with _about(("preionisation", "plasma")):
         _refuse_idle_preionisation(mixture, responses)
+    _note_linear_air(request, mixture, responses)
     pulse = _shaped_pulse(
         request.shape,
         wavelength=request.wavelength,
