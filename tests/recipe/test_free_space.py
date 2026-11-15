@@ -12,6 +12,7 @@ beam's power written as a literal. Each recipe must build the
 call's configuration hash, so those comparisons are of digests and exact.
 """
 
+import dataclasses
 import json
 import textwrap
 import warnings
@@ -24,6 +25,7 @@ from recipe.test_examples import _PROBE, ENTROPY, record
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.capabilities import route
 from solprop.driver import Simulation, SimulationSettings
+from solprop.driver.settings import counted_save_planes
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import ModeCollection, PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
@@ -366,6 +368,85 @@ def test_a_recipe_builds_the_call_it_stands_for(name):
 @pytest.mark.parametrize("name", ["radial", "line", "planar"])
 def test_check_is_clean(name):
     assert Recipe.loads(CASES[name][0]).check() == []
+
+
+COUNTED = RADIAL.replace('save_planes = ["0.5 mm", "1 mm"]', "save_planes = 80")
+
+
+def test_an_integer_save_planes_counts_planes_over_the_grid_length():
+    """Regression for issue #533: ``save_planes = 80`` was one plane at z = 80 m.
+
+    It is 80 planes, the entrance among them, as ``n_save = 80`` is on a keyword route:
+    79 positions after z = 0, evenly spaced, the last at the grid's 1 mm.
+    """
+    recipe = Recipe.loads(COUNTED)
+    assert recipe.check() == []
+    simulation = recipe.build()
+    planes = np.asarray(simulation.settings.save_planes)
+    # One linspace over one length on both sides: a structural contract, so exact.
+    assert planes.tolist() == np.linspace(0.0, simulation.grid.length, 80)[1:].tolist()
+    assert planes.size + 1 == 80
+    assert planes[-1] == simulation.grid.length == 1e-3
+
+
+def test_a_counted_recipe_is_the_python_call_with_the_same_count():
+    call = _radial_call()
+    call.settings = dataclasses.replace(
+        call.settings, save_planes=counted_save_planes(call.grid.length, 80)
+    )
+    assert _hash(Recipe.loads(COUNTED).build()) == _hash(call)
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [("1", "at least 2, got 1"), ("0", "at least 2, got 0"), ("true", "not True")],
+)
+def test_a_save_planes_count_below_two_or_a_boolean_is_refused_at_check(value, match):
+    text = COUNTED.replace("save_planes = 80", f"save_planes = {value}")
+    issues = Recipe.loads(text).check()
+    assert [issue.severity for issue in issues] == ["error"]
+    assert match in issues[0].message
+    assert issues[0].parameter == "settings.save_planes"
+
+
+def test_a_count_of_planes_needs_the_route_s_grid():
+    table = {
+        "type": "SimulationSettings",
+        "save_planes": 80,
+        "dz_max": 0.1,
+        "dz_init": 1e-3,
+    }
+    with pytest.raises(RecipeError, match="placed over the route's grid") as caught:
+        build_object(table, BuildContext(), "settings")
+    assert caught.value.parameter == "settings.save_planes"
+
+
+def test_check_warns_when_the_last_plane_is_not_the_grid_length():
+    text = RADIAL.replace('["0.5 mm", "1 mm"]', '["0.5 mm", "2 mm"]')
+    issues = Recipe.loads(text).check()
+    mismatch = [issue for issue in issues if "grid.length" in issue.message]
+    assert len(mismatch) == 1
+    assert mismatch[0].severity == "warning"
+    assert mismatch[0].parameter == "settings.save_planes"
+    assert "z = 0.002 m" in mismatch[0].message
+    assert "0.001 m" in mismatch[0].message
+
+
+def test_a_counted_save_planes_round_trips_through_toml_and_python():
+    recipe = Recipe.loads(COUNTED)
+    document = recipe.to_dict()
+    settings = document["build"]["settings"]
+    assert isinstance(settings, dict) and settings["save_planes"] == 80
+    # The canonical text, written from the tables rather than the text read.
+    again = Recipe.loads(Recipe.from_dict(document).to_text())
+    settings = again.to_dict()["build"]["settings"]
+    assert isinstance(settings, dict) and settings["save_planes"] == 80
+    assert again == recipe
+    script = recipe.to_python()
+    assert "save_planes=counted_save_planes(grid.length, 80)," in script
+    assert "import SimulationSettings, counted_save_planes" in script
+    # A list stays positions in metres in the export.
+    assert "save_planes=[0.0005, 0.001]" in Recipe.loads(RADIAL).to_python()
 
 
 def test_the_object_routes_list_their_objects_and_leave_the_absorber_to_settings():

@@ -26,12 +26,13 @@ import typing
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 import numpy as np
 
 from solprop.boundaries import SpatialAbsorber, absorber
-from solprop.driver.settings import SimulationSettings
+from solprop.driver.settings import SimulationSettings, counted_save_planes
+from solprop.exceptions import DriverError
 from solprop.grid import (
     EnvelopeGrid,
     FieldGrid,
@@ -179,12 +180,19 @@ class Factory:
     solves : bool
         Whether calling the target solves on the grid, so that it is not called on a
         stand-in grid (:attr:`BuildContext.stand_in`).
+    counts : tuple of str
+        Keywords whose bare integer is a count of planes, placed over the route's
+        grid's length by :func:`~solprop.driver.settings.counted_save_planes` rather
+        than read in the keyword's unit: ``SimulationSettings``' ``save_planes = 80``
+        is 80 planes, while a list or a float is positions in metres.
 
     Examples
     --------
     >>> from solprop.recipe.registry import REGISTRY
     >>> REGISTRY["GaussianPulse"].units["fwhm"]
     's'
+    >>> REGISTRY["SimulationSettings"].counts
+    ('save_planes',)
     """
 
     name: str
@@ -195,6 +203,24 @@ class Factory:
     omitted: tuple[str, ...] = ()
     fill: tuple[str, ...] = ()
     solves: bool = False
+    counts: tuple[str, ...] = ()
+
+    def counted(self, key: str, value: object) -> bool:
+        """Return whether a keyword's value is a count of planes (:attr:`counts`).
+
+        Parameters
+        ----------
+        key : str
+            The keyword.
+        value : object
+            Its value as TOML read it; a boolean counts too, to be refused as one.
+
+        Returns
+        -------
+        bool
+            True for a bare integer given to one of :attr:`counts`.
+        """
+        return key in self.counts and isinstance(value, int)
 
 
 def _pressure_pair(index: int) -> Unit:
@@ -494,6 +520,7 @@ REGISTRY: Final[Mapping[str, Factory]] = {
                 "evanescent_rate": "m^-1",
             },
             omitted=_SETTINGS_OMITTED,
+            counts=("save_planes",),
         ),
         Factory(
             "PIController",
@@ -732,7 +759,7 @@ def build_object(
                 "route's gas, pressure and temperature, so a mode table names no fill"
             )
             raise RecipeError(msg, path=path)
-        decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
+        decoded = _keyword_value(factory, key, item, context, f"{path}.{key}")
         arguments[key] = coerce(factory.target, key, decoded)
     if factory.solves and context.stand_in:
         # A solve on a band that is not the run's would refuse what the run accepts.
@@ -741,6 +768,30 @@ def build_object(
         return factory.target(*positional, **arguments)
     except TypeError as error:
         raise RecipeError(f"{factory.name}: {error}", path=path) from error
+
+
+def _keyword_value(
+    factory: Factory, key: str, item: object, context: BuildContext, path: str
+) -> object:
+    """Return one keyword's value decoded, a count of planes placed on the grid."""
+    if factory.counted(key, item):
+        return _counted_planes(item, context, path)
+    return decode(item, factory.units.get(key), context, path)
+
+
+def _counted_planes(count: object, context: BuildContext, path: str) -> np.ndarray:
+    """Place a recipe's count of save planes over the route's grid's length.
+
+    - ``count``: the integer the recipe wrote, counting the plane at ``z = 0``.
+    - Returns: the positions after ``z = 0``, m, the last at ``grid.length``.
+    """
+    if context.grid is None:
+        msg = "a count of save planes is placed over the route's grid, not built yet"
+        raise RecipeError(msg, path=path)
+    try:
+        return counted_save_planes(context.grid.length, cast("int", count))
+    except DriverError as error:
+        raise RecipeError(str(error), path=path) from error
 
 
 @functools.cache

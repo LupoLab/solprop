@@ -76,6 +76,18 @@ class _Writer:
         # "none" says None for a keyword only; inside a table it is read as it stands.
         return repr(decode(value, unit, BuildContext(), path))
 
+    def count(self, count: object, path: str) -> str:
+        """Return a count of save planes as the call that places it on the grid.
+
+        Settings in Python take positions, so ``save_planes = 80`` is written as
+        ``counted_save_planes(grid.length, 80)``, which keeps the count as written.
+        """
+        if self.grid is None:  # pragma: no cover - an object route names its grid
+            msg = "a count of save planes is placed over the recipe's grid; give grid"
+            raise RecipeError(msg, path=path)
+        self.need("solprop.driver.settings", "counted_save_planes")
+        return f"counted_save_planes({self.grid}.length, {count!r})"
+
     def factory(self, table: Mapping[str, object], path: str) -> str:
         """Return a registered type's call.
 
@@ -97,7 +109,12 @@ class _Writer:
         for key, item in table.items():
             if key in ("type", "file", "sha256"):
                 continue
-            rendered = self.expression(item, factory.units.get(key), f"{path}.{key}")
+            if factory.counted(key, item):
+                rendered = self.count(item, f"{path}.{key}")
+            else:
+                rendered = self.expression(
+                    item, factory.units.get(key), f"{path}.{key}"
+                )
             if isinstance(item, list) and isinstance(
                 coerce(factory.target, key, []), tuple
             ):

@@ -2861,9 +2861,10 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
         _keyword(
             "save_planes",
-            (Form("array", unit="m", minimum=0.0, exclusive=True), _integer(1)),
+            (Form("array", unit="m", minimum=0.0, exclusive=True), _integer(2)),
             "basic",
-            "Positions to save at, or how many equally spaced planes.",
+            "Positions to save at after the entrance, or how many evenly spaced "
+            "planes over grid.length, counting the entrance.",
             display="m",
         ),
         _keyword("dz_max", _LENGTH, "advanced", "Largest step.", display="mm"),

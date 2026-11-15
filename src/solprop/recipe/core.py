@@ -549,7 +549,9 @@ class Recipe:
         its path. If none is refused, the simulation is built and translated, which is
         where the refusals that depend on several values are found, stopping before a
         backend is constructed; the first refusal is reported with its parameter, and
-        every warning of solprop's with its own. It costs a translation: call it on a
+        every warning of solprop's with its own. On an object route, whose run ends at
+        its last save plane, a last plane other than ``grid.length``, the length the
+        grid was built for, is a warning too. It costs a translation: call it on a
         pause in typing, not on every keystroke.
 
         Returns
@@ -578,9 +580,12 @@ class Recipe:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", SolpropWarning)
             try:
-                resolved.build().translate()
+                simulation = resolved.build()
+                simulation.translate()
             except SolpropError as error:
                 issues.append(_issue(error))
+            else:
+                issues.extend(_length_issues(self.route, simulation))
         issues.extend(
             RecipeIssue(
                 str(record.message),
@@ -1195,6 +1200,28 @@ def _needs_grid(value: object) -> bool:
     if isinstance(value, list):
         return any(_needs_grid(item) for item in value)
     return False
+
+
+def _length_issues(route: str, simulation: "Simulation") -> list[RecipeIssue]:
+    """Return the warning that an object route's run does not end at ``grid.length``.
+
+    The keyword routes place their planes over their own length; an object route's run
+    ends at its last save plane, which nothing else ties to the length its grid was
+    built for (issue #533). A counted ``save_planes`` ends there by construction.
+    """
+    if route not in OBJECT_ROUTES:
+        return []
+    end = float(np.max(simulation.settings.save_planes))
+    length = float(simulation.grid.length)
+    # Rounding of a position spelled in another unit, "25.0000 cm", is not a mismatch.
+    if math.isclose(end, length, rel_tol=1e-9):
+        return []
+    message = (
+        f"the run ends at its last save plane, z = {end:g} m, but grid.length is "
+        f"{length:g} m, the length the grid was built for; make them agree, or give "
+        "save_planes as an integer count of planes over grid.length"
+    )
+    return [RecipeIssue(message, "settings.save_planes", "warning")]
 
 
 def _issue(error: SolpropError, keyword: str | None = None) -> RecipeIssue:
