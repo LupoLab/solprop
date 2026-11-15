@@ -31,7 +31,6 @@ The native backend runs:
   including guides that vary along z), the coupled flow of the coherent capillary wall and
   of tapers, with its `constant_schur` and `frozen_residual` sections;
 - radial, Cartesian, line and planar free-space and planar-guide geometries;
-- fixed-schedule batches (lockstep scan members);
 - **the Chebyshev z table**: a linear operator or nonlinear prefactor that varies along
   z in a way that has to be tabulated, rather than expanded in the medium's parameters.
   Examples are a `SpecifiedMode` whose dispersion moves along z, the adiabatic opt-out

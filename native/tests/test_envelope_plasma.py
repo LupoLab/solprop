@@ -12,21 +12,12 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import pytest
 from legacy_geometry import LEGACY_GRID
-from session_runs import (
-    alone,
-    assert_same,
-    drain,
-    grouped,
-    load_native,
-    native_trial,
-    one_thread,
-    run,
-)
+from session_runs import drain, load_native, native_trial, run
 from solprop.backends.events import Outcome
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -480,72 +471,3 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         assert result.all_planes()[-1].z == grid.length
     finally:
         owner.close()
-
-
-def test_envelope_native_group_keeps_noisy_members_and_statistics_independent() -> None:
-    """Noisy members of a native group agree with the same members run alone.
-
-    Each member and its lone native session share a stored noise draw and replay
-    eight prescribed steps, each member in its own native session (solprop SEP 47
-    section 6.7): bit for bit at one thread, and otherwise held to
-    :func:`native_bound` (solprop SEP 25), with the schedule's row positions exact.
-    Every step's periodic row is compared, and the plane statistics at the end.
-    """
-    from solprop.noise import modified_noise
-
-    problem, run_request, grid = envelope_case("modal", 2)
-    bound = native_bound(problem, grid)
-    problems: list[PropagationProblem] = []
-    starts: list[Start] = []
-    singles: list[list[dict[str, Any]]] = []
-    for index in range(2):
-        draw = modified_noise(
-            grid, np.random.default_rng(390 + index), n_modes=1, n_pol=2
-        )
-        initial = replace(
-            problem.initial,
-            field0=problem.initial.field0 * (1 + 0.125 * index),
-            noise0=draw.spectrum,
-            noise_model=draw.model,
-        )
-        one = replace(
-            problem, initial=initial, flags=replace(problem.flags, has_noise=True)
-        )
-        problems.append(one)
-        starts.append(Start.entrance(one, noise=draw))
-        owner = NativeBackend(
-            one, run_request, grid=grid, options=envelope_options("modal")
-        )
-        singles.append(alone(owner, one, run_request, Start.entrance(one, noise=draw)))
-    owners = [
-        NativeBackend(one, run_request, grid=grid, options=envelope_options("modal"))
-        for one in problems
-    ]
-    group = grouped(owners, problems, [run_request] * 2, starts)
-    periodic = set(run_request.observation.stats.periodic)
-    for member, single in zip(group, singles, strict=True):
-        # Every step's row reached the end plane.
-        assert set(single[-1]["rows"]) == periodic
-        assert len(single[-1]["row_z"]) == 8
-        if one_thread():
-            assert_same(member, single)
-        assert [plane["z"] for plane in member] == [plane["z"] for plane in single]
-        for got, expected in zip(member, single, strict=True):
-            field = expected["field"]
-            np.testing.assert_allclose(
-                got["field"], field, rtol=bound, atol=bound * np.max(np.abs(field))
-            )
-            for name in NAMES:
-                np.testing.assert_allclose(
-                    got["stats"][name], expected["stats"][name], rtol=bound, atol=1e-30
-                )
-            # Exact: the prescribed schedule's positions.
-            np.testing.assert_array_equal(got["row_z"], expected["row_z"])
-            assert got["rows"].keys() == expected["rows"].keys()
-            for name in expected["rows"]:
-                np.testing.assert_allclose(
-                    got["rows"][name],
-                    expected["rows"][name],
-                    rtol=bound,
-                    atol=1e-30,
-                )

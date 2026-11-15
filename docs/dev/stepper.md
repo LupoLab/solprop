@@ -176,9 +176,8 @@ fifth-order one, and the FSAL stage is not recycled before anything that depends
 completed step (irrelevant without dense output, but tested).
 
 **Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
-its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`,
-`HostLowStorageMarch` and the fixed-schedule group `HostGroup`. Every
-native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
+its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`
+and `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
@@ -469,8 +468,6 @@ only at an accepted position with nothing ahead of it.
 **Prescribed schedules**: with a schedule the march replays its steps
 (`HostAdamsMarch._replay_to`), accepting each whatever its estimate, which is recorded as
 the Runge–Kutta replay records it; a hard kink on an edge restarts the history.
-`HostAdamsMarch.replay_step` is also the unit a lockstep batch advances each member by
-(`HostGroup._replay_to`), each member keeping its own history and ledger.
 
 The derivation, the stability limits and the measured comparison are in
 [SEP 13](seps/archive/sep-0013-expensive-response-steppers.md) and on the manual page
@@ -692,8 +689,7 @@ Memory: the expansion is `n_terms × n_modes × n_pol × n_omega × 16 B` plus s
 `n_intervals × (degree+1) × n_modes × n_pol × n_omega × 16 B`. On the comb-to-continuum
 size — six modes, 16 385 bins, a 1.5 m hydrogen gradient — that is 49.7 MB against 792 MB
 for Φ and 15.1 MB against 759 MB for the prefactor, so the pair falls from 1.55 GB to
-64.8 MB; `ΔΦ` falls from 17.8 ms to 1.2 ms with it. Either is shared
-across batch members with the same fibre.
+64.8 MB; `ΔΦ` falls from 17.8 ms to 1.2 ms with it.
 
 ## 5. The co-moving frame and analytic β₁
 
@@ -781,12 +777,10 @@ rejected a step the replay may choose a different order; and a resumed march can
 its history from a restart rather than carry the original one. A replay of an adaptive
 run is therefore an accuracy comparison (an envelope against a tighter or stored
 reference), and so is a resumed run against the uninterrupted one. Rounding-level
-comparisons — backend against backend, one thread against many, a batch member against its
-solo run — run **both** sides on one prescribed schedule with a fixed-order method and
+comparisons — backend against backend, one thread against many, a scan point against its
+run alone — run **both** sides on one prescribed schedule with a fixed-order method and
 matched startup, restart history and save planes ([testing.md](testing.md) section 3).
 Recording and replaying every adaptive decision is not provided.
-
-Batch lockstep execution uses fixed schedules only (ADR-013).
 
 ## 9. Open numerical questions
 

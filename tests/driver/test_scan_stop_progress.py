@@ -20,9 +20,8 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
 from solprop.backends.registry import available
 from solprop.backends.session import DEFAULT_WORK_LIMIT
-from solprop.driver import _scan_batch
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
-from solprop.driver.executors import Batch, Local, Queue, Slurm, pool
+from solprop.driver.executors import Local, Queue, Slurm, pool
 from solprop.driver.executors.pool import PlaneScalars, Pool, _Channel, _WorkerReporter
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
@@ -409,69 +408,6 @@ def test_pool_stop_message_stops_the_point_in_flight(tmp_path):
     # The worker's stop stands for the caller's flag.
     assert isinstance(error, StopRequested)
     assert error.flag is flag
-
-
-def test_batch_stops_between_groups(tmp_path):
-    scan = Scan("batch_stop", power=[1.0, 2.0, 3.0])
-    flag = threading.Event()
-    reporter = StopAfterPoint(flag, index=0)
-    output = run_scan(
-        scan,
-        build_point,
-        output=tmp_path / "scan.h5",
-        executor=Batch(1),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["done", "todo", "todo"]
-    assert reporter.finished() == [(0, "done")]
-    # A batch reports a point's start only as its result is collected.
-    assert reporter.calls[1:3] == [
-        ("point_started", 0),
-        ("point_finished", 0, "done", reporter.calls[2][3]),
-    ]
-    rerun = run_scan(scan, build_point, output=tmp_path / "scan.h5", executor=Batch(1))
-    assert rerun.status.tolist() == ["done", "done", "done"]
-
-
-def test_batch_gives_back_a_claimed_group_it_did_not_run(tmp_path):
-    flag = threading.Event()
-
-    def build(point):
-        # The second member is built after the first: the flag is set before the
-        # group they form would run.
-        if point.index == 1:
-            flag.set()
-        return build_point(point)
-
-    reporter = Recorder(watch=False)
-    output = run_scan(
-        Scan("batch_group", power=[1.0, 2.0]),
-        build,
-        output=tmp_path / "scan.h5",
-        executor=Batch(2),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["todo", "todo"]
-    assert reporter.finished() == [(0, "stopped"), (1, "stopped")]
-
-
-def test_batch_stops_between_the_admitted_parts_of_a_group(tmp_path, monkeypatch):
-    # Admission splits a compatible group when memory holds fewer members at once.
-    monkeypatch.setattr(_scan_batch, "_admit", lambda group, work, executor: 1)
-    flag = threading.Event()
-    reporter = StopAfterPoint(flag, index=0)
-    output = run_scan(
-        Scan("batch_parts", power=[1.0, 2.0]),
-        build_point,
-        output=tmp_path / "scan.h5",
-        executor=Batch(2),
-        progress=reporter,
-        stop=flag,
-    )
-    assert output.status.tolist() == ["done", "todo"]
-    assert reporter.finished() == [(0, "done"), (1, "stopped")]
 
 
 @pytest.mark.skipif(

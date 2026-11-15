@@ -412,9 +412,7 @@ class Initial:
     ----------
     field0 : numpy.ndarray
         Initial state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square
-        root of watts; possibly a read-only broadcast view, never written. A group of
-        trajectories is a sequence of problems, one per member (SEP 47 section 6.7),
-        never a leading axis here.
+        root of watts; possibly a read-only broadcast view, never written.
     noise0 : numpy.ndarray or None
         The shot-noise realisation in the same layout, or ``None``. What a backend
         does with it depends on ``noise_model``: an ``'input'`` draw is added once to
@@ -536,7 +534,7 @@ class StepperSettings:
         landed on directly. 1 switches it off.
     schedule : solprop.stepper.schedule.FixedSchedule or None
         A fixed schedule to replay, whose edges must contain every save plane and hard
-        kink. ``None`` for an adaptive run; lockstep batches require one.
+        kink. ``None`` for an adaptive run.
     save_planes : numpy.ndarray
         Positions in z the driver will ask for, m, shape ``(n_z,)``, increasing. Steps
         land on them exactly; there is no dense output.
@@ -2335,8 +2333,7 @@ def _state(
     """Bring an initial field to the canonical single-trajectory layout.
 
     The shape is checked here rather than by an annotation, so that a wrong rank is
-    reported by name in production too. A group of trajectories is a sequence of
-    problems (SEP 47 section 6.7), never a stacked field.
+    reported by name in production too.
 
     - Returns: the state, complex128, the problem's own: copied once here as
       :class:`Initial` holds it, so that it is not copied again there, and taken as it

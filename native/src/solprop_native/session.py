@@ -62,7 +62,6 @@ following and refuses every other feature by name before allocating anything
   native monitor and the draw's readings by the native transverse edge, and the noise
   phase at each plane, formed on the host or, for a z table's propagator phase, read
   from its slot in the leased state;
-- no group (:mod:`solprop_native.group` runs one native session per member);
 - the TDSE response on a CPU build, through the march's host source (solprop SEP 49):
   each ``advance`` opens an interruptible scope beside its commit, so a signal held
   while the host source waits is raised there, and a host source's failure is the
@@ -377,10 +376,9 @@ class NativeSession:
     backend : solprop_native.backend.NativeBackend or None, optional
         A backend already built for `problem` and holding no state, to run on in place
         of building one: a runner's or a run's (:func:`solprop.backends.sessions.
-        start_session`), or a group's member, as a batched scan constructs it
-        (:class:`~solprop_native.group.NativeGroupSession`). Its own time grid, modes,
-        profiles, far-field tables and execution options are used, and `grid`,
-        `modes`, `profiles` and `options` must then be left out. A failed construction
+        start_session`). Its own time grid, modes, profiles, far-field tables and
+        execution options are used, and `grid`, `modes`, `profiles` and `options` must
+        then be left out. A failed construction
         leaves it to the caller.
     owns : bool, optional
         Whether closing the session closes `backend`: false for a runner's backend

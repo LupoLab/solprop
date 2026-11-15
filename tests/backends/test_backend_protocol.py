@@ -389,7 +389,6 @@ class Stub:
     """The smallest object that satisfies the seam."""
 
     name = "stub"
-    max_batch = 1
     reads_transverse_edge = False
     in_flight = None
     closed = False
@@ -404,9 +403,6 @@ class Stub:
 
     def prepare(self, problem, request):
         return HostPrepared(self, problem, request)
-
-    def prepare_group(self, members, problems, requests):
-        raise BackendError("the stub runs no group")
 
     def restore_call_ledgers(self, logical, atomic=None):
         return None
@@ -478,7 +474,6 @@ def test_a_minimal_backend_satisfies_the_protocol():
 def test_an_object_missing_a_method_is_not_a_backend():
     class Partial:
         name = "partial"
-        max_batch = 1
 
         def set_initial(self, field, noise):
             return None

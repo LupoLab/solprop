@@ -15,8 +15,8 @@ checked against the certificate per step as the reference checks it.
 The strong cases' ten fixed steps against the reference are rows of the case catalogue
 (``tests/backends/flow_rows.py``, ``coupled flow ...``), which also guard the flow.
 What stays here: the split block's run, which is adaptive (#809); the actions' formation
-on either route; the refusal of a step past the certificate; a native group, a batched
-scan and the ledger; the entry point's ``auto`` run; and the thread count.
+on either route; the refusal of a step past the certificate; the ledger; the entry
+point's ``auto`` run; and the thread count.
 """
 
 import subprocess
@@ -49,7 +49,6 @@ from coupled_flow_cases import (
 )
 from driver.test_coherent_capillary import run_capillary
 from flow_parity import UNIT, formation_bound
-from march_bounds import assert_points_matched
 from modal_provider_cases import (
     general_grid,
     split_guide,
@@ -57,9 +56,6 @@ from modal_provider_cases import (
 from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
-from solprop.backends.session import Start
-from solprop.driver.executors import Batch, Local
-from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import (
     BackendError,
     GrazingIncidenceWarning,
@@ -204,68 +200,6 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
     backend = native_class()(problem, run_request, grid=case.grid)
     with pytest.raises(BackendError, match="native measured a coupled flow"):
         final_field(backend, problem, bare(run_request), ended=True, owns=True)
-
-
-def test_a_native_group_admits_a_coupled_flow():
-    """A coupled flow runs in a native group (SEP 47 section 6.7): each member's flow
-    is its own session's, so nothing of its step is fused. The members' numerics are
-    held to their lone sessions in ``native/tests/test_coupled_flow.py``."""
-    from solprop_native.group import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeGroupSession,
-        refusal,
-    )
-
-    from solprop.backends.sessions import start_group  # noqa: PLC0415
-
-    simulation = capillary(wall=CoherentWall(), energy=ENERGY, pressure=PRESSURE)
-    problem, request = simulation.translate(), simulation._run_request()
-    problems, requests = [problem] * 2, [request] * 2
-    starts = [Start.entrance(problem) for _ in range(2)]
-    assert refusal(problems, requests, starts) is None
-    members = [
-        native_class()(
-            problem,
-            request,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        for _ in range(2)
-    ]
-    group = start_group(members, problems, requests, starts)
-    try:
-        assert isinstance(group, NativeGroupSession)
-    finally:
-        group.close()
-
-
-def _scan_point(point):
-    """Return one point of a power scan of the scalar wall, natively."""
-    return capillary(
-        wall=CoherentWall(), backend="native", energy=1e-9 * point.values["power"]
-    )
-
-
-def test_a_batched_scan_of_coupled_flows_runs_as_the_local_loop(tmp_path):
-    """A batched scan groups coupled-flow points into one native group, and each
-    point is the local loop's to the matched-march bound (SEP 25)."""
-    scan = Scan("coupled", power=[1.0, 2.0])
-    local = run_scan(
-        scan,
-        _scan_point,
-        output=tmp_path / "local.h5",
-        executor=Local(),
-        progress="none",
-    )
-    batched = run_scan(
-        scan,
-        _scan_point,
-        output=tmp_path / "batch.h5",
-        executor=Batch(2),
-        progress="none",
-    )
-    assert local.status.tolist() == batched.status.tolist() == ["done"] * 2
-    assert_points_matched(batched, local, scan, _scan_point, what="batch member")
 
 
 def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():

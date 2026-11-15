@@ -1,16 +1,16 @@
-# Scans and batches
+# Scans
 
 Scans are implemented above the backend seam. A point has a permanent zero-based index in
 C order. Executors change where that point runs; they do not change its physics, seed,
 backend or place in the output. Seeds derive from a `base_seed`, retained fields are
-explicitly selected planes, and different output shapes have separate layouts. Lockstep
-batching is first class for `numpy_ref` and `native`. Scans preserve the
-selected backend and reject unsupported contracts explicitly.
+explicitly selected planes, and different output shapes have separate layouts. Scans
+preserve the selected backend and reject unsupported contracts explicitly.
 
-The executors (`solprop.driver.executors`) are `Local` (sequentially, in the calling process), `Pool`
-(spawned worker processes), `Batch` (fixed-schedule lockstep groups on one backend,
-[backends.md §1](backends.md)), and the durable file `Queue` with its `Slurm` emitter,
-which runs queue or chunk modes as array tasks.
+The executors (`solprop.driver.executors`) are `Local` (sequentially, in the calling
+process, reusing one backend where it can), `Pool` (spawned worker processes), and the
+durable file `Queue` with its `Slurm` emitter, which runs queue or chunk modes as array
+tasks. A fixed-schedule `Batch` executor ran compatible points as one group until
+SEP 52 removed it: on native it built a backend per member for no gain in speed.
 
 ## Why the standard library
 
@@ -40,7 +40,7 @@ sent to workers. Local execution also permits closures.
 
 ## Execution and memory
 
-The layers are Slurm array, node controller, worker, and optionally a backend batch.
+The layers are Slurm array, node controller and worker.
 The controller owns the collected HDF5 file. A worker receives point descriptions
 and returns statistics and reductions; retained fields travel only when requested.
 Every spawned interpreter inherits its thread environment before importing NumPy,

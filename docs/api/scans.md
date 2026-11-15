@@ -8,7 +8,7 @@ modules involved are:
 - {mod}`solprop.driver.scan`: `Scan` (ordered variables and their global points),
   `ScanPoint` and `run_scan`;
 - {mod}`solprop.driver.executors`: the execution policies — `Local`, a spawned process
-  `Pool`, a lockstep `Batch`, a durable `Queue` and `Slurm`;
+  `Pool`, a durable `Queue` and `Slurm`;
 - {mod}`solprop.processing.scans`: the reductions a worker evaluates for each point
   (energy in a band, a spectrum, mode energies, a custom reduction) and the reader of a
   collected scan (`open`, `ScanOutput`);
@@ -20,11 +20,4 @@ Backend and storage interfaces below are mainly for contributors extending an ex
 - {mod}`solprop.output.scan_artifacts`: the validated per-point results a durable queue
   stores;
 - {mod}`solprop.driver.executors.queue`: collecting a queue's results, safely repeatable;
-- {mod}`solprop.driver.executors.slurm`: writing and submitting a Slurm array script;
-- {mod}`solprop.driver.batch`: grouping compatible points into a batch and splitting its
-  output back into one run per point;
-- {mod}`solprop.driver.executors.batch`: the controls of a fixed-schedule batch;
-- {mod}`solprop.backends.host.group`: the backend side of a batch on the NumPy
-  reference, in which every member takes the same fixed steps and is observed on its
-  own. On the native backend a batch runs in the native group session
-  (`solprop_native.group`), one native execution session per member.
+- {mod}`solprop.driver.executors.slurm`: writing and submitting a Slurm array script.

@@ -615,7 +615,6 @@ reference within a rounding bound, and decides every hard edge as the reference 
 The same pass also forms `on_axis_spectrum` (an aperture with
 $W\equiv1$). A solprop-native build from before this pass is refused them by
 name, before it is built.
-Lockstep batch members must carry equal tables.
 
 ```{code-block} python
 import numpy as np

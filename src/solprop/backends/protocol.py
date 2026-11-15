@@ -27,7 +27,7 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -36,7 +36,7 @@ from jaxtyping import Bool, Complex, Float, Int
 
 from solprop._ownership import frozen_copy, hold
 from solprop._process import parallel_rows
-from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
+from solprop.exceptions import BackendError
 from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
@@ -45,14 +45,13 @@ from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
-    from solprop.backends.session import PreparedExecution, PreparedGroup, Start
+    from solprop.backends.session import PreparedExecution, Start
     from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "Backend",
     "BackendHistory",
-    "BatchBackend",
     "HostStepping",
     "Observation",
     "StepStats",
@@ -619,9 +618,6 @@ class Backend(Protocol):
     ----------
     name : str
         The registry name, for example ``"numpy_ref"``.
-    max_batch : int
-        Trajectories this backend steps at once: 1 for a backend that steps one
-        problem, the member count for a group runner.
     reads_transverse_edge : bool
         Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
         a run with a requested real-space collar needs.
@@ -635,11 +631,10 @@ class Backend(Protocol):
     >>> names[4:8]
     ['march_export_refusal', 'memory_ledger', 'metadata', 'prepare']
     >>> names[8:]
-    ['prepare_group', 'request', 'timing_probe']
+    ['request', 'timing_probe']
     """
 
     name: str
-    max_batch: int
     reads_transverse_edge: bool
 
     @property
@@ -670,36 +665,6 @@ class Backend(Protocol):
         -------
         solprop.backends.session.PreparedExecution
             The prepared execution, whose ``start`` opens the backend's session.
-        """
-        ...
-
-    def prepare_group(
-        self,
-        members: "Sequence[Backend]",
-        problems: "Sequence[PropagationProblem]",
-        requests: "Sequence[RunRequest]",
-    ) -> "PreparedGroup":
-        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
-
-        Called on the group's first member, ``members[0]``, so that the backend, not
-        the run layer, chooses the group it runs
-        (:func:`solprop.backends.sessions.start_group`). A backend that runs no group
-        raises :class:`~solprop.exceptions.BackendError` saying so.
-
-        Parameters
-        ----------
-        members : collections.abc.Sequence of Backend
-            One constructed backend per member, this one first, all of this backend,
-            holding no state yet.
-        problems : sequence of solprop.translate.problem.PropagationProblem
-            Each member's independently translated problem.
-        requests : sequence of solprop.translate.run_request.RunRequest
-            Each member's run request, with its own fresh boundary monitor.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedGroup
-            The prepared group, whose ``start`` opens the backend's group session.
         """
         ...
 
@@ -806,7 +771,7 @@ class HostStepping(Backend, Protocol):
 
     The reference (:class:`solprop.backends.host.driver.HostDriver`) loads, steps,
     observes and restores its state through these members, which its own session
-    (:class:`solprop.backends.host.session.HostSession`) and its lockstep group call.
+    (:class:`solprop.backends.host.session.HostSession`) calls.
     They are no part of :class:`Backend`: the native backend runs only in its native
     session and has none of them (SEP 47 section 6.8). A caller holding a
     :class:`Backend` it knows steps on the host narrows it with :func:`stepping`.
@@ -1002,83 +967,6 @@ class HostStepping(Backend, Protocol):
         -------
         str or None
             ``None`` when the history was continued, otherwise why it starts afresh.
-        """
-        ...
-
-
-@runtime_checkable
-class BatchBackend(HostStepping, Protocol):
-    """Advance compatible loaded members and return their separate observations.
-
-    Construct through :func:`solprop.backends.registry.select_batch` after loading
-    each member's initial state and noise through the ordinary backend seam.
-    Successful construction transfers ownership of those backends to the batch.
-    Their parameter tables may differ, but grids, fixed schedules, save planes and
-    statistics layouts must match. ``max_batch`` records the constructed count.
-
-    ``observe_members`` replaces ``observe`` for batch output: each member keeps
-    its own error history and periodic rows. No device array crosses this interface.
-    The common maximum error norm is diagnostic and never changes a fixed schedule.
-    """
-
-    def observe_members(self, *, field: bool = True) -> tuple[Observation, ...]:
-        """Drain independently owned host observations in member order.
-
-        Parameters
-        ----------
-        field : bool, optional
-            Whether each member's field and noise phase cross to the host, as for
-            :meth:`solprop.backends.protocol.HostStepping.observe`. Default ``True``.
-
-        Returns
-        -------
-        tuple of Observation
-            Singleton field shapes, or no field, and each member's own diagnostic
-            history.
-        """
-        ...
-
-    def member_metadata(self) -> tuple[dict[str, object], ...]:
-        """Return resolved execution policies for every batch member.
-
-        Returns
-        -------
-        tuple of dict
-            Complete per-member backend provenance, including the batch strategy.
-        """
-        ...
-
-    def attach_monitors(self, monitors: Sequence[BoundaryMonitor | None]) -> None:
-        """Give each member its own boundary monitor, or none (SEP 21).
-
-        Parameters
-        ----------
-        monitors : collections.abc.Sequence
-            One monitor with nothing recorded, or ``None``, per member.
-        """
-        ...
-
-    @property
-    def member_stops(
-        self,
-    ) -> tuple[BoundaryError | BoundaryWarning | None, ...]:  # numpydoc ignore=RT01
-        """What stopped each member's watch, ``None`` where nothing did.
-
-        A stop, or a warning raised as an error under an ``"error"`` filter.
-        """
-        ...
-
-    @property
-    def member_records(
-        self,
-    ) -> tuple[Mapping[str, object] | None, ...]:  # numpydoc ignore=RT01
-        """Each member's monitor record as it closed, ``None`` if unwatched."""
-        ...
-
-    def finish_monitors(self) -> None:
-        """Report each still-watched member's removed fraction at the run's end.
-
-        A warning raised as an error fails that member alone (:attr:`member_stops`).
         """
         ...
 

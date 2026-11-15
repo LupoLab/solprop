@@ -379,8 +379,8 @@ class ScanWriter:
         self._layouts_stale()
         if not 0 <= result.index < len(_dataset(self.file, "points/index")):
             raise OutputError("result index is outside the scan")
-        # A committed point is the only copy of its arrays on the Local, Pool and
-        # Batch routes. A failure reported for one is a failure of this attempt to
+        # A committed point is the only copy of its arrays on the Local and Pool
+        # routes. A failure reported for one is a failure of this attempt to
         # re-derive it -- a builder that now raises, a worker that died -- and must
         # never publish over it or delete its staged group.
         if result.status == "failed" and self.state(result.index)[0] == "done":

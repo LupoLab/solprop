@@ -111,7 +111,7 @@ a curve or `False` beside a wall is refused rather than silently dropped), and
 `model="reduced"` is refused because the condensation inverts the full model's
 eigenvalue. A tube lattice (`lattice=`) is refused beside it: an antiresonant fibre's
 loss is its tubes' resonances, not a boundary condition at one radius. Two
-polarisations, a noise model and a fused batch are refused too, each by name.
+polarisations and a noise model are refused too, each by name.
 
 **Validity.** The condensation is quasi-static and paraxial. Three dimensionless ratios
 are computed for the highest retained mode over the band the run **scores** — the

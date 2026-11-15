@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Exercise tensor histories through local profiles, spatial transforms and batches.
+"""Exercise tensor histories through local profiles and spatial transforms.
 
 On the modal routes -- a mode whose direction depends on position, and two envelope
 plasma populations with a Raman kernel each -- native's first stage and two fixed steps
@@ -18,16 +18,13 @@ import pytest
 
 from backends.host_cases_envelope_plasma import geometry_options
 from backends.ladder_rows import DIRECTIONS
-from backends.test_batch_responses import compare
 from sessions.runs import run as session_run
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import TranslationError
 from vector_raman_cases import (
-    CHUNK,
     direction_translation,
     raman_populations,
     spatial_tails,
-    vector_translation,
 )
 
 
@@ -69,15 +66,6 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         grid,
         ExecutionOptions(node_chunk=5),
     )
-
-
-@pytest.mark.medium
-@pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
-def test_vector_fixed_batches_preserve_modified_noise_members(family):
-    # The reference's lockstep group; the native group runs each member as its own
-    # native session (SEP 47 phase 5), with no shared arithmetic to check.
-    problem, run_request, grid, _ = vector_translation(family, steps=2)
-    compare(problem, run_request, grid, "numpy_ref", options=CHUNK)
 
 
 @pytest.mark.medium

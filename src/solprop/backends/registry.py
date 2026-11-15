@@ -28,7 +28,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Final, cast
 
-from solprop.backends.protocol import Backend, BatchBackend
+from solprop.backends.protocol import Backend
 from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -46,7 +46,6 @@ __all__ = [
     "available",
     "resolve_name",
     "select",
-    "select_batch",
     "statistics_refusal",
 ]
 
@@ -406,48 +405,6 @@ def select(
     )
     logger.info("Using %s backend", backend.name)
     return backend
-
-
-def select_batch(owners: Sequence[Backend]) -> BatchBackend:
-    """Select batch arithmetic without substituting a different backend.
-
-    This is the reference group's lockstep runner. The native backend runs its groups
-    through its own prepared group instead
-    (:func:`solprop.backends.sessions.start_group`; SEP 47 section 6.7), and is
-    refused here by name.
-
-    Parameters
-    ----------
-    owners : sequence of solprop.backends.protocol.Backend
-        Compatible, loaded member owners.
-
-    Returns
-    -------
-    BatchBackend
-        Common fixed march using the selected backend's arithmetic.
-
-    Raises
-    ------
-    BackendError
-        If the members are not of one backend, or their backend has no lockstep runner
-        (its groups start through ``start_group``).
-    """
-    if not owners:
-        raise BackendError("Batch requires at least one loaded member")
-    if any(owner.name != owners[0].name for owner in owners):
-        raise BackendError("Batch refuses mixed backends")
-    name = owners[0].name
-    if name != "numpy_ref":
-        msg = (
-            f"Batch has no runner for backend {name!r}: select_batch is the "
-            "reference's lockstep runner, and native runs its groups through its own "
-            "prepared group, which solprop.backends.sessions.start_group starts "
-            "(SEP 47 section 6.7)"
-        )
-        raise BackendError(msg)
-    from solprop.backends.numpy_ref.batch import lockstep_runner  # noqa: PLC0415
-
-    return lockstep_runner(owners)
 
 
 def _construct(

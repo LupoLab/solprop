@@ -302,7 +302,7 @@ its run's `summary`, `started`, `plane`, `finished` and `interrupted` calls to t
 controller on its pipe, where they are made on the point's reporter as they arrive: a
 plane carries its position and the four scalars of its summary (steps, rejected steps,
 largest error norm, wall time), never a field, and `step` is not sent at all, since it is
-called thousands of times a second. `Batch`, `Queue` and `Slurm` report only the points'
+called thousands of times a second. `Queue` and `Slurm` report only the points'
 boundaries, as their results are collected. The table per executor, and the scan's
 `stop=` flag, are in [watching and stopping a scan](../workflows/scans.md#watching-and-stopping-a-scan).
 

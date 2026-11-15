@@ -2,13 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The building blocks the Python execution sessions share (SEP 47 sections 5 and 6.7).
+"""The building blocks the Python execution sessions share (SEP 47 section 5).
 
-The reference's sessions (:class:`solprop.backends.host.session.HostSession` and
-:class:`solprop.backends.host.group_session.HostGroupSession`) run their own plane
-schedule over their own driver, and compose the parts below, none of which names a
-driver; the native backend's prepared execution (``solprop_native.session``) makes the
-same preparation refusals:
+The reference's session (:class:`solprop.backends.host.session.HostSession`) runs its
+own plane schedule over its own driver, and composes the parts below, none of which
+names a driver; the native backend's prepared execution (``solprop_native.session``)
+makes the same preparation refusals:
 
 - :class:`AttemptCounter` forwards a driver's attempts to a progress listener and
   counts them, and :class:`YieldDue` reads that count and the clock for a bounded
@@ -255,7 +254,7 @@ def merge_summaries(before: StepSummary | None, step: StepSummary) -> StepSummar
     )
 
 
-def bind(event: Event, receipt: Receipt, member: int | None = None) -> Event:
+def bind(event: Event, receipt: Receipt) -> Event:
     """Return an event with its ticket bound to the batch that delivers it.
 
     Parameters
@@ -264,8 +263,6 @@ def bind(event: Event, receipt: Receipt, member: int | None = None) -> Event:
         An event, with an unbound ticket or none.
     receipt : solprop.backends.events.Receipt
         The batch's receipt.
-    member : int or None, optional
-        The group member the ticket names; ``None`` for a lone session.
 
     Returns
     -------
@@ -277,7 +274,7 @@ def bind(event: Event, receipt: Receipt, member: int | None = None) -> Event:
         return event
     return dataclasses.replace(
         event,  # pyright: ignore[reportArgumentType]
-        ticket=dataclasses.replace(ticket, receipt=receipt, member=member),
+        ticket=dataclasses.replace(ticket, receipt=receipt),
     )
 
 

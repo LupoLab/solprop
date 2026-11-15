@@ -22,7 +22,7 @@ launch ...`` (``backends/axis_plasma_rows.py``).
 import dataclasses
 import math
 import warnings
-from contextlib import ExitStack, closing
+from contextlib import closing
 
 import numpy as np
 import pytest
@@ -346,58 +346,3 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
             assert type(session) is native_session.NativeSession
-
-
-def _group_planes(group):
-    """Drive a group to its end; return each member's observations."""
-    planes = [[] for _ in range(group.n_members)]
-    while not group.finished:
-        batch = group.advance()
-        for index, events in enumerate(batch.members):
-            for event in events:
-                if isinstance(event, ObservationReady):
-                    field = np.array(group.export(index, event.ticket, RAW))
-                    stats = {k: np.asarray(v) for k, v in event.stats.items()}
-                    planes[index].append(_Seen(event.z, stats, field))
-                elif isinstance(event, Terminal):
-                    assert event.error is None, event.error
-        group.acknowledge(batch.receipt)
-    return planes
-
-
-def test_a_native_group_scans_an_envelope_s_y_row():
-    """A group of such members opens the native group, whose members' statistics are
-    the host's scan of the row on each member's own field, and the reference's, to the
-    node scans' parity tolerance."""
-    from solprop.backends.session import Start  # noqa: PLC0415
-    from solprop.backends.sessions import start_group  # noqa: PLC0415
-
-    group_module = pytest.importorskip("solprop_native.group")
-    names = ON_AXIS_PLASMA_STATISTICS
-    built = [_envelope_y_row() for _ in range(2)]
-    problems = [problem for _, _, problem, _ in built]
-    requests = [request.for_run(stats=StatsSpec(names=names)) for *_, request in built]
-    starts = [Start.entrance(problem) for problem in problems]
-    with ExitStack() as cleanup:
-        owners = [
-            cleanup.enter_context(
-                closing(select("native", problem, run, grid=grid, modes=modes))
-            )
-            for (grid, modes, problem, _), run in zip(built, requests, strict=True)
-        ]
-        assert group_module.refusal(problems, requests, starts) is None
-        group = start_group(owners, problems, requests, starts)
-        cleanup.callback(group.close)
-        assert type(group) is group_module.NativeGroupSession
-        recorded = _group_planes(group)
-    for index, ours in enumerate(recorded):
-        grid, modes, problem, request = built[index]
-        planned = _plan(grid, modes, problem, request, names, ours)
-        reference = _reference(grid, modes, problem, request, names, ours)
-        assert len(ours) == len(planned) == 3
-        for mine, other, want in zip(ours, planned, reference, strict=True):
-            for name in names:
-                what = f"member {index} {name} at {mine.z}"
-                got = mine.stats[name]
-                _within(got, np.asarray(other[name]), f"{what} (plan)")
-                _within(got, want[name], f"{what} (numpy_ref)")

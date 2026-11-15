@@ -41,7 +41,7 @@ import logging
 import warnings
 from typing import cast
 
-from solprop.driver.executors import Batch, Local, Pool, Queue, Slurm
+from solprop.driver.executors import Local, Pool, Queue, Slurm
 from solprop.driver.interface import (
     prop_capillary,
     prop_free,
@@ -276,7 +276,6 @@ from solprop.tools import (
 __all__ = [
     "RDW",
     "ZDW",
-    "Batch",
     "BeamParams",
     "CWPulse",
     "CallbackOutput",

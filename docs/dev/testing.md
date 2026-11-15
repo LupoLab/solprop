@@ -33,7 +33,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | invariant | energy and photon number where conserved, Parseval, time reversal, symmetries, positivity, orthonormality of modes | grids, transforms, modes, responses |
 | convergence | halve the step or double the grid and the error scales at the expected order; three levels with an order gate that rejects `order > p + 3` | stepper, quadrature, tables, Chebyshev |
 | round trip | build → translate → run → process and recover a known input | pulses, output, processing |
-| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-068, ADR-077) |
+| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; scan point vs run alone; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-068, ADR-077) |
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
@@ -242,13 +242,13 @@ or step; the accuracy of a reference (a table's stated accuracy, an experimental
 Luna result's own convergence). Independent floating-point computations are compared by
 numerical error, never by bits ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)):
 no comparison requires bitwise agreement across backends, builds, machines, thread counts,
-batch membership, scan execution or repeated runs. Every comparison belongs to one of five
+scan execution or repeated runs. Every comparison belongs to one of five
 classes, and `tests/bounds.py` holds the reusable parts of their bounds.
 
 | class | what is compared | criterion |
 |---|---|---|
 | **P**, structural | lossless storage, copies and views; integer accounting and ledgers; identity metadata and hashes used for configuration identity, cache validation or provenance; hard-mask zeros; explicitly exact no-ops (a feature left off, a row reusing the data its plane stores) | exact (`np.array_equal`, `==`), with a comment saying why the contract is exact |
-| **R**, matched discrete computation | two backends, thread counts, a batch member and its solo run, a scan point and its run, a fast path and the general path: the same method, orders, startup and restart history, schedule and inputs | a rounding bound |
+| **R**, matched discrete computation | two backends, thread counts, a scan point and its run, a fast path and the general path: the same method, orders, startup and restart history, schedule and inputs | a rounding bound |
 | **T**, accuracy | adaptive runs, ordinary replay, resumed against uninterrupted runs: discrete trajectories that may differ | an accuracy envelope |
 | **D**, recorded state | a route's stored final state (§5) | `ndarrays_regression` at a bound of class R or T |
 | **N**, noise | a seeded realisation | a short-window R comparison, or an ensemble observable with a tolerance set from the ensemble size |

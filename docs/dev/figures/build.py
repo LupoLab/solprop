@@ -745,16 +745,13 @@ MODULES = {
                 "driver",
                 "adams",
                 "low_storage",
-                "group",
                 "session",
-                "group_session",
             ),
         ),
         Module(
             "backends/numpy_ref/",
             (
                 "backend",
-                "batch",
                 "passes",
                 "multistep",
                 "populations",
@@ -810,7 +807,7 @@ MODULES = {
                 "selection",
             ),
         ),
-        Module("driver/executors/", ("local", "pool", "queue", "slurm", "batch")),
+        Module("driver/executors/", ("local", "pool", "queue", "slurm")),
         Module(
             "driver/routes/",
             ("gnlse", "hollow", "general", "spatial", "materials", "keywords"),
@@ -834,7 +831,6 @@ MODULES = {
                 "tdse",
                 "tdse_consistency",
                 "scan",
-                "batch",
                 "defaults",
                 "estimate",
                 "plane_view",
@@ -1240,13 +1236,12 @@ TABLEAU = (
 
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
-    ("prepare_group", "bind compatible members; the start opens their group"),
     ("edge_memory", "what reading a grid's edge will hold, for an estimate"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
-    ("available_device_memory", "free device bytes for batch admission; None on hosts"),
+    ("available_device_memory", "free device bytes for scan admission; None on hosts"),
     ("close", "idempotent"),
 )
 """The methods of `backends.protocol.Backend`; the reference's stepping seam is

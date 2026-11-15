@@ -4,10 +4,10 @@
 
 """Kokkos execution-space backend for :mod:`solprop`.
 
-Singleton and fixed-batch workspaces support multimode scalar and two-component
-propagation, Kerr, plasma, time-domain Raman, weighted control and member-owned
-statistics. Native states remain resident in their execution space between calls;
-observations are owning host ``complex128`` arrays.
+Its workspaces support multimode scalar and two-component propagation, Kerr, plasma,
+time-domain Raman, weighted control and statistics. Native states remain resident in
+their execution space between calls; observations are owning host ``complex128``
+arrays.
 """
 
 from __future__ import annotations
@@ -462,8 +462,6 @@ class BuildInfo:
 
 def available_device_memory() -> int | None:
     """Return the selected accelerator's free bytes, or None for a host build.
-
-    A scan batch sizes its groups against them.
 
     Returns
     -------

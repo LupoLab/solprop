@@ -134,11 +134,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
 
     The oracle of ``docs/dev/backends.md`` section 2. It implements
-    :class:`solprop.backends.protocol.Backend` and steps a single problem
-    (``max_batch = 1``) on either grid: mode-averaged or multimode on the fixed
-    transverse quadrature, scalar or vector-isotropic, with the Kerr term, the delayed
-    Raman term and the plasma. Mode-averaged propagation is the one-node case of the
-    same pipeline and not a second code path.
+    :class:`solprop.backends.protocol.Backend` and steps a single problem on either
+    grid: mode-averaged or multimode on the fixed transverse quadrature, scalar or
+    vector-isotropic, with the Kerr term, the delayed Raman term and the plasma.
+    Mode-averaged propagation is the one-node case of the same pipeline and not a
+    second code path.
 
     **Refusals.** A problem is refused by name, with
     :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
@@ -212,7 +212,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     reads_transverse_edge = True
 
     name = "numpy_ref"
-    max_batch = 1
     # The oracle evaluates its stage tables and Adams bases with the uncompiled forms,
     # never with the compiled code it exists to check (SEP 29 section 6.6).
     helpers = PLAIN

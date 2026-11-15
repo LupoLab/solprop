@@ -74,11 +74,11 @@ def run_scan(
         The scan's stop flag: any object with an ``is_set()`` method, such as a
         :class:`threading.Event` (SEP 41, S17). Once it is set no further point is
         dispatched; ``Local`` and ``Pool`` stop the points in flight within one step,
-        a ``Pool`` through a message on each busy worker's pipe; ``Batch`` stops
-        between groups. A stopped point is not committed, so a rerun computes it
-        again, and the scan returns normally, its file holding the points finished
-        before the stop; it logs at ``INFO`` that it stopped, and a scan reporter is
-        told ``"stopped"`` for each stopped point. ``Queue`` and ``Slurm`` refuse it.
+        a ``Pool`` through a message on each busy worker's pipe. A stopped point is
+        not committed, so a rerun computes it again, and the scan returns normally,
+        its file holding the points finished before the stop; it logs at ``INFO``
+        that it stopped, and a scan reporter is told ``"stopped"`` for each stopped
+        point. ``Queue`` and ``Slurm`` refuse it.
     recipe : solprop.output.records.RecipeRecord or None, optional
         The recipe the scan was built from, which the scan file records once, so that
         it reopens with its setup (SEP 41, S2); :meth:`solprop.recipe.core.Recipe.scan`

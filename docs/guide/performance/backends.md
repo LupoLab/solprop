@@ -136,10 +136,8 @@ ten steps before committing a long campaign to one backend.
   GPU or an AMD Instinct GPU than on an 18-core CPU socket (about four and three times on
   a scaled graded-index guide); a small case is limited by kernel-launch latency
   ([The native backend](native.md#running-on-a-gpu)).
-- **Batches.** A fixed-schedule batch fuses the accepted updates of its members, while
-  the response and transform work stays per member, so it does not amortise a device's
-  launch sequence; measure a batch's gain for your own shape. On a CPU, a `Pool` of
-  one-thread workers is the better scan pattern.
+- **Scans.** On a CPU, a `Pool` of one-thread workers is the scan pattern that scales
+  with the cores ([scans](../workflows/scans.md#processes-and-resource-limits)).
 
 ## Memory and scans
 

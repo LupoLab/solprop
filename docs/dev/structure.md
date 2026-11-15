@@ -96,9 +96,7 @@ the noise and the per-stage bundle all live in the reference's step driver,
 ([SEP 47](seps/archive/sep-0047-run-ownership.md)) — and under that the
 the implemented backends: NumPy reference and native (built from `native/`). Each
 supplies trial/state operations and the relevant hooks; the loop's
-statistics channel and progress reporter call back through the seam. Fixed fibre
-batches extend this interface with independent member observations and metadata
-([kernel contract](kernel-contract.md)).
+statistics channel and progress reporter call back through the seam.
 
 ![The backend seam, the shared step driver, and the implemented backends](figures/backends.svg)
 

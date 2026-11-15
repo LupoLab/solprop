@@ -47,6 +47,7 @@ from sessions.executors import (
     trace,
 )
 from solprop.backends.events import (
+    Eligibility,
     EventBatch,
     ObservationReady,
     Outcome,
@@ -391,6 +392,9 @@ def test_a_raised_final_warning_is_a_failure_with_its_field():
     reference, native = _both(lambda: walker(0.9e-12, check=check), error=True)
     terminal = reference.run.terminal
     assert terminal.outcome is Outcome.FAILED
+    # The final check runs at the run's end, after its last plane: the committed state
+    # there stays eligible for a checkpoint.
+    assert terminal.eligibility is Eligibility.ELIGIBLE
     assert native.raised is not None
     assert terminal.error is not None
     assert type(native.raised[1]) is type(terminal.error)

@@ -44,11 +44,10 @@ from solprop.backends.node_chunk import (
     general_planned_chunk,
     plan_node_chunk,
 )
-from solprop.backends.protocol import Backend, TimingProbe
+from solprop.backends.protocol import TimingProbe
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
-    PreparedGroup,
     Start,
 )
 from solprop.backends.spatial import (
@@ -296,7 +295,6 @@ class NativeBackend:
     """
 
     name = "native"
-    max_batch = 1
     helpers = NATIVE
     far_field_statistics: ClassVar[frozenset[str]] = frozenset(FAR_FIELD_STATISTICS)
     """The far-field statistics of solprop SEP 23 this build forms natively.
@@ -1559,36 +1557,6 @@ class NativeBackend:
 
         return NativePrepared(self, problem, request)
 
-    def prepare_group(
-        self,
-        members: Sequence[Backend],
-        problems: Sequence[PropagationProblem],
-        requests: Sequence[RunRequest],
-    ) -> PreparedGroup:
-        """Prepare a group of compatible native members (SEP 47 section 6.7).
-
-        Its start opens the native group session
-        (:class:`solprop_native.group.NativePreparedGroup`), which refuses by name a
-        group it does not run.
-
-        Parameters
-        ----------
-        members : sequence of solprop.backends.protocol.Backend
-            One constructed native backend per member, this one first.
-        problems : sequence of solprop.translate.problem.PropagationProblem
-            Each member's independently translated problem.
-        requests : sequence of solprop.translate.run_request.RunRequest
-            Each member's run request.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedGroup
-            The prepared group.
-        """
-        from .group import NativePreparedGroup
-
-        return NativePreparedGroup(members, problems, requests)
-
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
@@ -2138,7 +2106,7 @@ DEVICE_BUDGET_SHARE = 4
 The budget is spent on the host plan's conservative inventory (twenty column buffers a
 Cartesian column, about three times the live buffers, solprop issue #349), so the live
 space-domain buffers take near a twelfth of the free bytes, leaving the rest for the
-state, the march's registers and a scan's other members."""
+state and the march's registers."""
 
 
 def device_node_chunk(

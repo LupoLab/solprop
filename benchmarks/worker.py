@@ -10,7 +10,7 @@ final field and whether to count. The worker builds and translates the case and
 constructs its backend, runs an untimed warm-up over the first part of the guide, then
 times complete runs through the driver's own loop, each restarted from the translated
 launch with the boundary monitor ``Simulation.run`` attaches, or the case's workload of
-repeated inputs, a scan or a group (``benchmarks.registry.Case``). Asked to count, it
+repeated inputs or a scan (``benchmarks.registry.Case``). Asked to count, it
 then makes one more repetition with the native adapter's structural counters on
 (SEP 47 section 7.3), reported apart so that counting costs no timed repetition
 anything. It prints one JSON event per line; the last is the receipt.

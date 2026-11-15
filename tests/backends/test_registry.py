@@ -142,7 +142,7 @@ def test_select_builds_the_reference_backend(linear_problem, narrow_grid, caplog
         backend = select("numpy_ref", problem, run_request, grid=narrow_grid)
     assert isinstance(backend, NumpyRefBackend)
     assert isinstance(backend, Backend)
-    assert (backend.name, backend.max_batch) == ("numpy_ref", 1)
+    assert backend.name == "numpy_ref"
     backend.close()
     assert caplog.messages == ["Using numpy_ref backend"]
 
@@ -153,7 +153,7 @@ def test_select_builds_the_installed_native_backend(linear_problem, narrow_grid)
         pytest.skip("the optional solprop-native package is not installed")
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     backend = select("native", problem, run_request, grid=narrow_grid)
-    assert (backend.name, backend.max_batch) == ("native", 1)
+    assert backend.name == "native"
     backend.close()
 
 

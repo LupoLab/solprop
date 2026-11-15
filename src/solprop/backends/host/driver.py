@@ -50,7 +50,6 @@ from solprop.backends.rk_core import rk_policy
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
-    PreparedGroup,
     Start,
 )
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
@@ -318,8 +317,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     ----------
     name : str
         The registry name, set by the subclass and used in every log line.
-    max_batch : int
-        How many problems the backend steps at once.
     propagator_default : {'tabulate', 'recompute'}
         What this backend resolves the contract's ``"auto"`` propagator mode to. The
         default suits a backend that evaluates two complex exponentials per stage; one
@@ -332,7 +329,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     """
 
     name: str = "driver"
-    max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
 
@@ -481,7 +477,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Reserve a complete trial's external source calls when a service is bound.
 
         The base always raises: the driver that runs an Adams march (the reference
-        backend) keeps its own reservations, and a group's members reserve theirs.
+        backend) keeps its own reservations.
         """
         raise NotImplementedError
 
@@ -730,43 +726,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         # A concrete driver is a backend: this base is the march, and the subclass
         # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
-        # abstract here, so that a batch's protocol check can refuse a driver without.
+        # abstract here, so that a protocol check can refuse a driver without.
         return HostPrepared(cast("Backend", self), problem, request)
-
-    def prepare_group(
-        self,
-        members: Sequence[Backend],
-        problems: Sequence[PropagationProblem],
-        requests: Sequence[RunRequest],
-    ) -> PreparedGroup:
-        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
-
-        The reference's own group
-        (:class:`~solprop.backends.host.group_session.HostGroupSession`): its members
-        advance in lockstep through one fixed schedule on the reference's group runner
-        (:class:`~solprop.backends.host.group.HostGroup` or
-        :class:`~solprop.backends.numpy_ref.batch.NumpyBatchBackend`, chosen by
-        :func:`solprop.backends.registry.select_batch`).
-
-        Parameters
-        ----------
-        members : sequence of solprop.backends.protocol.Backend
-            One constructed backend per member, this one first.
-        problems : sequence of solprop.translate.problem.PropagationProblem
-            Each member's independently translated problem.
-        requests : sequence of solprop.translate.run_request.RunRequest
-            Each member's run request.
-
-        Returns
-        -------
-        solprop.backends.session.PreparedGroup
-            The prepared group.
-        """
-        from solprop.backends.host.group_session import (  # noqa: PLC0415 - it builds on this module
-            HostPreparedGroup,
-        )
-
-        return HostPreparedGroup(members, problems, requests)
 
     @property
     def request(self) -> RunRequest:  # numpydoc ignore=RT01
@@ -1310,8 +1271,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._z,
             record.n_accepted + record.n_rejected,
             record.n_rejected,
-            # The run's integrator, not this driver's march: a lockstep runner holds
-            # none of its own while its members each hold one.
+            # The run's integrator decides: the low-storage march estimates no error.
             NOT_ESTIMATED
             if isinstance(self._stepper.integrator, LowStorageRungeKutta)
             else f"{record.tolerance_ratio:.3e}",
@@ -1395,9 +1355,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def position(self) -> float:  # numpydoc ignore=RT01
         """Where the march stands, m.
 
-        The committed state's position, or the end of a step a group took but
-        neither validated nor recorded, which leaves the state in flight
-        (:attr:`in_flight`).
+        The committed state's position, or the end of a low-storage step a failure
+        abandoned, which leaves the state in flight (:attr:`in_flight`).
         """
         return float(self._z)
 

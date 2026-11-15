@@ -13,17 +13,24 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
+from march_bounds import FIXED_ORDER
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.grid import TimeGrid
+from solprop.driver import Simulation
+from solprop.driver.scan import ScanPoint
+from solprop.grid import EnvelopeGrid, TimeGrid
+from solprop.stats import StatsSpec
+from solprop.stepper import FixedSchedule
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "HASH_PROBE",
+    "fixed_fibre_point",
     "launch_derivative",
     "numpy_ref_launch_derivative",
     "run_python",
@@ -85,3 +92,39 @@ def run_python(path: Path) -> "subprocess.CompletedProcess[str]":
     )
     assert result.returncode == 0, result.stderr
     return result
+
+
+def fixed_fibre_point(
+    point: ScanPoint,
+    backend: str = "numpy_ref",
+    noise: Literal["input", "modified"] = "modified",
+) -> Simulation:
+    """Build a scan point's millimetre of fibre on a fixed four-step schedule.
+
+    The point's index scales the nonlinearity, the dispersion and the peak power; its
+    seed draws the noise. The former grid without a collar: a short fixed schedule is
+    refused beside the default collar, and the scan tests that build it are about
+    scans, not boundaries.
+    """
+    grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
+    return Simulation.from_gnlse(
+        0.11 * (point.index + 1),
+        0.001,
+        [0.0, 0.0, -1.183e-26 * (point.index + 1)],
+        wavelength=835e-9,
+        grid=grid,
+        absorber=bare_absorber(grid),
+        width=100e-15,
+        peak_power=float(point.index + 1),
+        shape="sech",
+        save_planes=[0.0005, 0.001],
+        schedule=FixedSchedule.uniform(
+            0.0, 0.001, 0.00025, save_planes=[0.0005, 0.001]
+        ),
+        stats=StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2),
+        noise=noise,
+        seed=point.seed,
+        # The fixed order leaves no controller decision on the prescribed schedule.
+        integrator=FIXED_ORDER,
+        backend=backend,
+    )

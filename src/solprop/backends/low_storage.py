@@ -151,8 +151,8 @@ def schedule_key(
 ) -> float:
     """Return the table key of the schedule step from `z`, from :func:`table_steps`.
 
-    Found by position rather than by a step counter, which a lockstep member does not
-    advance (the reference's ``HostGroup`` keeps the group's).
+    Found by position rather than by a step counter, so that it needs no count of the
+    steps taken before.
 
     Parameters
     ----------

@@ -28,7 +28,6 @@ from solprop._helpers import PLAIN
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
-from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import (
     compensation_tables,
@@ -414,41 +413,6 @@ def test_a_schedule_is_replayed_exactly_and_reports_its_norms(
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-def test_a_lockstep_batch_steps_each_member_with_its_own_history(
-    narrow_grid, soliton_problem, method
-):
-    length = SOLITON_PERIOD / 8
-    schedule = FixedSchedule.uniform(0.0, length, length / 11, save_planes=[length])
-
-    def problem_of(order):
-        return soliton_problem(
-            narrow_grid,
-            order,
-            save_planes=[length],
-            schedule=schedule,
-            dz_max=length / 11,
-            dz_init=length / 11,
-            integrator=fixed(method),
-        )
-
-    singles = [run(*problem_of(order), grid=narrow_grid)[0] for order in (1, 2)]
-    members = []
-    for order in (1, 2):
-        problem, run_request = problem_of(order)
-        member = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        member.set_initial(problem.initial.field0, None)
-        members.append(member)
-    runner = HostGroup(members)
-    runner.propagate_to(length)
-    observed = runner.observe_members()
-    runner.close()
-    # A member and its single run: one fixed-order method on one schedule.
-    bound = replay_bound(problem_of(1).request, 11)
-    for observation, single in zip(observed, singles, strict=True):
-        assert_within(observation.require_field()[0, 0], single, bound)
-
-
-@pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
 def test_a_rejected_trial_is_charged_and_leaves_the_history(
     narrow_grid, soliton_problem, method
 ):
@@ -544,23 +508,9 @@ def scheduled(soliton_problem, grid, method, schedule, length, **overrides):
     )
 
 
-def lockstep_of(problems, grid):
-    """Return a lockstep runner over fresh reference members of `problems`.
-
-    Each is a translation: a problem and its run's request.
-    """
-    members = []
-    for problem, run_request in problems:
-        member = NumpyRefBackend(problem, run_request, grid=grid)
-        member.set_initial(problem.initial.field0, None)
-        members.append(member)
-    return HostGroup(members)
-
-
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])
-@pytest.mark.parametrize("batch", [False, True], ids=["single", "lockstep"])
 def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
-    narrow_grid, soliton_problem, method, batch
+    narrow_grid, soliton_problem, method
 ):
     length = SOLITON_PERIOD / 8
     schedule = FixedSchedule.uniform(0.0, length, length / 9)
@@ -569,15 +519,12 @@ def test_a_replayed_schedule_stops_to_save_and_refuses_to_run_out(
         problem, run_request = scheduled(
             soliton_problem, narrow_grid, fixed(method), schedule, length, **overrides
         )
-        if batch:
-            return lockstep_of([(problem, run_request)], narrow_grid)
         backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
         backend.set_initial(problem.initial.field0, None)
         return backend
 
     def field_of(runner):
-        observed = runner.observe_members()[0] if batch else runner.observe()
-        return observed.field[0, 0, 0]
+        return runner.observe().field[0, 0, 0]
 
     # Every third step's end is saved: each call stops there, and the steps, so the
     # field, are those of the uninterrupted replay.
@@ -616,17 +563,6 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
     with pytest.raises(ConvergenceError, match="non-finite error norm"):
         backend.propagate_to(length)
     backend.close()
-
-
-def test_lockstep_members_must_share_the_integrator(narrow_grid, soliton_problem):
-    length = SOLITON_PERIOD / 8
-    schedule = FixedSchedule.uniform(0.0, length, length / 9)
-    problems = [
-        scheduled(soliton_problem, narrow_grid, method, schedule, length)
-        for method in FORMULATIONS
-    ]
-    with pytest.raises(BackendError, match="same integrator"):
-        lockstep_of(problems, narrow_grid)
 
 
 DRIVERS = pytest.mark.parametrize("driver", [HostDriver], ids=["host"])

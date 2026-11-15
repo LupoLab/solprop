@@ -15,17 +15,15 @@ from solprop._process import ThreadBudget, thread_budget
 from solprop.backends.protocol import (
     Backend,
     BackendHistory,
-    BatchBackend,
     Observation,
     StepStats,
     StepSummary,
 )
-from solprop.backends.registry import available, resolve_name, select, select_batch
+from solprop.backends.registry import available, resolve_name, select
 
 __all__ = [
     "Backend",
     "BackendHistory",
-    "BatchBackend",
     "Observation",
     "StepStats",
     "StepSummary",
@@ -33,6 +31,5 @@ __all__ = [
     "available",
     "resolve_name",
     "select",
-    "select_batch",
     "thread_budget",
 ]

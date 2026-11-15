@@ -126,15 +126,7 @@ It **writes and resumes an HDF5 file**: the file carries the channel labels, the
 provider, sampling, table and metric identities and the accessors the basis admits, so
 a resume against a changed guide, table, material or channel order is refused by the
 field that moved ([output](../results/resuming.md#what-a-general-modal-runs-key-holds)).
-A scan point writes one
-too. A **batch** member may be a general modal run, under a narrower admission rule than
-an ordinary fibre batch's ([scans and batches](../workflows/scans.md#fixed-schedule-batches)): the
-members of a group share the guide, the table, the gauge, the materials and one explicit
-fixed schedule, and differ in their launch and their noise seed alone. What separates two
-guides is `modal_tables.identity` in the grouping signature, because every other entry
-there describes an execution layout two guides share entirely; a group assembled outside
-that grouping is refused by name, at the driver and again at the backend. A batched run
-is what its members are alone, to rounding.
+A scan point writes one too ([scans](../workflows/scans.md)).
 
 A reconstruction of E and H needs the **guide beside the file**: the reference
 arrays are not stored in it, so rebuild the tables from the guide and pass the

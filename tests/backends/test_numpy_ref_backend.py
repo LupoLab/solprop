@@ -162,7 +162,7 @@ def test_the_backend_satisfies_the_seam(
     problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     backend = backend_class(problem, run_request)
     assert isinstance(backend, Backend)
-    assert (backend.name, backend.max_batch) == (backend_name, 1)
+    assert backend.name == backend_name
     backend.close()
 
 

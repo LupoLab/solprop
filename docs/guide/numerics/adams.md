@@ -336,7 +336,7 @@ $$u_{n+1} = e^{hD}u_n + h\sum_k k!\,\varphi_{k+1}(hD-\sigma)\sum_j c_{jk}\,G_j,
 so the step interpolates the rotated samples $G_j$ and integrates them against the
 moments at $hD - \sigma$. The shift is the step's own carrier phase,
 $\sigma = \mathrm{i}\operatorname{Im}(hD)$ at the active bin nearest the reference
-frequency, on the frame's mode and first polarisation, one per batch member. The
+frequency, on the frame's mode and first polarisation. The
 state, the stored samples and the linear flow $e^{hD}$ are unchanged; only the function
 the polynomial follows is. Rotating the samples without shifting the moments would not
 be equivalent: it integrates $G$ against the wrong flow, an error of order
@@ -711,8 +711,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   a hard kink restarts the history. A replay meets the run's accuracy target rather
   than reproducing it bit for bit: replaying an adaptive run's steps reproduces its
   positions, but the orders are chosen afresh and rejected trials are not replayed, so
-  where that run rejected a step the replay may choose a different order. Lockstep batches follow (each member keeps
-  its own history). The in-stage collar is a damping term integrated explicitly, so a
+  where that run rejected a step the replay may choose a different order. The in-stage
+  collar is a damping term integrated explicitly, so a
   replayed step must keep $h\alpha/2$ inside the method's real stability interval —
   0.0877 for PEC5/6 against DOPRI5's 3.3 (the table above, extended to all orders in
   `solprop.stepper.multistep.PEC_REAL_INTERVAL`); the translation refuses a
