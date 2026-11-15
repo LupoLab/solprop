@@ -87,6 +87,7 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   ladders, vector saturation and repeated-window histories remain future work.
 - [SEP 52 — One backend shape and a small native seam](seps/sep-0052-backend-shape.md):
   `numpy_ref` and `native` built from the same workspace, engines, marches and session,
-  reading shared run records; `HostDriver` and the lockstep reference batch removed; the
-  native binding reduced to a workspace, one run record and a session, with test-only
-  entry points in a private `_testing` module. No user-facing change.
+  reading shared run records; `HostDriver` removed; the `Batch` executor, every group path
+  and the unit batch axis removed, the snapshot layout included; the native binding reduced
+  to a workspace, one run record, a probe and a session, with test-only entry points in a
+  private `_testing` module.
