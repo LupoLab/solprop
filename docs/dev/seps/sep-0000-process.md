@@ -51,14 +51,15 @@ A SEP is required for:
 - a new propagation route, geometry, spatial decomposition or mode family;
 - a new numerical scheme: a stepper, a transform, a quadrature, a coupled flow;
 - a change to a physics default or to a convention of [conventions.md](../conventions.md);
-- a redesign of a public interface, or a change that breaks many users' scripts;
 - a substantive change to the kernel contract ([kernel-contract.md](../kernel-contract.md))
   or a new backend;
 - a change to how solprop is developed (a *Process* SEP, like this one).
 
-A SEP is not needed for bug fixes, documentation, tests, refactoring, tooling and
-continuous integration, dependency updates, small additions to the public interface (a
-keyword, a helper, a statistic), or optimisations that leave results unchanged (they
+A SEP is not needed for bug fixes, API fixes and cleanups that change no model or
+physics (even when they rename, merge or refuse public parameters, or change which
+parameters a route takes), documentation, tests, refactoring, tooling and continuous
+integration, dependency updates, small additions to the public interface (a keyword, a
+helper, a statistic), or optimisations that leave results unchanged (they
 still need a benchmark ledger entry, [benchmarks.md](../benchmarks.md)). Those follow the
 working agreement of `AGENTS.md`: an issue or a short agreed plan, then a pull request.
 
@@ -389,6 +390,9 @@ that edits this document and adds a line to its history.
 - 2026-11-11: The backend tiers are gone (ADR-077): a SEP is `Final` on `numpy_ref` and the
   native CPU build. A proposal estimates its cost in lines of code, docstrings and tests,
   and its phase reports record the actual numbers.
+- 2026-11-15: API fixes and cleanups that change no model or physics no longer need a SEP,
+  even when they change public parameters; a public-interface redesign is no longer on the
+  list of changes that require one (maintainer's decision).
 - 2026-11-15: John Travers approved a narrow exception for
   [SEP 52](sep-0052-backend-shape.md#11-phases): its implementation merges through four
   stacked phase pull requests, each based on the one before and each leaving main usable
