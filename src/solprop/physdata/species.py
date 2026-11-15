@@ -872,6 +872,45 @@ def built_in_population(material: Species) -> bool:
     return gas is not None and bool(material.material_records)
 
 
+MIXTURE_AIR_POINTER: Final = (
+    "the built-in Air entry is dispersion-only; for air with Kerr, plasma and "
+    "Raman channels use Mixture.air (solprop.physdata.mixtures.Mixture.air)"
+)
+"""The pointer a refusal of the dispersion-only ``Air`` entry ends with."""
+
+
+def dispersion_only_air(material: Species) -> bool:
+    """Return whether a species is the built-in, dispersion-only ``Air`` entry.
+
+    The entry carries optmat's index of dry air as a whole and no Kerr, ionisation
+    or Raman data; :meth:`solprop.physdata.mixtures.Mixture.air` builds air with
+    those channels. A supplied species merely named ``Air`` that carries Kerr or
+    ionisation data is not the entry.
+
+    Parameters
+    ----------
+    material : Species
+        The species.
+
+    Returns
+    -------
+    bool
+        Whether it is the built-in ``Air`` entry.
+
+    Examples
+    --------
+    >>> from solprop.physdata.species import dispersion_only_air, species
+    >>> dispersion_only_air(species("Air")), dispersion_only_air(species("N2"))
+    (True, False)
+    """
+    return (
+        material.name == Gas.Air.value
+        and built_in_population(material)
+        and material.kerr is None
+        and material.ionisation is None
+    )
+
+
 @functools.cache
 def _optmat_ionisation(gas: Gas) -> IonisationData:
     """Return optmat's curated first ionisation energy of a gas, once per gas.

@@ -61,7 +61,11 @@ from solprop.physdata.selection import (
     MaterialRecord,
     MaterialSelection,
 )
-from solprop.physdata.species import built_in_population
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    built_in_population,
+    dispersion_only_air,
+)
 from solprop.profiles import Sum, ZProfile, _probe_positions
 
 __all__ = [
@@ -1224,6 +1228,8 @@ def _keep(
             if explicit:
                 what = "an atom" if kind == "atom" else "not a gas optmat curates"
                 msg = f"{label} ({name}) has no molecular Raman response: it is {what}"
+                if dispersion_only_air(component.species):
+                    msg += f"; {MIXTURE_AIR_POINTER}"
                 raise MaterialError(msg, rule="raman-needs-molecule")
             continue
         options = chosen[label]

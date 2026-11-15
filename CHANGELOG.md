@@ -275,6 +275,7 @@ All notable changes to solprop are recorded here. The format follows
   `interpolated_resumes` annotation before its first step, so a session that stops or
   fails later still names where it restarted; before, only a session that finished was
   recorded ([#152](https://github.com/LupoLab/solprop/issues/152)).
+- A hand-built fill of the dispersion-only `Air` entry, such as `Mixture.fill({"Air": 1.0}, 1.0)`, is now steered to `Mixture.air`: its refusals of Kerr (carrier or dispersive), plasma (which called it a custom species) and an explicit Raman selection all name `Mixture.air` for air with Kerr, plasma and Raman channels, and an `envelope=True` capillary run with `kerr=False`, which runs linear, logs that once at INFO (#164).
 - Dropped optmat's internal tracker ids, such as `(TC-688)`, from the optmat warnings
   solprop passes on as `MaterialRangeWarning` and from the run's material record; the
   rest of each message is unchanged. A Raman response used outside its density or

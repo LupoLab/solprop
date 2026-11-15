@@ -36,7 +36,12 @@ from solprop.nonlinear.responses import (
 from solprop.physdata.mixtures import Component, Mixture
 from solprop.physdata.raman_types import MolecularOptions
 from solprop.physdata.selection import DISPERSIVE_POLICIES, MaterialSelection
-from solprop.physdata.species import Species, built_in_population
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    Species,
+    built_in_population,
+    dispersion_only_air,
+)
 from solprop.profiles import Sum, ZProfile, _probe_positions
 
 __all__ = ["electronic_response", "raman_temperature", "responses_for"]
@@ -68,6 +73,11 @@ def _default_rate(
     return selected_rate(
         component.species, selection, wavelength, label=component.label
     )
+
+
+def _air_hint(material: Species) -> str:
+    """Point a refusal of the dispersion-only ``Air`` entry to ``Mixture.air``."""
+    return f": {MIXTURE_AIR_POINTER}" if dispersion_only_air(material) else ""
 
 
 def _check_labels(labels: Sequence[str], mixture: Mixture, option: str) -> None:
@@ -430,14 +440,16 @@ def electronic_response(
     if evaluator is None:
         coefficient = material.kerr_coefficient(wavelength)
         if coefficient is None:
-            raise MaterialError(f"{material.name} has no Kerr data")
+            raise MaterialError(
+                f"{material.name} has no Kerr data{_air_hint(material)}"
+            )
         return KerrResponse(coefficient, thg=thg, species=species)
     if material.kerr is None:
         msg = (
             f"the electronic policy {selection.electronic!r} evaluates optmat's "
             f"hyperpolarizability model, and {material.name} carries none (a supplied "
             "species, or air, whose populations carry their own); give the species "
-            "optmat's model or select 'carrier-kerr'"
+            f"optmat's model or select 'carrier-kerr'{_air_hint(material)}"
         )
         raise MaterialError(msg)
     return DispersiveKerrResponse(

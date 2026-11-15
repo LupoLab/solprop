@@ -141,7 +141,7 @@ is a *dispersion-only* species (optmat's index of dry air as a whole): it has no
 data, no Kerr coefficient and no ionisation data.
 Placed in a fill by hand, as in `Mixture.fill({"Air": 1.0}, 1.0)`, it contributes no
 Raman response under the default and says nothing; a run that also asks for Kerr is
-refused (`Air (Air) has no Kerr data`), and an explicit `raman=("Air",)` raises. For
+refused (`Air (Air): Air has no Kerr data`), and an explicit `raman=("Air",)` raises. For
 nonlinear propagation in air use `gas="air"` or `Mixture.air`; the
 [air tutorial](../../auto_tutorials/capillaries/plot_04_air_mixture) selects the N₂
 response alone with `raman=("N2",)`.

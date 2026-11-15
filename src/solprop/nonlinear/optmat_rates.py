@@ -62,8 +62,10 @@ from solprop.physdata import _optmat
 from solprop.physdata.gases import Gas
 from solprop.physdata.selection import MaterialRecord, MaterialSelection
 from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
     Species,
     built_in_population,
+    dispersion_only_air,
     ionisation_potential,
 )
 
@@ -911,9 +913,11 @@ def selected_rate(
     Raises
     ------
     MaterialError
-        If the species is custom (not built in, or with its own ionisation data),
-        which needs an explicit rate (D1), or there is no carrier, or a model object
-        describes another species.
+        If the species is the dispersion-only built-in ``Air`` entry, which has no
+        ionisation data (the message points to
+        :meth:`~solprop.physdata.mixtures.Mixture.air`), or is custom (not built
+        in, or with its own ionisation data), which needs an explicit rate (D1), or
+        there is no carrier, or a model object describes another species.
 
     Examples
     --------
@@ -925,6 +929,9 @@ def selected_rate(
     'comparison'
     """
     name = label or material.name
+    if dispersion_only_air(material):
+        msg = f"{name} ({material.name}) has no ionisation data: {MIXTURE_AIR_POINTER}"
+        raise MaterialError(msg)
     if (
         not built_in_population(material)
         or material.name == Gas.Air.value
