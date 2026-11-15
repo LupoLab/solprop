@@ -186,8 +186,15 @@ of `[build]`, although `prop_free` and `prop_planar` take them as
 keywords too. The settings table takes the stepping, the planes, the statistics, the
 absorber and the backend; `fields`, `field_planes` and `resume_history` stay in
 `[execution]`, and the fields a route's builder sets (the density, the
-transverse quadrature) are not the recipe's. On the `planar` route a slab mode names its
-fill, `{ type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar" }`,
+transverse quadrature) are not the recipe's. The run ends at its last save plane, so
+`save_planes` in the settings table is either a list of positions, `["5 cm", "10 cm"]`,
+or an integer count, `save_planes = 80`, which spreads 80 planes evenly over
+`grid.length`, counting the entrance at `z = 0` and ending at `grid.length`, as
+`n_save` does on the keyword routes; a count is at least 2. Saving the recipe writes
+either form back as given; the Python export writes a count as
+`counted_save_planes(grid.length, 80)`, since settings in Python take positions.
+`Recipe.check()` warns when a list's last position is not `grid.length`, the length the
+grid was built for. On the `planar` route a slab mode names its fill, `{ type = "SlabMode", half_gap = "63.5 um", gas = "Ar", pressure = "1 bar" }`,
 because the fill of its channels is the run's; on the `waveguide` route the same
 keywords are refused, since every supplied mode is rebound to the route's fill. A
 launch built as an array, a `Frame` and a design pin have no table form on these routes.

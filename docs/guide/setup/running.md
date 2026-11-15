@@ -425,6 +425,32 @@ simulation are the same run and must digest alike.
 with another input pulse or another fill while sharing what translation built
 ([scans](../workflows/scans.md#reuse-a-translated-simulation)).
 
+`SimulationSettings.save_planes` is positions in metres, positive and increasing, after
+the entrance at `z = 0`, which is always saved; the run ends at the last one. A bare integer is
+refused rather than read as one plane that many metres away: a number of planes needs a
+length to be placed over, which the settings do not have.
+{py:func}`~solprop.driver.settings.counted_save_planes` places a count the way `n_save`
+does on the keyword routes, evenly over `[0, length]`, counting the entrance and ending
+at `length`, so five planes over the grid's 1 m are 0, 0.25, 0.5, 0.75 and 1 m. A
+recipe's settings table takes the count itself, `save_planes = 80`, and places it over
+`grid.length` ([recipes](recipes.md)).
+
+```python
+from solprop.driver import SimulationSettings
+from solprop.driver.settings import counted_save_planes
+from solprop.grid import EnvelopeGrid
+from solprop.stepper import PIController
+
+counted_grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
+counted = SimulationSettings(
+    controller=PIController(rtol=1e-8, atol=1e-14),
+    save_planes=counted_save_planes(counted_grid.length, 5),
+    dz_max=0.1,
+    dz_init=1e-3,
+)
+print(counted.save_planes)  # [0.25 0.5  0.75 1.  ]: four positions, five planes
+```
+
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics
 alone ([output](../results/output.md#statistics-only-planes-which-planes-keep-their-field)).
