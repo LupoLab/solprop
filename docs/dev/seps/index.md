@@ -33,7 +33,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
-| [51](sep-0051-save-planes.md) | One rule for the saved planes and the end of a run | Accepted | Change |
+| [51](sep-0051-save-planes.md) | One rule for the saved planes and the end of a run | In progress | Change |
 | [52](sep-0052-backend-shape.md) | One backend shape and a small native seam | In progress | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
