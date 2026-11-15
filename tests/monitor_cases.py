@@ -48,10 +48,23 @@ ROUTE_NAMES = (
     "cartesian",
     "line",
     "planar",
+    "capillary (pressure gradient)",
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
 )
 """Every route: the single-column engine (the GNLSE and mode-averaged capillaries),
 field and envelope modal columns, the general modal route, radial (whose columns carry
-the Hankel quadrature), Cartesian and line free space and the planar hybrid."""
+the Hankel quadrature), Cartesian and line free space, the planar hybrid, the pressure
+gradient, and the coupled flows (:data:`COUPLED`)."""
+
+COUPLED = (
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
+)
+"""The coupled-flow routes: the moving general guide, the coherent wall and the taper
+coupling, which the low-storage march refuses by name."""
 
 SCHEMES = ("nonlinear", "split_step")
 MARCHES = {
@@ -62,6 +75,15 @@ MARCHES = {
 """The marches whose finishes differ: the Runge-Kutta finish, the Adams adoption (the
 native engine's resident history on its modal routes) and the low-storage register
 step accepted in place (the native engine's resident step)."""
+
+ROUTE_MARCHES = tuple(
+    (route, march)
+    for route in ROUTE_NAMES
+    for march in sorted(MARCHES)
+    if not (march == "low_storage" and route in COUPLED)
+)
+"""Every route under every march it admits: the low-storage march steps a diagonal
+linear flow only, and refuses the :data:`COUPLED` routes at translation."""
 
 STEPS = 4
 """Fixed steps over the probe's fifth of a millimetre: a matched schedule, so that the
@@ -75,21 +97,46 @@ COPY_AT = 0.42
 its tail in the high guard."""
 
 
+QUIET_STEPS = 20
+"""Fixed steps of the quiet probe: more than :data:`solprop.monitor.CADENCE`, so that a
+quiet window's cadence leaves steps between its checks unchecked."""
+
+QUIET_BUDGET = 100.0
+"""The quiet probe's budget: the activity threshold, ``(0.1 budget)**2`` of the energy,
+is above any share a region can hold, so no step is checked for an active edge."""
+
+
 def probe(
-    route: str, scheme: str, march: object | None = None, *, steps: int = STEPS
+    route: str,
+    scheme: str,
+    march: object | None = None,
+    *,
+    steps: int = STEPS,
+    budget: float = 1.0,
 ) -> Simulation:
     """Return a route's tiny case under an absorber scheme; with a march, on a fixed
-    schedule of `steps` steps."""
+    schedule of `steps` steps, more where a hard kink splits one.
+
+    The check's `budget` is relaxed (the launch puts light in the guards on purpose):
+    at the default every step holds an active collar and is checked, and at
+    :data:`QUIET_BUDGET` none does, so only the cadence decides.
+    """
     simulation = ROUTES[route](None)
     settings: dict[str, Any] = {
-        # Relaxed: the launch puts light in the guards on purpose.
-        "boundary_check": BoundaryCheck(budget=1.0, stop_factor=1.0),
+        "boundary_check": BoundaryCheck(budget=budget, stop_factor=1.0),
         "absorber_scheme": scheme,
     }
     if march is not None:
         settings["integrator"] = march
+        # A fixed schedule must land on the guide's hard kinks (the taper coupling's
+        # corners), which split a segment into more, shorter steps. They are read off
+        # a second build: a translated simulation takes no new schedule.
         settings["schedule"] = FixedSchedule.uniform(
-            0.0, LENGTH, LENGTH / steps, save_planes=[LENGTH]
+            0.0,
+            LENGTH,
+            LENGTH / steps,
+            save_planes=[LENGTH],
+            hard_kinks=ROUTES[route](None).translate().linear.hard_kinks,
         )
     simulation.settings = dataclasses.replace(simulation.settings, **settings)
     return simulation
@@ -183,9 +230,16 @@ def record_after_march(
     name: str,
     problem: PropagationProblem | None = None,
     run_request: RunRequest | None = None,
+    *,
+    interval: float | None = None,
 ) -> dict[str, Any]:
     """Return a backend's monitor record after the probe's fixed steps, with the split
     collar's crossing cap the last check read (``step_cap``).
+
+    `interval`, when given, replaces the monitor's longest unchecked distance
+    (:attr:`solprop.monitor.BoundaryMonitor.interval`, the guide's length over
+    :data:`solprop.monitor.CHECKS`, which every probe's step exceeds): ``math.inf``
+    leaves a quiet window to the cadence alone.
 
     The edge-reaching launch runs through the backend's own session, watched by the
     simulation's boundary monitor. The reference's session updates that monitor, whose
@@ -197,6 +251,8 @@ def record_after_march(
     run_request = simulation._run_request() if run_request is None else run_request
     monitor = simulation._boundary_monitor()
     assert monitor is not None
+    if interval is not None:
+        monitor.interval = interval
     request = run_request.for_run(monitor=monitor)
     backend = select(
         name,
