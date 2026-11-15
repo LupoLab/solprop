@@ -6,12 +6,12 @@
 | **Title** | One rule for the saved planes and the end of a run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-15 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-15 by John Travers in [PR #847](https://github.com/LupoLab/solprop/pull/847), after the GPT-6 review, decisions D1–D8 and the revision that answered R1–R10. |
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -532,6 +532,7 @@ None beyond solprop's own documentation and issues, cited where used.
   Part I is unchanged.
 - 2026-11-15: John Travers reviewed the proposal and recorded decisions D1–D8. The
   drafting agent revised Part I to match and responded to R1–R10.
+- 2026-11-15: Accepted by John Travers in PR #847. Part I is frozen.
 
 ### AI review — 2026-11-15
 

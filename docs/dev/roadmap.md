@@ -35,6 +35,13 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
+- [SEP 51 — One rule for the saved planes and the end of a run](seps/sep-0051-save-planes.md):
+  the length stated once, as `length` or `grid.length`, is the limit and the end of every
+  run; every run records its entrance and end, and every route, recipe and front-end
+  sheet takes the same `n_save` (evenly spaced over the launched interval) or
+  `save_planes` (positions), with no bare numbers. Continuing a finished run stays in
+  [#141](https://github.com/LupoLab/solprop/issues/141).
+
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -85,8 +92,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 51 — One rule for the saved planes and the end of a run](seps/sep-0051-save-planes.md):
-  the same `n_save` (a count including the entrance) or `save_planes` (positions) on
-  every route, recipe and front-end sheet, no bare numbers, and the length as the limit
-  and the end of every run. Continuing a finished run stays in
-  [#141](https://github.com/LupoLab/solprop/issues/141).
