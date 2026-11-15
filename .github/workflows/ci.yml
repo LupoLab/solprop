@@ -430,6 +430,7 @@ jobs:
       # which kills the job with its log.
       - name: Add swap
         run: |
+          df -h /
           sudo fallocate -l 4G /swap.extra
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
