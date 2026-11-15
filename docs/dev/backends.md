@@ -1597,7 +1597,16 @@ kernel behind a wait on the previous such launch, which kept the host from queui
 trial's kernels ahead. A plain range reduction on HIP takes launch bounds of 256
 threads with the hint, since Kokkos gives a light-weight HIP reduction its largest block.
 CUDA builds pass functors as grid constants and are unchanged; host builds dispatch as
-Kokkos does. The device Adams passes hold a trial's phi-functions and history in registers,
+Kokkos does. A kernel in a shared header that several source files instantiate with the
+same types is a named functor, not an extended `__host__ __device__` lambda: nvcc keeps
+such a lambda's copy and delete functions in per-file static variables, set where the
+lambda is constructed, while the link keeps one file's copy of the inline dispatch that
+copies it. `device_dense_gemm` was such a lambda, and on a Release CUDA build for
+compute capability 8.6 every radial run called a null copy function in its first step
+([#815](https://github.com/LupoLab/solprop/issues/815)).
+`native/ci/check_lambda_tags.py` fails a CUDA build's object files on an extended lambda
+that more than one of them holds.
+The device Adams passes hold a trial's phi-functions and history in registers,
 dispatched on its order and width (one to eight samples): indexed per-thread arrays live
 in scratch memory. An accepted Adams step ends without a fence on a device, whose
 execution instances are its one stream. A device holds the two held plasma currents'

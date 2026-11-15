@@ -299,6 +299,7 @@ All notable changes to solprop are recorded here. The format follows
   route's description twice, once for the description fetched ahead and once for the one
   asked as the setup opened; the second build replaced every widget on the sheet for
   nothing ([#791](https://github.com/LupoLab/solprop/issues/791)).
+- Fixed a segmentation fault in the native session's `advance` on a CUDA build for compute capability 8.6 (`AMPERE86`, such as an NVIDIA A40): every radial run crashed in its first step, envelope or field, with or without a collar or statistics, with every stepper. The device GEMM's kernel is now a named functor; as an extended host-device lambda instantiated alike in several source files, a Release build called a null copy function. Other device targets and the other routes were not affected ([#815](https://github.com/LupoLab/solprop/issues/815)).
 - Fixed the Adams march dropping the attempt row of a rejected trial whose reduced
   proposal fell below `dz_min`: the completed trial is now recorded, on both the NumPy
   reference and the native backend, before the floor's `ConvergenceError` is raised; the
