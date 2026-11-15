@@ -374,8 +374,8 @@ caps each proposal at `CARRIER_PHASE_CAP` of carrier phase before the landing ru
 (`HostAdamsMarch._capped`), measured by the reference element's chord alone
 (`CarrierChord`, the operator's own constant, expansion or z table at that element),
 so a capped step is not a landing; a replayed schedule is not capped. The native
-engine (`_ResidentAdams`) forms its `sigma` from the same chord on the host and passes
-it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
+engine (`engines::ResidentEngine`) forms its `sigma` from the same chord, read from the
+stage tables (`stage::chord`), and passes it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
 `factor_im`); its kernels read rows through `adams_history` and form moments through
 `adams_moment_phi`, and dense observation takes the accepted step's carrier frame. An
 inert or `"off"` run takes the unshifted arithmetic exactly. `"scalar"` runs on

@@ -14,6 +14,7 @@ from conftest import PhaseACase
 
 import solprop_native as native
 from solprop_native import _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import NativeBackend
 
 if native.build_info().device_backend != "none":  # pragma: no cover - device builds
@@ -94,7 +95,7 @@ def test_stale_wisdom_never_reaches_a_profiled_workspace(
     # a profile forgets it before planning, and its estimate plans are FFTW's own.
     wisdom = _capture(phase_a_case)
     for text in wisdom.values():
-        assert _core.import_fftw_wisdom(text)
+        assert _testing.import_fftw_wisdom(text)
     assert _entries(_core.export_fftw_wisdom()) > 0
     efforts = {"rows": "estimate", "threaded_rows": "estimate", "planes": "estimate"}
     found = _plan(phase_a_case, {"mode": "profile", "efforts": efforts, "wisdom": {}})

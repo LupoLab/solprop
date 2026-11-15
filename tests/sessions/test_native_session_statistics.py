@@ -21,6 +21,7 @@ is exported. Three things are checked on each:
 """
 
 import dataclasses
+import functools
 import math
 import re
 
@@ -54,8 +55,8 @@ from solprop.translate.assembly import assemble
 
 native_session = pytest.importorskip("solprop_native.session")
 native_statistics = pytest.importorskip("solprop_native._statistics")
+_testing = pytest.importorskip("solprop_native._core")._testing
 from solprop_native import (  # noqa: E402  # pyright: ignore[reportMissingImports]
-    _core,
     _counters,
 )
 
@@ -350,7 +351,7 @@ def test_the_native_width_is_solprop_s_crossing_to_the_bit(outer):
     for trace in traces:
         start, end = _half_max_range(t, trace, outer=outer)
         expected = end - start
-        got = _core.half_width(t, trace, outer)
+        got = _testing.half_width(t, trace, outer)
         if math.isnan(expected):
             assert math.isnan(got)
         else:
@@ -588,7 +589,7 @@ def test_a_native_plan_refusal_is_the_reference_s_exception():
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(SolpropError) as caught:
             try:
-                state.planned_statistics(lowering.plan, far)
+                _testing.planned_statistics(state, lowering.plan, far)
             except (ValueError, IndexError, RuntimeError) as error:
                 raise native_statistics.translated(error) from error
     finally:
@@ -861,11 +862,16 @@ def _host_widths(problem, run_request, grid, record, monkeypatch):
         # The record's exported state, loaded into the native state itself.
         state = load_native(backend, record.field, clear_fsal=False)
         packed = np.ravel(
-            state.spatial_statistics(32 if plane else 16, 0.5 * EPS0 * C, record.z)
+            _testing.spatial_statistics(
+                state, 32 if plane else 16, 0.5 * EPS0 * C, record.z
+            )
         )
         if plane:
             return plane_fluence_widths(
-                geometry, packed, n_terms, state.plane_fluence_trace
+                geometry,
+                packed,
+                n_terms,
+                functools.partial(_testing.plane_fluence_trace, state),
             )
         count = problem.transform.n_nodes
         budget = fluence_budget(np.full(count, packed[count + 1]), n_terms)

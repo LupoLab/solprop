@@ -52,7 +52,7 @@ void carrier_frame(ExponentialWeights& weights, const std::vector<double>& value
                    std::size_t rows);
 
 /** The resident engine: the general state's startup, exponential trial and accept,
-    with the stage tables of phase 1 (solprop's `_ResidentAdams`). */
+    with the stage tables of phase 1 (solprop's `HostHistory`). */
 class ResidentEngine final : public march::Engine {
 public:
   ResidentEngine(GeneralState& state, const stage::Tables& tables,

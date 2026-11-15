@@ -39,10 +39,6 @@ __all__ = ["main", "measure"]
 
 _TIMED = frozenset(
     {
-        "adams_march_run",
-        "rk_march_run",
-        "statistics",
-        "spatial_statistics",
         "field_to_host",
         "advance",
         "export",

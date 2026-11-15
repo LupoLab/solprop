@@ -42,6 +42,7 @@ from solprop.translate.responses import dispersive_terms
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _lower_dispersive,  # pyright: ignore[reportPrivateUsage]
@@ -287,7 +288,8 @@ def test_a_trial_without_the_densities_is_refused() -> None:
         assert terms is not None
         n_phi = terms.shape[0]
         with pytest.raises(ValueError, match="dispersive densities"):
-            backend._native_state.trial_step(  # pyright: ignore[reportPrivateUsage]
+            _testing.trial_step(
+                backend._native_state,  # pyright: ignore[reportPrivateUsage]
                 1e-4,
                 np.zeros((stages + 1) * n_phi),
                 np.zeros(stages * n_phi),
@@ -321,7 +323,7 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
             if isinstance(backend, NativeBackend):
                 state = load_native(backend, problem.initial.field0, clear_fsal=False)
                 native_trial(backend, 0.0, 0.0)
-                spectra.append(state.projected_to_host(False))
+                spectra.append(_testing.projected_to_host(state, False))
             else:
                 backend.set_initial(problem.initial.field0, None)
                 backend._adams_lab_source(problem.initial.field0[None], 0.0)  # pyright: ignore[reportPrivateUsage]

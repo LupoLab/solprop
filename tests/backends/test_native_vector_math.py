@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 native = pytest.importorskip("solprop_native")
-core = native._core  # pyright: ignore[reportPrivateUsage] - the layer's test bindings
+core = native._core._testing  # pyright: ignore[reportPrivateUsage] - the layer's test bindings
 
 EPS = np.finfo(np.float64).eps
 TINY = np.finfo(np.float64).smallest_subnormal

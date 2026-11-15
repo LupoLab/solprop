@@ -160,7 +160,11 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
             # the native state's own trial (``rk_trial`` on the uploaded stage tables),
             # loaded with the launch.
             native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
-            derivative = np.asarray(backend._native_state.stage_to_host(0))
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            derivative = np.asarray(_testing.stage_to_host(backend._native_state, 0))
         return derivative.reshape(2, -1)
     finally:
         backend.close()

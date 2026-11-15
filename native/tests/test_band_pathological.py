@@ -64,6 +64,7 @@ from test_band_plasma import (
     march_bound,
 )
 from test_band_stress import vector
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 type ComplexArray = npt.NDArray[np.complex128]
 
@@ -203,7 +204,7 @@ def source_of_native(
     try:
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         native_trial(backend, 0.0, 0.0)
-        return np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        return np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
 

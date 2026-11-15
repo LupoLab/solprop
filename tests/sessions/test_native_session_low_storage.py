@@ -53,6 +53,7 @@ from solprop.translate.run_request import RunRequest
 native_session = pytest.importorskip("solprop_native.session")
 
 _counters = pytest.importorskip("solprop_native._counters")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 LENGTH = PLANES[-1]
 STEPS = 40
@@ -133,7 +134,9 @@ class _Faulted(native_session.NativeSession):
     def _prepare(self, backend, start):
         """Prepare as the session does, then arm the native failure."""
         prepared = super()._prepare(backend, start)
-        backend._native_state.adams_march_fault("trial", self._after, "backend")
+        _testing.adams_march_fault(
+            backend._native_state, "trial", self._after, "backend"
+        )
         return prepared
 
 

@@ -125,6 +125,10 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     takes the eigenbasis; the second route sets the eigenbasis limit to zero so that
     every bin is formed by the native scaling and squaring.
     """
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     # Optional wheel: absent from the base environment.
     from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _host_flow,
@@ -158,9 +162,11 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
         native = backend._native_state
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = native.form_flow_actions(section, dz, fractions)[0]
-            forward = native.flow_actions_to_host(inverse=False).reshape(shape)
-            inverse = native.flow_actions_to_host(inverse=True).reshape(shape)
+            measured = _testing.form_flow_actions(native, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(native, inverse=False).reshape(
+                shape
+            )
+            inverse = _testing.flow_actions_to_host(native, inverse=True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue

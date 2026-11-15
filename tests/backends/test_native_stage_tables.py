@@ -6,11 +6,11 @@
 
 Where a resident trial's stage rows are one bundle repeated, the native state reads the
 scalar tables itself, uploaded once per run, and forms the trial's coefficient tables
-and rate from its nodes (``_ResidentAdams.staged``), in either formulation. It performs
-the reads of ``translate.stage.scalars`` by the same Clenshaw helper, in the same order,
-so its scalars are solprop's exactly. The host-packed march these tables were measured
-against bit for bit (SEP 39 section 4.9) was deleted with the inherited driver's
-fallbacks in SEP 47's phase 5: every route the backend admits is staged.
+and rate from its nodes (``engines::ResidentEngine``), in either formulation. It
+performs the reads of ``translate.stage.scalars`` by the same Clenshaw helper, in the
+same order, so its scalars are solprop's exactly. The host-packed march these tables
+were measured against bit for bit (SEP 39 section 4.9) was deleted with the inherited
+driver's fallbacks in SEP 47's phase 5: every route the backend admits is staged.
 """
 
 import dataclasses
@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from capability_routes import ROUTES
+from sessions.runs import native_stage_rows
 from solprop.backends import available
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import rate_weights
@@ -33,6 +34,7 @@ pytestmark = [
 native = pytest.importorskip("solprop_native")
 NativeBackend = native.NativeBackend
 NATIVE = pytest.importorskip("solprop_native._helpers").NATIVE
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 STAGED = (
     "gnlse",
@@ -89,7 +91,7 @@ def test_every_route_is_staged(route):
     backend = backend_of(simulation, problem, run_request)
     try:
         assert backend._adams is not None
-        assert backend._native_state.has_stage_tables()
+        assert _testing.has_stage_tables(backend._native_state)
     finally:
         backend.close()
 
@@ -103,7 +105,7 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
         stages = run_request.stepper.tableau.n_stages
         for z0, z1 in positions(problem, run_request):
             backend._hoist(z0)
-            arrays, material = backend._resident_arrays(z0, z1)
+            arrays, material = native_stage_rows(backend, z0, z1)
             expected = dict(
                 zip(
                     (
@@ -130,7 +132,7 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
                 "flow_weights": material.get("flow_weights", np.empty(0)),
                 "transform_weights": material.get("transform_weights", np.empty(0)),
             }
-            found = state.adams_stage_scalars(z0, z1)
+            found = _testing.adams_stage_scalars(state, z0, z1)
             for name, values in expected.items():
                 flat = np.asarray(values, dtype=np.float64).reshape(-1)
                 assert np.array_equal(np.asarray(found[name]), flat), (name, z0, z1)
@@ -151,7 +153,7 @@ def test_the_native_rate_is_read_on_the_closing_side():
         probes = [*edges, *np.linspace(edges[0], edges[-1], 11)]
         for z in probes:
             expected = rate_weights(linear, z, before=True, helpers=NATIVE)
-            found = backend._native_state.adams_stage_rate(float(z))
+            found = _testing.adams_stage_rate(backend._native_state, float(z))
             assert np.array_equal(np.asarray(found), expected), z
     finally:
         backend.close()

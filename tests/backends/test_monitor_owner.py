@@ -5,11 +5,11 @@
 """The native session's own boundary monitor against solprop's, on recorded readings.
 
 SEP 47 sections 4.3 and 6.4: the native session owns the boundary monitor
-(``solprop_native._core.Monitor``, ``watch::Monitor``), and this harness replaces
-``_verify_watch_of``'s runtime replay. Both monitors are fed the same recorded readings
--- the launch, checked and skipped steps, saved planes, a resting collar, a resume --
-and must make exactly the same decisions: the cadence (``due``), each verdict, its
-warning or stop and the amplitude its message names, the quiet collar and the split
+(``watch::Monitor``, bound as the private test module's ``Monitor``), and this harness
+replaces ``_verify_watch_of``'s runtime replay. Both monitors are fed the same recorded
+readings -- the launch, checked and skipped steps, saved planes, a resting collar, a
+resume -- and must make exactly the same decisions: the cadence (``due``), each verdict,
+its warning or stop and the amplitude its message names, the quiet collar and the split
 collar's cap, so the proposals that follow are the same. Their records must agree too:
 exactly where the arithmetic is the same scalar sequence, and within a bound derived
 below where a reading's reduction is summed in another order.
@@ -53,7 +53,7 @@ U = 2.0**-53
 
 def _modules() -> tuple[Any, Any]:
     return (
-        importlib.import_module("solprop_native._core"),
+        importlib.import_module("solprop_native._core")._testing,
         importlib.import_module("solprop_native._watch"),
     )
 

@@ -126,9 +126,13 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
             # The native state's own trial (``rk_trial`` on the uploaded stage
             # tables), loaded with the launch: its first stage is N(E, z=0).
             native_trial(backend, 0.0, LENGTH / 8, field=problem.initial.field0)
-            measured = np.asarray(backend._native_state.stage_to_host(0)).reshape(
-                start.shape
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
             )
+
+            measured = np.asarray(
+                _testing.stage_to_host(backend._native_state, 0)
+            ).reshape(start.shape)
         assert_allclose(measured[:, :, index], expected, rtol=0, atol=bound)
         record_metric(
             request,

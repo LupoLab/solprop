@@ -30,7 +30,7 @@ nanobind::dict transverse_record_to(const transverse::Record& record,
                                     const transverse::Finish& finish);
 /** A notice, as `_transverse.EdgeNotice.of` reads it. */
 nanobind::dict transverse_notice_to(const transverse::Notice& notice);
-/** Add `TransverseEdge` to the extension module. */
+/** Add `TransverseEdge` to the given module: the private `_testing` module. */
 void bind_transverse(nanobind::module_& module_);
 
 } // namespace solprop_native::bindings

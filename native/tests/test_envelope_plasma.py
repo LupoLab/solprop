@@ -48,6 +48,7 @@ from solprop.translate.stage import terms
 from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, _core, build_info
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
@@ -195,7 +196,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         )[0]
         state = load_native(actual, problem.initial.field0, clear_fsal=False)
         native_trial(actual, 0.0, 0.0)
-        observed = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        observed = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none":
             assert str(actual.metadata()["projection_provider"]).endswith(

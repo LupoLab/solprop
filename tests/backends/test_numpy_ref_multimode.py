@@ -133,7 +133,11 @@ def scored_alarm(backend):
     """
     if backend.name == "numpy_ref":
         return backend._alarm
-    return backend._native_state.quadrature_error
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    return _testing.quadrature_error(backend._native_state)
 
 
 ALARM = ("quadrature_error",)

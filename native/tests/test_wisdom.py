@@ -18,6 +18,7 @@ from conftest import PhaseACase
 
 import solprop_native
 from solprop_native import NativeBackend, _core, _wisdom
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 _KEY = "machine-and-build"
 
@@ -249,7 +250,7 @@ def measured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv(_wisdom.ENVIRONMENT, str(tmp_path / "wisdom"))
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
-    _core.forget_fftw_wisdom()
+    _testing.forget_fftw_wisdom()
     path = _wisdom.wisdom_file()
     assert path is not None
     return path
@@ -294,7 +295,7 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
     # A new process: nothing of this one's plans in memory or in FFTW.
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
-    _core.forget_fftw_wisdom()
+    _testing.forget_fftw_wisdom()
     second = NativeBackend(problem, run_request, grid=grid)
     try:
         metadata = second.metadata()
@@ -383,7 +384,7 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
-    _core.forget_fftw_wisdom()
+    _testing.forget_fftw_wisdom()
     second = NativeBackend(problem, run_request, grid=grid)
     try:
         found = _planning(second)
