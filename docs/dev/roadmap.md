@@ -85,3 +85,8 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 51 — One rule for the saved planes and the end of a run](seps/sep-0051-save-planes.md):
+  the same `n_save` (a count including the entrance) or `save_planes` (positions) on
+  every route, recipe and front-end sheet, no bare numbers, and the length as the limit
+  and the end of every run. Continuing a finished run stays in
+  [#141](https://github.com/LupoLab/solprop/issues/141).
