@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-15 |
 | **Resolution** | — |
@@ -364,3 +364,202 @@ None beyond solprop's own documentation and issues, cited where used.
 
 - 2026-11-15: Drafted, after the investigation of #533 found that no route ties the
   run's end to its length. Tracking issue: [#846](https://github.com/LupoLab/solprop/issues/846).
+- 2026-11-15: GPT-6 completed an AI review of Part I at PR #847, commit
+  `4d9af1fc480399c7f8e28814a16f32ca2e257f03`. Findings and questions follow;
+  Part I is unchanged.
+
+### AI review — 2026-11-15
+
+Reviewer: **GPT-6 (AI), acting as reviewer only.** Read all of Part I, the PR
+discussion, #533 and #846, and the relevant driver, translation, schedule, resume,
+recipe and front-end code at the commit above. Also read the overlapping draft
+[PR #843](https://github.com/LupoLab/solprop/pull/843), which #846 says this work will
+supersede. That relationship should be recorded in the proposal's context.
+
+The shared count/positions interface and the proposed Q1 A, Q2 A and Q4 A choices
+are reasonable. The points below need answers before acceptance; this review does
+not resolve the maintainer's open questions. Priorities are **High** for conflicts
+that can change a run or reject an existing valid one, and **Medium** for missing
+contracts or qualification. Small construction and arithmetic probes were run on
+this tree; their results are stated below. No propagation was run, and no native
+or GPU numerical qualification is claimed.
+
+1. **R1 — High: settle the length when a keyword route receives a grid
+   (§§3, 5.1, 6, 7; Q2).** The statement that a keyword route's `length` and
+   `grid.length` are the same because the route builds the grid has an existing
+   exception: the public `grid=` keyword. `_gnlse_grid` in
+   `src/solprop/driver/routes/gnlse.py` and `_capillary_grid` in
+   `src/solprop/driver/routes/hollow.py` return a supplied grid without comparing
+   its length. A construction probe of `Simulation.from_gnlse` with
+   `length=1e-4`, a grid of length `1e-3`, and `n_save=2` retained that grid and
+   placed the last plane at `1e-4` m. Running the proposed resolver first against
+   the keyword length and then against the adopted grid can therefore append a
+   different end, or refuse a run the keyword resolver accepted.
+
+   **Question and recommendation:** must the two lengths agree when `grid=` is
+   supplied? Recommend an early refusal naming both values, with an explicit
+   rounding policy and migration guidance; do not silently choose an end or
+   rebuild the grid. Add this break to Q7 and cover supplied grids in Python and
+   recipes, including the general modal path that shares `_capillary_grid`.
+
+2. **R2 — High: use the existing accumulated-rounding bound for a replay's
+   end (§§7, 9; Q3).** A fixed allowance of "a few ulps of the length" rejects
+   valid schedules whose steps accumulate rounding error. The probe
+   `FixedSchedule(np.full(160, 1e-3 / 160))` ended 12 ulps below `1e-3` m;
+   1,000 equal steps ended 70 ulps above it. Both are admitted by the existing
+   `replay_tolerance` in `src/solprop/stepper/schedule.py`, which accounts for the
+   step count. This conflicts with the promise to keep valid runs that already
+   reach their length unchanged.
+
+   **Recommendation:** state the endpoint comparison in terms of the existing
+   replay bound, or derive and qualify a replacement before acceptance. Keep the
+   start comparison distinct: it has no accumulated step sum. Require acceptance
+   tests for rounding drift on both sides, `uniform` and `from_history`, and
+   refusal tests for a genuinely shorter or longer schedule outside that bound.
+   Explain where the check lives without changing the promised semantics of
+   direct `assemble` callers.
+
+3. **R3 — High: changing the grid length is not a neutral migration
+   (§§4, 7, 9; Q7's final paragraph).** The proposed migration says that a fix
+   never changes a physics setting and can simply set the grid's length to the
+   intended end. However, `_reference_length` in `src/solprop/boundaries.py`
+   defaults to `grid.length / boundary_N`; both spectral and temporal rates
+   depend inversely on that length. A probe shortening an otherwise identical
+   grid from `1e-3` to `1e-4` m increased its default nonzero rates by a factor of
+   ten, to rounding. A keyword route can also derive steps and longitudinal
+   profiles from its length. These changes can alter results within the retained
+   short window, even though no propagation equation is being redesigned.
+
+   **Recommendation:** distinguish a deliberate correction of a mismatched setup
+   from preservation of an existing scientific test. For the latter, preserve
+   the original absorber rates and relevant profile/step choices explicitly, or
+   retain a deliberately short test below the driver where appropriate. Record
+   any intentional numerical change and qualify it. Merely replacing the planes
+   by `n_save` extends the run; it does not preserve the original short window.
+
+4. **R4 — Medium: define counts for a directly constructed interior launch
+   (§§5.1–5.2, 7; Q6).** The proposal requires planes after the launch, but defines
+   `n_save` over `[0, length]`, including zero. Q6 explains filtering for
+   `with_input`, not construction with `initial_z > 0`. On a 1 mm grid with
+   `initial_z=0.4 mm`, a five-plane lattice from zero contains `0.25 mm`; passing
+   that lattice to today's constructor raises the documented initial-position
+   error. Filtering it gives four saved planes including the actual entrance;
+   redistributing five planes over the remaining interval gives five at different
+   positions. Applying the default count also needs a decision.
+
+   **Question and recommendation:** does the count describe the whole zero-based
+   lattice or the actual launched run? To retain the stated zero-based rule,
+   recommend resolving the lattice and retaining only positions beyond the
+   launch, documenting the resulting count and actual entrance. Keep an explicit
+   position at or before the launch a named refusal. Test both direct
+   construction and `with_input`, with an on-lattice and an off-lattice launch.
+   Also state whether today's refusal of fixed schedules for interior launches
+   remains: Q3's start-equals-launch condition must not imply new support.
+
+5. **R5 — Medium: cover settings replacement and reuse in the adoption
+   contract (§§5–7).** Section 6 names the constructor and keyword builders,
+   then says already resolved settings pass through unchanged. The public
+   `Simulation.settings` setter also accepts replacement settings before
+   translation, and settings can be reused with another grid. A resolver only
+   called by the constructor would leave `n_save` unresolved on replacement;
+   treating a resolved array as exempt from validation could retain the wrong
+   end on another grid. The setter also compares settings to protect a translated
+   request and to decide whether its attached recipe is still valid.
+
+   **Recommendation:** define adoption to include the setter and validate the
+   resolved positions against the receiving run every time. Resolve before
+   comparing settings, so an equivalent count and explicit array remain
+   equivalent after translation. Document how to replace a resolved selection
+   with a count without accidentally supplying both, and test replacement,
+   repeated adoption, reuse at a different length and the existing prohibition
+   on changing a translated run's schedule.
+
+6. **R6 — Medium: distinguish the declared end from the last committed plane
+   when refusing legacy resume (§§7–9; Q6).** An interrupted valid file normally
+   has its last committed plane before `grid.length`. Q6's "file ... whose last
+   plane is not its `grid.length`" must mean the last *requested* position in
+   `configuration["save_planes"]`, not the last row of `z` or a terminal
+   checkpoint. `driver/resume.py` already distinguishes those states. In addition,
+   `recipe.resume_file` rebuilds the recipe before the resume gate, and
+   `output.hdf5.check_cache` checks the hash before opening for append. Appending
+   an endpoint during rebuilding will otherwise produce the generic hash
+   mismatch instead of the migration message promised here.
+
+   **Recommendation:** specify the stored metadata used for this decision and
+   where each resume entry point makes it. Preserve interrupted and checkpointed
+   files whose declared end already equals the length. Test legacy ends both
+   below and above the length, ordinary interrupted files, completed files and
+   recipe-driven resume. Describe `with_input` recovery as a new run into a new
+   output, with its launch and restart limitations, rather than an in-place
+   continuation of the old file.
+
+7. **R7 — Medium: separate authored recipes from resolved provenance
+   (§§5.4, 6–9).** "Recipes and the Python export write ... as given" is suitable
+   for authored text. The resolved recipe has a different promise: it rebuilds
+   the same run, independently of omitted defaults. Today
+   `recipe/provenance.py:resolved_document` writes resolved keyword-route planes
+   and removes top-level `n_save`; it does not resolve nested
+   `[build.settings]` fields. Once both object-route selectors can be omitted,
+   leaving that table untouched leaves its plane choice dependent on a future
+   default. Writing both a count and positions would instead fail exclusivity.
+
+   **Recommendation:** explicitly retain authored syntax and export behavior,
+   while the resolved record writes only the canonical positions, including the
+   end, at the correct level for every route. Add round trips through
+   `Recipe.from_output(..., resolved=True)` and `resume_file`, for a count,
+   explicit positions and both selectors omitted; include the TDSE default if
+   Q4 A is adopted. Require the rebuilt configuration hash to remain the same
+   when the ambient default count changes.
+
+8. **R8 — Medium: define how the GUI preserves existing explicit positions
+   (§§5.4, 8, 11; Q7.6).** Changing an object sheet's field to
+   `settings.n_save` does not by itself migrate a loaded recipe that still holds
+   `settings.save_planes`. Writing the count without removing the list supplies
+   both; replacing an arbitrary list by its count silently redistributes its
+   observations. A length edit also needs a stated behavior for an explicit list
+   after the automatic rewriting is removed. Q7.6's count description is
+   ambiguous: the probe `even_planes(80, 0.25)` gives 81 total planes today,
+   whereas entering `n_save=80` gives 80. Preserving that old list means displaying
+   81 as the total, not reusing its old displayed value of 80.
+
+   **Recommendation:** describe loading and editing both forms, preserving
+   explicit positions until the user chooses a count, and removing the other
+   selector in the same edit. Test nonuniform and uniform legacy lists,
+   count/list switches, length changes, save/reload and undo. State the two count
+   cases separately in the migration text.
+
+9. **R9 — Medium: do not promise exact identity when converting existing
+   lists to counts (§§7–9).** The structural parity test is valid when explicit
+   positions are the resolver's exact array. It does not prove that independently
+   written decimal lists have that array. Comparing the filament recipe's 80
+   centimetre positions, read with its actual quantity decoder, with
+   `np.linspace(0.0, 0.25, 81)[1:]` changed 30 coordinates;
+   the maximum difference was `2.7755575615628914e-17` m. Those are small numerical
+   differences, but the positions enter `configuration_hash`, so converting the
+   example can invalidate resume identity even though its endpoint is unchanged.
+
+   **Recommendation:** retain existing lists where identity is promised, or
+   explicitly qualify an example conversion as a migration and test its new
+   numerical result separately. Do not round all positions to force matching
+   hashes. Regenerate any edited gallery as required by the repository's
+   documentation policy, and distinguish unchanged numerical results from
+   unchanged requests and hashes.
+
+10. **R10 — Medium: specify endpoint equality before implementing automatic
+    appending (§§5–7; Q1–Q2).** The proposal requires the final plane to equal the
+    length but does not say how independently calculated positions are compared.
+    For example, `0.1 + 0.2` is one representable value above `0.3`, and
+    `np.nextafter(0.3, 0.0)` is one below it. A strict upper-bound check rejects
+    the first; unconditional appending leaves two almost coincident observations
+    for the second. The marches already use a landing tolerance, so this affects
+    whether two requested planes mean distinct observations, their indices and
+    the recorded hash.
+
+    **Question and recommendation:** choose and document strict comparison or a
+    bounded endpoint normalization, including whether near-end duplicates are
+    refused or retained. If normalization is chosen, account for its identity
+    impact rather than claiming every existing request is unchanged. Add tests
+    immediately below, equal to and above the endpoint, and ensure that applying
+    the resolver twice cannot append another plane. Complete the refusal table
+    with non-finite positions, empty inputs and non-integral or boolean counts,
+    so the shared rule has named errors in both Python and recipes.
