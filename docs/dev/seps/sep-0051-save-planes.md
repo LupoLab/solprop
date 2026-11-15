@@ -6,7 +6,7 @@
 | **Title** | One rule for the saved planes and the end of a run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI), for John Travers, on `feature/sep-0051-save-planes` |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -533,6 +533,7 @@ None beyond solprop's own documentation and issues, cited where used.
 - 2026-11-15: John Travers reviewed the proposal and recorded decisions D1–D8. The
   drafting agent revised Part I to match and responded to R1–R10.
 - 2026-11-15: Accepted by John Travers in PR #847. Part I is frozen.
+- 2026-11-15: Implementation started on `feature/sep-0051-save-planes`.
 
 ### AI review — 2026-11-15
 
