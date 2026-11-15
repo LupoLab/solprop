@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-15 |
 | **Resolution** | — |
@@ -716,3 +716,206 @@ Everything lands on one branch and in one pull request (SEP 0).
 - 2026-11-15: Drafted, from a review of the native binding's use in production and of the
   reference's structure at `main` 07218ed3. Tracking issue:
   [#849](https://github.com/LupoLab/solprop/issues/849).
+- 2026-11-15: AI review by GPT-6 at `9a148c340843769474fff390943cdcbaca3e6f2b`,
+  recorded below. Only the review metadata and Part III changed; Part I is unchanged.
+
+### AI review — 2026-11-15
+
+**Reviewer:** GPT-6 (AI). Reviewed all of Part I on
+[PR #850](https://github.com/LupoLab/solprop/pull/850), at
+[`9a148c34`](https://github.com/LupoLab/solprop/commit/9a148c340843769474fff390943cdcbaca3e6f2b),
+against the current backend, session, monitor, native binding and test code, SEP 0,
+SEP 47 and ADR-068. Read the tracking issue #849 and the six issues listed in §3.
+The two existing automated PR findings are acknowledged in R2 and R3 below.
+
+**Recommendation:** revise before acceptance. The comments below distinguish concrete
+conflicts with existing behavior from interface questions that the proposal needs to
+settle. No proposal text, acceptance decision or response to this review is supplied here.
+
+**Evidence:** source inspection, plus the existing NumPy-reference tests
+`test_a_deep_collar_reads_no_removal_from_residue`,
+`test_a_timing_probe_commits_nothing_and_reads_back_its_trial` and
+`test_a_low_storage_probe_has_no_trial_field`: three passed, their three native cases
+skipped because native was not installed. These checks establish the current reference
+behavior only. No native build, device run, performance measurement or proposed
+implementation was tested.
+
+1. **R1 — High: preserve the split collar's measurement point (§§4, 5.1–5.2, 6.2).**
+   Moving the split sums out of `_finish` into a session reading needs a more precise
+   contract than a reading of the committed state. In
+   `src/solprop/backends/numpy_ref/backend.py::NumpyRefBackend._finish`, the sums are
+   taken after the first hard mask but **before** the temporal split and its final
+   mask. `src/solprop/monitor.py::BoundaryMonitor.split_sums` computes the removed
+   power as `P * (1 - exp(-alpha * h))` and the guard occupancies from
+   `P * exp(-alpha * h / 2)`, with `P` the power before the split. Applying that
+   calculation to the damped field changes the removal; reconstructing the earlier
+   field from the final masked field can amplify mask residue into fictitious loss.
+   The existing deep-collar regression in `tests/test_monitor.py` specifically guards
+   the latter failure. Native also gathers the sums during its split operation in
+   `native/src/general/trial.cpp`.
+
+   **Requested change:** specify that the workspace captures the required small
+   pre-split reductions during each accepted finish, and that the session owns their
+   accumulation and reporting. State when these values are drained, including several
+   accepted steps between checks, rejected trials, dense observations and resume.
+   Preserve the removal and guard-occupancy tests. Moving ownership must not move the
+   measurement to a different physical state under the general permission to simplify
+   reference arithmetic in §4.
+
+2. **R2 — Medium: independent sessions do not by themselves fix #171
+   (§§2–3, 6.2, 7–9; Q1).** Native already has independent member sessions, but
+   `native/src/solprop_native/group.py::NativeGroupSession._turn` makes a
+   non-boundary terminal failure a group-wide error. The scan consumer
+   `src/solprop/driver/_scan_batch.py::_consume` raises `batch.error`. This preserves
+   SEP 47 §6.7, which explicitly distinguishes a member's boundary stop from a
+   non-finite norm, step floor, trial exception or in-flight failure that stops the
+   group. Replacing `HostGroup` with the native arrangement therefore leaves #171's
+   failure policy intact. This also conflicts with leaving the event contract out of
+   scope and requiring all existing session cases to remain unchanged. The
+   [automated review](https://github.com/LupoLab/solprop/pull/850#discussion_r4580456603)
+   identified the same conflict.
+
+   **Requested decision:** either leave #171 open and remove the claim that Q1 fixes
+   it, or explicitly include a new failure policy for both backends and the scan
+   consumer. In the latter case, distinguish recoverable member failures from shared
+   executor failures, retain each member's actual commit and checkpoint eligibility,
+   add the `['done', 'failed', 'done']` regression requested by #171, and update the
+   user guide's batch section. Then §8 cannot promise no manual changes.
+
+3. **R3 — Medium: use the current seam-change process (§§6.1, 9, 11).**
+   `KERNEL_SCHEMA_VERSION` no longer exists. ADR-068 and
+   [kernel-contract.md](../kernel-contract.md) explicitly removed the counter and
+   require the affected frozen surface tests and a release-note fragment to change
+   with the seam. The proposed bump cannot be performed as written. The
+   [automated review](https://github.com/LupoLab/solprop/pull/850#discussion_r4580456601)
+   also reports this.
+
+   **Requested change:** replace all three bump instructions with the current
+   process. Distinguish unchanged scientific descriptor fields from changed protocol
+   and engine surfaces; preserve the former's frozen cases and update the latter's
+   guards in the phase that changes them, rather than postponing the seam record to
+   phase 4.
+
+4. **R4 — Medium: retain or replace the live backend facts omitted from the new
+   surface (§5.1).** The stated list of what remains on `Backend` omits `request`,
+   `name` and `reads_transverse_edge`. These have production consumers outside the
+   host driver: `driver/run.py::run_problem` and `driver/_scan_run.py::launch_statistics`
+   read `backend.request`, and `driver/session_loop.py::_refuse_unread_collar` reads
+   the capability and name. Removing `HostStepping` does not remove these callers.
+
+   **Requested change:** make the proposed protocol inventory complete, including
+   its properties and attributes. Retain these facts or name their replacement and
+   the caller migration. In particular, keep the requested transverse-collar refusal
+   before the first step, and explain how a reused backend exposes the request its
+   buffers and plans were prepared for.
+
+5. **R5 — Medium: complete the engine and commit contracts (§§5.1–5.2, 6.2, 6.4).**
+   The sketches are described as one-to-one C++ interfaces, but omit consequential
+   parts of the current ones. `march::Engine::accept` in
+   `native/include/solprop_native/adams_march.hpp` also receives the retained history
+   entries. `ResidentEngine::accept` uses their rows, oldest first, to transport the
+   interaction-formulation history. `step_carrier(order)` supplies the last trial's
+   rotations for dense output. Neither transfer appears in the proposed protocol or
+   in the description of what moves to the session.
+
+   Low-storage native execution is already an `rk::Engine`, with `trial`, `accept`,
+   `reading` and `in_flight`, rather than just `step`. Its trial overwrites the state;
+   an exception or non-finite result before finish leaves a poisoned terminal with no
+   current checkpoint. The reference currently records that state in
+   `HostLowStorageMarch.replay_step`, on the driver being deleted. The general claim
+   that an engine keeps an uncommitted trial is not true for this method.
+
+   **Requested change:** define the retained-history and carrier transfers, whether
+   through explicit arguments or a documented derivation from the trial record.
+   Decide whether low-storage also uses the Runge–Kutta engine protocol on Python,
+   or state its separate commit and failure contract. Name the owner of the in-flight
+   flag, the finish, the committed position and the stiffness diagnostic, and the
+   session's means of reading their result without private-field access. Include
+   interaction Adams with retained history, carrier dense output, and low-storage
+   failure during trial and finish in the engine-contract qualification.
+
+6. **R6 — Medium: specify how the new probe loads a run, and preserve the
+   low-storage exception (§§5.3, 6.3, 11; Q4).** The proposed `Workspace.probe()`
+   has no run or start argument, while the initial field and noise are assigned to
+   `start(run)`. Where does a probe on a freshly built workspace obtain its launch,
+   resume position, schedule cursor and noise policy without opening a session?
+   Today `NativeBackend.timing_probe(start)` explicitly loads these through `_load`.
+
+   Also, the blanket promise of an uncommitted trial and field readback does not
+   describe low-storage probing. `TimingProbe` in `backends/protocol.py` explicitly
+   permits its discarded registers to advance in place, requires that backend to be
+   closed afterwards, and refuses `field()`. The corresponding test in
+   `tests/driver/test_estimate.py` passed on the reference during this review.
+
+   **Requested change:** give the probe an explicit load path and an ownership rule
+   excluding a live session. Preserve the low-storage exception, or explicitly
+   propose and account for the additional storage or reload needed to change it.
+   Keep repeated-trial, owning-readback and four-evaluation low-storage timing tests,
+   and make removal of the active `_ResidentLowStorage.step` and `_trial_step` probe
+   paths depend on their replacement; phase 0's deletions must not remove them early.
+
+7. **R7 — Medium: the generic converter needs an array contract beyond names and
+   C++ member types (§§5.3, 6.3–6.6, 7).** A name and member pointer identify a
+   `std::vector<double>`, but not the rank and related extents of the array it
+   represents. The present `Fields<>` already carries extra rank metadata and keeps
+   shapes for validation. For example, `native/tests/test_backend.py` refuses
+   transposed Raman tables with the correct element count and fixed-term tables
+   whose leading axis is wrong. Removing redundant counts is compatible with those
+   checks only if the proposal names the authoritative shapes and the relationships
+   still checked before allocation. A schema test comparing names and types alone
+   will not detect a loss of those checks.
+
+   The promised reduction from three copies to one also needs an ownership decision.
+   The present `exact_vector` copies array data into a record; changing how records
+   are described does not by itself remove that copy or the later device upload.
+   Returned `Batch` and `Snapshot` arrays must remain valid after acknowledgment,
+   workspace reuse and close. Nanobind's
+   [array ownership rules](https://nanobind.readthedocs.io/en/latest/ndarray.html#data-ownership)
+   require an explicit owner for a view; they do not make session scratch into an
+   owning snapshot.
+
+   **Requested change:** specify array dtype, rank, contiguity, read-only admission,
+   related-shape validation and size-overflow checks, and say which inputs are borrowed
+   during conversion versus copied into persistent storage. Specify owning returned
+   arrays and the GIL/lifetime boundary for any borrowed Python memory. Keep the
+   malformed-layout and lifetime regressions, add record round-trip checks, and
+   measure copy counts and peak host/device storage before making the one-copy claim
+   an acceptance criterion. Include how the generated stubs retain useful record
+   and array types when the binding accepts generic dataclasses or mappings.
+
+8. **R8 — Medium: clarify whether private array layouts change (§§2–3, 6.1–6.2,
+   6.6, 9).** §3 says the single-trajectory batch axis leaves the backends, but the
+   concrete scope and phases mainly remove `max_batch` and the fused reference
+   group. Those are different changes. `NumpyRefBackend`, its pass functions and
+   native's load/readback adapters currently use a private leading axis of one;
+   [conventions.md §6](../conventions.md#6-array-layout-and-axis-names) permits that.
+   SEP 47 §6.7 separately requires the leading axis in existing `MarchSnapshot`
+   payloads to remain readable.
+
+   **Requested decision:** retain the private layouts and narrow the claim, or
+   explicitly include their conversion, saying which Python arrays and C++ layouts
+   change. In the latter case, account for the pass, transform, test and memory-ledger
+   work in the phases and cost estimate, and preserve the snapshot serialization
+   boundary with refusal of a non-unit stored axis. Removing a protocol attribute
+   alone does not settle this scope.
+
+9. **R9 — Medium: make qualification match the reach of the binding change
+   (§§6.4–6.6, 7, 11).** The new records, moved bindings and generated stubs affect
+   all native builds, yet §7 does not distinguish CPU, CUDA and HIP qualification or
+   say which wheel tests exercise the shipped `_testing` module. Passing a CPU
+   session suite does not check device uploads, resident histories or event/export
+   lifetimes after their binding changes. The existing device refusals, including
+   the CPU-only TDSE host source, must also survive.
+
+   **Requested change:** name the required build and execution lanes, the device
+   witnesses or explicitly recorded limits, and the installed-wheel import and
+   `_testing` checks. Pin the pre-change comparison corpus before restructuring it,
+   including representative monitor records, resume outcomes and probe behavior as
+   well as fields. Clarify phase 1's bitwise requirement: it can be a diagnostic for
+   an unchanged computation in a controlled configuration, but should not become a
+   cross-build or cross-thread numerical gate contrary to SEP 25. Specify that the
+   performance A/B uses about ten steps or a short length window, with hardware,
+   thread settings, repetitions and a regression decision rule recorded; “a few
+   release cases” must not select full-length release tracking runs. Include the
+   native probe's time and memory cost, since it is being replaced even though
+   ordinary native steps are expected to be unchanged.
