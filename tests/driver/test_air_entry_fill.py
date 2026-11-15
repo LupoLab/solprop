@@ -19,6 +19,7 @@ import pytest
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialError
 from solprop.physdata.mixtures import Mixture
+from solprop.physdata.selection import MaterialSelection
 
 COMMON: dict[str, Any] = {
     "wavelength": 800e-9,
@@ -53,10 +54,14 @@ def _translate(**keywords: Any) -> Simulation:
         ),
         ({"envelope": True}, "Air (Air): Air has no Kerr data"),
         ({"kerr": True, "plasma": False}, "Air (Air): Air has no Kerr data"),
+        ({"kerr": False}, "Air (Air) has no ionisation data: the built-in Air entry"),
+        # The two refusals beside the issue's six cases: a dispersive electronic
+        # policy, and Raman selected by the entry's label.
         (
-            {"kerr": False},
-            "Air (Air) is the built-in Air entry, which is dispersion-only",
+            {"materials": MaterialSelection(electronic="gas-polynomial")},
+            "Air carries none",
         ),
+        ({"raman": ("Air",)}, "Air (Air) has no molecular Raman response"),
     ],
 )
 def test_an_air_entry_fill_asking_for_a_channel_is_pointed_to_mixture_air(

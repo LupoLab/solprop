@@ -21,7 +21,7 @@ from solprop.exceptions import MaterialError, RamanTemperatureWarning
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate, rate_species
 from solprop.nonlinear.optmat_raman import mixture_raman
-from solprop.nonlinear.optmat_rates import _dispersion_only_air, selected_rate
+from solprop.nonlinear.optmat_rates import selected_rate
 from solprop.nonlinear.raman import (
     DampedOscillator,
     RamanResponse,
@@ -36,7 +36,12 @@ from solprop.nonlinear.responses import (
 from solprop.physdata.mixtures import Component, Mixture
 from solprop.physdata.raman_types import MolecularOptions
 from solprop.physdata.selection import DISPERSIVE_POLICIES, MaterialSelection
-from solprop.physdata.species import Species, built_in_population
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    Species,
+    built_in_population,
+    dispersion_only_air,
+)
 from solprop.profiles import Sum, ZProfile, _probe_positions
 
 __all__ = ["electronic_response", "raman_temperature", "responses_for"]
@@ -72,13 +77,7 @@ def _default_rate(
 
 def _air_hint(material: Species) -> str:
     """Point a refusal of the dispersion-only ``Air`` entry to ``Mixture.air``."""
-    if not _dispersion_only_air(material):
-        return ""
-    return (
-        ": the built-in Air entry is dispersion-only; for air with Kerr, plasma "
-        "and Raman channels use Mixture.air "
-        "(solprop.physdata.mixtures.Mixture.air)"
-    )
+    return f": {MIXTURE_AIR_POINTER}" if dispersion_only_air(material) else ""
 
 
 def _check_labels(labels: Sequence[str], mixture: Mixture, option: str) -> None:
@@ -450,7 +449,7 @@ def electronic_response(
             f"the electronic policy {selection.electronic!r} evaluates optmat's "
             f"hyperpolarizability model, and {material.name} carries none (a supplied "
             "species, or air, whose populations carry their own); give the species "
-            "optmat's model or select 'carrier-kerr'"
+            f"optmat's model or select 'carrier-kerr'{_air_hint(material)}"
         )
         raise MaterialError(msg)
     return DispersiveKerrResponse(

@@ -96,7 +96,12 @@ from solprop.physdata import Gas, Mixture, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
-from solprop.physdata.species import Species, built_in_population
+from solprop.physdata.species import (
+    MIXTURE_AIR_POINTER,
+    Species,
+    built_in_population,
+    dispersion_only_air,
+)
 from solprop.profiles import PressureGradient, ZProfile, as_profile
 from solprop.pulses import Pulse
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec, default_spec
@@ -410,20 +415,8 @@ def _note_linear_air(
     """
     if not request.envelope or request.plasma is not None or responses:
         return
-    # The same test as the refusals' (nonlinear.optmat_rates): a species merely
-    # named Air that carries Kerr or ionisation data is not the entry.
-    if any(
-        component.species.name == Gas.Air.value
-        and built_in_population(component.species)
-        and component.species.kerr is None
-        and component.species.ionisation is None
-        for component in mixture.components
-    ):
-        logger.info(
-            "the fill has no nonlinear response: the built-in Air entry is "
-            "dispersion-only, with no Kerr, plasma or Raman data; for air with "
-            "those channels use Mixture.air (solprop.physdata.mixtures.Mixture.air)"
-        )
+    if any(dispersion_only_air(component.species) for component in mixture.components):
+        logger.info("the fill has no nonlinear response: %s", MIXTURE_AIR_POINTER)
 
 
 def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword

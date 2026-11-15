@@ -40,7 +40,7 @@ There are two different things called air, and only one of them is nonlinear.
   `Mixture.fill({"Air": 1.0}, 1.0)`, it gives the right linear index but carries no
   Raman response under the default selection, refuses a Kerr response
   (`Air (Air): Air has no Kerr data`) and refuses plasma, and an explicit Raman
-  selection of its label raises; the Kerr and plasma refusals name `Mixture.air`.
+  selection of its label raises; each of these refusals names `Mixture.air`.
   On the keyword interfaces `kerr=False, raman=True` is refused for every gas
   (`raman=True needs kerr=True`). With `kerr=False` and `raman` unset the fill runs with
   no nonlinear response at all only where plasma is off too: on an envelope grid
