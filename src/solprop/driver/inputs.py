@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Final, cast
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._ownership import borrow, hold, hold_view
+from solprop._ownership import borrow, frozen_copy, hold, hold_view
 from solprop.coupling import (
     CouplingLaunch,
     CouplingModel,
@@ -182,6 +182,45 @@ def _check_input_identity(
             f"a {type(initial).__name__} is recorded as itself"
         )
         raise DriverError(msg)
+
+
+def _frozen_configuration(
+    configuration: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Return a run's extra configuration as the simulation keeps it, sharing nothing.
+
+    What the caller passed is read once, here, as the array input is: changing it
+    afterwards changes neither the run nor its record and configuration hash
+    (`_frozen_value`).
+    """
+    return {key: _frozen_value(item) for key, item in (configuration or {}).items()}
+
+
+def _frozen_value(value: object) -> object:
+    """Return one configuration value with its containers rebuilt and arrays frozen.
+
+    Dictionaries, lists, tuples and sets are rebuilt member by member, and an array
+    becomes a read-only copy (:func:`~solprop._ownership.frozen_copy`; an array
+    solprop already holds is kept). Each keeps the type it serialises as, so the record
+    of a value that is not changed is the same. Any other object is kept as it is:
+    solprop's own are frozen value types, and an arbitrary object cannot be copied in
+    general.
+    """
+    if isinstance(value, np.ndarray):
+        return frozen_copy(value)
+    if isinstance(value, dict):
+        members = cast("dict[object, object]", value)
+        return {key: _frozen_value(item) for key, item in members.items()}
+    if isinstance(value, list):
+        return [_frozen_value(item) for item in cast("list[object]", value)]
+    # A named tuple is immutable and keeps its own type; a plain tuple's members may
+    # not be.
+    if type(value) is tuple:
+        return tuple(_frozen_value(item) for item in cast("tuple[object, ...]", value))
+    if isinstance(value, set | frozenset):
+        members = [_frozen_value(item) for item in cast("set[object]", value)]
+        return set(members) if isinstance(value, set) else frozenset(members)
+    return value
 
 
 def _given_input(

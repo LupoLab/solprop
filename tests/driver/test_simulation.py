@@ -16,13 +16,15 @@ from typing import Any
 import numpy as np
 import pytest
 
+from solprop._identity import canonical_json
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver import settings as settings_module
 from solprop.driver import simulation as simulation_module
 from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.nonlinear.gnlse import problem_from
-from solprop.profiles import Constant
+from solprop.output.serialisation import serialise
+from solprop.profiles import Constant, PiecewiseLinear, PressureGradient
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
@@ -338,3 +340,168 @@ def test_the_modes_the_profiles_and_the_grid_reach_the_backend():
     assert float(output["stats/peak_intensity"][0]) > 0.0
     assert float(output["stats/density"][0]) > 0.0
     assert output["field"].shape[1] == 2
+
+
+# ------------------------------------------ what a Simulation keeps of its caller's
+
+
+def _profile_tables():
+    """Return the arrays of a density table and a pressure table, fresh each call."""
+    return {
+        "density_positions": np.array([0.0, 0.0025, 0.005]),
+        "density_values": np.array([2.5e25, 2.0e25, 1.5e25]),
+        "pressure_positions": np.array([0.0, 0.005]),
+        "pressure_values": np.array([1.0, 0.5]),
+    }
+
+
+def _configuration():
+    """Return a caller's provenance with a list, a nested dict and an array in it."""
+    return {
+        "coefficients": np.array([1.0, 2.0, 3.0]),
+        "labels": ["scan", "point"],
+        "scan": {"delays": [1e-15, 2e-15], "pair": (0.5, np.array([4.0]))},
+        "tags": {"a", "b"},
+    }
+
+
+def _caller_simulation(narrow_grid, soliton, tables, configuration):
+    """Build a direct Simulation whose density and pressure statistics read profiles."""
+    fibre = problem_from(
+        [0.0, 0.0, soliton.beta2],
+        omega_ref=narrow_grid.omega0,
+        gamma=soliton.gamma,
+        shock=False,
+    )
+    profiles = {
+        "density": PiecewiseLinear(
+            tables["density_positions"], tables["density_values"]
+        ),
+        "pressure": PressureGradient(
+            positions=tables["pressure_positions"],
+            pressures=tables["pressure_values"],
+            floor=0.0,
+        ),
+    }
+    return Simulation(
+        narrow_grid,
+        fibre.mode,
+        [fibre.kerr],
+        SechPulse(
+            wavelength=soliton.wavelength,
+            width=soliton.tau0,
+            peak_power=soliton.peak_power(1),
+        ),
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-18),
+            save_planes=[0.0025, 0.005],
+            dz_max=0.005,
+            dz_init=1e-4,
+            density=1.0,
+            shock=False,
+            prefactor_index=1.0,
+            stats=StatsSpec(names=("density", "pressure")),
+        ),
+        profiles=profiles,
+        configuration=configuration,
+    )
+
+
+def _change_everything(tables, configuration):
+    """Change, in place, every array, list, dict and set the caller passed."""
+    for values in tables.values():
+        np.multiply(values, 2.0, out=values)
+    configuration["coefficients"][0] = -1.0
+    configuration["labels"].append("changed")
+    configuration["scan"]["delays"][0] = 9e-15
+    configuration["scan"]["pair"][1][0] = -4.0
+    configuration["scan"]["added"] = True
+    configuration["tags"].add("c")
+    configuration["late"] = "key"
+
+
+@pytest.mark.parametrize("translated_first", [False, True], ids=["lazy", "translated"])
+def test_changing_what_the_caller_passed_changes_neither_the_run_nor_its_record(
+    narrow_grid, soliton, translated_first
+):
+    """Profiles and configuration are read when the simulation is built (issue #471).
+
+    The run's density and pressure statistics are computed from the profiles, and the
+    record holds both them and the configuration, so a simulation that shared the
+    caller's tables, lists or arrays would follow a change made after construction.
+    The reference is the same simulation built from untouched copies.
+    """
+    tables, configuration = _profile_tables(), _configuration()
+    simulation = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    if translated_first:
+        simulation.translate()
+    _change_everything(tables, configuration)
+    reference = _caller_simulation(
+        narrow_grid, soliton, _profile_tables(), _configuration()
+    )
+    changed = simulation.metadata().differences(reference.metadata())
+    assert not changed, changed
+    assert (
+        simulation.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+    assert simulation.configuration["labels"] == ["scan", "point"]
+    kept = simulation.configuration["coefficients"]
+    assert isinstance(kept, np.ndarray)
+    assert not kept.flags.writeable
+    output, expected = simulation.run(), reference.run()
+    # Exact: both runs evaluate the same profile tables at the same planes.
+    for name in ("stats/density", "stats/pressure"):
+        np.testing.assert_array_equal(output[name], expected[name])
+    # The statistic is the backend's Chebyshev interpolant of the table, exact to a
+    # few roundings; the doubled table would read 5e25.
+    assert float(output["stats/density"][0]) == pytest.approx(2.5e25, rel=1e-12)
+
+
+def test_a_derived_runs_configuration_is_copied_from_the_caller(narrow_grid, soliton):
+    """`with_input` copies its caller's keys as the constructor does (issue #471)."""
+    simulation = _caller_simulation(
+        narrow_grid, soliton, _profile_tables(), _configuration()
+    )
+    pulse = SechPulse(
+        wavelength=soliton.wavelength,
+        width=soliton.tau0,
+        peak_power=soliton.peak_power(1),
+    )
+    keys = {"delay": np.array([1e-15]), "label": ["first"]}
+    derived = simulation.with_input(pulse, configuration=keys)
+    keys["delay"][0] = 5e-15
+    keys["label"].append("second")
+    reference = simulation.with_input(
+        pulse, configuration={"delay": np.array([1e-15]), "label": ["first"]}
+    )
+    assert not derived.metadata().differences(reference.metadata())
+    assert (
+        derived.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+
+
+def test_copying_the_callers_inputs_leaves_the_record_and_its_hash_unchanged(
+    narrow_grid, soliton
+):
+    """The copies serialise as the caller's objects did, so no digest moves.
+
+    Before issue #471 a simulation kept the caller's mapping of profiles and the
+    configuration's values themselves; a run recorded that way must have the record
+    and the configuration hash a run recorded from the copies has, or a resume of a
+    file written before the copy would be refused.
+    """
+    tables, configuration = _profile_tables(), _configuration()
+    copied = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    shared = _caller_simulation(narrow_grid, soliton, tables, configuration)
+    # How a simulation kept them before the copy.
+    shared.profiles = dict(shared.profiles)
+    shared.configuration = dict(configuration)
+    assert shared.configuration["coefficients"] is configuration["coefficients"]
+    assert copied.configuration["coefficients"] is not configuration["coefficients"]
+    record, before = copied.metadata(), shared.metadata()
+    assert record.configuration_hash() == before.configuration_hash()
+    assert not record.differences(before)
+    assert canonical_json(record.hashed()) == canonical_json(before.hashed())
+    assert serialise(record.configuration) == serialise(before.configuration)
