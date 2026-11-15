@@ -1,0 +1,1 @@
+A hand-built fill of the dispersion-only `Air` entry, such as `Mixture.fill({"Air": 1.0}, 1.0)`, is now steered to `Mixture.air`: its Kerr refusal and its plasma refusal, which called it a custom species, both name `Mixture.air` for air with Kerr, plasma and Raman channels, and an `envelope=True` capillary run with `kerr=False`, which runs linear, logs that once at INFO (#164).
