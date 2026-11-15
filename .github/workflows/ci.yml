@@ -604,9 +604,16 @@ jobs:
   device-compile-cuda:
     needs: changes
     if: needs.changes.outputs.lanes == 'full' && needs.changes.outputs.device == 'true'
-    name: device-compile (CUDA 12.8)
+    name: device-compile (CUDA 12.8, ${{ matrix.arch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        # HOPPER90 is the preset's production target. AMPERE86 (the NVIDIA A40)
+        # compiles kernels that HOPPER90 does not, such as the device GEMM behind
+        # #815, which only that build's objects can show.
+        arch: [HOPPER90, AMPERE86]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -637,6 +644,7 @@ jobs:
           cmake --preset cuda \
             -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
             -DCUDA_ROOT=/usr/local/cuda-12.8 \
+            -DSOLPROP_NATIVE_CUDA_ARCH=${{ matrix.arch }} \
             -DPython_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Compile, tests included
         working-directory: native

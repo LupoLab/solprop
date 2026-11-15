@@ -259,8 +259,9 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
 [`docs/dev/seps/index.md`](docs/dev/seps/index.md).
 
 - **When:** new physics models, routes, geometries, mode families or numerical schemes;
-  changed defaults or conventions; public interface redesigns; substantive
-  kernel-contract changes; process changes. Not for fixes, documentation, tests,
+  changed physics defaults or conventions; substantive kernel-contract changes; process
+  changes. Not for fixes, API fixes and cleanups that change no model or physics (even
+  when they rename, merge or refuse public parameters), documentation, tests,
   refactoring, tooling or optimisations that leave results unchanged.
 - **Writing:** from `template.md`, standing alone (SEP 0 §7), with its expected cost in
   code, docstring and test lines; merged early as `Draft`.

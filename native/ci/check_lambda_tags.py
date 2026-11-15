@@ -24,9 +24,9 @@ finding nothing.
 Standard library only; it needs GNU ``nm`` (binutils) and object files that a CUDA
 build compiled, at any optimisation level: the members exist whether or not a link
 happens to keep the wrong copy. It sees only the kernels the build's device target
-instantiates: the CUDA device-compile lane builds for compute capability 9.0, which
-compiles no ``device_dense_gemm``, so the lambda behind #815 shows only in a build for
-8.6 (``AMPERE86``), checked by hand over that build's objects.
+instantiates: a build for compute capability 9.0 compiles no ``device_dense_gemm``, so
+the lambda behind #815 shows only in a build for 8.6 (``AMPERE86``). The CUDA
+device-compile lane builds both and runs this check over each.
 """
 
 from __future__ import annotations
