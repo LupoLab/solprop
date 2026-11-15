@@ -282,6 +282,16 @@ All notable changes to solprop are recorded here. The format follows
   temperature range, hydrogen at 0.5 bar for example, no longer ends its warning with a
   reference users cannot look up ([#166](https://github.com/LupoLab/solprop/issues/166)).
 - The Adams page no longer says that a linear run beside a frozen-residual coupled flow is accurate only to its `dz_max` whatever `rtol` ([#252](https://github.com/LupoLab/solprop/issues/252)): that run's error follows `rtol`. What was measured was a launch far below `atol / rtol`, which the error norm holds to `atol` and not to `rtol`, under any integrator; the solver page now says so.
+- A `Simulation` now copies its `configuration=` when it is built, and `with_input` the
+  caller's `configuration=` keys: dictionaries, lists, tuples and sets are rebuilt and
+  arrays become read-only copies, so changing them before the run no longer changes the
+  recorded configuration or its hash. `PiecewiseLinear`, `PressureGradient`,
+  `FromCallable` (its declared positions) and `SeriesOfPath` keep read-only copies of the
+  arrays and series they are given, so changing a profile's table after passing it to a
+  simulation no longer changes the run or its record. `SimulationSettings` keeps
+  `components` as a tuple copied from the sequence given. The record and hash of an unchanged
+  input are the same as before
+  ([#471](https://github.com/LupoLab/solprop/issues/471)).
 - Preserved the original error and retained a retry owner when acquiring host BLAS
   limits and rolling them back both fail. The next acquisition retries the rollback
   before applying new limits, so a failed request no longer leaves a BLAS pool at its
