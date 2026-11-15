@@ -311,9 +311,13 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
                 driver._boundary_energies(driver._require_state())
         else:
             # The native state's own reduction, which its session reads at a check.
-            load_native(made, problem.initial.field0)
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            state = load_native(made, problem.initial.field0)
             with pytest.raises(RuntimeError, match="no boundary monitor is bound"):
-                cast("Any", made)._native_state.monitor_reading()
+                _testing.monitor_reading(state)
     finally:
         made.close()
 

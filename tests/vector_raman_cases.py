@@ -149,7 +149,11 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
             backend._staged_rows()
             state = load_native(backend, problem.initial.field0, clear_fsal=False)
             native_trial(backend, 0.0, LENGTH / 8)
-            rhs = np.array(state.stage_to_host(0))
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            rhs = np.array(_testing.stage_to_host(state, 0))
         run = run_session(backend, problem, run_request, owns=False)
         (final, state), *_ = reversed(saved(run))
         assert final.z == LENGTH

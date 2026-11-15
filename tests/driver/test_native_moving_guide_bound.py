@@ -32,7 +32,7 @@ from moving_guide_cases import (
     bound_kinked,
     bound_step_problem,
 )
-from sessions.runs import load_native
+from sessions.runs import load_native, native_adams_rows, native_adams_start
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.backend import _general_maps
 from solprop.stepper import Multistep
@@ -87,8 +87,8 @@ def source_at(implementation, problem, run_request, grid, positions):
         sources = []
         for z in positions:
             load_native(backend, state, clear_fsal=False)
-            engine.start(float(z))
-            sources.append(np.array(engine.snapshot_rows()["store"][0]))
+            native_adams_start(backend, float(z))
+            sources.append(np.array(native_adams_rows(backend)["store"][0]))
         return sources
     finally:
         backend.close()

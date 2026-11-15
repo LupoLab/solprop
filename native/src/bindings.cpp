@@ -1836,13 +1836,6 @@ public:
     }
     return general_state_->trial_step(dz, scalars);
   }
-  void set_flow_actions(const std::vector<native::Complex>& forward,
-                        const std::vector<native::Complex>& inverse,
-                        const std::vector<unsigned char>& identity) {
-    require_open();
-    flow_key_.reset();
-    general_state_->set_flow_actions(forward, inverse, identity);
-  }
   std::vector<native::Complex> flow_actions_to_host(const bool inverse) {
     require_open();
     return general_state_->flow_actions_to_host(inverse);
@@ -3198,24 +3191,15 @@ nb::dict build_record() {
   return result;
 }
 
-} // namespace
-
-// NOLINTNEXTLINE(readability-function-size): the module's one table of bindings, kept whole
-NB_MODULE(_core, module_) {
-  // Each registration makes the Python exception type; the handle need not outlive it.
-  const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
-      module_, "EnvelopeConvergenceError");
-  const nb::exception<native::BackendRefusal> backend_refusal(module_,
-                                                              "BackendRefusal");
-  module_.doc() = "Private nanobind seam for solprop-native";
-  module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
-              "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
-              "band_tiles"_a = -1);
-  module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
-  module_.def("register_host_blas", &register_host_blas);
+// The private `_testing` module (solprop SEP 52 section 6.5): every entry point that
+// only solprop's own tests reach, built into the same extension and shipped in the
+// wheel. It promises nothing. A `State` method that moved here takes the state as its
+// first argument.
+// NOLINTNEXTLINE(readability-function-size): the test module's one table of bindings
+void bind_testing(nb::module_& testing) {
   // solprop SEP 45 phase 1: the boundary watch's predictions, for solprop's tests to
   // hold against its monitor on drawn readings.
-  module_.def(
+  testing.def(
       "watch_check",
       [](const nb::dict policy, const nb::dict state, const RealInput reading,
          const double z) {
@@ -3233,16 +3217,8 @@ NB_MODULE(_core, module_) {
         return out;
       },
       "policy"_a, "state"_a, "reading"_a, "z"_a);
-  module_.def(
-      "rk_score",
-      [](const RealInput partials, const double rtol, const double atol) {
-        if (partials.ndim() != 2 || partials.shape(0) != 3)
-          throw std::invalid_argument("a trial's partials have shape (3, slots)");
-        return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
-      },
-      "partials"_a, "rtol"_a, "atol"_a);
   // solprop SEP 47: the native half-maximum width the statistics plan finishes with.
-  module_.def(
+  testing.def(
       "half_width",
       [](const RealInput t, const RealInput power, const bool outer) {
         if (t.ndim() != 1 || power.ndim() != 1 || t.shape(0) != power.shape(0))
@@ -3255,7 +3231,7 @@ NB_MODULE(_core, module_) {
   // solprop #135: the strict files' probes as the built library holds them, beside a
   // control compiled with this file's contraction. Where the control fuses, a probe
   // that also fused has lost its file's rule, through inlining or the build's flags.
-  module_.def(
+  testing.def(
       "strict_witness",
       [](const double a, const double b, const double c) {
         const double product = a * b;
@@ -3274,7 +3250,7 @@ NB_MODULE(_core, module_) {
   // solprop SEP 47: the fluence widths' native finishing on given profiles, for the
   // tests that hold it to solprop's own (`solprop.spatial.radial_fluence_widths`,
   // `_line_fluence_widths`).
-  module_.def(
+  testing.def(
       "radial_fluence_widths",
       [](const RealInput radius, const RealInput fluence, const RealInput weights,
          const double axis_fluence, const double e2_fraction) {
@@ -3289,7 +3265,7 @@ NB_MODULE(_core, module_) {
       },
       "radius"_a.noconvert(), "fluence"_a.noconvert(), "weights"_a.noconvert(),
       "axis_fluence"_a, "e2_fraction"_a);
-  module_.def(
+  testing.def(
       "fluence_block_widths",
       [](const BoundStatisticsPlan& plan, const RealInput block) {
         if (block.ndim() != 1)
@@ -3299,7 +3275,7 @@ NB_MODULE(_core, module_) {
         return nb::make_tuple(widths[0], widths[1], widths[2]);
       },
       "plan"_a, "block"_a.noconvert());
-  module_.def(
+  testing.def(
       "line_fluence_widths",
       [](const RealInput x, const RealInput samples, const double e2_fraction) {
         if (x.ndim() != 1 || samples.ndim() != 1 || samples.shape(0) != x.shape(0) ||
@@ -3311,14 +3287,14 @@ NB_MODULE(_core, module_) {
         return nb::make_tuple(widths[0], widths[1], widths[2]);
       },
       "x"_a.noconvert(), "samples"_a.noconvert(), "e2_fraction"_a);
-  module_.def(
+  testing.def(
       "watch_due",
       [](const nb::dict policy, const nb::dict state, const double z) {
         return native::watch::due(watch_policy_from(policy), watch_state_from(state),
                                   z);
       },
       "policy"_a, "state"_a, "z"_a);
-  module_.def(
+  testing.def(
       "watch_split_limit",
       [](const nb::dict policy, const RealInput occupancy) {
         const auto rules = watch_policy_from(policy);
@@ -3328,6 +3304,605 @@ NB_MODULE(_core, module_) {
         return native::watch::split_limit(rules, values.data());
       },
       "policy"_a, "occupancy"_a);
+  // solprop SEP 28 section 4.2's reference parts, for its benchmarks only.
+  testing.def(
+      "reference_fft3_pairs",
+      [](const ComplexInput& values, const std::size_t warm, const std::size_t pairs) {
+        if (values.ndim() != 3)
+          throw std::invalid_argument("the reference volume must be three-dimensional");
+        return native::reference_fft3_pairs(values.data(), values.shape(0),
+                                            values.shape(1), values.shape(2), warm,
+                                            pairs);
+      },
+      "values"_a, "warm"_a, "pairs"_a);
+  // The calling thread's OpenMP default as a native call sees it (solprop issue #130).
+  testing.def("scoped_openmp_default", &native::scoped_openmp_default);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // solprop SEP 46: forget FFTW's process-wide wisdom, for a test of the planning
+  // transaction.
+  testing.def("forget_fftw_wisdom", [] {
+    fftw_init_threads();
+    fftw_forget_wisdom();
+  });
+#else
+  testing.def("forget_fftw_wisdom", [] {});
+#endif
+  testing.def("scoped_block_time", &native::scoped_block_time);
+  testing.def(
+      "import_fftw_wisdom",
+      [](const std::string& text) -> bool {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+        static_cast<void>(text);
+        return false;
+#else
+        return native::import_fftw_wisdom(text);
+#endif
+      },
+      "text"_a);
+  nb::class_<ScriptedMarch>(testing, "ScriptedMarch")
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
+           "edges"_a.noconvert())
+      .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
+      .def("log", &ScriptedMarch::log);
+  nb::class_<ScriptedRkMarch>(testing, "ScriptedRkMarch")
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "h0"_a, "steps"_a.noconvert(), "edges"_a.noconvert())
+      .def("run", &ScriptedRkMarch::run, "state"_a, "bounds"_a)
+      .def("log", &ScriptedRkMarch::log)
+      .def("used", &ScriptedRkMarch::used);
+  // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
+  // to feed recorded readings through it and its own monitor alike.
+  nb::class_<native::watch::Monitor>(testing, "Monitor")
+      .def(
+          "__init__",
+          [](native::watch::Monitor* self, const nb::dict config) {
+            new (self) native::watch::Monitor(watch_config_from(config));
+          },
+          "config"_a)
+      .def(
+          "resume",
+          [](native::watch::Monitor& self, const nb::dict record, const bool plane,
+             const nb::handle unwatched) {
+            self.resume(watch_resumption_from(record), plane,
+                        watch_stretches_from(unwatched));
+          },
+          "record"_a, "plane"_a, "unwatched"_a)
+      .def(
+          "launch",
+          [](native::watch::Monitor& self, const RealInput reading, const double z,
+             const double floor, const std::optional<RealInput>& floor_regions) {
+            const auto values = real_vector(reading);
+            std::vector<double> regions;
+            if (floor_regions) {
+              regions = real_vector(*floor_regions);
+              if (regions.size() != 4)
+                throw std::invalid_argument("the floor's regions are four");
+            }
+            return watch_judgement_to(
+                self.launch(values.data(), values.size(), z, floor,
+                            floor_regions ? regions.data() : nullptr));
+          },
+          "reading"_a, "z"_a, "floor"_a = 0.0, "floor_regions"_a.none() = nb::none())
+      .def("due", &native::watch::Monitor::due, "z"_a)
+      .def("skip", &native::watch::Monitor::skip, "z"_a)
+      .def(
+          "step",
+          [](native::watch::Monitor& self, const RealInput reading, const double z,
+             const bool plane) {
+            const auto values = real_vector(reading);
+            return watch_judgement_to(
+                self.step(values.data(), values.size(), z, plane));
+          },
+          "reading"_a, "z"_a, "plane"_a = false)
+      .def("plane", &native::watch::Monitor::plane, "z"_a)
+      .def("note_collar", &native::watch::Monitor::note_collar, "left_out"_a)
+      .def("finish",
+           [](const native::watch::Monitor& self) {
+             const auto finish = self.finish();
+             nb::dict out;
+             out["removed"] = finish.removed;
+             out["guard_low_max"] = finish.guard_max[0];
+             out["guard_high_max"] = finish.guard_max[1];
+             out["warns"] = finish.warns;
+             return out;
+           })
+      .def("record",
+           [](const native::watch::Monitor& self) {
+             return watch_record_to(self.record());
+           })
+      .def("watch_state",
+           [](const native::watch::Monitor& self) {
+             return watch_state_to(self.state());
+           })
+      .def_prop_ro("stale", &native::watch::Monitor::stale)
+      .def_prop_ro("collar_quiet", &native::watch::Monitor::quiet)
+      .def_prop_ro("step_cap", &native::watch::Monitor::cap)
+      .def_prop_ro("rests", &native::watch::Monitor::rests)
+      .def("steps_to_check", &native::watch::Monitor::steps_to_check);
+  testing.def(
+      "trial_step",
+      [](BoundState& self, const double dz, const RealInput phi_delta,
+         const RealInput phi_at, const RealInput prefactor, const RealInput density,
+         const RealInput taper, const RealInput preionisation,
+         const RealInput raman_rates, const nb::object material,
+         const bool prepare_only) {
+        if (self.raman() &&
+            (raman_rates.ndim() != 2 || raman_rates.shape(0) != self.stages() ||
+             raman_rates.shape(1) != self.raman_terms()))
+          throw std::invalid_argument(
+              "raman_rates must have shape (n_stages, n_terms)");
+        auto scalars = trial_from(phi_delta, phi_at, prefactor, density, taper,
+                                  preionisation, raman_rates);
+        if (!material.is_none()) {
+          const auto values = nb::cast<nb::dict>(material);
+          scalars.kerr_density =
+              real_vector(exact_array<RealInput>(values["kerr_density"]));
+          scalars.plasma_densities =
+              real_vector(exact_array<RealInput>(values["plasma_densities"]));
+          scalars.plasma_preionisation =
+              real_vector(exact_array<RealInput>(values["plasma_preionisation"]));
+          scalars.raman_densities =
+              real_vector(exact_array<RealInput>(values["raman_densities"]));
+          if (values.contains("flow_section")) {
+            scalars.flow_section = nb::cast<std::size_t>(values["flow_section"]);
+            scalars.flow_weights =
+                real_vector(exact_array<RealInput>(values["flow_weights"]));
+          }
+          if (values.contains("transform_weights"))
+            scalars.transform_weights =
+                real_vector(exact_array<RealInput>(values["transform_weights"]));
+          if (values.contains("dispersive_densities"))
+            scalars.dispersive_densities =
+                real_vector(exact_array<RealInput>(values["dispersive_densities"]));
+        }
+        std::vector<double> partials;
+        {
+          const nb::gil_scoped_release release;
+          partials = self.trial_step(dz, scalars, prepare_only);
+        }
+        return real_output(std::move(partials), 3);
+      },
+      "state"_a, "dz"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
+      "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
+      "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(),
+      "material"_a = nb::none(), "prepare_only"_a = false);
+  testing.def(
+      "adopt",
+      [](BoundState& self, const ComplexInput field, const double dz) {
+        const auto held = complex_vector(field);
+        const nb::gil_scoped_release release;
+        self.adopt(held, dz);
+      },
+      "state"_a, "field"_a.noconvert(), "dz"_a);
+  testing.def(
+      "stage_to_host",
+      [](BoundState& self, const std::size_t stage) {
+        const auto count = self.elements();
+        auto storage = native::crossing::host_buffer(2 * count);
+        {
+          const nb::gil_scoped_release release;
+          self.stage_to_host(
+              stage, {reinterpret_cast<native::Complex*>(storage.get()), count});
+        }
+        return complex_buffer_output(std::move(storage),
+                                     {self.columns(), count / self.columns()});
+      },
+      "state"_a, "stage"_a);
+  testing.def(
+      "projected_to_host",
+      [](BoundState& self, const bool coarse) {
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.projected_to_host(coarse);
+        }
+        return complex_output(values, {self.columns(), values.size() / self.columns()});
+      },
+      "state"_a, "coarse"_a = false);
+  testing.def(
+      "weighted_error",
+      [](BoundState& self, const RealInput scale) {
+        std::vector<double> partials;
+        const auto held_scale = real_vector(scale);
+        {
+          const nb::gil_scoped_release release;
+          partials = self.weighted_error(held_scale);
+        }
+        return real_output(std::move(partials), 1);
+      },
+      "state"_a, "scale"_a.noconvert());
+  testing.def(
+      "form_flow_actions",
+      [](BoundState& self, const std::size_t section, const double dz,
+         const RealInput fractions) {
+        const auto held_fractions = real_vector(fractions);
+        std::vector<double> measured;
+        {
+          const nb::gil_scoped_release release;
+          measured = self.form_flow_actions(section, dz, held_fractions);
+        }
+        return real_output(std::move(measured), 1);
+      },
+      "state"_a, "section"_a, "dz"_a, "fractions"_a.noconvert());
+  testing.def(
+      "flow_actions_to_host",
+      [](BoundState& self, const bool inverse) {
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.flow_actions_to_host(inverse);
+        }
+        return complex_output(values, {values.size()});
+      },
+      "state"_a, "inverse"_a);
+  // solprop SEP 47 phase 4: the last exponential Adams trial's coupled block and
+  // exponent, observations for tests.
+  testing.def(
+      "adams_block_to_host",
+      [](BoundState& self) {
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.adams_block_to_host();
+        }
+        return complex_output(values, {values.size()});
+      },
+      "state"_a);
+  testing.def(
+      "adams_exponent_to_host",
+      [](BoundState& self) {
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.adams_exponent_to_host();
+        }
+        return complex_output(values, {values.size()});
+      },
+      "state"_a);
+  testing.def(
+      "adams_exponential_trial",
+      [](BoundState& self, const double dz, const IndexInput slots,
+         const RealInput predictor, const RealInput corrector, const RealInput rows,
+         const RealInput divisor, const RealInput phi_delta, const RealInput phi_at,
+         const RealInput prefactor, const RealInput density, const RealInput taper,
+         const RealInput preionisation, const RealInput raman_rates,
+         const nb::dict material, const RealInput sample_phi_delta,
+         const RealInput sample_phi_at, const RealInput sample_prefactor,
+         const RealInput sample_density, const RealInput sample_taper,
+         const RealInput sample_preionisation, const RealInput sample_raman_rates,
+         const nb::dict sample_material, const RealInput spans,
+         const RealInput comp_predictor, const RealInput comp_corrector,
+         const RealInput comp_rows, const RealInput rate, const RealInput carrier) {
+        auto weights = exponential_weights(slots, predictor, corrector, rows);
+        carrier_frame(weights, carrier, weights.width - 1);
+        const auto rate_weights = real_vector(rate);
+        // A varying operator's compensation tables (solprop's
+        // backends.multistep.compensation_tables); empty for a constant one.
+        weights.compensated = !rate_weights.empty();
+        if (weights.compensated) {
+          const auto span_values = real_vector(spans);
+          const auto predictor_values = real_vector(comp_predictor);
+          const auto corrector_values = real_vector(comp_corrector);
+          const auto row_values = real_vector(comp_rows);
+          if (span_values.size() + 1 != weights.width ||
+              predictor_values.size() != weights.order ||
+              corrector_values.size() != weights.order + 1 ||
+              row_values.size() != weights.n_rows * weights.width)
+            throw std::invalid_argument(
+                "Adams compensation tables have inconsistent extents");
+          for (std::size_t t = 0; t < span_values.size(); ++t)
+            weights.span[t] = span_values[t];
+          for (std::size_t t = 0; t < predictor_values.size(); ++t)
+            weights.comp_predictor[t] = predictor_values[t];
+          for (std::size_t t = 0; t < corrector_values.size(); ++t)
+            weights.comp_corrector[t] = corrector_values[t];
+          for (std::size_t row = 0; row < weights.n_rows; ++row)
+            for (std::size_t t = 0; t < weights.width; ++t)
+              weights.comp_rows[row][t] = row_values[row * weights.width + t];
+        }
+        const auto scale = real_vector(divisor);
+        const auto step = adams_scalars(phi_delta, phi_at, prefactor, density, taper,
+                                        preionisation, raman_rates, material);
+        const auto sample = adams_scalars(
+            sample_phi_delta, sample_phi_at, sample_prefactor, sample_density,
+            sample_taper, sample_preionisation, sample_raman_rates, sample_material);
+        std::vector<double> norms;
+        {
+          const nb::gil_scoped_release release;
+          norms = self.open_state().adams_exponential_trial(dz, weights, scale, step,
+                                                            sample, rate_weights);
+        }
+        return real_output(std::move(norms), 1);
+      },
+      "state"_a, "dz"_a, "slots"_a.noconvert(), "predictor"_a.noconvert(),
+      "corrector"_a.noconvert(), "rows"_a.noconvert(), "divisor"_a.noconvert(),
+      "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(), "prefactor"_a.noconvert(),
+      "density"_a.noconvert(), "taper"_a.noconvert(), "preionisation"_a.noconvert(),
+      "raman_rates"_a.noconvert(), "material"_a, "sample_phi_delta"_a.noconvert(),
+      "sample_phi_at"_a.noconvert(), "sample_prefactor"_a.noconvert(),
+      "sample_density"_a.noconvert(), "sample_taper"_a.noconvert(),
+      "sample_preionisation"_a.noconvert(), "sample_raman_rates"_a.noconvert(),
+      "sample_material"_a, "spans"_a.noconvert(), "comp_predictor"_a.noconvert(),
+      "comp_corrector"_a.noconvert(), "comp_rows"_a.noconvert(), "rate"_a.noconvert(),
+      "carrier"_a.noconvert());
+  testing.def(
+      "adams_exponential_trial_at",
+      [](BoundState& self, const double z, const double dz, const RealInput nodes,
+         const IndexInput slots, const std::size_t order,
+         const std::vector<std::size_t>& orders, const bool compensated,
+         const RealInput carrier) {
+        auto weights = exponential_weights_at(nodes, slots, order, orders, compensated);
+        carrier_frame(weights, carrier, weights.width - 1);
+        const double end = z + dz;
+        auto trial = self.stage_trial(z, end);
+        const auto rate = compensated ? self.stage_rate(end) : std::vector<double>{};
+        std::vector<double> norms;
+        {
+          const nb::gil_scoped_release release;
+          norms = self.open_state().adams_exponential_trial(dz, weights, {}, trial.step,
+                                                            trial.sample, rate);
+        }
+        return real_output(std::move(norms), 1);
+      },
+      "state"_a, "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
+      "orders"_a, "compensated"_a, "carrier"_a.noconvert());
+  testing.def(
+      "adams_exponential_accept",
+      [](BoundState& self, const double dz, const std::size_t free,
+         const IndexInput dense, const bool interpolate) {
+        auto slopes = adams_rows(dense);
+        slopes.width = interpolate ? slopes.width + 1 : 0;
+        const nb::gil_scoped_release release;
+        self.open_state().adams_exponential_accept(dz, free, slopes);
+      },
+      "state"_a, "dz"_a, "free"_a, "dense"_a.noconvert(), "interpolate"_a);
+  testing.def(
+      "adams_start",
+      [](BoundState& self, const std::size_t slot, const RealInput phi_delta,
+         const RealInput phi_at, const RealInput prefactor, const RealInput density,
+         const RealInput taper, const RealInput preionisation,
+         const RealInput raman_rates, const nb::dict material) {
+        const auto scalars = adams_scalars(phi_delta, phi_at, prefactor, density, taper,
+                                           preionisation, raman_rates, material);
+        const nb::gil_scoped_release release;
+        self.open_state().adams_start(slot, scalars);
+      },
+      "state"_a, "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
+      "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
+      "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a);
+  testing.def(
+      "adams_compensation_start",
+      [](BoundState& self, const std::size_t slot, const RealInput rate) {
+        const auto weights = real_vector(rate);
+        const nb::gil_scoped_release release;
+        self.open_state().adams_compensation_start(slot, weights);
+      },
+      "state"_a, "slot"_a, "rate"_a.noconvert());
+  testing.def(
+      "adams_hold", [](BoundState& self) { self.open_state().adams_hold(); },
+      "state"_a);
+  testing.def(
+      "adams_restore", [](BoundState& self) { self.open_state().adams_restore(); },
+      "state"_a);
+  testing.def(
+      "adams_rows_to_host",
+      [](BoundState& self, const std::string& name) {
+        auto& state = self.open_state();
+        const auto extents = state.adams_row_extents(name);
+        // The array's own storage is written once, as the host engine's copy is.
+        auto storage =
+            std::make_unique<ComplexStorage>(extents[0] * extents[1] * extents[2]);
+        {
+          const nb::gil_scoped_release release;
+          state.adams_rows_to_host(name, storage->data(), storage->size());
+        }
+        auto* pointer = storage.get();
+        nb::capsule owner(pointer, [](void* value) noexcept {
+          const std::unique_ptr<ComplexStorage> held(
+              static_cast<ComplexStorage*>(value));
+        });
+        static_cast<void>(storage.release()); // the capsule owns it now
+        const std::array<std::size_t, 3> shape{extents[0], extents[1], extents[2]};
+        return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
+      },
+      "state"_a, "name"_a);
+  testing.def(
+      "adams_stage_scalars",
+      [](BoundState& self, const double z0, const double z1) {
+        const auto trial = self.stage_trial(z0, z1);
+        const auto& step = trial.step;
+        // The first stage row's values; the test of the native evaluation reads
+        // them against solprop's bundle.
+        nb::dict out;
+        out["phi_delta"] = step.phi_delta;
+        out["phi_at"] = step.phi_at;
+        out["prefactor"] = step.prefactor;
+        out["density"] = step.density;
+        out["taper"] = step.taper;
+        out["preionisation"] = step.preionisation;
+        out["raman_rates"] = step.raman_rates;
+        out["kerr_density"] = step.kerr_density;
+        out["plasma_densities"] = step.plasma_densities;
+        out["plasma_preionisation"] = step.plasma_preionisation;
+        out["raman_densities"] = step.raman_densities;
+        out["dispersive_densities"] = step.dispersive_densities;
+        out["flow_section"] = step.flow_section;
+        out["flow_weights"] = step.flow_weights;
+        out["transform_weights"] = step.transform_weights;
+        return out;
+      },
+      "state"_a, "z0"_a, "z1"_a);
+  testing.def(
+      "adams_stage_rate",
+      [](BoundState& self, const double z) { return self.stage_rate(z); }, "state"_a,
+      "z"_a);
+  testing.def(
+      "has_stage_tables",
+      [](const BoundState& self) { return self.has_stage_tables(); }, "state"_a);
+  testing.def(
+      "table_rate_at",
+      [](BoundState& self, const double z, const bool before) {
+        const nb::gil_scoped_release release;
+        self.table_rate_at(z, before);
+      },
+      "state"_a, "z"_a, "before"_a);
+  testing.def(
+      "phase_sum_to_host",
+      [](BoundState& self, const RealInput weights) {
+        const auto held = real_vector(weights);
+        auto& state = self.open_state();
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = state.phase_sum_to_host(held);
+        }
+        return complex_output(values, {self.columns(), values.size() / self.columns()});
+      },
+      "state"_a, "weights"_a.noconvert());
+  testing.def("promote_fsal", [](BoundState& self) { self.promote_fsal(); }, "state"_a);
+  testing.def(
+      "adams_march_run",
+      [](BoundState& self, const nb::dict march, const nb::dict bounds) {
+        return self.march_run(march, bounds);
+      },
+      "state"_a, "march"_a, "bounds"_a);
+  testing.def(
+      "rk_march_run",
+      [](BoundState& self, const nb::dict march, const nb::dict bounds) {
+        return self.rk_march_run(march, bounds);
+      },
+      "state"_a, "march"_a, "bounds"_a);
+  // A test hook: fail the resident engine's `stage` after `after` more calls;
+  // `trial_source` fails inside the trial's source evaluation.
+  testing.def(
+      "adams_march_fault",
+      [](BoundState& self, const std::string& stage, const std::size_t after,
+         const std::string& category) { self.march_fault(stage, after, category); },
+      "state"_a, "stage"_a, "after"_a, "category"_a);
+  testing.def(
+      "statistics",
+      [](BoundState& self, const std::uint64_t flags, const RealInput windows,
+         const RealInput on_axis, const double density, const double taper,
+         const double preionisation, const double intensity_factor,
+         const nb::object channel_preionisation, const nb::object power_weight) {
+        const auto held_weight =
+            power_weight.is_none() ? std::vector<double>{}
+                                   : real_vector(exact_array<RealInput>(power_weight));
+        const auto held_windows = real_vector(windows);
+        const auto held_on_axis = real_vector(on_axis);
+        const auto initial =
+            channel_preionisation.is_none()
+                ? std::vector<double>{}
+                : real_vector(exact_array<RealInput>(channel_preionisation));
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values =
+              self.statistics(flags, held_windows, held_on_axis, density, taper,
+                              preionisation, intensity_factor, initial, held_weight);
+        }
+        return real_output(std::move(values), 1);
+      },
+      "state"_a, "flags"_a, "windows"_a.noconvert(), "on_axis"_a.noconvert(),
+      "density"_a, "taper"_a, "preionisation"_a, "intensity_factor"_a,
+      "channel_preionisation"_a = nb::none(), "power_weight"_a = nb::none());
+  testing.def(
+      "spatial_statistics",
+      [](BoundState& self, const std::uint64_t flags, const double intensity_factor,
+         const double z) {
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.spatial_statistics(flags, intensity_factor, z);
+        }
+        return real_output(std::move(values), 1);
+      },
+      "state"_a, "flags"_a, "intensity_factor"_a, "z"_a);
+  testing.def(
+      "planned_statistics",
+      [](BoundState& self, const BoundStatisticsPlan& plan, const double z) {
+        const auto& held = plan.plan();
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.planned_statistics(held, z);
+        }
+        return real_output(std::move(values), 1);
+      },
+      "state"_a, "plan"_a, "z"_a);
+  testing.def(
+      "plane_fluence_trace",
+      [](BoundState& self, const double center_x, const double center_y,
+         const double dx, const double dy, const double extent, const double spacing,
+         const std::size_t n_radii, const RealInput cosines, const RealInput sines) {
+        if (cosines.ndim() != 1 || sines.ndim() != 1)
+          throw std::invalid_argument("fluence rings must be one-dimensional");
+        const auto held_cosines = real_vector(cosines);
+        const auto held_sines = real_vector(sines);
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
+                                            n_radii, held_cosines, held_sines);
+        }
+        return real_output(std::move(values), 1);
+      },
+      "state"_a, "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a, "spacing"_a,
+      "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert());
+  testing.def(
+      "axis_spectrum",
+      [](BoundState& self, const RealInput matrix) {
+        if (matrix.ndim() != 2)
+          throw std::invalid_argument("an on-axis matrix must be two-dimensional");
+        const auto held = real_vector(matrix);
+        std::vector<native::Complex> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.axis_spectrum(held);
+        }
+        return complex_output(values, {values.size()});
+      },
+      "state"_a, "matrix"_a.noconvert());
+  testing.def(
+      "monitor_reading",
+      [](BoundState& self) {
+        std::vector<double> values;
+        {
+          const nb::gil_scoped_release release;
+          values = self.monitor_reading();
+        }
+        return real_output(std::move(values), 1);
+      },
+      "state"_a);
+  testing.def(
+      "quadrature_error", [](BoundState& self) { return self.quadrature_error(); },
+      "state"_a);
+}
+
+} // namespace
+
+// NOLINTNEXTLINE(readability-function-size): the module's one table of bindings, kept whole
+NB_MODULE(_core, module_) {
+  // Each registration makes the Python exception type; the handle need not outlive it.
+  const nb::exception<native::EnvelopeConvergenceError> envelope_convergence_error(
+      module_, "EnvelopeConvergenceError");
+  const nb::exception<native::BackendRefusal> backend_refusal(module_,
+                                                              "BackendRefusal");
+  module_.doc() = "Private nanobind seam for solprop-native";
+  module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
+              "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
+              "band_tiles"_a = -1);
+  module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
+  module_.def("register_host_blas", &register_host_blas);
+  module_.def(
+      "rk_score",
+      [](const RealInput partials, const double rtol, const double atol) {
+        if (partials.ndim() != 2 || partials.shape(0) != 3)
+          throw std::invalid_argument("a trial's partials have shape (3, slots)");
+        return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
+      },
+      "partials"_a, "rtol"_a, "atol"_a);
   module_.def("available_device_memory", []() -> nb::object {
 #ifdef KOKKOS_ENABLE_CUDA
     std::size_t free_bytes = 0;
@@ -3363,35 +3938,10 @@ NB_MODULE(_core, module_) {
         return result;
       },
       nb::arg("key"), nb::arg("wisdom"), nb::arg("effort"));
-  // solprop SEP 28 section 4.2's reference parts, for its benchmarks only.
-  module_.def(
-      "reference_fft3_pairs",
-      [](const ComplexInput& values, const std::size_t warm, const std::size_t pairs) {
-        if (values.ndim() != 3)
-          throw std::invalid_argument("the reference volume must be three-dimensional");
-        return native::reference_fft3_pairs(values.data(), values.shape(0),
-                                            values.shape(1), values.shape(2), warm,
-                                            pairs);
-      },
-      "values"_a, "warm"_a, "pairs"_a);
   module_.def("reference_stream_copies", &native::reference_stream_copies, "elements"_a,
               "warm"_a, "repeats"_a);
-  // The calling thread's OpenMP default as a native call sees it (solprop issue #130).
-  module_.def("scoped_openmp_default", &native::scoped_openmp_default);
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  // solprop SEP 46: forget FFTW's process-wide wisdom, for a test of the planning
-  // transaction.
-  module_.def("forget_fftw_wisdom", [] {
-    fftw_init_threads();
-    fftw_forget_wisdom();
-  });
-#else
-  module_.def("forget_fftw_wisdom", [] {});
-#endif
   module_.def("configure_native_spin", &native::configure_native_spin,
               "milliseconds"_a);
-  module_.def("scoped_block_time", &native::scoped_block_time);
-  module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
   // FFTW's wisdom as text, for the plan store the adapter owns
   // (solprop_native._wisdom). None where there is none to keep: a device build,
@@ -3404,32 +3954,7 @@ NB_MODULE(_core, module_) {
     return text.empty() ? nb::none() : nb::cast(std::move(text));
 #endif
   });
-  module_.def(
-      "import_fftw_wisdom",
-      [](const std::string& text) -> bool {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-        static_cast<void>(text);
-        return false;
-#else
-        return native::import_fftw_wisdom(text);
-#endif
-      },
-      "text"_a);
-  native::bindings::bind_helpers(module_);
   bind_problem(module_);
-  native::bindings::bind_transverse(module_);
-  nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
-      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
-           "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
-           "edges"_a.noconvert())
-      .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
-      .def("log", &ScriptedMarch::log);
-  nb::class_<ScriptedRkMarch>(module_, "ScriptedRkMarch")
-      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
-           "norms"_a.noconvert(), "h0"_a, "steps"_a.noconvert(), "edges"_a.noconvert())
-      .def("run", &ScriptedRkMarch::run, "state"_a, "bounds"_a)
-      .def("log", &ScriptedRkMarch::log)
-      .def("used", &ScriptedRkMarch::used);
   nb::class_<BoundState>(module_, "State")
       .def(nb::init<const native::Problem&>(), "problem"_a)
       .def(
@@ -3453,61 +3978,6 @@ NB_MODULE(_core, module_) {
                                 : nb::cast(real_output(std::move(partials), 3));
           },
           "z"_a, "dz"_a, "nodes"_a, "prepare_only"_a = false)
-      .def(
-          "trial_step",
-          [](BoundState& self, const double dz, const RealInput phi_delta,
-             const RealInput phi_at, const RealInput prefactor, const RealInput density,
-             const RealInput taper, const RealInput preionisation,
-             const RealInput raman_rates, const nb::object material,
-             const bool prepare_only) {
-            if (self.raman() &&
-                (raman_rates.ndim() != 2 || raman_rates.shape(0) != self.stages() ||
-                 raman_rates.shape(1) != self.raman_terms()))
-              throw std::invalid_argument(
-                  "raman_rates must have shape (n_stages, n_terms)");
-            auto scalars = trial_from(phi_delta, phi_at, prefactor, density, taper,
-                                      preionisation, raman_rates);
-            if (!material.is_none()) {
-              const auto values = nb::cast<nb::dict>(material);
-              scalars.kerr_density =
-                  real_vector(exact_array<RealInput>(values["kerr_density"]));
-              scalars.plasma_densities =
-                  real_vector(exact_array<RealInput>(values["plasma_densities"]));
-              scalars.plasma_preionisation =
-                  real_vector(exact_array<RealInput>(values["plasma_preionisation"]));
-              scalars.raman_densities =
-                  real_vector(exact_array<RealInput>(values["raman_densities"]));
-              if (values.contains("flow_section")) {
-                scalars.flow_section = nb::cast<std::size_t>(values["flow_section"]);
-                scalars.flow_weights =
-                    real_vector(exact_array<RealInput>(values["flow_weights"]));
-              }
-              if (values.contains("transform_weights"))
-                scalars.transform_weights =
-                    real_vector(exact_array<RealInput>(values["transform_weights"]));
-              if (values.contains("dispersive_densities"))
-                scalars.dispersive_densities =
-                    real_vector(exact_array<RealInput>(values["dispersive_densities"]));
-            }
-            std::vector<double> partials;
-            {
-              const nb::gil_scoped_release release;
-              partials = self.trial_step(dz, scalars, prepare_only);
-            }
-            return real_output(std::move(partials), 3);
-          },
-          "dz"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
-          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
-          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(),
-          "material"_a = nb::none(), "prepare_only"_a = false)
-      .def(
-          "adopt",
-          [](BoundState& self, const ComplexInput field, const double dz) {
-            const auto held = complex_vector(field);
-            const nb::gil_scoped_release release;
-            self.adopt(held, dz);
-          },
-          "field"_a.noconvert(), "dz"_a)
       // solprop SEP 24 phase 3: the low-storage march's resident step.
       .def(
           "low_storage_step",
@@ -3541,29 +4011,6 @@ NB_MODULE(_core, module_) {
           },
           "slots"_a, "compensated"_a = false, "interpolate"_a = true)
       .def(
-          "adams_compensation_start",
-          [](BoundState& self, const std::size_t slot, const RealInput rate) {
-            const auto weights = real_vector(rate);
-            const nb::gil_scoped_release release;
-            self.open_state().adams_compensation_start(slot, weights);
-          },
-          "slot"_a, "rate"_a.noconvert())
-      .def(
-          "adams_start",
-          [](BoundState& self, const std::size_t slot, const RealInput phi_delta,
-             const RealInput phi_at, const RealInput prefactor, const RealInput density,
-             const RealInput taper, const RealInput preionisation,
-             const RealInput raman_rates, const nb::dict material) {
-            const auto scalars =
-                adams_scalars(phi_delta, phi_at, prefactor, density, taper,
-                              preionisation, raman_rates, material);
-            const nb::gil_scoped_release release;
-            self.open_state().adams_start(slot, scalars);
-          },
-          "slot"_a, "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
-          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
-          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def(
           "adams_scale",
           [](BoundState& self, const double rtol, const double atol,
              const RealInput weights) {
@@ -3572,46 +4019,9 @@ NB_MODULE(_core, module_) {
             self.open_state().adams_scale(rtol, atol, values);
           },
           "rtol"_a, "atol"_a, "weights"_a.noconvert())
-      .def(
-          "adams_fused_accept",
-          [](BoundState& self, const double dz, const IndexInput keep,
-             const std::size_t free, const IndexInput dense, const bool interpolate) {
-            const auto kept = adams_rows(keep);
-            auto slopes = adams_rows(dense);
-            // The interpolant's slopes are the new source and these rows.
-            slopes.width = interpolate ? slopes.width + 1 : 0;
-            const nb::gil_scoped_release release;
-            self.open_state().adams_fused_accept(dz, kept, free, slopes);
-          },
-          "dz"_a, "keep"_a.noconvert(), "free"_a, "dense"_a.noconvert(),
-          "interpolate"_a)
-      .def("adams_hold", [](BoundState& self) { self.open_state().adams_hold(); })
-      .def("adams_restore", [](BoundState& self) { self.open_state().adams_restore(); })
       // solprop SEP 29 G2: the resident history's persistent rows across a resume.
       .def("adams_row_names",
            [](BoundState& self) { return self.open_state().adams_row_names(); })
-      .def(
-          "adams_rows_to_host",
-          [](BoundState& self, const std::string& name) {
-            auto& state = self.open_state();
-            const auto extents = state.adams_row_extents(name);
-            // The array's own storage is written once, as the host engine's copy is.
-            auto storage =
-                std::make_unique<ComplexStorage>(extents[0] * extents[1] * extents[2]);
-            {
-              const nb::gil_scoped_release release;
-              state.adams_rows_to_host(name, storage->data(), storage->size());
-            }
-            auto* pointer = storage.get();
-            nb::capsule owner(pointer, [](void* value) noexcept {
-              const std::unique_ptr<ComplexStorage> held(
-                  static_cast<ComplexStorage*>(value));
-            });
-            static_cast<void>(storage.release()); // the capsule owns it now
-            const std::array<std::size_t, 3> shape{extents[0], extents[1], extents[2]};
-            return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
-          },
-          "name"_a)
       .def(
           "adams_rows_from_host",
           [](BoundState& self, const std::string& name, const ComplexInput rows) {
@@ -3647,28 +4057,6 @@ NB_MODULE(_core, module_) {
           "kind"_a, "edges"_a.noconvert(), "lower"_a, "upper"_a,
           "coefficients"_a.noconvert())
       .def(
-          "table_evaluate",
-          [](BoundState& self, const IndexInput slots, const RealInput positions) {
-            if (slots.ndim() != 1 || positions.ndim() != 1)
-              throw std::invalid_argument(
-                  "z table slots and positions must be one-dimensional");
-            const auto held_slots = index_vector(slots);
-            const auto held_positions = real_vector(positions);
-            auto& state = self.open_state();
-            const nb::gil_scoped_release release;
-            state.table_evaluate(held_slots, held_positions);
-          },
-          "slots"_a.noconvert(), "positions"_a.noconvert())
-      .def(
-          "table_rate",
-          [](BoundState& self, const std::size_t slot, const double z,
-             const bool before) {
-            auto& state = self.open_state();
-            const nb::gil_scoped_release release;
-            state.table_rate(slot, z, before);
-          },
-          "slot"_a, "z"_a, "before"_a)
-      .def(
           "table_terms_to_host",
           [](BoundState& self, const std::string& kind, const std::size_t slot) {
             auto& state = self.open_state();
@@ -3681,111 +4069,6 @@ NB_MODULE(_core, module_) {
                                   {self.columns(), values.size() / self.columns()});
           },
           "kind"_a, "slot"_a)
-      .def(
-          "phase_sum_to_host",
-          [](BoundState& self, const RealInput weights) {
-            const auto held = real_vector(weights);
-            auto& state = self.open_state();
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = state.phase_sum_to_host(held);
-            }
-            return complex_output(values,
-                                  {self.columns(), values.size() / self.columns()});
-          },
-          "weights"_a.noconvert())
-      .def(
-          "adams_observe",
-          [](BoundState& self, const RealInput weights, const RealInput phi_delta,
-             const RealInput phi_at, const RealInput prefactor, const RealInput density,
-             const RealInput taper, const RealInput preionisation,
-             const RealInput raman_rates, const nb::dict material) {
-            native::AdamsWeights table;
-            const auto values = real_vector(weights);
-            if (values.size() > native::adams_max_samples)
-              throw std::invalid_argument("too many Adams interpolation weights");
-            for (std::size_t t = 0; t < values.size(); ++t) {
-              table.predictor[t] = values[t];
-              table.corrector[t] = values[t];
-            }
-            const auto scalars =
-                adams_scalars(phi_delta, phi_at, prefactor, density, taper,
-                              preionisation, raman_rates, material);
-            const nb::gil_scoped_release release;
-            self.open_state().adams_observe(table, scalars);
-          },
-          "weights"_a.noconvert(), "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(),
-          "prefactor"_a.noconvert(), "density"_a.noconvert(), "taper"_a.noconvert(),
-          "preionisation"_a.noconvert(), "raman_rates"_a.noconvert(), "material"_a)
-      .def(
-          "adams_exponential_trial",
-          [](BoundState& self, const double dz, const IndexInput slots,
-             const RealInput predictor, const RealInput corrector, const RealInput rows,
-             const RealInput divisor, const RealInput phi_delta, const RealInput phi_at,
-             const RealInput prefactor, const RealInput density, const RealInput taper,
-             const RealInput preionisation, const RealInput raman_rates,
-             const nb::dict material, const RealInput sample_phi_delta,
-             const RealInput sample_phi_at, const RealInput sample_prefactor,
-             const RealInput sample_density, const RealInput sample_taper,
-             const RealInput sample_preionisation, const RealInput sample_raman_rates,
-             const nb::dict sample_material, const RealInput spans,
-             const RealInput comp_predictor, const RealInput comp_corrector,
-             const RealInput comp_rows, const RealInput rate, const RealInput carrier) {
-            auto weights = exponential_weights(slots, predictor, corrector, rows);
-            carrier_frame(weights, carrier, weights.width - 1);
-            const auto rate_weights = real_vector(rate);
-            // A varying operator's compensation tables (solprop's
-            // backends.multistep.compensation_tables); empty for a constant one.
-            weights.compensated = !rate_weights.empty();
-            if (weights.compensated) {
-              const auto span_values = real_vector(spans);
-              const auto predictor_values = real_vector(comp_predictor);
-              const auto corrector_values = real_vector(comp_corrector);
-              const auto row_values = real_vector(comp_rows);
-              if (span_values.size() + 1 != weights.width ||
-                  predictor_values.size() != weights.order ||
-                  corrector_values.size() != weights.order + 1 ||
-                  row_values.size() != weights.n_rows * weights.width)
-                throw std::invalid_argument(
-                    "Adams compensation tables have inconsistent extents");
-              for (std::size_t t = 0; t < span_values.size(); ++t)
-                weights.span[t] = span_values[t];
-              for (std::size_t t = 0; t < predictor_values.size(); ++t)
-                weights.comp_predictor[t] = predictor_values[t];
-              for (std::size_t t = 0; t < corrector_values.size(); ++t)
-                weights.comp_corrector[t] = corrector_values[t];
-              for (std::size_t row = 0; row < weights.n_rows; ++row)
-                for (std::size_t t = 0; t < weights.width; ++t)
-                  weights.comp_rows[row][t] = row_values[row * weights.width + t];
-            }
-            const auto scale = real_vector(divisor);
-            const auto step =
-                adams_scalars(phi_delta, phi_at, prefactor, density, taper,
-                              preionisation, raman_rates, material);
-            const auto sample =
-                adams_scalars(sample_phi_delta, sample_phi_at, sample_prefactor,
-                              sample_density, sample_taper, sample_preionisation,
-                              sample_raman_rates, sample_material);
-            std::vector<double> norms;
-            {
-              const nb::gil_scoped_release release;
-              norms = self.open_state().adams_exponential_trial(
-                  dz, weights, scale, step, sample, rate_weights);
-            }
-            return real_output(std::move(norms), 1);
-          },
-          "dz"_a, "slots"_a.noconvert(), "predictor"_a.noconvert(),
-          "corrector"_a.noconvert(), "rows"_a.noconvert(), "divisor"_a.noconvert(),
-          "phi_delta"_a.noconvert(), "phi_at"_a.noconvert(), "prefactor"_a.noconvert(),
-          "density"_a.noconvert(), "taper"_a.noconvert(), "preionisation"_a.noconvert(),
-          "raman_rates"_a.noconvert(), "material"_a, "sample_phi_delta"_a.noconvert(),
-          "sample_phi_at"_a.noconvert(), "sample_prefactor"_a.noconvert(),
-          "sample_density"_a.noconvert(), "sample_taper"_a.noconvert(),
-          "sample_preionisation"_a.noconvert(), "sample_raman_rates"_a.noconvert(),
-          "sample_material"_a, "spans"_a.noconvert(), "comp_predictor"_a.noconvert(),
-          "comp_corrector"_a.noconvert(), "comp_rows"_a.noconvert(),
-          "rate"_a.noconvert(), "carrier"_a.noconvert())
       // solprop SEP 39 phase 1: the trial's tables, stage scalars and rate formed
       // natively from the nodes and the tables uploaded once per run.
       .def(
@@ -3794,7 +4077,6 @@ NB_MODULE(_core, module_) {
             self.set_stage_tables(stage_tables_from(tables));
           },
           "tables"_a)
-      .def("has_stage_tables", &BoundState::has_stage_tables)
       .def("table_slots", &BoundState::table_slots, "phi"_a, "prefactor"_a, "slots"_a,
            "rate"_a)
       .def(
@@ -3804,13 +4086,6 @@ NB_MODULE(_core, module_) {
             return self.table_load(positions);
           },
           "positions"_a)
-      .def(
-          "table_rate_at",
-          [](BoundState& self, const double z, const bool before) {
-            const nb::gil_scoped_release release;
-            self.table_rate_at(z, before);
-          },
-          "z"_a, "before"_a)
       .def("table_evaluations", &BoundState::table_evaluations)
       // solprop SEP 39 phase 2: the native Adams march.
       .def(
@@ -3824,7 +4099,6 @@ NB_MODULE(_core, module_) {
           },
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())
-      .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
       .def("bind_host_source", &BoundState::bind_host_source, "owner"_a.none())
       .def(
           "rk_march_configure",
@@ -3836,7 +4110,6 @@ NB_MODULE(_core, module_) {
           },
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
           "edges"_a.noconvert())
-      .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
       .def("low_storage_configure", &BoundState::low_storage_configure, "flows"_a,
            "separable"_a, "origin"_a)
       .def("start_session", &start_session, "kind"_a, "state"_a, "plan"_a, "z"_a,
@@ -3854,178 +4127,6 @@ NB_MODULE(_core, module_) {
           "partials"_a.noconvert(), "rtol"_a, "atol"_a)
       .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
            "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)
-      // A test hook: fail the resident engine's `stage` after `after` more calls;
-      // `trial_source` fails inside the trial's source evaluation.
-      .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
-           "category"_a)
-      .def(
-          "adams_exponential_trial_at",
-          [](BoundState& self, const double z, const double dz, const RealInput nodes,
-             const IndexInput slots, const std::size_t order,
-             const std::vector<std::size_t>& orders, const bool compensated,
-             const RealInput carrier) {
-            auto weights =
-                exponential_weights_at(nodes, slots, order, orders, compensated);
-            carrier_frame(weights, carrier, weights.width - 1);
-            const double end = z + dz;
-            auto trial = self.stage_trial(z, end);
-            const auto rate =
-                compensated ? self.stage_rate(end) : std::vector<double>{};
-            std::vector<double> norms;
-            {
-              const nb::gil_scoped_release release;
-              norms = self.open_state().adams_exponential_trial(
-                  dz, weights, {}, trial.step, trial.sample, rate);
-            }
-            return real_output(std::move(norms), 1);
-          },
-          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a, "compensated"_a, "carrier"_a.noconvert())
-      .def(
-          "adams_fused_trial_at",
-          [](BoundState& self, const double z, const double dz, const RealInput nodes,
-             const IndexInput slots, const std::size_t order,
-             const std::vector<std::size_t>& orders) {
-            const auto slot_values = index_vector(slots);
-            const auto weights = native::stage::fused_weights(
-                nodes.data(), element_count(nodes), slot_values.data(),
-                slot_values.size(), order, orders.data(), orders.size());
-            const auto trial = self.stage_trial(z, z + dz);
-            std::vector<double> norms;
-            {
-              const nb::gil_scoped_release release;
-              norms = self.open_state().adams_fused_trial(dz, weights, {}, trial.step);
-            }
-            return real_output(std::move(norms), 1);
-          },
-          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
-          "orders"_a)
-      .def(
-          "adams_stage_scalars",
-          [](BoundState& self, const double z0, const double z1) {
-            const auto trial = self.stage_trial(z0, z1);
-            const auto& step = trial.step;
-            // The first stage row's values; the test of the native evaluation reads
-            // them against solprop's bundle.
-            nb::dict out;
-            out["phi_delta"] = step.phi_delta;
-            out["phi_at"] = step.phi_at;
-            out["prefactor"] = step.prefactor;
-            out["density"] = step.density;
-            out["taper"] = step.taper;
-            out["preionisation"] = step.preionisation;
-            out["raman_rates"] = step.raman_rates;
-            out["kerr_density"] = step.kerr_density;
-            out["plasma_densities"] = step.plasma_densities;
-            out["plasma_preionisation"] = step.plasma_preionisation;
-            out["raman_densities"] = step.raman_densities;
-            out["dispersive_densities"] = step.dispersive_densities;
-            out["flow_section"] = step.flow_section;
-            out["flow_weights"] = step.flow_weights;
-            out["transform_weights"] = step.transform_weights;
-            return out;
-          },
-          "z0"_a, "z1"_a)
-      .def(
-          "adams_stage_rate",
-          [](BoundState& self, const double z) { return self.stage_rate(z); }, "z"_a)
-      .def(
-          "adams_exponential_accept",
-          [](BoundState& self, const double dz, const std::size_t free,
-             const IndexInput dense, const bool interpolate) {
-            auto slopes = adams_rows(dense);
-            slopes.width = interpolate ? slopes.width + 1 : 0;
-            const nb::gil_scoped_release release;
-            self.open_state().adams_exponential_accept(dz, free, slopes);
-          },
-          "dz"_a, "free"_a, "dense"_a.noconvert(), "interpolate"_a)
-      .def(
-          "adams_exponential_observe",
-          [](BoundState& self, const double xi, const double dz,
-             const RealInput coefficients, const RealInput dense_weight,
-             const RealInput dense_theta, const RealInput carrier) {
-            native::ExponentialWeights weights;
-            const auto weight_values = real_vector(dense_weight);
-            const auto theta_values = real_vector(dense_theta);
-            if (weight_values.size() != theta_values.size() ||
-                weight_values.size() > native::adams_max_samples + 1)
-              throw std::invalid_argument(
-                  "Adams compensation weights are inconsistent");
-            for (std::size_t t = 0; t < weight_values.size(); ++t) {
-              weights.dense_weight[t] = weight_values[t];
-              weights.dense_theta[t] = theta_values[t];
-            }
-            const auto values = real_vector(coefficients);
-            const auto count = static_cast<std::size_t>(
-                std::llround(std::sqrt(static_cast<double>(values.size()))));
-            if (count * count != values.size() || count > native::adams_max_samples)
-              throw std::invalid_argument(
-                  "Adams interpolant coefficients are not square");
-            for (std::size_t j = 0; j < count; ++j)
-              for (std::size_t k = 0; k < count; ++k)
-                weights.corrector[j][k] = values[j * count + k];
-            // The accepted step's carrier frame, its history rows after the endpoint.
-            carrier_frame(weights, carrier, count == 0 ? 0 : count - 1);
-            const nb::gil_scoped_release release;
-            self.open_state().adams_exponential_observe(xi, dz, weights);
-          },
-          "xi"_a, "dz"_a, "coefficients"_a.noconvert(), "dense_weight"_a.noconvert(),
-          "dense_theta"_a.noconvert(), "carrier"_a.noconvert())
-      .def(
-          "set_flow_actions",
-          [](BoundState& self, const ComplexInput forward, const ComplexInput inverse,
-             const BoolInput identity) {
-            const auto held_forward = complex_vector(forward);
-            const auto held_inverse = complex_vector(inverse);
-            const auto held_identity = bool_vector(identity);
-            const nb::gil_scoped_release release;
-            self.set_flow_actions(held_forward, held_inverse, held_identity);
-          },
-          "forward"_a.noconvert(), "inverse"_a.noconvert(), "identity"_a.noconvert())
-      .def(
-          "form_flow_actions",
-          [](BoundState& self, const std::size_t section, const double dz,
-             const RealInput fractions) {
-            const auto held_fractions = real_vector(fractions);
-            std::vector<double> measured;
-            {
-              const nb::gil_scoped_release release;
-              measured = self.form_flow_actions(section, dz, held_fractions);
-            }
-            return real_output(std::move(measured), 1);
-          },
-          "section"_a, "dz"_a, "fractions"_a.noconvert())
-      // solprop SEP 47 phase 4: the last exponential Adams trial's coupled block and
-      // exponent, observations for tests.
-      .def("adams_block_to_host",
-           [](BoundState& self) {
-             std::vector<native::Complex> values;
-             {
-               const nb::gil_scoped_release release;
-               values = self.adams_block_to_host();
-             }
-             return complex_output(values, {values.size()});
-           })
-      .def("adams_exponent_to_host",
-           [](BoundState& self) {
-             std::vector<native::Complex> values;
-             {
-               const nb::gil_scoped_release release;
-               values = self.adams_exponent_to_host();
-             }
-             return complex_output(values, {values.size()});
-           })
-      .def(
-          "flow_actions_to_host",
-          [](BoundState& self, const bool inverse) {
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.flow_actions_to_host(inverse);
-            }
-            return complex_output(values, {values.size()});
-          },
-          "inverse"_a)
       .def(
           "prepare_raman",
           [](BoundState& self, const RealInput rates, const nb::object densities) {
@@ -4040,65 +4141,6 @@ NB_MODULE(_core, module_) {
             self.prepare_raman(held_rates, held_densities);
           },
           "rates"_a.noconvert(), "densities"_a = nb::none())
-      .def(
-          "weighted_error",
-          [](BoundState& self, const RealInput scale) {
-            std::vector<double> partials;
-            const auto held_scale = real_vector(scale);
-            {
-              const nb::gil_scoped_release release;
-              partials = self.weighted_error(held_scale);
-            }
-            return real_output(std::move(partials), 1);
-          },
-          "scale"_a.noconvert())
-      .def(
-          "spatial_statistics",
-          [](BoundState& self, const std::uint64_t flags, const double intensity_factor,
-             const double z) {
-            std::vector<double> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.spatial_statistics(flags, intensity_factor, z);
-            }
-            return real_output(std::move(values), 1);
-          },
-          "flags"_a, "intensity_factor"_a, "z"_a)
-      .def(
-          "plane_fluence_trace",
-          [](BoundState& self, const double center_x, const double center_y,
-             const double dx, const double dy, const double extent,
-             const double spacing, const std::size_t n_radii, const RealInput cosines,
-             const RealInput sines) {
-            if (cosines.ndim() != 1 || sines.ndim() != 1)
-              throw std::invalid_argument("fluence rings must be one-dimensional");
-            const auto held_cosines = real_vector(cosines);
-            const auto held_sines = real_vector(sines);
-            std::vector<double> values;
-            {
-              const nb::gil_scoped_release release;
-              values =
-                  self.plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
-                                           n_radii, held_cosines, held_sines);
-            }
-            return real_output(std::move(values), 1);
-          },
-          "center_x"_a, "center_y"_a, "dx"_a, "dy"_a, "extent"_a, "spacing"_a,
-          "n_radii"_a, "cosines"_a.noconvert(), "sines"_a.noconvert())
-      .def(
-          "axis_spectrum",
-          [](BoundState& self, const RealInput matrix) {
-            if (matrix.ndim() != 2)
-              throw std::invalid_argument("an on-axis matrix must be two-dimensional");
-            const auto held = real_vector(matrix);
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.axis_spectrum(held);
-            }
-            return complex_output(values, {values.size()});
-          },
-          "matrix"_a.noconvert())
       .def(
           "aperture_statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput apertures,
@@ -4121,53 +4163,12 @@ NB_MODULE(_core, module_) {
           "flags"_a, "apertures"_a.noconvert(), "exponent"_a, "regions"_a.noconvert(),
           "intensity_factor"_a)
       .def(
-          "planned_statistics",
-          [](BoundState& self, const BoundStatisticsPlan& plan, const double z) {
-            const auto& held = plan.plan();
-            std::vector<double> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.planned_statistics(held, z);
-            }
-            return real_output(std::move(values), 1);
-          },
-          "plan"_a, "z"_a)
-      .def(
-          "statistics",
-          [](BoundState& self, const std::uint64_t flags, const RealInput windows,
-             const RealInput on_axis, const double density, const double taper,
-             const double preionisation, const double intensity_factor,
-             const nb::object channel_preionisation, const nb::object power_weight) {
-            const auto held_weight =
-                power_weight.is_none()
-                    ? std::vector<double>{}
-                    : real_vector(exact_array<RealInput>(power_weight));
-            const auto held_windows = real_vector(windows);
-            const auto held_on_axis = real_vector(on_axis);
-            const auto initial =
-                channel_preionisation.is_none()
-                    ? std::vector<double>{}
-                    : real_vector(exact_array<RealInput>(channel_preionisation));
-            std::vector<double> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.statistics(flags, held_windows, held_on_axis, density,
-                                       taper, preionisation, intensity_factor, initial,
-                                       held_weight);
-            }
-            return real_output(std::move(values), 1);
-          },
-          "flags"_a, "windows"_a.noconvert(), "on_axis"_a.noconvert(), "density"_a,
-          "taper"_a, "preionisation"_a, "intensity_factor"_a,
-          "channel_preionisation"_a = nb::none(), "power_weight"_a = nb::none())
-      .def(
           "finish",
           [](BoundState& self, const double dz) {
             const nb::gil_scoped_release release;
             self.finish(dz);
           },
           "dz"_a)
-      .def("promote_fsal", [](BoundState& self) { self.promote_fsal(); })
       .def("clear_fsal", [](BoundState& self) { self.clear_fsal(); })
       .def(
           "set_absorber_quiet",
@@ -4198,15 +4199,6 @@ NB_MODULE(_core, module_) {
             self.bind_occupancy(held, count);
           },
           "buckets"_a.noconvert(), "count"_a)
-      .def("monitor_reading",
-           [](BoundState& self) {
-             std::vector<double> values;
-             {
-               const nb::gil_scoped_release release;
-               values = self.monitor_reading();
-             }
-             return real_output(std::move(values), 1);
-           })
       // solprop SEP 44: the bytes through the state's crossings, each way.
       .def("crossed_bytes",
            [](BoundState& self) {
@@ -4291,32 +4283,6 @@ NB_MODULE(_core, module_) {
              return complex_buffer_output(std::move(storage),
                                           {self.columns(), count / self.columns()});
            })
-      .def(
-          "stage_to_host",
-          [](BoundState& self, const std::size_t stage) {
-            const auto count = self.elements();
-            auto storage = native::crossing::host_buffer(2 * count);
-            {
-              const nb::gil_scoped_release release;
-              self.stage_to_host(
-                  stage, {reinterpret_cast<native::Complex*>(storage.get()), count});
-            }
-            return complex_buffer_output(std::move(storage),
-                                         {self.columns(), count / self.columns()});
-          },
-          "stage"_a)
-      .def(
-          "projected_to_host",
-          [](BoundState& self, const bool coarse) {
-            std::vector<native::Complex> values;
-            {
-              const nb::gil_scoped_release release;
-              values = self.projected_to_host(coarse);
-            }
-            return complex_output(values,
-                                  {self.columns(), values.size() / self.columns()});
-          },
-          "coarse"_a = false)
       .def_prop_ro("dispersive_path",
                    [](BoundState& self) { return self.dispersive_path(); })
       .def("memory_ledger",
@@ -4344,8 +4310,6 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("rk_source_evaluations",
                    [](BoundState& self) { return self.rk_source_evaluations(); })
       .def_prop_ro("axis_scans", [](BoundState& self) { return self.axis_scans(); })
-      .def_prop_ro("quadrature_error",
-                   [](BoundState& self) { return self.quadrature_error(); })
       .def("quadrature_peak", [](BoundState& self) { return self.quadrature_peak(); })
       .def_prop_ro("synthesis_provider",
                    [](BoundState& self) { return self.synthesis_provider(); })
@@ -4484,75 +4448,11 @@ NB_MODULE(_core, module_) {
       .def("table_phi", &BoundSession::table_phi, "sequence"_a, "generation"_a, "z"_a)
       .def("fail_outside", &BoundSession::fail_outside)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
-  // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
-  // to feed recorded readings through it and its own monitor alike.
-  nb::class_<native::watch::Monitor>(module_, "Monitor")
-      .def(
-          "__init__",
-          [](native::watch::Monitor* self, const nb::dict config) {
-            new (self) native::watch::Monitor(watch_config_from(config));
-          },
-          "config"_a)
-      .def(
-          "resume",
-          [](native::watch::Monitor& self, const nb::dict record, const bool plane,
-             const nb::handle unwatched) {
-            self.resume(watch_resumption_from(record), plane,
-                        watch_stretches_from(unwatched));
-          },
-          "record"_a, "plane"_a, "unwatched"_a)
-      .def(
-          "launch",
-          [](native::watch::Monitor& self, const RealInput reading, const double z,
-             const double floor, const std::optional<RealInput>& floor_regions) {
-            const auto values = real_vector(reading);
-            std::vector<double> regions;
-            if (floor_regions) {
-              regions = real_vector(*floor_regions);
-              if (regions.size() != 4)
-                throw std::invalid_argument("the floor's regions are four");
-            }
-            return watch_judgement_to(
-                self.launch(values.data(), values.size(), z, floor,
-                            floor_regions ? regions.data() : nullptr));
-          },
-          "reading"_a, "z"_a, "floor"_a = 0.0, "floor_regions"_a.none() = nb::none())
-      .def("due", &native::watch::Monitor::due, "z"_a)
-      .def("skip", &native::watch::Monitor::skip, "z"_a)
-      .def(
-          "step",
-          [](native::watch::Monitor& self, const RealInput reading, const double z,
-             const bool plane) {
-            const auto values = real_vector(reading);
-            return watch_judgement_to(
-                self.step(values.data(), values.size(), z, plane));
-          },
-          "reading"_a, "z"_a, "plane"_a = false)
-      .def("plane", &native::watch::Monitor::plane, "z"_a)
-      .def("note_collar", &native::watch::Monitor::note_collar, "left_out"_a)
-      .def("finish",
-           [](const native::watch::Monitor& self) {
-             const auto finish = self.finish();
-             nb::dict out;
-             out["removed"] = finish.removed;
-             out["guard_low_max"] = finish.guard_max[0];
-             out["guard_high_max"] = finish.guard_max[1];
-             out["warns"] = finish.warns;
-             return out;
-           })
-      .def("record",
-           [](const native::watch::Monitor& self) {
-             return watch_record_to(self.record());
-           })
-      .def("watch_state",
-           [](const native::watch::Monitor& self) {
-             return watch_state_to(self.state());
-           })
-      .def_prop_ro("stale", &native::watch::Monitor::stale)
-      .def_prop_ro("collar_quiet", &native::watch::Monitor::quiet)
-      .def_prop_ro("step_cap", &native::watch::Monitor::cap)
-      .def_prop_ro("rests", &native::watch::Monitor::rests)
-      .def("steps_to_check", &native::watch::Monitor::steps_to_check);
+  auto testing =
+      module_.def_submodule("_testing", "Private entry points for solprop's own tests");
+  native::bindings::bind_helpers(module_, testing);
+  native::bindings::bind_transverse(testing);
+  bind_testing(testing);
   if (Py_AtExit(&shutdown_after_interpreter) != 0)
     throw std::runtime_error(
         "cannot register the Kokkos runtime's shutdown at interpreter exit");

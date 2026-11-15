@@ -47,6 +47,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 from solprop_native.backend import (
     _host_flow,  # pyright: ignore[reportPrivateUsage]
     _lower_flow,  # pyright: ignore[reportPrivateUsage]
@@ -346,9 +347,9 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
         native = backend._native_state  # pyright: ignore[reportPrivateUsage]
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = native.form_flow_actions(section, dz, fractions)[0]
-            forward = native.flow_actions_to_host(False).reshape(shape)
-            inverse = native.flow_actions_to_host(True).reshape(shape)
+            measured = _testing.form_flow_actions(native, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(native, False).reshape(shape)
+            inverse = _testing.flow_actions_to_host(native, True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue

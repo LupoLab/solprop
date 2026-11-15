@@ -1654,7 +1654,7 @@ dev = [
     { name = "drawsvg", specifier = ">=2.4" },
     { name = "hypothesis" },
     { name = "myst-parser" },
-    { name = "nanobind", specifier = ">=2.9" },
+    { name = "nanobind", specifier = "==3.1.0" },
     { name = "numpydoc", specifier = ">=1.9" },
     { name = "poethepoet" },
     { name = "pre-commit" },

@@ -69,6 +69,7 @@ from test_band_plasma import (
     evaluation_bound,
     march_bound,
 )
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 type ComplexArray = npt.NDArray[np.complex128]
 
@@ -285,7 +286,7 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))

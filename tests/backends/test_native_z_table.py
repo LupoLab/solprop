@@ -24,11 +24,13 @@ from backends.session_rows import MARCHES, TABLES, capillary, tabulate
 from backends.session_rows import Z_TABLE_LENGTH as LENGTH
 from bounds import EPS
 from march_bounds import FIXED_ORDER
+from sessions.runs import native_rate_weights
 from solprop.exceptions import BackendError
 from solprop.translate.linop import phi_rate
 
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = native.NativeBackend
 
 
@@ -88,7 +90,7 @@ def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_gr
         slot_of = tables.load([z0, z1])
         row = tables.phi_row(slot_of, z0, z1)
         assert sorted(row[row != 0].tolist()) == [-1.0, 1.0]
-        got = native_state.phase_sum_to_host(row).reshape(phi.value_shape)
+        got = _testing.phase_sum_to_host(native_state, row).reshape(phi.value_shape)
         want = phi(z1) - phi(z0)
         # Two evaluations on each side, each within its budget, and one rounding of
         # the difference each.
@@ -100,7 +102,9 @@ def test_the_phase_sum_of_two_slots_is_the_tables_difference(tabulated, field_gr
         bundle = backend._stage_scalars(z0, z1)
         assert np.array_equal(backend._delta_phi(bundle).reshape(got.shape), got)
         # A step of no length weighs both slots by zero: an exact zero, structural.
-        still = native_state.phase_sum_to_host(tables.phi_row(slot_of, z1, z1))
+        still = _testing.phase_sum_to_host(
+            native_state, tables.phi_row(slot_of, z1, z1)
+        )
         assert not np.any(still)
     finally:
         backend.close()
@@ -116,7 +120,7 @@ def test_the_rate_slot_holds_the_derivative_table(tabulated, field_grid):
         rate = tabulated.problem.linear.rate
         edge = float(rate.breakpoints[1])
         for z, before in ((edge, True), (edge, False), (0.5 * LENGTH, True)):
-            row = backend._rate_weights(z, before=before)
+            row = native_rate_weights(backend, z, before=before)
             assert row.tolist() == [0.0] * tables.slots + [1.0]
             got = backend._native_state.table_terms_to_host("phi", tables.rate_slot)
             want = phi_rate(tabulated.problem.linear, z, before=before)

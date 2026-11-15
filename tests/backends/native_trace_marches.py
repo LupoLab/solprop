@@ -7,8 +7,8 @@
 The native session runs the compiled Adams and Runge-Kutta marches (``adams_march.cpp``,
 ``rk_march.cpp``) to an event and holds their state natively. The decision-trace tests
 hold those marches to the reference's decisions on identical scripted readings
-(``adams_traces.py``, ``rk_traces.py``): a scripted native march
-(``_core.ScriptedMarch``, ``_core.ScriptedRkMarch``) is driven a call at a time over a
+(``adams_traces.py``, ``rk_traces.py``): a scripted native march (the private test
+module's ``ScriptedMarch``, ``ScriptedRkMarch``) is driven a call at a time over a
 scripted host backend, each call's attempts booked into the harness as the reference
 books its own. That driving
 loop is the adapter the native backend used before SEP 47 phase 5 moved every native run
@@ -36,6 +36,7 @@ from solprop.stepper.schedule import FixedSchedule, reached, replay_tolerance
 backend_module = pytest.importorskip("solprop_native.backend")
 session_module = pytest.importorskip("solprop_native.session")
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 WATCH_POLICY_FIELDS = (
     "split",
@@ -78,7 +79,6 @@ _FLOOR = backend_module._FLOOR
 _BUDGET = backend_module._BUDGET
 _DIVERGED = backend_module._DIVERGED
 _DENSE = backend_module._DENSE
-_ResidentAdams = backend_module._ResidentAdams
 _envelope_errors = backend_module._envelope_errors
 _raise_rk = session_module._raise_rk
 
@@ -410,11 +410,11 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
             return self._runner.run(state, bounds)
         native = self._driver._native_state
         with _envelope_errors():
-            return native.adams_march_run(state, bounds)
+            return _testing.adams_march_run(native, state, bounds)
 
     def _synchronise(self, result: dict[str, Any]) -> None:
         """Adopt the state a native call handed back."""
-        backend, engine = self._driver, self._engine
+        backend = self._driver
         state = result["state"]
         backend._z = float(state["z"])
         backend._proposal = float(state["proposal"])
@@ -433,15 +433,6 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         for name, value in state["ledger"].items():
             setattr(ledger, name, int(value))
         ledger.orders.extend(int(order) for order in result["orders"])
-        if isinstance(engine, _ResidentAdams):
-            step = None
-            if result["stepped"]:
-                order = int(result["step_order"])
-                nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
-                step = (float(result["step_z"]), float(result["step_dz"]), nodes)
-            engine.march_stepped(
-                step, fused=self._fused, carrier=list(result["step_carrier"])
-            )
 
 
 class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
@@ -709,7 +700,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         if self._runner is not None:
             return self._runner.run(state, bounds)
         with _envelope_errors():
-            return self._driver._native_state.rk_march_run(state, bounds)
+            return _testing.rk_march_run(self._driver._native_state, state, bounds)
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""

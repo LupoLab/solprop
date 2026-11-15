@@ -33,6 +33,7 @@ from backends.test_exponential_weights import (
     natural_scale,
 )
 from bounds import EPS
+from sessions.runs import native_stage_rows
 from solprop.backends.exponential import MAX_PHI_ORDER
 from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.gnlse import problem_from
@@ -41,6 +42,7 @@ from solprop.stepper import Multistep, PIController
 from solprop.translate.assembly import assemble
 
 native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 VALUES = np.array([*ARGUMENTS, *SQUARING_EDGES])
 """The arguments of ``test_exponential_weights.py``'s own kernel test."""
@@ -94,7 +96,7 @@ def read_moments(module, grid, values):
         payload = backend_module._lower(
             problem, run_request, backend_module._LowerPlan(terms=backend._terms)
         )
-        arrays, material = backend._resident_arrays(0.0, 1e-3)
+        arrays, material = native_stage_rows(backend, 0.0, 1e-3)
     finally:
         backend.close()
     terms = np.zeros_like(payload.linear.phi_terms).reshape(
@@ -123,7 +125,8 @@ def read_moments(module, grid, values):
             state.adams_rows_from_host("store", store)
             corrector = np.zeros((width, width))
             corrector[1, k] = 1.0
-            state.adams_exponential_trial(
+            _testing.adams_exponential_trial(
+                state,
                 1.0,
                 np.arange(width - 1, dtype=np.uint64),
                 np.zeros(1),
@@ -143,8 +146,8 @@ def read_moments(module, grid, values):
                 empty,
                 empty,
             )
-            state.adams_exponential_accept(
-                1.0, width - 1, np.empty(0, dtype=np.uint64), False
+            _testing.adams_exponential_accept(
+                state, 1.0, width - 1, np.empty(0, dtype=np.uint64), False
             )
             out[:, k] = np.asarray(state.field_to_host()).reshape(-1)[bins]
     finally:

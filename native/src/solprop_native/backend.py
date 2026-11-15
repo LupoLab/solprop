@@ -13,7 +13,7 @@ import logging
 import math
 import types
 import weakref
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
 from types import TracebackType
@@ -22,7 +22,6 @@ from typing import Any, ClassVar, Literal, cast
 import numpy as np
 import numpy.typing as npt
 from solprop import transverse_monitor
-from solprop._helpers import Helpers
 from solprop._process import acquire_host_blas, thread_budget
 from solprop.backends import tdse_source
 from solprop.backends.exponential import (
@@ -80,8 +79,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
     MarchPolicy,
     Multistep,
-    integrated_weights,
-    lagrange_coefficients,
     march_policy,
 )
 from solprop.translate.chebyshev import (
@@ -103,7 +100,6 @@ from solprop.translate.general import (
 from solprop.translate.linop import (
     delta_phi,
     power_weight_at,
-    rate_weights,
     unitary_phase,
 )
 from solprop.translate.plasma_source import (
@@ -658,13 +654,7 @@ class NativeBackend:
             native=self._native_state,
             method=method,
             controller=self._stepper.controller,
-            n_omega=self._problem.grids.n_omega,
-            arrays=self._resident_arrays,
-            hoist=self._hoist,
-            adopted=_adopt_nothing,
-            rate=self._rate_weights,
             shape=self._layout,
-            helpers=self.helpers,
             compensated=compensated,
             interpolate=self._stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
@@ -778,63 +768,6 @@ class NativeBackend:
         read costs more than the exponential (SEP 24 section 4.3).
         """
         return propagator_mode(self._problem, self._stepper, device=_on_device())
-
-    def _resident_arrays(self, anchor: float, position: float) -> _TrialArrays:
-        """Return a resident trial's arrays, every stage row at `position`."""
-        bundle = self._stage_scalars(anchor, position)
-        self._last_bundle = bundle
-        stages = self._stepper.tableau.n_stages
-        arrays, material = self._repeated_arrays(bundle)
-        flow = self._flow
-        if flow is not None:
-            # Beside a coupled flow the trial's section and a frozen-residual flow's
-            # weights at `position`; the resident passes need no Runge-Kutta action.
-            material |= {
-                "flow_section": bundle.flow_section,
-                "flow_weights": np.empty(0, dtype=np.float64)
-                if flow.residual_terms is None
-                else np.ascontiguousarray(
-                    np.tile(_required(bundle.flow_weights, "flow_weights"), stages),
-                    dtype=np.float64,
-                ),
-            }
-        return arrays, material
-
-    def _repeated_arrays(self, bundle: StageScalars) -> _TrialArrays:
-        """Return the trial arrays of a step whose every stage row is `bundle`.
-
-        `_trial_arrays` of the bundle repeated, value for value. With the weights a
-        constant's or an expansion's own and no further material rows (SEP 6's
-        channels, a moving guide's maps), each array is one row repeated in one call
-        rather than packed from a list of the same bundle, which costs a resident
-        Adams trial more than its coefficient tables. The other problems take
-        `_trial_arrays`.
-        """
-        stages = self._stepper.tableau.n_stages
-        if (
-            self._z_tables is not None
-            or self._terms.separable is not None
-            or self._problem.responses.dispersive_kerr is not None
-            or self._moving_maps
-        ):
-            return self._trial_arrays([bundle] * stages, bundle)
-        phi_delta = _required(bundle.phi_delta, "phi_delta")[np.newaxis]
-        phi_at = _required(bundle.phi_at, "phi_at")[np.newaxis]
-        prefactor = _required(bundle.prefactor, "prefactor")[np.newaxis]
-        return (
-            np.repeat(phi_delta, stages + 1, axis=0),
-            np.repeat(phi_at, stages, axis=0),
-            np.repeat(prefactor, stages, axis=0),
-            np.full(stages, bundle.density, dtype=np.float64),
-            np.full(stages, bundle.taper_scale, dtype=np.float64),
-            np.full(stages, bundle.preionisation, dtype=np.float64),
-            _repeated_row(bundle.raman_rates, stages),
-        ), {
-            "kerr_density": np.full(stages, bundle.kerr_density, dtype=np.float64),
-            "plasma_densities": _repeated_row(bundle.plasma_densities, stages),
-            "plasma_preionisation": _repeated_row(bundle.plasma_preionisation, stages),
-            "raman_densities": _repeated_row(bundle.raman_densities, stages),
-        }
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
         partials = self._prepare_trial(z, dz)
@@ -999,20 +932,6 @@ class NativeBackend:
         if tables is not None and tables.phi:
             return tables.phi_row(tables.load([z0, z1]), z0, z1)
         return _required(self._stage_scalars(z0, z1).phi_delta, "phi_delta")
-
-    def _rate_weights(self, z: float, *, before: bool = False) -> RealArray:
-        """Return ``D(z)``'s weights over the native ``Phi`` terms (solprop SEP 16).
-
-        solprop's :func:`~solprop.translate.linop.rate_weights` for a constant or an
-        expansion; for a z table, the rate table evaluated natively into its slot
-        (solprop SEP 29 G1).
-        """
-        tables = self._z_tables
-        if tables is not None and tables.phi:
-            return tables.rate(z, before=before)
-        return rate_weights(
-            self._problem.linear, z, before=before, helpers=self.helpers
-        )
 
     def _delta_phi(self, bundle: StageScalars) -> ComplexArray:
         """Return the stage's exponent on the host, a z table's from its native slots.
@@ -1574,14 +1493,6 @@ class NativeBackend:
         self._closed = True
 
 
-def _adopt_nothing(z: float | None) -> None:
-    """Adopt nothing: the backend keeps no march state beside the native state.
-
-    - ``z``: where the engine's state moved, m; unused.
-    """
-    del z
-
-
 @dataclasses.dataclass(frozen=True)
 class _BuildFacts:
     """The parts of a backend's metadata that are fixed for the process."""
@@ -1610,11 +1521,6 @@ def _build_facts() -> _BuildFacts:
     )
 
 
-def _repeated_row(values: tuple[float, ...], count: int) -> RealArray:
-    """Return a stage row of host scalars repeated `count` times, ``(count, n)``."""
-    return np.repeat(np.array([values], dtype=np.float64), count, axis=0)
-
-
 def _required(values: RealArray | None, name: str) -> RealArray:
     if values is None:
         raise BackendError(f"device-ready problem has no {name}")
@@ -1637,59 +1543,33 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
     # 42), and the driver's load copies the field into a contiguous state first.
 
 
-type _TrialArrays = tuple[
-    tuple[RealArray, RealArray, RealArray, RealArray, RealArray, RealArray, RealArray],
-    dict[str, npt.NDArray[np.float64] | int],
-]
-
-
 @dataclasses.dataclass
 class _ResidentAdams:
     """solprop's Adams history kept in the native state (solprop SEP 16 phase 3b).
 
-    The native Adams march's engine (the reference's ``AdamsEngine``, in
-    ``solprop.backends.numpy_ref.multistep``): the history's rows, a trial's predictor,
-    its source, the corrected field and the defect norms, the adoption and transport of
-    an accepted step and dense observation run in the engine, with only the trial's
-    scalars, coefficient tables and norms crossing. solprop's host engine
-    (``HostHistory``) is its reference. The backend hands it the native state and three
-    of its own operations.
+    The native Adams march (solprop SEP 39) takes its trials, accepts, start-up and
+    dense observations in C++ (``adams_march.cpp``, ``dense.cpp``); this record holds
+    what Python still does with the history: it allocates the rows and sets the
+    controller's scale when it is built, and copies a resumed snapshot's rows in
+    (:meth:`load_rows`). A session snapshot copies them out natively
+    (``Session.march_snapshot``).
     """
 
     native: _core.State
     method: Multistep
     controller: PIController
-    n_omega: int
-    arrays: Callable[[float, float], _TrialArrays]
-    """``(anchor, position) -> trial arrays`` with every stage row at `position`."""
-    hoist: Callable[[float], None]
-    adopted: Callable[[float | None], None]
-    """Make the native state the backend's, at a new position when one is given."""
-    rate: Callable[..., RealArray]
-    """``(z, *, before=False) -> D(z)``'s weights over the native ``Phi`` terms."""
     shape: tuple[int, ...]
     """The state layout, ``(1, n_modes, n_pol, n_omega)``."""
-    helpers: Helpers
-    """The backend's Chebyshev and Adams-basis helpers (``NativeBackend.helpers``)."""
     interpolate: bool
     compensated: bool = False
     """Whether trials carry a varying operator's transported compensation."""
     carrier: CarrierReference | None = None
-    """The run's carrier frame (solprop SEP 35): its shift is formed on the host from
-    the reference element's chord, one scalar a trial, and nothing is read back."""
-    dense: None = None
-    _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
-    _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
-    _exponential: bool = False
-    _coefficients: npt.NDArray[np.float64] | None = None
-    _dense_nodes: npt.NDArray[np.float64] | None = None
-    _trial_carrier: RealArray = dataclasses.field(default_factory=lambda: _NO_CARRIER)
-    _dense_carrier: RealArray = dataclasses.field(default_factory=lambda: _NO_CARRIER)
+    """The run's carrier frame (solprop SEP 35), whose chord tables the native state
+    reads (:func:`_chord_tables`)."""
 
     def __post_init__(self) -> None:
         """Allocate the history's rows in the native state."""
         self.native.adams_allocate(self.n_slots, self.compensated, self.interpolate)
-        self._exponential = self.method.formulation == "exponential"
         # The controller's scale is formed on the device each trial, so that the
         # state's magnitude never crosses: it is solprop's own, since PIController
         # is final (ADR-077).
@@ -1708,83 +1588,8 @@ class _ResidentAdams:
         """The history's rows: the method's order and two more."""
         return self.method.order + 2
 
-    def march_stepped(
-        self,
-        step: tuple[float, float, list[float]] | None,
-        *,
-        fused: bool,
-        carrier: Sequence[float],
-    ) -> None:
-        """Adopt what a native march call leaves (solprop SEP 39 phase 2).
-
-        No trial is held, and the last accepted step's anchor, step and nodes ``(1,
-        theta...)``, if the call accepted one, set the dense observation's
-        interpolant: the fused path's nodes, or the exponential corrector's
-        coefficients on them, with the step's carrier rotations.
-        """
-        self._trial = None
-        if step is not None:
-            z, dz, nodes = step
-            interpolant = (
-                np.array(nodes)
-                if fused
-                else lagrange_coefficients(nodes, check=False, helpers=self.helpers)
-            )
-            self._step = (z, dz, interpolant) if self.interpolate else None
-            self._dense_nodes = np.array(nodes)
-            self._dense_carrier = (
-                np.asarray(carrier, dtype=np.float64) if carrier else _NO_CARRIER
-            )
-        self.adopted(None)
-
     def reset(self) -> None:
-        """Forget the last accepted step and any trial in flight."""
-        self._trial = None
-        self._step = None
-        self._dense_carrier = _NO_CARRIER
-
-    def _carrier(self, z: float, dz: float, nodes: list[float], rows: int) -> RealArray:
-        """Return a trial's packed carrier frame, empty without one.
-
-        ``(Im sigma, Re f_0, Im f_0, ...)`` over the `rows` history rows the trial
-        reads, ``f_t = exp(sigma (1 - theta_t))``; ``sigma`` is the reference element's
-        chord over the step (solprop SEP 35 section 6.1), formed from the operator's
-        own representation, so a device build reads nothing back.
-        """
-        carrier = self.carrier
-        if carrier is None or not carrier.active:
-            return _NO_CARRIER
-        assert carrier.chord is not None
-        # One batch member per native state.
-        shift = float(np.imag(carrier.chord.exponent(z, z + dz))[0])
-        packed = np.empty(1 + 2 * rows, dtype=np.float64)
-        packed[0] = shift
-        # exp(i shift s) as NumPy's complex exponential forms it: exp(0) (cos + i sin).
-        spans = 1.0 - np.asarray(nodes[:rows], dtype=np.float64)
-        packed[1::2] = np.cos(shift * spans)
-        packed[2::2] = np.sin(shift * spans)
-        return packed
-
-    def hold(self) -> object:
-        """Keep the accepted state aside in the engine across a dense observation."""
-        self.native.adams_hold()
-        return None
-
-    def restore(self, z: float, held: object) -> None:
-        """Make the held accepted state current again at `z`."""
-        del held
-        self.native.adams_restore()
-        self.adopted(z)
-
-    def start(self, z: float) -> None:
-        """Evaluate the history's first sample at the accepted state into row zero."""
-        self.hoist(z)
-        arrays, material = self.arrays(z, z)
-        with _envelope_errors():
-            self.native.adams_start(0, *arrays, material)
-        if self.compensated:
-            # The startup sample's state and rate, read on the far side of a kink.
-            self.native.adams_compensation_start(0, self.rate(z))
+        """Forget the last step: the native march holds no trial between calls."""
 
     def value(self, slot: int) -> None:
         """The rows are resident: there is no host row to name."""
@@ -1793,34 +1598,20 @@ class _ResidentAdams:
     # --- persistence across a resume (solprop SEP 29 G2) ------------------------------
 
     def snapshot_nbytes(self) -> int:
-        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing."""
+        """Return the bytes a snapshot of the rows copies, copying nothing."""
         rows = len(self.native.adams_row_names())
         return rows * self.n_slots * math.prod(self.shape) * 2 * 8
 
-    def snapshot_rows(self) -> dict[str, ComplexArray]:
-        """Return host copies of the rows a resume needs to continue the history.
-
-        The rows ``HostHistory`` also writes keep its names and layout,
-        ``(n_slots, n_batch, n_modes, n_pol, n_omega)``: ``"store"`` and, compensated,
-        ``"states"`` and ``"rates"``. A frozen-residual flow's history holds each
-        sample's generator applied to its state, ``"applied"``, where the host engine
-        holds the sample's weights (``"weights_<row>"``); the two are not
-        interchangeable, and each engine refuses the other's. The copies are lossless.
-        Only the trial's scratch stays behind; the step's bookkeeping is the march's.
-        """
-        expected = (self.n_slots, *self.shape)
-        return {
-            name: self.native.adams_rows_to_host(name).reshape(expected)
-            for name in self.native.adams_row_names()
-        }
-
     def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
-        """Install rows `snapshot_rows` returned, for a state of `shape`.
+        """Install a snapshot's rows, for a state of `shape`.
 
-        Everything is checked before any row is copied, so a refused snapshot leaves
-        the history as it was. The trial in flight and the last step's interpolant
-        are forgotten, as ``HostHistory.load_rows`` forgets them: the march's next step
-        is a new trial.
+        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_batch,
+        n_modes, n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
+        ``"rates"``. A frozen-residual flow's history holds each sample's generator
+        applied to its state, ``"applied"``, where the host engine holds the sample's
+        weights (``"weights_<row>"``); the two are not interchangeable, and each engine
+        refuses the other's. Everything is checked before any row is copied, so a
+        refused snapshot leaves the history as it was.
         """
         names = self.native.adams_row_names()
         weights = sorted(name for name in rows if name.startswith("weights_"))
@@ -1848,159 +1639,11 @@ class _ResidentAdams:
                     f"the snapshot's {name!r} rows ({row.dtype}, shape {row.shape}) do "
                     f"not fit the native backend's complex store of shape {expected}"
                 )
-        self.reset()
         for name in names:
             flat = np.ascontiguousarray(rows[name], dtype=np.complex128)
             self.native.adams_rows_from_host(
                 name, flat.reshape(self.n_slots, -1, shape[-1])
             )
-
-    def fused_trial(
-        self,
-        z: float,
-        dz: float,
-        nodes: list[float],
-        slots: npt.NDArray[np.int64],
-        order: int,
-        orders: list[int],
-    ) -> RealArray:
-        """Form an interaction-formulation trial natively; return its scored norms.
-
-        The native state forms the tables and the stage scalars from the nodes alone
-        (solprop SEP 39 phase 3), by the same operations as the host's.
-        """
-        with _envelope_errors():
-            norms = self.native.adams_fused_trial_at(
-                z,
-                dz,
-                np.asarray(nodes, dtype=np.float64),
-                np.ascontiguousarray(slots[: max(max(orders), order)], dtype=np.uint64),
-                order,
-                list(orders),
-            )
-        self._trial = (z, dz, nodes, slots, order)
-        return np.asarray(norms, dtype=np.float64).reshape(-1)
-
-    def fused_accept(
-        self, keep: npt.NDArray[np.int64], free: int, *, interpolate: bool
-    ) -> None:
-        """Adopt the held trial in the engine; keep its interpolant there."""
-        assert self._trial is not None
-        z, dz, nodes, slots, order = self._trial
-        self._trial = None
-        self.native.adams_fused_accept(
-            dz,
-            np.ascontiguousarray(keep, dtype=np.uint64),
-            free,
-            np.ascontiguousarray(slots[:order], dtype=np.uint64),
-            interpolate,
-        )
-        self.adopted(None)
-        self._step = (z, dz, np.array([1.0, *nodes[:order]])) if interpolate else None
-
-    def exponential_trial(
-        self,
-        z: float,
-        dz: float,
-        nodes: list[float],
-        slots: npt.NDArray[np.int64],
-        order: int,
-        orders: list[int],
-    ) -> RealArray:
-        """Form an exponential trial natively; return its scored norms.
-
-        The step's exponent, flow and moments come from the trial's own arrays; the
-        predicted field's source is evaluated in the laboratory frame, at a trial
-        whose anchor is the step's end. The native state forms the tables, the stage
-        scalars and the rate from the nodes alone (solprop SEP 39 phase 1), by the
-        same operations as the host's: the coefficient tables
-        (``lagrange::trial_tables``), the stage scalars and the rate from the tables
-        uploaded once, and the divisor; the carrier frame's shift is the host's. A run
-        that interpolates its planes keeps the corrector's coefficients on the host for
-        its observations, from the same basis.
-        """
-        width = 1 + max(orders)
-        carrier = self._carrier(z, dz, nodes, width - 1)
-        with _envelope_errors():
-            norms = self.native.adams_exponential_trial_at(
-                z,
-                dz,
-                np.asarray(nodes, dtype=np.float64),
-                np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
-                order,
-                list(orders),
-                self.compensated,
-                carrier,
-            )
-        self._trial = (z, dz, nodes, slots, order)
-        self._trial_carrier = carrier
-        self._coefficients = (
-            lagrange_coefficients(
-                [1.0, *nodes[:order]], check=False, helpers=self.helpers
-            )
-            if self.interpolate
-            else _NO_COEFFICIENTS
-        )
-        self._dense_nodes = np.array([1.0, *nodes[:order]])
-        return np.asarray(norms, dtype=np.float64).reshape(-1)
-
-    def exponential_accept(
-        self, keep: npt.NDArray[np.int64], free: int, *, interpolate: bool
-    ) -> None:
-        """Adopt the held trial in the engine; the new sample takes row `free`."""
-        del keep  # untransported samples are never re-anchored
-        assert self._trial is not None
-        z, dz, _, slots, order = self._trial
-        self._trial = None
-        self.native.adams_exponential_accept(
-            dz,
-            free,
-            np.ascontiguousarray(slots[:order], dtype=np.uint64),
-            interpolate,
-        )
-        self.adopted(None)
-        coefficients = self._coefficients
-        assert coefficients is not None
-        self._step = (z, dz, coefficients) if interpolate else None
-        # The accepted step's shift and the rotations of the `order` history rows its
-        # interpolant reads, held across later trials and rejections.
-        trial = self._trial_carrier
-        self._dense_carrier = trial[: 1 + 2 * order] if trial.size else _NO_CARRIER
-
-    def observe(self, position: float) -> object:
-        """Interpolate the last accepted step natively into the engine's state."""
-        assert self._step is not None
-        z, dz, nodes = self._step
-        if self._exponential:
-            # `nodes` holds the accepted corrector's coefficients here; a varying
-            # operator's compensation is interpolated over the step's own samples.
-            xi = (position - z) / dz
-            weights = thetas = np.empty(0, dtype=np.float64)
-            if self.compensated:
-                assert self._dense_nodes is not None
-                thetas = self._dense_nodes
-                weights = integrated_weights(
-                    thetas, xi, check=False, helpers=self.helpers
-                )
-            self.native.adams_exponential_observe(
-                xi,
-                dz,
-                np.ascontiguousarray(nodes, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(weights, dtype=np.float64),
-                np.ascontiguousarray(thetas, dtype=np.float64),
-                np.ascontiguousarray(self._dense_carrier),
-            )
-            return self.native
-        # The step's own derivative polynomial.
-        theta = (position - z) / dz
-        weights = dz * integrated_weights(
-            nodes, theta, check=False, helpers=self.helpers
-        )
-        arrays, material = self.arrays(z, position)
-        self.native.adams_observe(
-            np.ascontiguousarray(weights, dtype=np.float64), *arrays, material
-        )
-        return self.native
 
 
 _EMPTY = np.empty(0, dtype=np.complex128)
@@ -2008,12 +1651,6 @@ _EMPTY = np.empty(0, dtype=np.complex128)
 
 _NO_SCHEDULE = np.empty(0, dtype=np.float64)
 """The empty schedule of an adaptive march's configuration."""
-
-_NO_CARRIER = np.empty(0, dtype=np.float64)
-"""The empty carrier frame: the native trial takes the unshifted arithmetic."""
-
-_NO_COEFFICIENTS = np.empty((0, 0), dtype=np.float64)
-"""The corrector's coefficients a staged trial keeps when no plane is interpolated."""
 
 _STAGE_CONSTANT = 1
 _STAGE_EXPANSION = 2
@@ -2856,20 +2493,6 @@ class _ZTables:
         """Return the one-hot weights of a table's value at `z` over `count` terms."""
         row = np.zeros(count)
         row[slot_of[z]] = 1.0
-        return row
-
-    def rate(self, z: float, *, before: bool) -> RealArray:
-        """Evaluate ``D(z)`` into the rate slot; return its weights over the terms.
-
-        - ``z``: position, m.
-        - ``before``: read an interior breakpoint from the interval ending there.
-        - Returns: shape ``(n_phi,)``, one at the rate slot.
-        """
-        assert self._native is not None
-        assert self.rate_slot is not None
-        self._native.table_rate_at(float(z), before)
-        row = np.zeros(self.n_phi)
-        row[self.rate_slot] = 1.0
         return row
 
     def values(self, kind: Literal["phi", "prefactor"], z: float) -> ComplexArray:

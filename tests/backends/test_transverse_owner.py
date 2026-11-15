@@ -5,8 +5,8 @@
 """The native session's own transverse edge against solprop's, on recorded readings.
 
 SEP 47 sections 4.3 and 6.4 and the maintainer's decision 4 at its acceptance: the
-native session owns a free-space run's transverse edge (``transverse::Edge``,
-``solprop_native._core.TransverseEdge``) with every decision and record. Both edges are
+native session owns a free-space run's transverse edge (``transverse::Edge``, the
+private test module's ``TransverseEdge``) with every decision and record. Both edges are
 fed the same recorded readings -- the launch with its clip, noise and schedule, reads
 on and off their spacing, a collar's current at every step, a plane re-read, a resume
 -- and must make exactly the same decisions: every warning and stop, in order and in
@@ -56,7 +56,7 @@ U = 2.0**-53
 
 def _modules() -> tuple[Any, Any]:
     return (
-        importlib.import_module("solprop_native._core"),
+        importlib.import_module("solprop_native._core")._testing,
         importlib.import_module("solprop_native._transverse"),
     )
 

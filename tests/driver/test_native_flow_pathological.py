@@ -60,6 +60,7 @@ pytestmark = [
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 
 def scalar_case():
@@ -95,10 +96,12 @@ def formed(monkeypatch, problem, run_request, grid, held, dz):
         n_modes = held.vectors.shape[-1]
         tableau = run_request.stepper.tableau
         fractions = np.array([*(float(node) for node in tableau.nodes), 1.0])
-        measured = np.asarray(native.form_flow_actions(0, dz, fractions)[0])
+        measured = np.asarray(_testing.form_flow_actions(native, 0, dz, fractions)[0])
         shape = (fractions.size, -1, n_modes, n_modes)
-        forward = native.flow_actions_to_host(inverse=False).reshape(shape)[-1]
-        inverse = native.flow_actions_to_host(inverse=True).reshape(shape)[-1]
+        forward = _testing.flow_actions_to_host(native, inverse=False).reshape(shape)[
+            -1
+        ]
+        inverse = _testing.flow_actions_to_host(native, inverse=True).reshape(shape)[-1]
         return forward, inverse, measured
     finally:
         backend.close()

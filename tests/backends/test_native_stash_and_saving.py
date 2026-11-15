@@ -65,6 +65,7 @@ pytestmark = [
 ]
 
 solprop_native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = solprop_native.NativeBackend
 
 NAMES = ("electron_density", "peak_ionisation_rate")
@@ -195,7 +196,7 @@ def step_by_step(backend, problem, run_request, *, recycle):
         state.rk_trial(float(z), dz, nodes, prepare_only=False)
         state.finish(dz)
         if recycle:
-            state.promote_fsal()
+            _testing.promote_fsal(state)
         else:
             state.clear_fsal()
     field = np.asarray(state.field_to_host()).reshape(problem.shape).copy()

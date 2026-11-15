@@ -21,6 +21,7 @@ from solprop.stepper import PIController
 from solprop.translate.assembly import assemble
 
 from solprop_native import NativeBackend, build_info
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.parametrize(
@@ -134,7 +135,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         assert (ledger["retained_synthesis"] > 0) == retained
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
         scale = float(np.max(np.abs(expected)))
         assert scale > 0
@@ -142,7 +143,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
         load_native(backend, np.zeros_like(problem.initial.field0), clear_fsal=False)
         native_trial(backend, 0.0, 0.0)
-        assert np.count_nonzero(state.stage_to_host(0)) == 0
+        assert np.count_nonzero(_testing.stage_to_host(state, 0)) == 0
         assert backend.memory_ledger() == ledger
     finally:
         backend.close()

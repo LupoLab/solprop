@@ -47,6 +47,7 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from bounds import fft_bound
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
@@ -123,7 +124,7 @@ def evaluate(
             # A zero-length trial exposes the first stage, N(E, z = 0).
             state = load_native(backend, problem.initial.field0, clear_fsal=False)
             native_trial(backend, 0.0, 0.0)
-            stage = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+            stage = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         else:
             backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe

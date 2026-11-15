@@ -207,7 +207,9 @@ def _plan(grid, modes, problem, request, names, seen):
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         for record in seen:
             state = load_native(backend, record.field, clear_fsal=False)
-            values = lowering.unpack(state.planned_statistics(lowering.plan, record.z))
+            values = lowering.unpack(
+                _testing.planned_statistics(state, lowering.plan, record.z)
+            )
             out.append({name: np.asarray(value) for name, value in values.items()})
     return out
 
@@ -346,3 +348,6 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
             assert type(session) is native_session.NativeSession
+
+
+_testing = pytest.importorskip("solprop_native._core")._testing
