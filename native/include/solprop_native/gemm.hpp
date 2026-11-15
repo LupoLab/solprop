@@ -182,8 +182,45 @@ inline constexpr bool device_dense_gemm_enabled =
     false;
 #endif
 
-/** `c = a * b + beta * c`, real, on a device: a thread takes `Rows` rows of one column
-    of C, so that each element of B it reads serves all of them. Each element is the
+/** `device_dense_gemm`'s kernel: item `item` takes `Rows` rows of one column of C, so
+    that each element of B it reads serves all of them.
+
+    A named functor rather than an extended lambda (solprop #815). nvcc keeps a
+    `__host__ __device__` lambda's copy, call and delete functions in per-file static
+    variables that the lambda's construction sets, while the host code that copies it
+    (Kokkos's dispatch) is an inline template shared between files: this kernel's views
+    are the same in several files, so a Release link kept one file's copy of the
+    dispatch, and on a run that had constructed the lambda only in another file it
+    called a null copy function. A functor's copy is its own. */
+template <std::size_t Rows, class AView, class BView, class CView>
+struct DeviceDenseGemm {
+  AView a;
+  BView b;
+  CView c;
+  std::size_t rows;
+  std::size_t columns;
+  std::size_t inner;
+  double beta;
+
+  KOKKOS_FUNCTION void operator()(const std::size_t item) const {
+    const std::size_t column = item % columns;
+    const std::size_t first = (item / columns) * Rows;
+    std::size_t row_of[Rows];
+    for (std::size_t r = 0; r < Rows; ++r)
+      row_of[r] = Kokkos::min(first + r, rows - 1);
+    double value[Rows] = {};
+    for (std::size_t index = 0; index < inner; ++index) {
+      const double right = b(index, column);
+      for (std::size_t r = 0; r < Rows; ++r)
+        value[r] += a(row_of[r], index) * right;
+    }
+    for (std::size_t r = 0; r < Rows && first + r < rows; ++r)
+      c(first + r, column) =
+          beta == 0.0 ? value[r] : value[r] + beta * c(first + r, column);
+  }
+};
+
+/** `c = a * b + beta * c`, real, on a device (`DeviceDenseGemm`). Each element is the
     custom kernel's sum (`custom_gemm`), its products added in order from zero. */
 template <class ExecutionSpace, class AView, class BView, class CView>
 void device_dense_gemm(const ExecutionSpace& execution_space, const AView& a,
@@ -200,22 +237,7 @@ void device_dense_gemm(const ExecutionSpace& execution_space, const AView& a,
   launch::parallel_for(
       "solprop_native.transform.device_dense_gemm",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, blocks * columns),
-      KOKKOS_LAMBDA(const std::size_t item) {
-        const std::size_t column = item % columns;
-        const std::size_t first = (item / columns) * Rows;
-        std::size_t row_of[Rows];
-        for (std::size_t r = 0; r < Rows; ++r)
-          row_of[r] = Kokkos::min(first + r, rows - 1);
-        double value[Rows] = {};
-        for (std::size_t index = 0; index < inner; ++index) {
-          const double right = b(index, column);
-          for (std::size_t r = 0; r < Rows; ++r)
-            value[r] += a(row_of[r], index) * right;
-        }
-        for (std::size_t r = 0; r < Rows && first + r < rows; ++r)
-          c(first + r, column) =
-              beta == 0.0 ? value[r] : value[r] + beta * c(first + r, column);
-      });
+      DeviceDenseGemm<Rows, AView, BView, CView>{a, b, c, rows, columns, inner, beta});
 }
 
 // The engine's KokkosBlas call: vendor or device GEMM where the build has one, and
