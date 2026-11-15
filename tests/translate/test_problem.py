@@ -46,6 +46,7 @@ from solprop.translate.problem import (
     Initial,
     PropagationProblem,
     StepperSettings,
+    _check_scalar_domain,
     _held_state,
     _walk_arrays,
     validate_run,
@@ -769,6 +770,36 @@ def test_validate_still_rejects_a_negative_density(gradient, density, gradient_r
     table = profile_table(path, start, end)
     with pytest.raises(TranslationError, match=r"total density must lie in \[0"):
         validate_run(corrupt(gradient, "responses", "density", table), gradient_request)
+
+
+def test_scalar_domain_check_refuses_a_dip_at_a_clustered_stationary_point():
+    # (u - 0.3)^4 - 1e-6 dips below zero only at its fourth-order minimum, where the
+    # derivative has a triple root. chebroots may return that cluster with a
+    # rounding-size imaginary part on some of its roots, which the check drops, but a
+    # real matrix's eigenvalues come in conjugate pairs, so an odd cluster keeps one
+    # exactly real root, and the check sees the dip there.
+    root = np.polynomial.polynomial.polypow([-0.3, 1.0], 4)
+    coefficients = np.polynomial.chebyshev.poly2cheb(
+        np.polynomial.polynomial.polyadd(root, [-1e-6])
+    )
+    stationary = np.polynomial.chebyshev.chebroots(
+        np.polynomial.chebyshev.chebder(coefficients)
+    )
+    # Three stationary points within 1e-4 of the minimum (the cluster's spread is
+    # about 1e-5 at a triple root), at least one of them exactly real.
+    assert np.all(np.abs(stationary - 0.3) < 1e-4)
+    assert np.any(np.isreal(stationary))
+    # Positive at both ends, so only the stationary point can refuse it.
+    assert np.all(np.polynomial.chebyshev.chebval([-1.0, 1.0], coefficients) > 0)
+    table = PiecewiseChebyshev(
+        coefficients=coefficients[None, :],
+        breakpoints=np.array([0.0, 1.0]),
+        degrees=np.array([coefficients.size - 1]),
+        hard_kinks=np.empty(0),
+        budget_exceeded=False,
+    )
+    with pytest.raises(TranslationError, match=r"density must lie in \[0"):
+        _check_scalar_domain(table, "density")
 
 
 @pytest.fixture(scope="module")
