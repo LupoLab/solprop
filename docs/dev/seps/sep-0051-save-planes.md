@@ -363,4 +363,4 @@ None beyond solprop's own documentation and issues, cited where used.
 ## Part III — History
 
 - 2026-11-15: Drafted, after the investigation of #533 found that no route ties the
-  run's end to its length. The tracking issue is to be opened with the pull request.
+  run's end to its length. Tracking issue: [#846](https://github.com/LupoLab/solprop/issues/846).
