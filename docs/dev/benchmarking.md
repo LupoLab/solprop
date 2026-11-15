@@ -158,8 +158,9 @@ with at least three repeats, and only when:
   native run, a native build from a commit after which nothing under `native/`
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
-  aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
-  are marked dirty;
+  aside, so one checkout can record several runs), and the native build was not made
+  from a modified tree (its commit stamped `+dirty`; the history files do not count
+  here either), unless `--allow-dirty`, which admits both and marks the rows dirty;
 - `SOLPROP_FFTW_PLAN` is unset: a row does not record how it planned, and measured
   planning changes its construction time and its median.
 
@@ -174,10 +175,13 @@ run: its date, solprop version, the configurations it ran and how many started o
 busy machine, and its change against the first and the previous recorded runs. A
 change is the geometric mean of median-time ratios (below one is faster) over the
 configurations both runs share, counted in brackets. Two rows are the same
-configuration only with the same number of memory (NUMA) domains spanned, threading
-policy, case revision, stepper, resolved integrator, tolerances and noise model. A
-changed library default therefore starts a new series rather than reading as a
-speed-up, and so does an allocation spread over more memory domains than usual: on a
+configuration only with the same native build profile (the first field of
+`native_build`: `distribution` for a wheel, `local` for a build from source), number
+of memory (NUMA) domains spanned, threading policy, case revision, stepper, resolved
+integrator, tolerances and noise model. A changed library default therefore starts a
+new series rather than reading as a speed-up, and so does a local build after wheel
+rows (a compiler or library update inside the wheel still compares: it is part of
+what a release ships), or an allocation spread over more memory domains than usual: on a
 cluster, keep the cores together (`--distribution=block:block` under Slurm).
 
 ## Recorded hardware

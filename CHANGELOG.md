@@ -270,6 +270,7 @@ All notable changes to solprop are recorded here. The format follows
 
 ### Fixed
 
+- The benchmark history no longer reports a change of native build profile (a local build after the release's wheel) as a speed change: rows compare only within one build profile. `python -m benchmarks track --append-history --allow-dirty` now admits a native build stamped `+dirty`, marking its rows dirty, and without the flag refuses it by naming the modified tree instead of asking for a rebuild; a modified `benchmarks/history` file no longer stamps the native build `+dirty` ([#138](https://github.com/LupoLab/solprop/issues/138)).
 - Recorded the position of a `resume="interpolated"` continuation in the
   `interpolated_resumes` annotation before its first step, so a session that stops or
   fails later still names where it restarted; before, only a session that finished was

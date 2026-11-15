@@ -6,7 +6,8 @@
 
 Each hardware set has one CSV under ``benchmarks/history/``, named by its slug, with
 one row per run, backend, case, stepper and width. Rows compare only within one
-hardware set, backend, width, case revision and resolved integrator.
+hardware set, backend, native build profile, width, case revision and resolved
+integrator.
 """
 
 from __future__ import annotations
@@ -111,25 +112,33 @@ def read(path: Path) -> list[Record]:
 def comparable(row: Record) -> tuple[str, ...]:
     """Key the rows that measure the same thing on one hardware set.
 
-    Two rows compare only with the same backend, memory domains spanned, width,
-    threading, case definition, stepper, resolved integrator, tolerances and noise
-    model: a changed library default is a new configuration, not a speed-up.
+    Two rows compare only with the same backend, native build profile, memory
+    domains spanned, width, threading, case definition, stepper, resolved
+    integrator, tolerances and noise model: a changed library default is a new
+    configuration, not a speed-up, and so is a local build beside the distributed
+    wheel. The profile is the first field of ``native_build``; its compiler and
+    libraries are not keyed, since a toolchain update inside the wheel is part of
+    what a release ships.
     """
-    return tuple(
-        str(row.get(key) or "")
-        for key in (
-            "backend",
-            "numa_domains",
-            "threads",
-            "threading",
-            "case",
-            "revision",
-            "stepper",
-            "integrator",
-            "rtol",
-            "atol",
-            "noise",
-        )
+    profile = str(row.get("native_build") or "").split(";", 1)[0].strip()
+    return (
+        str(row.get("backend") or ""),
+        profile,
+        *(
+            str(row.get(key) or "")
+            for key in (
+                "numa_domains",
+                "threads",
+                "threading",
+                "case",
+                "revision",
+                "stepper",
+                "integrator",
+                "rtol",
+                "atol",
+                "noise",
+            )
+        ),
     )
 
 

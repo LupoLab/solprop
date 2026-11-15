@@ -42,15 +42,20 @@ from benchmarks.system import (
 BACKENDS = ("numpy_ref", "native")
 """The backends a benchmark can name."""
 
+DIRTY_STAMP = "+dirty"
+"""The suffix the native build adds to its commit when built from a modified tree."""
+
 REPEAT_TOLERANCE = 1e-9
 """The relative L2 difference two repeats' final fields may have: rounding only."""
 
 __all__ = [
     "BACKENDS",
+    "DIRTY_STAMP",
     "REPEAT_TOLERANCE",
     "admissible",
     "history_rows",
     "imported_elsewhere",
+    "native_build_commit",
     "refuse_partial",
     "selection_options",
     "show_results",
@@ -269,16 +274,17 @@ def history_rows(
 ) -> list[Record]:
     """Shape a complete run's results as history rows."""
     build = provenance.get("build_info") or {}
+    native_commit, native_dirty = native_build_commit(provenance)
     date = datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
     return [
         {
             "date": date,
             "solprop": provenance["packages"]["solprop"],
             "commit": (source.get("revision") or "")[:12],
-            "dirty": int(bool(source.get("dirty"))),
+            "dirty": int(bool(source.get("dirty")) or native_dirty),
             "backend": backend,
             "native": build.get("package_version"),
-            "native_commit": (build.get("git_commit") or "")[:12] or None,
+            "native_commit": (native_commit or "")[:12] or None,
             "native_build": "; ".join(
                 str(build[key])
                 for key in ("build_profile", "compiler", "fft_backend", "blas_backend")
@@ -354,11 +360,37 @@ def admissible(results: list[Record]) -> str | None:
     return None
 
 
-def imported_elsewhere(
-    results: list[Record], provenance: Record, source_state: Record
-) -> str | None:
-    """Say if the workers timed code other than this checkout's commit."""
+def native_build_commit(provenance: Record) -> tuple[str | None, bool]:
+    """Split the native build's commit from the ``+dirty`` its build stamps.
+
+    CMake appends ``+dirty`` when the tree it built from had uncommitted changes;
+    Git cannot resolve the stamped name, so callers compare the bare commit.
+    """
     commit = (provenance.get("build_info") or {}).get("git_commit")
+    if commit and commit.endswith(DIRTY_STAMP):
+        return commit.removesuffix(DIRTY_STAMP), True
+    return commit, False
+
+
+def imported_elsewhere(
+    results: list[Record],
+    provenance: Record,
+    source_state: Record,
+    *,
+    allow_dirty: bool = False,
+) -> str | None:
+    """Say if the workers timed code other than this checkout's commit.
+
+    A native build from a modified tree is admitted only with ``allow_dirty``, and
+    its rows are then marked dirty by `history_rows`.
+    """
+    commit, dirty = native_build_commit(provenance)
+    if dirty and not allow_dirty:
+        return (
+            f"the native backend was built from a modified tree ({(commit or '')[:12]}"
+            f"{DIRTY_STAMP}): commit the changes and rebuild it, or pass "
+            "--allow-dirty to record this run anyway (its rows are marked dirty)"
+        )
     revision = source_state.get("revision")
     # A build from an earlier commit is current if native/ has not changed since.
     if (
@@ -472,7 +504,9 @@ def track(args: argparse.Namespace) -> int:
         f"Results: {output.resolve()} ({(time.perf_counter() - started) / 60:.0f} min)"
     )
     if args.append_history:
-        refusal = refusal or imported_elsewhere(results, provenance, source)
+        refusal = refusal or imported_elsewhere(
+            results, provenance, source, allow_dirty=args.allow_dirty
+        )
         if refusal is not None:
             print(f"Not added to the history: {refusal}.", file=sys.stderr)
             return 1
