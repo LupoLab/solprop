@@ -16,10 +16,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver import settings as settings_module
 from solprop.driver import simulation as simulation_module
+from solprop.driver.settings import counted_save_planes
 from solprop.exceptions import DriverError, MaterialRangeWarning
 from solprop.nonlinear.gnlse import problem_from
 from solprop.profiles import Constant
@@ -101,6 +103,61 @@ def test_the_backend_alone_may_change_after_translation(build_simulation):
     assert simulation.translate() is problem
     assert handler.metadata is not None and handler.metadata.backend is not None
     assert handler.metadata.backend.name == "numpy_ref"
+
+
+def test_a_counted_save_planes_is_placed_as_n_save_places_its_planes(
+    build_simulation,
+):
+    """One rule for n_save and a count of planes: z = 0 counted, the end included."""
+    simulation = build_simulation(n_save=5)
+    counted = counted_save_planes(simulation.grid.length, 5)
+    # The same linspace call on the same length: a structural contract, so exact.
+    assert counted.tolist() == np.asarray(simulation.settings.save_planes).tolist()
+    assert counted.size == 4
+    assert counted[-1] == simulation.grid.length
+
+
+@pytest.mark.parametrize("count", [80, 2, 0, True])
+def test_a_bare_integer_save_planes_is_refused_not_read_as_metres(count):
+    """Regression for issue #533: ``save_planes=80`` was one plane at z = 80 m.
+
+    The annotation already excludes an integer; production code runs unchecked, where
+    the settings themselves must refuse it.
+    """
+    settings = object.__new__(SimulationSettings)
+    with pytest.raises(DriverError, match="counted_save_planes") as caught:
+        unchecked(SimulationSettings.__init__)(
+            settings, save_planes=count, dz_max=0.1, dz_init=1e-3
+        )
+    assert caught.value.parameter == "save_planes"
+
+
+def test_a_lone_float_save_planes_is_still_one_position():
+    """Only an integer is a count; a float, even a whole one, stays metres."""
+    settings = object.__new__(SimulationSettings)
+    unchecked(SimulationSettings.__init__)(
+        settings, save_planes=2.0, dz_max=0.1, dz_init=1e-3
+    )
+    assert np.asarray(settings.save_planes).tolist() == [2.0]
+
+
+@pytest.mark.parametrize(
+    ("length", "count", "match"),
+    [
+        (1.0, 1, "at least 2, got 1"),
+        (1.0, 0, "at least 2, got 0"),
+        (1.0, True, "takes an integer, not True"),
+        (1.0, 80.0, "takes an integer, not 80.0"),
+        (1.0, 2.5, "takes an integer, not 2.5"),
+        (0.0, 5, "must be positive"),
+    ],
+)
+def test_counted_save_planes_refuses_what_is_not_a_count_over_a_length(
+    length, count, match
+):
+    with pytest.raises(DriverError, match=match) as caught:
+        unchecked(counted_save_planes)(length, count, name="n_save")
+    assert caught.value.parameter == "n_save"
 
 
 def test_a_setting_that_cannot_be_compared_is_not_the_same():

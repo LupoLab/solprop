@@ -55,6 +55,7 @@ __all__ = [
     "LOW_STORAGE_BACKENDS",
     "NoiseSetting",
     "SimulationSettings",
+    "counted_save_planes",
     "default_collar",
     "keyword_settings",
 ]
@@ -154,7 +155,11 @@ class SimulationSettings(Displayed):
         Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
         ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
         read-only float64 array, so that two runs specified the same way record the same
-        planes whichever type they passed and therefore hash alike.
+        planes whichever type they passed and therefore hash alike. A bare integer is
+        refused: it would read as one plane that many metres away, but means a count,
+        which the settings cannot place without the propagation length.
+        :func:`counted_save_planes` places a count as ``n_save`` does, and a recipe's
+        settings table takes ``save_planes = 80`` and places it over ``grid.length``.
     dz_max : float
         Cap on the controller's proposal, m.
     dz_init : float
@@ -325,9 +330,10 @@ class SimulationSettings(Displayed):
     Raises
     ------
     DriverError
-        If the save planes are empty, not increasing, or not positive. The same check
-        runs again in :func:`solprop.translate.assembly.assemble`; here it fires before
-        a run has built anything. Also if the field retention is not valid, asks for
+        If the save planes are empty, not increasing, not positive, or a bare integer
+        or boolean. The same check runs again in
+        :func:`solprop.translate.assembly.assemble`; here it fires before a run has
+        built anything. Also if the field retention is not valid, asks for
         ``fields='planes'`` beside `step_planes`.
 
     Examples
@@ -341,6 +347,13 @@ class SimulationSettings(Displayed):
     ... )
     >>> settings.save_planes.tolist(), settings.backend
     ([0.5, 1.0], 'numpy_ref')
+
+    A count of planes is placed over a length first:
+
+    >>> from solprop.driver.settings import counted_save_planes
+    >>> counted = counted_save_planes(1.0, 5)
+    >>> SimulationSettings(save_planes=counted, dz_max=0.1, dz_init=1e-3).save_planes
+    array([0.25, 0.5 , 0.75, 1.  ])
     """
 
     controller: PIController | None = None
@@ -480,22 +493,10 @@ class SimulationSettings(Displayed):
         Raises
         ------
         DriverError
-            If the planes are empty, not increasing, or not positive, or if
-            `resume_history` is not a boolean or ``None``.
+            If the planes are empty, not increasing, not positive, or a bare integer
+            or boolean, or if `resume_history` is not a boolean or ``None``.
         """
-        planes = frozen_copy(np.reshape(self.save_planes, -1), np.float64)
-        if (
-            planes.size == 0
-            or not np.all(np.isfinite(planes))
-            or not np.all(np.diff(planes) > 0.0)
-            or planes[0] <= 0.0
-        ):
-            msg = (
-                f"save_planes must be positive and increasing, got {planes}; the plane "
-                "at z = 0 is saved anyway and is not one of them"
-            )
-            raise DriverError(msg, parameter="save_planes")
-        object.__setattr__(self, "save_planes", planes)
+        object.__setattr__(self, "save_planes", _adopted_planes(self.save_planes))
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:
             raise DriverError(refusal, parameter=("fields", "field_planes"))
@@ -908,6 +909,96 @@ def _same_setting(old: object, new: object) -> bool:
         return False
 
 
+def _adopted_planes(
+    save_planes: Float[np.ndarray, " n_z"] | Sequence[float] | float,
+) -> Float[np.ndarray, " n_z"]:
+    """Return the save planes as settings hold them: checked positions, read-only.
+
+    A lone number, which the annotation of the field excludes, reaches here unchecked
+    in production, so it is admitted and judged here.
+
+    - Returns: a float64 array of positive, increasing positions in m.
+    """
+    if isinstance(save_planes, bool | np.bool_ | int | np.integer):
+        # A bare integer means a count (issue #533), and np.reshape would read it as
+        # one plane that many metres away.
+        msg = (
+            f"save_planes={save_planes!r} is not a list of positions: an integer "
+            "counts planes, which settings cannot place without the propagation "
+            f"length; pass counted_save_planes(grid.length, {save_planes!r}) for that "
+            "many planes counting z = 0, as n_save places them, or the positions in m"
+        )
+        raise DriverError(msg, parameter="save_planes")
+    planes = frozen_copy(np.reshape(save_planes, -1), np.float64)
+    if (
+        planes.size == 0
+        or not np.all(np.isfinite(planes))
+        or not np.all(np.diff(planes) > 0.0)
+        or planes[0] <= 0.0
+    ):
+        msg = (
+            f"save_planes must be positive and increasing, got {planes}; the plane "
+            "at z = 0 is saved anyway and is not one of them"
+        )
+        raise DriverError(msg, parameter="save_planes")
+    return planes
+
+
+def counted_save_planes(
+    length: float, count: int, *, name: str = "save_planes"
+) -> Float[np.ndarray, " n_z"]:
+    """Place a count of save planes evenly over a propagation length.
+
+    The one rule for ``n_save`` on the keyword routes and for an integer
+    ``save_planes`` in a recipe's settings table: ``count`` planes span ``[0, length]``
+    with both ends included, and the one at ``z = 0``, which every run stores, is left
+    out of the positions returned.
+
+    Parameters
+    ----------
+    length : float
+        Propagation length, m, positive: ``grid.length`` on an object route.
+    count : int
+        Planes counting the one at ``z = 0``, at least 2.
+    name : str, optional
+        The keyword the count was given as, named in a refusal.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``count - 1`` positions after ``z = 0``, m, the last equal to `length`,
+        shape ``(count - 1,)``.
+
+    Raises
+    ------
+    DriverError
+        If `count` is a boolean, not an integer (a float is refused even when it is a
+        whole number), or below 2, or `length` is not positive.
+
+    Examples
+    --------
+    >>> from solprop.driver.settings import counted_save_planes
+    >>> counted_save_planes(0.25, 5).tolist()
+    [0.0625, 0.125, 0.1875, 0.25]
+    """
+    if isinstance(count, bool | np.bool_) or not isinstance(count, int | np.integer):
+        msg = f"{name} counts planes, so it takes an integer, not {count!r}"
+        raise DriverError(msg, parameter=name)
+    if count < 2:
+        msg = (
+            f"{name} counts the plane at z = 0, so it must be at least 2, got {count}; "
+            "a run always stores the entrance"
+        )
+        raise DriverError(msg, parameter=name)
+    if not length > 0.0:
+        msg = (
+            f"{name} = {count} counts planes over a propagation length of "
+            f"{length!r} m, which must be positive"
+        )
+        raise DriverError(msg, parameter=name)
+    return np.linspace(0.0, length, int(count))[1:]
+
+
 def _save_planes(
     length: float,
     save_planes: Sequence[float] | np.ndarray | None,
@@ -927,13 +1018,7 @@ def _save_planes(
             )
         return np.ascontiguousarray(save_planes, dtype=np.float64).reshape(-1)
     count = DEFAULT_N_SAVE if n_save is None else n_save
-    if count < 2:
-        msg = (
-            f"n_save counts the plane at z = 0, so it must be at least 2, got {count}; "
-            "a run always stores the entrance"
-        )
-        raise DriverError(msg, parameter="n_save")
-    return np.linspace(0.0, length, count)[1:]
+    return counted_save_planes(length, count, name="n_save")
 
 
 def _scheme(settings: SimulationSettings) -> AbsorberScheme:
