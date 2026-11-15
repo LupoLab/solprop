@@ -619,3 +619,38 @@ length changes absorber rates remains relevant when correcting scientific tests.
    advanced with `with_input(..., initial_z=z)` instead retains its already
    resolved future observations, with the new entrance recorded at `z`; it has
    not requested a new count or a redistribution of the existing positions.
+
+4. **D4 — A replay schedule covers the run's interval (Q3; R2).** On routes
+   that support replay, require the schedule's start and end to agree with the
+   actual entrance and resolved end. Refuse genuinely shorter or longer
+   schedules before execution; neither ignore a longer tail nor modify the
+   steps to fit the interval.
+
+   Use the existing `replay_tolerance` for the end comparison, allowing the
+   rounding error accumulated by the step sum. The start comparison has no
+   accumulated sum and uses the tight endpoint agreement rule. This decision
+   does not introduce replay support for interior launches where it is
+   currently refused.
+
+5. **D5 — Normalize endpoint rounding, with one canonical end (R1, R10).**
+   Normalize a supplied position within the existing landing tolerance of the
+   end to that exact end: eight representable floating-point increments at the
+   endpoint (`LANDING_ULPS`). Keep one endpoint observation after normalization,
+   and refuse positions genuinely beyond the end. Ordinary interior positions
+   retain their supplied values.
+
+   Apply the same tight agreement rule when both `length` and `grid` are given;
+   after they agree, `grid.length` is the canonical value used throughout setup.
+   This settles the outstanding rounding policy in D1 and D2. A replay's end
+   retains the separate accumulated-rounding allowance in D4.
+
+6. **D6 — Retain the TDSE observation defaults (Q4–Q5).** When neither
+   `n_save` nor `save_planes` is supplied, a TDSE run requests `n_save=2`, its
+   entrance and end. Its default `step_planes=1` additionally records every
+   accepted natural step. Explicit user settings take precedence.
+
+   Avoid adding intermediate landing positions solely for output by default,
+   since they can require extra expensive atomic-response work. The count
+   `n_save` describes the evenly spaced requested observations; `step_planes`
+   adds observations, so the total recorded count can be larger. All of these
+   observations obey the field-retention policy in D1.
