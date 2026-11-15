@@ -6,12 +6,12 @@
 | **Title** | One backend shape and a small native seam |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15; revised after review, 2026-11-15) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-15 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-15 by John Travers in [PR #850](https://github.com/LupoLab/solprop/pull/850), after the GPT-6 review, decisions D1–D7 and the revision that answered R1–R9. |
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -905,8 +905,11 @@ An ADR records the shared shape, the removal of groups and the native seam's rul
 
 ### 11. Phases
 
-Everything lands on one branch and in one pull request (SEP 0). Each phase updates the
-guards and release notes of what it changes (§6.1).
+The phases land through four stacked pull requests (decision D7, a delivery exception
+recorded in SEP 0): phases 0 and 1; phase 2 with phase 3's axis removal; the rest of
+phase 3; phases 4 and 5. Each is based on the one before, and each leaves `main` usable,
+with green required CI, when it merges. Each phase updates the guards and release notes
+of what it changes (§6.1).
 
 **Phase 0 — native deletions and the test module.**
 
@@ -999,6 +1002,8 @@ guards and release notes of what it changes (§6.1).
   response to every point, by Opus 5.5 (drafting agent); both recorded below. The revision
   removes the `Batch` executor and the unit batch axis, keeps the timing probe, and
   completes the protocol, engine, converter and qualification contracts.
+- 2026-11-15: John Travers reviewed the revised proposal and decided D7 (stacked phase
+  pull requests). Accepted by John Travers in PR #850. Part I is frozen.
 
 ### AI review — 2026-11-15
 
@@ -1227,6 +1232,11 @@ and the drafting agent's recommendation.
   Its phase report records the limit, and a later device campaign runs the GPU lane.
 - **D6 (Q2): `_testing` ships in the wheel,** built into the same extension, so the
   installed-wheel jobs run the native oracle tests against what users install.
+- **D7 (§11): the implementation merges through four stacked pull requests,** one per
+  group of phases, each based on the one before, rather than one pull request. The
+  restructure touches about 150 test files and runs in parallel with SEP 51; stacking
+  keeps each review coherent and lets work continue up the stack while CI runs once per
+  milestone. SEP 0 records the exception.
 
 ### Response to review — 2026-11-15 — Opus 5.5
 
