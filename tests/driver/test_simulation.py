@@ -505,3 +505,51 @@ def test_copying_the_callers_inputs_leaves_the_record_and_its_hash_unchanged(
     assert not record.differences(before)
     assert canonical_json(record.hashed()) == canonical_json(before.hashed())
     assert serialise(record.configuration) == serialise(before.configuration)
+
+
+def _with_components(simulation, components):
+    """Give a simulation's untranslated settings these transverse components."""
+    simulation.settings = dataclasses.replace(
+        simulation.settings, components=components
+    )
+    return simulation
+
+
+def test_the_settings_keep_a_copy_of_the_callers_components():
+    """Changing the caller's list after building the settings changes nothing (#471).
+
+    The simulation translates its settings lazily, so settings that shared the list
+    would let a change made between construction and translation reach the run.
+    """
+    given = ["x"]
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-18),
+        save_planes=[0.005],
+        dz_max=0.005,
+        dz_init=1e-4,
+        components=given,
+    )
+    given.append("y")
+    assert settings.components == ("x",)
+    caller = ["x"]
+    simulation = _with_components(capillary(modes=2), caller)
+    caller.append("y")
+    reference = _with_components(capillary(modes=2), ("x",))
+    with quiet():
+        assert simulation.translate().shape == reference.translate().shape
+        assert not simulation.metadata().differences(reference.metadata())
+    assert digest(simulation) == digest(reference)
+
+
+def test_components_given_as_a_list_record_as_a_tuple_does():
+    """The copy is a tuple; a run given a list records what one given a tuple does.
+
+    Translation resolves the components as a tuple whatever it is given, so the
+    record and its configuration hash are those of the components themselves.
+    """
+    listed = _with_components(capillary(modes=2), ["x"])
+    paired = _with_components(capillary(modes=2), ("x",))
+    with quiet():
+        record, expected = listed.metadata(), paired.metadata()
+    assert record.configuration_hash() == expected.configuration_hash()
+    assert canonical_json(record.hashed()) == canonical_json(expected.hashed())

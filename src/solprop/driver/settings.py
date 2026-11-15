@@ -238,7 +238,7 @@ class SimulationSettings(Displayed):
         node, a non-empty subset of ``("x", "y")``; ``None`` takes the union of
         the modes' nonzero components at the entrance (``("x",)`` for HE_1m modes
         at ``phi = 0``; ``docs/dev/conventions.md`` section 5). Refused without a
-        `quadrature`.
+        `quadrature`. Kept as a tuple copied from the sequence given.
     ionisation_field_range : tuple of float or None
         Lowest and highest field amplitude in V/m the compiled ionisation-rate table
         has to cover. Required beside a plasma response whose rate is not already a
@@ -500,6 +500,10 @@ class SimulationSettings(Displayed):
         if refusal is not None:
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
+        if self.components is not None:
+            # A copy, so that changing the caller's list afterwards changes nothing
+            # (issue #471); translation reads it as a tuple either way.
+            object.__setattr__(self, "components", tuple(self.components))
         object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
         if self.resume_history is not None and not isinstance(
             self.resume_history, bool

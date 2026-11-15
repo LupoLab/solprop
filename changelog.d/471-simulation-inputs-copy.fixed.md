@@ -4,6 +4,7 @@ arrays become read-only copies, so changing them before the run no longer change
 recorded configuration or its hash. `PiecewiseLinear`, `PressureGradient`,
 `FromCallable` (its declared positions) and `SeriesOfPath` keep read-only copies of the
 arrays and series they are given, so changing a profile's table after passing it to a
-simulation no longer changes the run or its record. The record and hash of an unchanged
+simulation no longer changes the run or its record. `SimulationSettings` keeps
+`components` as a tuple copied from the sequence given. The record and hash of an unchanged
 input are the same as before
 ([#471](https://github.com/LupoLab/solprop/issues/471)).
