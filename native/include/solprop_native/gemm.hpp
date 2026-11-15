@@ -186,12 +186,12 @@ inline constexpr bool device_dense_gemm_enabled =
     that each element of B it reads serves all of them.
 
     A named functor rather than an extended lambda (solprop #815). nvcc keeps a
-    `__host__ __device__` lambda's copy, call and delete functions in per-file statics
-    that the lambda's construction sets, while the host code that copies it (Kokkos's
-    dispatch) is an inline template shared between files: this kernel's views are the
-    same in several files, so a Release link kept one file's copy of the dispatch, and
-    on a run that had constructed the lambda only in another file it called a null
-    copy function. A functor's copy is its own. */
+    `__host__ __device__` lambda's copy, call and delete functions in per-file static
+    variables that the lambda's construction sets, while the host code that copies it
+    (Kokkos's dispatch) is an inline template shared between files: this kernel's views
+    are the same in several files, so a Release link kept one file's copy of the
+    dispatch, and on a run that had constructed the lambda only in another file it
+    called a null copy function. A functor's copy is its own. */
 template <std::size_t Rows, class AView, class BView, class CView>
 struct DeviceDenseGemm {
   AView a;

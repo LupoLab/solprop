@@ -79,7 +79,7 @@ def test_an_allowed_library_lambda_is_reported_not_failed(
 
 
 def test_the_other_slots_are_not_counted_twice(tmp_path, monkeypatch):
-    # A lambda's call and delete statics name the same tag as its copy static.
+    # A lambda's call and delete static members name the same tag as its copy member.
     listing = GEMM + _helper("solprop_native::device_dense_gemm", "fp_caller")
     objects = _objects(tmp_path, monkeypatch, [listing])
     assert check_lambda_tags.main(objects) == 0

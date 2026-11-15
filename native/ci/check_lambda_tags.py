@@ -6,11 +6,11 @@
 """Fail on a device lambda that two CUDA object files instantiate (#815).
 
 nvcc gives an extended ``__host__ __device__`` lambda a wrapper whose copy, call and
-delete functions are statics of ``__nv_hdl_helper``, in an anonymous namespace: each
-object file holds its own, set where that file constructs the lambda. The host code
+delete functions are static members of ``__nv_hdl_helper``, in an anonymous namespace:
+each object file holds its own, set where that file constructs the lambda. The host code
 that copies the wrapper (Kokkos's dispatch) is an inline template with external
 linkage, so when two files instantiate the same lambda the link keeps one file's copy
-of it, which reads that file's statics. A run that constructed the lambda only in the
+of it, which reads that file's members. A run that constructed the lambda only in the
 other file then calls a null function: the radial route's device GEMM, instantiated
 alike in three files, crashed so in a Release build on an NVIDIA A40. A kernel in a
 shared header whose views can match between files takes a named functor instead.
@@ -22,8 +22,11 @@ finds no helper symbol at all, so that a change in nvcc's naming cannot make it 
 finding nothing.
 
 Standard library only; it needs GNU ``nm`` (binutils) and object files that a CUDA
-build compiled, at any optimisation level: the statics exist whether or not a link
-happens to keep the wrong copy.
+build compiled, at any optimisation level: the members exist whether or not a link
+happens to keep the wrong copy. It sees only the kernels the build's device target
+instantiates: the CUDA device-compile lane builds for compute capability 9.0, which
+compiles no ``device_dense_gemm``, so the lambda behind #815 shows only in a build for
+8.6 (``AMPERE86``), checked by hand over that build's objects.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ ALLOWED: tuple[str, ...] = (
 
 
 def helper_tags(path: Path) -> set[str]:
-    """Return the tags of the extended lambdas whose helper statics `path` holds."""
+    """Return the tags of the extended lambdas whose helper members `path` holds."""
     listing = subprocess.run(
         ["nm", "--demangle", "--format=posix", str(path)],
         check=True,
