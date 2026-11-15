@@ -568,8 +568,10 @@ or GPU numerical qualification is claimed.
 
 John Travers adopted the decisions below in discussion with the AI reviewer.
 They are recorded here for the drafting agent to reconcile into Part I; the
-reviewer has not edited the proposal. The remaining review questions are still
-open, and these decisions do not constitute acceptance of the SEP.
+reviewer has not edited the proposal. The design choices raised in this review
+discussion are settled below. The drafting agent must still revise the proposal
+and respond to the review; these decisions do not constitute acceptance of the
+SEP.
 
 **Compatibility constraint.** Backwards compatibility is explicitly not a
 requirement. Preserving pre-change configuration hashes, converting old recipes
@@ -583,7 +585,7 @@ length changes absorber rates remains relevant when correcting scientific tests.
    (Q1, Q2, Q5; R6, R8, R10).** The entrance is `initial_z`, and the end is the
    resolved `length`. Both are automatic; append the end when an explicit
    position list omits it. Refuse requested positions outside the propagation
-   interval, with the rounding policy still to be decided.
+   interval, applying the rounding policy in D5.
 
    An observation does not require a stored field. Every observation, including
    both endpoints, obeys the existing `fields` and `field_planes` policy:
@@ -606,7 +608,7 @@ length changes absorber rates remains relevant when correcting scientific tests.
 
    All length-dependent setup uses that one resolved value. Do not silently
    alter a supplied grid or choose between conflicting lengths. The numerical
-   allowance for agreement remains a question for the endpoint rounding policy.
+   allowance for agreement is the endpoint rounding policy in D5.
 
 3. **D3 — Count the observations over the actual launched interval
    (R4; §§5.1–5.2; Q6).** A fresh `n_save=N` request, with `N >= 2`, places
@@ -654,3 +656,45 @@ length changes absorber rates remains relevant when correcting scientific tests.
    `n_save` describes the evenly spaced requested observations; `step_planes`
    adds observations, so the total recorded count can be larger. All of these
    observations obey the field-retention policy in D1.
+
+7. **D7 — Expose counts and explicit positions as distinct GUI modes (R8).**
+   Offer "Evenly spaced" and "Explicit positions" modes. The first edits
+   `n_save`; the second edits `save_planes`. Switching modes replaces the other
+   selector in one undoable edit, so a document never acquires both selectors
+   through a mode switch.
+
+   A length change redistributes count-based observations automatically.
+   Explicitly requested coordinates remain unchanged: the automatic end follows
+   the new length, and an explicit position beyond a shortened length produces
+   a clear validation error. Do not represent an arbitrary explicit list merely
+   by its count or silently redistribute its observations.
+
+8. **D8 — Accept an empty position list and explicitly listed endpoints
+   (R4, R10).** `save_planes=[]` requests no additional positions, so only the
+   automatic entrance and end are requested. An explicit list may include
+   `initial_z` and `length`; each endpoint appears once, with the endpoint
+   normalization in D5. This supersedes R4's recommendation to refuse an
+   explicit position equal to the launch. Positions before the launch remain
+   outside the interval and are refused.
+
+   Non-finite values, unsorted positions and repeated interior positions remain
+   errors. Omitting both selectors takes the route's default count; an explicitly
+   empty list instead requests only the endpoints. If enabled, `step_planes`
+   adds its observations as in D6.
+
+**Remaining work from the review.** No further maintainer choice is required by
+the findings above. The drafting agent must reconcile Part I with D1–D8 and the
+compatibility constraint, and respond to R1–R10 point by point. The following
+remain implementation and verification requirements:
+
+- Apply the same resolution and validation when constructing a simulation,
+  replacing its settings or adopting settings from another simulation (R5).
+- Preserve authored recipe choices while storing resolved positions and defaults
+  that reproduce a newly created run, including nested object-route settings
+  (R7). No preservation of pre-change hashes is required (R9).
+- Distinguish a run's declared end from its last committed plane or checkpoint
+  when resuming a newly written interrupted file (R6). No compatibility path for
+  old files is required.
+- Update scientific tests and examples deliberately, accounting for the effect
+  of a changed grid length on absorber rates and other derived settings (R3),
+  and qualify the new behavior on the reference and native CPU backends.
