@@ -881,6 +881,19 @@ class OptmatRate:
         return rate.reshape(values.shape)
 
 
+def _dispersion_only_air(material: Species) -> bool:
+    """Return whether a species is the built-in ``Air`` entry, which is dispersion-only.
+
+    A species merely named ``Air`` that carries Kerr or ionisation data is not it.
+    """
+    return (
+        material.name == Gas.Air.value
+        and built_in_population(material)
+        and material.kerr is None
+        and material.ionisation is None
+    )
+
+
 def selected_rate(
     material: Species,
     selection: MaterialSelection,
@@ -911,9 +924,11 @@ def selected_rate(
     Raises
     ------
     MaterialError
-        If the species is custom (not built in, or with its own ionisation data),
-        which needs an explicit rate (D1), or there is no carrier, or a model object
-        describes another species.
+        If the species is the dispersion-only built-in ``Air`` entry, which has no
+        ionisation data (the message points to
+        :meth:`~solprop.physdata.mixtures.Mixture.air`), or is custom (not built
+        in, or with its own ionisation data), which needs an explicit rate (D1), or
+        there is no carrier, or a model object describes another species.
 
     Examples
     --------
@@ -925,6 +940,14 @@ def selected_rate(
     'comparison'
     """
     name = label or material.name
+    if _dispersion_only_air(material):
+        msg = (
+            f"{name} ({material.name}) is the built-in Air entry, which is "
+            "dispersion-only and has no ionisation data: for air with Kerr, plasma "
+            "and Raman channels use Mixture.air "
+            "(solprop.physdata.mixtures.Mixture.air)"
+        )
+        raise MaterialError(msg)
     if (
         not built_in_population(material)
         or material.name == Gas.Air.value

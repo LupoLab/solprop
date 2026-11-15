@@ -398,6 +398,34 @@ class _HollowRequest:
     tdse_execution: TDSEExecution | None = None
 
 
+def _note_linear_air(
+    request: _HollowRequest, mixture: Mixture, responses: Sequence[object]
+) -> None:
+    """Log that a fill with the dispersion-only built-in ``Air`` entry runs linear.
+
+    Only on the envelope route with plasma left at its default (off there), where
+    switching Kerr off is all it takes to leave the fill without a response; the
+    run proceeds, since a linear run in air is a fair request. An explicit
+    ``plasma=False`` beside ``kerr=False`` already says the user chose a linear run.
+    """
+    if not request.envelope or request.plasma is not None or responses:
+        return
+    # The same test as the refusals' (nonlinear.optmat_rates): a species merely
+    # named Air that carries Kerr or ionisation data is not the entry.
+    if any(
+        component.species.name == Gas.Air.value
+        and built_in_population(component.species)
+        and component.species.kerr is None
+        and component.species.ionisation is None
+        for component in mixture.components
+    ):
+        logger.info(
+            "the fill has no nonlinear response: the built-in Air entry is "
+            "dispersion-only, with no Kerr, plasma or Raman data; for air with "
+            "those channels use Mixture.air (solprop.physdata.mixtures.Mixture.air)"
+        )
+
+
 def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
     cls: type["Simulation"], request: _HollowRequest
 ) -> "Simulation":
@@ -641,6 +669,7 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
             )
     with _about(("preionisation", "plasma")):
         _refuse_idle_preionisation(mixture, responses)
+    _note_linear_air(request, mixture, responses)
     pulse = _shaped_pulse(
         request.shape,
         wavelength=request.wavelength,

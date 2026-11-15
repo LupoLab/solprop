@@ -21,7 +21,7 @@ from solprop.exceptions import MaterialError, RamanTemperatureWarning
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate, rate_species
 from solprop.nonlinear.optmat_raman import mixture_raman
-from solprop.nonlinear.optmat_rates import selected_rate
+from solprop.nonlinear.optmat_rates import _dispersion_only_air, selected_rate
 from solprop.nonlinear.raman import (
     DampedOscillator,
     RamanResponse,
@@ -67,6 +67,17 @@ def _default_rate(
     """
     return selected_rate(
         component.species, selection, wavelength, label=component.label
+    )
+
+
+def _air_hint(material: Species) -> str:
+    """Point a refusal of the dispersion-only ``Air`` entry to ``Mixture.air``."""
+    if not _dispersion_only_air(material):
+        return ""
+    return (
+        ": the built-in Air entry is dispersion-only; for air with Kerr, plasma "
+        "and Raman channels use Mixture.air "
+        "(solprop.physdata.mixtures.Mixture.air)"
     )
 
 
@@ -430,7 +441,9 @@ def electronic_response(
     if evaluator is None:
         coefficient = material.kerr_coefficient(wavelength)
         if coefficient is None:
-            raise MaterialError(f"{material.name} has no Kerr data")
+            raise MaterialError(
+                f"{material.name} has no Kerr data{_air_hint(material)}"
+            )
         return KerrResponse(coefficient, thg=thg, species=species)
     if material.kerr is None:
         msg = (
