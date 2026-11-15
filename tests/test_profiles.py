@@ -896,7 +896,10 @@ def _declared_positions():
 
 
 def _series_coefficients():
-    series = Chebyshev([1.0, 0.5, 0.25], domain=[0.0, 2.0])
+    # An explicit window: the default is numpy's class-wide array, which the test's
+    # in-place change would corrupt for every later series.
+    series = Chebyshev([1.0, 0.5, 0.25], domain=[0.0, 2.0], window=[-1.0, 1.0])
+    assert series.window is not Chebyshev.window
     path = SeriesOfPath(Linear(0.0, 2.0, 1.0), series)
     return (series.coef, series.domain, series.window), path
 
