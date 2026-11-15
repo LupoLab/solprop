@@ -515,7 +515,9 @@ problem shared rather than scanned again; a new `initial_z` keeps the stepper's 
 Its `configuration=` merges caller keys into the derived run's record (a key the run
 records itself is refused). An array input, here and in the constructor, is copied when
 the simulation is built, so changing it afterwards changes neither the run nor its
-record; an array input of more than 2²⁰ elements is recorded by
+record. So are the constructor's `configuration=` and these caller keys (their
+dictionaries, lists and arrays) and the tables of the `solprop.profiles` paths a run's
+`profiles=` holds; a path of your own, or a callable, is kept as it is. An array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.
 

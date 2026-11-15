@@ -55,7 +55,7 @@ from numpy.polynomial import Chebyshev
 from scipy.interpolate import CubicSpline
 
 from solprop._display import Displayed, engineering, line, summarise
-from solprop._ownership import frozen_copy
+from solprop._ownership import frozen_copy, hold
 from solprop.constants import BAR, K_B, ROOM_TEMPERATURE
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.physdata.equation_of_state import density
@@ -772,14 +772,17 @@ class PiecewiseLinear(Displayed, ZProfile):
         return cls(np.asarray(positions, dtype=float), np.asarray(values, dtype=float))
 
     def __post_init__(self) -> None:
-        """Validate and normalise the stage table.
+        """Validate the stage table and keep a read-only copy of it.
+
+        The table is copied, so that changing the caller's arrays afterwards changes
+        neither the path nor a run that holds it.
 
         Raises
         ------
         TranslationError
             If the positions are not strictly increasing or the lengths disagree.
         """
-        edges = _checked_edges(self.positions, "PiecewiseLinear")
+        edges = frozen_copy(_checked_edges(self.positions, "PiecewiseLinear"))
         heights = np.asarray(self.values, dtype=float)
         if heights.shape != edges.shape:
             raise TranslationError(
@@ -789,7 +792,7 @@ class PiecewiseLinear(Displayed, ZProfile):
         if not np.all(np.isfinite(heights)):
             raise TranslationError("PiecewiseLinear values must be finite")
         object.__setattr__(self, "positions", edges)
-        object.__setattr__(self, "values", heights)
+        object.__setattr__(self, "values", frozen_copy(heights))
 
     @property
     def breakpoints(
@@ -1430,6 +1433,9 @@ class PressureGradient(Displayed, ZProfile):
     def __post_init__(self) -> None:
         """Validate the stage table and integrate the bore of a varying radius.
 
+        The stage table is kept as a read-only copy, so that changing the caller's
+        arrays afterwards changes neither the fill nor a run that holds it.
+
         Raises
         ------
         TranslationError
@@ -1437,9 +1443,11 @@ class PressureGradient(Displayed, ZProfile):
             pressure is negative, no stage pressure is usable, or the radius is not
             positive or cannot be integrated.
         """
-        edges = _checked_edges(self.positions, "PressureGradient")
+        edges = frozen_copy(_checked_edges(self.positions, "PressureGradient"))
         object.__setattr__(self, "positions", edges)
-        object.__setattr__(self, "pressures", _checked_pressures(edges, self.pressures))
+        object.__setattr__(
+            self, "pressures", frozen_copy(_checked_pressures(edges, self.pressures))
+        )
         chokes = tuple(bool(flag) for flag in self.choked_ends)
         if len(chokes) != 2:
             raise TranslationError("choked_ends needs one flag for each outer end")
@@ -2407,6 +2415,17 @@ class SeriesOfPath(Displayed):
     path: ZProfile
     series: Chebyshev
 
+    def __post_init__(self) -> None:
+        """Keep a copy of the series that cannot be changed in place.
+
+        A series keeps its coefficients in writeable arrays, which its owner can change
+        after passing it; the copy's are read-only.
+        """
+        series = self.series.copy()
+        for values in (series.coef, series.domain, series.window):
+            hold(values)
+        object.__setattr__(self, "series", series)
+
     def __repr__(self) -> str:
         """Return a one-line description: the degree and the inner path.
 
@@ -2977,7 +2996,8 @@ class FromCallable:
                 f"FromCallable {what} must be strictly increasing and inside the "
                 f"span {self.span}, got {edges.tolist()}"
             )
-        return edges
+        # A copy, so that changing the caller's list afterwards changes nothing.
+        return frozen_copy(edges)
 
     @property
     def breakpoints(

@@ -65,6 +65,7 @@ from solprop.driver.inputs import (
     _check_input_identity,
     _check_planar_input,
     _check_rate_inputs,
+    _frozen_configuration,
     _given_input,
     _redrawable,
     _replaced_launch,
@@ -307,10 +308,16 @@ class Simulation(Displayed):
         records the realisation as asked for explicitly.
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name, for the ``density``, ``pressure`` and
-        ``core_radius`` statistics. Passed to the backend, which computes them.
+        ``core_radius`` statistics. Passed to the backend, which computes them. The
+        mapping is copied; the profiles of :mod:`solprop.profiles` keep read-only
+        copies of their tables, so changing the caller's arrays afterwards changes
+        neither the run nor its record. Another implementation is kept as it is.
     configuration : collections.abc.Mapping, optional
         Extra provenance to record beside what the simulation can see for itself, such
-        as the coefficients a mapping came from.
+        as the coefficients a mapping came from. Copied here, as an array input is:
+        dictionaries, lists, tuples and sets are rebuilt and arrays become read-only
+        copies, so changing the caller's afterwards changes neither the record nor its
+        configuration hash. Other objects are kept as they are.
     spatial_grid : RadialGrid, FreeGrid, PlanarGrid or None, optional
         Transverse grid for spatial propagation; use an empty mode sequence (a
         :class:`solprop.modes.slab.PlanarGrid` carries its own slab modes).
@@ -454,8 +461,11 @@ class Simulation(Displayed):
             if noise_resolution is None
             else noise_resolution
         )
+        # Read once, here, as an array input is: changing what the caller passed
+        # afterwards changes neither the run nor its record (issue #471). solprop's
+        # profiles keep read-only copies of their tables themselves.
         self.profiles = dict(profiles or {})
-        self.configuration = dict(configuration or {})
+        self.configuration = _frozen_configuration(configuration)
         if (spatial_grid is None) != (medium is None):
             msg = "spatial_grid and medium must be supplied together"
             raise DriverError(msg)
@@ -885,7 +895,8 @@ class Simulation(Displayed):
         configuration : collections.abc.Mapping or None, optional
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
-            A key the run already records is refused.
+            A key the run already records is refused. Copied as the constructor's
+            `configuration` is.
         input_identity : str or None, optional
             What an array input is, stated by the caller who already knows: the record
             then holds this string, the dtype and the shape
@@ -1090,7 +1101,8 @@ class Simulation(Displayed):
             recorded.update(configuration)
         if coupling is not None:
             recorded["coupling"] = dict(coupling)
-        return recorded
+        # The caller's keys are copied as the constructor copies its configuration.
+        return _frozen_configuration(recorded)
 
     def _check_replaced_array(
         self,
