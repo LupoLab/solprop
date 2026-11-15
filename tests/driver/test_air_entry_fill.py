@@ -95,3 +95,19 @@ def test_an_air_entry_fill_with_its_responses_switched_off_runs_linear(
         assert notes[0].levelno == logging.INFO
         assert notes[0].name.startswith("solprop.")
         assert POINTER in notes[0].getMessage()
+
+
+def test_a_linear_envelope_run_in_another_gas_has_no_air_note(caplog):
+    """The note names the Air entry, so a linear argon fill does not get it."""
+    with caplog.at_level(logging.INFO, logger="solprop"):
+        simulation = Simulation.from_capillary(
+            100e-6,
+            0.05,
+            Mixture.fill({"Ar": 1.0}, 1.0),
+            **COMMON,
+            envelope=True,
+            kerr=False,
+        )
+        simulation.translate()
+    assert tuple(simulation.responses) == ()
+    assert not [record for record in caplog.records if LINEAR in record.getMessage()]
