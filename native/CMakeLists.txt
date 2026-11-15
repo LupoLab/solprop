@@ -177,8 +177,10 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
   COMMAND_ERROR_IS_FATAL ANY
 )
+# The benchmark history is what a tracking run writes, not what it times: one checkout
+# may record several runs, and a modified history must not stamp the build dirty.
 execute_process(
-  COMMAND git diff --quiet --ignore-submodules HEAD
+  COMMAND git diff --quiet --ignore-submodules HEAD -- ":/" ":(top,exclude)benchmarks/history"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   RESULT_VARIABLE SOLPROP_NATIVE_TREE_DIRTY
 )
