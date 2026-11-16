@@ -139,10 +139,6 @@ def _flux_tables(problem: PropagationProblem) -> list[dict[str, object]]:
     return [_z_table("flux", flux.material)]
 
 
-_EMPTY = np.empty(0, dtype=np.complex128)
-"""No modified-noise realisation: the native state adds none."""
-
-
 def _section_tables(
     problem: PropagationProblem, *, moving: bool, residual: bool
 ) -> dict[str, object]:
