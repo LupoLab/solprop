@@ -2,10 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Resolve material declarations and population selections at the driver boundary."""
+"""Resolve material declarations and population selections at the driver boundary.
 
+Also what a :meth:`~solprop.driver.simulation.Simulation.with_mixture` update may keep
+of the translation it replaces: the undamped Raman kernels and the sampled operator
+expansions whose inputs the new mixture leaves unchanged.
+"""
+
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 from jaxtyping import Float
@@ -13,10 +20,17 @@ from jaxtyping import Float
 from solprop.constants import ROOM_TEMPERATURE
 from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
+from solprop.modes.protocol import ParameterisedMode
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.mixtures import responses_for
 from solprop.nonlinear.optmat_rates import bind_reference_field
-from solprop.nonlinear.raman import MolecularOptions
+from solprop.nonlinear.raman import (
+    DampedOscillator,
+    MolecularOptions,
+    RamanResponse,
+    RotationalLines,
+)
+from solprop.output.serialisation import serialise
 from solprop.physdata import Gas, Mixture, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
@@ -29,6 +43,12 @@ from solprop.profiles import (
     _same_temperature,
     _temperature_text,
 )
+from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.problem import PropagationProblem, TranslationReuse
+from solprop.translate.routes import transverse_of
+
+if TYPE_CHECKING:
+    from solprop.driver.simulation import Simulation
 
 __all__ = [
     "ResponseSelection",
@@ -36,6 +56,8 @@ __all__ = [
     "is_air",
     "mixture_profiles",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -387,3 +409,130 @@ class _PartialPressureSum:
             ],
             axis=0,
         )
+
+
+def _simulation_mixture(simulation: "Simulation") -> Mixture:
+    """Require a material declaration the update can identify by component."""
+    if simulation.medium is not None and isinstance(
+        simulation.medium.material, Mixture
+    ):
+        return simulation.medium.material
+    materials = [getattr(mode, "mixture", None) for mode in simulation.modes]
+    if not materials or not isinstance(materials[0], Mixture):
+        raise DriverError("with_mixture needs a Mixture in the modes or spatial medium")
+    material = materials[0]
+    for index, other in enumerate(materials[1:], 1):
+        if serialise(other) != serialise(material):
+            raise DriverError(f"mode {index} carries a different mixture")
+    return material
+
+
+def _same_operator_function(
+    source: "Simulation",
+    updated: "Simulation",
+    old: Mixture,
+    new: Mixture,
+    expansion: ParameterExpansion | None,
+) -> ParameterExpansion | None:
+    """Keep terms only when every dependency outside their axes is unchanged.
+
+    - ``expansion``: previously sampled coefficients and axis names.
+    - Returns: the old coefficients when the function is identical, else None with a
+      log.
+    """
+    if source.settings.prefactor_index != updated.settings.prefactor_index:
+        logger.info("Mixture update: expansion reuse refused; prefactor_index changed")
+        return None
+    if expansion is None:
+        return None
+    if len(old.components) > 1 and (
+        (old.shared is None) != (new.shared is None)
+        or (
+            old.shared is not None
+            and (old.fractions != new.fractions or old.temperature != new.temperature)
+        )
+    ):
+        logger.info(
+            "Mixture update: rebuild expansion; fill fractions, EOS temperature "
+            "or parameterisation changed"
+        )
+        return None
+    positions = np.asarray(expansion.z_span)
+    if source.medium is not None and updated.medium is not None:
+        paths = [(source.medium.parameter_paths, updated.medium.parameter_paths)]
+    else:
+        paths = [
+            (before.parameter_paths, after.parameter_paths)
+            for before, after in zip(source.modes, updated.modes, strict=True)
+            if isinstance(before, ParameterisedMode)
+            and isinstance(after, ParameterisedMode)
+        ]
+    for before_paths, after_paths in paths:
+        for name, path in before_paths.items():
+            if name in expansion.parameters:
+                continue
+            other = after_paths.get(name)
+            if (
+                other is None
+                or not other.is_constant
+                or not np.array_equal(path(positions), other(positions))
+            ):
+                logger.info(
+                    "Mixture update: rebuild expansion; fixed parameter %s changed",
+                    name,
+                )
+                return None
+    return expansion
+
+
+def _mixture_reuse(
+    source: "Simulation",
+    updated: "Simulation",
+    old: Mixture,
+    new: Mixture,
+    problem: PropagationProblem,
+) -> TranslationReuse:
+    """Collect eligible immutable translation data after a material-path update."""
+    before = {
+        response.species or old.labels[0]: response
+        for response in source.responses
+        if isinstance(response, RamanResponse)
+    }
+    after = {
+        response.species or new.labels[0]: response
+        for response in updated.responses
+        if isinstance(response, RamanResponse)
+    }
+    kernels = {}
+    for leaf in problem.responses.raman_terms:
+        if _undamped_model_key(before[leaf.label]) == _undamped_model_key(
+            after[leaf.label]
+        ):
+            kernels[leaf.label] = leaf.undamped
+        else:
+            logger.info("Mixture update: rebuild %s undamped Raman model", leaf.label)
+    return TranslationReuse(
+        problem.transform,
+        problem.initial,
+        _same_operator_function(
+            source, updated, old, new, problem.linear.phi_expansion
+        ),
+        _same_operator_function(
+            source, updated, old, new, problem.responses.prefactor_expansion
+        ),
+        kernels,
+        transverse_of(problem.route),
+    )
+
+
+def _undamped_model_key(response: RamanResponse) -> object:
+    """Describe only the inputs to the undamped Raman samples."""
+    models = []
+    for term in response.tensor_terms:
+        model = term.model
+        record = serialise(model)
+        if isinstance(model, (DampedOscillator, RotationalLines)):
+            assert isinstance(record, dict)
+            record.pop("dephasing", None)
+        models.append((term.contraction, record))
+    return models
