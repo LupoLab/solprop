@@ -4,7 +4,6 @@
 
 #include "solprop_native/session.hpp"
 
-#include "solprop_native/core.hpp"
 #include "solprop_native/refuse.hpp"
 
 #include <algorithm>

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/core.hpp"
 #include "solprop_native/envelope_plasma.hpp"
+#include "solprop_native/execution.hpp"
 
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>

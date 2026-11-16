@@ -645,7 +645,7 @@ session `native/src/solprop_native/session.py` and the engine under
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
-**Three response families** (`FieldFamily`, `include/solprop_native/core.hpp`), which is
+**Three response families** (`FieldFamily`, `include/solprop_native/problem.hpp`), which is
 all `kerr_coefficients` compiles to, each its own compiled column:
 
 | family | grid | `thg` | the column works on | plasma |
@@ -841,7 +841,7 @@ build (ADR-076, §4).
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
 
-The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
+The widths are constants of `include/solprop_native/cpu_execution.hpp` (`operation_threads`, with
 their calibration in
 [benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)), and `SOLPROP_NATIVE_*_THREADS`
 overrides a pool ([Performance tuning](../guide/performance/tuning.md)). The stage boundary
@@ -1451,7 +1451,7 @@ use separate FFT plans for the final partial chunk, aliased onto existing storag
 Kokkos-FFT plans at `FFTW_ESTIMATE` and consumes measured wisdom in the linked FFTW
 library, which the workspace seeds before it makes its first plan: a plan made before
 its wisdom stays at estimate for the run. One policy (`fftw_seed_effort`,
-`include/solprop_native/fft_plan.hpp`) decides every seed by the transform's shape and
+`include/solprop_native/fftw_wisdom.hpp`) decides every seed by the transform's shape and
 width. Unset, row transforms (temporal, modal, Raman and plasma) are measured on one
 thread and left at estimate when threaded, because measured wisdom can select slower
 threaded plans; free space's transverse planes are measured at any width. An explicit
@@ -1488,7 +1488,7 @@ atomic rename; writers serialise on `<file>.lock` (`flock` on POSIX), merge the 
 plans with their own and replace it only when that adds or changes one. A calibration's
 own workspaces (given `fft_planning`) and its children (`off`) neither read nor write
 the store. The C++ side only converts wisdom to and from text (`export_fftw_wisdom`,
-`import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's threaded solvers first,
+`import_fftw_wisdom` in `fftw_wisdom.hpp`), registering FFTW's threaded solvers first,
 since they are part of the planner signature an import must match. Metadata records
 `wisdom_loaded` (the file held plans) and `wisdom_digest` (of the plans the workspace
 built from wisdom or measured).
@@ -1779,7 +1779,7 @@ at most:
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
   nothing. This threshold and the stage threshold switch only on `__APPLE__`
-  (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
+  (`include/solprop_native/cpu_execution.hpp`): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
   those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the

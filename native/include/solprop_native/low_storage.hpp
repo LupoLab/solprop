@@ -4,8 +4,9 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
 #include "solprop_native/engines.hpp"
+#include "solprop_native/fields.hpp"
+#include "solprop_native/general_state.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/stage_tables.hpp"
 

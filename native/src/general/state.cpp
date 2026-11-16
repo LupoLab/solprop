@@ -4,7 +4,7 @@
 
 // GeneralState over its workspace: host transfers, closing and the forwarders.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
 
 namespace solprop_native {
 

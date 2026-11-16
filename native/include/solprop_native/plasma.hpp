@@ -4,9 +4,10 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
 #include "solprop_native/dispatch.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/launch.hpp"
+#include "solprop_native/problem.hpp"
 
 #include <Kokkos_Core.hpp>
 

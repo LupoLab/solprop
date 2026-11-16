@@ -61,7 +61,7 @@ enum class Dtype : std::uint8_t { float64, complex128, uint64, uint8, boolean };
 }
 
 /** The dtype an element type takes by default, beyond the numbers and the bools:
-    `core.hpp` adds the complex one. */
+    `execution.hpp` adds the complex one. */
 template <class T> struct ElementDtype;
 
 template <class T> [[nodiscard]] constexpr Dtype element_dtype() noexcept {

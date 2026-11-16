@@ -5,7 +5,7 @@
 #pragma once
 
 #include "solprop_native/chebyshev.hpp"
-#include "solprop_native/core.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/launch.hpp"
 #include "solprop_native/refuse.hpp"
 

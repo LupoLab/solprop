@@ -14,12 +14,13 @@
 
 #include "solprop_native/adams_phi.hpp"
 #include "solprop_native/build.hpp"
-#include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
+#include "solprop_native/cpu_execution.hpp"
 #include "solprop_native/crossing.hpp"
 #include "solprop_native/dispatch.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/envelope_plasma.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/far_field.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/flow_functions.hpp"
@@ -29,6 +30,7 @@
 #include "solprop_native/plasma.hpp"
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/refuse.hpp"
+#include "solprop_native/setup_data.hpp"
 #include "solprop_native/slab.hpp"
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
@@ -60,11 +62,6 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#ifdef __APPLE__
-#include <malloc/malloc.h>
-#elif defined(__GLIBC__)
-#include <dlfcn.h>
-#endif
 namespace solprop_native {
 namespace general {}
 // The helpers are found as an unnamed namespace's would be, under their own name so
@@ -219,49 +216,6 @@ void apply_generator(const ExecutionSpace& space, const std::size_t n,
 
 template <class... Ts>
 KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&... /*unused*/) {}
-
-// Net process allocator growth includes opaque vendor FFT plan/workspace
-// allocations. It is measured separately from Kokkos Views and is not a peak bound.
-inline std::size_t heap_bytes() {
-#ifdef __APPLE__
-  malloc_statistics_t statistics{};
-  malloc_zone_statistics(nullptr, &statistics);
-  return statistics.size_in_use;
-#elif defined(__GLIBC__)
-  // mallinfo2 is glibc 2.33 or later; a wheel built against an older glibc (the
-  // manylinux_2_28 baseline) finds it at run time when the system provides it. Its
-  // layout is ten size_t counters, in glibc's declared order.
-  struct Mallinfo2 {
-    std::size_t arena, ordblks, smblks, hblks, hblkhd, usmblks, fsmblks, uordblks,
-        fordblks, keepcost;
-  };
-  using Query = Mallinfo2 (*)();
-  static const auto query = reinterpret_cast<Query>(dlsym(RTLD_DEFAULT, "mallinfo2"));
-  if (query == nullptr)
-    return 0;
-  const auto statistics = query();
-  return statistics.uordblks + statistics.hblkhd;
-#else
-  // Neither allocator interface exists (musl, Windows): the ledger row then measures
-  // nothing, and construction must still succeed.
-  return 0;
-#endif
-}
-inline std::size_t device_free_bytes() {
-#ifdef KOKKOS_ENABLE_CUDA
-  std::size_t available{}, total{};
-  if (cudaMemGetInfo(&available, &total) != cudaSuccess)
-    throw std::runtime_error("cudaMemGetInfo failed during FFT planning");
-  return available;
-#elif defined(KOKKOS_ENABLE_HIP)
-  std::size_t available{}, total{};
-  if (hipMemGetInfo(&available, &total) != hipSuccess)
-    throw std::runtime_error("hipMemGetInfo failed during FFT planning");
-  return available;
-#else
-  return 0;
-#endif
-}
 
 using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
 using ComplexView3 = Kokkos::View<Complex***, Layout, MemorySpace>;
@@ -635,43 +589,6 @@ void tiled_update(const char* label, const ExecutionSpace& execution,
               });
         });
       });
-}
-#endif
-
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-// Plan, then discard, a batched complex transform of transverse planes at the plan
-// policy's effort, leaving its wisdom. It overwrites both arrays; the caller clears
-// them. Row transforms are seeded by `seed_row_fft_wisdom` (fft_plan.hpp).
-inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
-                             Complex* output, const std::vector<int>& extents,
-                             const int howmany, const int input_distance,
-                             const int output_distance, const int sign) {
-  std::string sizes;
-  for (const int extent : extents)
-    sizes += (sizes.empty() ? "" : "x") + std::to_string(extent);
-  const std::string key = fft_plan_key(
-      sign == FFTW_FORWARD ? "planes-forward" : "planes-backward", sizes, howmany,
-      input_distance, output_distance, input, output, space.concurrency());
-  fftw_init_threads();
-  const auto chosen = begin_seed(key, FftShape::planes, space.concurrency());
-  if (!chosen)
-    return;
-  fftw_plan_with_nthreads(space.concurrency());
-  auto* in = reinterpret_cast<fftw_complex*>(input);
-  auto* out = reinterpret_cast<fftw_complex*>(output);
-  auto* const seeded = fftw_plan_many_dft(
-      static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
-      input_distance, out, nullptr, 1, output_distance, sign, *chosen);
-  // The policy has always tolerated a plane it cannot seed; a profile records it.
-  if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
-      (detail::planning == nullptr ||
-       detail::planning->mode == FftPlanning::Mode::legacy)) {
-    release_seed(key, false);
-    return;
-  }
-  end_seed(key, *chosen, seeded != nullptr);
-  if (seeded != nullptr)
-    fftw_destroy_plan(seeded);
 }
 #endif
 
@@ -1096,31 +1013,6 @@ void copy_vector(const ExecutionSpace& execution_space, const View& destination,
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
   graph::deep_copy(execution_space, destination, mirror);
-}
-
-inline void require_extent(const std::size_t actual, const std::size_t expected,
-                           const char* name) {
-  if (actual != expected)
-    throw std::invalid_argument(std::string(name) + " has the wrong extent");
-}
-
-inline std::size_t checked_product(const std::size_t left, const std::size_t right,
-                                   const char* name) {
-  if (left != 0 && right > std::numeric_limits<std::size_t>::max() / left)
-    throw std::length_error(std::string(name) + " extent overflows size_t");
-  return left * right;
-}
-
-inline std::size_t checked_sum(const std::size_t left, const std::size_t right,
-                               const char* name) {
-  if (right > std::numeric_limits<std::size_t>::max() - left)
-    throw std::length_error(std::string(name) + " extent overflows size_t");
-  return left + right;
-}
-
-inline void require_allocation(const std::size_t elements,
-                               const std::size_t element_bytes, const char* name) {
-  static_cast<void>(checked_product(elements, element_bytes, name));
 }
 
 // The samples of one tile of the device trapezoid plasma's two-level scans (unused on

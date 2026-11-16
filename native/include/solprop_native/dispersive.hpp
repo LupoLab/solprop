@@ -4,8 +4,10 @@
 
 #pragma once
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/cpu_execution.hpp"
+#include "solprop_native/execution.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/problem.hpp"
 
 #include <KokkosFFT.hpp>
 

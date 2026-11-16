@@ -5,8 +5,10 @@
 #pragma once
 
 #include "solprop_native/build.hpp"
-#include "solprop_native/core.hpp"
+#include "solprop_native/cpu_execution.hpp"
 #include "solprop_native/dispersive.hpp"
+#include "solprop_native/execution.hpp"
+#include "solprop_native/problem.hpp"
 #include "solprop_native/raman_fft.hpp"
 
 #include <KokkosFFT.hpp>
@@ -21,16 +23,6 @@ namespace solprop_native {
 /** Stored pair entries of a real symmetric three-component history: xx yy zz xy xz yz.
  */
 inline constexpr std::size_t general_pair_histories = 6;
-
-/**
- * The vector length of the general source's teams: the adjacent output bins one
- * projection team accumulates, and the lanes a device gives a node's samples.
- *
- * The host runs a team's vector range as one vectorised loop and ignores the
- * length; for the projection it is the block of bins (measured on the general
- * route's source on native CPU before the first public release).
- */
-inline constexpr std::size_t general_vector_lanes = 8;
 
 /** The bins a host synthesis team sums at a time in local arrays. */
 inline constexpr std::size_t general_synthesis_block = 256;

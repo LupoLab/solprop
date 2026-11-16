@@ -8,18 +8,16 @@
 // src/general/: checks.cpp, setup.cpp, trial.cpp (the hot set, kept in one unit so
 // that its inlining is the compiler's whole view), statistics.cpp and state.cpp.
 #ifdef SOLPROP_NATIVE_STRICT_TU
-#error "general/workspace.hpp contracts: a strict translation unit must not include it"
+#error "general_workspace.hpp contracts: a strict translation unit must not include it"
 #endif
 
 #include "kernels.hpp"
+#include "solprop_native/host_source.hpp"
 
 namespace solprop_native {
 
 // Refuse a problem the workspace cannot run, before it allocates (checks.cpp).
 void require_general_problem(const Problem& problem);
-
-// What a Cartesian plane's widths read of its fluence (`plane_fluence_moments`).
-inline constexpr std::size_t plane_moment_slots = 8;
 
 class GeneralWorkspace {
 public:

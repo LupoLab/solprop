@@ -16,7 +16,7 @@
 #pragma GCC optimize("fp-contract=off")
 #endif
 
-#include "solprop_native/core.hpp"
+#include "solprop_native/general_state.hpp"
 #include "solprop_native/refuse.hpp"
 #include "solprop_native/statistics_plan.hpp"
 

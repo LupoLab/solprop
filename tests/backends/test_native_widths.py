@@ -412,7 +412,7 @@ def test_a_plane_s_widths_bring_only_numbers_across(n_pol, monkeypatch):
     """The session's plane statistics cross as one packed row, and no field does.
 
     The native session reduces the widths in its own pass
-    (``session_statistics.cpp``); what crosses is the packed evaluation its plan
+    (``statistics_plan.cpp``); what crosses is the packed evaluation its plan
     unpacks, counted here. The session counts every field it exports, and the native
     state every whole-state transfer to the host by any path (its diagnostics'
     ``crossed_bytes[0]``, solprop SEP 44): both stay at zero over the run.

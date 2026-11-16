@@ -148,7 +148,7 @@ STRICT_SOURCES = (
     "src/watch.cpp",
     "src/rk_march.cpp",
     "src/session.cpp",
-    "src/session_statistics.cpp",
+    "src/statistics_plan.cpp",
     "src/session_widths.cpp",
     "src/low_storage.cpp",
     "src/transverse.cpp",

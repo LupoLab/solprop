@@ -2,20 +2,27 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bindings_helpers.hpp"
 #include "bindings_transverse.hpp"
-#include "helpers.hpp"
 #include "records.hpp"
 #include "solprop_native/adams_march.hpp"
-#include "solprop_native/core.hpp"
+#include "solprop_native/cpu_execution.hpp"
 #include "solprop_native/crossing.hpp"
-#include "solprop_native/dense_output.hpp"
+#include "solprop_native/dense.hpp"
 #include "solprop_native/engines.hpp"
-#include "solprop_native/fft_plan.hpp"
+#include "solprop_native/execution.hpp"
+#include "solprop_native/fftw_wisdom.hpp"
+#include "solprop_native/fields.hpp"
+#include "solprop_native/general_state.hpp"
 #include "solprop_native/host_source.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/low_storage.hpp"
+#include "solprop_native/problem.hpp"
+#include "solprop_native/readings.hpp"
+#include "solprop_native/reference_timing.hpp"
 #include "solprop_native/refuse.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/run_records.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
@@ -2743,10 +2750,7 @@ void bind_testing(nb::module_& testing) {
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   // solprop SEP 46: forget FFTW's process-wide wisdom, for a test of the planning
   // transaction.
-  testing.def("forget_fftw_wisdom", [] {
-    fftw_init_threads();
-    fftw_forget_wisdom();
-  });
+  testing.def("forget_fftw_wisdom", [] { native::forget_fftw_wisdom(); });
 #else
   testing.def("forget_fftw_wisdom", [] {});
 #endif

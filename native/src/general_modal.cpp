@@ -8,6 +8,7 @@
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/launch.hpp"
 #include "solprop_native/refuse.hpp"
+#include "solprop_native/setup_data.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -69,25 +70,6 @@ void require_size(const std::size_t actual, const std::size_t expected,
                   const char* name) {
   if (actual != expected)
     refuse("general modal ", name, " has ", actual, " values, expected ", expected);
-}
-
-template <class Value> bool finite(const std::vector<Value>& values) {
-  return std::all_of(values.begin(), values.end(), [](const Value& value) {
-    if constexpr (std::is_same_v<Value, Complex>)
-      return std::isfinite(value.real()) && std::isfinite(value.imag());
-    else
-      return std::isfinite(value);
-  });
-}
-
-template <class View, class Value>
-void upload(const ExecutionSpace& execution, const View& destination,
-            const std::vector<Value>& source) {
-  auto mirror = Kokkos::create_mirror_view(destination);
-  auto* data = mirror.data();
-  for (std::size_t index = 0; index < source.size(); ++index)
-    data[index] = source[index];
-  graph::deep_copy(execution, destination, mirror);
 }
 
 constexpr std::size_t fourth_power(const std::size_t value) {

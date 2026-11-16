@@ -4,7 +4,7 @@
 
 // What the general workspace refuses before it allocates, and a trial's scalars.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
 
 #include <tuple>
 

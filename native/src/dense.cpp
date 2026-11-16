@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "solprop_native/dense_output.hpp"
+#include "solprop_native/dense.hpp"
+
 #include "solprop_native/engines.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 

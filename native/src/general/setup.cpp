@@ -5,7 +5,8 @@
 // The general workspace's construction: its allocations, uploads, FFT plans and
 // memory ledger.
 
-#include "workspace.hpp"
+#include "general_workspace.hpp"
+#include "memory.hpp"
 
 namespace solprop_native {
 
