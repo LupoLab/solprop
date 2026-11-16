@@ -19,7 +19,7 @@ from solprop.constants import EPS0, HBAR, C
 from solprop.driver import Simulation, SimulationSettings, prop_free
 from solprop.exceptions import DriverError, GridError, OutputError, TranslationError
 from solprop.fourier import spectral_density
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.modes import SlabMode
 from solprop.noise import spatial_noise
@@ -36,6 +36,7 @@ from solprop.spatial import (
     spatial_energy,
     spatial_intensity,
 )
+from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.linop import delta_phi
 from spatial_records import record_metric
@@ -74,6 +75,31 @@ def free_case(request):
         spatial_absorber=False,
     )
     return grid, space, pulse, settings
+
+
+@pytest.mark.parametrize(
+    ("space", "kind"),
+    [(FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0), "free"), (None, "radial")],
+    ids=["cartesian", "radial"],
+)
+def test_free_space_statistics_left_unset_take_the_route_s_default(
+    free_case, space, kind
+):
+    # As every modal route does; an empty spec still asks for none.
+    grid, _, pulse, settings = free_case
+    space = RadialGrid(6e-4, 16) if space is None else space
+    for stats, names in ((None, default_spec(kind).names), (StatsSpec(names=()), ())):
+        simulation = Simulation.from_free(
+            grid,
+            space,
+            SpatialMedium(),
+            [],
+            pulse,
+            settings=dataclasses.replace(settings, stats=stats),
+            noise=None,
+        )
+        assert simulation.settings.stats is not None
+        assert simulation.settings.stats.names == names
 
 
 def test_free_interface_preserves_an_explicit_frame(free_case):

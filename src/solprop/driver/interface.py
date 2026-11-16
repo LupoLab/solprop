@@ -10,10 +10,12 @@ the noise realisation and the numerical settings from keywords, hands them to
 handler it wrote. :func:`prop_capillary` and :func:`prop_waveguide` do the same for a
 gas-filled capillary and for any other modal waveguide.
 
-The step controls ``rtol``, ``atol``, ``dz_init`` and ``dz_max`` are keywords of every
-interface. ``raman`` defaults to false, and the whole of ``gamma`` then acts as Kerr;
-the Raman share is taken from ``gamma`` only when the Raman response is on. What a run
-was asked for is recorded as structured metadata.
+The step controls ``rtol``, ``atol``, ``dz_init`` and ``dz_max`` are keywords of
+:func:`prop_gnlse`, :func:`prop_capillary` and :func:`prop_waveguide`; :func:`prop_free`
+and :func:`prop_planar` take them in their ``settings``, whose steps default to the same
+fractions of the length. ``raman`` defaults to false, and the whole of ``gamma`` then
+acts as Kerr; the Raman share is taken from ``gamma`` only when the Raman response is
+on. What a run was asked for is recorded as structured metadata.
 
 The manual page is ``docs/guide/setup/running.md``.
 """

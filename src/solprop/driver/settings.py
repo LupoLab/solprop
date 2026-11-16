@@ -173,10 +173,14 @@ class SimulationSettings(Displayed):
     n_save : int or None
         How many evenly spaced observations to record over ``[initial_z, length]``,
         both ends included: an integer of at least 2. Give this or `save_planes`.
-    dz_max : float
-        Cap on the controller's proposal, m.
-    dz_init : float
-        First step, m.
+    dz_max : float or None
+        Cap on the controller's proposal, m. ``None``, the default, takes half the
+        run's length (:func:`~solprop.driver.defaults.default_step`), as the keyword
+        routes do, when a simulation adopts the settings.
+    dz_init : float or None
+        First step, m. ``None``, the default, takes a ten-thousandth of the run's
+        length when a simulation adopts the settings, and sets `auto_init`, so the
+        start-up rule refines it.
     dz_min : float or None
         Floor on the proposal, m; ``None`` takes
         :func:`solprop.stepper.controller.default_dz_min` of the run length. A proposal
@@ -187,8 +191,8 @@ class SimulationSettings(Displayed):
     auto_init : bool
         Whether the start-up rule takes the step after the first from the first step's
         own error estimate, rather than growing from `dz_init` at the growth cap (SEP
-        14). The convenience constructors set it when no `dz_init` is given. It is off
-        for a coupled flow and a reject-free controller.
+        14). Set whenever no `dz_init` is given. It is off for a coupled flow and a
+        reject-free controller.
     interval_cap : bool or None
         Whether a step is capped at the width of its operator-table interval. ``None``
         caps it only for a coupled flow or a reject-free controller (SEP 14).
@@ -272,7 +276,11 @@ class SimulationSettings(Displayed):
         :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET`); an explicit budget
         is authoritative.
     stats : solprop.stats.StatsSpec or None
-        Which statistics to collect at every saved plane; ``None`` collects none.
+        Which statistics to collect at every saved plane. ``None`` takes the route's
+        default in every ``Simulation.from_*`` constructor
+        (:func:`solprop.stats.default_spec`) and collects none on a
+        :class:`~solprop.driver.simulation.Simulation` built directly;
+        ``StatsSpec(names=())`` collects none anywhere.
     polarisation_taper : bool
         Whether the spectral collar tapers the nonlinear polarisation as well as
         absorbing the field through the linear operator. Default ``False``, which is
@@ -369,8 +377,8 @@ class SimulationSettings(Displayed):
     # the fix, rather than by the run-time type check.
     save_planes: Float[np.ndarray, " n_z"] | Sequence[float] | float | None = None
     n_save: int | SupportsIndex | float | None = None
-    dz_max: float
-    dz_init: float
+    dz_max: float | None = None
+    dz_init: float | None = None
     dz_min: float | None = None
     stretch: float | None = None
     auto_init: bool = False
@@ -485,7 +493,15 @@ class SimulationSettings(Displayed):
                     else ""
                 ),
             ),
-            ("steps", f"{schedule}, dz_max {engineering(self.dz_max, 'm')}"),
+            (
+                "steps",
+                f"{schedule}, dz_max "
+                + (
+                    "half the length"
+                    if self.dz_max is None
+                    else engineering(self.dz_max, "m")
+                ),
+            ),
             ("shock term", self.shock),
             (
                 "absorber",
@@ -1102,8 +1118,10 @@ def _adopted(
 
     Validated against the run whatever they hold, a count, a list or resolved
     positions; the result holds the positions after the entrance ending exactly at
-    `length`, and ``n_save=None``. Settings already resolved for the run are returned
-    as they are. An interior launch's schedule is left to its own refusal.
+    `length`, and ``n_save=None``, and a step left ``None`` takes its default fraction
+    of `length` (:func:`~solprop.driver.defaults.default_step`), a first step so
+    taken refined by the start-up rule. Settings already resolved for the run are
+    returned as they are. An interior launch's schedule is left to its own refusal.
     """
     if not (math.isfinite(entrance) and 0.0 <= entrance < length):
         msg = (
@@ -1122,10 +1140,16 @@ def _adopted(
         refusal = _replay_refusal(settings.schedule, entrance, length)
         if refusal is not None:
             raise DriverError(refusal, parameter="schedule", rule="replay-interval")
+    steps: dict[str, float | bool] = {}
+    if settings.dz_max is None:
+        steps["dz_max"] = default_step("dz_max", length)
+    if settings.dz_init is None:
+        steps["dz_init"] = default_step("dz_init", length)
+        steps["auto_init"] = True
     current = settings.save_planes
-    if current is not None and np.array_equal(current, planes):
+    if not steps and current is not None and np.array_equal(current, planes):
         return settings
-    return dataclasses.replace(settings, save_planes=planes, n_save=None)
+    return dataclasses.replace(settings, save_planes=planes, n_save=None, **steps)
 
 
 def _scheme(settings: SimulationSettings) -> AbsorberScheme:

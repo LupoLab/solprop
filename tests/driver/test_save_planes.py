@@ -220,6 +220,27 @@ def test_an_object_route_runs_to_its_grid_length():
     assert np.asarray(direct.settings.save_planes).tolist() == [LENGTH / 2, LENGTH]
 
 
+def test_steps_left_unset_take_the_keyword_routes_fractions_of_the_grid_length():
+    # The same defaults as the keyword routes: half the length, a ten-thousandth of
+    # it refined by the start-up rule. Exact: one product each.
+    simulation = fibre()
+    direct = adopted(simulation, SimulationSettings(backend="numpy_ref"))
+    assert (direct.settings.dz_max, direct.settings.dz_init) == (
+        0.5 * LENGTH,
+        1e-4 * LENGTH,
+    )
+    assert direct.settings.auto_init
+    keyword = fibre(dz_max=None, dz_init=None).settings
+    assert (keyword.dz_max, keyword.dz_init) == (
+        direct.settings.dz_max,
+        direct.settings.dz_init,
+    )
+    given = adopted(simulation, settings())
+    assert (given.settings.dz_max, given.settings.dz_init) == (1e-6, 1e-6)
+    assert not given.settings.auto_init
+    assert "dz_max half the length" in str(SimulationSettings())
+
+
 # ------------------------------------------------------------- interior launches
 
 

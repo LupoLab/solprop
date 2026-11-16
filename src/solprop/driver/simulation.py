@@ -872,8 +872,9 @@ class Simulation(Displayed):
                     # Simulation.__init__ refuses a missing controller.
                     controller=cast("PIController", settings.controller),
                     save_planes=np.asarray(settings.save_planes),
-                    dz_max=settings.dz_max,
-                    dz_init=settings.dz_init,
+                    # Adoption resolves a step left None (`_adopted`).
+                    dz_max=cast("float", settings.dz_max),
+                    dz_init=cast("float", settings.dz_init),
                     dz_min=settings.dz_min,
                     stretch=settings.stretch,
                     auto_init=settings.auto_init,
@@ -2213,8 +2214,11 @@ class Simulation(Displayed):
         settings : SimulationSettings
             Step tolerances, the saved planes (``n_save`` or positions in m over
             ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
-            backend.
-            Absolute tolerance has the input spectrum's units.
+            backend. Absolute tolerance has the input spectrum's units. Steps left
+            ``None`` take the keyword routes' fractions of ``grid.length``, and
+            statistics left ``None`` take ``default_spec("radial")`` on a radial grid
+            and ``default_spec("free")`` otherwise (:func:`solprop.stats.default_spec`),
+            with a mixture's per-species statistics beside them.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
         noise : {'default', None, 'input', 'modified'}, optional
@@ -2342,8 +2346,10 @@ class Simulation(Displayed):
         settings : SimulationSettings
             Step tolerances, the saved planes (``n_save`` or positions in m over
             ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
-            backend.
-            Absolute tolerance has the input spectrum's units, sqrt(W/m).
+            backend. Absolute tolerance has the input spectrum's units, sqrt(W/m).
+            Steps left ``None`` take the keyword routes' fractions of
+            ``grid.length``, and statistics left ``None`` take
+            ``default_spec("free")`` (:func:`solprop.stats.default_spec`).
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice, following
             the first mode at ``k_y = 0`` as the modal route does.
@@ -2414,6 +2420,9 @@ class Simulation(Displayed):
             ),
             grid,
         )
+        if settings.stats is None:
+            # The route's statistics, as every other route takes its own.
+            settings = dataclasses.replace(settings, stats=default_spec("free"))
         simulation = cls(
             grid,
             (),
