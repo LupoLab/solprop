@@ -4,9 +4,12 @@
 
 """A recipe written out as the plain Python script a person would write (SEP 41, S1).
 
-The script is the way out of a recipe for whatever a recipe cannot hold: a custom
-pulse, a callable, an unregistered type. It makes the same run: the same simulation,
-hash included, and the same execution settings, which the hash does not cover.
+:func:`script` writes it: a ``_Writer`` renders each recipe value as a Python
+expression and collects what the script must import, and ``_Pinned`` holds the solver
+calls that set the pinned values before the route's call. The script is the way out of
+a recipe for whatever a recipe cannot hold: a custom pulse, a callable, an unregistered
+type. It makes the same run: the same simulation, hash included, and the same execution
+settings, which the hash does not cover.
 """
 
 from collections.abc import Mapping
