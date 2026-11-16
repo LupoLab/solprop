@@ -71,9 +71,12 @@ def launch_case(kerr, n_pol):
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
+        reference.workspace.hoist(0.0)
         state = reference._require_state()
-        peak = max(float(np.max(abs(one))) for one in reference._plasma_nodes(state))
+        peak = max(
+            float(np.max(abs(one)))
+            for one in reference.workspace._plasma_nodes(state, reference._z)
+        )
     finally:
         reference.close()
     assert peak > 0.0

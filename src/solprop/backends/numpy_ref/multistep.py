@@ -44,21 +44,27 @@ ledger both backends keep is :mod:`solprop.backends.ledger`.
 
 import logging
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
-from jaxtyping import Complex
+from jaxtyping import Bool, Complex, Float
 from scipy.linalg import expm
 
 from solprop._helpers import PLAIN, Helpers
+from solprop.backends.adams_core import Stencil
+from solprop.backends.engines import (
+    AcceptRecord,
+    AttemptOutcome,
+    BoundaryReading,
+    HistoryEntry,
+)
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
     phi_functions,
 )
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.ledger import source_absent
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError
@@ -69,8 +75,11 @@ from solprop.stepper.multistep import (
 )
 from solprop.translate.linop import phi_rate
 
+if TYPE_CHECKING:
+    from solprop.backends.numpy_ref.workspace import NumpyWorkspace
+    from solprop.stepper.controller import PIController
+
 __all__ = [
-    "AdamsEngine",
     "AdamsKernels",
     "CoupledBlock",
     "CoupledExponentialKernels",
@@ -1262,253 +1271,25 @@ class _Compensation:
         return [1.0, *self.nodes[:order]], [self.endpoint.copy(), *history]
 
 
-class AdamsEngine(Protocol):
-    """What an Adams march asks of the engine that holds its history (SEP 16).
-
-    The march keeps the controller; an engine keeps the history's rows and does every
-    state-sized operation, so that a backend can keep them where its state lives.
-    :class:`HostHistory` is the reference; ``docs/dev/stepper.md`` states the contract.
-    SEP 52's phase 3 replaces it with :class:`solprop.backends.engines.AdamsEngine`,
-    which mirrors the native ``march::Engine``.
-    """
-
-    dense: Any
-    """The interaction formulation's last accepted step (a ``_DenseStep`` or ``None``),
-    for observation."""
-
-    compensated: bool
-    """Whether trials carry a varying operator's linear compensation (SEP 16 4.2)."""
-
-    carrier: CarrierReference | None
-    """The run's carrier frame (SEP 35), or ``None`` when off; an exponential trial
-    removes its phase from the samples it reads."""
-
-    @property
-    def n_slots(self) -> int:  # numpydoc ignore=RT01
-        """The history store's rows."""
-        ...
-
-    def reset(self) -> None:
-        """Forget the last accepted step and any trial in flight."""
-        ...
-
-    def hold(self) -> object:
-        """Return the accepted state, to restore after a dense observation.
-
-        Returns
-        -------
-        object
-            A handle :meth:`restore` takes.
-        """
-        ...
-
-    def restore(self, z: float, held: object) -> None:
-        """Make a held accepted state current again at `z`.
-
-        Parameters
-        ----------
-        z : float
-            Its position, m.
-        held : object
-            What :meth:`hold` returned.
-        """
-        ...
-
-    def start(self, z: float) -> _State | None:
-        """Evaluate the history's first sample at the accepted state into row zero.
-
-        Parameters
-        ----------
-        z : float
-            The accepted position, m.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The sample on the host, or ``None`` when the rows are resident.
-        """
-        ...
-
-    def value(self, slot: int) -> _State | None:
-        """Return a store row on the host, or ``None`` when the rows are resident.
-
-        Parameters
-        ----------
-        slot : int
-            The row.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The row, or ``None``.
-        """
-        ...
-
-    def fused_trial(  # noqa: PLR0917 - called positionally
-        self,
-        z: float,
-        dz: float,
-        nodes: list[float],
-        slots: np.ndarray,
-        order: int,
-        orders: list[int],
-    ) -> np.ndarray:
-        """Form an interaction-formulation trial; return its scored norms.
-
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
-        """
-        ...
-
-    def fused_accept(self, keep: np.ndarray, free: int, *, interpolate: bool) -> None:
-        """Adopt the held interaction-formulation trial.
-
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``.
-        free : int
-            The row the new sample takes.
-        interpolate : bool
-            Whether the step's interpolant is kept for dense observation.
-        """
-        ...
-
-    def exponential_trial(  # noqa: PLR0917 - called positionally
-        self,
-        z: float,
-        dz: float,
-        nodes: list[float],
-        slots: np.ndarray,
-        order: int,
-        orders: list[int],
-    ) -> np.ndarray:
-        """Form an exponential trial; return its scored norms.
-
-        Parameters
-        ----------
-        z, dz : float
-            The anchor and the step, m.
-        nodes : list of float
-            The history's normalised positions, newest first.
-        slots : numpy.ndarray
-            Their store rows, ``int64``.
-        order : int
-            The step's order.
-        orders : list of int
-            The orders scored, the step's own first.
-
-        Returns
-        -------
-        numpy.ndarray
-            One scaled norm per scored order.
-        """
-        ...
-
-    def exponential_accept(
-        self, keep: np.ndarray, free: int, *, interpolate: bool
-    ) -> None:
-        """Adopt the held exponential trial.
-
-        Parameters
-        ----------
-        keep : numpy.ndarray
-            The history rows kept, ``int64``.
-        free : int
-            The row the new sample takes.
-        interpolate : bool
-            Whether the step's interpolant is kept for dense observation.
-        """
-        ...
-
-    def snapshot_rows(self) -> dict[str, np.ndarray]:
-        """Return host copies of the rows a resume needs to continue the history.
-
-        Returns
-        -------
-        dict
-            The rows by name, each ``(n_slots, *shape)``, in the engine's own names
-            (``HostHistory.snapshot_rows`` states the host engine's).
-        """
-        ...
-
-    def snapshot_nbytes(self) -> int:
-        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
-
-        Returns
-        -------
-        int
-            The size of every row.
-        """
-        ...
-
-    def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
-        """Install rows :meth:`snapshot_rows` returned, refusing rows it does not keep.
-
-        Parameters
-        ----------
-        rows : collections.abc.Mapping
-            The rows, by name.
-        shape : tuple of int
-            The state's shape.
-
-        Raises
-        ------
-        BackendError
-            If the rows are another engine's, missing, or of the wrong shape; nothing
-            is installed then.
-        """
-        ...
-
-    def observe(self, position: float) -> object:
-        """Return the masked field at `position` inside the last accepted step.
-
-        Parameters
-        ----------
-        position : float
-            The observation, m.
-
-        Returns
-        -------
-        object
-            The field, as the backend holds a state.
-        """
-        ...
-
-
 class HostHistory:
     """The Adams history and its field arithmetic, on host arrays (SEP 16 phase 3b).
 
-    The march (:class:`~solprop.backends.host.adams.HostAdamsMarch`) keeps the
-    controller -- the orders, the slots, rejection,
-    restarts, the budget and the ledger -- and hands every state-sized operation to an
-    engine: the startup sample, a trial's predictor, source, corrector and defect
-    norms, the adoption and transport of an accepted step, and dense observation. This
-    engine holds the history in a NumPy store and applies the given kernels; a backend
-    may supply its own, as the native backend keeps the history resident in its
-    state (``_ResidentAdams``). Between a trial and its acceptance the engine
-    holds the trial; nothing else is carried across calls but the store and the last
-    accepted step for dense observation.
+    The reference's :class:`~solprop.backends.engines.AdamsEngine` (native's
+    ``march::Engine``, SEP 52 section 5.2). The march
+    (:class:`~solprop.backends.host.adams.HostAdamsMarch`) keeps the controller -- the
+    orders, the entries, rejection, restarts, the budget and the ledger -- and hands
+    every state-sized operation to this engine over the workspace: the startup sample,
+    a trial's predictor, source, corrector and defect norms, and the adoption and
+    transport of an accepted step. The engine holds the history's rows in a NumPy
+    store; between a trial and its acceptance it holds the trial. Beside the protocol
+    it still holds the last accepted step for dense observation (:meth:`hold`,
+    :meth:`restore`, :meth:`observe`) and the rows a snapshot carries, which SEP 52
+    moves to the session.
 
     Parameters
     ----------
-    backend : solprop.backends.host.driver.HostDriver
-        The backend whose state, source evaluation and propagators are used.
+    workspace : solprop.backends.numpy_ref.workspace.NumpyWorkspace
+        The workspace whose state, source evaluation and propagators are used.
     method : solprop.stepper.multistep.Multistep
         The method.
     kernels : AdamsKernels
@@ -1517,23 +1298,29 @@ class HostHistory:
         The exponential formulation's arithmetic, ``None`` for the interaction one.
     compensation : {'transported', 'untransported'}
         A varying operator's compensation treatment (SEP 16 Q8).
+    interpolate : bool, optional
+        Whether an accepted step keeps its interpolant for dense observation.
     """
 
     def __init__(
         self,
-        backend: HostDriver[Any],
+        workspace: "NumpyWorkspace",
         method: Multistep,
         kernels: AdamsKernels,
         exponential: ExponentialKernels | None,
         compensation: Literal["transported", "untransported"],
+        *,
+        interpolate: bool = False,
     ) -> None:
-        """Hold the backend, the kernels and an empty store."""
-        self._backend = backend
+        """Hold the workspace, the kernels and an empty store."""
+        self._workspace = workspace
         self._method = method
         self._kernels = kernels
         self._exponential = exponential
         self._compensation = compensation
-        linear = backend._problem.linear
+        self._interpolate = interpolate
+        self._controller = workspace.stepper.controller
+        linear = workspace.problem.linear
         # SEP 16 phase 4: a varying operator's linear compensation, integrated in the
         # reference flow's frame (Q8); the untransported treatment is a test witness.
         # A structurally absent source takes the exact chord instead (section 4.2).
@@ -1545,7 +1332,7 @@ class HostHistory:
             residual
             or (
                 linear.phi_representation in ("expansion", "table")
-                and not source_absent(backend._problem)
+                and not source_absent(workspace.problem)
             )
         )
         if self.compensated and flow is not None and compensation != "transported":
@@ -1564,12 +1351,16 @@ class HostHistory:
         # it reads, from a reference fixed for the run; None when off. An inert one
         # (sigma = 0) takes the unshifted arithmetic exactly.
         self.carrier: CarrierReference | None = (
-            None if exponential is None else carrier_reference(backend._problem, method)
+            None
+            if exponential is None
+            else carrier_reference(workspace.problem, method)
         )
         if self.carrier is not None:
             logger.info(
                 "carrier frame %r: %s", self.carrier.policy, self.carrier.reason
             )
+        # The last exponential trial's carrier shift and row rotations (SEP 35).
+        self._carrier_rows: tuple[np.ndarray, np.ndarray] | None = None
 
     def reset(self) -> None:
         """Forget the last accepted step and any trial in flight."""
@@ -1593,7 +1384,7 @@ class HostHistory:
         object
             The backend's host copy of the accepted state.
         """
-        return self._backend._adams_state()
+        return self._workspace.committed()
 
     def restore(self, z: float, held: object) -> None:
         """Make a held accepted state current again at `z`.
@@ -1605,33 +1396,29 @@ class HostHistory:
         held : object
             What :meth:`hold` returned.
         """
-        self._backend._adams_restore(z, cast("_State", held))
+        del z
+        self._workspace.install(cast("_State", held))
 
     # --- startup ----------------------------------------------------------------------
 
-    def start(self, z: float) -> _State:
+    def start(self, z: float) -> None:
         """Evaluate the source at the accepted state, the history's first sample.
 
-        The sample goes to the store's row zero.
+        The sample goes to the store's row zero: the transported source in the
+        interaction formulation, the untransported one in the exponential formulation.
 
         Parameters
         ----------
         z : float
             The accepted position, m.
-
-        Returns
-        -------
-        numpy.ndarray
-            The sample: the transported source in the interaction formulation, the
-            untransported one in the exponential formulation.
         """
-        backend = self._backend
-        state = backend._adams_state()
-        backend._hoist(z)
+        workspace = self._workspace
+        state = workspace.committed()
+        workspace.hoist(z)
         if self._exponential is not None:
-            value = backend._adams_lab_source(state, z, purpose="startup")
+            value = workspace.lab_source(state, z, purpose="startup")
         else:
-            value, _ = backend._adams_source(state, z, z, purpose="startup")
+            value, _ = workspace.source(state, z, z, purpose="startup")
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
@@ -1646,13 +1433,147 @@ class HostHistory:
             # that restarted the history.
             self._states[0] = state
             self._rates[0] = phi_rate(
-                backend._problem.linear, z, helpers=backend.helpers
+                workspace.problem.linear, z, helpers=workspace.helpers
             )
             # A frozen-residual flow's weights at the sample, on the far side too.
-            start = cast("CoupledBlock | None", backend._adams_block(z, 0.0))
+            start = cast("CoupledBlock | None", workspace.coupled_block(z, 0.0))
             self._weights = [None] * self.n_slots
             self._weights[0] = None if start is None else start.end_weights
-        return self._store[0]
+
+    # --- the protocol's trial and accept -------------------------------------------
+
+    def trial(
+        self, z: float, dz: float, stencil: Stencil
+    ) -> Float[np.ndarray, " n_orders"]:
+        """Form a trial from `z` over `dz`; return its scored orders' norms.
+
+        The method's own formulation's trial (:meth:`fused_trial`,
+        :meth:`exponential_trial`), held for :meth:`accept`.
+
+        Parameters
+        ----------
+        z : float
+            Where the trial starts, m.
+        dz : float
+            The step, m.
+        stencil : solprop.backends.adams_core.Stencil
+            The history's nodes and rows, newest first, and the orders scored.
+
+        Returns
+        -------
+        numpy.ndarray
+            One scaled norm per scored order, the step's own first.
+        """
+        trial = (
+            self.fused_trial if self._exponential is None else self.exponential_trial
+        )
+        return trial(z, dz, stencil.nodes, stencil.rows, stencil.order, stencil.orders)
+
+    def accept(
+        self, dz: float, free: int, stencil: Stencil, kept: Sequence[HistoryEntry]
+    ) -> AcceptRecord:
+        """Adopt the held trial; the new sample takes row `free`.
+
+        Parameters
+        ----------
+        dz : float
+            The accepted step, m.
+        free : int
+            The history row the new sample takes.
+        stencil : solprop.backends.adams_core.Stencil
+            The trial's stencil.
+        kept : collections.abc.Sequence of solprop.backends.engines.HistoryEntry
+            The history the step keeps, oldest first, which the interaction
+            formulation transports.
+
+        Returns
+        -------
+        solprop.backends.engines.AcceptRecord
+            The finish's split collar's sums.
+        """
+        del dz, stencil  # the held trial carries both
+        rows = np.array([entry.row for entry in kept], dtype=np.int64)
+        adopt = (
+            self.fused_accept if self._exponential is None else self.exponential_accept
+        )
+        return adopt(rows, free, interpolate=self._interpolate)
+
+    def chord_phase(self, z1: float, z2: float) -> float:
+        """Return the carrier chord's largest phase over ``[z1, z2]``.
+
+        Parameters
+        ----------
+        z1, z2 : float
+            The interval, m.
+
+        Returns
+        -------
+        float
+            The phase, rad; 0.0 without a carrier frame.
+        """
+        carrier = self.carrier
+        return 0.0 if carrier is None else carrier.chord_phase(z1, z2)
+
+    def step_carrier(self, order: int) -> Float[np.ndarray, " n_rotations"]:
+        """Return the last trial's carrier rotations over its `order` newest rows.
+
+        Packed as native's are: the shift's imaginary part, then each row's rotation as
+        its real and imaginary parts.
+
+        Parameters
+        ----------
+        order : int
+            The rows the dense observation's formula reads.
+
+        Returns
+        -------
+        numpy.ndarray
+            The rotations, empty without an active carrier frame.
+        """
+        if self._carrier_rows is None:
+            return np.zeros(0)
+        shift, factors = self._carrier_rows
+        rows = [float(np.imag(shift).reshape(-1)[0])]
+        for factor in factors[:order]:
+            value = complex(np.asarray(factor).reshape(-1)[0])
+            rows += [value.real, value.imag]
+        return np.array(rows)
+
+    def begin_attempt(self, cost: int) -> None:
+        """Reserve the attempt's host-source calls (SEP 49 section 6.2).
+
+        Parameters
+        ----------
+        cost : int
+            The attempt's logical response calls.
+        """
+        self._workspace.reserve_calls(cost)
+
+    def end_attempt(self, outcome: AttemptOutcome) -> None:
+        """Release the reservation's rest and record a decided attempt's outcome.
+
+        Parameters
+        ----------
+        outcome : solprop.backends.engines.AttemptOutcome
+            How the attempt ended; an abandoned one only releases.
+        """
+        try:
+            if outcome != AttemptOutcome.ABANDONED:
+                self._workspace.record_trial(
+                    accepted=outcome == AttemptOutcome.ACCEPTED
+                )
+        finally:
+            self._workspace.release_calls()
+
+    def reading(self) -> BoundaryReading:
+        """Return the committed state's boundary reading.
+
+        Returns
+        -------
+        solprop.backends.engines.BoundaryReading
+            The workspace's reading.
+        """
+        return self._workspace.reading()
 
     # --- the interaction formulation's fused path -------------------------------------
 
@@ -1690,18 +1611,18 @@ class HostHistory:
         numpy.ndarray
             One scaled norm per scored order.
         """
-        backend, kernels = self._backend, self._kernels
+        workspace, kernels = self._workspace, self._kernels
         store = self._store
         assert store is not None
-        state = backend._adams_state()
-        backend._hoist(z)
-        propagator = backend._adams_propagator(z, z + dz)
+        state = workspace.committed()
+        workspace.hoist(z)
+        propagator = workspace.propagator(z, z + dz, hold=True)
         predictor = kernels.weights(nodes[:order])
         lab = kernels.predict(state, propagator, store, slots[:order], predictor, dz)
-        source, _ = backend._adams_source(lab, z, z + dz, purpose="predictor")
+        source, _ = workspace.source(lab, z, z + dz, purpose="predictor")
         rows, corrector = _defect_rows(kernels, nodes, orders)
         width = rows.shape[1]
-        mask = backend._problem.grids.norm_mask
+        mask = workspace.problem.grids.norm_mask
         advanced, norms = kernels.correct(
             state,
             propagator,
@@ -1712,7 +1633,7 @@ class HostHistory:
             rows,
             dz,
             mask,
-            _divisor(backend, state),
+            _divisor(mask, self._controller, state),
         )
         self._fused_trial = _FusedTrial(
             z=z,
@@ -1727,7 +1648,9 @@ class HostHistory:
         )
         return norms
 
-    def fused_accept(self, keep: np.ndarray, free: int, *, interpolate: bool) -> None:
+    def fused_accept(
+        self, keep: np.ndarray, free: int, *, interpolate: bool
+    ) -> AcceptRecord:
         """Adopt the held fused trial: the state, its interpolant, the new sample.
 
         Parameters
@@ -1738,12 +1661,17 @@ class HostHistory:
             The row the new sample takes.
         interpolate : bool
             Whether the step's interpolant is kept for dense observation.
+
+        Returns
+        -------
+        solprop.backends.engines.AcceptRecord
+            The finish's split collar's sums.
         """
         trial = self._fused_trial
         store = self._store
         assert trial is not None and store is not None
         self._fused_trial = None
-        self._backend._adams_adopt(trial.advanced, trial.dz)
+        record = self._adopt(trial.advanced, trial.dz)
         order = trial.order
         if interpolate:
             # Copied before the transport re-anchors the rows in place: the step's own
@@ -1760,6 +1688,13 @@ class HostHistory:
                 slopes=slopes,
             )
         self._kernels.transport(store, keep, trial.propagator, free, trial.source)
+        return record
+
+    def _adopt(self, advanced: _State, dz: float) -> AcceptRecord:
+        """Finish an accepted step's state and commit it as the workspace's."""
+        finished, record = self._workspace.finish(advanced, dz)
+        self._workspace.install(finished)
+        return record
 
     def value(self, slot: int) -> _State:
         """Return a store row, for the history entry that names it.
@@ -1842,7 +1777,7 @@ class HostHistory:
         )
         foreign = sorted(set(rows) - kept)
         if foreign:
-            name = self._backend.name
+            name = self._workspace.name
             if "applied" in foreign:
                 msg = (
                     f"the {name} backend cannot continue this Adams history: the "
@@ -1915,22 +1850,22 @@ class HostHistory:
         numpy.ndarray
             One scaled norm per scored order.
         """
-        backend, kernels = self._backend, self._exponential
+        workspace, kernels = self._workspace, self._exponential
         assert kernels is not None
         store = self._store
         assert store is not None
-        state = backend._adams_state()
-        backend._hoist(z)
+        state = workspace.committed()
+        workspace.hoist(z)
         width = 1 + max(orders)
         # The exponent is the backend's own increment of Phi over the step, so the
         # flow below is exactly the propagator the interaction formulation applies.
         # Copied: a z table's host evaluator returns its own reused buffer, which the
         # source evaluation writes again.
-        exponent = np.array(backend._delta_phi(backend._stage_scalars(z, z + dz)))
+        exponent = np.array(workspace.delta_phi(workspace.stage_scalars(z, z + dz)))
         # A coupled section's step (SEP 16 phase 5): its flow and moments are matrix
         # functions of the frozen block on the bins that carry one, applied by the
         # reference passes.
-        block = cast("CoupledBlock | None", backend._adams_block(z, dz))
+        block = cast("CoupledBlock | None", workspace.coupled_block(z, dz))
         # SEP 35 section 4.1: with F(z_n + s) = exp(-sigma (1 - s/h)) G(s), the
         # step interpolates G_j = exp(sigma (1 - theta_j)) F_j and integrates it
         # against the moments at x - sigma; exact for any sigma, the flow untouched.
@@ -1952,7 +1887,9 @@ class HostHistory:
             moments,
             store,
             rows_read[:order],
-            lagrange_coefficients(nodes[:order], check=False, helpers=backend.helpers),
+            lagrange_coefficients(
+                nodes[:order], check=False, helpers=workspace.helpers
+            ),
             dz,
             **rotation,
         )
@@ -1964,13 +1901,15 @@ class HostHistory:
             if shift is not None:
                 compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
-        source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
-        corrector = _exponential_corrector(nodes, order, width, helpers=backend.helpers)
+        source = workspace.lab_source(lab, z + dz, purpose="predictor")
+        corrector = _exponential_corrector(
+            nodes, order, width, helpers=workspace.helpers
+        )
         rows = kernels.defect_rows(nodes, orders, width)
         extra = None
         if compensation is not None:
             rate = phi_rate(
-                backend._problem.linear, z + dz, before=True, helpers=backend.helpers
+                workspace.problem.linear, z + dz, before=True, helpers=workspace.helpers
             )
             residual = None
             if block is not None and block.residual is not None:
@@ -1979,7 +1918,7 @@ class HostHistory:
             compensation.add_endpoint(rate, lab, residual)
             self._trial_weights = None if block is None else block.end_weights
             extra = (compensation.corrector(order), compensation.defects(orders))
-        mask = backend._problem.grids.norm_mask
+        mask = workspace.problem.grids.norm_mask
         advanced, norms = kernels.correct(
             state,
             flow,
@@ -1991,7 +1930,7 @@ class HostHistory:
             rows,
             dz,
             mask,
-            _divisor(backend, state),
+            _divisor(mask, self._controller, state),
             extra,
             **({} if factors is None else {"factors": factors}),
         )
@@ -2010,11 +1949,14 @@ class HostHistory:
             shift=shift,
             factors=factors,
         )
+        self._carrier_rows = (
+            None if shift is None or factors is None else (shift, factors)
+        )
         return norms
 
     def exponential_accept(
         self, keep: np.ndarray, free: int, *, interpolate: bool
-    ) -> None:
+    ) -> AcceptRecord:
         """Adopt the held exponential trial; the new sample takes row `free`.
 
         Parameters
@@ -2025,13 +1967,18 @@ class HostHistory:
             The row the new sample takes.
         interpolate : bool
             Whether the step's interpolant is kept for dense observation.
+
+        Returns
+        -------
+        solprop.backends.engines.AcceptRecord
+            The finish's split collar's sums.
         """
         del keep  # untransported samples are never re-anchored
         trial = self._exponential_trial
         store = self._store
         assert trial is not None and store is not None
         self._exponential_trial = None
-        self._backend._adams_adopt(trial.advanced, trial.dz)
+        record = self._adopt(trial.advanced, trial.dz)
         z, dz, order, slots = trial.z, trial.dz, trial.order, trial.slots
         compensation = trial.compensation
         if interpolate:
@@ -2068,6 +2015,7 @@ class HostHistory:
             self._rates[free] = compensation.endpoint_rate
             # One entry per slot, set with the startup sample or a resumed history.
             self._weights[free] = self._trial_weights
+        return record
 
     def _history_terms(
         self, exponent: _State, dz: float, slots: np.ndarray
@@ -2124,7 +2072,7 @@ class HostHistory:
             carried=carried,
             dz=dz,
             treatment=self._compensation,
-            helpers=self._backend.helpers,
+            helpers=self._workspace.helpers,
         )
 
     # --- dense observation ------------------------------------------------------------
@@ -2147,18 +2095,20 @@ class HostHistory:
             return self._observe_exponential(position)
         step = cast("_DenseStep | None", self.dense)
         assert step is not None
-        backend = self._backend
+        workspace = self._workspace
         theta = (position - step.z) / step.dz
         weights = integrated_weights(
-            step.nodes, theta, check=False, helpers=backend.helpers
+            step.nodes, theta, check=False, helpers=workspace.helpers
         )
         value = step.start + _combine(weights, step.slopes, step.dz)
         # A bin the linear flow changes by more than an e-fold over the step (the
         # spectral collar's) takes the anchor's linear flow: no polynomial follows its
         # exponentially growing derivative (as for the Runge-Kutta extension).
-        exponent = backend._delta_phi(backend._stage_scalars(step.z, step.z + step.dz))
+        exponent = workspace.delta_phi(
+            workspace.stage_scalars(step.z, step.z + step.dz)
+        )
         value = np.where(np.abs(np.real(exponent)) > 1.0, step.start, value)
-        return backend._apply_mask(backend._adams_propagator(step.z, position) * value)
+        return workspace.mask(workspace.propagator(step.z, position, hold=True) * value)
 
     def _observe_exponential(self, position: float) -> object:
         """Return the field at `position` inside the last accepted exponential step.
@@ -2177,7 +2127,7 @@ class HostHistory:
         step = self._exponential_dense
         assert step is not None
         # One evaluation per plane: the reference passes serve every backend.
-        helpers = self._backend.helpers
+        helpers = self._workspace.helpers
         kernels = ExponentialKernels(helpers=helpers)
         xi = (position - step.z) / step.dz
         count = step.coefficients.shape[1]
@@ -2211,7 +2161,7 @@ class HostHistory:
                 )
             damped = np.real(step.exponent) < -1.0
             value = np.where(damped, np.exp(xi * step.exponent) * step.start, value)
-        return self._backend._apply_mask(value)
+        return self._workspace.mask(value)
 
 
 def _trial_propagators(  # noqa: PLR0917 - called positionally
@@ -2282,7 +2232,8 @@ def _rows_read(
 
 
 def _divisor(
-    backend: HostDriver[Any],
+    mask: Bool[np.ndarray, " n_omega"],
+    controller: "PIController",
     state: _State,
 ) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
@@ -2296,8 +2247,6 @@ def _divisor(
 
     - Returns: the scale of every bin, shape ``(n_omega,)``.
     """
-    mask = backend._problem.grids.norm_mask
-    controller = backend._stepper.controller
     magnitude = float(np.linalg.norm(state[..., mask]))
     scale = controller.scale(magnitude, magnitude)
     return (

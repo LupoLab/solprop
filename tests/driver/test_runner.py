@@ -153,7 +153,7 @@ def restored(backend, problem, run_request) -> tuple:
     )
     entrance = float(backend.stats(spec)["quadrature_error"])
     return (
-        backend._dense_ahead is None,
+        backend._march._ahead is None,
         "nan" if np.isnan(entrance) else entrance,
         None if march is None else dataclasses.asdict(march.ledger),
         None if march is None else march._last_rejected,
@@ -247,7 +247,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(dense):
         left = cast("HostDriver", runner.backend)
         if dense:
             # The failed run held the march ahead of its interpolated plane.
-            assert left._dense_ahead is not None
+            assert left._march.holding
         else:
             assert left._adams is not None
             assert left._adams.ledger.total > 0

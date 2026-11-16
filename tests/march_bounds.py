@@ -174,15 +174,15 @@ def measured_scales(simulation) -> tuple[float, float]:
     """
     from general_parity import conditioning  # noqa: PLC0415
     from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
-    from solprop.backends.numpy_ref.backend import _general_maps  # noqa: PLC0415
+    from solprop.backends.numpy_ref.workspace import _general_maps  # noqa: PLC0415
 
     problem = simulation.translate()
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
         state = problem.initial.field0
-        bundle = backend._stage_scalars(0.0, 0.0)
-        source = backend._nonlinear(state, bundle, np.ones_like(state))
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
+        source = backend.workspace.nonlinear(state, bundle, np.ones_like(state))
     finally:
         backend.close()
     length = float(run_request.stepper.save_planes[-1])

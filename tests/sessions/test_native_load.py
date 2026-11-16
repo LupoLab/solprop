@@ -58,11 +58,11 @@ def test_an_input_draw_is_added_at_the_launch_alone():
         reference.set_initial(field, None, z=float(problem.initial.z))
         host = cast("Any", reference)
         assert loaded.floor is not None and loaded.noise is None
-        assert np.array_equal(loaded.floor, host._input_floor)
+        assert np.array_equal(loaded.floor, host.workspace.input_floor)
         expected = np.asarray(field) + loaded.floor
         assert np.array_equal(loaded.field, expected.reshape(-1))
         assert loaded.clean_columns is not None
-        assert np.array_equal(loaded.clean_columns, host._clean_columns)
+        assert np.array_equal(loaded.clean_columns, host.workspace._clean_columns)
         resumed = native_load.load(
             problem, request.stepper, field, None, z=z, resume=True
         )

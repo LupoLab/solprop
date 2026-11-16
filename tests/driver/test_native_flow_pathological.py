@@ -30,12 +30,13 @@ import numpy as np
 import pytest
 
 import flow_parity
+from builders import reference_trial
 from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref import passes as reference_passes
-from solprop.backends.numpy_ref.backend import (
+from solprop.backends.numpy_ref.workspace import (
     _check_flow_conditioning,
     _coupled_flow_maps,
     _flow_action,
@@ -255,7 +256,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
         reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             reference.set_initial(field, None)
-            reference._trial_step(0.0, dz)
+            reference_trial(reference, 0.0, dz)
             expected_state = reference._require_state().copy()
         finally:
             reference.close()

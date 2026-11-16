@@ -18,6 +18,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.records import adams_policy
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError
@@ -66,10 +67,16 @@ def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
 ):
     # The reference's march takes an injected engine and names what it lacks.
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
-    with closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend:
-        with pytest.raises(BackendError, match="exponential path lacks"):
-            HostAdamsMarch(backend, Multistep(), engine=object())
-        with pytest.raises(BackendError, match="fused path lacks"):
-            HostAdamsMarch(
-                backend, Multistep(formulation="interaction"), engine=object()
-            )
+    with (
+        closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend,
+        pytest.raises(BackendError, match="Adams engine lacks start, trial"),
+    ):
+        HostAdamsMarch(
+            object(),
+            Multistep(),
+            backend._hooks,
+            policy=adams_policy(
+                backend._problem, run_request.stepper, Multistep(), carrier=False
+            ),
+            field=backend.workspace.committed,
+        )

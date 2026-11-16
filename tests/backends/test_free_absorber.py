@@ -243,7 +243,7 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
             actual = state.field_to_host().reshape(start.shape)
         else:
             backend.set_initial(problem.initial.field0, None)
-            actual = backend._finish(problem.initial.field0.copy(), dz)
+            actual, _ = backend.workspace.finish(problem.initial.field0.copy(), dz)
         assert np.max(np.abs(actual - expected)) < bound
         record_metric(
             request,

@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 
 from bounds import EPS, gamma, higham_gamma
+from builders import reference_trial
 from sessions.runs import load_native, native_trial, run
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper import PIController
@@ -92,9 +93,9 @@ def _operands(backend, reference, problem, run_request, dz):
         for index in range(len(tableau.nodes))
     ]
     reference.set_initial(problem.initial.field0, None)
-    reference._trial_step(0.0, dz)
-    step = reference._stage_scalars(0.0, dz)
-    propagator = np.exp(reference._exponents(0.0, dz)(1.0, step))
+    reference_trial(reference, 0.0, dz)
+    step = reference.workspace.stage_scalars(0.0, dz)
+    propagator = np.exp(reference.workspace.exponents(0.0, dz)(1.0, step))
     return stages, propagator
 
 
@@ -126,7 +127,7 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
         before = problem.initial.field0
         backend._native_state.finish(dz)
         after = _field(backend, problem)
-        wanted = reference._error_norm(carried, before, after)
+        wanted = reference.workspace.error_norm(carried, before, after)
         controller = run_request.stepper.controller
         mask = problem.grids.norm_mask
         scale = float(
@@ -157,7 +158,7 @@ def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
         reference.set_initial(problem.initial.field0, None)
-        wanted, _ = reference._trial_step(0.0, dz)
+        wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()
         reference.close()
@@ -253,7 +254,7 @@ def test_a_weighted_controller_scores_as_the_reference_s_does(
     backend, score = _native_trial(problem, run_request, field_grid, dz)
     try:
         reference.set_initial(problem.initial.field0, None)
-        wanted, _ = reference._trial_step(0.0, dz)
+        wanted, _ = reference_trial(reference, 0.0, dz)
     finally:
         backend.close()
         reference.close()

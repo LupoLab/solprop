@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from march_bounds import assert_matched, march_bound
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import available
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -74,7 +74,7 @@ def built(backend: str = "numpy_ref", *, fields: str = "none") -> Simulation:
 
 def _abandon_a_step(monkeypatch, *, after: int) -> None:
     """Raise out of the reference's step `after` source evaluations from the start."""
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -83,7 +83,7 @@ def _abandon_a_step(monkeypatch, *, after: int) -> None:
             raise AbandonedError
         return original(self, lab, position, **keywords)
 
-    monkeypatch.setattr(NumpyRefBackend, "_adams_lab_source", evaluate)
+    monkeypatch.setattr(NumpyWorkspace, "lab_source", evaluate)
 
 
 def test_a_step_abandoned_in_flight_leaves_no_checkpoint_and_says_why(

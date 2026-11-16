@@ -111,7 +111,7 @@ from general_parity import source_bound as general_source_bound
 from march_bounds import FIXED_ORDER, march_bound
 from parity_ladder import Built, Row
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.backends.numpy_ref.workspace import _general_maps
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
@@ -671,9 +671,9 @@ def launch_phase(problem: PropagationProblem, run_request: Any, grid: Any) -> fl
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         state = problem.initial.field0
-        backend._hoist(0.0)
-        source = backend._nonlinear(
-            state, backend._stage_scalars(0.0, 0.0), np.ones_like(state)
+        backend.workspace.hoist(0.0)
+        source = backend.workspace.nonlinear(
+            state, backend.workspace.stage_scalars(0.0, 0.0), np.ones_like(state)
         )
     finally:
         backend.close()

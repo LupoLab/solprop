@@ -35,6 +35,7 @@ from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import select
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
@@ -193,7 +194,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         soliton(build_simulation, "numpy_ref", rtol=RTOL / TIGHTER),
         tmp_path / "tight.h5",
     )
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     planes = [0.0, *build().settings.save_planes.tolist()]
     positions = []
 
@@ -207,7 +208,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         return original(self, field, position, *args, **keywords)
 
     with monkeypatch.context() as patch:
-        patch.setattr(NumpyRefBackend, "_adams_lab_source", failing)
+        patch.setattr(NumpyWorkspace, "lab_source", failing)
         with pytest.raises(CrashError):
             build().run(part, progress="none")
     state = resume(part)

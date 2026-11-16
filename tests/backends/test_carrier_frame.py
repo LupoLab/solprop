@@ -46,7 +46,6 @@ from solprop.backends.exponential import (
     phi_functions,
     refuse_carrier_frame,
 )
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import (
@@ -198,7 +197,7 @@ def march(
                 del lab, purpose
                 return source.source(position)
 
-            backend._adams_lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
+            backend.workspace.lab_source = lab_source  # pyright: ignore[reportAttributeAccessIssue]
         start = problem.initial.field0
         record: dict[str, object] = {}
         result = run(backend, problem, run_request, record=record)
@@ -850,7 +849,7 @@ def gradient_run(
         problem, run_request, grid=simulation.grid, modes=simulation.modes
     )
     try:
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
+        backend._use_adams(method, compensation=compensation)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return backend.observe().require_field(), backend._adams
@@ -1172,7 +1171,10 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
             # The stage's scalars as either backend's march forms them, and the
             # backend's own exponent of them.
             bundle = scalars(problem, z1, z2, helpers=backend.helpers)
-            full = backend._delta_phi(bundle)
+            owner = getattr(backend, "workspace", None)
+            full = (
+                backend._delta_phi(bundle) if owner is None else owner.delta_phi(bundle)
+            )
             expected = np.asarray(full)[0, 0, reference.bin]
             found = reference.chord.exponent(z1, z2)
             # The same representation evaluated at one element: a few roundings of the

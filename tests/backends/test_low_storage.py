@@ -19,7 +19,7 @@ import math
 import signal
 import warnings
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -51,9 +51,9 @@ from bounds import (
     step_budget,
 )
 from legacy_geometry import with_collar_rate
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.registry import resolve_name
 from solprop.backends.session import Start
 from solprop.boundaries import absorber
@@ -487,7 +487,7 @@ def evaluation_difference(problem, run_request, grid, gnlse):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     state = backend._require_state()
-    march = backend._adams_lab_source(state, 0.0)[0, 0]
+    march = backend.workspace.lab_source(state, 0.0)[0, 0]
     backend.close()
     scaffold = gnlse_source(gnlse, grid)(state[0, 0])
     assert np.linalg.norm(scaffold) > 0
@@ -890,7 +890,7 @@ class AbandonedError(RuntimeError):
 
 def abandon_after(backend, evaluations):
     """Make the backend's source raise after `evaluations` evaluations."""
-    original = backend._adams_lab_source
+    original = backend.workspace.lab_source
     count = [0]
 
     def evaluate(lab, position, **keywords):
@@ -899,8 +899,8 @@ def abandon_after(backend, evaluations):
             raise AbandonedError
         return original(lab, position, **keywords)
 
-    backend._adams_lab_source = evaluate
-    return lambda: setattr(backend, "_adams_lab_source", original)
+    backend.workspace.lab_source = evaluate
+    return lambda: setattr(backend.workspace, "lab_source", original)
 
 
 def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, scales):
@@ -950,13 +950,13 @@ def test_a_diverged_state_stops_the_replay_in_flight(lifecycle, narrow_grid):
     problem, run_request, length = lifecycle()
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
-    original = backend._adams_lab_source
+    original = backend.workspace.lab_source
 
     def overflowing(lab, position, **keywords):
         # An overflowed source, as a step past a stability limit leaves one.
         return np.full_like(original(lab, position, **keywords), np.nan)
 
-    backend._adams_lab_source = overflowing
+    backend.workspace.lab_source = overflowing
     with pytest.raises(ConvergenceError, match=r"non-finite state.*lost"):
         backend.propagate_to(length)
     with pytest.raises(BackendError, match="abandoned in flight"):
@@ -995,9 +995,8 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
-    assert engine.atomic is atomic
     assert isinstance(engine, HostLowStorage) is not atomic
-    original = engine.step
+    original = engine.trial
 
     def interrupted(z, dz):
         squared = original(z, dz)
@@ -1005,12 +1004,12 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
         signal.raise_signal(signal.SIGINT)
         return squared
 
-    engine.step = interrupted
+    engine.trial = interrupted
     with handled(), pytest.raises(KeyboardInterrupt):
         backend.propagate_to(length)
     schedule = run_request.stepper.schedule
     assert schedule is not None
-    assert backend._in_flight == (0.0, float(schedule.steps[0]))
+    assert backend.in_flight == (0.0, float(schedule.steps[0]))
     with pytest.raises(BackendError, match="abandoned in flight"):
         backend.observe()
     backend.close()
@@ -1076,7 +1075,7 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
 
     uninterrupted = simulation().run(progress="none")
     path = tmp_path / "run.h5"
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -1086,14 +1085,14 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
         return original(self, lab, position, **keywords)
 
     try:
-        NumpyRefBackend._adams_lab_source = evaluate
+        NumpyWorkspace.lab_source = evaluate
         with (
             caplog.at_level(logging.WARNING, logger=run_module.__name__),
             pytest.raises(AbandonedError) as caught,
         ):
             simulation().run(path, progress="none")
     finally:
-        NumpyRefBackend._adams_lab_source = original
+        NumpyWorkspace.lab_source = original
     assert any("no terminal checkpoint" in note for note in caught.value.__notes__)
     assert "abandoned in flight" in caplog.text
     with open_file(path) as stored:
@@ -1138,14 +1137,18 @@ FIELD_ROWS = (
 
 
 def held_volumes(backend, field):
-    """Return the bytes every state-sized array the backend and its engine hold owns.
+    """Return the bytes every state-sized array the workspace and the engine hold owns.
 
-    Each attribute of the backend and of the march's engine, and each array inside a
-    tuple attribute, is followed to the memory it views: a broadcast view of one
-    element owns one element, however large it reads.
+    Each attribute of the backend, its workspace and the march's engine, and each
+    array inside a tuple attribute, is followed to the memory it views: a broadcast
+    view of one element owns one element, however large it reads.
     """
     found = {}
-    owners = {"backend": backend, "engine": backend._low_storage.engine}
+    owners = {
+        "backend": backend,
+        "workspace": backend.workspace,
+        "engine": backend._low_storage.engine,
+    }
     for owner_name, owner in owners.items():
         for name, value in vars(owner).items():
             items = value if isinstance(value, tuple) else (value,)
@@ -1189,7 +1192,7 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
         row: ledger[row]
         for row in ("register_accumulator", "register_stage", "propagators")
     }
-    expected = {"backend._state", "engine._accumulator", "engine._stage"}
+    expected = {"workspace._state", "engine._accumulator", "engine._stage"}
     if mode == "tabulate":
         expected.add("engine._table")
     assert held_volumes(backend, field) == dict.fromkeys(expected, field)
@@ -1272,7 +1275,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, noise)
     inputs, carried = [], []
-    source, nonlinear = backend._adams_lab_source, backend._nonlinear
+    source, nonlinear = backend.workspace.lab_source, backend.workspace.nonlinear
 
     def lab_source(lab, position, **keywords):
         inputs.append((position, lab.copy()))
@@ -1282,8 +1285,8 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         carried.append(lab.copy())
         return nonlinear(lab, bundle, inverse)
 
-    monkeypatch.setattr(backend, "_adams_lab_source", lab_source)
-    monkeypatch.setattr(backend, "_nonlinear", capture)
+    monkeypatch.setattr(backend.workspace, "lab_source", lab_source)
+    monkeypatch.setattr(backend.workspace, "nonlinear", capture)
     backend.propagate_to(length)
     backend.close()
     z, h = float(schedule.edges[1]), float(schedule.steps[1])
@@ -1412,13 +1415,13 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     assert isinstance(engine, HostLowStorage)
     backend.set_initial(problem.initial.field0, None)
     built = []
-    propagator = backend._adams_propagator
+    propagator = backend.workspace.propagator
 
     def counted(anchor, position):
         built.append((anchor, position))
         return propagator(anchor, position)
 
-    backend._adams_propagator = counted
+    backend.workspace.propagator = counted
     backend.propagate_to(length / 2)
     backend.propagate_to(length)
     assert len(built) == 1
@@ -1437,8 +1440,8 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     backend = NumpyRefBackend(varied, varied_request, grid=narrow_grid)
     backend.set_initial(varied.initial.field0, None)
     built.clear()
-    propagator = backend._adams_propagator
-    backend._adams_propagator = counted
+    propagator = backend.workspace.propagator
+    backend.workspace.propagator = counted
     backend.propagate_to(length)
     assert len(built) == varied_schedule.n_steps
     # A load drops the table, which the next step builds again.
@@ -1466,44 +1469,38 @@ def test_a_run_s_key_is_its_mean_step_and_far_runs_keep_one_key():
     assert len(set(keys.tolist())) == 2
 
 
-class LinearSource(HostDriver):
-    """A stand-in backend whose source is ``lambda u`` and whose flow is one.
+class LinearSource:
+    """A stand-in workspace whose source is ``lambda u`` and whose flow is one.
 
-    Built without the driver's initialiser, which needs a translated problem: the host
-    engine reads only the members set here.
+    The host engine reads only the members set here.
     """
 
     def __init__(self, rate, state):
         self.rate = rate
         self._state = state
-        self._low_storage = None
-        self._stepper = SimpleNamespace(propagator_mode="recompute")
-        self._problem = SimpleNamespace(
+        self.problem = SimpleNamespace(
             flags=SimpleNamespace(constant_linop=True),
             grids=SimpleNamespace(norm_mask=np.ones(state.shape[-1], dtype=bool)),
         )
 
-    def _trial_step(self, z, dz):
-        raise NotImplementedError
+    def committed(self):
+        return self._state
 
-    def _apply_mask(self, state):
-        raise NotImplementedError
+    def install(self, state):
+        self._state = state
 
-    def stats(self, spec):
-        raise NotImplementedError
-
-    def _hoist(self, z0):
+    def hoist(self, z0):
         del z0
 
-    def _stage_bundles(self, z0, positions):
+    def stage_bundles(self, z0, positions):
         del z0, positions
         return ()
 
-    def _adams_propagator(self, anchor, position):
+    def propagator(self, anchor, position):
         del anchor, position
         return np.ones_like(self._state)
 
-    def _adams_lab_source(self, lab, position, *, purpose="predictor"):
+    def lab_source(self, lab, position, *, purpose="predictor"):
         del position, purpose
         return self.rate * lab
 
@@ -1520,9 +1517,9 @@ def test_a_linear_step_is_rk4_s_stability_function_and_reads_its_stiffness(rate)
     state = rng.standard_normal((1, 1, 64)) + 1j * rng.standard_normal((1, 1, 64))
     start = state.copy()
     step = 0.05
-    backend = LinearSource(rate, state)
-    engine = HostLowStorage(backend, MARCH)
-    squared = engine.step(0.0, step)
+    workspace = LinearSource(rate, state)
+    engine = HostLowStorage(cast("Any", workspace), MARCH, None, "recompute")
+    squared = engine._step(state, 0.0, step)
     x = step * rate
     expected = (1 + x + x**2 / 2 + x**3 / 6 + x**4 / 24) * start
     assert np.allclose(state, expected, rtol=64 * EPS, atol=0)
@@ -1542,14 +1539,14 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert isinstance(engine, HostLowStorage)
-    step = engine.step
+    step = engine.trial
 
     def stiff(z, dz):
         squared = step(z, dz)
         engine.stiffness = 3.0
         return squared
 
-    engine.step = stiff
+    engine.trial = stiff
     with caplog.at_level(logging.WARNING, logger="solprop.backends.host.low_storage"):
         backend.propagate_to(length / 2)
     history = backend.observe().step_history
@@ -1630,7 +1627,7 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
         absorber=False,
         noise=None,
     )
-    original = NumpyRefBackend._adams_lab_source
+    original = NumpyWorkspace.lab_source
     count = [0]
 
     def evaluate(self, lab, position, **keywords):
@@ -1640,11 +1637,11 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
         return original(self, lab, position, **keywords)
 
     try:
-        NumpyRefBackend._adams_lab_source = evaluate
+        NumpyWorkspace.lab_source = evaluate
         with pytest.raises(AbandonedError) as caught:
             simulation.run(Unwritable(), progress="none")
     finally:
-        NumpyRefBackend._adams_lab_source = original
+        NumpyWorkspace.lab_source = original
     notes = caught.value.__notes__
     assert any("no terminal checkpoint" in note for note in notes)
     assert any("manufactured record failure" in note for note in notes)

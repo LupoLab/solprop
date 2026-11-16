@@ -55,7 +55,7 @@ from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import (
+from solprop.backends.numpy_ref.workspace import (
     _MAX_FLOW_SQUARINGS,
     _triangular_exponential,
 )

@@ -172,7 +172,7 @@ def synthesised(
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         return np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
+                list(reference.workspace._plasma_nodes(state, reference._z))  # pyright: ignore[reportPrivateUsage]
             )
         )
     finally:
@@ -186,10 +186,10 @@ def source_of_reference(
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        return reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        return reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
     finally:

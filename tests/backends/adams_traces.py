@@ -32,9 +32,12 @@ from typing import Any
 import numpy as np
 
 from solprop._helpers import PLAIN
+from solprop.backends.engines import AcceptRecord
 from solprop.backends.exponential import CarrierChord, CarrierReference
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.driver import HostDriver, _SessionHooks
+from solprop.backends.host.marches import MarchState
+from solprop.backends.records import adams_policy
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.stepper.multistep import Formulation, Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -164,6 +167,48 @@ class _Engine:
 
     def value(self, slot: int) -> None:
         """Return no host sample, as a resident engine does."""
+
+    # The engine protocol (`solprop.backends.engines.AdamsEngine`) the reference's
+    # march calls; the native adapter calls the per-formulation members below.
+
+    def trial(self, z: float, dz: float, stencil: Any) -> np.ndarray:
+        """Return the scenario's norms for an attempt of the method's formulation."""
+        return self._trial(
+            self.formulation,
+            z,
+            dz,
+            stencil.nodes,
+            stencil.rows,
+            stencil.order,
+            stencil.orders,
+        )
+
+    def accept(self, dz: float, free: int, stencil: Any, kept: Any) -> AcceptRecord:
+        """Record which rows the accepted step keeps and where the new one goes."""
+        del dz, stencil
+        rows = np.array([entry.row for entry in kept], dtype=np.int64)
+        self._accept(self.formulation, rows, free)
+        return AcceptRecord()
+
+    def chord_phase(self, z1: float, z2: float) -> float:
+        """Return the scripted carrier chord's phase over the interval."""
+        assert self.carrier is not None
+        return self.carrier.chord_phase(z1, z2)
+
+    def step_carrier(self, order: int) -> np.ndarray:
+        """Return no rotations: the script holds no field."""
+        del order
+        return np.zeros(0)
+
+    def begin_attempt(self, cost: int) -> None:
+        """Reserve nothing: no host source is bound."""
+
+    def end_attempt(self, outcome: Any) -> None:
+        """Release nothing."""
+
+    def reading(self) -> Any:
+        """Refuse: the scenarios watch no boundary."""
+        raise NotImplementedError
 
     def exponential_trial(
         self,
@@ -319,16 +364,17 @@ class _Scripted:
         self._problem = _Problem(scenario)
         # The run's stepper section, which the march reads off the backend.
         self._stepper = self._problem.stepper
-        self._z = scenario.z0
-        self._proposal = scenario.proposal
+        # The march's state, which the native adapter reads and writes through the
+        # driver's names (the properties below); the reference's march holds it.
+        self._shadow = MarchState(
+            z=scenario.z0, proposal=scenario.proposal, norms=deque(maxlen=3)
+        )
         self._collar_quiet = scenario.quiet.get(0, False)
         self._monitor = (  # pyright: ignore[reportAttributeAccessIssue]
             None
             if scenario.quiet_interval is None
             else _Monitor(scenario.quiet_interval)
         )
-        self._schedule_index = 0
-        self._accepted_norms = deque(maxlen=3)
         self._state: object = "state"
         self.accepted = 0
         self.attempts = 0
@@ -337,13 +383,38 @@ class _Scripted:
         self.engine: _Engine | None = None
         self.march: Any | None = None
 
-    # The driver's abstract members, which the march never calls.
+    def _held_state(self) -> MarchState:
+        march = self.march
+        state = getattr(march, "state", None)
+        return state if isinstance(state, MarchState) else self._shadow
 
-    def _trial_step(self, z: float, dz: float) -> Any:
-        raise NotImplementedError
+    @property
+    def _z(self) -> float:
+        return self._held_state().z
 
-    def _apply_mask(self, state: Any) -> Any:
-        raise NotImplementedError
+    @_z.setter
+    def _z(self, value: float) -> None:
+        self._held_state().z = value
+
+    @property
+    def _proposal(self) -> float:
+        return self._held_state().proposal
+
+    @_proposal.setter
+    def _proposal(self, value: float) -> None:
+        self._held_state().proposal = value
+
+    @property
+    def _schedule_index(self) -> int:
+        return self._held_state().cursor
+
+    @_schedule_index.setter
+    def _schedule_index(self, value: int) -> None:
+        self._held_state().cursor = value
+
+    @property
+    def _accepted_norms(self) -> deque[float]:
+        return self._held_state().norms
 
     def stats(self, spec: Any) -> Any:
         raise NotImplementedError
@@ -388,6 +459,37 @@ class _HostHarness(_Scripted, HostDriver):
     """The stub over the reference's driver; the engine is given to its march."""
 
     helpers = PLAIN
+
+    def __init__(self, scenario: Scenario) -> None:
+        super().__init__(scenario)
+        self._hooks = _SessionHooks(self)
+
+    def adams_march(self, method: Multistep) -> HostAdamsMarch:
+        """Return the reference's march over the scripted engine, at the start."""
+        engine = self.engine
+        assert engine is not None
+        carrier = engine.carrier
+        policy = adams_policy(
+            self._problem,
+            self._stepper,
+            method,
+            carrier=isinstance(carrier, CarrierReference) and carrier.active,
+        )
+        march = HostAdamsMarch(
+            engine,
+            method,
+            self._hooks,
+            policy=policy,
+            field=lambda: np.zeros((1, 1, 1), dtype=np.complex128),
+            schedule=self._stepper.schedule,
+            interpolate=self._stepper.interpolate_planes,
+            shape=(1, 1, 1),
+            proposal=self.scenario.proposal,
+            lag=1,
+            name=self.name,
+        )
+        march.state.z = self.scenario.z0
+        return march
 
     def _adams_engine(self, method: Multistep, compensation: str) -> _Engine:
         """Return a fresh scripted engine, for a march that asks its backend for one."""
@@ -435,7 +537,14 @@ def _march_state(harness: _Scripted, march: Any) -> dict[str, Any]:
         "last_rejected": march._last_rejected,
         "collar_was_quiet": march._collar_was_quiet,
         "quiet": harness._collar_quiet,
-        "history": [[entry.z, entry.identity, entry.slot] for entry in march._history],
+        "history": [
+            [
+                entry.z,
+                entry.identity,
+                entry.row if hasattr(entry, "row") else entry.slot,
+            ]
+            for entry in march._history
+        ],
         "ledger": [getattr(ledger, name) for name in LEDGER],
     }
 
@@ -464,7 +573,7 @@ def run_scenario(
     method = Multistep(formulation=formulation, **scenario.method)
     harness = _HostHarness(scenario)
     harness.engine = _Engine(harness, method)
-    march = HostAdamsMarch(harness, method, engine=harness.engine)
+    march = harness.adams_march(method)
     harness.march = march
     if scenario.targets is not None:
         targets = list(scenario.targets)

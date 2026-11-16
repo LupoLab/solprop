@@ -100,7 +100,7 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
         "peak_ionisation_rate",
     )
     values = backend.stats(StatsSpec(names=names, periodic=names[:2]))
-    nodes = backend._nodes_at(backend._require_state())
+    nodes = backend.workspace._nodes_at(backend._require_state(), backend._z)
     rates, fractions = passes.plasma_channel_fractions(
         nodes,
         problem.responses.plasma_channels,

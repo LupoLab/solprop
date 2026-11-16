@@ -27,7 +27,7 @@ from legacy_geometry import LEGACY_GRID
 from solprop._helpers import PLAIN
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.marches import MarchState
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import (
     compensation_tables,
@@ -565,28 +565,6 @@ def test_a_replayed_step_with_a_non_finite_norm_is_refused(
     backend.close()
 
 
-DRIVERS = pytest.mark.parametrize("driver", [HostDriver], ids=["host"])
-"""The reference's driver, whose default hooks refuse what it lacks."""
-
-
-@DRIVERS
-def test_a_backend_without_the_lab_frame_source_refuses_the_formulation(driver):
-    # Every shipped backend implements the hook; an external one that does not is
-    # told which formulation to use instead.
-    stub = SimpleNamespace(name="external")
-    lab = np.zeros((1, 1, 4), dtype=complex)
-    with pytest.raises(BackendError, match="external does not execute"):
-        driver._adams_lab_source(stub, lab, 0.0, purpose="startup")
-
-
-@DRIVERS
-def test_a_backend_without_a_coupled_flow_hands_the_march_no_block(driver):
-    # The default hook: every shipped backend that steps a coupled flow returns its
-    # block; an external one that holds none gives the march nothing to step.
-    stub = SimpleNamespace(name="external")
-    assert driver._adams_block(stub, 0.0, 1e-3) is None
-
-
 def test_the_formulation_refuses_a_section_it_does_not_step(
     narrow_grid, soliton_problem
 ):
@@ -646,9 +624,11 @@ def _chooser(march_class, method, collar_rate, *, quiet=False):
         collar_rate=collar_rate,
     )
     march._order = 5
-    # A stand-in, not a driver: the order choice reads one flag from it.
-    march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
+    # A stand-in, not a session: the order choice reads one flag from it.
+    march._host = cast("Any", SimpleNamespace(collar_quiet=quiet))
     march._collar_was_quiet = False
+    march.state = MarchState(z=0.0, proposal=1.0)
+    march._engine = cast("Any", SimpleNamespace(reset=lambda: None))
     return march
 
 
@@ -692,7 +672,7 @@ def test_the_step_after_a_collar_returns_is_held_to_its_stable_step(march_class)
     stable = PEC_REAL_INTERVAL[4] / rate
     march = _chooser(march_class, EXPONENTIAL, rate, quiet=True)
     assert march._collar_reentry(1.0) == 1.0
-    march._backend._collar_quiet = False
+    march._host.collar_quiet = False
     assert march._collar_reentry(1.0) == pytest.approx(stable)
     assert march._collar_reentry(1.0) == 1.0
     assert _chooser(march_class, EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
@@ -706,7 +686,7 @@ def test_a_new_run_clears_the_collar_flag_and_a_pending_floor(march_class):
     march._collar_was_quiet = True
     march._last_rejected = True
     march._floor = ConvergenceError("pending")
-    march.begin_run()
+    march.load(0.0, 1.0, 0)
     assert march._collar_was_quiet is False
     assert march._last_rejected is False
     assert march._floor is None

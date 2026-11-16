@@ -272,12 +272,21 @@ class _Outcomes:
         self._warn_at = warn_at
         self.trials = 0
         self.accepted = 0
+        self._left: tuple[float, float] | None = None
+
+    def set_initial(self, *args: Any, **kwargs: Any) -> None:
+        # A load clears a step left in flight, as it does the low-storage march's.
+        self._left = None
+        super().set_initial(*args, **kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+
+    def _abandoned(self) -> tuple[float, float] | None:
+        return self._left
 
     def _trial_step(self, z, dz):
         self.trials += 1
         if self.trials == self._fail_at:
             if self._leave_in_flight:
-                self._in_flight = (z, dz)
+                self._left = (z, dz)
             if self._signal:
                 raise KeyboardInterrupt
             msg = f"scripted failure at trial {self.trials}"
@@ -376,7 +385,7 @@ def _over_driver(
         return Started(
             started,
             field_reads=lambda: reads[0],
-            live_state=(lambda: driver._state) if host_state else None,
+            live_state=(lambda: driver.workspace.state) if host_state else None,
         )
 
     return start_session

@@ -433,10 +433,10 @@ def test_one_evaluation_matches_the_reference() -> None:
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
     finally:
@@ -483,10 +483,10 @@ def test_every_stage_of_a_trial_matches_the_reference(
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage] - oracle
+        reference._runge_kutta_engine.trial(0.0, dz)  # pyright: ignore[reportPrivateUsage] - oracle
         expected = [
             np.asarray(stage)
-            for stage in reference._last_stages  # pyright: ignore[reportPrivateUsage]
+            for stage in reference._runge_kutta_engine.stages  # pyright: ignore[reportPrivateUsage]
         ]
     finally:
         reference.close()

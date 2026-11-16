@@ -33,6 +33,7 @@ __all__ = [
     "fixed_fibre_point",
     "launch_derivative",
     "numpy_ref_launch_derivative",
+    "reference_trial",
     "run_python",
 ]
 
@@ -58,12 +59,23 @@ def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> 
     trial is.
     """
     backend.set_initial(problem.initial.field0, None)
-    backend._hoist(0.0)
-    return backend._nonlinear(
+    backend.workspace.hoist(0.0)
+    return backend.workspace.nonlinear(
         backend._require_state(),
-        backend._stage_scalars(0.0, 0.0),
+        backend.workspace.stage_scalars(0.0, 0.0),
         np.ones(problem.shape, complex),
     )
+
+
+def reference_trial(backend: Any, z: float, dz: float) -> tuple[float, Any]:
+    """Return a ``numpy_ref`` trial's norm and raw end state, committing nothing.
+
+    The backend's Runge-Kutta engine forms the trial from the committed state and
+    holds it; its end state is before the accepted step's finish.
+    """
+    engine = backend._runge_kutta_engine
+    norm = engine.trial(z, dz)
+    return norm, engine.trial_state
 
 
 def numpy_ref_launch_derivative(

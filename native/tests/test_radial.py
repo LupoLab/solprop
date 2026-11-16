@@ -108,11 +108,11 @@ def test_radial_partial_chunks_preserve_the_reference_source(
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage]
+        reference.workspace.hoist(0.0)  # pyright: ignore[reportPrivateUsage]
         expected = np.asarray(
-            reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
                 reference._require_state(),  # pyright: ignore[reportPrivateUsage]
-                reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+                reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
                 np.ones(problem.shape, complex),
             )
         )

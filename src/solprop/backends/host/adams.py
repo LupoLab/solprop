@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The reference's interaction-picture Adams march (SEP 13, SEP 14, SEP 47).
+"""The reference's Adams march (SEP 13, SEP 14, SEP 39, SEP 52).
 
-The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, the NumPy
-reference's own since SEP 47 phase 2 (the shared march it was copied from is deleted
-with the native backend's step driver, phase 5). The state-sized arithmetic is the
-shared stateless code (:mod:`solprop.backends.host`): the march hands every operation
-of its fused and exponential paths to the host engine
-(:class:`solprop.backends.numpy_ref.multistep.HostHistory`). The decisions are
+The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, over the
+engine protocol (:class:`solprop.backends.engines.AdamsEngine`) that native's
+``march::Engine`` mirrors: the reference's engine is
+:class:`solprop.backends.numpy_ref.multistep.HostHistory`. The march holds its own
+state -- position, proposal, replay cursor and accepted norms
+(:class:`~solprop.backends.host.marches.MarchState`), the history's entries, the order,
+the rejections and the call ledger -- and asks its session only through
+:class:`~solprop.backends.host.marches.MarchHost`. The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of
@@ -17,108 +19,104 @@ The method, its lifecycle and its numbers are those of
 """
 
 import math
-from collections.abc import Iterator
+from collections import deque
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import numpy as np
 
 from solprop._interrupts import committing
 from solprop.backends import adams_core
-from solprop.backends.exponential import CarrierReference
-from solprop.backends.host.driver import HostDriver, reached, replay_tolerance
-from solprop.backends.ledger import CallLedger, Derivative
-from solprop.backends.numpy_ref.multistep import (
-    AdamsEngine,
-    AdamsKernels,
-    ExponentialKernels,
-    HostHistory,
-)
-from solprop.backends.records import adams_policy
+from solprop.backends.engines import AdamsEngine, AttemptOutcome, HistoryEntry
+from solprop.backends.host.marches import MarchHost, MarchState
+from solprop.backends.ledger import CallLedger
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import MarchPolicy, Multistep
-from solprop.stepper.schedule import FixedSchedule, landing
+from solprop.stepper.schedule import FixedSchedule, landing, reached, replay_tolerance
 
 __all__ = ["HostAdamsMarch"]
 
 
 class HostAdamsMarch:
-    """March a reference backend's state with an interaction-picture Adams method.
+    """March a state with an Adams method over an engine.
 
     Parameters
     ----------
-    backend : solprop.backends.host.driver.HostDriver
-        The backend whose state, source evaluation and propagators are used. It owns
-        the step history and the statistics rows; this object owns the derivative
-        history and the call ledger.
+    engine : solprop.backends.engines.AdamsEngine
+        The engine that holds the history's rows. Beside the protocol, the march's
+        dense observation calls its ``hold``, ``restore`` and ``observe``, a load its
+        ``reset``, and a snapshot its ``n_slots``, ``snapshot_rows``,
+        ``snapshot_nbytes`` and ``load_rows``; SEP 52 moves those to the session.
     method : solprop.stepper.multistep.Multistep
         The method.
-    compensation : {'transported', 'untransported'}, optional
-        How a varying operator's linear compensation is integrated (SEP 16 Q8):
-        ``"transported"``, the delivered treatment, or ``"untransported"``, kept as a
-        test witness only.
-    engine : object, optional
-        An :class:`~solprop.backends.numpy_ref.multistep.AdamsEngine`; ``None``, the
-        default, takes the host engine
-        (:class:`~solprop.backends.numpy_ref.multistep.HostHistory`) over the backend's
-        hooks. A scripted engine drives the controller alone, for the decision traces
-        of SEP 39 section 7.1. Typed ``object`` because the engine protocol is
-        structural and not checkable at run time; the members the path calls are
-        checked here instead.
+    host : solprop.backends.host.marches.MarchHost
+        The session the march reports to.
+    policy : solprop.stepper.multistep.MarchPolicy
+        Every number the controller and the landings read (SEP 39 section 4.2).
+    field : callable
+        Returns the committed state, for a snapshot and a budget's error.
+    schedule : solprop.stepper.schedule.FixedSchedule or None, optional
+        The schedule to replay, or ``None`` to step adaptively.
+    interpolate : bool, optional
+        Whether the run interpolates its planes (ADR-036, ADR-039).
+    shape : tuple of int, optional
+        The state's shape, which a snapshot's is checked against.
+    proposal : float, optional
+        The first proposal, m.
+    lag : int, optional
+        The lag of the controller whose norms a replay keeps.
+    name : str, optional
+        The backend's name, for messages.
+
+    Attributes
+    ----------
+    state : solprop.backends.host.marches.MarchState
+        The march's position, proposal, cursor and accepted norms.
+    ledger : solprop.backends.ledger.CallLedger
+        The run's call counts.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        If `engine` lacks a member its path calls.
+        If `engine` lacks a member the march calls.
     """
 
     def __init__(
         self,
-        backend: HostDriver[Any],
+        engine: object,
         method: Multistep,
+        host: object,
         *,
-        compensation: Literal["transported", "untransported"] = "transported",
-        engine: object = None,
+        policy: MarchPolicy,
+        field: Callable[[], np.ndarray],
+        schedule: FixedSchedule | None = None,
+        interpolate: bool = False,
+        shape: tuple[int, ...] = (),
+        proposal: float = 0.0,
+        lag: int = 1,
+        name: str = "numpy_ref",
     ) -> None:
-        """Hold the backend and start with no history."""
-        self._backend = backend
+        """Hold the engine and start with no history."""
+        _check_engine(engine)
+        self._engine: AdamsEngine = cast("AdamsEngine", engine)
         self._method = method
-        # Whether the run interpolates its planes, and with what (ADR-036, ADR-039).
-        self._interpolate = backend._stepper.interpolate_planes
-        self._kernels = AdamsKernels(helpers=backend.helpers)
-        # SEP 16's exponential formulation keeps untransported samples in the same
-        # store and shares everything else: the lifecycle, the controller, the ledger.
-        self._exponential: ExponentialKernels | None = None
-        if method.formulation == "exponential":
-            self._exponential = ExponentialKernels(helpers=backend.helpers)
-        # Every state-sized operation goes to an engine (SEP 16 phase 3b), the host
-        # one unless a scripted engine is given.
-        if engine is not None:
-            _check_engine(engine, exponential=self._exponential is not None)
-            self._engine: AdamsEngine = cast("AdamsEngine", engine)
-        else:
-            self._engine = HostHistory(
-                backend, method, self._kernels, self._exponential, compensation
-            )
-        self._history: list[Derivative] = []
+        self._host = cast("MarchHost", host)
+        self._policy = policy
+        self._field = field
+        self._schedule = schedule
+        self._interpolate = interpolate
+        self._shape = shape
+        self._name = name
+        self.state = MarchState(z=0.0, proposal=proposal, norms=deque(maxlen=lag + 2))
+        self._history: list[HistoryEntry] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
         self._ahead: tuple[float, object] | None = None
         self.ledger = CallLedger()
-        # Every number the controller and the landings read, from one record (SEP 39
-        # section 4.2); the decisions are `adams_core`'s functions of it. An in-stage
-        # temporal collar's largest rate, the one stiff term the exponential history
-        # integrates, bounds each order's stable step there (`_choose_order`).
-        carrier = self._engine.carrier
-        self._policy: MarchPolicy = adams_policy(
-            backend._problem,
-            backend._stepper,
-            method,
-            carrier=isinstance(carrier, CarrierReference) and carrier.active,
-        )
         # Whether the stages left a quiet collar out at the last attempt: the step
         # after it returns is held to the collar's stable step (`_collar_reentry`).
         self._collar_was_quiet = False
@@ -126,26 +124,49 @@ class HostAdamsMarch:
         # recorded (`_propose`, `_reject`, `_raise_floor`).
         self._floor: ConvergenceError | None = None
 
-    def reset(self) -> None:
-        """Forget the history: the state was loaded or changed outside the march."""
-        self._history = []
-        self._rejections = 0
-        self._engine.reset()
-        self._ahead = None
+    @property
+    def holding(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a dense observation holds the state at a plane, the march ahead."""
+        return self._ahead is not None
 
-    def begin_run(self) -> None:
-        """Start a run's accounting afresh: the ledger and the last attempt's flags.
+    def load(self, z: float, proposal: float, cursor: int) -> None:
+        """Start a run afresh at a loaded position.
 
-        Called by :meth:`~solprop.backends.host.driver.HostDriver.set_initial`, so that
-        a backend loaded for another run counts that run's calls alone and chooses its
+        The history and the held trial are forgotten, and the run's accounting starts
+        afresh -- the ledger, the last rejection and the collar's flag -- so that a
+        backend loaded for another run counts that run's calls alone and chooses its
         first order and step as a fresh backend would (SEP 22 section 4.7, SEP 39
-        R9): the last rejection and the collar's flag are cleared. A resume restores
-        its persisted ledger and flags afterwards.
+        R9). A resume restores its persisted ledger and flags afterwards.
+
+        Parameters
+        ----------
+        z : float
+            The position, m.
+        proposal : float
+            The first proposal, m.
+        cursor : int
+            The replay cursor at `z`.
         """
+        self.state.load(z, proposal, cursor)
         self.ledger = CallLedger()
         self._last_rejected = False
         self._collar_was_quiet = False
         self._floor = None
+        self._history = []
+        self._rejections = 0
+        self._engine.reset()  # pyright: ignore[reportAttributeAccessIssue]
+        self._ahead = None
+
+    def restore_ledger(self, logical: Mapping[str, object]) -> None:
+        """Continue a resumed run's cumulative call counts.
+
+        Parameters
+        ----------
+        logical : collections.abc.Mapping
+            The persisted logical counts
+            (:meth:`solprop.backends.ledger.CallLedger.to_record`).
+        """
+        self.ledger = CallLedger.from_record(logical)
 
     def snapshot(self) -> MarchSnapshot | None:
         """Return the march's state at its accepted position, for a resume.
@@ -158,19 +179,19 @@ class HostAdamsMarch:
         """
         if not self._history or self._ahead is not None:
             return None
-        export = self._engine.snapshot_rows
-        backend = self._backend
+        export = self._engine.snapshot_rows  # pyright: ignore[reportAttributeAccessIssue]
+        state = self.state
         return MarchSnapshot(
-            z=float(backend._z),
-            state=np.array(backend._adams_state(), dtype=np.complex128, copy=True),
-            proposal=float(backend._proposal),
+            z=float(state.z),
+            state=np.array(self._field(), dtype=np.complex128, copy=True),
+            proposal=float(state.proposal),
             method=repr(self._method),
             order=int(self._order),
             rejections=int(self._rejections),
             last_rejected=bool(self._last_rejected),
             positions=np.array([entry.z for entry in self._history], dtype=np.float64),
             identities=tuple(entry.identity for entry in self._history),
-            slots=np.array([entry.slot for entry in self._history], dtype=np.int64),
+            slots=np.array([entry.row for entry in self._history], dtype=np.int64),
             rows=export(),
             collar_was_quiet=self._collar_was_quiet,
             history_key=self._method.history_key,
@@ -187,18 +208,16 @@ class HostAdamsMarch:
         """
         if not self._history or self._ahead is not None:
             return None
-        state = (
-            math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
-        )
-        return state + self._engine.snapshot_nbytes()
+        state = math.prod(self._shape) * np.dtype(np.complex128).itemsize
+        return state + self._engine.snapshot_nbytes()  # pyright: ignore[reportAttributeAccessIssue]
 
-    def load(self, snapshot: MarchSnapshot) -> str | None:
-        """Continue from a snapshot taken where the backend's state now stands.
+    def load_snapshot(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue from a snapshot taken where the march now stands.
 
-        The backend has been loaded at the snapshot's position; this installs the
-        accepted state exactly as it was held, the history, the order, the rejection
-        count and the proposed step, so that the march goes on as the uninterrupted
-        one would have. Nothing is changed when the snapshot cannot be used.
+        The state was loaded at the snapshot's position; this installs the accepted
+        state exactly as it was held, the history, the order, the rejection count and
+        the proposed step, so that the march goes on as the uninterrupted one would
+        have. Nothing is changed when the snapshot cannot be used.
 
         Parameters
         ----------
@@ -210,18 +229,18 @@ class HostAdamsMarch:
         str or None
             ``None`` when the history was continued, otherwise why it starts afresh.
         """
-        backend = self._backend
         reason = self._refusal(snapshot)
         if reason is not None:
             return reason
-        load_rows = self._engine.load_rows
+        engine = cast("Any", self._engine)
         try:
-            load_rows(snapshot.rows, backend._problem.shape)
+            engine.load_rows(snapshot.rows, self._shape)
         except BackendError as error:
             return str(error)
-        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True))
+        self.state.z = snapshot.z
+        engine.restore(snapshot.z, np.array(snapshot.state, copy=True))
         self._history = [
-            Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            HistoryEntry(float(z), cast("Any", identity), int(slot))
             for z, identity, slot in zip(
                 snapshot.positions, snapshot.identities, snapshot.slots, strict=True
             )
@@ -231,15 +250,13 @@ class HostAdamsMarch:
         self._last_rejected = snapshot.last_rejected
         self._collar_was_quiet = snapshot.collar_was_quiet
         self._ahead = None
-        backend._proposal = snapshot.proposal
+        self.state.proposal = snapshot.proposal
         return None
 
     def _refusal(self, snapshot: MarchSnapshot) -> str | None:
-        """Return why a snapshot cannot continue this march, or ``None``.
-
-        - Returns: the reason, or ``None`` when the snapshot fits.
-        """
-        backend = self._backend
+        """Return why a snapshot cannot continue this march, or ``None``."""
+        z = self.state.z
+        n_slots = cast("Any", self._engine).n_slots
         checks = (
             (
                 snapshot.history_key != self._method.history_key,
@@ -247,12 +264,12 @@ class HostAdamsMarch:
                 f"this run steps with {self._method.history_key}",
             ),
             (
-                snapshot.z != backend._z,
+                snapshot.z != z,
                 f"the snapshot is at z = {snapshot.z!r} m and the run resumes at "
-                f"z = {backend._z!r} m",
+                f"z = {z!r} m",
             ),
             (
-                snapshot.state.shape != tuple(backend._problem.shape),
+                snapshot.state.shape != tuple(self._shape),
                 f"the snapshot's state has shape {snapshot.state.shape}",
             ),
             (
@@ -263,11 +280,7 @@ class HostAdamsMarch:
                 "the snapshot's newest sample is not at its position",
             ),
             (
-                bool(
-                    np.any(
-                        (snapshot.slots < 0) | (snapshot.slots >= self._engine.n_slots)
-                    )
-                ),
+                bool(np.any((snapshot.slots < 0) | (snapshot.slots >= n_slots))),
                 "the snapshot's history names no row of this engine",
             ),
         )
@@ -275,8 +288,18 @@ class HostAdamsMarch:
 
     # --- the march --------------------------------------------------------------------
 
+    def advance(self, target: float) -> None:
+        """Step towards `target`: the schedule's replay, or adaptively.
+
+        Parameters
+        ----------
+        target : float
+            The position to reach, m.
+        """
+        self.march_to(target)
+
     def march_to(self, target: float) -> None:
-        """Step the backend's state adaptively to `target`, landing on it exactly.
+        """Step adaptively to `target`, landing on it exactly, or replay towards it.
 
         Parameters
         ----------
@@ -288,49 +311,45 @@ class HostAdamsMarch:
         ConvergenceError
             If the proposal falls below the contract's ``dz_min``.
         """
-        backend = self._backend
-        settings = backend._stepper
-        dense = self._interpolate
+        host, state, engine = self._host, self.state, cast("Any", self._engine)
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.
-            self._engine.restore(*self._ahead)
+            z, held = self._ahead
+            engine.restore(z, held)
+            state.z = z
             self._ahead = None
-        if backend._natural_stop_due(target):
+        if host.natural_stop_due(target):
             return
-        if settings.schedule is not None:
-            self._replay_to(settings.schedule, target)
+        if self._schedule is not None:
+            self._replay_to(self._schedule, target)
             return
         targets = adams_core.targets(self._policy, target)
-        while not reached(backend._z, target):
-            backend._poll_stop()
-            self._afford()
-            with _trial(backend):
+        while not reached(state.z, target):
+            host.poll_stop()
+            with self._attempt_scope() as attempt:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    backend._split_capped(
-                        backend._transverse_capped(
-                            self._quiet_capped(self._capped(backend._proposal))
-                        )
-                    )
+                    host.cap(self._capped(state.proposal), state.z)
                 )
-                stop = landing(backend._z, proposal, targets)
+                stop = landing(state.z, proposal, targets)
                 dz, end, kink = adams_core.approach(
-                    self._policy, backend._z, stop, targets, target
+                    self._policy, state.z, stop, targets, target
                 )
                 # The accepted step moves the position with the state, and restarts
                 # the history at a kink, in one commit (`_land`).
                 accepted, norm = self._attempt(dz, landing=(end, kink))
-                backend._record(end, dz, norm, accepted)
-                self._raise_floor()
-                if accepted:
-                    backend._take_step_stats()
-                    if backend._natural_stop(target):
-                        return
-        if dense and backend._z > target:
-            self._ahead = (backend._z, self._engine.hold())
-            backend._state = cast("Any", self._observe(target))
-            backend._z = target
+                host.record(end, dz, norm, accepted)
+                self._end(attempt, accepted=accepted)
+            if accepted:
+                host.stepped()
+                if host.natural_stop(target):
+                    return
+        if self._interpolate and state.z > target:
+            observed = engine.observe(target)
+            self._ahead = (state.z, engine.hold())
+            engine.restore(target, observed)
+            state.z = target
             self.ledger.dense_observations += 1
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
@@ -341,31 +360,29 @@ class HostAdamsMarch:
         while the predictor-corrector estimate is still computed and recorded, so a
         schedule too coarse for its tolerance is reported rather than silent. The
         order is chosen by the same rule as an adaptive run's, from the same
-        estimates; with no rejection it never has to wait a step to rise, so a replay
-        of an adaptive run's steps can choose differently where that run rejected,
-        while a replay of a replay is identical. A hard kink, an edge of the schedule,
-        restarts the history as it does in an adaptive run.
+        estimates. A hard kink, an edge of the schedule, restarts the history as it
+        does in an adaptive run.
 
         - ``target``: position to reach, m.
         """
-        backend = self._backend
+        host, state = self._host, self.state
         edges = schedule.edges
         slack = replay_tolerance(schedule, target)
-        while (
-            backend._schedule_index < schedule.n_steps and backend._z < target - slack
-        ):
-            backend._poll_stop()
-            dz = float(schedule.steps[backend._schedule_index])
-            end = float(edges[backend._schedule_index + 1])
-            norm = self.replay_step(dz, end, slack)
-            backend._schedule_index += 1
-            backend._record(end, dz, norm, accepted=True)
-            backend._accepted_norms.append(norm)
+        while state.cursor < schedule.n_steps and state.z < target - slack:
+            host.poll_stop()
+            dz = float(schedule.steps[state.cursor])
+            end = float(edges[state.cursor + 1])
+            with self._attempt_scope() as attempt:
+                norm = self.replay_step(dz, end, slack)
+                state.cursor += 1
+                host.record(end, dz, norm, accepted=True)
+                attempt.end(AttemptOutcome.ACCEPTED)
+            state.norms.append(norm)
             self._raise_floor()
-            backend._take_step_stats()
-            if backend._natural_stop(target):
+            host.stepped()
+            if host.natural_stop(target):
                 return
-        if backend._z < target - slack:
+        if state.z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
                 f"cannot reach z = {target:.6g} m"
@@ -373,10 +390,11 @@ class HostAdamsMarch:
             raise BackendError(msg)
 
     def replay_step(self, dz: float, end: float, slack: float) -> float:
-        """Take one prescribed step from the backend's position and accept it.
+        """Take one prescribed step from the march's position and accept it.
 
-        The unit a replay advances by: the budget, the startup of an empty history,
-        the step and, when `end` is a hard kink, the restart.
+        The unit a replay advances by: the startup of an empty history, the step and,
+        when `end` is a hard kink, the restart. Called inside an attempt, whose
+        reservation the caller opened.
 
         Parameters
         ----------
@@ -398,68 +416,103 @@ class HostAdamsMarch:
             If the norm is not finite: the field has diverged, and a replay cannot
             reject the step.
         """
-        self._afford()
-        with _trial(self._backend):
-            if not self._history:
-                self._start()
-            kink = adams_core.replay_kink(self._policy, end, slack)
-            _, norm = self._attempt(dz, fixed=True, landing=(end, kink))
-            if not math.isfinite(norm):
-                msg = (
-                    f"{self._backend.name}: a replayed {self._method.name} step of "
-                    f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
-                    f"({norm!r}): the field has diverged. A replayed schedule takes "
-                    "its steps as given and cannot reject one, so a step beyond an "
-                    "explicit stability limit -- the in-stage temporal collar's or a "
-                    "coupled flow's advisory step -- grows until it overflows; the "
-                    "translation refuses a declared step past the collar's limit and "
-                    "warns on one past the flow's. Take shorter steps, or let the "
-                    "controller choose them"
-                )
-                raise ConvergenceError(msg)
+        if not self._history:
+            self._start()
+        kink = adams_core.replay_kink(self._policy, end, slack)
+        _, norm = self._attempt(dz, fixed=True, landing=(end, kink))
+        if not math.isfinite(norm):
+            msg = (
+                f"{self._name}: a replayed {self._method.name} step of "
+                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
+                f"({norm!r}): the field has diverged. A replayed schedule takes "
+                "its steps as given and cannot reject one, so a step beyond an "
+                "explicit stability limit -- the in-stage temporal collar's or a "
+                "coupled flow's advisory step -- grows until it overflows; the "
+                "translation refuses a declared step past the collar's limit and "
+                "warns on one past the flow's. Take shorter steps, or let the "
+                "controller choose them"
+            )
+            raise ConvergenceError(msg)
         return norm
 
-    def _observe(self, position: float) -> object:
-        """Return the field at `position` inside the last accepted step.
+    def _end(self, attempt: "_Attempt", *, accepted: bool) -> None:
+        """End a recorded attempt with its decision, then raise a floor it fell below.
 
-        Interpolated and carried to `position` by the exact linear flow (SEP 13
-        section 6.4, SEP 16 section 4.3); never a history point, and no source call.
-
-        - ``position``: the observation, m, inside the last accepted step.
+        As native's march does (``adams_march.cpp``): an accepted attempt ends first,
+        and a failure there is the run's error, its step committed; a rejected
+        attempt's floor is the run's error, and a failure of its end rides on it as a
+        note (SEP 49 section 6.3, issue #651).
         """
-        return self._engine.observe(position)
+        if accepted:
+            attempt.end(AttemptOutcome.ACCEPTED)
+            self._raise_floor()
+            return
+        error, self._floor = self._floor, None
+        if error is None:
+            attempt.end(AttemptOutcome.REJECTED)
+            return
+        try:
+            attempt.end(AttemptOutcome.REJECTED)
+        except Exception as cleanup:
+            error.add_note(f"releasing the source reservation failed: {cleanup}")
+        raise error
 
-    def _afford(self) -> None:
+    @contextmanager
+    def _attempt_scope(self) -> Iterator["_Attempt"]:
+        """Open an attempt with its host-source reservation; end it on every exit.
+
+        The budget is checked and the reservation made before the attempt's first
+        evaluation (SEP 49 section 6.2). An attempt the body does not end -- a
+        failure, a floor, a diverged replay -- ends abandoned, which only releases
+        what it reserved; that release's own failure is attached to the error as a
+        note, never raised in its place (SEP 49 section 6.3).
+        """
+        attempt = _Attempt(self._engine)
+        self._afford(attempt)
+        try:
+            yield attempt
+        except BaseException as error:
+            if attempt.open:
+                try:
+                    attempt.end(AttemptOutcome.ABANDONED)
+                except Exception as cleanup:
+                    error.add_note(
+                        f"releasing the source reservation failed: {cleanup}"
+                    )
+            raise
+
+    def _afford(self, attempt: "_Attempt") -> None:
         """Refuse a trial the call budget cannot pay for, before any call is made."""
         self._raise_floor()
         budget = self._policy.max_calls
         cost = (0 if self._history else 1) + 1
         spent = self.ledger.total
-        backend = self._backend
+        z = self.state.z
         if budget is not None and spent + cost > budget:
-            raise self._budget_error(cost)
-        backend._reserve_source_calls(cost)
-
-    def _budget_error(self, cost: int) -> ResponseBudgetError:
-        """Return the error of a trial the call budget cannot pay for."""
-        backend = self._backend
-        spent = self.ledger.total
-        msg = (
-            f"the source-call budget of {self._policy.max_calls} is spent ({spent} "
-            f"charged) at z = {backend._z:.6g} m: the next trial needs {cost}; "
-            "the run stops at its last accepted step, unfinished"
-        )
-        return ResponseBudgetError(
-            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
-        )
+            msg = (
+                f"the source-call budget of {budget} is spent ({spent} charged) at "
+                f"z = {z:.6g} m: the next trial needs {cost}; the run stops at its "
+                "last accepted step, unfinished"
+            )
+            raise ResponseBudgetError(msg, z=z, field=self._field().copy(), calls=spent)
+        try:
+            attempt.begin(cost)
+        except ResponseBudgetError as error:
+            raise ResponseBudgetError(
+                "the TDSE atomic-call budget cannot reserve the next trial "
+                f"at z = {z:.6g} m ({error.calls} charged); "
+                "the run stops at its last accepted step, unfinished",
+                z=z,
+                field=self._field().copy(),
+                calls=error.calls,
+            ) from None
 
     def _start(self) -> None:
         """Evaluate the source at the accepted field to (re)start the history."""
-        backend = self._backend
-        z = backend._z
+        z = self.state.z
         self.ledger.startup += 1
-        value = self._engine.start(z)
-        self._history = [Derivative(z, value, "accepted", 0)]
+        self._engine.start(z)
+        self._history = [HistoryEntry(z, "accepted", 0)]
         self._order = 1 if self._policy.variable_order else self._policy.order
 
     def _capped(self, proposal: float) -> float:
@@ -468,37 +521,16 @@ class HostAdamsMarch:
         Under a carrier frame no step covers more than
         :data:`~solprop.stepper.multistep.CARRIER_PHASE_CAP` of carrier phase (SEP 35
         section 6.4), measured by one chord of the reference element's operator over
-        the proposal (:class:`CarrierChord`)
-        (:func:`~solprop.backends.adams_core.carrier_capped`). Applied before the
-        landing rule, so a shortened step is not a landing; a fixed schedule's replay
-        is not capped.
+        the proposal (:func:`~solprop.backends.adams_core.carrier_capped`). Applied
+        before the landing rule, so a shortened step is not a landing; a fixed
+        schedule's replay is not capped.
 
         - ``proposal``: the controller's proposal, m.
-        - Returns: the proposal, or the shorter step the cap allows, m.
         """
         if not self._policy.carrier:
             return proposal
-        carrier = cast("CarrierReference", self._engine.carrier)
         return adams_core.carrier_capped(
-            self._policy, self._backend._z, proposal, carrier.chord_phase
-        )
-
-    def _quiet_capped(self, proposal: float) -> float:
-        """Return the proposal held to the monitor's interval while the collar rests.
-
-        :func:`~solprop.backends.adams_core.quiet_capped` of the backend's collar and
-        monitor, the rule of the driver's own ``_quiet_capped``.
-
-        - ``proposal``: the controller's proposal, m.
-        - Returns: the proposal, or the monitor's interval while the collar is left out,
-          m.
-        """
-        backend = self._backend
-        monitor = backend._monitor
-        return adams_core.quiet_capped(
-            proposal,
-            quiet=backend._collar_quiet,
-            interval=None if monitor is None else monitor.interval,
+            self._policy, self.state.z, proposal, self._engine.chord_phase
         )
 
     def _attempt(
@@ -510,7 +542,6 @@ class HostAdamsMarch:
     ) -> tuple[bool, float]:
         """Try one step of length `dz` and commit it if accepted.
 
-        - ``dz``: the step, m.
         - ``fixed``: whether the step is a prescribed schedule's, accepted whatever its
           norm.
         - ``landing``: where an accepted step ends, m, and whether that is a hard kink,
@@ -518,63 +549,23 @@ class HostAdamsMarch:
           nothing.
         - Returns: whether the step was accepted, and its scaled error norm.
         """
-        if self._exponential is not None:
-            return self._attempt_exponential(dz, fixed=fixed, landing=landing)
-        return self._attempt_fused(dz, fixed=fixed, landing=landing)
-
-    def _attempt_fused(
-        self,
-        dz: float,
-        *,
-        fixed: bool = False,
-        landing: tuple[float, bool] | None = None,
-    ) -> tuple[bool, float]:
-        """Try one step of the one-order-higher PEC family on the fused path.
-
-        The arithmetic of :meth:`_attempt`, :meth:`_correct`, :meth:`_commit` and
-        :meth:`_next_order` for this family, in the engine's passes
-        (:meth:`HostHistory.fused_trial`): the defects of the neighbouring orders are
-        scored in the same pass as the step's own, before the decision.
-
-        - ``dz``: the step, m.
-        - ``landing``: where an accepted step ends and whether it is a hard kink
-          (:meth:`_attempt`).
-        - Returns: whether the step was accepted, and its scaled error norm.
-        """
-        z, nodes, slots, order, orders = self._stencil(dz)
-        self.ledger.predictor += 1
-        norms = self._engine.fused_trial(z, dz, nodes, slots, order, orders)
-        return self._decide(dz, order, orders, norms, fixed=fixed, landing=landing)
-
-    def _stencil(
-        self, dz: float
-    ) -> tuple[float, list[float], np.ndarray, int, list[int]]:
-        """Return a trial's anchor, nodes, rows, order and scored orders.
-
-        :func:`~solprop.backends.adams_core.stencil` of the history.
-
-        - ``dz``: the step, m.
-        - Returns: the anchor, m; the history's normalised positions and store rows,
-          newest first; the step's order; and the orders scored, its own first.
-        """
-        z = self._backend._z
-        history = self._history
         stencil = adams_core.stencil(
             self._policy,
-            z,
+            self.state.z,
             dz,
-            [entry.z for entry in history],
-            [entry.slot for entry in history],
+            [entry.z for entry in self._history],
+            [entry.row for entry in self._history],
             self._order,
             last_rejected=self._last_rejected,
         )
-        return z, stencil.nodes, stencil.rows, stencil.order, stencil.orders
+        self.ledger.predictor += 1
+        norms = self._engine.trial(self.state.z, dz, stencil)
+        return self._decide(dz, stencil, norms, fixed=fixed, landing=landing)
 
     def _decide(
         self,
         dz: float,
-        order: int,
-        orders: list[int],
+        stencil: adams_core.Stencil,
         norms: np.ndarray,
         *,
         fixed: bool,
@@ -584,12 +575,11 @@ class HostAdamsMarch:
 
         The new sample takes the oldest row past the method's need.
 
-        - ``dz``: the step, m.
         - ``landing``: where an accepted step ends and whether it is a hard kink
           (:meth:`_attempt`).
         - Returns: whether the step was accepted, and its scaled error norm.
         """
-        backend, policy, engine = self._backend, self._policy, self._engine
+        policy, engine, order = self._policy, self._engine, stencil.order
         norm = float(norms[0])
         if not norm <= 1.0 and not (fixed and math.isfinite(norm)):
             self.ledger.rejected += 1
@@ -599,25 +589,20 @@ class HostAdamsMarch:
                 # raised at once.
                 self._raise_floor()
             return False, norm
-        z = backend._z
+        z = self.state.z
         keep = self._history[-policy.order :] if policy.order else []
-        used = {entry.slot for entry in keep}
-        free = next(slot for slot in range(engine.n_slots) if slot not in used)
-        rows = np.array([entry.slot for entry in keep], dtype=np.int64)
+        used = {entry.row for entry in keep}
+        n_slots = cast("Any", engine).n_slots
+        free = next(slot for slot in range(n_slots) if slot not in used)
         with committing():
-            if self._exponential is None:
-                engine.fused_accept(rows, free, interpolate=self._interpolate)
-            else:
-                engine.exponential_accept(rows, free, interpolate=self._interpolate)
-            self._history = [
-                *keep,
-                Derivative(z + dz, engine.value(free), "predicted", free),
-            ]
+            record = engine.accept(dz, free, stencil, keep)
+            self._host.absorb(record)
+            self._history = [*keep, HistoryEntry(z + dz, "predicted", free)]
             self.ledger.accepted_steps += 1
             self._rejections = 0
             self.ledger.orders.append(order)
             next_order, control = self._choose_order(
-                order, dict(zip(orders, norms.tolist(), strict=True)), dz
+                order, dict(zip(stencil.orders, norms.tolist(), strict=True)), dz
             )
             self._last_rejected = False
             self._land(z, dz, landing)
@@ -636,14 +621,10 @@ class HostAdamsMarch:
         the order have moved, so that a run stopped by the floor leaves the state of the
         step it accepted at that step's end (SEP 39 section 4.4). The floor is raised
         once the march has recorded the step (:meth:`_raise_floor`).
-
-        - ``dz``: the accepted step, m.
         """
         policy = self._policy
         try:
-            self._backend._proposal = limit_step(
-                dz, factor, policy.dz_min, policy.dz_max
-            )
+            self.state.proposal = limit_step(dz, factor, policy.dz_min, policy.dz_max)
         except ConvergenceError as error:
             self._floor = error
 
@@ -659,55 +640,24 @@ class HostAdamsMarch:
             raise error
 
     def _land(self, z: float, dz: float, landing: tuple[float, bool] | None) -> None:
-        """Move the backend to an accepted step's end, restarting at a kink.
+        """Move to an accepted step's end, restarting at a kink.
 
         Called inside the commit that installed the step's state, so that the state
         and its position change together whatever interrupts the march afterwards.
-
-        - ``z``: the step's start, m.
-        - ``dz``: the step, m.
-        - ``landing``: where it ends and whether that is a hard kink (:meth:`_attempt`).
         """
         end, kink = (z + dz, False) if landing is None else landing
-        self._backend._z = end
+        self.state.z = end
         if kink:
             self._history = []
             self.ledger.restarts += 1
-
-    def _attempt_exponential(
-        self,
-        dz: float,
-        *,
-        fixed: bool = False,
-        landing: tuple[float, bool] | None = None,
-    ) -> tuple[bool, float]:
-        """Try one exponential Adams step and commit it if accepted (SEP 16).
-
-        The controller of :meth:`_attempt_fused` with the engine's exponential trial
-        (:meth:`HostHistory.exponential_trial`): untransported samples, integrated
-        exactly against the step's flow; an accepted step re-anchors nothing.
-
-        - ``dz``: the step, m.
-        - ``landing``: where an accepted step ends and whether it is a hard kink
-          (:meth:`_attempt`).
-        - Returns: whether the step was accepted, and its scaled error norm.
-        """
-        z, nodes, slots, order, orders = self._stencil(dz)
-        self.ledger.predictor += 1
-        norms = self._engine.exponential_trial(z, dz, nodes, slots, order, orders)
-        return self._decide(dz, order, orders, norms, fixed=fixed, landing=landing)
 
     def _collar_reentry(self, proposal: float) -> float:
         """Return the proposal held to the collar's stable step as its term returns.
 
         :func:`~solprop.backends.adams_core.collar_reentry`, recording the collar's
         flag at this attempt.
-
-        - ``proposal``: the controller's proposal, m.
-        - Returns: the proposal, or the collar's stable step when the term has just
-          returned, m.
         """
-        quiet = self._backend._collar_quiet
+        quiet = self._host.collar_quiet
         capped = adams_core.collar_reentry(
             self._policy,
             proposal,
@@ -730,12 +680,9 @@ class HostAdamsMarch:
         by rounding -- runs a rounding apart settled in different orders, with calls
         40 % apart. The cap weighs the choice only; the step is the chosen order's
         defect's, as before.
-
-        - ``dz``: the accepted step, m.
-        - Returns: the order and the norm the next step is controlled with.
         """
         stored, control, norm = adams_core.choose_order(
-            self._policy, current, scores, dz, quiet=self._backend._collar_quiet
+            self._policy, current, scores, dz, quiet=self._host.collar_quiet
         )
         self._order = stored
         return control, norm
@@ -746,15 +693,9 @@ class HostAdamsMarch:
         :func:`~solprop.backends.adams_core.rejection`: a rejection leaves the accepted
         history untouched, and after
         :data:`~solprop.stepper.multistep.RESTART_AFTER` in a row the method restarts
-        at order one from the accepted state, paying one startup call.
-
-        A proposal below the floor is left as it was, and the floor is raised once the
-        march has recorded the rejected attempt (:meth:`_raise_floor`), so that the
-        completed trial has its row (issue #651), as an accepted step's floor is
-        (:meth:`_propose`).
-
-        - ``dz``: the rejected step, m.
-        - ``norm``: its scaled defect, possibly not finite.
+        at order one from the accepted state, paying one startup call. A proposal
+        below the floor is left as it was, and the floor is raised once the march has
+        recorded the rejected attempt (:meth:`_raise_floor`; issue #651).
         """
         policy = self._policy
         self.ledger.rejected_steps += 1
@@ -767,50 +708,53 @@ class HostAdamsMarch:
             self._history = []
             self.ledger.failure_restarts += 1
         try:
-            self._backend._proposal = limit_step(
+            self.state.proposal = limit_step(
                 dz, outcome.factor, policy.dz_min, policy.dz_max
             )
         except ConvergenceError as error:
             self._floor = error
 
 
+class _Attempt:
+    """An attempt's source reservation, ended exactly once (native ``Attempt``)."""
+
+    def __init__(self, engine: object) -> None:
+        self._engine = cast("AdamsEngine", engine)
+        self.open = False
+
+    def begin(self, cost: int) -> None:
+        """Reserve the attempt's calls; the attempt is open from here."""
+        self._engine.begin_attempt(cost)
+        self.open = True
+
+    def end(self, outcome: AttemptOutcome) -> None:
+        """End with the decision; closed first, so a failure here is not abandoned."""
+        self.open = False
+        self._engine.end_attempt(outcome)
+
+
 _ENGINE_MEMBERS = (
+    "start",
+    "trial",
+    "accept",
+    "chord_phase",
+    "step_carrier",
+    "begin_attempt",
+    "end_attempt",
+    "reading",
     "n_slots",
-    "carrier",
-    "dense",
     "reset",
     "hold",
     "restore",
-    "start",
-    "value",
     "observe",
 )
-"""What every march path asks of an engine, beside its own trial and acceptance."""
+"""What the march asks of an engine: the protocol, and the members that move to the
+session with SEP 52's step 2."""
 
 
-@contextmanager
-def _trial(backend: HostDriver) -> Iterator[None]:
-    """Release a trial's unused source reservation on every exit (SEP 49, 6.3).
-
-    A failure's own error stays the one raised: a release that fails after it is
-    attached to it as a note, never raised in its place.
-    """
-    try:
-        yield
-    except BaseException as error:
-        try:
-            backend._release_source_calls()
-        except Exception as cleanup:
-            error.add_note(f"releasing the source reservation failed: {cleanup}")
-        raise
-    backend._release_source_calls()
-
-
-def _check_engine(engine: object, *, exponential: bool) -> None:
-    """Refuse an injected engine that lacks a member its path calls."""
-    family = "exponential" if exponential else "fused"
-    wanted = (*_ENGINE_MEMBERS, f"{family}_trial", f"{family}_accept")
-    missing = [name for name in wanted if not hasattr(engine, name)]
+def _check_engine(engine: object) -> None:
+    """Refuse an engine that lacks a member the march calls."""
+    missing = [name for name in _ENGINE_MEMBERS if not hasattr(engine, name)]
     if missing:
-        msg = f"an Adams engine for the {family} path lacks {', '.join(missing)}"
+        msg = f"an Adams engine lacks {', '.join(missing)}"
         raise BackendError(msg)

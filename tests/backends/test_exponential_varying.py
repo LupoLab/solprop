@@ -22,7 +22,6 @@ import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
 from sessions.runs import run as session_run
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
@@ -87,7 +86,7 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
     )
     if compensation is not None:
         method = run_request.stepper.integrator
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
+        backend._use_adams(method, compensation=compensation)
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, fields = [], []

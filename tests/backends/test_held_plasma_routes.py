@@ -53,15 +53,15 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
         options=ExecutionOptions(node_chunk=problem.transform.n_nodes),
     )
     try:
-        bundle = backend._stage_scalars(0.0, 0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
         state = problem.initial.field0
         ones = np.ones_like(state)
-        backend._hoist(0.0)
-        result = backend._nonlinear(state, bundle, ones)
+        backend.workspace.hoist(0.0)
+        result = backend.workspace.nonlinear(state, bundle, ones)
         allowance = relative * np.max(abs(reference))
         assert allowance > 0
         assert np.max(abs(result - reference)) <= allowance
-        zero = backend._nonlinear(np.zeros_like(state), bundle, ones)
+        zero = backend.workspace.nonlinear(np.zeros_like(state), bundle, ones)
         assert np.array_equal(zero, np.zeros_like(zero))
         assert np.array_equal(
             result[..., ~grid.active_mask],
@@ -107,7 +107,7 @@ def test_mixture_production_assembles_both_current_channels():
     transform, grids = problem.transform, problem.grids
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend._hoist(0.0)
+        backend.workspace.hoist(0.0)
         nodes = passes.synthesise(
             passes.to_time(
                 problem.initial.field0, grids.crop_index, grids.n_to, kind="field"
@@ -116,7 +116,7 @@ def test_mixture_production_assembles_both_current_channels():
             bundle.taper_scale,
             transform.n_pol,
         )
-        sources = backend._column_sources(nodes, bundle, None)
+        sources = backend.workspace._column_sources(nodes, bundle, None)
         assert sources.current is not None
         # The compatibility polarisation entry point still integrates the physical
         # current; production consumes the separate streams instead.
@@ -165,9 +165,9 @@ def test_mixture_production_assembles_both_current_channels():
         expected[..., active] += (
             spectra[1][..., active] / q - spectra[2][..., active] / q**2
         )
-        weight = backend._prefactor(bundle) * grids.omega_window
+        weight = backend.workspace.prefactor(bundle) * grids.omega_window
         expected *= weight
-        actual = backend._nonlinear(
+        actual = backend.workspace.nonlinear(
             problem.initial.field0, bundle, np.ones(problem.shape, complex)
         )
         # Projection chunk order, three FFTs and assembly of identical currents.
@@ -237,8 +237,11 @@ def test_real_column_decomposition_in_assembled_units(
     defect = q * v - x - y
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        backend._hoist(0.0)
-        weight = backend._prefactor(bundle)[..., active] * grids.omega_window[active]
+        backend.workspace.hoist(0.0)
+        weight = (
+            backend.workspace.prefactor(bundle)[..., active]
+            * grids.omega_window[active]
+        )
     finally:
         backend.close()
     allowance = (

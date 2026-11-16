@@ -35,15 +35,15 @@ def test_cartesian_reference_stage_names_missing_geometry(free_backend_problem):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._hoist(0.0)
-        bundle = backend._stage_scalars(0.0, 0.0)
+        backend.workspace.hoist(0.0)
+        bundle = backend.workspace.stage_scalars(0.0, 0.0)
         transform = copy.copy(problem.transform)
         object.__setattr__(transform, "geometry", None)
         route = copy.copy(problem.route)
         object.__setattr__(route, "transform", transform)
         object.__setattr__(problem, "route", route)
         with pytest.raises(BackendError, match=r"Cartesian nonlinear.*geometry"):
-            backend._nonlinear(
+            backend.workspace.nonlinear(
                 problem.initial.field0,
                 bundle,
                 np.ones(problem.shape, complex),

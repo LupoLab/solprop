@@ -22,8 +22,8 @@ import pytest
 
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import BackendHistory, Observation, stepping
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
@@ -449,13 +449,14 @@ def test_a_field_free_observation_crosses_no_field(monkeypatch):
     for field in (True, False):
         owner = select(backend, problem, run_request, grid=simulation.grid)
         copies = []
-        original = cast("type[HostDriver]", type(owner))._observed_field
+        original = NumpyWorkspace.noise_phase
 
-        def counted(self, state, copies=copies, original=original):
+        def counted(self, z, copies=copies, original=original):
             copies.append(1)
-            return original(self, state)
+            return original(self, z)
 
-        monkeypatch.setattr(type(owner), "_observed_field", counted)
+        # The observation reads the noise phase beside the field and neither without.
+        monkeypatch.setattr(NumpyWorkspace, "noise_phase", counted)
         try:
             stepping(owner).set_initial(problem.initial.field0, None)
             stepping(owner).propagate_to(float(PLANES[0]))

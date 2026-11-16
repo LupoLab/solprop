@@ -248,7 +248,7 @@ def test_the_reference_s_runge_kutta_march_reads_the_shared_policy():
     backend: Any = select("numpy_ref", problem, request)
     try:
         assert (
-            backend._controller_policy()
+            backend._march._policy
             == run_records(problem, request, _entrance(problem)).policy
         )
         assert backend._collar_can_rest() is collar_rests(problem, request.stepper)

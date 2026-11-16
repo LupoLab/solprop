@@ -192,11 +192,11 @@ def nonlinear_rate(problem, run_request, grid):
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
+        reference.workspace.hoist(0.0)
         state = reference._require_state()
-        stage = reference._nonlinear(
+        stage = reference.workspace.nonlinear(
             state,
-            reference._stage_scalars(0.0, 0.0),
+            reference.workspace.stage_scalars(0.0, 0.0),
             np.ones(problem.shape, complex),
         )
         return 3.0 * float(np.max(np.abs(stage)) / np.max(np.abs(state)))

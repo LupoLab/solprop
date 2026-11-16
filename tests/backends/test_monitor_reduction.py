@@ -308,7 +308,7 @@ def test_a_reading_needs_a_monitor(backend: str) -> None:
             driver = as_driver(made)
             driver.set_initial(problem.initial.field0, None)
             with pytest.raises(BackendError, match="no boundary monitor"):
-                driver._boundary_energies(driver._require_state())
+                driver._boundary_energies()
         else:
             # The native state's own reduction, which its session reads at a check.
             from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]

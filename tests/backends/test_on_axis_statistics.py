@@ -17,7 +17,7 @@ them by name.
 import math
 import warnings
 from contextlib import closing
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -27,7 +27,6 @@ from rate_oracles import adk_oracle
 from sessions.executors import IDENTITY
 from sessions.runs import launched, load_native, run
 from solprop.backends import select
-from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
 from solprop.driver import Simulation
@@ -115,7 +114,7 @@ def entrance_stats(grid, problem, run_request, modes, spec):
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
         # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("HostDriver", backend).axis_scans
+        return values, cast("Any", backend).workspace.axis_scans
 
 
 RULES: list[tuple[RadialRule, int]] = [
@@ -273,7 +272,7 @@ def test_consecutive_planes_scan_their_own_field(grid, table, name):
         landed = run(backend, problem, run_request)
         if name == "numpy_ref":
             # select() returns the seam's protocol; the counter is the driver's.
-            assert cast("HostDriver", backend).axis_scans == 2
+            assert cast("Any", backend).workspace.axis_scans == 2
         first, second = (
             float(observation.stats["on_axis_electron_density"])
             for observation in landed.observations
@@ -398,7 +397,7 @@ def backend_stats(name, grid, problem, run_request, modes, spec):
         if name == "native":
             return _stats(observation), _native_axis_scans(session)
         # select() returns the seam's protocol; the counter is the driver's.
-        return _stats(observation), cast("HostDriver", backend).axis_scans
+        return _stats(observation), cast("Any", backend).workspace.axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -590,8 +589,8 @@ def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
     ) as backend:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="needs the field"):
-            backend._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
-                None, np.zeros((2, 1))
+            backend.workspace._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
+                None, np.zeros((2, 1)), backend._z
             )
 
 

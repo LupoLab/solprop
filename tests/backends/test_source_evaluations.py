@@ -61,23 +61,24 @@ def test_python_counter_tracks_dispatch_through_rejection(
     with closing(reference) as engine:
         engine.set_initial(problem.initial.field0, None)
         calls = []
-        original_trial = engine._trial_step
+        stepper = engine._runge_kutta_engine
+        original_trial = stepper.trial
 
         def trial(z, dz):
             before = engine.metadata()["source_evaluations"]
-            _, advanced = original_trial(z, dz)
+            original_trial(z, dz)
             calls.append(engine.metadata()["source_evaluations"] - before)
-            return (4.0 if len(calls) == 1 else 0.01), advanced
+            return 4.0 if len(calls) == 1 else 0.01
 
-        monkeypatch.setattr(engine, "_trial_step", trial)
+        monkeypatch.setattr(stepper, "trial", trial)
         dispatched = []
-        original_source = engine._nonlinear
+        original_source = engine.workspace.nonlinear
 
         def source(*args, **kwargs):
             dispatched.append(None)
             return original_source(*args, **kwargs)
 
-        monkeypatch.setattr(engine, "_nonlinear", source)
+        monkeypatch.setattr(engine.workspace, "nonlinear", source)
         summary = engine.propagate_to(0.002)
         assert summary.n_rejected == 1
         assert calls[0] == 7

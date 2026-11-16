@@ -62,8 +62,8 @@ def test_the_lab_frame_sample_is_the_hoisted_derivative_on_the_masked_launch():
         launch = problem.initial.field0
         masked = apply_hard_mask(launch, problem.grids.active_mask)
         assert np.any(masked != launch)
-        backend._hoist(1e-3)
-        sample = np.array(backend._adams_lab_source(masked, 0.0))
+        backend.workspace.hoist(1e-3)
+        sample = np.array(backend.workspace.lab_source(masked, 0.0))
     finally:
         backend.close()
     assert_within(sample, hoisted, 8 * EPS, what="lab-frame sample")

@@ -46,7 +46,6 @@ from solprop import stats as stats_module
 from solprop.backends import select
 from solprop.backends.node_chunk import general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
@@ -57,6 +56,7 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_kerr_coefficients,
     symmetric_monomials,
 )
+from solprop.backends.numpy_ref.workspace import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, TranslationError

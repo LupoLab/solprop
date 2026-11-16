@@ -25,7 +25,7 @@ from flow_parity import (
     ten_step_bound,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _coupled_flow_maps
+from solprop.backends.numpy_ref.workspace import _coupled_flow_maps
 from solprop.exceptions import BackendError, TranslationError
 from solprop.translate.coupled import constant_schur_flow, orthonormal_metric
 
