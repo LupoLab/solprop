@@ -241,9 +241,6 @@ __all__ = ["Simulation"]
 
 logger = logging.getLogger(__name__)
 
-_PRESSURE_FORM_ENTRIES = 2
-"""Entries in either of the two pair forms of the ``pressure`` keyword."""
-
 _FIXED_INPUTS: Final = frozenset(
     {
         "configuration",

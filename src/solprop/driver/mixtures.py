@@ -115,6 +115,10 @@ class ResponseSelection:
         return bind_reference_field(responses, self.reference_field, self.field_range)
 
 
+_PRESSURE_FORM_ENTRIES = 2
+"""Entries in either of the two pair forms of the ``pressure`` keyword."""
+
+
 def capillary_fill(
     material: Gas | str | Mapping[str, float] | Mixture,
     pressure: Pressure | None,
@@ -216,7 +220,7 @@ def capillary_fill(
         # The bore shapes only a fill built here from end pressures; a supplied
         # profile is used as given, and the constructor warns if it is boreless.
         bore = radius if isinstance(pressure, Sequence) else None
-        if isinstance(pressure, Sequence) and len(pressure) != 2:
+        if isinstance(pressure, Sequence) and len(pressure) != _PRESSURE_FORM_ENTRIES:
             raise DriverError(
                 "pressure must be a number, profile, (p_in, p_out) or (z, p) pair",
                 parameter="pressure",
