@@ -22,7 +22,7 @@ import functools
 import math
 import warnings
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal, cast
 
 import mpmath
 import numpy as np
@@ -865,7 +865,8 @@ def test_a_varying_operator_is_compensated_under_the_frame(compensation):
     # samples. Both against a converged Runge-Kutta reference.
     reference = march(gradient(RungeKutta(), 1e-11)).fields[-1]
     field, run = gradient_run(SCALAR, compensation)
-    assert run._engine.compensated and shifted(run)
+    assert run is not None
+    assert cast("Any", run._engine).compensated and shifted(run)
     assert relative(field, reference) < 1e-8 * run.ledger.accepted_steps
 
 

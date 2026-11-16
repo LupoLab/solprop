@@ -1303,16 +1303,16 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
         return field
 
     forced = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not forced._general_responds
-    forced._general_responds = True
+    assert not forced.workspace._general_responds
+    forced.workspace._general_responds = True
     expected = step(forced)
 
     def refuse(*arguments, **keywords):
         raise AssertionError("the general source pass ran for a linear guide")
 
-    monkeypatch.setattr("solprop.backends.numpy_ref.backend.general_source", refuse)
+    monkeypatch.setattr("solprop.backends.numpy_ref.workspace.general_source", refuse)
     short = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not short._general_responds
+    assert not short.workspace._general_responds
     field = step(short)
     assert np.any(field)
     np.testing.assert_array_equal(field.view(np.uint8), expected.view(np.uint8))

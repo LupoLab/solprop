@@ -46,7 +46,7 @@ from backends.synthetic_leaf_cases import (
 from bounds import gamma
 from sessions.runs import load_native
 from sessions.runs import run as session_run
-from solprop.backends.host.low_storage import HostLowStorageMarch
+from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import ConvergenceError
 
@@ -139,19 +139,21 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
 
     The original read it from the fold's partials. Here it is what the engine hands
     the accept, on each backend, against the sum over the mask of the state that step
-    leaves, within one sum's rounding: the reference's in its session, native's from
-    its resident engine, whose state is the native session's own to the bit.
+    leaves, within one sum's rounding: the reference's engine's (``HostLowStorage``) in
+    its session, native's from its resident engine, whose state is the native
+    session's own to the bit.
     """
     problem, run_request, grid = free_problem(responses=[KERR])
     leaf = free_leaf(problem.linear.separable)
     problem, mask = with_masked_bin(on_leaf(problem, leaf), leaf)
     seen = []
 
-    def capture(self, z, dz, squared, accept=HostLowStorageMarch._accept):
+    def capture(self, state, z, dz, step=HostLowStorage._step):
+        squared = step(self, state, z, dz)
         seen.append(squared)
-        return accept(self, z, dz, squared)
+        return squared
 
-    monkeypatch.setattr(HostLowStorageMarch, "_accept", capture)
+    monkeypatch.setattr(HostLowStorage, "_step", capture)
     reference = run(NumpyRefBackend, problem, run_request, grid)
     assert len(seen) == 1
     squared, resident = resident_step(problem, run_request, grid)

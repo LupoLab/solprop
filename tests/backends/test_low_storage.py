@@ -994,7 +994,7 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
-    engine = backend._low_storage.engine
+    engine = cast("Any", backend._low_storage.engine)
     assert isinstance(engine, HostLowStorage) is not atomic
     original = engine.trial
 
@@ -1421,7 +1421,7 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
         built.append((anchor, position))
         return propagator(anchor, position)
 
-    backend.workspace.propagator = counted
+    cast("Any", backend.workspace).propagator = counted
     backend.propagate_to(length / 2)
     backend.propagate_to(length)
     assert len(built) == 1
@@ -1441,7 +1441,7 @@ def test_the_table_is_keyed_on_its_run_and_rebuilt_where_the_run_changes(
     backend.set_initial(varied.initial.field0, None)
     built.clear()
     propagator = backend.workspace.propagator
-    backend.workspace.propagator = counted
+    cast("Any", backend.workspace).propagator = counted
     backend.propagate_to(length)
     assert len(built) == varied_schedule.n_steps
     # A load drops the table, which the next step builds again.

@@ -17,6 +17,7 @@ construction (structural, SEP 25): the engines move arrays, they do not recomput
 
 import math
 from contextlib import closing
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -58,7 +59,7 @@ def test_a_runge_kutta_trial_commits_nothing_until_it_is_accepted(
         expected, _ = workspace.finish(engine.trial_state, LENGTH / 8)
         record = engine.accept(LENGTH / 8)
         assert workspace.state is not committed
-        assert np.array_equal(workspace.state, expected)
+        assert np.array_equal(workspace.committed(), expected)
         # Without a split collar the finish takes no sums and forms no stiffness.
         assert record.removed == 0.0
         assert record.found is None
@@ -94,7 +95,7 @@ def test_the_low_storage_trial_is_in_flight_until_its_accept_returns(
     )
     with closing(backend):
         assert backend._low_storage is not None
-        engine = backend._low_storage.engine
+        engine = cast("Any", backend._low_storage.engine)
         workspace = backend.workspace
         before = np.array(workspace.state)
         assert not engine.in_flight
@@ -102,7 +103,7 @@ def test_the_low_storage_trial_is_in_flight_until_its_accept_returns(
         assert engine.trial(0.0, dz) == 0.0
         # The trial overwrote the state, the register A: neither end of the step.
         assert engine.in_flight
-        assert not np.array_equal(workspace.state, before)
+        assert not np.array_equal(workspace.committed(), before)
         record = engine.accept(dz)
         assert not engine.in_flight
         assert math.isfinite(record.stiffness) and record.stiffness > 0.0

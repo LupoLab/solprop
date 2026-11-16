@@ -27,7 +27,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -469,9 +469,10 @@ class _HostHarness(_Scripted, HostDriver):
         engine = self.engine
         assert engine is not None
         carrier = engine.carrier
+        stepper: Any = self._stepper
         policy = adams_policy(
-            self._problem,
-            self._stepper,
+            cast("Any", self._problem),
+            stepper,
             method,
             carrier=isinstance(carrier, CarrierReference) and carrier.active,
         )
@@ -481,8 +482,8 @@ class _HostHarness(_Scripted, HostDriver):
             self._hooks,
             policy=policy,
             field=lambda: np.zeros((1, 1, 1), dtype=np.complex128),
-            schedule=self._stepper.schedule,
-            interpolate=self._stepper.interpolate_planes,
+            schedule=stepper.schedule,
+            interpolate=stepper.interpolate_planes,
             shape=(1, 1, 1),
             proposal=self.scenario.proposal,
             lag=1,

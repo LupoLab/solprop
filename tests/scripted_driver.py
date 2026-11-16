@@ -53,9 +53,14 @@ class _Scripted:
 
     if TYPE_CHECKING:
         # What the mixin reads of the driver it is mixed into.
-        _proposal: float
         _problem: Any
-        _z: float
+
+        @property
+        def _z(self) -> float: ...
+
+        @property
+        def _proposal(self) -> float: ...
+
         _closed: bool
         _workspace: Any
 
