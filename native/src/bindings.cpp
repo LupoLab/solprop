@@ -722,32 +722,8 @@ native::TrialScalars adams_scalars(const RealInput phi_delta, const RealInput ph
 // packs it: (edges, lower, upper, coefficients) with the coefficients
 // (n_intervals, n_terms, n_values); `None` for an absent table (solprop SEP 39).
 native::stage::Table stage_table_from(const nb::handle value) {
-  native::stage::Table table;
-  if (value.is_none())
-    return table;
-  using Coefficients =
-      nb::ndarray<const double, nb::ndim<3>, nb::c_contig, nb::device::cpu>;
-  try {
-    const auto parts = nb::cast<nb::tuple>(value);
-    if (parts.size() != 4)
-      throw std::invalid_argument(
-          "a stage table is (edges, lower, upper, coefficients)");
-    table.edges = real_vector(exact_array<RealInput>(parts[0]));
-    table.lower = nb::cast<double>(parts[1]);
-    table.upper = nb::cast<double>(parts[2]);
-    const auto coefficients = exact_array<Coefficients>(parts[3]);
-    if (table.edges.size() < 2 || coefficients.shape(0) + 1 != table.edges.size() ||
-        coefficients.shape(1) < 1 || coefficients.shape(2) < 1)
-      throw std::invalid_argument(
-          "a stage table's coefficients do not match its breakpoints");
-    table.n_terms = coefficients.shape(1);
-    table.n_values = coefficients.shape(2);
-    table.coefficients.assign(coefficients.data(),
-                              coefficients.data() + coefficients.size());
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("a stage table has the wrong types");
-  }
-  return table;
+  // A tuple `(edges, lower, upper, coefficients)` read by the table's field order.
+  return native::records::read<native::stage::Table>(value, "stage table");
 }
 
 std::vector<native::stage::Table> stage_table_list(const nb::handle values) {
@@ -977,43 +953,7 @@ void initialize_kokkos(const int threads, const int kernels, const int fft,
 namespace march = native::march;
 
 march::Policy march_policy_from(const nb::dict values) {
-  march::Policy policy;
-  try {
-    policy.order = nb::cast<std::size_t>(values["order"]);
-    policy.variable_order = nb::cast<bool>(values["variable_order"]);
-    policy.safety = nb::cast<double>(values["safety"]);
-    policy.max_growth = nb::cast<double>(values["max_growth"]);
-    policy.min_factor = nb::cast<double>(values["min_factor"]);
-    policy.rejection_growth = nb::cast<double>(values["rejection_growth"]);
-    policy.hysteresis = nb::cast<double>(values["hysteresis"]);
-    policy.restart_after = nb::cast<std::size_t>(values["restart_after"]);
-    policy.collar_stability = nb::cast<double>(values["collar_stability"]);
-    policy.real_intervals = nb::cast<std::vector<double>>(values["real_intervals"]);
-    policy.collar_rate = nb::cast<double>(values["collar_rate"]);
-    policy.carrier = nb::cast<bool>(values["carrier"]);
-    policy.carrier_cap = nb::cast<double>(values["carrier_cap"]);
-    policy.has_budget = !values["max_calls"].is_none();
-    policy.max_calls =
-        policy.has_budget ? nb::cast<std::uint64_t>(values["max_calls"]) : 0;
-    policy.equal_approach = nb::cast<bool>(values["equal_approach"]);
-    policy.interval_cap = nb::cast<bool>(values["interval_cap"]);
-    policy.dz_min = nb::cast<double>(values["dz_min"]);
-    policy.dz_max = nb::cast<double>(values["dz_max"]);
-    policy.stretch = nb::cast<double>(values["stretch"]);
-    policy.z_end = nb::cast<double>(values["z_end"]);
-    policy.save_planes = nb::cast<std::vector<double>>(values["save_planes"]);
-    policy.hard_kinks = nb::cast<std::vector<double>>(values["hard_kinks"]);
-    policy.breakpoints = nb::cast<std::vector<double>>(values["breakpoints"]);
-    policy.landing_ulps = nb::cast<int>(values["landing_ulps"]);
-    policy.interpolate = nb::cast<bool>(values["interpolate"]);
-    policy.has_quiet_interval = !values["quiet_interval"].is_none();
-    policy.quiet_interval =
-        policy.has_quiet_interval ? nb::cast<double>(values["quiet_interval"]) : 0.0;
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the Adams march's policy has the wrong types");
-  } catch (const nb::python_error&) {
-    throw std::invalid_argument("the Adams march's policy lacks a field");
-  }
+  auto policy = native::records::read<march::Policy>(values, "policy");
   march::validate(policy);
   return policy;
 }
@@ -1021,52 +961,13 @@ march::Policy march_policy_from(const nb::dict values) {
 // solprop SEP 45 phase 1: the boundary watch's policy and state, from and to solprop's
 // `BoundaryMonitor.watch_policy` and `.watch_state`.
 native::watch::Policy watch_policy_from(const nb::dict values) {
-  native::watch::Policy policy;
-  try {
-    policy.split = nb::cast<bool>(values["split"]);
-    policy.crossing = nb::cast<bool>(values["crossing"]);
-    const auto regions = nb::cast<std::vector<double>>(values["floor_regions"]);
-    if (regions.size() != 4)
-      throw std::invalid_argument("the boundary watch's floor regions are four");
-    for (std::size_t index = 0; index < 4; ++index)
-      policy.floor_regions[index] = regions[index];
-    policy.launch_floor = nb::cast<double>(values["launch_floor"]);
-    policy.activity = nb::cast<double>(values["activity"]);
-    policy.warn = nb::cast<double>(values["warn"]);
-    policy.stop = nb::cast<double>(values["stop"]);
-    policy.quiet_share = nb::cast<double>(values["quiet_share"]);
-    policy.quiet_checks = nb::cast<std::uint64_t>(values["quiet_checks"]);
-    policy.quiet_collar = nb::cast<bool>(values["quiet_collar"]);
-    policy.cadence = nb::cast<std::uint64_t>(values["cadence"]);
-    policy.interval = nb::cast<double>(values["interval"]);
-    policy.share = nb::cast<double>(values["share"]);
-    policy.bucket_limits = nb::cast<std::vector<double>>(values["bucket_limits"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the boundary watch's policy has the wrong types");
-  } catch (const nb::python_error&) {
-    throw std::invalid_argument("the boundary watch's policy lacks a field");
-  }
+  auto policy = native::records::read<native::watch::Policy>(values, "policy");
   native::watch::validate(policy);
   return policy;
 }
 
 native::watch::State watch_state_from(const nb::dict values) {
-  native::watch::State state;
-  try {
-    state.has_last = nb::cast<bool>(values["has_last"]);
-    state.last_z = nb::cast<double>(values["last_z"]);
-    state.since = nb::cast<std::uint64_t>(values["since"]);
-    state.busy = nb::cast<bool>(values["busy"]);
-    state.quiet_run = nb::cast<std::uint64_t>(values["quiet_run"]);
-    state.quiet = nb::cast<bool>(values["quiet"]);
-    state.warned = nb::cast<bool>(values["warned"]);
-    state.cap = nb::cast<double>(values["cap"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the boundary watch's state has the wrong types");
-  } catch (const nb::python_error&) {
-    throw std::invalid_argument("the boundary watch's state lacks a field");
-  }
-  return state;
+  return native::records::read<native::watch::State>(values, "watch");
 }
 
 nb::dict watch_state_to(const native::watch::State& state) {
@@ -1085,20 +986,8 @@ nb::dict watch_state_to(const native::watch::State& state) {
 // solprop SEP 47 section 6.4: the owning boundary monitor's configuration, the record
 // a resume continues and the record it keeps, from and to solprop's dictionaries.
 native::watch::Config watch_config_from(const nb::dict values) {
-  native::watch::Config config;
-  config.policy = watch_policy_from(nb::cast<nb::dict>(values["policy"]));
-  try {
-    config.floor_share = nb::cast<double>(values["floor_share"]);
-    config.floor_margin = nb::cast<double>(values["floor_margin"]);
-    config.budget = nb::cast<double>(values["budget"]);
-    config.rate = real_vector(exact_array<RealInput>(values["rate"]));
-    config.can_rest = nb::cast<bool>(values["can_rest"]);
-  } catch (const nb::cast_error&) {
-    throw std::invalid_argument("the boundary monitor's configuration has the wrong "
-                                "types");
-  } catch (const nb::python_error&) {
-    throw std::invalid_argument("the boundary monitor's configuration lacks a field");
-  }
+  auto config = native::records::read<native::watch::Config>(values, "config");
+  native::watch::validate(config.policy);
   return config;
 }
 

@@ -51,6 +51,8 @@ native::Problem envelope_problem() {
   problem.stepper.error_weights = {0.25};
   problem.transform.synthesis = 2.0;
   problem.transform.projection = 0.5;
+  problem.transform.synthesis_matrix = {2.0};
+  problem.transform.projection_matrix = {0.5};
   problem.kerr.nonlinear = true;
   problem.kerr.coefficient = 0.125;
   problem.kerr.self_factor = 0.5;
