@@ -5,31 +5,19 @@
 """Run a source provider in a worker process of its own (SEP 49 section 6.5).
 
 Provider-agnostic: the start, framing, handshake, lifetime, signals and cancellation of
-a worker in which an *adapter* module runs a provider. Nothing here knows TDSE or
-Pyroraptor; ``solprop.driver._pyroraptor`` is one adapter, and the tests run a
-manufactured one.
-
-The parent starts ``sys.executable -m solprop.driver._source_worker <adapter> <limit>``
-with :mod:`subprocess` -- never ``multiprocessing``, whose spawn re-imports the parent's
-``__main__`` and whose fork inherits its runtimes -- in a session of its own, so that a
-terminal's Ctrl-C or a scheduler's signal to the job reaches the parent alone, which
-then ends the worker. The worker moves the protocol off its standard input and output
-before importing the adapter, points standard output at standard error, ignores SIGINT
-and SIGTERM, and exits at once when its pipe from the parent reaches end of file, even
-during a call.
-
-**Frames.** An 8-byte little-endian length, then the payload. A message is one control
-frame, a UTF-8 JSON object ``{"kind", "body", "arrays"}``, followed by one raw frame per
-entry of ``arrays``, each the array's bytes in the dtype (byte order included) and shape
-its entry names. Nothing is pickled. Every frame's declared length is checked against
-the channel's limit, and an array frame's against its declared shape, before anything is
-allocated.
-
-**Values.** A body is JSON with tagged objects: ``{"$a": i}`` the i-th array, ``{"$t":
-[...]}`` a tuple, ``{"$d": {...}}`` a mapping, ``{"$f": "nan"}`` a non-finite float and
-``{"$r": type, "f": fields, "c": computed}`` a record -- a dataclass or a plain object's
-attributes, received as a :class:`Record`; any other object travels as its type and
-``repr`` only (:class:`Opaque`).
+a worker in which an *adapter* module (:class:`Adapter`) runs a provider. Nothing here
+knows TDSE or Pyroraptor; ``solprop.driver._pyroraptor`` is one adapter, and the tests
+run a manufactured one. :class:`Worker` is the parent's side: it starts
+``python -m solprop.driver._source_worker <adapter> <limit>`` with :mod:`subprocess` in
+a session of its own (:func:`worker_environment`), owns its two pipes and the threads
+that read them, and ends it on a signal, a stop or end of use. :func:`main` is the
+worker's side: handshake (:data:`PROTOCOL_VERSION`), requests until ``close``, exit at
+end of file. :func:`read_message` and :func:`write_message` frame one message, bounded
+by :data:`CONTROL_LIMIT`, and :func:`encode` and :func:`decode` carry its body as tagged
+JSON with raw arrays, never pickled; a record arrives as a :class:`Record` and an
+uncarried object as an :class:`Opaque`. :class:`WorkerError` and :class:`RemoteError`
+are its failures. The frame and value formats are in ``docs/dev/kernel-contract.md``
+("Optional TDSE source binding").
 """
 
 import contextlib
