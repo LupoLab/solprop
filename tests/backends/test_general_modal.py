@@ -57,7 +57,8 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_kerr_coefficients,
     symmetric_monomials,
 )
-from solprop.backends.numpy_ref.workspace import _GENERAL_LEDGER_ROWS, _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
+from solprop.backends.numpy_ref.workspace import _GENERAL_LEDGER_ROWS
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, TranslationError
@@ -1306,16 +1307,16 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
         return field
 
     forced = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not forced.workspace._general_responds
-    forced.workspace._general_responds = True
+    assert not forced.workspace.stage_source._general_responds
+    forced.workspace.stage_source._general_responds = True
     expected = step(forced)
 
     def refuse(*arguments, **keywords):
         raise AssertionError("the general source pass ran for a linear guide")
 
-    monkeypatch.setattr("solprop.backends.numpy_ref.workspace.general_source", refuse)
+    monkeypatch.setattr("solprop.backends.numpy_ref.source.general_source", refuse)
     short = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not short.workspace._general_responds
+    assert not short.workspace.stage_source._general_responds
     field = step(short)
     assert np.any(field)
     np.testing.assert_array_equal(field.view(np.uint8), expected.view(np.uint8))

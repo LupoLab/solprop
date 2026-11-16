@@ -13,7 +13,7 @@ from numpy.testing import assert_array_equal
 from scipy.integrate import quad_vec
 from scipy.special import erf, erfc
 
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.plasma import held_plasma_spectrum
 from solprop.exceptions import TranslationError
 from solprop.grid import (
     FieldGrid,
@@ -43,7 +43,7 @@ def grid_case(limits=(90e-9, 1.6e-6), window=60e-15, fft_size="pow2"):
 
 def source(grid, current):
     masks = build_masks(grid)
-    return passes.held_plasma_spectrum(
+    return held_plasma_spectrum(
         grid.t_window_fine * current,
         masks.t_window_fine_derivative * current,
         masks.omega,

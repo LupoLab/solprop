@@ -31,7 +31,7 @@ from solprop.backends.exponential import refuse_formulation
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.marches import MarchState
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_tables import (
     compensation_tables,
     exponential_tables,
     fused_tables,

@@ -31,7 +31,8 @@ from backends.plasma_column_cases import bound, case
 from backends.spatial_cases import QuadraticRate
 from bounds import UNIT_ROUNDOFF, fft_bound, gamma
 from sessions.runs import native_trial
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.transforms import project, synthesise, to_time
 from solprop.backends.session import ExecutionOptions
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
@@ -92,13 +93,15 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         state = problem.initial.field0
         bundle = reference.workspace.stage_scalars(0.0, 0.0)
         transform, grids = problem.transform, problem.grids
-        nodes = passes.synthesise(
-            passes.to_time(state, grids.crop_index, grids.n_to, kind="field"),
+        nodes = synthesise(
+            to_time(state, grids.crop_index, grids.n_to, kind="field"),
             transform.synthesis,
             bundle.taper_scale,
             transform.n_pol,
         )
-        current = reference.workspace._column_sources(nodes, bundle, None).current
+        current = reference.workspace.stage_source._column_sources(
+            nodes, bundle, None
+        ).current
         assert current is not None
         # SEP 27 section 4.6: the existing column allowance on J before either collar
         # multiplies it, then projected with absolute weights.
@@ -106,7 +109,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         rounding = gamma(2 * transform.n_nodes * transform.n_pol + 4)
         collars = (grids.t_window_fine, grids.t_window_fine_derivative)
         limits = [
-            passes.project(
+            project(
                 abs(collar) * current_limit + rounding * abs(collar * current),
                 abs(transform.projection_coarse),
                 bundle.taper_scale,
@@ -116,7 +119,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         ]
         assert all(np.max(limit) > 0 for limit in limits)
         magnitudes = [
-            passes.project(
+            project(
                 abs(collar * current),
                 abs(transform.projection_coarse),
                 bundle.taper_scale,
@@ -125,11 +128,13 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             for collar in collars
         ]
         reference.workspace.nonlinear(state, bundle, np.ones_like(state))
-        assert reference.workspace._last_plasma is not None
-        _, _, coarse_gate, coarse_edge = reference.workspace._last_plasma
+        assert reference.workspace.stage_source._last_plasma is not None
+        _, _, coarse_gate, coarse_edge = reference.workspace.stage_source._last_plasma
         assert coarse_gate is not None and coarse_edge is not None
         assert np.max(abs(coarse_gate)) > 0 and np.max(abs(coarse_edge)) > 0
-        expected = reference.workspace._held_streams(coarse_gate, coarse_edge)
+        expected = reference.workspace.stage_source._held_streams(
+            coarse_gate, coarse_edge
+        )
     finally:
         reference.close()
     # The forward transform: l1 -> linf of each row's allowance, with its own normwise

@@ -132,7 +132,7 @@ def scored_alarm(backend):
     is what the warning of the retired step driver quoted.
     """
     if backend.name == "numpy_ref":
-        return backend.workspace._alarm
+        return backend.workspace.stage_source._alarm
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
     )
@@ -470,7 +470,7 @@ def test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set(
         rule = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")
         problem, run_request = build(grid, modes, pulse(grid, 3), quadrature=rule)
         _, backend = propagate(DEFAULT_BACKEND, problem, run_request, grid)
-        alarms[n_r] = float(backend.workspace._alarm)
+        alarms[n_r] = float(backend.workspace.stage_source._alarm)
     # The ladder is monotone and spans more than ten orders, and the threshold lands
     # where the two constants at the top of this file say it does.
     assert sorted(alarms, key=lambda order: alarms[order], reverse=True) == list(orders)
@@ -509,11 +509,15 @@ def test_the_alarm_is_not_a_number_where_the_polarisation_vanishes(grid, capilla
     )
     problem, run_request = build(grid, modes, pulse(grid, 2), quadrature=rule)
     _, backend = propagate(NumpyRefBackend, problem, run_request, grid)
-    assert backend.workspace._alarm > 0.0
-    backend.workspace._last_projected = np.zeros_like(backend.workspace._last_projected)
-    backend.workspace._last_coarse = np.zeros_like(backend.workspace._last_coarse)
+    assert backend.workspace.stage_source._alarm > 0.0
+    backend.workspace.stage_source._last_projected = np.zeros_like(
+        backend.workspace.stage_source._last_projected
+    )
+    backend.workspace.stage_source._last_coarse = np.zeros_like(
+        backend.workspace.stage_source._last_coarse
+    )
     backend.workspace.score_quadrature()
-    assert math.isnan(backend.workspace._alarm)
+    assert math.isnan(backend.workspace.stage_source._alarm)
 
 
 # ------------------------------------------------------------- vector polarisation

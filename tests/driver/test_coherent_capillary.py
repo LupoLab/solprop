@@ -56,7 +56,7 @@ from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from sessions.runs import bare, final_field
 from solprop.backends import available
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import (
+from solprop.backends.numpy_ref.coupled_flow import (
     _MAX_FLOW_SQUARINGS,
     _triangular_exponential,
 )

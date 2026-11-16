@@ -206,7 +206,7 @@ def node_fields(
         )
         state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         return np.concatenate(
-            list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
+            list(reference.workspace.statistics.node_fields(state, 0.0))
         )
     finally:
         reference.close()
@@ -347,9 +347,7 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
         state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         bundle = reference.workspace.stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
-            np.concatenate(
-                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         field_error = node_field_error(reference, problem, fields)
     finally:

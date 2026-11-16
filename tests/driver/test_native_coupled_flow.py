@@ -130,9 +130,9 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
         _host_flow,
     )
 
-    from solprop.backends.numpy_ref.workspace import (  # noqa: PLC0415 - private oracle
-        _coupled_flow_maps,
-        _flow_action,
+    from solprop.backends.numpy_ref.coupled_flow import (  # noqa: PLC0415 - the oracle
+        flow_action,
+        held_flow,
     )
 
     if route == "scaling_and_squaring":
@@ -145,7 +145,7 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
             "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
         )
     case = taper_gradient()
-    reference = _coupled_flow_maps(case.problem)
+    reference = held_flow(case.problem)
     held = _host_flow(case.problem)
     assert reference is not None and held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
@@ -166,14 +166,14 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
-                expected = _flow_action(reference, section, float(fraction) * dz)
+                expected = flow_action(reference, section, float(fraction) * dz)
                 for got, want in zip(
                     (forward[slot], inverse[slot]), expected, strict=True
                 ):
                     error = np.linalg.norm(got - want, ord=2, axis=(-2, -1))
                     scale = np.linalg.norm(want, ord=2, axis=(-2, -1))
                     assert np.max(error / scale) <= bound
-            pair = _flow_action(reference, section, dz)
+            pair = flow_action(reference, section, dz)
             whole = np.linalg.norm(pair[0], ord=2, axis=(-2, -1)) * np.linalg.norm(
                 pair[1], ord=2, axis=(-2, -1)
             )

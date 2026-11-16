@@ -35,7 +35,7 @@ from moving_guide_cases import (
 )
 from sessions.runs import load_native, native_adams_rows, native_adams_start
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.stepper import Multistep
 from solprop.translate.stage import scalars
 

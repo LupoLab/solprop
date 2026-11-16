@@ -6,9 +6,10 @@
 
 :class:`HostLowStorageMarch` replays a prescribed schedule through a
 :class:`~solprop.backends.engines.RungeKuttaEngine` with the documented destructive
-trial: the reference's is :class:`solprop.backends.low_storage.HostLowStorage`, which
-holds the registers and makes the step's four passes. The engine owns the in-flight
-flag and the finish; the march owns the committed position, in its own
+trial: the reference's is
+:class:`solprop.backends.numpy_ref.engines.NumpyLowStorage`, which holds the registers
+and makes the step's four passes. The engine owns the in-flight flag and the finish;
+the march owns the committed position, in its own
 :class:`~solprop.backends.host.marches.MarchState`, and the count of committed source
 evaluations. The method, the register form and the in-flight contract are those of
 :mod:`solprop.backends.low_storage`'s module documentation.

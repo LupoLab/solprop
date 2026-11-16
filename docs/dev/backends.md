@@ -210,7 +210,7 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 | `RungeKuttaMarch.replay_to` | Runge-Kutta on a fixed schedule | the same engine |
 | `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
-| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `HostLowStorage` |
+| `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
 | the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
 | the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
@@ -357,21 +357,28 @@ since the TDSE response joined the native CPU build (SEP 49, ADR-078;
 [the list](../guide/performance/backends.md#features-that-run-on-the-reference-backend)).
 A new feature joins the list only as an accepted exception (§10).
 
-**The fused-pass route.** `backends/numpy_ref/passes.py` holds one pure
+**The fused-pass route.** `backends/numpy_ref/passes/` holds one pure
 function per numbered line of [architecture.md §8](architecture.md) — `stage_input`,
 `to_time`, `synthesise`, `nonlinear_sources`, `project`, `to_frequency`,
-`stage_output`, `accumulate` — with the response stages `kerr_polarisation`,
-`raman_polarisation`, `ionisation_rate` and `plasma_scan` beneath the fourth,
-`raman_spectrum` beside them. Field plasma returns ungated current separately;
-`held_plasma_spectrum` assembles its two products with the analytic collar derivative
-([SEP 27](seps/archive/sep-0027-held-plasma-current.md)), while the physical-polarisation
-helpers retain their independent oracle role.
-The backend also owns the once-per-step `error_norm`, `accept_step`, `apply_hard_mask` and `apply_temporal_rate`;
-`backends/numpy_ref/backend.py` holds the step loop and the seam. It propagates a
+`stage_output`, `accumulate` — in four modules: `transforms.py` (the transforms and the
+two GEMMs), `responses.py` (the response pass and its Kerr, dispersive Kerr and Raman
+stages, with `raman_spectrum` beside them), `plasma.py` (`ionisation_rate`,
+`plasma_scan` and the plasma currents, cycle-averaged on an envelope grid) and
+`stepping.py` (the step around the stage). Field plasma returns ungated current
+separately; `held_plasma_spectrum` assembles its two products with the analytic collar
+derivative ([SEP 27](seps/archive/sep-0027-held-plasma-current.md)), while the
+physical-polarisation helpers retain their independent oracle role. The transform and
+response passes serve every march, the interaction-picture trial and the Adams,
+exponential and low-storage engines alike. The backend also owns the once-per-step
+`error_norm`, `accept_step`, `apply_hard_mask` and `apply_temporal_rate`; the workspace
+(`workspace.py`) runs the passes on each route through its stage source (`source.py`)
+and forms the backend-owned statistics (`statistics.py`), and the engines are
+`engines.py`'s and `multistep.py`'s. It propagates a
 **single-member** problem on either grid — mode-averaged or multimode on the fixed
 transverse quadrature, scalar or vector-isotropic, or a spatial geometry (radial,
 Cartesian, planar) — with the Kerr term, the delayed Raman term and the plasma,
-using IP-DOPRI5 with the cumulative operator, the lagged PI controller in both its weak
+using every march — IP-DOPRI5, the low-storage RK4 and both Adams formulations — with
+the cumulative operator, the lagged PI controller in both its weak
 and weighted norms, landing on save planes and hard kinks, the modified shot-noise field
 added in ω, the hard band mask and both of ADR-025's temporal-absorber schemes. Every stage
 is evaluated: the tableau's first-same-as-last property would save one evaluation in seven,

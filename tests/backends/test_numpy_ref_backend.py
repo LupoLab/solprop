@@ -23,7 +23,7 @@ from sessions.runs import bare, run, to_planes
 from solprop.backends import Backend
 from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import workspace as workspace_module
+from solprop.backends.numpy_ref import source as source_module
 from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -686,7 +686,7 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     request = to_planes(run_request, [0.1])
     backend = NumpyRefBackend(problem, request, grid=field_grid)
     run(backend, problem, bare(request), export=None)
-    bundle = backend.workspace._last_bundle
+    bundle = backend.workspace.stage_source._last_bundle
     assert bundle is not None
     stage_z = bundle.z1
     # The stage the alarm was scored from is the last one of the last accepted step,
@@ -853,14 +853,14 @@ def test_a_harmonic_term_without_its_carrier_is_refused(thg_problem):
     stripped = dataclasses.replace(problem)
     object.__setattr__(stripped, "grids", grids)
     with pytest.raises(BackendError, match="carrier_2w0 is absent"):
-        workspace_module._harmonic_carrier(stripped)
+        source_module._harmonic_carrier(stripped)
 
 
 def test_the_harmonic_carrier_comes_from_the_contract(thg_problem):
     problem, _ = thg_problem(thg=True)
     assert problem.grids.carrier_2w0 is not None
-    assert workspace_module._harmonic_carrier(problem) is problem.grids.carrier_2w0
-    assert workspace_module._harmonic_carrier(thg_problem(thg=False).problem) is None
+    assert source_module._harmonic_carrier(problem) is problem.grids.carrier_2w0
+    assert source_module._harmonic_carrier(thg_problem(thg=False).problem) is None
 
 
 def test_the_z_table_answers_the_noise_phase_too(tabulated_problem, field_grid):

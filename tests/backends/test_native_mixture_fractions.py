@@ -4,7 +4,7 @@
 
 """Two channels' final fractions and peak rates on native, from one field.
 
-Against the independent passes, ``passes.plasma_channel_fractions`` on the reference's
+Against the independent passes, ``plasma_channel_fractions`` on the reference's
 own node fields: each of the two exposure scans accumulates ``n_to`` terms, and the rate
 interpolation adds log and exp error, so ``64 n_to eps`` per channel, absolute, and the
 same relative for the peak rates, which have no cumulative sum. This was 14 times
@@ -36,7 +36,8 @@ from backends.matched import native_thread_fields
 from backends.native_mixture_launch_probe import NAMES, launch_case
 from bounds import EPS
 from builders import load_reference
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import plasma_channel_fractions
 
 native = pytest.importorskip("solprop_native")
 
@@ -57,12 +58,14 @@ def oracle(kerr, n_pol):
         bundle = reference.workspace.stage_scalars(0.0, 0.0)
         fields = np.real(
             np.concatenate(
-                list(reference.workspace._plasma_nodes(state, problem.initial.z))
+                list(
+                    reference.workspace.statistics.node_fields(state, problem.initial.z)
+                )
             )
         )
     finally:
         reference.close()
-    rates, fractions = passes.plasma_channel_fractions(
+    rates, fractions = plasma_channel_fractions(
         fields,
         problem.responses.plasma_channels,
         bundle.plasma_preionisation,

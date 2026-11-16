@@ -76,7 +76,7 @@ Text: [kernel-contract.md §1](kernel-contract.md) to §8, the split in
 ## 4. One stage
 
 The seven numbered passes of one stage of the interaction-picture DOPRI5 step, each one
-pass over its data and each a named function in `backends/numpy_ref/passes.py`. The
+pass over its data and each a named function in `backends/numpy_ref/passes/`. The
 column beside pass 4 is `response_order`, the fused pass that is the whole reason the
 seam is drawn where it is; the panel on the right is the step the seven passes sit
 inside, and what runs once per step rather than once per stage.

@@ -25,12 +25,13 @@ neither rewinds the controller nor advances the history, and evaluates no source
 import numpy as np
 from jaxtyping import Complex
 
+from solprop._helpers import PLAIN
 from solprop.backends.host.adams import AcceptedStep, HostAdamsMarch
+from solprop.backends.numpy_ref.adams_kernels import ExponentialKernels, weighted_sum
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
 from solprop.backends.numpy_ref.multistep import (
-    ExponentialKernels,
+    ExponentialHistory,
     HostHistory,
-    _combine,
     _DenseStep,
     _ExponentialStep,
 )
@@ -124,17 +125,9 @@ class RungeKuttaDense:
         z, dz, coefficients = extension
         start = coefficients[0]
         value = extension_value(coefficients, (position - z) / dz)
-        # A bin the linear flow attenuates or amplifies by more than an e-fold over the
-        # step -- the spectral collar's, outside the controlled band -- has an
-        # interaction-picture derivative growing exponentially across it, which no
-        # polynomial in theta follows: interpolated there it returns orders of
-        # magnitude more than the field. Its source is negligible beside its own loss,
-        # so the anchor's linear flow is its honest value.
-        stiff = (
-            np.abs(np.real(workspace.delta_phi(workspace.stage_scalars(z, z + dz))))
-            > 1.0
-        )
-        value = np.where(stiff, start, value)
+        # A bin the step's flow changes by more than an e-fold takes the anchor's
+        # linear flow (`_stiff`).
+        value = np.where(_stiff(workspace, z, dz), start, value)
         self._held.hold(workspace.mask(workspace.propagator(z, position) * value))
 
     def restore(self) -> None:
@@ -164,7 +157,6 @@ class AdamsDense:
         self._workspace = workspace
         self._engine = engine
         self._march = march
-        self._exponential = engine.exponential
         self._held = _Held(workspace)
 
     @staticmethod
@@ -201,12 +193,11 @@ class AdamsDense:
         step = self._march.last_step
         if step is None:
             raise BackendError("no accepted Adams step is held for a dense observation")
-        if self._exponential:
-            held = self._engine.exponential_dense
-            assert held is not None
+        held = self._engine.dense
+        if isinstance(self._engine, ExponentialHistory):
+            assert isinstance(held, _ExponentialStep)
             observed = self._observe_exponential(held, step, position)
         else:
-            held = self._engine.dense
             assert isinstance(held, _DenseStep)
             observed = self._observe_fused(held, step, position)
         self._held.hold(observed)
@@ -222,19 +213,13 @@ class AdamsDense:
         workspace = self._workspace
         theta = (position - held.z) / held.dz
         weights = integrated_weights(
-            np.array([1.0, *step.nodes]),
-            theta,
-            check=False,
-            helpers=workspace.helpers,
+            np.array([1.0, *step.nodes]), theta, check=False, helpers=PLAIN
         )
-        value = held.start + _combine(weights, held.slopes, held.dz)
+        value = held.start + held.dz * weighted_sum(weights, held.slopes)
         # A bin the linear flow changes by more than an e-fold over the step (the
-        # spectral collar's) takes the anchor's linear flow: no polynomial follows its
-        # exponentially growing derivative (as for the Runge-Kutta extension).
-        exponent = workspace.delta_phi(
-            workspace.stage_scalars(held.z, held.z + held.dz)
-        )
-        value = np.where(np.abs(np.real(exponent)) > 1.0, held.start, value)
+        # spectral collar's) takes the anchor's linear flow, as for the Runge-Kutta
+        # extension.
+        value = np.where(_stiff(workspace, held.z, held.dz), held.start, value)
         return workspace.mask(workspace.propagator(held.z, position, hold=True) * value)
 
     def _observe_exponential(
@@ -251,14 +236,12 @@ class AdamsDense:
         so a strongly damped bin needs no guard; no source is evaluated and nothing
         enters the history.
         """
-        # One evaluation per plane: the reference passes serve every backend.
-        helpers = self._workspace.helpers
-        kernels = ExponentialKernels(helpers=helpers)
+        kernels = ExponentialKernels()
         xi = (position - held.z) / held.dz
         # The accepted step's corrector, over (source, newest, ...), as its trial
         # formed it.
         coefficients = lagrange_coefficients(
-            [1.0, *step.nodes], check=False, helpers=helpers
+            [1.0, *step.nodes], check=False, helpers=PLAIN
         )
         count = coefficients.shape[1]
         shift, values = _rotated(step.carrier, held.values)
@@ -278,7 +261,7 @@ class AdamsDense:
         if held.compensation is not None:
             nodes, terms = held.compensation
             weights = integrated_weights(
-                np.asarray(nodes), xi, check=False, helpers=helpers
+                np.asarray(nodes), xi, check=False, helpers=PLAIN
             )
             # e^{(xi - theta_j) x} is a forward flow for every history sample; for
             # the endpoint sample it is an inverse one, which a bin the step damps by
@@ -292,6 +275,21 @@ class AdamsDense:
             damped = np.real(held.exponent) < -1.0
             value = np.where(damped, np.exp(xi * held.exponent) * held.start, value)
         return self._workspace.mask(value)
+
+
+def _stiff(workspace: NumpyWorkspace, z: float, dz: float) -> np.ndarray:
+    """Return the bins the step's linear flow changes by more than an e-fold.
+
+    There -- the spectral collar's, outside the controlled band -- the
+    interaction-picture derivative grows exponentially across the step, which no
+    polynomial in theta follows: interpolated it returns orders of magnitude more than
+    the field. Its source is negligible beside its own loss, so the anchor's linear
+    flow is its honest value.
+
+    - Returns: a Boolean mask in the state's broadcast shape.
+    """
+    exponent = workspace.delta_phi(workspace.stage_scalars(z, z + dz))
+    return np.abs(np.real(exponent)) > 1.0
 
 
 def _rotated(
