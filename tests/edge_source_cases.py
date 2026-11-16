@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.transforms import project
 from solprop.backends.tdse_source import (
     FFT_ERROR_CONSTANT,
     _current_operands,
@@ -112,9 +112,7 @@ class EdgeCase:
         """
         problem, bundle = self.problem, self.bundle
         ones = np.ones((problem.transform.n_nodes, 1, 1))
-        weight = passes.project(
-            ones, problem.transform.projection, bundle.taper_scale, 1
-        )
+        weight = project(ones, problem.transform.projection, bundle.taper_scale, 1)
         scale = bundle.density * self.descriptor.remainder_scale
         source = tdse_of(problem.route)
         assert source is not None

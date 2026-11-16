@@ -6,6 +6,7 @@
 
 import math
 from dataclasses import fields, replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,7 +15,11 @@ from numpy.testing import assert_allclose
 from bounds import gamma, ladder_bound
 from former_raman import FORMER_H2, former_response
 from solprop.backends.node_chunk import _raman_chunk
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    raman_polarisation,
+    tensor_raman_spectrum,
+)
 from solprop.constants import EPS0
 from solprop.driver.simulation import _undamped_model_key
 from solprop.exceptions import BackendError, TranslationError
@@ -31,9 +36,10 @@ from vector_raman_cases import (
 from vector_raman_tensor_oracle import BUDGETS, cartesian_direct, convolution_bound
 
 
-def _owner(backend):
-    """Return what holds a backend's Raman kernel: the reference's workspace."""
-    return getattr(backend, "workspace", backend)
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
 
 
 def raman_refreshes(backend):
@@ -69,7 +75,7 @@ def prepare_raman(backend, rates, densities=()):
 
 def test_reference_pass_rejects_three_physical_components():
     with pytest.raises(BackendError, match="one or two physical components"):
-        passes.raman_polarisation(
+        raman_polarisation(
             np.zeros((1, 3, 16)),
             np.zeros(17, complex),
             kind="field",
@@ -192,8 +198,8 @@ def test_effective_kernel_convolution_matches_physical_term_sums(count):
     values = rng.standard_normal((3, 2, count)) + 1j * rng.standard_normal(
         (3, 2, count)
     )
-    spectrum = passes.tensor_raman_spectrum(tuple(components), rates, densities, dt)
-    actual = passes.raman_polarisation(
+    spectrum = tensor_raman_spectrum(tuple(components), rates, densities, dt)
+    actual = raman_polarisation(
         values, spectrum, kind="envelope", thg=response.thg, density=1.0
     )
     for node in range(3):
@@ -232,7 +238,7 @@ def test_tensor_spectrum_refuses_missing_or_incapable_channels(spoiling):
     else:
         components = (replace(components[0], tensor_capable=False),)
     with pytest.raises(BackendError, match="tensor-capable"):
-        passes.tensor_raman_spectrum(components, rates, densities, grid.dt_fine)
+        tensor_raman_spectrum(components, rates, densities, grid.dt_fine)
 
 
 def test_undamped_reuse_distinguishes_tensor_roles():

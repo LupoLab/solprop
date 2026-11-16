@@ -157,7 +157,7 @@ def node_magnitude(
         )
         state = reference.workspace.committed()  # pyright: ignore[reportPrivateUsage]
         nodes = np.concatenate(
-            list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
+            list(reference.workspace.statistics.node_fields(state, 0.0))
         )
         return float(np.max(np.abs(nodes)))
     finally:

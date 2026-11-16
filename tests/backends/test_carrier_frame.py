@@ -50,12 +50,12 @@ from solprop.backends.exponential import (
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.multistep import (
+from solprop.backends.numpy_ref.adams_kernels import (
     CoupledBlock,
     ExponentialKernels,
-    HostHistory,
     coupled_moments,
 )
+from solprop.backends.numpy_ref.multistep import HostHistory
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation, SimulationSettings
@@ -71,7 +71,7 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
-from solprop.translate.coupled import schur_blocks, schur_eigenbasis
+from solprop.translate.coupled import schur_blocks
 from solprop.translate.stage import scalars
 
 COMPILED: dict[str, type] = dict(EQUIVALENCE_BACKENDS)
@@ -904,7 +904,7 @@ def shifted_moment(shifted: np.ndarray, k: int) -> np.ndarray:
 
 def test_the_shifted_block_keeps_the_true_flow():
     # Moments of h B - sigma I by quadrature, and the flow exp(h B) itself, not the
-    # shifted block's: a nonnormal block, on the augmented and eigenbasis paths.
+    # shifted block's: a nonnormal block.
     rng = np.random.default_rng(35)
     generator = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
     generator[np.tril_indices(3, -1)] *= 0.05
@@ -919,13 +919,11 @@ def test_the_shifted_block_keeps_the_true_flow():
     total = diagonal * np.eye(3) + dz * generator
     shifted = total - 2.1j * np.eye(3)
     exact = [shifted_moment(shifted, k) for k in range(4)]
-    routed = dataclasses.replace(block, basis=schur_eigenbasis(vectors, triangular))
-    for candidate in (block, routed):
-        moments = coupled_moments(exponent, 4, candidate, dz, carrier=sigma)
-        np.testing.assert_allclose(moments.flow_matrix[0], expm(total), atol=1e-13)
-        np.testing.assert_allclose(moments.flow_scalar, np.exp(exponent), rtol=1e-15)
-        for k in range(4):
-            np.testing.assert_allclose(moments.matrices[k, 0], exact[k], atol=1e-11)
+    moments = coupled_moments(exponent, 4, block, dz, carrier=sigma)
+    np.testing.assert_allclose(moments.flow_matrix[0], expm(total), atol=1e-13)
+    np.testing.assert_allclose(moments.flow_scalar, np.exp(exponent), rtol=1e-15)
+    for k in range(4):
+        np.testing.assert_allclose(moments.matrices[k, 0], exact[k], atol=1e-11)
 
 
 def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):

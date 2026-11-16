@@ -15,6 +15,7 @@ every ``ffac`` agrees to 1e-12, so the plasma-off run at ``ffac = 96`` is the ba
 """
 
 import dataclasses
+import math
 import warnings
 from typing import Any, cast
 
@@ -302,8 +303,8 @@ def test_the_reference_s_plasma_statistics_refuse_a_problem_with_no_plasma(
     try:
         state = simulation._field0
         with pytest.raises(BackendError, match=message):
-            cast("NumpyRefBackend", backend).workspace._backend_statistics(
-                (name,), state, float(problem.initial.z)
+            cast("NumpyRefBackend", backend).workspace.statistics._backend_statistics(
+                (name,), state, float(problem.initial.z), math.nan
             )
     finally:
         backend.close()

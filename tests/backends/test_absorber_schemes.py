@@ -50,7 +50,7 @@ import pytest
 
 from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_temporal_rate
+from solprop.backends.numpy_ref.passes.stepping import apply_temporal_rate
 from solprop.boundaries import STABILITY_RADIUS, absorber, stable_step
 from solprop.exceptions import MaterialRangeWarning, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid

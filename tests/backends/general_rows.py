@@ -96,7 +96,7 @@ from general_parity import (
 )
 from modal_provider_cases import general_grid, split_guide
 from parity_ladder import Built, Row, Statistic
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning

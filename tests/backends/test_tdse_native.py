@@ -31,7 +31,7 @@ from solprop import _interrupts
 from solprop.backends import tdse_source
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.multistep import HostHistory
-from solprop.backends.numpy_ref.workspace import NumpyWorkspace
+from solprop.backends.numpy_ref.source import StageSource
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
@@ -306,7 +306,7 @@ def _reference_startup(case, monkeypatch):
     """The reference's startup: the field it evaluates, its ``F`` and row zero."""
     problem, request, grid = case
     seen: dict[str, Any] = {}
-    nonlinear = NumpyWorkspace._nonlinear_tdse
+    nonlinear = StageSource._nonlinear_tdse
     project = tdse_source.project_atomic_sources
     start = HostHistory.start
 
@@ -322,11 +322,11 @@ def _reference_startup(case, monkeypatch):
 
     def recording_start(self, z):
         start(self, z)
-        seen.setdefault("row", np.array(self._store[0]).reshape(-1))
+        seen.setdefault("row", np.array(self.rows.store[0]).reshape(-1))
         seen.setdefault("history", self)
 
     with monkeypatch.context() as patch:
-        patch.setattr(NumpyWorkspace, "_nonlinear_tdse", recording_nonlinear)
+        patch.setattr(StageSource, "_nonlinear_tdse", recording_nonlinear)
         patch.setattr(tdse_source, "project_atomic_sources", recording_project)
         patch.setattr(HostHistory, "start", recording_start)
         binding = Unbudgeted(tdse_descriptor(problem.route), 10**6, _law)
@@ -339,7 +339,7 @@ def _reference_startup(case, monkeypatch):
                 batch = session.advance(work_limit=1)
                 if batch.receipt is not None:
                     session.acknowledge(batch.receipt)
-            seen["after"] = np.array(seen["history"]._store[0]).reshape(-1)
+            seen["after"] = np.array(seen["history"].rows.store[0]).reshape(-1)
             status = session.status()
             seen["attempts"], seen["position"] = status.attempts, status.z
         finally:

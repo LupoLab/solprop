@@ -6,9 +6,10 @@
 
 :meth:`solprop.nonlinear.raman.RamanResponse.evaluate` is the oracle
 (``docs/dev/backends.md`` section 2), and
-:func:`~solprop.backends.numpy_ref.passes.raman_polarisation` is its arithmetic, so
-given the oracle's own kernel the pass reproduces it to one convolution's rounding on
-both grids, for a glass and for a molecular gas, with and without the third harmonic.
+:func:`~solprop.backends.numpy_ref.passes.responses.raman_polarisation` is its
+arithmetic, so given the oracle's own kernel the pass reproduces it to one
+convolution's rounding on both grids, for a glass and for a molecular gas, with and
+without the third harmonic.
 
 What a *problem* runs is not quite that kernel: the translation layer tapers the
 response's tail with the grid's own temporal collar, where the oracle cuts it with a
@@ -25,6 +26,7 @@ in ``test_the_taper_is_the_only_difference_from_the_oracles_kernel``.
 
 import dataclasses
 import warnings
+from typing import Any
 
 import numpy as np
 import pytest
@@ -35,7 +37,20 @@ from former_raman import FORMER_H2, FORMER_N2, former_response
 from legacy_geometry import LEGACY_GRID
 from sessions.runs import run as session_run
 from solprop import fourier
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    _raman_thg,
+    nonlinear_polarisation,
+    raman_polarisation,
+    raman_spectrum,
+)
+from solprop.backends.numpy_ref.passes.stepping import stage_output
+from solprop.backends.numpy_ref.passes.transforms import (
+    project,
+    synthesise,
+    to_frequency,
+    to_time,
+)
 from solprop.constants import AMAGAT, EPS0
 from solprop.driver import prop_gnlse
 from solprop.exceptions import BackendError, MaterialRangeWarning
@@ -102,9 +117,10 @@ def prepare_raman(backend, rates, densities=()):
 # pointwise work, batched over a chunk of nodes as well as one column at a time.
 
 
-def _owner(backend):
-    """Return what holds a backend's Raman kernel: the reference's workspace."""
-    return getattr(backend, "workspace", backend)
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
 
 
 def convolution_bound(grid):
@@ -169,7 +185,7 @@ def test_the_pass_reproduces_the_response(grids, material, kind, thg):
     # contract's rows carry is the subject of test_the_taper_is_the_only_difference.
     kernel = np.zeros(2 * grid.n_to)
     kernel[: grid.n_to] = response.impulse(np.arange(grid.n_to) * grid.dt_fine, DENSITY)
-    got = passes.raman_polarisation(
+    got = raman_polarisation(
         field[np.newaxis],
         kernel_spectrum(kernel, grid.dt_fine),
         kind=kind,
@@ -185,12 +201,12 @@ def test_a_chunk_of_nodes_is_the_nodes_one_at_a_time(raman_envelope_grid):
     response = former_response(FORMER_N2)
     spectrum = build_raman_kernels(response, grid).spectrum(DENSITY)
     chunk = np.stack([sample_field(grid, seed) for seed in (1, 2, 3)])
-    together = passes.raman_polarisation(
+    together = raman_polarisation(
         chunk, spectrum, kind="envelope", thg=True, density=DENSITY
     )
     apart = np.concatenate(
         [
-            passes.raman_polarisation(
+            raman_polarisation(
                 chunk[node : node + 1],
                 spectrum,
                 kind="envelope",
@@ -209,9 +225,7 @@ def test_a_zero_density_gives_no_polarisation(raman_envelope_grid):
     response = former_response(FORMER_H2)
     spectrum = build_raman_kernels(response, grid).spectrum(0.0)
     field = sample_field(grid, seed=5)[np.newaxis]
-    got = passes.raman_polarisation(
-        field, spectrum, kind="envelope", thg=True, density=0.0
-    )
+    got = raman_polarisation(field, spectrum, kind="envelope", thg=True, density=0.0)
     assert np.all(got == 0.0)
 
 
@@ -232,7 +246,7 @@ def test_the_damped_spectrum_is_the_translation_layers_own(
         min(model.dephasing.decay_rate(density), 708.0 / grid.dt_fine)
         for model in response.models
     ]
-    got = passes.raman_spectrum(kernels.undamped, rates, response.scale, grid.dt_fine)
+    got = raman_spectrum(kernels.undamped, rates, response.scale, grid.dt_fine)
     want = kernels.spectrum(density)
     if not np.any(want):
         # A molecular gas at zero density has no response at all: exactly zero.
@@ -244,7 +258,7 @@ def test_the_damped_spectrum_is_the_translation_layers_own(
 def test_the_spectrum_needs_one_rate_for_every_row(raman_field_grid):
     kernels = build_raman_kernels(former_response(FORMER_N2), raman_field_grid)
     with pytest.raises(BackendError, match="2 row"):
-        passes.raman_spectrum(kernels.undamped, [0.0], 1.0, raman_field_grid.dt_fine)
+        raman_spectrum(kernels.undamped, [0.0], 1.0, raman_field_grid.dt_fine)
 
 
 @pytest.mark.parametrize(
@@ -260,7 +274,7 @@ def test_the_spectrum_needs_one_rate_for_every_row(raman_field_grid):
 )
 def test_the_raman_pass_refuses_a_field_it_cannot_convolve(field, spectrum, message):
     with pytest.raises(BackendError, match=message):
-        passes.raman_polarisation(field, spectrum, kind="field", thg=True, density=1.0)
+        raman_polarisation(field, spectrum, kind="field", thg=True, density=1.0)
 
 
 def test_a_declared_raman_stage_without_a_spectrum_is_refused(raman_capillary):
@@ -269,7 +283,7 @@ def test_a_declared_raman_stage_without_a_spectrum_is_refused(raman_capillary):
     ``None``."""
     problem, _, _, _ = raman_capillary()
     with pytest.raises(BackendError, match="no kernel spectrum"):
-        passes.nonlinear_polarisation(
+        nonlinear_polarisation(
             np.zeros((1, 1, problem.grids.n_to)),
             problem.responses,
             problem.grids.t_window_fine,
@@ -412,7 +426,7 @@ def test_the_taper_is_the_only_difference_from_the_oracles_kernel(
     ):
         field = sample_field(grid, seed=3)
         oracle = response.evaluate(field, DENSITY, kind=grid.kind, dt=grid.dt_fine)
-        tapered = passes.raman_polarisation(
+        tapered = raman_polarisation(
             field[np.newaxis],
             build_raman_kernels(response, grid).spectrum(DENSITY),
             kind=grid.kind,
@@ -636,18 +650,18 @@ class GainSetup:
 def stage_derivative(problem, grid, field):
     """Return ``dA/dz`` at the entrance, through the named passes and nothing else."""
     grids, transform, responses = problem.grids, problem.transform, problem.responses
-    modal = passes.to_time(field, grids.crop_index, grids.n_to, kind=grid.kind)
-    nodes = passes.synthesise(modal, transform.synthesis, 1.0, transform.n_pol)
+    modal = to_time(field, grids.crop_index, grids.n_to, kind=grid.kind)
+    nodes = synthesise(modal, transform.synthesis, 1.0, transform.n_pol)
     spectrum = None
     leaf = responses.raman_coefficients
     if leaf is not None:
-        spectrum = passes.raman_spectrum(
+        spectrum = raman_spectrum(
             leaf.undamped,
             [float(table(0.0)) for table in leaf.decay_rates],
             leaf.fraction,
             grids.dt_fine,
         )
-    polarisation = passes.nonlinear_polarisation(
+    polarisation = nonlinear_polarisation(
         nodes,
         responses,
         grids.t_window_fine,
@@ -657,12 +671,12 @@ def stage_derivative(problem, grid, field):
         dt=grids.dt_fine,
         raman_spectrum=spectrum,
     )
-    projected = passes.project(polarisation, transform.projection, 1.0, transform.n_pol)
-    coarse = passes.to_frequency(projected, grids.crop_index, kind=grid.kind)
+    projected = project(polarisation, transform.projection, 1.0, transform.n_pol)
+    coarse = to_frequency(projected, grids.crop_index, kind=grid.kind)
     unit = np.ones((1, 1, grid.n_omega), dtype=complex)
-    return passes.stage_output(
-        coarse, prefactor_at(responses, 0.0), grids.omega_window, unit
-    )[0, 0]
+    return stage_output(coarse, prefactor_at(responses, 0.0), grids.omega_window, unit)[
+        0, 0
+    ]
 
 
 @pytest.mark.parametrize(("trange", "bound"), [(3.5e-11, 2.5e-2), (7.0e-11, 1.0e-2)])
@@ -964,7 +978,7 @@ def test_the_drive_form_comes_from_the_leaf_and_not_from_the_kerr_flag(
     kerr = responses.kerr_coefficients
     assert leaf is not None
     assert kerr is not None
-    assert passes._raman_thg(responses) is leaf.thg
+    assert _raman_thg(responses) is leaf.thg
     # On a field grid the compiler refuses a Raman response whose thg disagrees with the
     # Kerr response's, which is what made the old inference sound; the two still agree.
     assert leaf.thg == (not kerr.analytic_signal)

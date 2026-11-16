@@ -814,7 +814,7 @@ def fraction_rows() -> list[Row]:
             "passes on its own node fields.",
             bound_note="64 n_to eps: the fractions absolutely, the peak rates "
             "relative at every element, as the old test held them against "
-            "passes.plasma_channel_fractions, which the reference's launch statistics "
+            "plasma_channel_fractions, which the reference's launch statistics "
             "are to the bit (measured). The launch rung also compares both "
             "peak-normalised at the same bound (new).",
             build=partial(fractions_at_the_launch, kerr, n_pol),

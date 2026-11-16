@@ -14,7 +14,15 @@ from tests.bounds import gamma
 from tests.driver.test_prop_capillary import build
 
 from gated_source import _gated_source
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import plasma_channels_current
+from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation
+from solprop.backends.numpy_ref.passes.transforms import (
+    project,
+    synthesise,
+    to_frequency,
+    to_time,
+)
 from solprop.backends.session import ExecutionOptions
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.stage import scalars
@@ -108,19 +116,17 @@ def test_mixture_production_assembles_both_current_channels():
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend.workspace.hoist(0.0)
-        nodes = passes.synthesise(
-            passes.to_time(
-                problem.initial.field0, grids.crop_index, grids.n_to, kind="field"
-            ),
+        nodes = synthesise(
+            to_time(problem.initial.field0, grids.crop_index, grids.n_to, kind="field"),
             transform.synthesis,
             bundle.taper_scale,
             transform.n_pol,
         )
-        sources = backend.workspace._column_sources(nodes, bundle, None)
+        sources = backend.workspace.stage_source._column_sources(nodes, bundle, None)
         assert sources.current is not None
         # The compatibility polarisation entry point still integrates the physical
         # current; production consumes the separate streams instead.
-        physical = passes.nonlinear_polarisation(
+        physical = nonlinear_polarisation(
             nodes,
             problem.responses,
             grids.t_window_fine,
@@ -146,9 +152,7 @@ def test_mixture_production_assembles_both_current_channels():
             atol=float(relative * np.max(abs(expected_physical))),
         )
         projected = [
-            passes.project(
-                values, transform.projection, bundle.taper_scale, transform.n_pol
-            )
+            project(values, transform.projection, bundle.taper_scale, transform.n_pol)
             for values in (
                 sources.polarisation,
                 grids.t_window_fine * sources.current,
@@ -156,8 +160,7 @@ def test_mixture_production_assembles_both_current_channels():
             )
         ]
         spectra = [
-            passes.to_frequency(value, grids.crop_index, kind="field")
-            for value in projected
+            to_frequency(value, grids.crop_index, kind="field") for value in projected
         ]
         expected = spectra[0].copy()
         active = grids.active_mask
@@ -205,7 +208,7 @@ def test_real_column_decomposition_in_assembled_units(
     nodes = np.broadcast_to(
         np.stack(values), (transform.n_nodes, components, grid.n_to)
     )
-    current = passes._plasma_channels_current(
+    current = plasma_channels_current(
         nodes,
         problem.responses.plasma_channels,
         bundle.plasma_densities,
@@ -227,9 +230,9 @@ def test_real_column_decomposition_in_assembled_units(
         slope * current,
     ):
         spectra.append(
-            np.fft.rfft(
-                passes.project(product, transform.projection, bundle.taper_scale, 1)
-            )[..., crop]
+            np.fft.rfft(project(product, transform.projection, bundle.taper_scale, 1))[
+                ..., crop
+            ]
         )
     v, x, y, z = spectra
     a_j = x / q - z / q**2

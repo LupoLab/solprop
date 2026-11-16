@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from mixture_cases import mixture_case, mixture_translation
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.responses import nonlinear_polarisation
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.modes import MarcatiliMode
@@ -112,7 +112,7 @@ def test_physical_modal_weights_are_validated(case, weights):
 def test_multi_channel_pass_cannot_fall_back_to_one_unlabelled_density(case):
     problem = case[-1]
     with pytest.raises(BackendError, match="labelled stage scalars"):
-        passes.nonlinear_polarisation(
+        nonlinear_polarisation(
             np.zeros((1, 1, problem.grids.n_to)),
             problem.responses,
             np.ones(problem.grids.n_to),

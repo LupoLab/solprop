@@ -27,8 +27,9 @@ from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
-from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import envelope_populations
+from solprop.backends.numpy_ref.passes.transforms import to_time
 from solprop.backends.session import ExecutionOptions
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear import EnvelopePlasmaResponse
@@ -217,7 +218,7 @@ def test_envelope_population_scan_matches_independent_response(envelope_mixture)
     problem, _, grid = geometry_case(envelope_mixture, "modal", 2)
     assembly = problem.responses.envelope_plasma
     assert assembly is not None
-    modal = passes.to_time(
+    modal = to_time(
         problem.initial.field0,
         problem.grids.crop_index,
         grid.n_to,

@@ -42,8 +42,8 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends import node_chunk
 from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
-from solprop.backends.numpy_ref import general_modal, passes
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref import general_modal, source
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import Absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
@@ -276,7 +276,7 @@ def test_the_free_route_evaluates_the_reference_at_a_node(monkeypatch, case, eva
     grid = free_grid(kind)
     response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
     problem, run_request = free_problem(response, grid)
-    calls = caught(monkeypatch, passes, "nonlinear_sources")
+    calls = caught(monkeypatch, source, "nonlinear_sources")
     stage_derivative(problem, run_request, grid)
     args, kwargs, result = calls[0]
     field_t = args[0]
@@ -445,7 +445,7 @@ def test_the_planar_route_evaluates_the_reference_at_a_node(
     simulation = planar_simulation(response)
     problem = simulation.translate()
     run_request = simulation._run_request()
-    calls = caught(monkeypatch, passes, "nonlinear_sources")
+    calls = caught(monkeypatch, source, "nonlinear_sources")
     stage_derivative(problem, run_request, simulation.grid)
     args, kwargs, result = calls[0]
     field_t = args[0]

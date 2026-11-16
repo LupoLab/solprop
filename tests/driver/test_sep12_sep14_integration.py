@@ -16,6 +16,7 @@ from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.multistep import InteractionHistory
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.session import Start
 from solprop.driver import Simulation
@@ -191,7 +192,7 @@ def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulat
         march = cast("Any", backend.march)
         assert isinstance(march, HostAdamsMarch)
         # The interaction formulation's fused path, or the exponential one's own.
-        assert (cast("Any", march._engine)._exponential is None) is (
+        assert isinstance(march._engine, InteractionHistory) is (
             formulation == "interaction"
         )
         terminal = session.advance().terminal

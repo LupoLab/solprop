@@ -59,7 +59,9 @@ from sessions.runs import run as run_session
 from sessions.runs import to_planes
 from solprop import tools
 from solprop.backends.events import ObservationReady
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import kerr_polarisation
+from solprop.backends.numpy_ref.passes.transforms import project, synthesise
 from solprop.backends.registry import select
 from solprop.boundaries import absorber
 from solprop.constants import AU_EFIELD, AU_ENERGY, EPS0, C
@@ -1090,12 +1092,10 @@ def projected_drive(modes, *, n_r, radial_rule: RadialRule = "gauss_kronrod"):
     matrices = mode_matrix(modes, rule, components=("x",))
     state = np.zeros((len(modes), 1, 1))
     state[0, 0, 0] = 1.0
-    field = passes.synthesise(state, matrices.synthesis, 1.0, matrices.n_pol)
+    field = synthesise(state, matrices.synthesis, 1.0, matrices.n_pol)
     coefficients = KerrCoefficients(1.0, "real", 0.0, 0.0, 0.0, False, True)
-    polarisation = passes.kerr_polarisation(field, coefficients, 1.0)
-    return passes.project(polarisation, matrices.projection, 1.0, matrices.n_pol)[
-        :, 0, 0
-    ]
+    polarisation = kerr_polarisation(field, coefficients, 1.0)
+    return project(polarisation, matrices.projection, 1.0, matrices.n_pol)[:, 0, 0]
 
 
 @pytest.mark.parametrize("count", [2, 4])

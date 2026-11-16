@@ -7,39 +7,26 @@
 Plain NumPy and ``scipy.fft`` through :mod:`solprop.fourier`, one named function per
 pass, no fusion, no in-place tricks and no compiled code. It exists to be read and to be
 right: every other backend is validated against the numbers it produces
-(``docs/dev/backends.md`` section 2). It propagates a mode-averaged or multimode problem
-on either grid with the Kerr, Raman and plasma terms, using interaction-picture DOPRI5
-with the cumulative operator, the lagged PI controller, landing on save planes and hard
-kinks, the shot-noise field and the hard band mask.
+(``docs/dev/backends.md`` section 2). It runs every route and every march.
 
-:mod:`solprop.backends.numpy_ref.passes` holds the passes;
-:mod:`solprop.backends.numpy_ref.backend` holds the step loop and the seam;
-``construct`` is the registry's constructor (:mod:`solprop.backends.registry`).
+Reading order: :mod:`~solprop.backends.numpy_ref.passes` holds the formulas, one
+function per pass of a stage; :mod:`~solprop.backends.numpy_ref.backend` the seam
+(:class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend`), which builds the
+workspace (:mod:`~solprop.backends.numpy_ref.workspace`) and the engines the marches of
+:mod:`solprop.backends.host` drive (:mod:`~solprop.backends.numpy_ref.engines`,
+:mod:`~solprop.backends.numpy_ref.multistep`). The workspace owns the stage source
+(:mod:`~solprop.backends.numpy_ref.source`), the statistics
+(:mod:`~solprop.backends.numpy_ref.statistics`) and the coupled flow
+(:mod:`~solprop.backends.numpy_ref.coupled_flow`); the Adams arithmetic and coefficients
+are :mod:`~solprop.backends.numpy_ref.adams_kernels` and
+:mod:`~solprop.backends.numpy_ref.adams_tables`, the general modal guide
+:mod:`~solprop.backends.numpy_ref.general_modal`, the dense output
+:mod:`~solprop.backends.numpy_ref.dense`. ``construct`` is the registry's constructor.
 """
 
 from collections.abc import Mapping, Sequence
 
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import (
-    accept_step,
-    accumulate,
-    apply_hard_mask,
-    apply_temporal_rate,
-    error_norm,
-    ionisation_rate,
-    kerr_polarisation,
-    nonlinear_polarisation,
-    plasma_current,
-    plasma_scan,
-    project,
-    raman_polarisation,
-    raman_spectrum,
-    stage_input,
-    stage_output,
-    synthesise,
-    to_frequency,
-    to_time,
-)
 from solprop.backends.session import ExecutionOptions
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -48,28 +35,7 @@ from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 from solprop.translate.tdse import TDSEBinding
 
-__all__ = [
-    "NumpyRefBackend",
-    "accept_step",
-    "accumulate",
-    "apply_hard_mask",
-    "apply_temporal_rate",
-    "construct",
-    "error_norm",
-    "ionisation_rate",
-    "kerr_polarisation",
-    "nonlinear_polarisation",
-    "plasma_current",
-    "plasma_scan",
-    "project",
-    "raman_polarisation",
-    "raman_spectrum",
-    "stage_input",
-    "stage_output",
-    "synthesise",
-    "to_frequency",
-    "to_time",
-]
+__all__ = ["NumpyRefBackend", "construct"]
 
 
 def construct(

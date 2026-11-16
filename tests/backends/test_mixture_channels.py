@@ -12,7 +12,13 @@ from numpy.testing import assert_allclose, assert_array_equal
 from scipy.integrate import trapezoid
 
 from mixture_cases import mixture_case
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.plasma import (
+    ionisation_rate,
+    plasma_channel_fractions,
+    plasma_channels_polarisation,
+    plasma_current,
+    plasma_scan,
+)
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, TranslationError
 from solprop.profiles import Constant
@@ -60,11 +66,11 @@ def test_channel_depletion_is_independent_under_a_shared_field(case):
     t = np.linspace(-30e-15, 30e-15, 1025)
     field = (3e10 * np.exp(-((t / 10e-15) ** 2)) * np.cos(2.4e15 * t))[None, None, :]
     dt = float(t[1] - t[0])
-    rates, fractions = passes.plasma_channel_fractions(
+    rates, fractions = plasma_channel_fractions(
         field, problem.responses.plasma_channels, bundle.plasma_preionisation, dt
     )
     for index, channel in enumerate(problem.responses.plasma_channels):
-        single, _ = passes.plasma_scan(
+        single, _ = plasma_scan(
             field,
             rates[index],
             channel,
@@ -95,18 +101,18 @@ def test_shared_current_integrals_equal_the_sum_of_independent_responses(case):
         bundle.plasma_preionisation,
         strict=True,
     ):
-        rate = passes.ionisation_rate(field, channel.rate)
-        fraction, current = passes.plasma_scan(
+        rate = ionisation_rate(field, channel.rate)
+        fraction, current = plasma_scan(
             field, rate, channel, preionisation=initial, dt=dt
         )
         separate.append(
-            passes.plasma_current(
+            plasma_current(
                 field, rate, fraction, current, channel, density=density, dt=dt
             )
         )
     bound = rounding * sum(float(np.max(np.abs(value))) for value in separate)
     assert bound > 0.0
-    actual = passes.plasma_channels_polarisation(
+    actual = plasma_channels_polarisation(
         field,
         problem.responses.plasma_channels,
         bundle.plasma_densities,
@@ -133,7 +139,7 @@ def test_constant_rate_ionisation_work_counts_only_new_electrons():
         # new fraction, is (W*dt/2)coth(W*dt/2). Its excess is <= (W*dt)^2/12.
         # Allow cumulative-exposure and exp rounding separately before evaluating.
         relative_bound = (rates_at_field * dt) ** 2 / 12 + (16 * t.size + 64) * EPS
-        rates, fractions = passes.plasma_channel_fractions(
+        rates, fractions = plasma_channel_fractions(
             field, channels, bundle.plasma_preionisation, dt
         )
         newly_freed = fractions[:, 0, -1] - np.asarray(bundle.plasma_preionisation)
@@ -208,6 +214,6 @@ def test_multi_channel_pass_requires_all_channel_scalars(case):
     channels = case[-1].responses.plasma_channels
     field = np.zeros((1, 1, 4))
     with pytest.raises(BackendError, match="initial fraction"):
-        passes.plasma_channel_fractions(field, channels, (), 1e-16)
+        plasma_channel_fractions(field, channels, (), 1e-16)
     with pytest.raises(BackendError, match="density"):
-        passes.plasma_channels_polarisation(field, channels, (), (0.0, 0.0), 1e-16)
+        plasma_channels_polarisation(field, channels, (), (0.0, 0.0), 1e-16)

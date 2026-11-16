@@ -35,12 +35,13 @@ from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import passes as reference_passes
-from solprop.backends.numpy_ref.workspace import (
-    _check_flow_conditioning,
-    _coupled_flow_maps,
-    _flow_action,
+from solprop.backends.numpy_ref import workspace as workspace_module
+from solprop.backends.numpy_ref.coupled_flow import (
+    check_flow_conditioning,
+    flow_action,
+    held_flow,
 )
+from solprop.backends.numpy_ref.passes.stepping import error_norm
 from solprop.boundaries import absorber
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid
@@ -132,9 +133,9 @@ def test_a_nearly_degenerate_nonnormal_bin_is_formed_by_scaling_and_squaring(
     assert np.all(route[2:])
     dz = flow_parity.LENGTH / STEPS
     forward, inverse, _ = formed(monkeypatch, problem, run_request, grid, crafted, dz)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
-    expected = _flow_action(replace(reference, triangular=crafted.triangular), 0, dz)
+    expected = flow_action(replace(reference, triangular=crafted.triangular), 0, dz)
     norm = float(np.max(np.linalg.norm(dz * triangular[:2], axis=(-2, -1))))
     bound = 2.0 * reference_formation_bound(reference.n_modes, norm, 0)
     for got, want in zip((forward, inverse), expected, strict=True):
@@ -149,11 +150,11 @@ def test_an_empty_measurement_is_not_refused():
     dz = flow_parity.LENGTH / STEPS
     held = native_backend._host_flow(problem)
     check_native(native_backend, held, 0, np.empty(0), dz)
-    reference = _coupled_flow_maps(problem)
+    reference = held_flow(problem)
     assert reference is not None
     channels = problem.shape[0]
     nothing = np.empty((0, channels, channels), dtype=complex)
-    _check_flow_conditioning(reference, 0, (nothing, nothing), dz)
+    check_flow_conditioning(reference, 0, (nothing, nothing), dz)
     # The guard is live: one bin over its declared row is refused, on either.
     over = np.array(held.condition_bound[0]) * 2.0
     with pytest.raises(BackendError, match="above"):
@@ -241,7 +242,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     partials = _native_partials(problem, run_request, grid, field, dz)
 
     captured = {}
-    original = reference_passes.error_norm
+    original = error_norm
 
     def capture(error, state, advanced, reference_mask, controller):
         captured["partials"] = [
@@ -251,7 +252,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
         return original(error, state, advanced, reference_mask, controller)
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(reference_passes, "error_norm", capture)
+        patch.setattr(workspace_module, "error_norm", capture)
         reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             expected_state = load_reference(reference, field).copy()

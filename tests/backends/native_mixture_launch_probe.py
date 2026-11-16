@@ -75,7 +75,9 @@ def launch_case(kerr, n_pol):
         reference.workspace.hoist(0.0)
         peak = max(
             float(np.max(abs(one)))
-            for one in reference.workspace._plasma_nodes(state, problem.initial.z)
+            for one in reference.workspace.statistics.node_fields(
+                state, problem.initial.z
+            )
         )
     finally:
         reference.close()

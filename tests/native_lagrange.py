@@ -43,7 +43,7 @@ def native_basis(points: np.ndarray, upper: float, integrate: bool):
 def native_tables(nodes: np.ndarray, order: int, orders: list[int], compensated: bool):
     """Return native's exponential Adams trial tables, formed in one C++ call.
 
-    The arrays of :func:`solprop.backends.numpy_ref.multistep.trial_tables`, in its
+    The arrays of :func:`solprop.backends.numpy_ref.adams_tables.trial_tables`, in its
     order, through the private test binding (``_core._testing.trial_tables``).
     """
     testing = _testing()

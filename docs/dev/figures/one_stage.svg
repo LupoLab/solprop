@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="1023.0" viewBox="0 0 1200 1023.0">
+     width="1200" height="1069.5" viewBox="0 0 1200 1069.5">
 <defs>
 </defs>
 <style>
@@ -69,10 +69,10 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="1023.0" class="ground" />
+<rect x="0" y="0" width="1200" height="1069.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">One stage of the interaction-picture step</text>
-<text x="32" y="64.0" font-size="12" class="dim">architecture.md §8: each numbered line is one pass over its data, and each is a named function in backends/numpy_ref/passes.py. stepper.md §2 is the step the seven passes</text>
-<text x="32" y="79.5" font-size="12" class="dim">sit inside.</text>
+<text x="32" y="64.0" font-size="12" class="dim">architecture.md §8: each numbered line is one pass over its data, and each is a named function in backends/numpy_ref/passes/. stepper.md §2 is the step the seven passes sit</text>
+<text x="32" y="79.5" font-size="12" class="dim">inside.</text>
 <text x="32" y="109.0" font-size="12" class="bold dim">the seven passes of one stage</text>
 <rect x="32" y="121.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="42.0" y="143.0" font-size="15" class="bold ink-b">1   stage combine, lab frame, noise, pad</text>
@@ -115,7 +115,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="42.0" y="650.5" font-size="12" class="dim">k_i = exp(−ΔΦ_i)·p(ω)·W(ω)·crop(P̃ + A_J); acc_sol += b_i k_i,</text>
 <text x="42.0" y="666.0" font-size="12" class="dim">acc_err += e_i k_i</text>
 <text x="42.0" y="681.5" font-size="12" class="dim">numpy_ref  ·  held_plasma_spectrum · stage_output · accumulate</text>
-<rect x="498.0" y="367.0" width="356.0" height="459.5" rx="7" ry="7" class="fill-p" />
+<rect x="498.0" y="367.0" width="356.0" height="506.0" rx="7" ry="7" class="fill-p" />
 <text x="508.0" y="389.0" font-size="15" class="bold ink-p">response_order, per column</text>
 <text x="508.0" y="410.5" font-size="12" class="bold ink-p">intensity</text>
 <text x="612.0" y="410.5" font-size="12" class="dim">|E|² on the fine time axis</text>
@@ -127,43 +127,46 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="612.0" y="472.5" font-size="12" class="dim">by the running-integral rule —</text>
 <text x="612.0" y="488.0" font-size="12" class="dim">plasma_scan ·</text>
 <text x="612.0" y="503.5" font-size="12" class="dim">plasma_channel_fractions ·</text>
-<text x="612.0" y="519.0" font-size="12" class="dim">plasma_integration_diagnostics ·</text>
-<text x="612.0" y="534.5" font-size="12" class="dim">plasma_integration_statistics</text>
-<text x="508.0" y="550.0" font-size="12" class="bold ink-p">plasma_current</text>
-<text x="612.0" y="550.0" font-size="12" class="dim">weighted currents; physical P</text>
-<text x="612.0" y="565.5" font-size="12" class="dim">retained for direct response</text>
-<text x="612.0" y="581.0" font-size="12" class="dim">evaluation — plasma_current ·</text>
-<text x="612.0" y="596.5" font-size="12" class="dim">plasma_channels_polarisation</text>
-<text x="508.0" y="612.0" font-size="12" class="bold ink-p">kerr</text>
-<text x="612.0" y="612.0" font-size="12" class="dim">χ⁽³⁾, with the third harmonic where</text>
-<text x="612.0" y="627.5" font-size="12" class="dim">the grid holds it —</text>
-<text x="612.0" y="643.0" font-size="12" class="dim">kerr_polarisation</text>
-<text x="508.0" y="658.5" font-size="12" class="bold ink-p">dispersive_kerr</text>
-<text x="612.0" y="658.5" font-size="12" class="dim">χ⁽³⁾ at every quartet's</text>
-<text x="612.0" y="674.0" font-size="12" class="dim">frequencies: filtered fields,</text>
-<text x="612.0" y="689.5" font-size="12" class="dim">products, weights —</text>
-<text x="612.0" y="705.0" font-size="12" class="dim">dispersive_kerr_polarisation</text>
-<text x="508.0" y="720.5" font-size="12" class="bold ink-p">raman_drive</text>
-<text x="612.0" y="720.5" font-size="12" class="dim">one/three real histories on doubled</text>
-<text x="612.0" y="736.0" font-size="12" class="dim">grids, per chunk —</text>
-<text x="612.0" y="751.5" font-size="12" class="dim">raman_polarisation · raman_spectrum</text>
-<text x="612.0" y="767.0" font-size="12" class="dim">· mixture_raman_spectrum ·</text>
-<text x="612.0" y="782.5" font-size="12" class="dim">tensor_raman_spectrum</text>
-<text x="508.0" y="798.0" font-size="12" class="bold ink-p">accumulate</text>
-<text x="612.0" y="798.0" font-size="12" class="dim">gP_nonplasma, gJ and g'J in</text>
-<text x="612.0" y="813.5" font-size="12" class="dim">separate streams</text>
+<text x="612.0" y="519.0" font-size="12" class="dim">envelope_populations ·</text>
+<text x="612.0" y="534.5" font-size="12" class="dim">plasma_integration_diagnostics ·</text>
+<text x="612.0" y="550.0" font-size="12" class="dim">plasma_integration_statistics</text>
+<text x="508.0" y="565.5" font-size="12" class="bold ink-p">plasma_current</text>
+<text x="612.0" y="565.5" font-size="12" class="dim">weighted currents; physical P</text>
+<text x="612.0" y="581.0" font-size="12" class="dim">retained for direct response</text>
+<text x="612.0" y="596.5" font-size="12" class="dim">evaluation — plasma_total_current ·</text>
+<text x="612.0" y="612.0" font-size="12" class="dim">plasma_channels_current ·</text>
+<text x="612.0" y="627.5" font-size="12" class="dim">envelope_sources · plasma_current ·</text>
+<text x="612.0" y="643.0" font-size="12" class="dim">plasma_channels_polarisation</text>
+<text x="508.0" y="658.5" font-size="12" class="bold ink-p">kerr</text>
+<text x="612.0" y="658.5" font-size="12" class="dim">χ⁽³⁾, with the third harmonic where</text>
+<text x="612.0" y="674.0" font-size="12" class="dim">the grid holds it —</text>
+<text x="612.0" y="689.5" font-size="12" class="dim">kerr_polarisation</text>
+<text x="508.0" y="705.0" font-size="12" class="bold ink-p">dispersive_kerr</text>
+<text x="612.0" y="705.0" font-size="12" class="dim">χ⁽³⁾ at every quartet's</text>
+<text x="612.0" y="720.5" font-size="12" class="dim">frequencies: filtered fields,</text>
+<text x="612.0" y="736.0" font-size="12" class="dim">products, weights —</text>
+<text x="612.0" y="751.5" font-size="12" class="dim">dispersive_kerr_polarisation</text>
+<text x="508.0" y="767.0" font-size="12" class="bold ink-p">raman_drive</text>
+<text x="612.0" y="767.0" font-size="12" class="dim">one/three real histories on doubled</text>
+<text x="612.0" y="782.5" font-size="12" class="dim">grids, per chunk —</text>
+<text x="612.0" y="798.0" font-size="12" class="dim">raman_polarisation · raman_spectrum</text>
+<text x="612.0" y="813.5" font-size="12" class="dim">· mixture_raman_spectrum ·</text>
+<text x="612.0" y="829.0" font-size="12" class="dim">tensor_raman_spectrum</text>
+<text x="508.0" y="844.5" font-size="12" class="bold ink-p">accumulate</text>
+<text x="612.0" y="844.5" font-size="12" class="dim">gP_nonplasma, gJ and g'J in</text>
+<text x="612.0" y="860.0" font-size="12" class="dim">separate streams</text>
 <path d="M466.0,391.0 L494.0,391.0" class="arrow" />
 <path d="M494.0,391.0 L485.0,394.6 L485.0,387.4 Z" class="head" />
-<text x="498.0" y="840.5" font-size="12" class="dim">over the backend's node chunk at a time, so the buffers are</text>
-<text x="498.0" y="854.5" font-size="12" class="dim">sized by the chunk and not by the quadrature rule</text>
-<rect x="498.0" y="860.5" width="356.0" height="81.5" rx="7" ry="7" class="fill-b" />
-<text x="508.0" y="882.5" font-size="15" class="bold ink-b">the two accumulators</text>
-<text x="508.0" y="898.0" font-size="12" class="dim">acc_sol += b_i k_i        acc_err += e_i k_i</text>
-<text x="508.0" y="913.5" font-size="12" class="dim">on the last stage the weak error norm is reduced</text>
-<text x="508.0" y="929.0" font-size="12" class="dim">in the same pass, in index order</text>
-<path d="M466.0,637.0 L480.0,637.0 L480.0,884.5 L494.0,884.5" class="arrow" />
-<path d="M494.0,884.5 L485.0,888.1 L485.0,880.9 Z" class="head" />
-<rect x="890.0" y="121.0" width="278.0" height="821.0" rx="7" ry="7" class="plain" />
+<text x="498.0" y="887.0" font-size="12" class="dim">over the backend's node chunk at a time, so the buffers are</text>
+<text x="498.0" y="901.0" font-size="12" class="dim">sized by the chunk and not by the quadrature rule</text>
+<rect x="498.0" y="907.0" width="356.0" height="81.5" rx="7" ry="7" class="fill-b" />
+<text x="508.0" y="929.0" font-size="15" class="bold ink-b">the two accumulators</text>
+<text x="508.0" y="944.5" font-size="12" class="dim">acc_sol += b_i k_i        acc_err += e_i k_i</text>
+<text x="508.0" y="960.0" font-size="12" class="dim">on the last stage the weak error norm is reduced</text>
+<text x="508.0" y="975.5" font-size="12" class="dim">in the same pass, in index order</text>
+<path d="M466.0,637.0 L480.0,637.0 L480.0,931.0 L494.0,931.0" class="arrow" />
+<path d="M494.0,931.0 L485.0,934.6 L485.0,927.4 Z" class="head" />
+<rect x="890.0" y="121.0" width="278.0" height="867.5" rx="7" ry="7" class="plain" />
 <text x="900.0" y="143.0" font-size="15" class="bold">the step around it</text>
 <text x="900.0" y="166.5" font-size="12" class="dim">DOPRI5: order 5, embedded order 4</text>
 <text x="900.0" y="182.0" font-size="12" class="dim">7 stages, 6 evaluations of N</text>
@@ -200,6 +203,6 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="900.0" y="501.0" font-size="12" class="bold">absorber_term</text>
 <text x="908.0" y="516.5" font-size="12" class="dim">the in-stage absorber, masked to the</text>
 <text x="908.0" y="532.0" font-size="12" class="dim">active band</text>
-<text x="32" y="975.5" font-size="12" class="dim">Per step: 6 stages, 12 modal batched FFTs and 6 node-chunk FFT pairs for Raman, one controller decision, one accept pass, one hard-mask multiply. Steps land on save planes</text>
-<text x="32" y="991.0" font-size="12" class="dim">and hard kinks (ADR-009).</text>
+<text x="32" y="1022.0" font-size="12" class="dim">Per step: 6 stages, 12 modal batched FFTs and 6 node-chunk FFT pairs for Raman, one controller decision, one accept pass, one hard-mask multiply. Steps land on save planes</text>
+<text x="32" y="1037.5" font-size="12" class="dim">and hard kinks (ADR-009).</text>
 </svg>

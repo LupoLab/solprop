@@ -11,10 +11,11 @@ read when the evaluation scans the nodes anyway, and the species reduction is fi
 natively. At every observation the session's statistics are the plan's own
 evaluation of its exported field, loaded into the native state (bit for bit on a
 deterministic build), and are held to the NumPy reference's host scan of the same
-field (:func:`solprop.backends.numpy_ref.populations.axis_populations`) within the node
-scans' parity tolerance. An envelope's scan reads the polarisation ellipse, so on a
-one-component transform whose modes have a y field on the axis the session scans the
-row's two components as one node of two. The plan's axis row at the entrance, on every
+field (``ReferenceStatistics._axis_populations`` in
+:mod:`solprop.backends.numpy_ref.statistics`) within the node scans' parity
+tolerance. An envelope's scan reads the polarisation ellipse, so on a one-component
+transform whose modes have a y field on the axis the session scans the row's two
+components as one node of two. The plan's axis row at the entrance, on every
 kind of row and scan, against the reference's is the catalogue's rows ``axis plasma
 launch ...`` (``backends/axis_plasma_rows.py``).
 """

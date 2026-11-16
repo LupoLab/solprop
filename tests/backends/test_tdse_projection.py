@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.backends.tdse_source import (
     atomic_edge_source,
     atomic_sources,
@@ -135,8 +135,8 @@ def test_current_conductivity_has_analytic_attenuation_and_modal_normalization(
     index, _, _, _ = carrier_case(problem, grid)
     field = np.zeros((1, 1, grid.n_omega), dtype=np.complex128)
     field[0, 0, index] = 1.3 + 0.7j
-    modal = passes.to_time(field, grid.crop_index, grid.n_to, kind="field")
-    physical = passes.synthesise(modal, problem.transform.synthesis, 1.0, 1)
+    modal = to_time(field, grid.crop_index, grid.n_to, kind="field")
+    physical = synthesise(modal, problem.transform.synthesis, 1.0, 1)
     conductivity = 1e-5
     current = conductivity * physical
     source, diagnostics = _project(
