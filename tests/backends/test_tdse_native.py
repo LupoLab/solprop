@@ -322,7 +322,7 @@ def _reference_startup(case, monkeypatch):
 
     def recording_start(self, z):
         start(self, z)
-        seen.setdefault("row", np.array(self._store[0]).reshape(-1))
+        seen.setdefault("row", np.array(self.rows.store[0]).reshape(-1))
         seen.setdefault("history", self)
 
     with monkeypatch.context() as patch:
@@ -339,7 +339,7 @@ def _reference_startup(case, monkeypatch):
                 batch = session.advance(work_limit=1)
                 if batch.receipt is not None:
                     session.acknowledge(batch.receipt)
-            seen["after"] = np.array(seen["history"]._store[0]).reshape(-1)
+            seen["after"] = np.array(seen["history"].rows.store[0]).reshape(-1)
             status = session.status()
             seen["attempts"], seen["position"] = status.attempts, status.z
         finally:

@@ -762,6 +762,8 @@ MODULES = {
                 "engines",
                 "dense",
                 "multistep",
+                "adams_kernels",
+                "adams_tables",
                 "general_modal",
             ),
         ),

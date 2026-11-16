@@ -30,13 +30,14 @@ from collections.abc import Callable, Mapping, Sequence
 import numpy as np
 from jaxtyping import Complex, Float
 
-from solprop._helpers import PLAIN, Helpers
+from solprop._helpers import PLAIN
 from solprop.backends import tdse_source
 from solprop.backends.engines import AcceptRecord, BoundaryReading
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.node_chunk import (
     NodeChunkPlan,
 )
+from solprop.backends.numpy_ref.adams_kernels import CoupledBlock
 from solprop.backends.numpy_ref.coupled_flow import (
     BlockResidual,
     apply_flow,
@@ -137,12 +138,7 @@ class NumpyWorkspace:
         The statistics the reference forms itself, which :meth:`stats` asks.
     stage_source : solprop.backends.numpy_ref.source.StageSource
         The stage derivative's evaluation, which :meth:`nonlinear` asks.
-    helpers : solprop._helpers.Helpers
-        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN`` (SEP 29
-        section 6.6).
     """
-
-    helpers: Helpers = PLAIN
 
     def __init__(
         self,
@@ -174,7 +170,7 @@ class NumpyWorkspace:
         # weights that multiply them are a bundle of host floats per stage.
         self._terms = terms(problem)
         # Hoisted per step by `hoist`; the entrance's until the first step asks.
-        self._anchor = anchor(problem, 0.0, helpers=self.helpers)
+        self._anchor = anchor(problem, 0.0, helpers=PLAIN)
         # A step's bundles taken together by `stage_bundles`, by anchor and position;
         # `hoist` drops them.
         self._prepared: dict[tuple[float, float], StageScalars] = {}
@@ -549,7 +545,7 @@ class NumpyWorkspace:
         z0 : float
             The step's anchor, m.
         """
-        self._anchor = anchor(self._problem, z0, helpers=self.helpers)
+        self._anchor = anchor(self._problem, z0, helpers=PLAIN)
         self._prepared.clear()
 
     def stage_bundles(
@@ -585,7 +581,7 @@ class NumpyWorkspace:
         if missing:
             held = self._anchor if self._anchor.z == z0 else None
             for bundle in scalars_at(
-                self._problem, z0, missing, at=held, helpers=self.helpers
+                self._problem, z0, missing, at=held, helpers=PLAIN
             ):
                 prepared[z0, bundle.z1] = bundle
         return tuple(prepared[z0, z1] for z1 in positions)
@@ -613,7 +609,7 @@ class NumpyWorkspace:
         if kept is not None:
             return kept
         held = self._anchor if self._anchor.z == z0 else None
-        return scalars(self._problem, z0, z1, at=held, helpers=self.helpers)
+        return scalars(self._problem, z0, z1, at=held, helpers=PLAIN)
 
     def delta_phi(
         self, bundle: StageScalars
@@ -635,9 +631,7 @@ class NumpyWorkspace:
             ``Phi(z1) - Phi(z0)`` in the state's layout.
         """
         if bundle.phi_delta is None or self._terms.phi is None:
-            return delta_phi(
-                self._problem.linear, bundle.z0, bundle.z1, helpers=self.helpers
-            )
+            return delta_phi(self._problem.linear, bundle.z0, bundle.z1, helpers=PLAIN)
         return combine(bundle.phi_delta, self._terms.phi)
 
     def prefactor(
@@ -656,9 +650,7 @@ class NumpyWorkspace:
             The prefactor times the crop scale, in m/(V s) per unit polarisation.
         """
         if bundle.prefactor is None or self._terms.prefactor is None:
-            return prefactor_at(
-                self._problem.responses, bundle.z1, helpers=self.helpers
-            )
+            return prefactor_at(self._problem.responses, bundle.z1, helpers=PLAIN)
         return combine(bundle.prefactor, self._terms.prefactor)
 
     def unitary_phase(
@@ -787,7 +779,7 @@ class NumpyWorkspace:
             propagator,
         )
 
-    def coupled_block(self, z: float, dz: float) -> object:
+    def coupled_block(self, z: float, dz: float) -> CoupledBlock | None:
         """Return the frozen block of the section a step from `z` is anchored in.
 
         The exponential formulation steps a coupled flow's constant-Schur and
@@ -803,14 +795,9 @@ class NumpyWorkspace:
 
         Returns
         -------
-        object
-            The step's :class:`~solprop.backends.numpy_ref.multistep.CoupledBlock`,
-            or ``None`` without a coupled flow.
+        solprop.backends.numpy_ref.adams_kernels.CoupledBlock or None
+            The step's frozen block, or ``None`` without a coupled flow.
         """
-        from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415 - cycle
-            CoupledBlock,
-        )
-
         flow = self._flow
         if flow is None:
             return None

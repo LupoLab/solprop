@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._helpers import Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.exponential import (
     CarrierReference,
     refuse_carrier_frame,
@@ -40,7 +40,13 @@ from solprop.backends.host.session import HostMethod, HostPrepared, start_positi
 from solprop.backends.ledger import CallLedger
 from solprop.backends.low_storage import HostLowStorage
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
+from solprop.backends.numpy_ref.dense import AdamsDense, RungeKuttaDense
 from solprop.backends.numpy_ref.engines import NumpyRungeKutta
+from solprop.backends.numpy_ref.multistep import (
+    ExponentialHistory,
+    HostHistory,
+    InteractionHistory,
+)
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.backends.protocol import TimingProbe
 from solprop.backends.records import adams_policy, runge_kutta_policy
@@ -134,8 +140,8 @@ class NumpyRefBackend:
     reads_transverse_edge : bool
         True: the reference reads a free-space run's transverse edge on the host.
     helpers : solprop._helpers.Helpers
-        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``, which the
-        engines and marches are passed rather than choosing one (SEP 29 section 6.6).
+        The uncompiled stage-table and Adams-basis evaluations, ``PLAIN``: the oracle
+        never runs the compiled code it exists to check (SEP 29 section 6.6).
 
     Raises
     ------
@@ -179,9 +185,7 @@ class NumpyRefBackend:
     reads_transverse_edge: bool = True
 
     name: str = "numpy_ref"
-    # The oracle evaluates its stage tables and Adams bases with the uncompiled forms,
-    # never with the compiled code it exists to check (SEP 29 section 6.6).
-    helpers: Helpers = NumpyWorkspace.helpers
+    helpers: Helpers = PLAIN
     # The reference forms `exp(+dPhi)` and `exp(-dPhi)` afresh at every stage, so
     # keeping the six distinct exponents of a step is worth its memory here where it is
     # not on a backend that takes both signs from one transcendental.
@@ -299,10 +303,6 @@ class NumpyRefBackend:
 
     def _runge_kutta_method(self, host: object) -> HostMethod:
         """Return the Runge-Kutta march over a fresh engine, and its dense output."""
-        from solprop.backends.numpy_ref.dense import (  # noqa: PLC0415 - it builds on the engines
-            RungeKuttaDense,
-        )
-
         stepper = self._stepper
         engine = self._runge_kutta(self._workspace)
         policy = runge_kutta_policy(self._problem, stepper)
@@ -338,30 +338,16 @@ class NumpyRefBackend:
 
     def _adams(self, method: Multistep, host: object) -> HostMethod:
         """Return the Adams march over a fresh engine, its dense output and rows."""
-        # The engine reads this package's passes, so it is imported when a run asks
-        # for it rather than with the package.
-        from solprop.backends.numpy_ref.dense import AdamsDense  # noqa: PLC0415
-        from solprop.backends.numpy_ref.multistep import (  # noqa: PLC0415
-            AdamsKernels,
-            ExponentialKernels,
-            HostHistory,
-        )
-
-        compensation = self._compensation
         stepper = self._stepper
         interpolate = bool(stepper.interpolate_planes)
-        engine = HostHistory(
-            self._workspace,
-            method,
-            AdamsKernels(helpers=self.helpers),
-            # SEP 16's exponential formulation keeps untransported samples in the same
-            # store and shares everything else: the lifecycle, the controller, the
-            # ledger.
-            ExponentialKernels(helpers=self.helpers)
+        # SEP 16's exponential formulation keeps untransported samples in the same
+        # store and shares everything else: the lifecycle, the controller, the ledger.
+        engine: HostHistory = (
+            ExponentialHistory(
+                self._workspace, method, self._compensation, interpolate=interpolate
+            )
             if method.formulation == "exponential"
-            else None,
-            compensation,
-            interpolate=interpolate,
+            else InteractionHistory(self._workspace, method, interpolate=interpolate)
         )
         carrier = engine.carrier
         # Every number the controller and the landings read, from one record (SEP 39
