@@ -1373,26 +1373,40 @@ public:
   // SEP 52: every record the session keeps, in one, each read under the session's
   // lock: the monitor's and the edge's (None without them), the split collar's cap
   // (None without one) and the quadrature peak, drained since the last read.
-  nb::dict records() {
+  nb::dict records(const std::optional<std::vector<std::string>>& names) {
+    // Only the records asked for: the quadrature peak drains the state's score with a
+    // fence, and the monitor's record is a dictionary of its every number, so a reader
+    // that wants the cap alone (at every batch) takes neither.
+    const auto wanted = [&names](const char* name) {
+      return !names || std::ranges::find(*names, name) != names->end();
+    };
     std::optional<native::watch::Record> monitor;
     std::optional<std::pair<native::transverse::Record, native::transverse::Finish>>
         edge;
     std::optional<double> cap;
-    double peak = 0.0;
+    std::optional<double> peak;
     {
       const nb::gil_scoped_release release;
-      monitor = session().monitor_record();
-      edge = session().edge_record();
-      cap = session().monitor_cap();
-      peak = session().quadrature_peak();
+      if (wanted("monitor"))
+        monitor = session().monitor_record();
+      if (wanted("edge"))
+        edge = session().edge_record();
+      if (wanted("cap"))
+        cap = session().monitor_cap();
+      if (wanted("quadrature_peak"))
+        peak = session().quadrature_peak();
     }
     nb::dict out;
-    out["monitor"] = monitor ? nb::object(watch_record_to(*monitor)) : nb::none();
-    out["edge"] = edge ? nb::object(native::bindings::transverse_record_to(
-                             edge->first, edge->second))
-                       : nb::none();
-    out["cap"] = cap ? nb::object(nb::float_(*cap)) : nb::none();
-    out["quadrature_peak"] = peak;
+    if (wanted("monitor"))
+      out["monitor"] = monitor ? nb::object(watch_record_to(*monitor)) : nb::none();
+    if (wanted("edge"))
+      out["edge"] = edge ? nb::object(native::bindings::transverse_record_to(
+                               edge->first, edge->second))
+                         : nb::none();
+    if (wanted("cap"))
+      out["cap"] = cap ? nb::object(nb::float_(*cap)) : nb::none();
+    if (peak)
+      out["quadrature_peak"] = *peak;
     return out;
   }
   // solprop SEP 47 section 5.5: the Adams march's state with the orders of its
@@ -1759,14 +1773,17 @@ public:
                               : std::vector<std::string>{};
     return out;
   }
-  // The live counters alone, cheap enough to read at every run's start and close: the
-  // on-axis row scans, the Runge-Kutta stage evaluations and the z-table positions.
+  // The live counters alone, cheap enough to read at every run's start and close and
+  // every plane's metadata: the on-axis row scans, the Runge-Kutta stage evaluations,
+  // the z-table positions, the Raman kernel's transforms and the recycled stage.
   [[nodiscard]] nb::dict counters() const {
     const auto& state = workspace_->built();
     nb::dict out;
     out["axis_scans"] = state.axis_scans();
     out["rk_source_evaluations"] = state.rk_source_evaluations();
     out["table_evaluations"] = workspace_->z_slots().evaluations;
+    out["raman_kernel_transforms"] = state.raman_kernel_transforms();
+    out["fsal_ready"] = state.fsal_ready();
     return out;
   }
   [[nodiscard]] bool closed() const noexcept { return workspace_->closed(); }
@@ -3804,7 +3821,9 @@ NB_MODULE(_core, module_) {
                    "typing.Any], numpy.typing.NDArray[numpy.complex128], dict[str, "
                    "numpy.typing.NDArray[numpy.complex128]]] | None"))
       .def("noise_phase", &BoundSession::noise_phase, "ticket"_a, "z"_a)
-      .def("records", &BoundSession::records)
+      .def("records", &BoundSession::records, "names"_a.none() = nb::none(),
+           nb::sig("def records(self, names: collections.abc.Sequence[str] | None = "
+                   "None) -> dict[str, typing.Any]"))
       .def("continue_monitor", &BoundSession::continue_monitor, "continuation"_a,
            nb::sig("def continue_monitor(self, continuation: "
                    "solprop.backends.records.MonitorContinuation) -> None"))

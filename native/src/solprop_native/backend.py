@@ -447,6 +447,9 @@ class NativeBackend:
                 self._applied_execution = ExecutionRecord.from_native(
                     diagnostics["cpu_execution"]
                 )
+        # The workspace's facts that its build fixes, for every metadata record; its
+        # counters are read live (`Workspace.counters`).
+        self._facts: dict[str, Any] = dict(diagnostics)
         # solprop SEP 49: the TDSE response is the march's host source, handed to each
         # run and probe; the driver owns the binding and closes it.
         self._tdse_binding = tdse_binding
@@ -975,7 +978,8 @@ class NativeBackend:
         (:func:`_build_facts`); the native state's counters are read at every call.
         """
         facts = _build_facts()
-        native = self._diagnostics()
+        # The workspace's fixed facts, read once it was built, and its live counters.
+        native = self._facts | self._workspace.counters()
         work: dict[str, object] = {
             "backend": self.name,
             "propagator_mode": self._propagator_mode,

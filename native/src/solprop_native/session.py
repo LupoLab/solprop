@@ -832,7 +832,7 @@ class NativeSession:
         """
         if self.closed:
             return
-        self._native_records()
+        self._native_records("quadrature_peak")
         peak, self._pending_peak = self._pending_peak, math.nan
         if peak > QUADRATURE_ALARM and not self._alarm_reported:
             self._alarm_reported = True
@@ -840,13 +840,16 @@ class NativeSession:
         if isinstance(event, ObservationReady):
             self._alarm_reported = False
 
-    def _native_records(self) -> dict[str, Any]:
-        """Return the native session's records (``Session.records``).
+    def _native_records(self, *names: str) -> dict[str, Any]:
+        """Return the native session's records (``Session.records``), `names` or all.
 
-        Each read drains the quadrature peak the state kept since the last, which is
-        held here until the next alarm check (`_check_quadrature`) and for the record.
+        A read that takes the quadrature peak drains the score the state kept since the
+        last, which is held here until the next alarm check (`_check_quadrature`) and
+        for the record.
         """
-        records = cast("dict[str, Any]", self._native.records())
+        records = cast("dict[str, Any]", self._native.records(list(names) or None))
+        if "quadrature_peak" not in records:
+            return records
         peak = float(records["quadrature_peak"])
         if not math.isnan(peak):
             if not peak <= self._quadrature_peak:
@@ -867,7 +870,7 @@ class NativeSession:
         chunk = self._history(batch.attempts)
         rows = self._chunk_rows(batch)
         if not self._declared_logged:
-            edge = self._native_records()["edge"]
+            edge = self._native_records("edge")["edge"]
             self._declared_logged = edge is None or _transverse.log_declared(edge)
         return chunk, self._event(batch, receipt, chunk, rows)
 
@@ -1262,7 +1265,7 @@ class NativeSession:
         monitor = self._monitor
         if monitor is None:
             return None
-        records = self._native_records()
+        records = self._native_records("monitor", "edge")
         native = records["monitor"]
         if native is None:
             return None
@@ -1286,7 +1289,9 @@ class NativeSession:
         float
             The cap, m.
         """
-        cap = self._native_records()["cap"]
+        if self._monitor is None:
+            return math.inf
+        cap = self._native_records("cap")["cap"]
         return math.inf if cap is None else float(cap)
 
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:
@@ -1755,7 +1760,7 @@ class NativeSession:
         if self._finish_logged or self._monitor is None:
             return
         self._finish_logged = True
-        records = self._native_records()
+        records = self._native_records("monitor", "edge")
         edge = records["edge"]
         if edge is not None:
             _transverse.log_finish(edge)
