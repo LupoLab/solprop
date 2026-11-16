@@ -40,6 +40,7 @@ from backends.far_field_cases import (
 from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
+from builders import grid_at
 from sessions.executors import IDENTITY
 from sessions.runs import launched, load_native
 from solprop.backends import select
@@ -85,8 +86,10 @@ def problem_of(
     boundary=None,
 ):
     """The kernel problem of one state and its statistics, for Kokkos."""
+    # A run ends at its grid's length (SEP 51): the run's grid is cut at its plane,
+    # and the collar is the given grid's own, so its rates are kept.
     simulation = Simulation.from_free(
-        grid,
+        grid_at(grid, 1e-4),
         space,
         SpatialMedium(1 + 1e-6j) if medium is None else medium,
         [],
@@ -762,7 +765,8 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
 
     def simulation_on(backend):
         return Simulation.from_free(
-            grid,
+            # Cut at the last plane (SEP 51); the collar keeps the full grid's rates.
+            grid_at(grid, 2e-4),
             space,
             SpatialMedium(1 + 1e-6j),
             [],

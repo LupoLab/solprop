@@ -306,9 +306,9 @@ def multimode_capillary_rows(evaluator: str) -> Iterator[Row]:
                 capillary,
                 evaluator,
                 stepped=True,
-                n_save=None,
                 integrator=RungeKutta(),
-                save_planes=[LENGTH / STEPS],
+                # The rung takes the schedule's first step alone; the run records
+                # the whole replayed schedule, which ends at its length (SEP 51).
                 **grid,
             ),
             rungs={"one_step": one_step_of(capillary_evaluation)},

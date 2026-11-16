@@ -27,7 +27,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from backends.planar_hybrid_cases import ENVELOPE, FAMILIES, HALF_GAP, LENGTH, ORDERS
 from backends.rate_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
-from builders import load_reference
+from builders import grid_at, load_reference
 from legacy_geometry import bare_absorber
 from sessions.runs import bare, final_field
 from sessions.runs import run as session_run
@@ -342,6 +342,8 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
         backend="numpy_ref",
         absorber=bare_absorber(grid),
     )
+    # A run ends at its grid's length (SEP 51); the bare collar has no length.
+    grid = grid_at(grid, length)
     hybrid = Simulation.from_planar(grid, space, [], field0, settings=settings)
     problem, run_request = hybrid.translate(), hybrid._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=grid)
@@ -487,6 +489,8 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
         stats=spec,
         absorber=bare_absorber(grid),
     )
+    # A run ends at its grid's length (SEP 51); the bare collar has no length.
+    grid = grid_at(grid, 1e-3)
     simulation = Simulation.from_planar(grid, space, [], pulse, settings=settings)
     problem = simulation.translate()
     run_request = simulation._run_request()

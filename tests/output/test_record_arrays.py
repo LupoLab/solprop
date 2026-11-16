@@ -409,7 +409,7 @@ def test_a_plane_exports_from_a_file_through_the_stored_flux_plan(tmp_path):
 
 
 def test_a_noise_realisation_travels_beside_the_record(tmp_path):
-    grid = EnvelopeGrid.from_limits(1e-5, 800e-9, (700e-9, 900e-9), 100e-15, thg=False)
+    grid = EnvelopeGrid.from_limits(0.01, 800e-9, (700e-9, 900e-9), 100e-15, thg=False)
     simulation = Simulation.from_gnlse(
         0.11,
         0.01,

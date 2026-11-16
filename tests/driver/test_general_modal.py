@@ -33,7 +33,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import departure
-from builders import load_reference
+from builders import grid_at, held_collar, load_reference
 from legacy_geometry import LEGACY_GRID
 from march_bounds import (
     FIXED_ORDER,
@@ -103,12 +103,17 @@ from solprop.translate.modal_tables import (
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
+SHORT_Z = GENERAL_Z_END / 10
+"""Length the construction tests run, m: a tenth of the cap."""
+
 RUN = {
     # A tenth of a millimetre in two steps: these tests are about construction,
     # the launch, the refusals and the identity of a repeated draw, and none of
     # them needs a long propagation. The two end-to-end systems below take the
-    # whole millimetre.
-    "save_planes": [GENERAL_Z_END / 10],
+    # whole millimetre. A run ends at its grid's length (SEP 51), so the grid is the
+    # tenth, with the collar the millimetre gave.
+    "save_planes": [SHORT_Z],
+    "absorber": held_collar(general_grid(SHORT_Z), GENERAL_Z_END),
     "backend": "numpy_ref",
     "dz_max": GENERAL_Z_END / 20,
     "dz_init": GENERAL_Z_END / 20,
@@ -123,8 +128,8 @@ def kept(field: np.ndarray | None) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def grid():
-    """The field grid the construction tests use."""
-    return general_grid()
+    """The field grid the construction tests use: the tenth of a millimetre they run."""
+    return general_grid(SHORT_Z)
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +152,7 @@ def build(guide, grid, **overrides):
     """Return a general modal simulation on this guide and grid."""
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=guide,
         grid=grid,
         **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN | overrides})}),
@@ -175,7 +180,7 @@ def test_a_provider_builds_a_simulation_that_translates_to_the_general_route(
     assert (
         Simulation.from_waveguide(
             list(guide.mode_collection.modes),
-            GENERAL_Z_END,
+            SHORT_Z,
             provider=guide,
             grid=grid,
             **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
@@ -319,7 +324,7 @@ def test_modes_of_ones_own_are_refused_beside_a_guide(guide, grid):
     with pytest.raises(DriverError, match="supplies its own 1 ordered channel"):
         Simulation.from_waveguide(
             list(other.mode_collection.modes),
-            GENERAL_Z_END,
+            SHORT_Z,
             provider=guide,
             grid=grid,
             **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
@@ -327,7 +332,7 @@ def test_modes_of_ones_own_are_refused_beside_a_guide(guide, grid):
 
 
 def test_an_envelope_grid_is_refused_at_the_entry_point(guide):
-    envelope = EnvelopeGrid.from_limits(GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 60e-15)
+    envelope = EnvelopeGrid.from_limits(SHORT_Z, 835e-9, (815e-9, 860e-9), 60e-15)
     with pytest.raises(DriverError, match="propagates on a field grid"):
         build(guide, envelope)
 
@@ -365,7 +370,7 @@ def test_the_route_constructors_refusals_reach_the_caller_as_driver_errors(grid)
     with pytest.raises(DriverError, match="declares no sampling") as caught:
         Simulation.from_waveguide(
             (),
-            GENERAL_Z_END,
+            SHORT_Z,
             provider=unsampled,
             grid=grid,
             **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
@@ -581,7 +586,7 @@ def launched(guide, grid, incident, **overrides):
     """Return a general modal simulation coupling an incident beam."""
     return Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        None,
         provider=guide,
         grid=grid,
         wavelength=PULSE["wavelength"],
@@ -751,7 +756,7 @@ def test_the_incident_launch_refuses_what_it_does_not_carry(
     with pytest.raises(DriverError, match="incident= belongs to the general modal"):
         Simulation.from_waveguide(
             (MarcatiliMode(125e-6, "He", 1.0),),
-            GENERAL_Z_END,
+            SHORT_Z,
             gas="He",
             pressure=1.0,
             grid=grid,
@@ -831,7 +836,7 @@ def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(
         "MemoryOutput",
         prop_waveguide(
             (),
-            GENERAL_Z_END,
+            SHORT_Z,
             provider=incident_guide,
             grid=grid,
             wavelength=PULSE["wavelength"],
@@ -877,7 +882,8 @@ def test_the_incident_launch_is_the_same_on_every_cpu_receiver(
     step = 5e-7
     simulation = launched(
         incident_guide,
-        grid,
+        # Ten steps on a grid of their length (SEP 51), the collar still the run's.
+        grid_at(grid, 10 * step),
         beam,
         backend=backend,
         save_planes=[10 * step],
@@ -904,7 +910,7 @@ def test_a_multichannel_input_is_refused_by_the_launch(pair_guide, grid):
     both = np.repeat(simulation._field0[:1], 2, axis=0)
     carried = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=pair_guide,
         grid=grid,
         **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
@@ -1201,7 +1207,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
 
 # ------------------------------------------------------------ a fixed schedule
 
-FIXED_Z = GENERAL_Z_END / 10
+FIXED_Z = SHORT_Z
 """Length a fixed-schedule general modal test propagates, m: a tenth of the cap."""
 
 
@@ -1218,11 +1224,12 @@ def fixed_run(guide, grid, **overrides):
         # march (SEP 25 4.4).
         "integrator": FIXED_ORDER,
         "save_planes": [FIXED_Z],
+        "absorber": RUN["absorber"],
         "backend": "numpy_ref",
     }
     simulation = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=guide,
         grid=grid,
         **({"integrator": Multistep(), **({"noise": None, **settings | overrides})}),
@@ -1910,7 +1917,7 @@ def test_the_collar_and_not_the_route_sets_the_step_on_every_route():
     for collar in (True, False):
         simulation = Simulation.from_capillary(
             50e-6,
-            GENERAL_Z_END,
+            SHORT_Z,
             "Ar",
             1.0,
             grid=grid,

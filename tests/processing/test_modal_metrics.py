@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from builders import held_collar
 from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from sessions.runs import run as run_session
@@ -68,11 +69,17 @@ from solprop.translate.general import general_modal_route
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
 PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
+SHORT_Z = GENERAL_Z_END / 10
+"""Length these runs propagate, m: a tenth of the cap."""
+
 RUN = {
     # Two steps over a tenth of a millimetre: a reconstruction is made on one
     # saved plane and needs no propagation at all, and the route's arithmetic is
     # qualified end to end in tests/driver/test_general_modal.py.
-    "save_planes": [GENERAL_Z_END / 10],
+    # A run ends at its grid's length (SEP 51), so the grid is that tenth, with the
+    # collar the millimetre gave.
+    "save_planes": [SHORT_Z],
+    "absorber": held_collar(general_grid(SHORT_Z), GENERAL_Z_END),
     "backend": "numpy_ref",
     "dz_max": GENERAL_Z_END / 20,
     "dz_init": GENERAL_Z_END / 20,
@@ -90,8 +97,8 @@ contracts the dual over nodes and six components, so a round trip is of order
 
 @pytest.fixture(scope="module")
 def grid():
-    """The field grid these runs are on."""
-    return general_grid()
+    """The field grid these runs are on: the tenth of a millimetre they run."""
+    return general_grid(SHORT_Z)
 
 
 @pytest.fixture(scope="module")
@@ -113,8 +120,8 @@ def pair_guide(grid):
 def route_for(guide, grid):
     """Return the route a run of these tests builds, rebuilt from the guide.
 
-    `_from_general` passes the **last save plane** as `z_max`, so a
-    caller rebuilding the reference for a reconstruction passes the same: the
+    `_from_general` passes the run's length, its **last save plane**, as `z_max`,
+    so a caller rebuilding the reference for a reconstruction passes the same: the
     tables' `z_span` is part of their identity and a different one is refused by
     name, which is the point of the check.
     """
@@ -136,7 +143,7 @@ def tables(guide, grid):
 def run(guide, grid):
     """One general modal run, in memory, with its two saved planes."""
     simulation = Simulation.from_waveguide(
-        (), GENERAL_Z_END, provider=guide, grid=grid, **({"noise": None, **PULSE | RUN})
+        (), SHORT_Z, provider=guide, grid=grid, **({"noise": None, **PULSE | RUN})
     )
     return cast("MemoryOutput", simulation.run(progress="none"))
 
@@ -362,7 +369,7 @@ def test_a_coordinate_intensity_is_not_the_physical_one(pair_guide, grid):
     route = route_for(pair_guide, grid)
     simulation = Simulation.from_waveguide(
         (),
-        GENERAL_Z_END,
+        SHORT_Z,
         provider=pair_guide,
         grid=grid,
         **({"noise": None, **PULSE | RUN}),
