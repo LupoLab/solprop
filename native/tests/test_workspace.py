@@ -691,7 +691,7 @@ def test_the_engines_take_the_probe_s_trial_through_solprop_s_protocol(
         assert math.isnan(record.stiffness)
         # The committed state moved; its reading is the protocol's record.
         assert not np.array_equal(engines.field(), loaded)
-        with pytest.raises(RuntimeError, match="no boundary readings|monitor"):
+        with pytest.raises(RuntimeError, match=r"no boundary readings|monitor"):
             engines.rk_reading()
         engines.close()
         session = workspace.start(start)
