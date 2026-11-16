@@ -1417,11 +1417,13 @@ deleted; `tests/test_transverse_monitor.py` still imported the deleted host driv
   one object; the protocol wrappers are the tests' (`tests/engine_pairs.py`).
 - `Workspace.counters()` and `Session.records(names)` (only the names asked for) were
   added for the per-run cost; `Session.march_state` stays.
-- `basis_rows` and `trial_tables` stay in `_core`: the native `Helpers` record (SEP 29
-  §6.6) names them as the backend's basis and tables, and the helper-ownership tests use
-  them, though no production path now calls them on a native run (the march is
-  compiled). Moving them into `_testing` would put a production module on `_testing`, or
-  drop the record's basis half; that is left to the maintainer.
+- `basis_rows` and `trial_tables` moved into `_testing` (the maintainer's decision,
+  2026-11-16). The compiled Adams march forms its basis and tables in C++, so no
+  production path reached their bindings. The native `Helpers` record now names only the
+  Chebyshev rows; `Helpers.basis` is optional and refuses by name on a record without
+  one, and the `Helpers.tables` slot, which only the native record filled, is gone.
+  `tests/test_helpers.py` holds the C++ basis and tables to the plain forms through
+  `_testing`.
 - The decision-trace runners' dictionaries (`march_state`, `rk_state`, `bounds`,
   `result`, the watch record and judgement, the transverse edge's, `trial_from`,
   `adams_scalars`) stay hand-written, except the watch state, now written by its table

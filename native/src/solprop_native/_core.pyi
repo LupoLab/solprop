@@ -609,13 +609,6 @@ class Workspace:
     def close(self) -> None: ...
 
 def available_device_memory() -> int | None: ...
-def basis_rows(
-    points: npt.NDArray[np.float64],
-    upper: float,
-    integrate: bool,
-    rows: npt.NDArray[np.float64],
-    weights: npt.NDArray[np.float64],
-) -> None: ...
 def build_record() -> dict[str, Any]: ...
 @overload
 def clenshaw_points(
@@ -640,16 +633,3 @@ def export_fftw_wisdom() -> str | None: ...
 def reference_stream_copies(elements: int, warm: int, repeats: int) -> list[float]: ...
 def schemas() -> dict[str, Any]: ...
 def time_fft_plan(key: str, wisdom: str, effort: str) -> dict[str, Any]: ...
-def trial_tables(
-    nodes: npt.NDArray[np.float64],
-    order: int,
-    orders: Sequence[int],
-    compensated: bool,
-    predictor: npt.NDArray[np.float64],
-    corrector: npt.NDArray[np.float64],
-    factored: npt.NDArray[np.float64],
-    spans: npt.NDArray[np.float64],
-    carried: npt.NDArray[np.float64],
-    endpoint: npt.NDArray[np.float64],
-    defects: npt.NDArray[np.float64],
-) -> None: ...

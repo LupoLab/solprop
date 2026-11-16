@@ -235,6 +235,13 @@ def aperture_statistics(
 def axis_spectrum(
     workspace: Workspace, matrix: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.complex128]: ...
+def basis_rows(
+    points: npt.NDArray[np.float64],
+    upper: float,
+    integrate: bool,
+    rows: npt.NDArray[np.float64],
+    weights: npt.NDArray[np.float64],
+) -> None: ...
 def bind_monitor(
     workspace: Workspace,
     monitor: Mapping[str, object],
@@ -372,6 +379,19 @@ def trial_step(
     material: object | None = None,
     prepare_only: bool = False,
 ) -> npt.NDArray[np.float64]: ...
+def trial_tables(
+    nodes: npt.NDArray[np.float64],
+    order: int,
+    orders: Sequence[int],
+    compensated: bool,
+    predictor: npt.NDArray[np.float64],
+    corrector: npt.NDArray[np.float64],
+    factored: npt.NDArray[np.float64],
+    spans: npt.NDArray[np.float64],
+    carried: npt.NDArray[np.float64],
+    endpoint: npt.NDArray[np.float64],
+    defects: npt.NDArray[np.float64],
+) -> None: ...
 def vector_exp(x: npt.NDArray[np.float64], out: npt.NDArray[np.float64]) -> None: ...
 def vector_exp_complex(
     a: npt.NDArray[np.float64],

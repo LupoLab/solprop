@@ -64,6 +64,7 @@ from sessions.runs import (
     to_planes,
 )
 from sessions.runs import run as run_session
+from solprop._helpers import PLAIN
 from solprop.backends.events import ObservationReady, Outcome
 from solprop.backends.exponential import carrier_reference
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -401,7 +402,7 @@ def _block_departure(
         order,
         [order],
         compensated=_compensated(backend),
-        helpers=backend.helpers,
+        helpers=PLAIN,
     )[1].shape[0]
     assert bool(shift.size) is carrier
     expected = coupled_moments(

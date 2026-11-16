@@ -172,18 +172,16 @@ takes the implementation from the backend that runs the stage, never from a
 process-wide switch or from what is installed (SEP 29 section 6.6, R16): each
 backend sets the class attribute `helpers` (kernel schema 34), a
 `solprop._helpers.Helpers` record of the two operations, and the reference's session, its
-Adams march, its engines and the native backend's own load and resident engine pass it
-down. `numpy_ref` takes
+Adams march and its engines pass it down. `numpy_ref` takes
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
-checks; `native` takes its own
-`NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
-`lagrange_basis.hpp`). Both perform the same operations in the same order under
+checks; `native` takes its own `NATIVE`, the C++ transcription of the Chebyshev rows
+(`native/include/solprop_native/chebyshev.hpp`), which its adapter still evaluates for
+the stage scalars at a plane. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
-filled them. A record may add a third operation, an exponential Adams trial's
-coefficient tables in one call (`Helpers.tables`, the composition of
-`backends.numpy_ref.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
-the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
-table of a trial in one call rather than a dozen; `PLAIN` composes them. Translation runs
+filled them. `NATIVE` names no Adams basis: the compiled Adams march forms its basis and
+a trial's coefficient tables in C++ (`basis_rows` and `trial_tables` in
+`lagrange_basis.hpp`), and their bindings are private test entry points in
+`_core._testing`, which `tests/test_helpers.py` holds to the plain forms. Translation runs
 before any backend exists and needs nothing compiled:
 `clenshaw` and `PiecewiseChebyshev.__call__` without a record are NumPy's, and the shared
 functions' defaults are `PLAIN`. A z table's state-sized evaluation
