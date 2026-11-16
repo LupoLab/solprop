@@ -92,9 +92,12 @@ from solprop.modes import (
 from solprop.physdata import fused_silica
 from solprop.plotting import prop_2d
 from solprop.processing import get_spectral_density
-from solprop.processing.modal import physical_energy, reconstructed_flux
+from solprop.processing.modal import (
+    physical_energy,
+    reconstructed_flux,
+    reference_tables,
+)
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.translate.general import general_modal_route
 
 RADIUS = 50e-6
 """Core radius, m."""
@@ -302,14 +305,14 @@ print(
 # with twenty planes per period. The flux density at the nodes nearest the axis,
 # peaked over time, is rebuilt from the saved channel amplitudes and the guide's own
 # fields (:func:`solprop.processing.modal.reconstructed_flux` with ``density=True``),
-# which is why the guide and its tables are passed beside the output. The dashed
+# which is why the guide is passed beside the output; its reference tables are rebuilt
+# once (:func:`~solprop.processing.modal.reference_tables`) and reused for every
+# plane. The dashed
 # lines mark the period the channels' spacings predict. The launch is mostly
 # ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
 imaging = propagate(4.0 * z_p, 81)
-imaging_route = general_modal_route(
-    guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
-)
+imaging_tables = reference_tables(imaging, guide=guide)
 radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
 axis_nodes = radius <= np.min(radius) * 1.0001
 z_imaging = np.asarray(imaging["z"])
@@ -318,7 +321,11 @@ on_axis = np.array(
         np.max(
             np.mean(
                 reconstructed_flux(
-                    imaging, imaging_route.tables, plane=i, density=True, guide=guide
+                    imaging,
+                    tables=imaging_tables,
+                    plane=i,
+                    density=True,
+                    guide=guide,
                 )[axis_nodes],
                 axis=0,
             )

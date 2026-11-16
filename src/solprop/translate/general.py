@@ -29,7 +29,7 @@ import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int32
@@ -102,7 +102,11 @@ __all__ = [
     "node_kerr_form",
     "node_kerr_tensor",
     "occupancy_weight",
+    "reference_tables",
 ]
+
+if TYPE_CHECKING:
+    from solprop.translate.modal_path import ModalPathTable
 
 logger = logging.getLogger(__name__)
 
@@ -806,21 +810,8 @@ def general_modal_route(
                 span=float(z_max) * (1.0 + float(margin)),
             ),
         )
-    table = sample_modal_table(
-        guide.field_provider,
-        sampling.omega,
-        np.array([sampling.z]),
-        sampling.nodes,
-        degenerate_blocks=sampling.degenerate_blocks,
-        basis=sampling.basis,
-        gram_atol=gram_atol,
-    )
-    tables = modal_transform_tables(
-        table,
-        grid.omega,
-        omega_fine=grid.omega_fine,
-        z=[0.0, float(z_max) * (1.0 + float(margin))],
-        profile_error=sampling.profile_error,
+    table, tables = _snapshot_reference(
+        guide, grid, z_end=float(z_max) * (1.0 + float(margin)), gram_atol=gram_atol
     )
     # One sampling of the reference's own flux Gram at the run's coarse bins, used
     # twice: for the occupied-support certificate every route now carries, and for
@@ -878,6 +869,127 @@ def general_modal_route(
     return route
 
 
+def _snapshot_reference(
+    guide: ModalGuide, grid: TimeGrid, *, z_end: float, gram_atol: float
+) -> tuple[DenseModalTable, ModalTransformTables]:
+    """Sample a fixed guide's dense reference and tabulate it on a run's grids.
+
+    - ``z_end``: the end of the tables' extent along z, m, margin included.
+    - Returns: the sampled table and the tables over ``[0, z_end]``.
+    """
+    sampling = guide.sampling
+    assert sampling is not None
+    table = sample_modal_table(
+        guide.field_provider,
+        sampling.omega,
+        np.array([sampling.z]),
+        sampling.nodes,
+        degenerate_blocks=sampling.degenerate_blocks,
+        basis=sampling.basis,
+        gram_atol=gram_atol,
+    )
+    tables = modal_transform_tables(
+        table,
+        grid.omega,
+        omega_fine=grid.omega_fine,
+        z=[0.0, z_end],
+        profile_error=sampling.profile_error,
+    )
+    return table, tables
+
+
+def _path_reference(
+    guide: ModalGuide, grid: TimeGrid, *, z_end: float, gram_atol: float
+) -> tuple["ModalPathTable", ModalTransformTables]:
+    """Sample a moving guide's path and expand its maps on a run's grids.
+
+    - ``z_end``: where the run ends, m; the tables keep every section up to it.
+    - Returns: the sampled path and the tables.
+    """
+    from solprop.translate.modal_path import (  # noqa: PLC0415
+        path_transform_tables,
+        sample_modal_path,
+    )
+
+    sampling = guide.sampling
+    assert sampling is not None and sampling.path is not None
+    path = sampling.path
+    sampled = sample_modal_path(
+        guide.field_provider,
+        sampling.omega,
+        sampling.nodes,
+        path.z_edges,
+        rtol=path.rtol,
+        degree=path.degree,
+        measured=(path.z_error, path.gram_departure),
+        degenerate_blocks=sampling.degenerate_blocks,
+        basis=sampling.basis,
+        gram_atol=gram_atol,
+    )
+    tables = path_transform_tables(
+        sampled,
+        grid.omega,
+        omega_fine=grid.omega_fine,
+        z_end=z_end,
+        profile_error=max(sampling.profile_error, path.z_error),
+    )
+    return sampled, tables
+
+
+def reference_tables(
+    guide: ModalGuide,
+    grid: TimeGrid,
+    *,
+    z_end: float,
+    gram_atol: float = DEFAULT_GRAM_ATOL,
+) -> ModalTransformTables:
+    """Rebuild the E/H reference tables a general modal run was executed against.
+
+    The tables alone, as :func:`general_modal_route` builds them, without the route's
+    responses and certificates: what a reconstruction of a saved plane reads
+    (:mod:`solprop.processing.modal`). A file records the tables' identity, whose
+    ``z_span`` end is the `z_end` that rebuilds the same extent.
+
+    Parameters
+    ----------
+    guide : solprop.modes.guide.ModalGuide
+        A guide built by :meth:`solprop.modes.guide.ModalGuide.from_provider`.
+    grid : solprop.grid.TimeGrid
+        The run's field grid.
+    z_end : float
+        The end of the tables' extent along z, m: the run's length with the linear
+        operator's margin for a fixed guide, the end of the last section kept for a
+        moving one.
+    gram_atol : float, optional
+        Largest departure from orthonormal the table's construction gate accepts.
+
+    Returns
+    -------
+    solprop.translate.modal_tables.ModalTransformTables
+        The tables, equal in identity to the run's own.
+
+    Raises
+    ------
+    TranslationError
+        If the guide declares no sampling, the grid is not a field grid, or the
+        guide's band does not cover the grid's active band.
+    """
+    sampling = guide.sampling
+    if sampling is None:
+        msg = (
+            "this guide declares no sampling, so its E/H reference cannot be rebuilt: "
+            "build it with ModalGuide.from_provider(provider, omega, nodes=...)"
+        )
+        raise TranslationError(msg)
+    if grid.kind != "field":
+        msg = f"a general modal guide's tables are on a field grid, not an {grid.kind}"
+        raise TranslationError(msg)
+    _check_active_band(sampling.omega_span, grid)
+    if sampling.path is not None:
+        return _path_reference(guide, grid, z_end=z_end, gram_atol=gram_atol)[1]
+    return _snapshot_reference(guide, grid, z_end=z_end, gram_atol=gram_atol)[1]
+
+
 def _moving_route(
     guide: ModalGuide,
     grid: TimeGrid,
@@ -920,8 +1032,6 @@ def _moving_route(
     from solprop.translate.modal_path import (  # noqa: PLC0415
         in_frequency,
         path_connections,
-        path_transform_tables,
-        sample_modal_path,
         section_coefficients,
     )
 
@@ -929,25 +1039,7 @@ def _moving_route(
     assert sampling is not None and sampling.path is not None
     path = sampling.path
     provider = guide.field_provider
-    sampled = sample_modal_path(
-        provider,
-        sampling.omega,
-        sampling.nodes,
-        path.z_edges,
-        rtol=path.rtol,
-        degree=path.degree,
-        measured=(path.z_error, path.gram_departure),
-        degenerate_blocks=sampling.degenerate_blocks,
-        basis=sampling.basis,
-        gram_atol=gram_atol,
-    )
-    tables = path_transform_tables(
-        sampled,
-        grid.omega,
-        omega_fine=grid.omega_fine,
-        z_end=z_max,
-        profile_error=max(sampling.profile_error, path.z_error),
-    )
+    sampled, tables = _path_reference(guide, grid, z_end=z_max, gram_atol=gram_atol)
     kept = int(tables.z_edges.size - 1)
     width = path.degree + 1
     used = sampled.tables[: kept * width]

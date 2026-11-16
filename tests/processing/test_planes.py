@@ -288,7 +288,7 @@ def test_a_general_plane_reads_its_fields_with_its_source(general_run):
     ):
         assert stored is not None
         signal = accessor(
-            output, tables, plane=-1, analytic=True, convention="fft", guide=guide
+            output, tables=tables, analytic=True, convention="fft", guide=guide
         )
         rebuilt = analytic_field(grid, spectrum_to_internal(stored, kind=grid.kind))
         assert np.array_equal(rebuilt, signal)
