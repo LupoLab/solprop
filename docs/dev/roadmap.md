@@ -35,13 +35,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 51 — One rule for the saved planes and the end of a run](seps/sep-0051-save-planes.md):
-  the length stated once, as `length` or `grid.length`, is the limit and the end of every
-  run; every run records its entrance and end, and every route, recipe and front-end
-  sheet takes the same `n_save` (evenly spaced over the launched interval) or
-  `save_planes` (positions), with no bare numbers. Continuing a finished run stays in
-  [#141](https://github.com/LupoLab/solprop/issues/141).
-
 - [SEP 52 — One backend shape and a small native seam](seps/sep-0052-backend-shape.md):
   `numpy_ref` and `native` built from the same workspace, engines, marches and session,
   reading shared run records; `HostDriver` removed; the `Batch` executor, every group path
