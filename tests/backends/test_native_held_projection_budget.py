@@ -99,7 +99,9 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             bundle.taper_scale,
             transform.n_pol,
         )
-        current = reference.workspace._column_sources(nodes, bundle, None).current
+        current = reference.workspace.stage_source._column_sources(
+            nodes, bundle, None
+        ).current
         assert current is not None
         # SEP 27 section 4.6: the existing column allowance on J before either collar
         # multiplies it, then projected with absolute weights.
@@ -126,11 +128,13 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             for collar in collars
         ]
         reference.workspace.nonlinear(state, bundle, np.ones_like(state))
-        assert reference.workspace._last_plasma is not None
-        _, _, coarse_gate, coarse_edge = reference.workspace._last_plasma
+        assert reference.workspace.stage_source._last_plasma is not None
+        _, _, coarse_gate, coarse_edge = reference.workspace.stage_source._last_plasma
         assert coarse_gate is not None and coarse_edge is not None
         assert np.max(abs(coarse_gate)) > 0 and np.max(abs(coarse_edge)) > 0
-        expected = reference.workspace._held_streams(coarse_gate, coarse_edge)
+        expected = reference.workspace.stage_source._held_streams(
+            coarse_gate, coarse_edge
+        )
     finally:
         reference.close()
     # The forward transform: l1 -> linf of each row's allowance, with its own normwise

@@ -114,7 +114,7 @@ from solprop.backends.numpy_ref.coupled_flow import (
     _TAYLOR_SCALE,
     held_flow,
 )
-from solprop.backends.numpy_ref.workspace import _general_maps
+from solprop.backends.numpy_ref.source import _general_maps
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning

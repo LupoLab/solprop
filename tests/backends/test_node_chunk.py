@@ -539,7 +539,7 @@ def test_a_general_guide_takes_the_plan_s_budget(native_backend):
         general_problem,
         strand,
     )
-    from solprop.backends.numpy_ref.workspace import _general_maps  # noqa: PLC0415
+    from solprop.backends.numpy_ref.source import _general_maps  # noqa: PLC0415
 
     problem, run_request, _ = general_problem(strand(ARGON_FILL), "symmetric", "real")
     automatic = plan_node_chunk(problem)

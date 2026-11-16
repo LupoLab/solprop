@@ -193,11 +193,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="578.0" y="852.5" font-size="15" class="bold ink-b">backends/host/</text>
 <text x="578.0" y="868.0" font-size="12" class="dim">session · marches · runge_kutta</text>
 <text x="578.0" y="883.5" font-size="12" class="dim">adams · low_storage</text>
-<rect x="802.6" y="830.5" width="244.4" height="143.5" rx="7" ry="7" class="fill-b" />
+<rect x="802.6" y="830.5" width="251.00000000000003" height="143.5" rx="7" ry="7" class="fill-b" />
 <text x="812.6" y="852.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
-<text x="812.6" y="868.0" font-size="12" class="dim">backend · workspace · coupled_flow</text>
-<text x="812.6" y="883.5" font-size="12" class="dim">engines · dense · multistep</text>
-<text x="812.6" y="899.0" font-size="12" class="dim">statistics · general_modal</text>
+<text x="812.6" y="868.0" font-size="12" class="dim">backend · workspace · source</text>
+<text x="812.6" y="883.5" font-size="12" class="dim">statistics · coupled_flow · engines</text>
+<text x="812.6" y="899.0" font-size="12" class="dim">dense · multistep · general_modal</text>
 <rect x="307.0" y="984.0" width="234.50000000000003" height="66.0" rx="7" ry="7" class="fill-b" />
 <text x="317.0" y="1006.0" font-size="15" class="bold ink-b">backends/numpy_ref/passes/</text>
 <text x="317.0" y="1021.5" font-size="12" class="dim">transforms · responses · plasma</text>

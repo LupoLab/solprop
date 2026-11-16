@@ -595,7 +595,7 @@ def ramped_rate_bound(built: Built) -> float:
     grid = built.grid
     backend = NumpyRefBackend(problem, built.run_request, grid=grid)
     try:
-        matrix = backend.workspace._spatial_absorber.copy()
+        matrix = backend.workspace.stage_source._spatial_absorber.copy()
     finally:
         backend.close()
     rate = problem.responses.temporal_absorber_fine

@@ -122,7 +122,7 @@ def test_mixture_production_assembles_both_current_channels():
             bundle.taper_scale,
             transform.n_pol,
         )
-        sources = backend.workspace._column_sources(nodes, bundle, None)
+        sources = backend.workspace.stage_source._column_sources(nodes, bundle, None)
         assert sources.current is not None
         # The compatibility polarisation entry point still integrates the physical
         # current; production consumes the separate streams instead.

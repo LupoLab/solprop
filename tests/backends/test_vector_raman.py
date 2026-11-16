@@ -6,6 +6,7 @@
 
 import math
 from dataclasses import fields, replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -35,9 +36,10 @@ from vector_raman_cases import (
 from vector_raman_tensor_oracle import BUDGETS, cartesian_direct, convolution_bound
 
 
-def _owner(backend):
-    """Return what holds a backend's Raman kernel: the reference's workspace."""
-    return getattr(backend, "workspace", backend)
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
 
 
 def raman_refreshes(backend):

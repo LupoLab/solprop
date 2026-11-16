@@ -346,9 +346,11 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
         launch = masked_launch(problem)
         load_reference(backend, launch)
         backend.workspace.lab_source(launch, 0.0)
-        coarse = backend.workspace._last_coarse
+        coarse = backend.workspace.stage_source._last_coarse
         return [
-            forward(np.asarray(backend.workspace._last_projected), axis=-1),
+            forward(
+                np.asarray(backend.workspace.stage_source._last_projected), axis=-1
+            ),
             None if coarse is None else forward(np.asarray(coarse), axis=-1),
         ]
     finally:

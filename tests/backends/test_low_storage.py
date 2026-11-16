@@ -1318,9 +1318,9 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         inputs.append((position, lab.copy()))
         return source(lab, position, **keywords)
 
-    def capture(lab, bundle, inverse):
+    def capture(lab, bundle, inverse, **keywords):
         carried.append(lab.copy())
-        return nonlinear(lab, bundle, inverse)
+        return nonlinear(lab, bundle, inverse, **keywords)
 
     monkeypatch.setattr(backend.workspace, "lab_source", lab_source)
     monkeypatch.setattr(backend.workspace, "nonlinear", capture)

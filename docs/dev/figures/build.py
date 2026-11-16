@@ -756,11 +756,12 @@ MODULES = {
             (
                 "backend",
                 "workspace",
+                "source",
+                "statistics",
                 "coupled_flow",
                 "engines",
                 "dense",
                 "multistep",
-                "statistics",
                 "general_modal",
             ),
         ),

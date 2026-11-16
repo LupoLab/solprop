@@ -26,6 +26,7 @@ in ``test_the_taper_is_the_only_difference_from_the_oracles_kernel``.
 
 import dataclasses
 import warnings
+from typing import Any
 
 import numpy as np
 import pytest
@@ -116,9 +117,10 @@ def prepare_raman(backend, rates, densities=()):
 # pointwise work, batched over a chunk of nodes as well as one column at a time.
 
 
-def _owner(backend):
-    """Return what holds a backend's Raman kernel: the reference's workspace."""
-    return getattr(backend, "workspace", backend)
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
 
 
 def convolution_bound(grid):

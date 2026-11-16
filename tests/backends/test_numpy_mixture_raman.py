@@ -10,6 +10,7 @@ is held here.
 """
 
 import dataclasses
+from typing import Any
 
 import numpy as np
 import pytest
@@ -28,9 +29,10 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.stage import scalars
 
 
-def _owner(backend):
-    """Return what holds a backend's Raman kernel: the reference's workspace."""
-    return getattr(backend, "workspace", backend)
+def _owner(backend) -> Any:
+    """Return what holds a backend's Raman kernel: the reference's stage source."""
+    workspace = getattr(backend, "workspace", None)
+    return backend if workspace is None else workspace.stage_source
 
 
 def raman_refreshes(backend):
