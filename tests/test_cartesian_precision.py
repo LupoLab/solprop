@@ -76,7 +76,7 @@ def test_cartesian_square_and_prefactor_meet_the_predeclared_certificate(
     # frame) or of the value itself (the prefactor). Fixed at 16 eps of each.
     wavenumber = float(np.sqrt(np.max(np.abs(high))))
     np.testing.assert_allclose(
-        operator[0, :, 0],
+        operator[:, 0],
         dispersion.operator(space),
         rtol=0,
         atol=16 * epsilon * wavenumber,

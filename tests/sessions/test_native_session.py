@@ -42,6 +42,7 @@ from sessions.executors import (
     trace,
     window,
 )
+from solprop.backends import records
 from solprop.backends.events import (
     ObservationReady,
     Outcome,
@@ -638,9 +639,6 @@ def test_a_full_chunk_buffer_yields_and_changes_nothing(monkeypatch):
     problem, run_request = _case(rtol=1e-12, step_planes=0, period=1, dz_init=1e-2)
     request = run_request
     baseline = drive(_native_session(problem, request), export=CONSUMER)
-    # The plane plan's buffers, which the run records size (SEP 52 phase 2).
-    from solprop.backends import records  # noqa: PLC0415
-
     monkeypatch.setattr(records, "ATTEMPT_CAPACITY", 3)
     monkeypatch.setattr(records, "ROW_CAPACITY", 2)
     run = drive(_native_session(problem, request), export=CONSUMER)

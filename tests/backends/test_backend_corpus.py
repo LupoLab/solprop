@@ -111,15 +111,26 @@ def _stored(case: Case, backend: str) -> Recorded:
     return Recorded(own, records["cases"][case.name]["backends"][backend])
 
 
+CROSS_BUILD = 2.0
+"""The factor on a matched march's budget for a record made by another build.
+
+The corpus is recorded once, on one machine, and compared on every platform CI runs.
+Two builds evaluate the same operations with different vector-maths libraries and
+contraction, which :func:`march_bounds.march_bound` (two runs of one build) does not
+count: the general modal case was measured on x86-64 Linux at 1.01 of the single-build
+budget against a record made on arm64 macOS.
+"""
+
+
 def _budget(case: Case, simulation: Simulation, steps: int | None = None) -> float:
     """Return a case's rounding budget for two matched runs (class R).
 
     :func:`march_bounds.march_bound` at the recorded launch phase (no smaller than a
     tenth, as :func:`march_bounds.simulation_bound` takes it) and conditioning, over
-    the schedule's steps or `steps`.
+    the schedule's steps or `steps`, times :data:`CROSS_BUILD`.
     """
     entry = _corpus()[1]["cases"][case.name]
-    return march_bound(
+    return CROSS_BUILD * march_bound(
         simulation.translate(),
         simulation._run_request(),
         steps,

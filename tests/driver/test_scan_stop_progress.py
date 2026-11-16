@@ -18,6 +18,7 @@ from jaxtyping import TypeCheckError
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
+from solprop.backends import records
 from solprop.backends.registry import available
 from solprop.backends.session import DEFAULT_WORK_LIMIT
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
@@ -262,9 +263,6 @@ def test_local_stop_mid_point_is_not_committed_and_a_rerun_computes_it(tmp_path)
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
 def test_local_stop_reaches_a_one_plane_native_adams_point(tmp_path):
-    pytest.importorskip("solprop_native.session")
-    from solprop.backends import records  # noqa: PLC0415
-
     most = records.CALL_ATTEMPTS
 
     def build(point):
