@@ -313,6 +313,11 @@ BLAS pools' lease coordinator and the environment of child processes, and
 is the record of scalar evaluations a backend supplies to the shared per-step code
 (section 3 lists its imports).
 
+Four modules share the name `mixtures`, one per layer and one role each: the type of a
+gas fill (`physdata.mixtures`), the responses a fill selects (`nonlinear.mixtures`), a
+run's fill resolved from the keywords it was declared with (`driver.mixtures`) and the
+analysis of what a run records of it (`processing.mixtures`).
+
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy
 calls; the cumulative-operator stepper takes the place of `RK45.jl`; scans use the
