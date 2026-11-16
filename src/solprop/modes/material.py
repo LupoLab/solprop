@@ -272,10 +272,10 @@ class MaterialKerr(Displayed):
     channels were solved with: the conversion asks
     :attr:`MaterialRegion.material` for its permittivity and nothing else. The
     two must therefore be the same material, which
-    :class:`solprop.modes.stepindex_vector.StepIndexProvider` checks at construction against
-    :data:`solprop.modes.stepindex_vector.MATERIAL_AGREEMENT_RTOL` -- a core region declared
-    at 2.0 beside channels solved at 1.45 would otherwise convert a declared
-    ``n2`` to a ``chi3`` 90 % too large.
+    :class:`solprop.modes.stepindex_vector.StepIndexProvider` checks at construction
+    against :data:`solprop.modes.stepindex_vector.MATERIAL_AGREEMENT_RTOL` -- a core
+    region declared at 2.0 beside channels solved at 1.45 would otherwise convert a
+    declared ``n2`` to a ``chi3`` 90 % too large.
 
     Attributes
     ----------

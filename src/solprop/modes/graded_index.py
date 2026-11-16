@@ -750,8 +750,9 @@ class GradedIndexProvider(Displayed):
         The frequency is not a discretisation choice here -- the mesh is the declared
         element count over the declared extent -- but it is what the discarded power
         beyond the matching radius depends on, so the rule certifies that tail at this
-        frequency, as :meth:`solprop.modes.stepindex_vector.StepIndexProvider.node_rule` does.
-        One signature for every provider.
+        frequency, as
+        :meth:`solprop.modes.stepindex_vector.StepIndexProvider.node_rule` does. One
+        signature for every provider.
 
         **That certificate costs a solve.** Building the mesh is 0.22 ms on the
         reference parabolic sector (32 elements, two channels, on an Apple-silicon
