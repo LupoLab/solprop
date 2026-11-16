@@ -99,7 +99,7 @@ def averaged(
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=2e-6).build(grid)
     problem, run_request = assemble(
         grid,
-        MarcatiliMode(75e-6, cladding=1.45, loss=False),
+        MarcatiliMode(75e-6, cladding=1.45, loss_scale=0.0),
         [
             DispersiveKerrResponse(
                 OptmatKerr("Ar").dispersive_model(), evaluator, thg=thg

@@ -25,7 +25,8 @@ a transverse field profile. Every class in the table lives in {mod}`solprop.mode
 
 The [capillary model](capillary-model.md) establishes conventions that the
 Vincetti, tabulated-hollow, rectangular and slab models share. These models
-share its gas fill, its loss policy (`loss=True`, `False`, a scale or a callable), its
+share its gas fill, its loss keywords (`loss_scale` on the model's own loss, or an
+absolute `alpha`, a number or a callable), its
 way of forming $n_{\rm eff}-1$ and its analytic derivatives. Each model chapter explains its additional assumptions and differences. Every way solprop represents the transverse field, these
 modes among them, is set side by side with its figure and its validity in
 [spatial decompositions](../setup/spatial-decompositions.md). Where solprop's choices for these

@@ -73,7 +73,7 @@ from solprop.exceptions import GrazingIncidenceWarning, ModeError, TranslationEr
 from solprop.modes.fill import (
     EVANESCENT_INDEX_FLOOR,
     GasFillMixin,
-    LossSpec,
+    LossFunction,
     _sqrt1p_minus_one,
 )
 from solprop.modes.protocol import (
@@ -97,7 +97,6 @@ from solprop.profiles import (
 __all__ = [
     "EVANESCENT_INDEX_FLOOR",
     "CoherentWall",
-    "LossSpec",
     "MarcatiliMode",
     "MarcatiliModel",
     "MarcatiliTerms",
@@ -265,11 +264,10 @@ def _cladding_term_and_derivative(
 class MarcatiliMode(GasFillMixin):
     """A Marcatili mode of a gas-filled hollow capillary.
 
-    Departs from the ``omega >= 0`` of :class:`~solprop.modes.protocol.Mode` in one
-    place: a hollow capillary has no mode at zero frequency -- the waveguide term
-    ``(u c / (omega a))^2`` diverges -- so ``omega`` must be strictly positive here and
-    a zero raises. The linear operator evaluates modes on the active band, which
-    excludes the DC bin, so nothing in the package asks.
+    Like every :class:`~solprop.modes.protocol.Mode`, it takes strictly positive
+    frequencies: a hollow capillary has no mode at zero frequency -- the waveguide
+    term ``(u c / (omega a))^2`` diverges -- so a zero raises. The linear operator
+    evaluates modes on the active band, which excludes the DC bin.
 
     Both ``radius`` and ``pressure`` accept a number or a
     :class:`~solprop.profiles.ZProfile`, which is what makes a taper and a pressure
@@ -303,17 +301,22 @@ class MarcatiliMode(GasFillMixin):
         :attr:`orthogonal_polarisation` returns.
     model : str
         ``"full"`` for the square root, ``"reduced"`` for its leading-order expansion.
-    loss : bool or float or callable
-        ``True`` for the model's own loss, ``False`` for none, a float to scale it, or
-        a callable ``alpha(omega)`` giving an **absolute** power loss coefficient in
-        1/m that replaces it. The float and the callable therefore mean different
-        things, deliberately: the float is a fitting knob on the model, the callable is
-        measured fibre loss. The model's own loss is never negative: where the square
-        root lands on the branch that reads as gain -- a cladding index below unity,
-        outside Marcatili's regime -- it is clamped at zero and the mode logs the fact
-        once. A callable is the caller's and is not clamped. A callable that
-        carries a ``derivative`` attribute gets an analytic ``d(Im n_eff)/d(omega)``;
-        otherwise that one term is differenced, and the constructor says so.
+    alpha : float or callable or None
+        An **absolute** power attenuation coefficient in 1/m that replaces the
+        model's loss: a finite non-negative number, or a callable ``alpha(omega)``
+        taking and returning arrays of shape ``(n_omega,)`` -- measured fibre loss,
+        say. Only ``Im n_eff = c alpha / (2 omega)`` is replaced; the real part, and
+        with it ``beta`` and ``beta_1``, stays the model's. A callable that carries a
+        ``derivative`` attribute gets an analytic ``d(Im n_eff)/d(omega)``; otherwise
+        that one term is differenced, and the constructor says so. ``alpha`` is the
+        caller's and is not clamped. ``None`` (the default) keeps the model's loss.
+    loss_scale : float
+        Multiplies the model's own loss: ``1.0`` (the default) is the model, ``0.0``
+        lossless, anything else a fitting knob on the model. Finite and
+        non-negative; refused beside an ``alpha``, which replaces the loss it would
+        scale. The model's own loss is never negative: where the square root lands
+        on the branch that reads as gain -- a cladding index below unity, outside
+        Marcatili's regime -- it is clamped at zero and the mode logs the fact once.
     cladding : GlassIndex or complex or None
         The cladding index. ``None`` uses
         :func:`~solprop.physdata.glasses.fused_silica`; a plain complex number is a
@@ -359,7 +362,8 @@ class MarcatiliMode(GasFillMixin):
     m: int = 1
     phi: float = 0.0
     model: MarcatiliModel = "full"
-    loss: LossSpec = True
+    alpha: float | LossFunction | None = None
+    loss_scale: float = 1.0
     cladding: GlassIndex | complex | None = None
     temperature: float | ZProfile | None = None
     susceptibility: GasSusceptibility | None = None
@@ -401,8 +405,8 @@ class MarcatiliMode(GasFillMixin):
         ------
         ModeError
             If the family and the azimuthal index disagree, the radial index is not
-            positive, the model or the loss specification is unknown, the radius or
-            or temperature is not positive.
+            positive, the model is unknown, ``alpha`` or ``loss_scale`` is invalid or
+            both are given, or the radius or temperature is not positive.
         """
         self._check_arguments()
         # The transverse families sit on a zero of J_1; the hybrids on one of J_(n-1).
@@ -429,7 +433,7 @@ class MarcatiliMode(GasFillMixin):
         Returns
         -------
         str
-            For example ``MarcatiliMode(HE11, a=125.0 um, He, model=full, loss=True)``.
+            For example ``MarcatiliMode(HE11, a=125.0 um, He, model=full, loss=model)``.
         """
         if self.mixture is not None:
             # A mode the run interfaces build carries its fill as a mixture and no
@@ -440,7 +444,7 @@ class MarcatiliMode(GasFillMixin):
         radius = float(self.core_radius(np.array([0.0]))[0])
         return (
             f"MarcatiliMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "
-            f"{fill}, model={self.model}, loss={self.loss})"
+            f"{fill}, model={self.model}, loss={self._loss_text()})"
         )
 
     def _area_rows(self) -> list[tuple[str, object]]:
@@ -896,7 +900,7 @@ class MarcatiliMode(GasFillMixin):
         squared = (terms.u_nm * scale) ** 2
         refractivity = 0.5 * chi - 0.5 * squared
         derivative = 0.5 * dchi + squared / omega
-        if self.loss is not False:
+        if not self._lossless:
             # Dropped rather than real-parted when the mode is declared lossless. It
             # matters because v_n is complex for an absorbing cladding, so `i v_n`
             # carries a *real* shift as well as the loss: taking the real
@@ -1241,7 +1245,7 @@ class MarcatiliMode(GasFillMixin):
         else:
             # n - 1 = chi/2 - (u s)^2/2 + i u^2 s^3 v, with d(s^k)/da = -k s^k/a.
             derivative = 0.5 * dchi + squared / radius * slope
-            if self.loss is not False:
+            if not self._lossless:
                 derivative = (
                     derivative
                     - 3j * squared * terms.cladding_term * scale / radius * slope
@@ -1253,7 +1257,7 @@ class MarcatiliMode(GasFillMixin):
         refractivity: Complex[np.ndarray, " n_omega"],
         derivative: Complex[np.ndarray, " n_omega"],
     ) -> Complex[np.ndarray, " n_omega"]:
-        """Apply the loss specification, the no-gain clamp and the floor to a slope.
+        """Apply the loss declaration, the no-gain clamp and the floor to a slope.
 
         The ``z`` counterpart of ``_apply_loss`` and ``_floored``, zeroing the slope
         wherever they zero the frequency derivative.
@@ -1261,12 +1265,11 @@ class MarcatiliMode(GasFillMixin):
         - ``derivative``: its ``z`` derivative in 1/m.
         - Returns: the ``z`` derivative of what :meth:`neff` returns, in 1/m.
         """
-        specification = self.loss
-        if callable(specification):
-            # An absolute alpha(omega) replaces the imaginary part and has no z in it.
+        if self.alpha is not None:
+            # An absolute alpha replaces the imaginary part and has no z in it.
             slope = np.real(derivative) + 0j
         else:
-            factor = float(specification)
+            factor = float(self.loss_scale)
             refractivity = np.real(refractivity) + 1j * factor * np.imag(refractivity)
             slope = np.real(derivative) + 1j * factor * np.imag(derivative)
             slope = np.where(np.imag(refractivity) < 0.0, np.real(slope), slope)
@@ -1560,15 +1563,16 @@ class CoherentWall(Displayed):
     blocks (:func:`solprop.translate.coupled.frozen_residual_flow`).
 
     **What it replaces, and what it therefore refuses.** The block is the run's loss
-    model, so a capillary carrying one must declare ``loss=True``: ``loss=False``, a
-    scale or a measured curve is refused by name rather than discarded. It is derived
-    for the full capillary model, so ``model="reduced"`` is refused too. It needs the
-    contiguous ``HE_11`` to ``HE_1N`` set, whose every channel declares the same radius
-    and density profiles and whose profiles carry analytic derivatives, and a scalar
-    run. It carries the default ``"input"`` noise, drawn in the channel basis at the
-    entrance and propagated like any field, and refuses the ``"modified"`` model, whose
-    transport through a nonunitary coupled flow is not measured. ``numpy_ref`` and
-    ``native`` execute the ``linear.coupled_flow`` leaf it becomes.
+    model, so a capillary carrying one must keep the model's loss: ``loss_scale=0``,
+    another scale or a measured ``alpha`` is refused by name rather than discarded. It
+    is derived for the full capillary model, so ``model="reduced"`` is refused too. It
+    needs the contiguous ``HE_11`` to ``HE_1N`` set, whose every channel declares the
+    same radius and density profiles and whose profiles carry analytic derivatives,
+    and a scalar run. It carries the default ``"input"`` noise, drawn in the channel
+    basis at the entrance and propagated like any field, and refuses the
+    ``"modified"`` model, whose transport through a nonunitary coupled flow is not
+    measured. ``numpy_ref`` and ``native`` execute the ``linear.coupled_flow`` leaf it
+    becomes.
 
     **The vector boundary response** is ``impedance="te_tm"``. The scalar
     block above condenses one *impedance-averaged* Robin condition, which is what a
@@ -2168,8 +2172,9 @@ def _wall_block_modes(
     boundary condition *is* where every channel's attenuation comes from, the
     assembly subtracts the whole ``HE_11`` wavenumber and re-adds the block's own
     diagonal, and :func:`wall_operator` builds its impedance from the cladding term
-    whatever :attr:`MarcatiliMode.loss` says -- so ``loss=False``, a scale or a
-    measured curve beside a wall would vanish without a word.
+    whatever :attr:`MarcatiliMode.loss_scale` and :attr:`MarcatiliMode.alpha` say --
+    so ``loss_scale=0``, another scale or a measured ``alpha`` beside a wall would
+    vanish without a word.
     And the condensation inverts the **full** model's transverse eigenvalue, so
     ``model="reduced"``, whose leading-order expansion of ``n_eff`` is a different
     carrier, would be overridden by the block it sits beside.
@@ -2279,14 +2284,14 @@ def _check_wall_channels(
                 "than propagated"
             )
             raise ModeError(msg)
-        if wall and mode.loss is not True:
+        if wall and (mode.alpha is not None or mode.loss_scale != 1.0):
             msg = (
                 "a coherent wall block is the loss model, and channel "
-                f"{index} declares loss={mode.loss!r}: the condensed Robin boundary "
-                "condition replaces the Marcatili attenuation of every channel, so a "
-                "loss setting beside it would be discarded in silence. Declare "
-                "loss=True with a wall, or leave wall=None and keep the uncoupled "
-                "loss you asked for"
+                f"{index} declares loss={mode._loss_text()}: the condensed Robin "
+                "boundary condition replaces the Marcatili attenuation of every "
+                "channel, so a loss setting beside it would be discarded in silence. "
+                "Leave alpha and loss_scale at their defaults with a wall, or leave "
+                "wall=None and keep the uncoupled loss you asked for"
             )
             raise ModeError(msg)
         for name, path in (
@@ -3071,7 +3076,7 @@ def taper_connection(
     >>> from solprop.modes.capillary import MarcatiliMode, taper_connection
     >>> from solprop.profiles import Linear
     >>> taper = Linear(125e-6, 62.5e-6, 1e-2)
-    >>> modes = [MarcatiliMode(taper, "He", 1.0, m=m, loss=False) for m in (1, 2)]
+    >>> modes = [MarcatiliMode(taper, "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2)]
     >>> link = taper_connection(modes, 5e-3)
     >>> bool(np.all(link == -link.T)), float(link[0, 0])
     (True, 0.0)

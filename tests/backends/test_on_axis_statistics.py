@@ -66,7 +66,7 @@ def table():
 
 
 def argon(m=1, phi=0.0):
-    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
+    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss_scale=0.0, phi=phi)
 
 
 def problem_on(

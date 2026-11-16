@@ -311,7 +311,7 @@ def test_lunas_own_test_case_is_reproduced_on_the_same_helium_fit():
         "He",
         0.4,
         model="reduced",
-        loss=True,
+        loss_scale=1.0,
         susceptibility=HELIUM_BORZSONYI,
         # Deliberately solprop's silica against Luna's table; it does not enter the
         # real part of beta in the reduced model.
@@ -365,7 +365,7 @@ def test_lunas_other_numbers_within_the_difference_of_the_gas_models():
         n=1,
         m=1,
         model="full",
-        loss=True,
+        loss_scale=1.0,
         cladding=fused_silica(model="fit/SiO2"),
     )
     assert params.zdw == pytest.approx(WITNESS["capillary"][2], rel=5e-3)
@@ -374,7 +374,7 @@ def test_lunas_other_numbers_within_the_difference_of_the_gas_models():
         "He",
         1.0,
         model="full",
-        loss=True,
+        loss_scale=1.0,
         susceptibility=HELIUM_ERMOLOV,
         cladding=former_silica(),
         temperature=WITNESS_TEMPERATURE,
@@ -824,7 +824,7 @@ def pole_mode(pole, strength=1e-12):
     return SpecifiedMode(
         dispersion=lambda w: strength * (w - pole) * np.log(np.abs(w - pole)),
         dispersion_derivative=lambda w: strength * (np.log(np.abs(w - pole)) + 1.0),
-        loss=0.0,
+        alpha=0.0,
         effective_area=1.0,
     )
 
@@ -854,7 +854,7 @@ def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
     mode = SpecifiedMode(
         dispersion=lambda w: 1e-30 * (w - centre) ** 3 / 3.0,
         dispersion_derivative=delay,
-        loss=0.0,
+        alpha=0.0,
         effective_area=1.0,
     )
     assert np.all(np.isfinite(base.beta2(mode, grid)))
@@ -948,7 +948,7 @@ def nan_mode():
         dispersion_derivative=lambda w: np.where(
             w < 3.0e15, 2e-26 * (w - OMEGA0), np.nan
         ),
-        loss=0.0,
+        alpha=0.0,
         effective_area=1.0,
     )
 

@@ -50,7 +50,9 @@ def entrance_problem(
     table = build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
 
     def argon(m=1, phi=0.0):
-        return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
+        return MarcatiliMode(
+            125e-6, "Ar", 1.0, m=m, cladding=1.45, loss_scale=0.0, phi=phi
+        )
 
     rotated = kind.endswith("rotated-x")
     modes = (

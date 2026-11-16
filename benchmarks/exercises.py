@@ -46,7 +46,7 @@ __all__ = [
 def vector_raman() -> Simulation:
     """Keep the fixture's circular pump and oblique delayed probe, in SI units."""
     grid = EnvelopeGrid.from_limits(2e-4, 800e-9, (300e-9, 2e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-7).build(grid)
     delayed = pulse * np.exp(-1j * grid.omega * 20e-15)
     initial = np.concatenate(
@@ -82,7 +82,7 @@ def envelope_plasma() -> Simulation:
     grid = EnvelopeGrid.from_limits(8e-6, 800e-9, (500e-9, 1.2e-6), 320e-15)
     return Simulation(
         grid,
-        MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False),
+        MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0),
         [EnvelopePlasmaResponse("Ar", OptmatRate("Ar", 800e-9))],
         GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-3),
         settings=SimulationSettings(

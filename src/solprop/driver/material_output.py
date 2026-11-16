@@ -139,7 +139,8 @@ def processing_record(
     dict
         Density in m^-3 at requested planes, absorption cross sections in m^2 in
         the active band, and physical field synthesis with temporal padding removed.
-        A replaced total loss is recorded as unavailable species attribution.
+        A total loss replaced by a mode's ``alpha`` is recorded as unavailable species
+        attribution.
     """
     positions = np.concatenate(([0.0], planes))
     transform = problem.transform
@@ -160,7 +161,7 @@ def processing_record(
         "absorption_definition": "rho_s omega Im(gamma_s)/c, first order in chi",
         "absorption_unavailable": None
         if cross_sections is not None
-        else "callable total loss has no species attribution",
+        else "an alpha replacing the total loss has no species attribution",
         "node_synthesis": transform.synthesis / grid.pad_scale,
         "power_weight_terms": terms,
         "power_weight_basis": basis,
@@ -209,7 +210,9 @@ def _cross_sections(
                 for component in mixture.components
             ]
         )
-    if any(not isinstance(mode, GasFillMixin) or callable(mode.loss) for mode in modes):
+    if any(
+        not isinstance(mode, GasFillMixin) or mode.alpha is not None for mode in modes
+    ):
         return None
     # An absent population must not demand optical data outside its table support.
     unit_density = mixture.with_densities(

@@ -61,7 +61,7 @@ as {py:func}`~solprop.driver.interface.prop_capillary` would for the same argume
 ...                      wavelength=800e-9, cladding=1.45)
 >>> print(p)
 MODE:
-  MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
+  MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
 WAVEGUIDE:
   Aeff = 2.34e-08 m^2, Lloss = 7.05e+00 m (1/e power)
 FILL:

@@ -105,7 +105,7 @@ def wall_case(kind, backend):
         return capillary(wall=CoherentWall(), **arguments)
     if kind == "lossless":
         # The taper coupling without a wall.
-        return varying(loss=False, cladding=1.45, **arguments)
+        return varying(loss_scale=0.0, cladding=1.45, **arguments)
     return varying(wall=CoherentWall(), **arguments)
 
 

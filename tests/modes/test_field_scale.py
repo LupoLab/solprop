@@ -312,7 +312,7 @@ def peak_gap(got, want):
 
 @pytest.fixture(scope="module")
 def argon():
-    return MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    return MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
 
 
 @pytest.mark.parametrize(

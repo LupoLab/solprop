@@ -254,6 +254,7 @@ takes no mixture.
 
 _SLAB_UNITS: Final[Mapping[str, UnitSpec]] = {
     "half_gap": "m",
+    "alpha": "m^-1",
     "pressure": "bar",
     "temperature": "K",
 }
@@ -423,19 +424,19 @@ REGISTRY: Final[Mapping[str, Factory]] = {
         Factory(
             "MarcatiliMode",
             MarcatiliMode,
-            {"radius": "m", "phi": "rad"},
+            {"radius": "m", "phi": "rad", "alpha": "m^-1"},
             omitted=_MODE_FILL,
         ),
         Factory(
             "RectMode",
             RectMode,
-            {"half_width_x": "m", "half_width_y": "m"},
+            {"half_width_x": "m", "half_width_y": "m", "alpha": "m^-1"},
             omitted=_MODE_FILL,
         ),
         Factory(
             "StepIndexMode",
             StepIndexMode,
-            {"radius": "m", "profile_wavelength": "m", "loss": "m^-1"},
+            {"radius": "m", "profile_wavelength": "m", "alpha": "m^-1"},
         ),
         Factory("glass", glass),
         Factory("IndexMaterial", IndexMaterial),

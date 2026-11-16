@@ -103,7 +103,9 @@ def linear(simulation: Simulation) -> Simulation:
 
 
 def test_collection_quadrature_and_refusal():
-    modes = ModeCollection.vincetti(15e-6, "Ar", 0.0, 3, lattice=LATTICE, cladding=1.45)
+    modes = ModeCollection.vincetti(
+        15e-6, "Ar", 0.0, count=3, lattice=LATTICE, cladding=1.45
+    )
     assert [cast(VincettiMode, mode).m for mode in modes] == [1, 2, 3]
     assert all(isinstance(mode, VincettiMode) for mode in modes)
     rule = transverse_quadrature(modes, n_r=32)
@@ -217,7 +219,7 @@ def test_material_output_callable_guard_accepts_vincetti():
         mixture=mixture,
         lattice=LATTICE,
         cladding=1.45,
-        loss=np.ones_like,
+        alpha=np.ones_like,
     )
     # material_output.py's first isinstance site must preserve unavailability
     # when a callable replaces total loss, rather than attributing it to a species.
@@ -227,7 +229,7 @@ def test_material_output_callable_guard_accepts_vincetti():
 def test_material_output_species_rows_keep_vincetti():
     mixture = absorbing_mixture()
     mode = VincettiMode(
-        15e-6, mixture=mixture, lattice=LATTICE, cladding=1.45, loss=0.5
+        15e-6, mixture=mixture, lattice=LATTICE, cladding=1.45, loss_scale=0.5
     )
     omega = np.array([2e15, 3e15])
     # Both the guard and the row-comprehension isinstance sites must include the

@@ -70,7 +70,7 @@ def test_luna_regression():
     omega = np.array([2 * math.pi * C / 1030e-9])
     # Luna's evacuated HE11 with its loss, stated (``docs/dev/testing.md``).
     luna = replace(
-        make_mode(GEOMETRIES[2], LunaFormMode, kind="HE", n=1, m=1, loss=True),
+        make_mode(GEOMETRIES[2], LunaFormMode, kind="HE", n=1, m=1, loss_scale=1.0),
         cladding=1.44,
     )
     result = luna.neff(omega)[0]
@@ -114,11 +114,11 @@ def test_loss_policy_and_wide_band(geometry):
     assert np.all(np.isfinite(values))
     assert np.all(np.imag(values) >= 0)
     assert not mode._gain_warned
-    np.testing.assert_array_equal(np.imag(replace(mode, loss=False).neff(omega)), 0)
+    np.testing.assert_array_equal(np.imag(replace(mode, loss_scale=0.0).neff(omega)), 0)
     # Half the loss is the lossy evaluation's imaginary part halved: a power-of-two
     # scale on another code path, held to a few roundings of the loss term.
     np.testing.assert_allclose(
-        np.imag(replace(mode, loss=0.5).neff(omega)),
+        np.imag(replace(mode, loss_scale=0.5).neff(omega)),
         np.imag(values) / 2,
         rtol=16 * np.finfo(float).eps,
         atol=0,
@@ -303,7 +303,7 @@ def test_luna_witness(case):
         kind="HE",
         n=1,
         m=1,
-        loss=True,
+        loss_scale=1.0,
     )
     # The witness deliberately extrapolates the 400--1000 nm argon fit. Assert the
     # range warning; these points compare implementations, not material accuracy.
@@ -521,7 +521,7 @@ def test_stale_silica_is_not_reference(row):
         kind="HE",
         n=1,
         m=1,
-        loss=True,
+        loss_scale=1.0,
     )
     omega = np.array([2 * math.pi * C / wavelength])
     if wavelength < 400e-9:
@@ -553,7 +553,7 @@ def test_loss_callable(analytic):
             return 2 * omega / 2e15**2
 
     curve = Curve()
-    mode = make_mode(loss=curve if analytic else curve.__call__)
+    mode = make_mode(alpha=curve if analytic else curve.__call__)
     omega = np.array([2e15, 3e15])
     # Callable loss is absolute power loss; c/(2w) fixes the extinction convention.
     np.testing.assert_allclose(
@@ -641,8 +641,10 @@ def test_invalid_samples_and_geometry():
     )
     assert touching.lattice.gap(float(touching.core_radius(np.array([0.0]))[0])) >= 0
     assert repr(touching).startswith("VincettiMode(HE11, a=16.1313 um, t=1000 nm")
-    assert repr(touching).endswith("N=8, evacuated, loss=True)")
-    assert repr(make_mode(gas="Ar", pressure=1.0)).endswith("N=6, Ar 1 bar, loss=True)")
+    assert repr(touching).endswith("N=8, evacuated, loss=model)")
+    assert repr(make_mode(gas="Ar", pressure=1.0)).endswith(
+        "N=6, Ar 1 bar, loss=model)"
+    )
     assert "Ar 2 bar" in repr(make_mode(gas="Ar", pressure=Linear(2.0, 3.0, 1.0)))
 
 

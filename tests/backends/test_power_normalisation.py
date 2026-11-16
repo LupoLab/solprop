@@ -220,7 +220,7 @@ def test_gnlse_route_is_unchanged(backend_class):
 @pytest.mark.parametrize("grid_class", [EnvelopeGrid, FieldGrid])
 def test_backend_temporal_statistics_use_the_hermitian_flux(backend_class, grid_class):
     grid = grid_class.from_limits(0.01, 800e-9, (600e-9, 1e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, "Ar", 20.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 20.0, cladding=1.45, loss_scale=0.0)
     field = GaussianPulse(wavelength=800e-9, fwhm=12e-15, energy=1e-9).build(grid)
     spec = StatsSpec(names=("peak_power", "peak_power_total", "peak_intensity"))
     problem, run_request = assemble(
@@ -278,7 +278,7 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
         "Ar",
         PressureGradient.two_point(grid.length, 20.0, 1.0),
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
     )
     field = np.zeros((1, 1, grid.n_omega), complex)
     frequency = np.flatnonzero(grid.active_mask)[3]
@@ -325,7 +325,7 @@ def test_true_energy_is_conserved_along_a_lossless_gradient(backend_class, grid_
 @pytest.mark.parametrize("grid_class", [EnvelopeGrid, FieldGrid])
 def test_energy_statistics_equal_the_weighted_sum(backend_class, grid_class):
     grid = grid_class.from_limits(0.01, 800e-9, (600e-9, 1e-6), 40e-15)
-    mode = MarcatiliMode(125e-6, "Ar", 20.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 20.0, cladding=1.45, loss_scale=0.0)
     rng = np.random.default_rng(42)
     field = rng.normal(size=(1, 1, grid.n_omega)).astype(complex)
     field += 1j * rng.normal(size=field.shape)

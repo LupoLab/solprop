@@ -578,8 +578,9 @@ _RULES: Final = (
     ),
     Rule(
         "wall-is-the-loss",
-        ("wall", "loss"),
-        "A coherent wall block is the loss model, so loss stays True beside it.",
+        ("wall", "alpha", "loss_scale"),
+        "A coherent wall block is the loss model, so alpha and loss_scale keep "
+        "their defaults beside it.",
         _CAPILLARY,
     ),
     Rule(

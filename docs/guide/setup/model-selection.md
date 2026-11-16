@@ -63,9 +63,10 @@ deliberate:
 - **`raman`** is off by default on the GNLSE because it has no medium to read a response
   from: `None` there would switch fused silica's Raman response on for every fibre. The
   gas routes read each species' curated response.
-- **`loss`** on the capillary is a switch or a model of the wall loss, and
-  `loss_db_per_m` on the GNLSE a number from a data sheet; they mean different things,
-  so they keep different names.
+- **`loss_scale`** on the capillary scales the model's wall loss and **`alpha`**
+  replaces it by an absolute attenuation in 1/m, while `loss_db_per_m` on the GNLSE is
+  a number from a data sheet in dB/m; they mean different things, so they keep
+  different names.
 - **`noise`** is not drawn on `prop_planar`: a planar grid declares no photon measure, and
   adding one is physics, not a keyword.
 

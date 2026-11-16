@@ -89,7 +89,7 @@ def test_the_coupling_applies_to_a_multimode_capillary_taper_alone():
     own diagonal (``MarcatiliMode.radius_is_constant``).
     """
     moving = taper()
-    block = [MarcatiliMode(moving, "He", 1.0, m=m, loss=False) for m in (1, 2, 3)]
+    block = [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2, 3)]
     assert taper_coupling_block(block) == tuple(block)
     assert taper_coupling_block(block[:1]) is None
     assert taper_coupling_block([block[0], block[2]]) is None
@@ -118,9 +118,9 @@ def test_the_connection_is_the_wall_s_and_admits_any_loss_and_model():
     for z in (0.0, 1e-4, 1.3e-4):
         assert np.array_equal(taper_connection(walled, z), wall_connection(walled, z))
     for modes in (
-        [MarcatiliMode(moving, "He", 1.0, m=m, loss=False) for m in (1, 2)],
+        [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2)],
         [MarcatiliMode(moving, "He", 1.0, m=m, model="reduced") for m in (1, 2)],
-        [MarcatiliMode(moving, "He", 1.0, m=m, loss=0.5) for m in (1, 2)],
+        [MarcatiliMode(moving, "He", 1.0, m=m, loss_scale=0.5) for m in (1, 2)],
     ):
         link = taper_connection(modes, 1e-4)
         assert link[0, 1] == -link[1, 0] != 0.0
@@ -276,7 +276,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
     Beside a provider the opt-out is refused: a moving general guide carries its own
     connection.
     """
-    modes = [MarcatiliMode(taper(), "He", 1.0, m=m, loss=False) for m in (1, 2)]
+    modes = [MarcatiliMode(taper(), "He", 1.0, m=m, loss_scale=0.0) for m in (1, 2)]
     arguments = {
         "wavelength": 800e-9,
         "grid": GRID,
@@ -358,7 +358,7 @@ def slow_taper(*, taper_coupling=True, steps=STEPS):
         modes=3,
         n_save=2,
         backend="numpy_ref",
-        loss=False,
+        loss_scale=0.0,
         cladding=1.45,
         plasma=False,
         raman=False,

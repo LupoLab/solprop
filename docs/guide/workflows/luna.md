@@ -23,6 +23,7 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 |---|---|
 | `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `wavelength`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, the default `noise="input"`, with a `seed` |
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
+| `loss=true`, `loss=false`, `loss=0.5` of a capillary mode | the default, `loss_scale=0.0`, `loss_scale=0.5`; an absolute attenuation in 1/m is `alpha=` (a number or a callable) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
 | `trange`, `λrange`, `dBmin` of a plot | `time_range`, `spec_range`, `db_min`; `spec_range` is in the units of the plot's axis, and `wavelength_to_axis` converts a wavelength range. `trange` stays the time window's length on `prop_*`, as it is in Luna |

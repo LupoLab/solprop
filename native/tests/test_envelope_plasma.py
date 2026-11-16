@@ -263,7 +263,7 @@ def envelope_case(
             ionisation_field_range=(1e7, 1e11),
         )
     else:
-        mode = MarcatiliMode(30e-6, mixture=fill, cladding=1.45, loss=False)
+        mode = MarcatiliMode(30e-6, mixture=fill, cladding=1.45, loss_scale=0.0)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]
         modes = (
             ModeCollection.with_polarisations([mode])

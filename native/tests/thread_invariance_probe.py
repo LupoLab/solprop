@@ -59,7 +59,7 @@ with warnings.catch_warnings():
         fwhm=15e-15,
         energy=5e-6,
         modes=2,
-        loss=False,
+        loss_scale=0.0,
         n_r=8,
         n_save=2,
         rtol=1e-6,

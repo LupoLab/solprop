@@ -66,7 +66,7 @@ def test_a_loss_in_db_per_m_attenuates_the_power_by_that_many_decibels():
 
 def test_loss_appears_in_the_effective_index_as_an_attenuation(mode):
     lossy = SpecifiedMode.from_taylor(
-        BETAS, OMEGA_REF, loss=attenuation_from_db(2.5), aeff=8e-11
+        BETAS, OMEGA_REF, alpha=attenuation_from_db(2.5), aeff=8e-11
     )
     omega = np.array([OMEGA_REF])
     # alpha = 2 (omega/c) Im n_eff (conventions.md section 2), inverted here.
@@ -79,9 +79,9 @@ def test_a_callable_loss_is_evaluated_at_each_frequency():
     def loss(omega):
         return 1e-3 * omega / OMEGA_REF
 
-    lossy = SpecifiedMode.from_taylor(BETAS, OMEGA_REF, loss=loss)
+    lossy = SpecifiedMode.from_taylor(BETAS, OMEGA_REF, alpha=loss)
     omega = np.array([1.0e15, 2.0e15])
-    assert np.allclose(lossy.alpha(omega), loss(omega), rtol=1e-15, atol=0.0)
+    assert np.allclose(lossy.attenuation(omega), loss(omega), rtol=1e-15, atol=0.0)
 
 
 # ------------------------------------------------------------------ the dispersion
@@ -522,7 +522,7 @@ def test_the_mapping_records_what_it_was_given():
     assert problem.shock is False
     assert problem.mode.aeff() == 8e-11
     assert isinstance(problem.mode, SpecifiedMode)
-    assert problem.mode.alpha(np.array([OMEGA_REF]))[0] == pytest.approx(
+    assert problem.mode.attenuation(np.array([OMEGA_REF]))[0] == pytest.approx(
         attenuation_from_db(2.5), rel=1e-15
     )
     # An envelope GNLSE grid carries no third harmonic.
@@ -565,7 +565,7 @@ def test_from_mode_preserves_linear_values_and_analytic_derivative():
     np.testing.assert_array_equal(
         mode.dispersion_derivative(omega), beta1(source, omega)
     )
-    np.testing.assert_array_equal(mode.alpha(omega), alpha(source, omega))
+    np.testing.assert_array_equal(mode.attenuation(omega), alpha(source, omega))
     assert SpecifiedMode.from_mode(source, aeff=1e-10).aeff() == 1e-10
     with pytest.raises(ModeError, match="effective_area must be positive"):
         SpecifiedMode.from_mode(source, aeff=0.0)

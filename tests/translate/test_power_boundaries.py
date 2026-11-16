@@ -201,7 +201,7 @@ def test_retranslating_the_same_modal_input_is_exactly_identical():
             n_r=8,
             n_save=2,
             thg=False,
-            loss=False,
+            loss_scale=0.0,
             cladding=1.45,
             noise=None,
         )
@@ -276,7 +276,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
 def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_modes):
     if name not in available():
         pytest.skip(f"the {name} backend is not installed")
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
     problem, run_request = assemble(
         grid,
         mode,

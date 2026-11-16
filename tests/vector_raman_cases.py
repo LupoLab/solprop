@@ -90,7 +90,7 @@ def vector_translation(family="envelope", material="H2", route="axis", steps=8):
     """
     grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
     grid = grid_class.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-7).build(grid)
     # A frequency-domain delay uses the pulse's internal FFT sign. Both helicities
     # and an oblique delayed probe make the launch time-dependent in polarisation.
@@ -177,8 +177,8 @@ def direction_translation(kind: ModeKind, n: int):
     """
     original, original_request, grid, _ = vector_translation(steps=2)
     modes = [
-        MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss=False),
-        MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss=False),
+        MarcatiliMode(125e-6, kind=kind, n=n, phi=0.37, cladding=1.45, loss_scale=0.0),
+        MarcatiliMode(125e-6, phi=0.19, cladding=1.45, loss_scale=0.0),
     ]
     initial = original.initial.field0.transpose(1, 0, 2).copy()
     problem, run_request = assemble(

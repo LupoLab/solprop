@@ -63,7 +63,7 @@ from solprop._ownership import frozen_copy
 from solprop.constants import EPS0, C
 from solprop.exceptions import GridError, ModeError
 from solprop.grid import _check_fraction, _periodic_axis
-from solprop.modes.fill import LossSpec
+from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import (
     ChannelLabel,
     CrossSection,
@@ -127,9 +127,9 @@ class SlabMode(_WallPairFill):
         Half the plate separation, ``a``, in m, positive. A path along z is a
         scale-invariant taper: the profile is a function of ``x / a(z)``.
     gas : Gas or str or None
-        Legacy gas declaration; None means vacuum unless a mixture is supplied.
+        The fill gas; None means vacuum unless a mixture is supplied.
     pressure : float or ZProfile
-        Legacy gas pressure in bar, non-negative.
+        Absolute fill pressure in **bar**, non-negative, or a path of it along z.
     order : int
         Mode order ``p >= 1``; odd orders are symmetric about the mid-plane, so a
         centred launch couples only to them.
@@ -138,24 +138,30 @@ class SlabMode(_WallPairFill):
         plates, and the low loss; ``"tm"`` has it along x, normal to them, and a
         loss larger by the wall's ``eps_cl / eps_co`` for glass. The two are
         distinct modes with their own effective index.
-    loss : bool or float or callable
-        Shared hollow-mode policy: model loss, no loss, a non-negative model scale,
-        or an absolute power attenuation in 1/m.
+    alpha : float or callable or None
+        An absolute power attenuation coefficient in 1/m that replaces the model's
+        loss, a number or a callable ``alpha(omega)``, as on
+        :class:`~solprop.modes.capillary.MarcatiliMode`; ``None`` (the default)
+        keeps the model's loss.
+    loss_scale : float
+        Multiplies the model's own loss: ``1.0`` (the default) is the model, ``0.0``
+        lossless. Finite and non-negative; refused beside an ``alpha``.
     cladding : GlassIndex or complex or None
         Plate index, positive imaginary part for absorption: a glass, a metal of
         :mod:`solprop.physdata.metals`, or a constant complex number. None selects
         fused silica.
     temperature : float, ZProfile or None
-        Positive legacy fill temperature in K, or a path of it along z in m, which
+        Positive fill temperature in K, or a path of it along z in m, which
         the density follows. ``None`` (the default) is 293.15 K for a gas and
         the mixture's own beside a mixture; a different one beside it is refused.
     susceptibility : GasSusceptibility or None
-        Explicit legacy gas susceptibility; ``None`` takes the built-in gas's.
+        Explicit gas susceptibility; ``None`` takes the built-in gas's.
     mixture : Mixture or None
-        Ordered material populations; excludes competing legacy fill arguments.
+        Ordered material populations; excludes gas, pressure and susceptibility.
     width_x : ZProfile
-        The resolved half-gap path in m. It carries the rectangular guide's name for
-        its x half-width, which this is, so that the geometry-path walkers of
+        The resolved half-gap path a(z) in m: despite the name, half the plate
+        separation, as `half_gap` declares it. It carries the rectangular guide's
+        name for its x half-width, which this is, so that the geometry-path walkers of
         :data:`solprop.modes.protocol.GEOMETRY_PATH_NAMES` find its kinks.
     density : ZProfile
         Total number-density path in m^-3.
@@ -189,7 +195,8 @@ class SlabMode(_WallPairFill):
     _: KW_ONLY
     order: int = 1
     polarisation: SlabPolarisation = "te"
-    loss: LossSpec = True
+    alpha: float | LossFunction | None = None
+    loss_scale: float = 1.0
     cladding: GlassIndex | complex | None = None
     temperature: float | ZProfile | None = None
     susceptibility: GasSusceptibility | None = None
@@ -424,7 +431,7 @@ class SlabMode(_WallPairFill):
         Returns
         -------
         str
-            For example ``SlabMode(TE1, gap 127 um, Ar 1 bar, loss=True)``.
+            For example ``SlabMode(TE1, gap 127 um, Ar 1 bar, loss=model)``.
         """
         gap = 2.0 * float(self.width_x(np.array([0.0]))[0])
         return line(

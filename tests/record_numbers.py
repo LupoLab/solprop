@@ -151,7 +151,9 @@ def without_sep21_absorber(
 def with_former_names(value: object) -> object:
     """Return a record with the names that later renames changed restored.
 
-    A reference state's ``pressure`` was ``pressure_bar``.
+    A reference state's ``pressure`` was ``pressure_bar``, and a hollow mode's
+    ``alpha`` and ``loss_scale`` were one ``loss``: the model's own loss, which these
+    records' modes declare, was ``loss=True``.
 
     Parameters
     ----------
@@ -167,6 +169,13 @@ def with_former_names(value: object) -> object:
         return [with_former_names(item) for item in value]
     if not isinstance(value, dict):
         return value
+    if "alpha" in value and "loss_scale" in value:
+        assert value["alpha"] is None and value["loss_scale"] == 1.0
+        value = {
+            key: child
+            for key, child in value.items()
+            if key not in ("alpha", "loss_scale")
+        } | {"loss": True}
     if "reference_state" in value and isinstance(value["reference_state"], dict):
         state = value["reference_state"]
         value = value | {

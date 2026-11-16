@@ -322,7 +322,7 @@ def test_a_lossless_run_conserves_energy(evaluator):
                 wavelength_limits=None,
                 trange=None,
                 thg=thg,
-                loss=False,
+                loss_scale=0.0,
                 absorber=lossless,
                 schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
                 integrator=RungeKutta(),

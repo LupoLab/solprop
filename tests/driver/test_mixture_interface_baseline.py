@@ -63,7 +63,7 @@ def test_the_launch_and_the_log_weight_reconstruct_the_dispersion_problem(
             plasma=plasma,
             raman=raman,
             thg=False,
-            loss=False,
+            loss_scale=0.0,
             cladding=1.45,
             noise=None,
         )

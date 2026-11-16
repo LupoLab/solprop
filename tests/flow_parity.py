@@ -289,7 +289,7 @@ def build(name, **overrides):
             "lossless": {
                 "wall": None,
                 "radius": taper(),
-                "loss": False,
+                "loss_scale": 0.0,
                 "cladding": 1.45,
             },
         }[name]

@@ -414,7 +414,7 @@ def test_capillary_interface_default_matches_explicit_optmat_rate():
         "length": 1e-4,
         "energy": 8e-6,
         "kerr": False,
-        "loss": False,
+        "loss_scale": 0.0,
         "backend": "numpy_ref",
         "schedule": FixedSchedule.uniform(0.0, 1e-4, 1e-5, save_planes=[]),
         "integrator": FIXED_ORDER,
@@ -494,7 +494,7 @@ CTC = {
     "fwhm": 400e-15,
     "energy": 10e-6,
     "modes": 6,
-    "loss": False,
+    "loss_scale": 0.0,
     "raman": True,
 }
 
@@ -713,7 +713,7 @@ def test_oxygen_raman_propagates_through_both_cpu_backends():
         "trange": 300e-15,
         "energy": 1e-6,
         "plasma": False,
-        "loss": False,
+        "loss_scale": 0.0,
         "rtol": 1e-10,
         "n_r": 24,
     }
@@ -1256,7 +1256,7 @@ def undepleted_solprop(*, kerr, energy):
         # temperature, stated rather than defaulted, as is every other input.
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
-        loss=True,
+        loss_scale=1.0,
         **{"noise": None, **witness_inputs(grid, 2)},
     )
     pulse = GaussianPulse(
@@ -1860,7 +1860,7 @@ def stored_field(name) -> np.ndarray:
                 susceptibility=luna_hydrogen() if ctc else luna_helium(),
                 model="full",
                 cladding=luna_cladding(tag, grid, CTC_MEDIA if ctc else MEDIA),
-                loss=not ctc,
+                loss_scale=0.0 if ctc else 1.0,
             )
             for plane, z in enumerate(positions):
                 weight = np.ones(grid.n_omega)
@@ -1934,7 +1934,7 @@ def luna_launch_energy(case, tag, *, ctc=False):
             susceptibility=luna_hydrogen() if ctc else luna_helium(),
             model="full",
             cladding=luna_cladding(tag, grid, CTC_MEDIA if ctc else MEDIA),
-            loss=not ctc,
+            loss_scale=0.0 if ctc else 1.0,
         )
         # One outside the active band, which is what `translate.linop` assembles and
         # what `stored_field` applies to Luna's side, so the 4.4e-7 of the reduced
@@ -1975,7 +1975,7 @@ def test_trimmed_luna_witness_uses_its_stored_plane_positions():
             susceptibility=luna_helium(),
             model="full",
             cladding=luna_cladding("FULL", grid, MEDIA),
-            loss=True,
+            loss_scale=1.0,
         )
         for plane, z in enumerate(positions):
             weight = np.ones(grid.n_omega)
@@ -2026,7 +2026,7 @@ def witness_run(
         energy=luna_launch_energy(case, tag),
         modes=case["modes"],
         cladding=luna_cladding(tag, grid),
-        loss=True,
+        loss_scale=1.0,
         temperature=WITNESS["temperature_k"],
         raman=False,
         n_save=case["n_save"] if planes is None else planes,
@@ -2916,7 +2916,7 @@ def ctc_run(
             # worth several per cent on a Stokes rung (ADR-030).
             energy=luna_launch_energy(case, tag, ctc=True),
             modes=case["modes"],
-            loss=False,
+            loss_scale=0.0,
             raman=True,
             plasma=luna_hydrogen_rate(),
             # The witness was made by Luna's cumulative trapezoid (SEP 18).
@@ -2973,7 +2973,7 @@ def ctc_field_range(case):
             fwhm=CTC_WITNESS["tau_fwhm"],
             energy=CTC_WITNESS["energy"],
             modes=case["modes"],
-            loss=False,
+            loss_scale=0.0,
             raman=True,
             plasma=luna_hydrogen_rate(),
             # The witness was made by Luna's cumulative trapezoid (SEP 18).
@@ -3214,7 +3214,7 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
                 susceptibility=luna_hydrogen(),
                 cladding=luna_cladding("REDUCED", grid, CTC_MEDIA),
                 model="full",
-                loss=False,
+                loss_scale=0.0,
             )
             independent[index, grid.active_mask] = np.real(
                 mode.neff(grid.omega[grid.active_mask], 0.0)
@@ -3324,7 +3324,7 @@ def reduced_m2_simulation(**overrides):
             energy=WITNESS["energy"],
             modes=case["modes"],
             cladding=luna_cladding(tag, grid),
-            loss=True,
+            loss_scale=1.0,
             temperature=WITNESS["temperature_k"],
             raman=False,
             n_save=case["n_save"],

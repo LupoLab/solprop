@@ -45,7 +45,7 @@ def declaration():
     grid = refine_response_grid(
         FieldGrid.from_limits(0.001, 800e-9, (500e-9, 1e-6), 8e-15), TDSESampling(64)
     )
-    mode = MarcatiliMode(125e-6, "He", 0.1, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "He", 0.1, cladding=1.45, loss_scale=0.0)
     basis = TDSEBasis(
         "manufactured", (0.0, 1e-9), (8,), 3, 1e-16, source="admission fixture"
     )

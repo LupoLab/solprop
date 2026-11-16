@@ -71,7 +71,7 @@ def case(request):
     if request.param == "modal":
         simulation = Simulation(
             grid,
-            replace(mode, mixture=material, loss=2.0),
+            replace(mode, mixture=material, loss_scale=2.0),
             (),
             pulse,
             settings=settings,
@@ -238,11 +238,11 @@ def test_legacy_record_remains_readable_without_mixture_accessors():
     assert processing.get_spectral_density(output)[1].size > 0
 
 
-def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
+def test_an_alpha_total_loss_is_retained_but_species_attribution_is_refused():
     mixture, grid, mode, _, (original, run_request) = mixture_translation()
     simulation = Simulation(
         grid,
-        replace(mode, mixture=mixture, loss=np.ones_like),
+        replace(mode, mixture=mixture, alpha=np.ones_like, loss_scale=1.0),
         (),
         original.initial.field0,
         settings=SimulationSettings(
@@ -255,7 +255,7 @@ def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
     output = MemoryOutput()
     output.open(simulation.metadata())
     output.save(SavedPlane(z=0.0, field=original.initial.field0))
-    with pytest.raises(ProcessingError, match="callable total loss"):
+    with pytest.raises(ProcessingError, match="an alpha replacing the total loss"):
         processing.absorbed_spectral_energy(output)
     assert np.all(processing.node_fluence(output) >= 0)
 
@@ -416,7 +416,7 @@ def test_tapered_multimode_fluence_matches_hand_node_sum(envelope):
         energy=1e-9,
         plasma=False,
         thg=False,
-        loss=False,
+        loss_scale=0.0,
         n_r=8,
         n_save=2,
         cladding=1.45,

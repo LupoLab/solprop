@@ -96,22 +96,32 @@ transport
    solprop
 ```
 
-## The loss specification and the evanescent floor
+## The loss keywords and the evanescent floor
 
 Every gas-filled hollow mode — the capillary's `MarcatiliMode`, the rectangular
-`RectMode`, the planar `SlabMode` and the antiresonant modes — takes its `loss=` in one
-vocabulary, `LossSpec`, and its full model floors the real part of the effective index
-at `EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
-turn evanescent. Both are defined in {mod}`solprop.modes.fill` and are also importable
-from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; they are documented here
+`RectMode`, the planar `SlabMode`, the antiresonant `VincettiMode` and the tabulated
+hollow modes — takes its loss in one vocabulary, shared with `prop_capillary`, the
+`ModeCollection` factories and the capillary design tools:
+
+- `loss_scale` (default `1.0`) multiplies the model's own loss: `1.0` is the model,
+  `0.0` lossless. It must be finite and non-negative.
+- `alpha` (default `None`) replaces the model's loss by an **absolute** power
+  attenuation coefficient in 1/m: a number, or a callable `alpha(omega)`, which may
+  carry its analytic slope as a `derivative` attribute. Only the imaginary part of the
+  effective index changes, `Im n_eff = c alpha / (2 omega)`.
+
+The two are alternatives: an `alpha` beside a `loss_scale` other than one is refused.
+`StepIndexMode` and the GNLSE's `SpecifiedMode` have no model loss to scale, and take
+`alpha` alone, with `0.0` (lossless) as the default.
+
+The full model of a hollow mode floors the real part of the effective index at
+`EVANESCENT_INDEX_FLOOR` far below the band, where the square root would otherwise
+turn evanescent. It is defined in {mod}`solprop.modes.fill` and is also importable
+from {mod}`solprop.modes.capillary` and {mod}`solprop.modes`; it is documented here
 under both module paths.
 
 ```{eval-rst}
-.. autodata:: solprop.modes.fill.LossSpec
-
 .. autodata:: solprop.modes.fill.EVANESCENT_INDEX_FLOOR
-
-.. autodata:: solprop.modes.capillary.LossSpec
 
 .. autodata:: solprop.modes.capillary.EVANESCENT_INDEX_FLOOR
 ```

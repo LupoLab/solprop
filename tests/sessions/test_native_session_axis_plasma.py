@@ -67,7 +67,7 @@ LENGTH = 2e-3
 def _capillary(rule_name, n_r):
     """An ionising argon capillary on a given rule, over four equal steps."""
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 3e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
     table = build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-4).build(grid)
     with warnings.catch_warnings():
@@ -240,7 +240,7 @@ def test_the_mode_averaged_route_is_still_refused_by_name():
     from solprop.backends.populations import axis_refusal  # noqa: PLC0415
 
     grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 3e-6), 100e-15)
-    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss_scale=0.0)
     table = build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-4).build(grid)
     with warnings.catch_warnings():

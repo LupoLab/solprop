@@ -920,7 +920,7 @@ class VincettiMode(MarcatiliMode):
         -------
         str
             For example ``VincettiMode(HE11, a=15 um, t=180 nm, r_ext=9 um, N=6,
-            Ar 1 bar, loss=True)``; a gradient shows its pressure at ``z = 0``.
+            Ar 1 bar, loss=model)``; a gradient shows its pressure at ``z = 0``.
         """
         radius = float(self.core_radius(np.array([0.0]))[0])
         if self.gas is None:
@@ -932,5 +932,5 @@ class VincettiMode(MarcatiliMode):
             f"VincettiMode({self.kind}{self.n}{self.m}, a={radius * 1e6:g} um, "
             f"t={self.lattice.wall_thickness * 1e9:g} nm, "
             f"r_ext={self.lattice.tube_radius * 1e6:g} um, "
-            f"N={self.lattice.n_tubes}, {fill}, loss={self.loss!r})"
+            f"N={self.lattice.n_tubes}, {fill}, loss={self._loss_text()})"
         )
