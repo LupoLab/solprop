@@ -81,11 +81,12 @@ def _from_spatial(  # noqa: PLR0917 - called positionally
         chosen_frame = Frame.comoving(
             grid, thg=declares_harmonic_carrier(responses, grid)
         )
-    if isinstance(medium.material, Mixture) and settings.stats is None:
+    if settings.stats is None:
+        # The route's statistics, as the modal routes take theirs; a mixture's
+        # populations add their own.
         base = default_spec("radial" if isinstance(space, RadialGrid) else "free")
-        settings = dataclasses.replace(
-            settings,
-            stats=dataclasses.replace(
+        if isinstance(medium.material, Mixture):
+            base = dataclasses.replace(
                 base,
                 names=(
                     *base.names,
@@ -95,8 +96,8 @@ def _from_spatial(  # noqa: PLR0917 - called positionally
                     "species_density",
                     "species_ionisation_energy",
                 ),
-            ),
-        )
+            )
+        settings = dataclasses.replace(settings, stats=base)
     settings = _spatial_default(settings, grid)
     if isinstance(initial, np.ndarray):
         # Refused before the simulation copies it.
@@ -123,10 +124,10 @@ def _from_spatial(  # noqa: PLR0917 - called positionally
         noise,
         seed,
     )
-    simulation.noise_resolution = resolution
+    simulation._noise_resolution = resolution
     if noise_model is not None:
         draw = _spatial_draw(noise_model, simulation, medium)
-        simulation.noise = draw(seed)
+        simulation._noise = draw(seed)
         _redrawable(simulation, draw, seed)
     _bind_spatial_rates(simulation, initial)
     return simulation

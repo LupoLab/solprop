@@ -727,7 +727,7 @@ class SolitonOrder:
                 "the soliton order is defined for sech and Gaussian pulses, and this "
                 f"is a super-Gaussian of order m={self.pulse.m}"
             )
-        if np.any(np.asarray(self.pulse.phase, dtype=float)[2:] != 0.0):
+        if np.any(np.asarray(self.pulse.phases, dtype=float)[2:] != 0.0):
             # The design numbers take the width and peak power of an unchirped pulse.
             raise ToolsError(
                 "the soliton order is defined for an unchirped pulse; this one has "

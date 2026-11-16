@@ -396,7 +396,6 @@ class _HollowRequest:
     polarisation_taper: bool = False
     node_budget: int | None = None
     backend: str = "auto"
-    polarisation: str | float | None = None
     materials: MaterialSelection | None = None
     tdse: TDSEGasResponse | None = None
     tdse_execution: TDSEExecution | None = None
@@ -474,18 +473,6 @@ def _from_hollow(  # noqa: PLR0915 - the route's whole build, keyword by keyword
             "kernel through the Kerr term (docs/guide/media/raman.md)"
         )
         raise DriverError(msg, parameter=("raman", "kerr"), rule="raman-needs-kerr")
-    if request.polarisation is not None:
-        msg = (
-            f"polarisation={request.polarisation!r}: this path is scalar and "
-            "propagates one transverse component per mode row. Declare the "
-            "polarisation in the modes instead -- a rectangular or slab guide's own "
-            "polarisation, each partner a row of its own -- or, for a vector "
-            "capillary run, a polarisation-resolved mode set, which is not "
-            "validated end to end yet"
-        )
-        raise DriverError(
-            msg, parameter="polarisation", rule="scalar-capillary-polarisation"
-        )
     _check_wall_declaration(
         request.wall,
         model=request.model,

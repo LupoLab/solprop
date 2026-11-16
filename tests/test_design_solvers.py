@@ -182,7 +182,7 @@ def test_the_pulse_for_an_order_is_closed_form():
         ),
         (
             GaussianPulse(
-                wavelength=PUMP, fwhm=10e-15, energy=1e-5, phase=[0.3, 1e-15]
+                wavelength=PUMP, fwhm=10e-15, energy=1e-5, phases=[0.3, 1e-15]
             ),
             "gauss",
             tools.pulse_peak_power(1e-5, 10e-15, "gauss"),
@@ -419,7 +419,7 @@ def test_a_search_range_and_position_are_validated(search, z, message):
             "super-Gaussian",
         ),
         (
-            lambda: SolitonOrder(1.0, sech(energy=1e-6, phase=[0.0, 0.0, 1e-30])),
+            lambda: SolitonOrder(1.0, sech(energy=1e-6, phases=[0.0, 0.0, 1e-30])),
             "unchirped",
         ),
     ],

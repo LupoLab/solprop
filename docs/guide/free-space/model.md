@@ -43,8 +43,8 @@ orthogonal at finite size. The Cartesian grid's stored spectrum is a raw DFT, al
 V/m ([Cartesian free space](cartesian.md#transform-and-energy)).
 
 {py:class}`~solprop.pulses.SpatialPulse` wraps any scalar temporal pulse in a transverse
-beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/e²
-intensity radius and `order=1` is a Gaussian. The wrapper normalises the beam in the
+beam. Its transverse field is `exp(-(r/waist)**(2*m))`, so `waist` is the 1/e²
+intensity radius and `m=1` is a Gaussian. The wrapper normalises the beam in the
 medium's flux measure at the launch plane, so the temporal pulse's `energy` or
 `peak_power` is the whole beam's physical energy or peak axial power there: what an energy
 meter in that medium reads. The inactive band and zero frequency are set to zero first,
@@ -263,7 +263,8 @@ strength, a collar's strength, band, threshold and step limit, and its check -- 
 run metadata's `transverse` record, outside the resume key.
 
 **Statistics.** The default set for a spatial run (`default_spec("radial")` or
-`default_spec("free")`) is `energy`, `on_axis_intensity`, `peak_intensity`,
+`default_spec("free")`, which `from_free` and `from_planar` take when the settings'
+`stats` is `None`) is `energy`, `on_axis_intensity`, `peak_intensity`,
 `beam_radius`, `fwhm_r` and `on_axis_spectrum`. The [statistics catalogue](../results/statistics.md)
 distinguishes `peak_intensity`, the largest axial flux over the physical samples, from
 `on_axis_intensity`, reconstructed separately on the axis. Both are signed local flux in
@@ -333,7 +334,6 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
-from solprop.stats import default_spec
 from solprop.stepper import PIController
 
 grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
@@ -347,7 +347,6 @@ settings = SimulationSettings(
     save_planes=[0.5e-3, 1e-3],
     dz_init=1e-4,
     dz_max=5e-4,
-    stats=default_spec("radial"),
 )
 simulation = Simulation.from_free(
     grid,

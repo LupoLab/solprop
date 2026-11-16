@@ -33,7 +33,8 @@ import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Shaped
@@ -244,6 +245,29 @@ logger = logging.getLogger(__name__)
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
+_FIXED_INPUTS: Final = frozenset(
+    {
+        "configuration",
+        "frame",
+        "general",
+        "grid",
+        "guide",
+        "initial",
+        "initial_z",
+        "materials",
+        "medium",
+        "modes",
+        "noise",
+        "noise_resolution",
+        "profiles",
+        "responses",
+        "spatial_grid",
+        "taper_coupling",
+        "wall",
+    }
+)
+"""What a :class:`Simulation` is built from: read-only, refused on assignment."""
+
 
 def _one_material_context[**P, R](build: Callable[P, R]) -> Callable[P, R]:
     """Run a constructor inside one material evaluation context, the run's own.
@@ -271,7 +295,11 @@ class Simulation(Displayed):
     :meth:`from_gnlse` for a GNLSE fibre. :meth:`translate` assembles the kernel problem
     and caches it, so a second :meth:`run` -- into another handler, or resuming a
     file -- reuses it. :attr:`settings` may be replaced until that first translation;
-    after it only its ``backend`` may change.
+    after it only its ``backend`` may change. What the run is built from -- the grid,
+    the modes, the responses, the input and the rest of the parameters below -- is
+    read-only, because the input, the translation and the record are derived from it:
+    :meth:`with_input` derives a run with a new input, noise or launch position,
+    :meth:`with_mixture` one with a new fill, and anything else is a new simulation.
 
     Parameters
     ----------
@@ -423,21 +451,21 @@ class Simulation(Displayed):
         declared = tuple(responses)
         _check_electronic_policy(materials, declared)
         grid, settings = _resolve_tdse_grid(grid, declared, settings)
-        self.grid = grid
-        self.materials = materials
+        self._grid = grid
+        self._materials = materials
         # The run's material log: the one its constructor opened, or a new one, which
         # its translation, record and run resume (`_one_material_context`).
         self._material_log = _optmat.open_log() or MaterialLog()
-        self.general = general
-        self.guide = guide
-        self.wall = wall
-        self.taper_coupling = taper_coupling
-        self.modes: tuple[Mode, ...] = (
+        self._general = general
+        self._guide = guide
+        self._wall = wall
+        self._taper_coupling = taper_coupling
+        self._modes: tuple[Mode, ...] = (
             tuple(modes) if isinstance(modes, Sequence) else (modes,)
         )
-        self.responses = declared
-        self.initial = initial
-        self.initial_z = initial_z
+        self._responses = declared
+        self._initial = initial
+        self._initial_z = initial_z
         self._problem: PropagationProblem | None = None
         # The request translation returned with the problem: every policy of a fresh
         # run of it (SEP 47 section 5.2).
@@ -455,8 +483,8 @@ class Simulation(Displayed):
                 "but a Simulation built directly needs a PIController"
             )
             raise DriverError(msg)
-        self.noise = noise
-        self.noise_resolution = (
+        self._noise = noise
+        self._noise_resolution = (
             NoiseResolution(
                 None if noise is None else noise.model,
                 None if noise is None else noise.model,
@@ -467,17 +495,17 @@ class Simulation(Displayed):
         # Read once, here, as an array input is: changing what the caller passed
         # afterwards changes neither the run nor its record (issue #471). solprop's
         # profiles keep read-only copies of their tables themselves.
-        self.profiles = dict(profiles or {})
-        self.configuration = _frozen_configuration(configuration)
+        self._profiles = dict(profiles or {})
+        self._configuration = _frozen_configuration(configuration)
         if (spatial_grid is None) != (medium is None):
             msg = "spatial_grid and medium must be supplied together"
             raise DriverError(msg)
-        if spatial_grid is not None and self.modes:
+        if spatial_grid is not None and self._modes:
             msg = "spatial propagation requires an empty mode sequence"
             raise DriverError(msg)
-        self.spatial_grid = spatial_grid
-        self.medium = medium
-        self.frame = frame
+        self._spatial_grid = spatial_grid
+        self._medium = medium
+        self._frame = frame
         _check_initial_position(self, settings)
         _check_tdse_execution(self, settings)
         self._metadata: RunMetadata | None = None
@@ -490,7 +518,7 @@ class Simulation(Displayed):
         if isinstance(initial, np.ndarray):
             # What was passed is what runs and what is recorded: a read-only view of
             # the simulation's own copy, as the caller gave it (`_given_input`).
-            self.initial = _given_input(initial, self._field0)
+            self._initial = _given_input(initial, self._field0)
 
     def _built_input(
         self,
@@ -512,8 +540,8 @@ class Simulation(Displayed):
         if self.spatial_grid is None or self.medium is None:
             msg = "a SpatialPulse requires spatial_grid and medium"
             raise DriverError(msg)
-        if self.frame is None:
-            self.frame = Frame.comoving(
+        if self._frame is None:
+            self._frame = Frame.comoving(
                 grid, thg=declares_harmonic_carrier(self.responses, grid)
             )
         return _built_state(
@@ -601,13 +629,132 @@ class Simulation(Displayed):
             ]
             if dropped:
                 self._drop_recipe(f"its {', '.join(dropped)} changed")
-        if hasattr(self, "noise"):
+        if hasattr(self, "_noise"):
             _check_initial_position(self, settings)
             _check_tdse_execution(self, settings)
             if _quiet_collar(settings) != _quiet_collar(self._settings):
                 # The opt-in is part of the resume key: the record is built again.
                 self._metadata = None
         self._settings = settings
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Refuse to replace what the run is built from; set anything else.
+
+        The input is built, and the record and translation are derived, from these
+        when the simulation is constructed, so a new value assigned afterwards would
+        pair with what was built from the old one.
+
+        Parameters
+        ----------
+        name : str
+            The attribute.
+        value : object
+            Its new value.
+
+        Raises
+        ------
+        AttributeError
+            If `name` is one of the simulation's inputs, naming the methods that
+            derive a simulation with a new one.
+        """
+        if name in _FIXED_INPUTS:
+            msg = (
+                f"Simulation.{name} is fixed when the simulation is built, because "
+                "its input, translation and record are derived from it; use "
+                "with_input(...) for a new input, noise or launch position, "
+                "with_mixture(...) for a new fill, or build a new Simulation"
+            )
+            raise AttributeError(msg)
+        super().__setattr__(name, value)
+
+    @property
+    def grid(self) -> TimeGrid:  # numpydoc ignore=RT01
+        """The field or envelope grid the run is built on."""
+        return self._grid
+
+    @property
+    def modes(self) -> tuple[Mode, ...]:  # numpydoc ignore=RT01
+        """The ordered modes; empty on a spatial route."""
+        return self._modes
+
+    @property
+    def responses(self) -> tuple[object, ...]:  # numpydoc ignore=RT01
+        """The declared nonlinear responses."""
+        return self._responses
+
+    @property
+    def initial(  # numpydoc ignore=RT01
+        self,
+    ) -> Pulse | SpatialPulse | SpatialPulseSum | np.ndarray:
+        """The input as given: a pulse, or a read-only view of an array input."""
+        return self._initial
+
+    @property
+    def initial_z(self) -> float:  # numpydoc ignore=RT01
+        """The launch position, m."""
+        return self._initial_z
+
+    @property
+    def noise(self) -> NoiseRealisation | None:  # numpydoc ignore=RT01
+        """The shot-noise realisation the run carries, or ``None``."""
+        return self._noise
+
+    @property
+    def noise_resolution(self) -> NoiseResolution:  # numpydoc ignore=RT01
+        """How the noise model was chosen (SEP 37)."""
+        return self._noise_resolution
+
+    @property
+    def profiles(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
+        """The z-profiles keyed by statistic name, read-only."""
+        return MappingProxyType(self._profiles)
+
+    @property
+    def configuration(self) -> Mapping[str, object]:  # numpydoc ignore=RT01
+        """The extra provenance the run records, read-only."""
+        return MappingProxyType(self._configuration)
+
+    @property
+    def spatial_grid(  # numpydoc ignore=RT01
+        self,
+    ) -> RadialGrid | FreeGrid | PlanarGrid | None:
+        """The transverse grid of a spatial route, or ``None``."""
+        return self._spatial_grid
+
+    @property
+    def medium(self) -> SpatialMedium | None:  # numpydoc ignore=RT01
+        """The bulk material of a spatial route, or ``None``."""
+        return self._medium
+
+    @property
+    def frame(self) -> Frame | None:  # numpydoc ignore=RT01
+        """The propagation frame, or ``None`` for the route's default."""
+        return self._frame
+
+    @property
+    def general(self) -> GeneralModalRoute | None:  # numpydoc ignore=RT01
+        """The seam leaves of a general modal guide, or ``None``."""
+        return self._general
+
+    @property
+    def guide(self) -> ModalGuide | None:  # numpydoc ignore=RT01
+        """The general modal guide `general` was built from, or ``None``."""
+        return self._guide
+
+    @property
+    def wall(self) -> CoherentWall | None:  # numpydoc ignore=RT01
+        """The coherent wall block's declaration, or ``None``."""
+        return self._wall
+
+    @property
+    def taper_coupling(self) -> bool:  # numpydoc ignore=RT01
+        """Whether a varying multimode capillary carries its taper coupling."""
+        return self._taper_coupling
+
+    @property
+    def materials(self) -> MaterialSelection | None:  # numpydoc ignore=RT01
+        """The material selection the run records, or ``None``."""
+        return self._materials
 
     def _kind(self) -> str:
         """Return what kind of run this is, for printing."""
@@ -725,8 +872,9 @@ class Simulation(Displayed):
                     # Simulation.__init__ refuses a missing controller.
                     controller=cast("PIController", settings.controller),
                     save_planes=np.asarray(settings.save_planes),
-                    dz_max=settings.dz_max,
-                    dz_init=settings.dz_init,
+                    # Adoption resolves a step left None (`_adopted`).
+                    dz_max=cast("float", settings.dz_max),
+                    dz_init=cast("float", settings.dz_init),
                     dz_min=settings.dz_min,
                     stretch=settings.stretch,
                     auto_init=settings.auto_init,
@@ -1009,7 +1157,7 @@ class Simulation(Displayed):
             materials=self.materials,
         )
         # Recorded from what the derived run holds, not from the caller's input.
-        updated.configuration = self._derived_configuration(
+        updated._configuration = self._derived_configuration(
             updated.initial, configuration, coupling
         )
         updated._input_identity = input_identity
@@ -1303,10 +1451,10 @@ class Simulation(Displayed):
         )
         updated._material_log = self._material_log.copy()
         with _optmat.material_context(updated._material_log):
-            updated.noise, updated._noise_redraw = self._rebound_noise(updated.medium)
+            updated._noise, updated._noise_redraw = self._rebound_noise(updated.medium)
         if self._recipe is not None:
             self._warn_recipe_dropped("with_mixture")
-        updated.initial = self.initial
+        updated._initial = self._initial
         updated._input_identity = self._input_identity
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
@@ -1706,10 +1854,9 @@ class Simulation(Displayed):
 
         Raises
         ------
-        ValueError
-            If `resume` is not one of its three values.
         DriverError
-            If a resume is asked for and `output` is not a path, or the file's last
+            If `resume` is not one of its three values, a resume is asked for and
+            `output` is not a path, or the file's last
             plane was interpolated and `resume` is not ``"interpolated"``; or
             `tdse_archive` is given without a TDSE response or at the
             path of the optical file.
@@ -1971,9 +2118,9 @@ class Simulation(Displayed):
         """
         if self._noise_redraw is None or self.noise is None or self.noise.seed == seed:
             return False
-        self.noise = self._noise_redraw(seed)
+        self._noise = self._noise_redraw(seed)
         if self._problem is not None:
-            self._problem = _with_noise(self._problem, self.noise)
+            self._problem = _with_noise(self._problem, self._noise)
         self._metadata = None
         return True
 
@@ -2067,8 +2214,11 @@ class Simulation(Displayed):
         settings : SimulationSettings
             Step tolerances, the saved planes (``n_save`` or positions in m over
             ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
-            backend.
-            Absolute tolerance has the input spectrum's units.
+            backend. Absolute tolerance has the input spectrum's units. Steps left
+            ``None`` take the keyword routes' fractions of ``grid.length``, and
+            statistics left ``None`` take ``default_spec("radial")`` on a radial grid
+            and ``default_spec("free")`` otherwise (:func:`solprop.stats.default_spec`),
+            with a mixture's per-species statistics beside them.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
         noise : {'default', None, 'input', 'modified'}, optional
@@ -2149,7 +2299,7 @@ class Simulation(Displayed):
         if isinstance(space, LineGrid):
             # The run's powers and energies are per metre of y; processing and
             # plotting label them from this key, as for a slab.
-            simulation.configuration["transverse_measure"] = space.transverse_measure
+            simulation._configuration["transverse_measure"] = space.transverse_measure
         return simulation
 
     @classmethod
@@ -2196,8 +2346,10 @@ class Simulation(Displayed):
         settings : SimulationSettings
             Step tolerances, the saved planes (``n_save`` or positions in m over
             ``[0, grid.length]``; the run ends at ``grid.length``), statistics and
-            backend.
-            Absolute tolerance has the input spectrum's units, sqrt(W/m).
+            backend. Absolute tolerance has the input spectrum's units, sqrt(W/m).
+            Steps left ``None`` take the keyword routes' fractions of
+            ``grid.length``, and statistics left ``None`` take
+            ``default_spec("free")`` (:func:`solprop.stats.default_spec`).
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice, following
             the first mode at ``k_y = 0`` as the modal route does.
@@ -2268,6 +2420,9 @@ class Simulation(Displayed):
             ),
             grid,
         )
+        if settings.stats is None:
+            # The route's statistics, as every other route takes its own.
+            settings = dataclasses.replace(settings, stats=default_spec("free"))
         simulation = cls(
             grid,
             (),
@@ -2290,7 +2445,7 @@ class Simulation(Displayed):
     def from_gnlse(
         cls,
         gamma: float | None,
-        length: float | None = None,
+        length: float | None,
         betas: Sequence[float] | np.ndarray | None = None,
         *,
         wavelength: float,
@@ -2345,12 +2500,13 @@ class Simulation(Displayed):
         ----------
         gamma : float or None
             Nonlinear coefficient in 1/(W m), positive for a self-focusing medium.
-        length : float or None, optional
+        length : float or None
             Fibre length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         betas : array_like, optional
             Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``,
             in s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no
@@ -2632,8 +2788,8 @@ class Simulation(Displayed):
     def from_capillary(
         cls,
         radius: float | ZProfile,
-        length: float | None = None,
-        gas: Gas | str | Mapping[str, float] | Mixture | None = None,
+        length: float | None,
+        gas: Gas | str | Mapping[str, float] | Mixture,
         pressure: Pressure | None = None,
         *,
         pressure_floor: float | None = None,
@@ -2696,7 +2852,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
         tdse_execution: TDSEExecution | None = None,
@@ -2717,15 +2872,16 @@ class Simulation(Displayed):
         ----------
         radius : float or solprop.profiles.ZProfile
             Core radius, m, constant or along z.
-        length : float or None, optional
+        length : float or None
             Capillary length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps and profiles
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         gas : Gas, str, Mapping or Mixture
-            Required. Built-in gas, mole fractions keyed by species name, or
-            ordered populations carrying their own density paths. A mapping uses
+            Built-in gas, mole fractions keyed by species name, or ordered
+            populations carrying their own density paths. A mapping uses
             total pressure.
         pressure : float, sequence, ZProfile or None, optional
             None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
@@ -3001,8 +3157,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        polarisation : str, float or None, optional
-            Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the run's built-in materials from optmat under this selection: a gas or
             fraction mapping of built-in gases, ``"air"`` and ``Gas.Air`` resolve
@@ -3053,9 +3207,6 @@ class Simulation(Displayed):
         ['core_radius', 'density', 'pressure']
         """
         length = _run_length(length, grid)
-        if gas is None:
-            msg = "a capillary run needs its fill: pass gas="
-            raise DriverError(msg, parameter="gas")
         return _from_hollow(
             cls,
             keyword_request(
@@ -3070,7 +3221,7 @@ class Simulation(Displayed):
     def from_waveguide(
         cls,
         modes: Sequence[Mode],
-        length: float | None = None,
+        length: float | None,
         gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
@@ -3134,7 +3285,6 @@ class Simulation(Displayed):
         polarisation_taper: bool = False,
         node_budget: int | None = None,
         backend: str = "auto",
-        polarisation: str | float | None = None,
         taper_coupling: bool = True,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":
@@ -3171,12 +3321,13 @@ class Simulation(Displayed):
             `provider` it must be empty or exactly the guide's own ordered channels:
             a guide supplies its channels itself, and the provider has already
             validated their order against its fields.
-        length : float or None, optional
+        length : float or None
             Waveguide length, which is the run's length and its end, m, positive
             (SEP 51): the grid is built with it, and the default steps and profiles
-            derive from it. Optional beside `grid`, whose ``grid.length`` it must
-            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
-            ulps; one of the two is required.
+            derive from it. Required, but ``None`` beside `grid`, which then
+            supplies it as ``grid.length``; a length given beside a grid must agree
+            with ``grid.length`` to within
+            :data:`~solprop.stepper.schedule.LANDING_ULPS` ulps.
         gas : Gas, str, Mapping, Mixture or None
             Built-in gas, mole fractions keyed by species name, or ordered populations
             carrying their own density paths. A mapping uses total pressure. Required
@@ -3480,8 +3631,6 @@ class Simulation(Displayed):
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
             fallback, and import or construction errors stay visible.
-        polarisation : str, float or None, optional
-            Refused; this path is scalar.
         taper_coupling : bool, optional
             Carry the taper coupling of a supplied capillary set on a varying radius, as
             :meth:`~solprop.driver.simulation.Simulation.from_capillary` does; ``False``

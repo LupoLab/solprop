@@ -96,8 +96,11 @@ at the interface: `loss_db_per_m` is in decibels per metre, as a data sheet quot
 and is converted by {py:func}`~solprop.nonlinear.gnlse.attenuation_from_db`. (Pressures,
 on the gas-filled routes below, are in bar.)
 
-The step control is reached through `rtol`, `atol`, `dz_init` and `dz_max` on every
-entry point. Unless told otherwise, `prop_gnlse` steps with `RungeKutta()` at `rtol=1e-7`
+The step control is reached through `rtol`, `atol`, `dz_init` and `dz_max` on the
+keyword entry points, `prop_gnlse`, `prop_capillary` and `prop_waveguide`; `prop_free`
+and `prop_planar` take the same controls in their
+{py:class}`~solprop.driver.settings.SimulationSettings` (its `controller`, `dz_init` and
+`dz_max`). Unless told otherwise, `prop_gnlse` steps with `RungeKutta()` at `rtol=1e-7`
 and `atol=1e-14` (in √W), `prop_capillary` with `Multistep()` at `1e-6` and `1e-10`, and
 `prop_waveguide` with `RungeKutta()` at `1e-5` and `1e-10`. Each interface takes the
 integrator SEP 37 measured fastest at matched accuracy on its benchmark cases, except
@@ -105,7 +108,8 @@ the capillary, which keeps the Adams method by the maintainer's decision, and th
 loosest tolerance that passed SEP 37's convergence test with it
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)). The first trial step is
 `length * 1e-4` and the longest allowed is half the fibre unless `dz_init` and `dz_max`
-say otherwise. These are starting points: the error a local tolerance buys at the output
+say otherwise; settings that leave `dz_init` or `dz_max` as `None` take the same
+fractions of `grid.length` on every route. These are starting points: the error a local tolerance buys at the output
 depends on the problem, so calibrate it ([the solver](../numerics/solver.md#achieved-versus-requested)).
 A `schedule=` replaces the adaptive stepping by a fixed schedule
 ([fixed schedules](../numerics/fixed-schedules.md#fixed-schedules-discover-calibrate-replay)).
@@ -136,7 +140,10 @@ for two-colour and multi-colour inputs, on every keyword entry point of this pag
 
 Every run marches from its entrance, `initial_z` (zero unless an interior launch sets
 it), to its length, and always records both. The length is stated once. On a keyword
-route it is `length`, or the length of a `grid=` passed instead; given both, they must
+route it is `length`, or the length of a `grid=` passed instead. `length` is the
+positional argument after the fibre or guide and is always passed, as `None` when a grid
+supplies it: `prop_capillary(radius, None, "Ar", 1.0, grid=grid, ...)`, as
+`prop_gnlse(None, ...)` passes `None` for `gamma` beside `n2`. Given both, they must
 agree to within the marches' landing slack of eight ulps
 ({py:data}`~solprop.stepper.schedule.LANDING_ULPS`), and the grid's is then used, while
 a disagreement is refused naming both values, as is a call with neither. On
@@ -478,7 +485,12 @@ simulation are the same run and must digest alike.
 {py:meth}`~solprop.driver.simulation.Simulation.with_input` and
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` derive a new simulation
 with another input pulse or another fill while sharing what translation built
-([scans](../workflows/scans.md#reuse-a-translated-simulation)).
+([scans](../workflows/scans.md#reuse-a-translated-simulation)). They are the way to
+change what a simulation is built from: its `grid`, `modes`, `responses`, `initial`,
+`initial_z`, `noise`, `profiles`, `configuration`, `frame` and the rest are read-only,
+because the input was built, and the record is derived, from them when it was
+constructed. Assigning one raises `AttributeError`, naming these methods; only
+`settings` may be replaced, before the first translation.
 
 `SimulationSettings.fields` and `field_planes` choose which saved planes keep their
 field — every one by default, the named ones, or none for a run wanted as statistics

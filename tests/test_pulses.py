@@ -120,7 +120,7 @@ def test_the_requested_peak_power_is_realised_exactly(grid_name, request):
 def test_the_peak_power_is_taken_after_the_spectral_phase(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     chirped = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9, phase=(0.0, 0.0, 2e-27)
+        wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9, phases=(0.0, 0.0, 2e-27)
     )
     flat = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, peak_power=3e9)
     chirped_energy = fourier.energy_omega(
@@ -140,7 +140,7 @@ def test_a_spectral_phase_does_not_change_the_energy(grid_name, request):
         wavelength=WAVELENGTH,
         fwhm=FWHM,
         energy=ENERGY,
-        phase=(1.1, 5e-15, 3e-27, 1e-41),
+        phases=(1.1, 5e-15, 3e-27, 1e-41),
         t0=100e-15,
     )
     for pulse in (plain, phased):
@@ -313,7 +313,7 @@ def test_a_positive_delay_moves_the_pulse_later(t0, grid_name, request):
 def test_a_group_delay_coefficient_moves_the_pulse_later(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 120e-15)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 120e-15)
     ).build(grid)[0, 0]
     # The first-order Taylor coefficient is the group delay, so it must act exactly as
     # t0 does; that is what makes the two ways of writing a delay interchangeable.
@@ -325,7 +325,7 @@ def test_a_positive_gdd_chirps_the_pulse_positively(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     gdd = 2e-27
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, gdd)
     ).build(grid)[0, 0]
     signal = analytic(spectrum, grid)
     power = np.abs(signal) ** 2
@@ -334,7 +334,7 @@ def test_a_positive_gdd_chirps_the_pulse_positively(grid_name, request):
     slope = np.polyfit(grid.t[keep], instantaneous[keep], 1, w=np.sqrt(power[keep]))[0]
     assert slope > 0.0
     with_negative = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, -gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, -gdd)
     ).build(grid)[0, 0]
     mirror = analytic(with_negative, grid)
     mirror_power = np.abs(mirror) ** 2
@@ -355,7 +355,7 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     gdd = 2e-27
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.0, 0.0, gdd)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.0, 0.0, gdd)
     ).build(grid)[0, 0]
     optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
     band = np.abs(spectrum) > 0.05 * np.abs(spectrum).max()
@@ -373,7 +373,7 @@ def test_a_taylor_phase_gives_the_group_delay_it_asks_for(grid_name, request):
 def test_the_spectrum_helpers_round_trip_a_built_pulse(grid_name, request):
     grid = request.getfixturevalue(grid_name)
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.3, 0.0, 1e-27)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.3, 0.0, 1e-27)
     ).build(grid)[0, 0]
     optics = fourier.spectrum_to_optics(spectrum, kind=grid.kind)
     # Conjugation and a multiplication by +-1 are exact: a structural contract.
@@ -387,7 +387,7 @@ def test_the_carrier_envelope_phase_is_the_zeroth_taylor_coefficient(field_grid)
         field_grid
     )[0, 0]
     shifted = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phase=(0.5 * np.pi,)
+        wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, phases=(0.5 * np.pi,)
     ).build(field_grid)[0, 0]
     band = np.abs(plain) > 0.05 * np.abs(plain).max()
     difference = np.angle(
@@ -867,7 +867,7 @@ def test_a_time_record_expands_its_further_phase_about_the_wavelength_given(
     t = np.linspace(-100e-15, 100e-15, 2048)
     record = gaussians_on_a_carrier(t, ((0.0, 1.0),))
     pulse = TimeDataPulse(
-        t=t, field=record, energy=ENERGY, phase=(0.0, 30e-15), wavelength=900e-9
+        t=t, field=record, energy=ENERGY, phases=(0.0, 30e-15), wavelength=900e-9
     )
     assert_allclose(pulse.reference_wavelength, 900e-9, rtol=1e-15, atol=0.0)
     # A pure first-order phase is a delay, wherever it is expanded.
@@ -1035,7 +1035,7 @@ def test_a_broadband_cw_field_is_wider_than_a_monochromatic_one(envelope_grid):
         ({"wavelength": -800e-9}, "wavelength must be finite and positive"),
         ({"fwhm": -30e-15}, "fwhm must be finite and positive"),
         ({"m": 0}, "m must be a super-Gaussian order"),
-        ({"phase": (1.0, math.inf)}, "phase coefficient must be finite"),
+        ({"phases": (1.0, math.inf)}, "phase coefficient must be finite"),
     ],
 )
 def test_gaussian_pulse_validation_rejects_bad_settings(overrides, message):
@@ -1279,7 +1279,7 @@ def test_energy_and_arrival_hold_for_any_pulse(fwhm, energy, gdd, t0, kind):
         else EnvelopeGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE)
     )
     spectrum = GaussianPulse(
-        wavelength=WAVELENGTH, fwhm=fwhm, energy=energy, phase=(0.0, 0.0, gdd), t0=t0
+        wavelength=WAVELENGTH, fwhm=fwhm, energy=energy, phases=(0.0, 0.0, gdd), t0=t0
     ).build(grid)[0, 0]
     realised = fourier.energy_omega(spectrum, grid.dt, kind=grid.kind)
     assert_allclose(realised, energy, rtol=1e-12, atol=0.0)

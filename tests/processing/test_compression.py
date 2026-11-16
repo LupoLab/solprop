@@ -43,7 +43,7 @@ def as_optics(grid, stored):
 
 def gaussian(kind="envelope", phase=(), wavelength=WAVELENGTH, energy=1e-6, fwhm=FWHM):
     grid = example_grid(kind)
-    pulse = GaussianPulse(wavelength=wavelength, fwhm=fwhm, energy=energy, phase=phase)
+    pulse = GaussianPulse(wavelength=wavelength, fwhm=fwhm, energy=energy, phases=phase)
     return grid, pulse.build(grid)
 
 

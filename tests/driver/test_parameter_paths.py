@@ -260,13 +260,6 @@ REFUSALS = [
         id="capillary-raman-kerr",
     ),
     pytest.param(
-        lambda: _hollow(polarisation="x"),
-        DriverError,
-        "polarisation",
-        "this path is scalar",
-        id="capillary-polarisation",
-    ),
-    pytest.param(
         lambda: _hollow(modes=0),
         DriverError,
         "modes",

@@ -214,7 +214,7 @@ _PULSE_UNITS: Final[Mapping[str, UnitSpec]] = {
     "wavelength": "m",
     "energy": "J",
     "peak_power": "W",
-    "phase": phase_unit,
+    "phases": phase_unit,
     "t0": "s",
     "fwhm": "s",
     "width": "s",

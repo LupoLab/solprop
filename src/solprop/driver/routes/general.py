@@ -329,7 +329,6 @@ GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
     "n_theta": None,
     "radial_rule": "gauss_kronrod",
     "ionisation_field_range": None,
-    "polarisation": None,
     "envelope": False,
     "node_budget": None,
     "taper_coupling": True,
@@ -372,9 +371,6 @@ _GAS_KEYWORD_REASONS: Mapping[str, str] = {
     "taper_coupling": "a guide that moves along z carries its own connection in the "
     "general route's flow; the opt-out is the capillary route's",
     "ionisation_field_range": "a general guide carries no ionisation table",
-    "polarisation": "a general guide puts every physical channel, including each "
-    "parity partner, in its own row; launch into them by name with channel=, or "
-    "build the launch yourself and pass it to Simulation.with_input",
     "envelope": "the general route synthesises an analytic field from a "
     "carrier-resolved spectrum and propagates on a field grid",
     "node_budget": "the general route sizes its node chunk from its own memory "

@@ -549,13 +549,6 @@ _RULES: Final = (
         _CAPILLARY,
         "gas given as a Mixture, a fraction mapping or air",
     ),
-    Rule(
-        "scalar-capillary-polarisation",
-        ("polarisation",),
-        "The capillary route is scalar and propagates one transverse component "
-        "per mode; the polarisation is declared in the modes.",
-        _CAPILLARY,
-    ),
     # The capillary route: the guide and its modes.
     Rule(
         "lattice-builds-modes",

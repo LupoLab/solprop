@@ -10,10 +10,12 @@ the noise realisation and the numerical settings from keywords, hands them to
 handler it wrote. :func:`prop_capillary` and :func:`prop_waveguide` do the same for a
 gas-filled capillary and for any other modal waveguide.
 
-The step controls ``rtol``, ``atol``, ``dz_init`` and ``dz_max`` are keywords of every
-interface. ``raman`` defaults to false, and the whole of ``gamma`` then acts as Kerr;
-the Raman share is taken from ``gamma`` only when the Raman response is on. What a run
-was asked for is recorded as structured metadata.
+The step controls ``rtol``, ``atol``, ``dz_init`` and ``dz_max`` are keywords of
+:func:`prop_gnlse`, :func:`prop_capillary` and :func:`prop_waveguide`; :func:`prop_free`
+and :func:`prop_planar` take them in their ``settings``, whose steps default to the same
+fractions of the length. ``raman`` defaults to false, and the whole of ``gamma`` then
+acts as Kerr; the Raman share is taken from ``gamma`` only when the Raman response is
+on. What a run was asked for is recorded as structured metadata.
 
 The manual page is ``docs/guide/setup/running.md``.
 """
@@ -275,7 +277,7 @@ def prop_planar(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_gnlse)
 def prop_gnlse(  # numpydoc ignore=PR01
     gamma: float | None,
-    length: float | None = None,
+    length: float | None,
     betas: Sequence[float] | np.ndarray | None = None,
     *,
     wavelength: float,
@@ -388,8 +390,8 @@ def prop_gnlse(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_capillary)
 def prop_capillary(  # numpydoc ignore=PR01
     radius: float | ZProfile,
-    length: float | None = None,
-    gas: Gas | str | Mapping[str, float] | Mixture | None = None,
+    length: float | None,
+    gas: Gas | str | Mapping[str, float] | Mixture,
     pressure: Pressure | None = None,
     *,
     pressure_floor: float | None = None,
@@ -446,7 +448,6 @@ def prop_capillary(  # numpydoc ignore=PR01
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    polarisation: str | float | None = None,
     materials: MaterialSelection | None = None,
     tdse: TDSEGasResponse | None = None,
     tdse_execution: TDSEExecution | None = None,
@@ -475,7 +476,8 @@ def prop_capillary(  # numpydoc ignore=PR01
 
     The step control is reached through `rtol`, `atol`, `dz_max` and `dz_init`, and
     the default step caps are relative to the capillary length rather than absolute.
-    The path is scalar: `polarisation` and the vector route are refused by name.
+    The path is scalar: a mode row carries one transverse component, and the
+    polarisation is declared in the modes.
 
     Its keywords are :meth:`~solprop.driver.simulation.Simulation.from_capillary`'s,
     then the run controls of :meth:`~solprop.driver.simulation.Simulation.run`.
@@ -529,7 +531,7 @@ def prop_capillary(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_waveguide)
 def prop_waveguide(  # numpydoc ignore=PR01
     modes: Sequence[Mode],
-    length: float | None = None,
+    length: float | None,
     gas: Gas | str | Mapping[str, float] | Mixture | None = None,
     pressure: Pressure | None = None,
     *,
@@ -587,7 +589,6 @@ def prop_waveguide(  # numpydoc ignore=PR01
     polarisation_taper: bool = False,
     node_budget: int | None = None,
     backend: str = "auto",
-    polarisation: str | float | None = None,
     taper_coupling: bool = True,
     materials: MaterialSelection | None = None,
     output: Output | Path | str | None = None,

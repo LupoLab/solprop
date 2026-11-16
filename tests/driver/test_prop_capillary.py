@@ -619,7 +619,6 @@ BUILD_REFUSALS = [
         DriverError,
         "needs kerr=True",
     ),
-    (build, {"polarisation": "circular"}, DriverError, "this path is scalar"),
     (
         build,
         {"envelope": True, "plasma": True, "thg": True},
@@ -2957,7 +2956,7 @@ def ctc_run(
                     )
                     updated_response = replace(response, tensor_terms=terms)
                 responses.append(updated_response)
-            simulation.responses = tuple(responses)
+            simulation._responses = tuple(responses)
         return simulation.run()
 
 

@@ -473,9 +473,11 @@ def _shared(route: str) -> tuple[Parameter, ...]:
             (_POSITIVE_LENGTH,),
             "geometry",
             "basic",
-            "Propagation length, the run's end; optional beside a grid.",
+            "Propagation length, the run's end; none, or left out, beside a grid, "
+            "which supplies it.",
             "guide/setup/running.md#one-call",
             display="m",
+            none=True,
         ),
         Parameter(
             "wavelength",
@@ -1138,14 +1140,6 @@ def _capillary() -> tuple[Parameter, ...]:
             "guide/performance/resources.md",
         ),
         Parameter(
-            "polarisation",
-            (Form("string"), Form("number")),
-            "input",
-            "advanced",
-            "Refused: the capillary route is scalar.",
-            "guide/setup/polarisation.md",
-        ),
-        Parameter(
             "tdse",
             (Form("object", types=("TDSEGasResponse",), recipe=False),),
             "nonlinear",
@@ -1267,14 +1261,6 @@ def _waveguide() -> tuple[Parameter, ...]:
             "advanced",
             "Azimuthal nodes, or the y-axis nodes of a Cartesian rule.",
             rule,
-        ),
-        Parameter(
-            "polarisation",
-            (Form("string"), Form("number")),
-            "input",
-            "advanced",
-            "Refused: the waveguide route is scalar.",
-            "guide/setup/polarisation.md",
         ),
         Parameter(
             "step_planes",
@@ -1609,7 +1595,7 @@ def _pulse(*extra: Row) -> tuple[Parameter, ...]:
             display="GW",
         ),
         _keyword(
-            "phase",
+            "phases",
             Form("array", elements="phases"),
             "advanced",
             "Taylor coefficients of the spectral phase about the centre wavelength.",
@@ -1823,7 +1809,7 @@ def _beam(*extra: Row) -> tuple[Parameter, ...]:
             "The 1/e^2 intensity radius.",
             display="um",
         ),
-        _keyword("order", _integer(1), "advanced", "Super-Gaussian order, at least 1."),
+        _keyword("m", _integer(1), "advanced", "Super-Gaussian order, at least 1."),
         _keyword(
             "propz",
             _POSITION,

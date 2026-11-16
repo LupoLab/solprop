@@ -190,8 +190,12 @@ class StopRequested(BaseException):
         self.flag = flag
 
 
-class DriverError(SolpropError, RuntimeError):
-    """A run was asked for something the driver cannot execute."""
+class DriverError(SolpropError, ValueError):
+    """A run was asked for something the driver cannot execute.
+
+    Almost always a refused argument or combination of arguments, so it is a
+    ``ValueError``, as the grid, pulse and noise errors are.
+    """
 
 
 class BoundaryError(SolpropError, RuntimeError):
