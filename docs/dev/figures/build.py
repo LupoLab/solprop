@@ -582,7 +582,7 @@ PACKAGE_WIDE = (
     Module("exceptions.py"),
     Module("log.py"),
 )
-"""The public modules beneath every layer (`architecture.md` section 3), with no letter."""
+"""The public modules beneath every layer (`architecture.md` section 3): no letter."""
 
 MODULES = {
     "P": (

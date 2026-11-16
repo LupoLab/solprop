@@ -33,4 +33,4 @@ headroom_lines = 50
 # module of a subpackage, or a private module itself (`from solprop import _process`).
 # Public names from the root's private modules (`from solprop._process import ...`) are
 # shared by design and do not count.
-max_cross_package = 87
+max_cross_package = 75
