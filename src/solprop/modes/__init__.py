@@ -2,14 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Waveguide modes.
+"""Waveguide modes: the protocol, the mode families, and the machinery behind them.
 
-The mode protocol and the modes a run is built from -- capillary, antiresonant,
-rectangular, planar, step-index, graded-index and tabulated -- with mode collections,
-the general modal guide, and the derived quantities of any mode
-(:mod:`solprop.modes.base`: ``beta2``, ``zdw``, ``aeff``, ``db_per_m``, ...). The
-numerical machinery behind them (wall operators, connections, quadrature rules) is
-imported from its own submodule.
+This namespace re-exports the names a run is built from; the rest is imported from
+its submodule.
+
+- Protocol and derived quantities: :mod:`~solprop.modes.protocol` (:class:`Mode`),
+  :mod:`~solprop.modes.base` (``beta1``, ``beta2``, ``zdw``, ``aeff``, ...).
+- Mode families: :mod:`~solprop.modes.capillary` (Marcatili, sharing
+  :mod:`~solprop.modes.fill`), :mod:`~solprop.modes.antiresonant`,
+  :mod:`~solprop.modes.rectangular`, :mod:`~solprop.modes.slab` (planar),
+  :mod:`~solprop.modes.stepindex`, :mod:`~solprop.modes.tabulated`.
+- Mode sets and quadrature: :mod:`~solprop.modes.collection`,
+  :mod:`~solprop.modes.quadrature`; the capillary's coherent wall,
+  :mod:`~solprop.modes.wall`.
+- General modal guides: :mod:`~solprop.modes.vector` (the provider records),
+  :mod:`~solprop.modes.material` (region laws and responses), the providers
+  :mod:`~solprop.modes.stepindex_vector` and :mod:`~solprop.modes.graded_index`,
+  their sampling in :mod:`~solprop.modes.tables` and, along a moving geometry,
+  :mod:`~solprop.modes.path`, the moving-basis :mod:`~solprop.modes.connection`, and
+  the guide itself, :mod:`~solprop.modes.guide`.
 """
 
 from solprop.modes.antiresonant import (

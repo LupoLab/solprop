@@ -2,55 +2,25 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Sample a guide whose geometry moves along z, section by section, in its own gauge.
+"""Sample a guide whose geometry moves along z, section by section, in its own gauge.
 
-A capillary's modes are ``J_0(u r/a)/a``, a pure
-function of ``r/a``, so a tapered capillary's whole transform is its entrance transform
-times one scalar. A **solid** guide's modes change *shape* along a taper -- a
-step-index or graded-index mode moves with its normalised frequency -- so the general
-route's synthesis ``S`` and projection ``Q`` move with z and every nonlinear overlap
-follows them. This module is where that motion is sampled:
-:func:`path_sections` cuts the path at its kinks, :func:`path_rule` and
-:func:`path_snapshot` solve one position on the provider's own rule and gauge, and
-:func:`sample_modal_path` raises the degree until the expansion reproduces held-out
-solves, returning a :class:`ModalPathTable`. What a run reads of it -- the seam
-record's maps and connections expanded along z -- is built in
-:mod:`solprop.translate.modal_path`.
+A solid guide's modes change *shape* along a taper, so the general route's synthesis
+``S`` and projection ``Q`` move with z; this module samples that motion.
+:func:`path_sections` cuts the path at its declared kinks; :func:`path_rule` and
+:func:`path_snapshot` solve one position on the provider's own rule there and in its
+own gauge; :func:`sample_modal_path` doubles the Chebyshev-Lobatto degree per section
+(from :data:`INITIAL_PATH_DEGREE` to :data:`MAX_PATH_DEGREE`) until the expansion
+reproduces held-out solves, returning a :class:`ModalPathTable`. What a run reads of it
+is built in :mod:`solprop.translate.modal_path`.
 
-**The node rule moves with the geometry.** Each sampled position is solved on the
-provider's **own** rule at that position, asked for at one fixed frequency and one
-fixed resolution (:func:`path_rule`): its panel edges sit on the material interfaces
-*there*, so every solve is integrated exactly (a rule whose panel edge has left a
-moving interface is wrong at first order in the displacement). Node ``q``
-of the rule at ``z`` is a point ``x_q(z)`` that moves smoothly with the interfaces, and
-its material region does not change, so the field a map stores at node ``q`` is a
-smooth function of z inside a section and the per-node region index the seam carries
-is the same at every position. That is what lets the maps be expanded along z at all:
-on a rule frozen at one position a node the interface sweeps over changes material
-half way along, and the field there has a kink or a jump in z that no expansion in z
-resolves. The connection's derivative is a different quantity -- the Eulerian
-``<psi_m | d_z psi_n>`` at fixed transverse position -- and it keeps the union-split
-rule of :func:`solprop.modes.connection.connection_nodes`, which is exactly what that
-derivative needs; the two rules describe the same physical modes and differ only in
-where they integrate them.
-
-**The sampling is per section, at the Chebyshev-Lobatto points of a degree the
-tables' own accuracy check demands.** The sections are the provider's declared
-kink intervals, optionally subdivided (:func:`path_sections`); a section never spans a
-kink, so everything sampled inside it is smooth. The degree is doubled until the
-expansion reproduces a **fresh** solve at the positions the doubling adds -- the
-held-out points -- to within the budget, which by default is the frequency
-interpolation's own measured error, so that sampling in z is never the coarser of the
-two (:func:`sample_modal_path`).
-
-**The gauge is the provider's own.** Each position is solved and kept in the gauge the
-provider returns, with no tracking alignment, because the connection
-(:func:`solprop.modes.connection.band_connection`) is measured in that gauge: its
-stencil is aligned to the provider's own centre solve. A provider whose own gauge is
-not continuous along the path -- a sign that flips between two positions or two
-frequencies, a phase that drifts -- would put a gauge connection in the maps that the
-measured connection does not carry, so it is refused by name
-(:func:`path_snapshot`).
+Two invariants. The node rule **moves with the geometry**, so node ``q`` stays in one
+material region and a map stored there is smooth in z; the connection's Eulerian
+derivative keeps the union-split rule of
+:func:`solprop.modes.connection.connection_nodes` instead. The gauge is **the
+provider's own**, because the connection is measured in it, so a provider whose gauge
+is discontinuous along the path is refused (:data:`GAUGE_PHASE_ATOL`). The full account
+is ``docs/guide/waveguides/moving-modal.md``, section "A guide whose geometry moves
+along z".
 """
 
 import itertools

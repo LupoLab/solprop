@@ -38,7 +38,10 @@ and with $dc/dz = -\Gamma c$ the flux norm obeys $d(c^{\mathsf H}Wc)/dz = 0$ exa
 **the connection alone moves no power**. For an orthogonal basis with diagonal $W$, the real diagonal part is
 $\operatorname{Re}\Gamma_{nn}=W'_{nn}/(2W_{nn})$, reducing to
 $\tfrac12 W'_{nn}$ where $W_{nn}=1$. It describes the change of power
-normalisation. The imaginary part describes the gauge's phase rate. For a
+normalisation. The imaginary part describes the gauge's phase rate, a geometric (Berry)
+connection that vanishes only in a gauge that parallel-transports the phase;
+{py:func}`~solprop.modes.tables.align_modal_sample` approximates that gauge to first order
+by making each knot's overlap with the previous one real and positive. For a
 dense metric, use the full matrix identity rather than this scalar formula. Neither is zero in general. Zeroing the diagonal, as
 the capillary's closed form correctly does for *its* basis, breaks the identity; for diagonal $W$ the resulting norm defect is
 $\sum_n|c_n|^2W'_{nn}$, which is why that formula is **not** transplanted to a
@@ -56,7 +59,9 @@ link.antisymmetry  # the certificate, in 1/m
 ```
 
 $\partial_z\boldsymbol\psi_n$ is a three-point Lagrange derivative of the provider's
-own solves, tracked into one gauge, on **one shared node set whose panels are split at
+own solves, tracked into one gauge, with a step
+({py:data}`~solprop.modes.connection.STEP_FRACTION`) that balances the difference's
+truncation, falling as $h^2$, against its round-off, growing as $1/h$, on **one shared node set whose panels are split at
 the union of every stencil position's declared edges**. That is not a detail. A rule
 built at one position and reused at another leaves its panel edge off the moving
 interface, and a Poynting integrand with a jump there is then integrated by a Gauss rule

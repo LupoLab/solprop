@@ -5,27 +5,21 @@
 r"""Derived quantities of any mode: beta, alpha, group delay, dispersion, ZDW.
 
 Everything here is a function of a :class:`~solprop.modes.protocol.Mode`, not a method
-on one, so a new mode family gets them for nothing. The conversions are the package's
+on one, so a new mode family gets them for nothing: the propagation constant and
+power loss (:func:`beta`, :func:`alpha`, :func:`loss_length`, :func:`db_per_m`,
+:func:`transmission`), the dispersion orders (:func:`beta1`, :func:`beta2`,
+:func:`beta3`), the zero-dispersion wavelength (:func:`zdw`, which brackets its root)
+and the effective area (:func:`aeff`). The conversions are the package's
 (``docs/dev/conventions.md`` section 2):
+:math:`\beta = (\omega/c)\,\mathrm{Re}\,n_{\rm eff}` and
+:math:`\alpha = (2\omega/c)\,\mathrm{Im}\,n_{\rm eff}`, so a positive imaginary
+index is loss and ``alpha`` is a power loss coefficient per metre.
 
-.. math::
-   \beta = \frac{\omega}{c}\,\mathrm{Re}\,n_{\rm eff},\qquad
-   \alpha = \frac{2\omega}{c}\,\mathrm{Im}\,n_{\rm eff},
-
-so a positive imaginary part of the effective index is loss and ``alpha`` is a power
-loss coefficient per metre.
-
-:func:`beta1` is the group delay per unit length that the co-moving frame rides on. It
-is **analytic**, straight from the mode's ``dneff_domega``: differencing ``beta`` with a
-seven-point stencil every stage would cost about seven index evaluations and leave 1e-10
-of roughness that floors the whole cumulative operator at 1e-8 (``docs/dev/stepper.md``
-section 5).
-
-:func:`beta2` is one step further. The second derivative of a gas susceptibility is not
-part of the material interface, so it is a Richardson-extrapolated central difference of
-the *analytic* ``beta1`` -- one derivative differenced instead of two, which is a very
-different thing from differencing ``beta`` itself, and reaches about 1e-10 relative
-rather than 1e-6. :func:`zdw` brackets its root.
+:func:`beta1` is **analytic**, straight from the mode's ``dneff_domega``, because the
+co-moving frame rides on it (``docs/dev/stepper.md`` section 5); :func:`beta2` and
+:func:`beta3` are Richardson differences of that analytic ``beta1``, with steps
+:data:`BETA2_RELATIVE_STEP` and :data:`BETA3_RELATIVE_STEP`. Their accuracy is in
+``docs/guide/waveguides/capillary-model.md``, section "The frequency derivative".
 """
 
 import logging

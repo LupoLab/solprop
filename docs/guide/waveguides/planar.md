@@ -105,6 +105,13 @@ figure compares them across gaps.
    fig.tight_layout()
 ```
 
+References for the model: K. D. Laakmann and W. H. Steier, Applied Optics **15**,
+1334–1340 (1976), [doi:10.1364/AO.15.001334](https://doi.org/10.1364/AO.15.001334);
+M. Miyagi, A. Hongo and S. Kawakami, IEEE J. Quantum Electron. **QE-19**, 136–145
+(1983), [doi:10.1109/JQE.1983.1071837](https://doi.org/10.1109/JQE.1983.1071837);
+C. L. Arnold et al., New J. Phys. **12**, 073015 (2010),
+[doi:10.1088/1367-2630/12/7/073015](https://doi.org/10.1088/1367-2630/12/7/073015).
+
 ## Per unit width
 
 The normalisation and the effective "area" are integrals over x alone,

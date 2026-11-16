@@ -4,69 +4,32 @@
 
 r"""Absorbing boundaries as absorption rates per unit distance.
 
-Both axes of the grid are finite and periodic, so energy that reaches the edge of the
-frequency or the time window does not leave the simulation -- it wraps around, and the
-answer is wrong. The collars of :mod:`solprop.grid` mark where the propagation is
-absorbed instead of modelled; this module turns them into rates.
+The grid's time and frequency windows are periodic, so what reaches an edge wraps
+around; the collars of :mod:`solprop.grid` mark where the field is absorbed instead,
+and this module turns them into **rates**, which (unlike a per-step mask) do not
+depend on how many steps the controller takes.
 
-Multiplying the solution by the collar profile ``W`` once per accepted step would make
-the total absorption ``W^n`` for however many steps the adaptive controller happened to
-take. The answer would then depend on ``rtol``: refining the tolerance sixteen-fold
-erodes the spectral wings fifty-fold, and the limit it approaches is not the taper the
-profile describes but a brick wall at the edge of the flat region. As a rate it is
-exact instead, because traversing a distance attenuates by a factor that depends only on
-the distance. The spectral collar becomes
+- :func:`absorber`, :func:`no_absorber` and :func:`custom_absorber` build an
+  :class:`Absorber`: the spectral rate :math:`\alpha(\omega) = -2\log W/\ell`
+  (:func:`collar_rate`, capped at :data:`MAX_ALPHA_LENGTH`) and the bounded temporal
+  rate :math:`A(1 - W(t))/\ell` (:func:`temporal_collar_rate`,
+  :data:`TEMPORAL_ALPHA_LENGTH`), with ``ell = length / boundary_N`` by default
+  (:data:`DEFAULT_BOUNDARY_N`) and an optional separate collar length or walk-off.
+- The spectral rate is folded into the linear operator. The temporal rate is applied
+  inside every stage (:func:`nonlinear_absorber_term`, bounded by :func:`stable_step`)
+  or as a split factor after each accepted step (:func:`split_step_factor`,
+  :func:`apply_split_step`, with the walk-off step limit of :class:`SplitCrossing`,
+  :func:`split_crossing_step`, :func:`split_rate_buckets` and
+  :func:`split_bucket_rates`). :func:`apply_band_mask` is the idempotent hard band
+  limit, and :func:`warn_walkoff` says when the absorber is too weak for the run.
+- :class:`SpatialAbsorber` and :class:`SpatialAbsorberDesign`, a free-space run's
+  transverse boundary, are re-exported from :mod:`solprop.spatial_absorber`.
 
-.. math::
-
-    \alpha(\omega) = -\frac{2 \log W(\omega)}{\ell},
-
-the rate that reproduces one multiplication by the window over the reference length,
-and the temporal collar becomes the bounded profile
-
-.. math::
-
-    \alpha(t) = \frac{A\,(1 - W(t))}{\ell}, \qquad A = 12.6,
-
-whose integral over the collar is what the capped logarithm gave and whose largest
-value is a fifth of the cap (:data:`TEMPORAL_ALPHA_LENGTH`).
-
-``alpha`` is a **power** coefficient, as everywhere else in solprop: power falls as
-``exp(-alpha z)``, the field as ``exp(-alpha z / 2)``, and the linear operator carries
-``-alpha/2`` (``docs/dev/conventions.md`` section 2). The factor of two in the spectral
-definition is what makes ``exp(-alpha ell / 2) = W`` -- one reference length applies the
-historical profile to the *field* exactly once, which is how the profile was used. The
-reference length is ``ell = length / boundary_N`` by default: apply the window
-``boundary_N`` times over the whole propagation.
-
-The two rates are applied by different mechanisms, each chosen because it is exact
-(see ``docs/dev/decisions.md``):
-
-* ``alpha(omega)`` is diagonal in omega, so it is folded into the linear operator before
-  the cumulative operator is integrated. The propagator then applies it exactly over
-  whatever sub-interval the stepper takes, at no cost.
-* ``alpha(t)`` is diagonal in t and cannot ride the propagator. It is applied as the
-  term ``-alpha(t) E(t) / 2`` inside every stage evaluation
-  (:func:`nonlinear_absorber_term`), the modal routes' default because the
-  alternative -- the split-step factor ``exp(-alpha(t) h / 2)`` after each accepted
-  step (:func:`split_step_factor`), exact for the absorber alone because the factors
-  telescope -- was measured to be a first-order splitting of the whole. The spatial
-  routes default to that factor (:data:`solprop.driver.defaults.ROUTE_DEFAULTS`).
-  Both are here.
-* The hard band limit outside the active mask stays a 0/1 mask
-  (:func:`apply_band_mask`), which is idempotent and never had the problem.
-
-Two lengths set the collars' strengths (SEP 22 section 4.6). ``reference_length``
-sets the spectral rate and the ceiling every spectral rate is validated against;
-``collar_length``, ``reference_length`` unless given, sets the in-stage temporal collar,
-``12.6 (1 - W(t)) / ell_c``, and its ceiling; a free-space run's transverse boundary is
-designed by :class:`SpatialAbsorber` (SEP 40). A custom spectral rate
-(:func:`custom_absorber`) can then be as strong as
-a measurement needs without moving the explicit in-stage collars or their stable step,
-and a temporal collar sized from a run's walk-off (``walkoff`` of :func:`absorber`)
-leaves the spectral rate where it was.
-
-The manual page is ``docs/guide/numerics/boundaries.md``.
+``alpha`` is a **power** coefficient: power falls as ``exp(-alpha z)`` and the linear
+operator carries ``-alpha/2`` (``docs/dev/conventions.md`` section 2), so one reference
+length applies the profile ``W`` to the field exactly once. The rationale, the two
+temporal schemes and the two lengths are in ``docs/guide/numerics/boundaries.md`` and
+``docs/dev/algorithms.md`` section 8.
 """
 
 import logging

@@ -4,11 +4,16 @@
 
 """Solve radial TE/TM Maxwell sectors and a separately labelled LP approximation.
 
-The symmetric variational problem uses continuous linear elements on a declared
-radial domain matched to an exact decaying exterior. Hybrid HE/EH sectors are
-refused: TE/TM evidence cannot
-qualify hybrid GRIN. The exterior material is explicit and the truncation radius
-is refined independently of the radial mesh.
+:class:`GradedIndexProvider` is the graded-index fibre as a
+:class:`~solprop.modes.vector.ModalProvider`: it solves one sector's bound modes by
+the symmetric variational problem with continuous linear elements on a declared radial
+domain, matched to an exact decaying exterior whose material is explicit, refining the
+truncation radius independently of the mesh. Hybrid HE/EH sectors are refused
+(TE/TM evidence cannot qualify hybrid GRIN), and a channel with more than
+:data:`MAX_EXTERIOR_TAIL_FRACTION` of its power beyond the matching radius is refused
+by name rather than masked. The core law is a :class:`RadialPermittivity`;
+:class:`PowerLawPermittivity` is the finite power-law profile. The manual page is
+``docs/guide/waveguides/graded-index.md``.
 """
 
 import json

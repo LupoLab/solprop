@@ -7,7 +7,8 @@
 The vector E/H fields of a :class:`~solprop.modes.stepindex.StepIndexMode` follow
 analytically from its existing eigenvalue roots: Bessel ``J`` in the core and scaled
 ``K`` in the cladding, normalised by an independent full-domain power integral
-(:meth:`~solprop.modes.stepindex.StepIndexMode.vector_field` reads them from here).
+(:meth:`~solprop.modes.stepindex.StepIndexMode.electromagnetic_field` reads them
+from here).
 :class:`StepIndexProvider` packages a set of those modes, with the material regions
 they are solved in (agreeing to :data:`MATERIAL_AGREEMENT_RTOL`), as a
 :class:`~solprop.modes.vector.ModalProvider` the general modal route samples

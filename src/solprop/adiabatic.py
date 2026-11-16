@@ -4,66 +4,28 @@
 
 r"""Certify adiabatic forward transport through a real index that varies along z.
 
-A radial or Cartesian spectral column propagates along z with the real
-longitudinal wave number :math:`q(z) = \operatorname{Re}k_z =
-\sqrt{k(\omega, z)^2 - k_\perp^2}`. The forward-only model keeps the exact forward
-directional amplitude and drops its coupling to the backward one. For a positive
-real q of bounded variation over the run path, constant outside it, the exact
-scalar problem bounds what that drops (SEP 34, section 4.5): with
+A radial or Cartesian spectral column propagates with the real longitudinal wave number
+:math:`q(z) = \operatorname{Re}k_z`, and the forward-only model drops its coupling to
+the backward wave. For a positive real q of bounded variation over the run path, the
+exact scalar problem bounds what that drops (SEP 34, section 4.5): with
+:math:`\Lambda = \tfrac12\operatorname{TV}(\ln q)`, kinks and declared jumps alike, the
+reflected power is at most :math:`R_* = \tanh^2\Lambda` (:func:`reflection_bound`) and
+the relative error of the retained forward field at most
+:math:`\delta_* = \operatorname{expm1}(\Lambda\tanh\Lambda)`
+(:func:`field_error_bound`). The bound is for the linear background problem only.
 
-.. math:: \Lambda = \tfrac12\operatorname{TV}_{[z_0, z_1]}(\ln q),
+- :class:`AdiabaticAccuracy` holds the two budgets every propagating column of the
+  active band must meet over the whole path.
+- :func:`certify_wave_path` and :func:`certify_radial_path` certify a path without
+  sampling it: the wave-number square is affine in the number densities, so the
+  variation is enclosed piece by piece from each density's
+  :class:`solprop.profiles.PathVariation`, with the arithmetic error bounded.
+- :class:`AdiabaticAdmission` is the resulting certificate, kept with a run's output as
+  plain values by :func:`admission_record` and read back by
+  :func:`admission_from_record`.
 
-which counts kinks and declared jumps alike, the reflected power is at most
-:math:`R_* = \tanh^2\Lambda` and the relative complex error of the retained
-forward field at most :math:`\delta_* = \operatorname{expm1}(\Lambda\tanh\Lambda)`.
-A monotone path has :math:`\Lambda = \tfrac12|\ln(q_1/q_0)|`, and the abrupt step
-attains :math:`R_*`. The bound is for the linear background problem only: it
-says nothing about the omitted backward field's local interference, nonlinear
-feedback or ionisation.
-
-**Admission.** :class:`AdiabaticAccuracy` holds the two budgets (both
-:math:`10^{-4}` by default). Every propagating column of the active band must
-satisfy :math:`\delta_* \le` ``field_error`` and :math:`R_* \le`
-``reflected_energy`` over the whole path; a column that is propagating at one
-point and not at another (it crosses :math:`q = 0`) refuses, as does a varying
-imaginary index and a custom path without declared variation.
-
-**The enclosure is not sampled.** Every material this module reads has a
-wave-number square affine in its number densities,
-
-.. math:: s(z) = q^2 = (\omega/c)^2\Bigl(\varepsilon(\omega)
-          + \sum_i \rho_i(z)\,\chi_i(\omega)\Bigr) - k_\perp^2,
-
-with :math:`\varepsilon = 1` for a gas or mixture (whose index is
-:math:`\sqrt{1 + \sum_i\rho_i\chi_i}`) and :math:`\varepsilon = n^2` for a glass or
-constant index, which carries no path. Each density path supplies a
-:class:`solprop.profiles.PathVariation`: pieces between knots on which its values
-and variation are enclosed, exactly where it is certified monotone. On the union of
-those pieces:
-
-* where every density is monotone and every term :math:`\chi_i\,\Delta\rho_i`
-  moves one way, s is monotone, so :math:`\ln q` is too and its variation is the
-  endpoint difference :math:`|\tfrac12\ln(s_1/s_0)|`, evaluated as
-  ``log1p`` of the exactly formed difference over s: exact, and attained;
-* otherwise :math:`\operatorname{TV}\ln q \le \sum_i|b_i|\operatorname{TV}\rho_i
-  / (2 s_{\min})` with :math:`b_i = (\omega/c)^2\operatorname{Re}\chi_i` and
-  :math:`s_{\min}` the minimum of the affine s over the box of density ranges,
-  reached at a corner;
-* a declared jump adds its own one-sided :math:`|\Delta\ln q|`.
-
-Positivity follows from the same quantities: s is positive on a monotone piece
-when it is at both ends, and on a box when it is at the lowest corner. The
-arithmetic is bounded by a relative margin on each term: a few unit roundoffs for
-forming the difference and the ratio, plus the conditioning
-:math:`4u\,S/s_{\min}` of a square whose terms of magnitude S cancel towards
-cutoff, amplified by the ``log1p`` condition number. The certificate is of the
-represented path, the function the profile evaluates; how well that represents a
-physical medium (an equation-of-state table, a measured profile) is a separate
-envelope.
-
-A certificate, :class:`AdiabaticAdmission`, is kept with a run's output as plain
-values: :func:`admission_record` writes it and :func:`admission_from_record` reads it
-back.
+The bound, the refusals and the enclosure are in ``docs/guide/free-space/flux.md``,
+section "The adiabatic certificate".
 """
 
 import itertools
@@ -482,7 +444,7 @@ def certify_wave_path(  # noqa: PLR0917 - the affine model's arrays and the run 
 
     The longitudinal square of every column is
     :math:`s = (\omega/c)^2(\varepsilon + \sum_i\rho_i(z)\chi_i) - k_\perp^2`
-    (the module docstring gives the enclosure).
+    (``docs/guide/free-space/flux.md`` gives the enclosure).
 
     Parameters
     ----------

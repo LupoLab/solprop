@@ -2,55 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Marcatili modes of a gas-filled hollow capillary, with analytic derivatives.
+"""Marcatili modes of a gas-filled hollow capillary, with analytic derivatives.
 
-The model is Marcatili and Schmeltzer's (*Bell Syst. Tech. J.* **43**, 1783-1809, 1964)
-asymptotic expansion for a hollow dielectric waveguide whose core radius is large
-compared with the wavelength. With :math:`k = \omega/c`, :math:`u_{nm}` the Bessel zero
-of the mode, :math:`\varepsilon_{\rm co}` the core permittivity and :math:`v_n` the
-cladding term,
+:class:`MarcatiliMode` is Marcatili and Schmeltzer's asymptotic mode of a hollow
+dielectric tube much wider than the wavelength (*Bell Syst. Tech. J.* **43**,
+1783-1809, 1964), in the ``"full"`` and ``"reduced"`` models (:data:`MarcatiliModel`)
+and the HE, TE and TM families (:data:`ModeKind`). It forms ``n_eff - 1`` directly
+rather than through unity, and differentiates both models in closed form in frequency
+and along z. Position reaches the index only through the core radius ``a(z)`` and the
+number density ``rho(z)``, so everything frequency-dependent is a
+:class:`MarcatiliTerms`, sampled once (``sampled_terms``) and evaluated per position
+(``neff_from_terms``); :func:`shared_sampling` lets a translation reading the same
+modes at many z share that sampling. :func:`bessel_zero`,
+:func:`cladding_term_and_derivative` and :func:`core_susceptibility_at` are the
+model's ingredients.
 
-.. math::
-   n_{\rm eff} = \sqrt{\varepsilon_{\rm co}
-   - \left(\frac{u_{nm}}{ka}\right)^2\left(1 - \frac{i v_n}{ka}\right)^2}
-
-is the ``"full"`` model, and expanding it to leading order in :math:`1/(ka)` gives the
-``"reduced"`` one,
-
-.. math::
-   n_{\rm eff} = 1 + \frac{\varepsilon_{\rm co} - 1}{2}
-   - \frac{c^2u_{nm}^2}{2\omega^2a^2}
-   + i\,\frac{c^3u_{nm}^2v_n}{a^3\omega^3}.
-
-A positive imaginary part is loss (``docs/dev/conventions.md`` section 5), so the
-reduced model's loss term enters with a **plus** sign. Getting that backwards turns
-loss into gain silently, so there is one arithmetic kernel here and a test that asserts
-loss is loss.
-
-Three properties of this implementation matter.
-
-**Analytic frequency derivatives.** :meth:`MarcatiliMode.dneff_domega` differentiates
-both models in closed form, chaining through the analytic derivative of the gas
-susceptibility and of the cladding index. Recomputing ``beta_1`` every stage with a
-seven-point finite-difference stencil instead would cost about seven full index
-evaluations carrying 1e-10 of noise, which floors the cumulative operator at 1e-8 (see
-``docs/dev/decisions.md``).
-
-**No round trip through unity.** :meth:`MarcatiliMode.neff_minus_one` forms
-``n_eff - 1`` directly -- ``x/(sqrt(1 + x) + 1)`` for the full model, term by term for
-the reduced one -- rather than building ``1 + chi/2`` and subtracting one, which loses
-about eight digits at the 1e-4 susceptibility of a gas fill.
-
-**A factorisation the translation layer can use.** ``z`` enters only through the core
-radius ``a(z)`` and the number density ``rho(z)``; everything frequency-dependent is
-:class:`MarcatiliTerms`, sampled once. :meth:`MarcatiliMode.sampled_terms` and
-:meth:`MarcatiliMode.neff_from_terms` expose that split, so the Chebyshev builder can
-evaluate the operator at many ``z`` for two scalars each, and :func:`shared_sampling`
-lets a translation that reads the same modes at many ``z`` sample those terms once.
-
-The manual page is ``docs/guide/waveguides/capillary-model.md``. The coherent wall
-operator built on these modes, which couples them through the outgoing wall
-condition, is :mod:`solprop.modes.wall`.
+A positive imaginary part of ``n_eff`` is loss (``docs/dev/conventions.md`` section
+5), so the reduced model's loss term enters with a **plus** sign; one arithmetic kernel
+serves every path. The model, the rationalised refractivity, the derivatives and the
+factorisation are in ``docs/guide/waveguides/capillary-model.md``; the coherent wall
+operator that couples these modes is :mod:`solprop.modes.wall`.
 """
 
 import logging

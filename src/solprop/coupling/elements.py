@@ -4,36 +4,31 @@
 
 r"""Linear optical elements acting on a spatial field between planes (SEP 31 §4.6).
 
-Each element is a frozen record with an ``apply`` method that takes a
-:class:`SpatialState` -- a radial or Cartesian spectrum with its temporal grid, its
-homogeneous medium and its oriented local frame -- and returns the new state with an
-:class:`ElementReport`. The stored spectrum keeps the layout and units of
-:meth:`solprop.pulses.SpatialPulse.build`: the internal (FFT) temporal convention,
-a raw order-zero Hankel spectrum in V m on a :class:`solprop.grid.RadialGrid` or a
-raw two-dimensional DFT in V/m on a :class:`solprop.grid.FreeGrid`, shape
-``(n_modes, n_pol, n_omega)``. Every physical expression in this module -- the
-propagation phase :math:`e^{+ik_zL}`, a lens :math:`e^{-ikr^2/(2f)}`, a mask, a
-Jones matrix or a reflection coefficient -- is written in the optics convention of
-``docs/dev/conventions.md`` section 2 and crosses to the stored spectrum as its
-complex conjugate, as :func:`solprop.optics.stored_factor` does for a transfer
-function. Transverse transforms are not conjugated: they act on positions, which
-are the same in both conventions.
+Each element is a frozen record satisfying the :class:`Element` protocol: its
+``apply`` takes a :class:`SpatialState` (a radial or Cartesian spectrum with its
+temporal grid, homogeneous medium and oriented local frame) and returns an
+:class:`ElementResult`, the new state with an :class:`ElementReport`. The elements are
+:class:`FreeSpace`, :class:`ThinLens`, :class:`Aperture`, :class:`TransmissionMask`,
+:class:`Alignment`, :class:`PolarisationTransform`, :class:`Mirror`,
+:class:`PlanarInterface` and :class:`SpectralTransfer`; :class:`ScreenCertificate`
+is a thin screen's admission record and :class:`SpectralCalibration` says which
+affine spectral phase a frequency-only element removes.
+:func:`solprop.coupling.transport` carries a
+:class:`~solprop.coupling.plane.FieldPlane` through a sequence of them.
 
-A :class:`~solprop.coupling.plane.FieldPlane` is carried through a sequence of these
-elements by :func:`solprop.coupling.transport`, which converts it to this state and
-back and updates its reference, geometry, medium and metric; the state and the
-:class:`Element` protocol are the interface a new element is written against. Every
-refusal raises :class:`solprop.exceptions.CouplingError`.
-
-Energies are physical: the axial Poynting flux of the medium at the plane,
-:class:`solprop.spatial.SpatialFlux` and :func:`solprop.spatial.spatial_energy`
-(SEP 34). Every report closes its own ledger in joules,
-
-.. math:: U_{\rm out} = U_{\rm in} - L_{\rm specified} - U_{\rm removed}
-          + \epsilon_{\rm approximation},
-
-so the approximation error is the signed part of the energy change that neither a
-declared loss nor an intentional removal explains.
+The stored spectrum keeps the layout and units of
+:meth:`solprop.pulses.SpatialPulse.build`, shape ``(n_modes, n_pol, n_omega)``, in the
+internal (FFT) temporal convention: every physical expression here (a propagation
+phase :math:`e^{+ik_zL}`, a lens, a mask, a Jones matrix) is written in the optics
+convention of ``docs/dev/conventions.md`` section 2 and crosses to the stored spectrum
+as its complex conjugate, as :func:`solprop.optics.stored_factor` does; transverse
+transforms are not conjugated. Energies are the medium's axial Poynting flux
+(:class:`solprop.spatial.SpatialFlux`, SEP 34), and every report closes its own ledger
+in joules, :math:`U_{\rm out} = U_{\rm in} - L_{\rm spec} - U_{\rm removed} + \epsilon`,
+where :math:`\epsilon` is the signed change that neither a declared loss nor an
+intentional removal explains. Every refusal raises
+:class:`solprop.exceptions.CouplingError`. The manual page is
+``docs/guide/workflows/coupling.md``, section "Transporting a plane between planes".
 """
 
 import math
