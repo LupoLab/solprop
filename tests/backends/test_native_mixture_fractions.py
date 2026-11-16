@@ -58,7 +58,9 @@ def oracle(kerr, n_pol):
         bundle = reference.workspace.stage_scalars(0.0, 0.0)
         fields = np.real(
             np.concatenate(
-                list(reference.workspace._plasma_nodes(state, problem.initial.z))
+                list(
+                    reference.workspace.statistics.node_fields(state, problem.initial.z)
+                )
             )
         )
     finally:

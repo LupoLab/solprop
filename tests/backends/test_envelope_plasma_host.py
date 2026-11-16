@@ -107,9 +107,11 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
     with closing(NumpyRefBackend(problem, run_request, grid=grid)) as backend:
         load_reference(backend)
         field = problem.initial.field0
-        plain = backend.workspace._species_statistics(field, problem.initial.z)
+        plain = backend.workspace.statistics._species_statistics(
+            field, problem.initial.z
+        )
         scans = []
-        retained = backend.workspace._species_statistics(
+        retained = backend.workspace.statistics._species_statistics(
             field, problem.initial.z, scans
         )
         assert len(scans) == 1

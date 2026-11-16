@@ -430,9 +430,11 @@ def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     made = scripted(problem, run_request)
     with pytest.raises(BackendError, match="'scripted'"):
-        made.workspace._require_grid()
+        made.workspace.statistics._require_grid()
     assert (
-        scripted(problem, run_request, grid=narrow_grid).workspace._require_grid()
+        scripted(
+            problem, run_request, grid=narrow_grid
+        ).workspace.statistics._require_grid()
         is narrow_grid
     )
 

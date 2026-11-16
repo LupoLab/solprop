@@ -631,7 +631,7 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
 
 
 MODE_MATRIX_BUILDERS = (
-    "solprop.backends.numpy_ref.workspace",
+    "solprop.backends.numpy_ref.statistics",
     "solprop_native._statistics",
     "solprop_native.backend",
 )
@@ -659,8 +659,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     )
     builds = []
     real = importlib.import_module("solprop.modes.quadrature").mode_matrix
-    # Every module that builds it: the reference's workspace, native's statistics and,
-    # while it exists, the legacy step driver.
+    # Every module that builds it: the reference's statistics and native's.
     for name in MODE_MATRIX_BUILDERS:
         try:
             module = importlib.import_module(name)
@@ -725,7 +724,9 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     try:
         observed = run(backend, problem, run_request).final
         if isinstance(backend, NumpyRefBackend):
-            rescaled = backend.workspace._on_axis_synthesis([mode], observed.z)
+            rescaled = backend.workspace.statistics._on_axis_synthesis(
+                [mode], observed.z
+            )
         else:
             # Native keeps the entrance matrix (its statistics' own) and rescales it
             # by the transform's taper factor where it reads it. This is that law on

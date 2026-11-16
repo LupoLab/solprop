@@ -26,7 +26,7 @@ import dataclasses
 import functools
 import logging
 import math
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -56,14 +56,8 @@ from solprop.backends.numpy_ref.general_modal import (
     general_source,
 )
 from solprop.backends.numpy_ref.passes.plasma import (
-    envelope_populations,
     envelope_sources,
     held_plasma_spectrum,
-    ionisation_rate,
-    plasma_channel_fractions,
-    plasma_integration_diagnostics,
-    plasma_integration_statistics,
-    plasma_scan,
 )
 from solprop.backends.numpy_ref.passes.responses import (
     NonlinearSources,
@@ -85,52 +79,28 @@ from solprop.backends.numpy_ref.passes.transforms import (
     to_frequency,
     to_time,
 )
-from solprop.backends.populations import axis_refusal, population_statistics
+from solprop.backends.numpy_ref.statistics import ReferenceStatistics
 from solprop.backends.spatial import (
-    FarFieldTables,
-    collect_spatial,
     radial_absorber_matrix,
     slab_columns,
     slab_rows,
-    slab_synthesis,
 )
-from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
-from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
-from solprop.output.capability import (
-    declared_capability,
-    refusal_for,
-    withheld_accessors,
-)
-from solprop.output.records import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.stats import (
-    _POYNTING_STATISTICS,
-    CATALOGUE,
-    METRIC_WEIGHTED_STATISTICS,
-    ON_AXIS_PLASMA_STATISTICS,
-    PLASMA_INTEGRATION_STATISTICS,
-    WEIGHT_DEPENDENT_STATISTICS,
     StatsSpec,
-    _poynting_statistics,
-    analytic_field,
-    collect,
-    weight_refusal_for,
-)
-from solprop.translate.coupled import (
-    metric_at,
 )
 from solprop.translate.general import (
     node_delayed_maps,
     node_kerr_form,
     node_kerr_tensor,
 )
-from solprop.translate.linop import delta_phi, power_weight_at, unitary_phase
+from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import (
@@ -140,7 +110,6 @@ from solprop.translate.problem import (
 )
 from solprop.translate.responses import prefactor_at
 from solprop.translate.routes import (
-    flux_of,
     tdse_of,
     transverse_of,
 )
@@ -155,9 +124,6 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
-from solprop.translate.tdse_source import (
-    TDSE_UNAVAILABLE_STATISTICS,
-)
 from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 __all__ = ["NumpyWorkspace", "SourceTables"]
@@ -203,9 +169,8 @@ class NumpyWorkspace:
     collar_quiet : bool
         Whether the modal stage leaves a quiet in-stage temporal collar out (SEP 21):
         set by the session from the boundary monitor, read by every stage.
-    axis_scans : int
-        The on-axis plasma scans actually run (SEP 19), so that a test can see that a
-        rule with a node on the axis supplies that row instead of a fresh scan.
+    statistics : solprop.backends.numpy_ref.statistics.ReferenceStatistics
+        The statistics the reference forms itself, which :meth:`stats` asks.
     helpers : solprop._helpers.Helpers
         The uncompiled stage-table and Adams-basis evaluations, ``PLAIN`` (SEP 29
         section 6.6).
@@ -232,9 +197,6 @@ class NumpyWorkspace:
         self._stepper = request.stepper
         self._chunk_plan = chunk_plan
         self._propagator_mode = propagator_mode
-        self._grid = grid
-        self._modes = modes
-        self._profiles = profiles
         self._state: _State | None = None
         self._noise: _State | None = None
         # The input draw rides in the state, a resumed one's too; the boundary monitor
@@ -251,24 +213,24 @@ class NumpyWorkspace:
         # A step's bundles taken together by `stage_bundles`, by anchor and position;
         # `hoist` drops them.
         self._prepared: dict[tuple[float, float], StageScalars] = {}
-        self._on_axis: Float[np.ndarray, "n_rows n_modes"] | None = None
-        self.axis_scans = 0
-        self._axis_node: int | None = None
-        self._axis_node_known = False
         self._tdse_binding = tdse_binding
         self._tdse_last_purpose: TDSEPurpose | None = None
         self._tdse_last_z: float | None = None
         self._tdse_last_projection: dict[str, object] | None = None
-        self._gather(problem, request)
-
-    def _gather(self, problem: PropagationProblem, request: RunRequest) -> None:
-        """Gather the tables and caches the stages and the statistics read."""
-        self._statistics_power_weight = np.empty(
-            problem.shape if problem.transform.geometry is None else (0,)
+        self.statistics = ReferenceStatistics(
+            problem,
+            request,
+            node_chunk=chunk_plan.chunk,
+            grid=grid,
+            modes=modes,
+            profiles=profiles,
+            tdse=tdse_binding is not None,
+            name=name,
         )
-        # Formed once, so a geometry the far-field statistics refuse is refused here,
-        # before any step (SEP 23 section 6).
-        self._far_field = FarFieldTables(problem, request.observation.stats)
+        self._gather(problem)
+
+    def _gather(self, problem: PropagationProblem) -> None:
+        """Gather the tables and caches the stages read."""
         self._gated_plasma = _BENCHMARK_GATED.get()
         self._last_plasma: (
             tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None] | None
@@ -1312,21 +1274,6 @@ class NumpyWorkspace:
             self._tables.t_window,
         )
 
-    def _envelope_populations(
-        self,
-        nodes: Complex[np.ndarray, "n_nodes n_pol n_to"],
-        initials: tuple[float, ...],
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return each envelope channel's final fraction and peak rate at the nodes.
-
-        - ``nodes``: the physical envelope at the nodes, V/m.
-        """
-        envelope = self._problem.responses.envelope_plasma
-        assert envelope is not None
-        return envelope_populations(
-            nodes, envelope, initials, self._problem.grids.dt_fine
-        )
-
     def error_norm(
         self,
         error: Complex[np.ndarray, "n_modes n_pol n_omega"],
@@ -1360,13 +1307,6 @@ class NumpyWorkspace:
     def stats(self, spec: StatsSpec, z: float) -> dict[str, np.ndarray]:
         """Collect the requested statistics of the committed state at a position.
 
-        The statistics of the saved field go to :func:`solprop.stats.collect`; there is
-        exactly one definition of each in the package and that is it. The statistics
-        :class:`solprop.stats.StatDefinition` marks ``backend`` are of quantities a
-        saved plane does not carry -- the electron density, the peak ionisation rate,
-        the on-axis intensity, the quadrature error -- and are formed here from the
-        workspace's own buffers.
-
         Parameters
         ----------
         spec : solprop.stats.StatsSpec
@@ -1377,563 +1317,10 @@ class NumpyWorkspace:
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name.
+            Small host arrays keyed by statistic name
+            (:meth:`~solprop.backends.numpy_ref.statistics.ReferenceStatistics.collect`).
         """
-        state = self.committed()
-        grid = self._require_grid()
-        if self._tdse_binding is not None:
-            unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(spec.names)
-            if unavailable:
-                raise BackendError(
-                    f"TDSE does not define legacy statistics {sorted(unavailable)}"
-                )
-        # Before the spatial branch: a spatial run asked for a
-        # general name would otherwise reach `collect_spatial` and be answered from a
-        # geometry that carries no certified metric at all.
-        _refuse_inadmissible(self._problem, spec)
-        if self._problem.transform.geometry is not None:
-            response_names = (
-                {"electron_density", "peak_ionisation_rate", "quadrature_error"}
-                | set(PLASMA_INTEGRATION_STATISTICS)
-                | {name for name in CATALOGUE if name.startswith("species_")}
-            )
-            spatial_spec = dataclasses.replace(
-                spec,
-                names=tuple(name for name in spec.names if name not in response_names),
-                periodic=(),
-            )
-            tables = self._far_field.for_spec(spatial_spec)
-            spatial = collect_spatial(
-                spatial_spec,
-                grid,
-                self._problem.transform,
-                state,
-                z=z,
-                flux=flux_of(self._problem.route),
-                profiles=self._profiles,
-                tables=tables,
-                operator=self._problem.linear.separable,
-                node_chunk=self.node_chunk,
-            )
-            return {
-                name: np.array(spatial[name]) for name in spatial_spec.names
-            } | self._backend_statistics(
-                tuple(name for name in spec.names if name in response_names), state, z
-            )
-        # The weight is a Chebyshev evaluation per column, which is the whole of what
-        # the Poynting weighting adds to a statistics call on a CPU (0.053 ms of
-        # 0.056 ms on the reduced-M2 case), so a spec that asks for none of the
-        # Poynting statistics -- a periodic plasma subset, say -- never
-        # evaluates it.
-        needed = bool(set(spec.names) & WEIGHT_DEPENDENT_STATISTICS)
-        if needed:
-            np.copyto(self._statistics_power_weight, power_weight_at(self._problem, z))
-        weight_refusal = weight_refusal_for(spec.names, self._statistics_power_weight)
-        if weight_refusal is not None:
-            raise BackendError(weight_refusal)
-        weighted = needed and not np.all(self._statistics_power_weight == 1.0)
-        power_names = tuple(
-            name for name in spec.names if weighted and name in _POYNTING_STATISTICS
-        )
-        axis = None
-        if "peak_intensity" in power_names:
-            if self._modes is None:
-                msg = "the peak on-axis intensity needs the mode set"
-                raise BackendError(msg)
-            axis = self._on_axis_synthesis(self._modes, z)
-        power_values = (
-            _poynting_statistics(spec, grid, state, self._statistics_power_weight, axis)
-            if weighted
-            else {}
-        )
-        owned = tuple(
-            name
-            for name in spec.names
-            if CATALOGUE[name].backend and name not in power_names
-        )
-        delegated = dataclasses.replace(
-            spec,
-            names=tuple(
-                name
-                for name in spec.names
-                if name not in owned and name not in power_names
-            ),
-            periodic=tuple(
-                name
-                for name in spec.periodic
-                if name not in owned and name not in power_names
-            ),
-        )
-        # The basis metric at this plane: the
-        # statistics of `METRIC_WEIGHTED_STATISTICS` are functionals of the physical
-        # same-frequency flux `a.H W a`, and on a declared change of basis W is not
-        # the identity. `metric_at` returns None for an identity metric, which is
-        # the statistics' own bitwise-unchanged path, so an ordinary run pays
-        # nothing.
-        metric = (
-            metric_at(self._problem.linear.modal_metric, z)
-            if set(delegated.names) & METRIC_WEIGHTED_STATISTICS
-            else None
-        )
-        collected = collect(
-            delegated,
-            grid,
-            SavedPlane(z=z, field=state),
-            modes=self._modes,
-            profiles=self._profiles,
-            metric=metric,
-        )
-        values = {name: np.array(collected[name]) for name in delegated.names}
-        values.update({name: np.array(power_values[name]) for name in power_names})
-        return values | self._backend_statistics(owned, state, z)
-
-    def _backend_statistics(
-        self,
-        names: tuple[str, ...],
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-    ) -> dict[str, np.ndarray]:
-        """Share each fresh envelope population scan among the requested statistics.
-
-        - ``state``: accepted state at this plane.
-        - Returns: requested values, with no retained field cache.
-        """
-        population_names = (
-            tuple(
-                name
-                for name in names
-                if name.startswith("species_")
-                or name in ("electron_density", "peak_ionisation_rate")
-            )
-            if self._problem.responses.envelope_plasma is not None
-            else ()
-        )
-        integration_names = tuple(
-            name for name in names if name in PLASMA_INTEGRATION_STATISTICS
-        )
-        axis_names = tuple(name for name in names if name in ON_AXIS_PLASMA_STATISTICS)
-        if axis_names and not population_names:
-            # The species statistics are the node scan of `_species_statistics` on
-            # every route, so sharing one scan with the on-axis statistics changes
-            # none of their values and lets a node on the axis supply its row.
-            population_names = tuple(
-                name for name in names if name.startswith("species_")
-            )
-        # Node scans of this observation only: a rule with a node on the axis hands
-        # its row to the on-axis statistics, and nothing outlives the call, so no
-        # stale stage or rejected step can be reused.
-        scans: list[tuple[np.ndarray, np.ndarray]] = []
-        result = {
-            name: self._backend_stat(name, state, z)
-            for name in names
-            if name not in population_names
-            and name not in integration_names
-            and name not in axis_names
-        }
-        if integration_names:
-            diagnostics = self._integration_diagnostics(state, z)
-            result.update(
-                {name: np.array(diagnostics[name]) for name in integration_names}
-            )
-        if population_names:
-            species = self._species_statistics(state, z, scans)
-            result.update({name: np.array(species[name]) for name in population_names})
-        if axis_names:
-            axis = self._axis_statistics(state, scans[0] if scans else None, z)
-            result.update({name: np.array(axis[name]) for name in axis_names})
-        return result
-
-    def _backend_stat(
-        self,
-        name: str,
-        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-    ) -> np.ndarray:
-        """Compute one backend-owned statistic."""
-        if name == "quadrature_error":
-            return np.full((), self._alarm)
-        if name == "peak_intensity":
-            return np.array(self._peak_intensity(state, z))
-        if (
-            name.startswith("species_")
-            or self._problem.flags.n_channels > 1
-            or self._problem.responses.envelope_plasma is not None
-        ):
-            return np.array(self._species_statistics(state, z)[name])
-        return np.array(
-            self._ionisation(state, z)[0 if name == "electron_density" else 1]
-        )
-
-    def _species_statistics(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-        scans: list[tuple[np.ndarray, np.ndarray]] | None = None,
-    ) -> dict[str, np.ndarray]:
-        """Evaluate independent populations on the actual nonlinear nodes.
-
-        - ``scans``: where to leave this observation's channel fractions and peak rates
-          at every node, for the on-axis statistics to reuse.
-        - Returns: the five species statistics and the two total plasma statistics.
-        """
-        responses = self._problem.responses
-        transform, grids = self._problem.transform, self._problem.grids
-        channels = responses.population_channels
-        if channels:
-            if transform.geometry is not None and transform.geometry.kind == "free":
-                nx, ny = transform.geometry.shape
-                physical = np.fft.ifft2(
-                    field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
-                ).reshape(field.shape)
-                nodes = to_time(
-                    physical * grids.pad_scale,
-                    grids.crop_index,
-                    grids.n_to,
-                    kind=self._kind,
-                )
-            elif transform.geometry is not None and transform.geometry.kind == "slab":
-                # The slab synthesis carries the pad scale already.
-                nodes = to_time(
-                    slab_synthesis(transform, field),
-                    grids.crop_index,
-                    grids.n_to,
-                    kind=self._kind,
-                )
-            else:
-                nodes = self._nodes_at(field, z)
-            if responses.envelope_plasma is not None:
-                fractions, peaks = self._envelope_populations(
-                    nodes, tuple(float(c.preionisation(z)) for c in channels)
-                )
-                if scans is not None:
-                    scans.append((fractions, peaks))
-                return population_statistics(self._problem, z, fractions, peaks)
-            rates, population = plasma_channel_fractions(
-                nodes,
-                responses.plasma_channels,
-                tuple(float(c.preionisation(z)) for c in channels),
-                grids.dt_fine,
-                responses.plasma_integral,
-            )
-            if scans is not None:
-                scans.append((population[:, :, -1], rates.max(axis=-1)))
-            return population_statistics(
-                self._problem, z, population[:, :, -1], rates.max(axis=-1)
-            )
-        empty = np.zeros((0, transform.n_nodes))
-        return population_statistics(self._problem, z, empty, empty)
-
-    def _integration_diagnostics(
-        self, field: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
-    ) -> dict[str, np.ndarray]:
-        """Return the plasma column's integration diagnostics at this plane (SEP 18).
-
-        The undershoot of the exposure increments, the relative work defect of the
-        loss current and the boundary level of the free-current integrand, over every
-        node and field plasma channel
-        (:data:`solprop.stats.PLASMA_INTEGRATION_STATISTICS`).
-
-        - Returns: the three statistics, each zero-dimensional and dimensionless.
-        """
-        responses = self._problem.responses
-        channels = responses.plasma_channels
-        if not channels:
-            msg = (
-                "the plasma integration diagnostics read the field-grid plasma "
-                "column, and this problem carries none"
-            )
-            raise BackendError(msg)
-        initial = tuple(float(channel.preionisation(z)) for channel in channels)
-        parts = np.zeros(6)
-        for nodes in self._plasma_nodes(field, z):
-            parts = np.maximum(
-                parts,
-                plasma_integration_diagnostics(
-                    nodes,
-                    channels,
-                    initial,
-                    self._problem.grids.dt_fine,
-                    responses.plasma_integral,
-                ),
-            )
-        undershoot, defect, boundary = plasma_integration_statistics(parts)
-        return {
-            "plasma_undershoot": np.asarray(undershoot),
-            "plasma_work_defect": np.asarray(defect),
-            "plasma_boundary_level": np.asarray(boundary),
-        }
-
-    def _plasma_nodes(
-        self, field: Complex[np.ndarray, "n_modes n_pol n_omega"], z: float
-    ) -> Iterator[Float[np.ndarray, "n_nodes_chunk n_pol n_to"]]:
-        """Yield the real node fields the plasma column is evaluated on, by chunk.
-
-        The same synthesis as :meth:`_ionisation`: the physical nodes of a separable
-        geometry, chunk by chunk, or the modal quadrature nodes at once.
-
-        - Yields: node fields on the fine time grid, V/m.
-        """
-        grids = self._problem.grids
-        if self._problem.linear.separable is None:
-            yield self._nodes_at(field, z)
-            return
-        geometry = self._problem.transform.geometry
-        assert geometry is not None
-        nx, ny = geometry.shape
-        physical = (
-            slab_synthesis(self._problem.transform, field) / grids.pad_scale
-            if geometry.kind == "slab"
-            else np.fft.ifft2(
-                field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
-            ).reshape(field.shape)
-        )
-        chunk = self.node_chunk
-        for first in range(0, len(physical), chunk):
-            yield to_time(
-                physical[first : first + chunk] * grids.pad_scale,
-                grids.crop_index,
-                grids.n_to,
-                kind=self._kind,
-            )
-
-    def _ionisation(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return the electron density and the peak ionisation rate at this plane.
-
-        Both are read at the **node of largest ionised fraction**, which is where the
-        plasma the run carries is densest and the only node either number can honestly
-        describe; for a mode-averaged run that is the one node. The axis is not a
-        quadrature node at all and is not where the polarisation was evaluated, so the
-        field is not re-synthesised there.
-
-        The electron density is ``density(z)`` times the fraction at the **end** of the
-        window: what the pulse leaves behind, not what it reaches in passing.
-
-        - Returns: the electron density in m^-3 and the peak rate in s^-1, both
-          zero-dimensional.
-        """
-        responses = self._problem.responses
-        plasma = responses.plasma_coefficients
-        if plasma is None:
-            msg = (
-                "the electron density and the peak ionisation rate need a compiled "
-                "plasma response, and this problem declares none"
-            )
-            raise BackendError(msg)
-        if self._problem.linear.separable is not None:
-            geometry = self._problem.transform.geometry
-            assert geometry is not None
-            nx, ny = geometry.shape
-            physical = (
-                # The slab synthesis carries the pad scale, multiplied back below.
-                slab_synthesis(self._problem.transform, field)
-                / self._problem.grids.pad_scale
-                if geometry.kind == "slab"
-                else np.fft.ifft2(
-                    field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
-                ).reshape(field.shape)
-            )
-            largest, peak = -1.0, 0.0
-            grids = self._problem.grids
-            chunk = self.node_chunk
-            for first in range(0, len(physical), chunk):
-                nodes = to_time(
-                    physical[first : first + chunk] * grids.pad_scale,
-                    grids.crop_index,
-                    grids.n_to,
-                    kind=self._kind,
-                )
-                rate = ionisation_rate(nodes, plasma.rate)
-                fraction, _ = plasma_scan(
-                    nodes,
-                    rate,
-                    plasma,
-                    preionisation=float(plasma.preionisation(z)),
-                    dt=grids.dt_fine,
-                    integral=responses.plasma_integral,
-                )
-                densest = int(np.argmax(fraction[:, -1]))
-                if fraction[densest, -1] > largest:
-                    largest = float(fraction[densest, -1])
-                    peak = float(np.max(rate[densest]))
-            return np.asarray(float(plasma.density(z)) * largest), np.asarray(peak)
-        nodes = self._nodes_at(field, z)
-        rate = ionisation_rate(nodes, plasma.rate)
-        fraction, _ = plasma_scan(
-            nodes,
-            rate,
-            plasma,
-            preionisation=float(plasma.preionisation(z)),
-            dt=self._problem.grids.dt_fine,
-            integral=responses.plasma_integral,
-        )
-        densest = int(np.argmax(fraction[:, -1]))
-        density = float(plasma.density(z)) * float(fraction[densest, -1])
-        return np.asarray(density), np.asarray(float(np.max(rate[densest])))
-
-    def _peak_intensity(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-    ) -> np.ndarray:
-        """Return the largest intensity on the axis of the waveguide, in W/m^2.
-
-        ``eps0 c/2 max_t sum_c |E_{a,c}(0, t)|^2`` with the analytic field synthesised
-        at ``r = 0`` from the modes' own profiles, both Cartesian components. The axis
-        is not a quadrature node, so the mode fields are evaluated there rather than
-        interpolated, and both components are taken so that the answer does not depend
-        on which one the transform resolves or the state carries. One definition for
-        every run: a mode-averaged run synthesises its one mode the same way, which is
-        ``P / A_eff`` for a top-hat profile and the true on-axis value for a real one
-        -- 1.77 times the average for HE_11, so ``P / A_eff`` would under-report it by
-        that factor. The on-axis matrix is built once and rescaled with the taper
-        (:meth:`_on_axis_synthesis`), which is what makes this statistic cheap enough
-        for the between-planes channel.
-        """
-        if self._modes is None:
-            msg = (
-                "the peak on-axis intensity needs the mode set, which the kernel "
-                "contract does not carry; construct the backend with "
-                "NumpyRefBackend(problem, request, modes=modes)"
-            )
-            raise BackendError(msg)
-        analytic = analytic_field(self._require_grid(), field)
-        columns = np.tensordot(
-            self._on_axis_synthesis(self._modes, z), analytic, axes=([1], [0])
-        )
-        power = np.sum(np.abs(columns) ** 2, axis=tuple(range(columns.ndim - 1)))
-        return np.asarray(0.5 * EPS0 * C * float(np.max(power)))
-
-    def _nodes_at(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        z: float,
-    ) -> Num[np.ndarray, "n_nodes n_components n_to"]:
-        """Return the physical field at every quadrature node on the fine time grid.
-
-        - Returns: the field in V/m, shape ``(n_nodes, n_components, n_to)``. Here
-          ``n_components = transform.n_pol * n_pol`` counts physical components,
-          independently of the state's polarisation axis.
-        """
-        grids, transform = self._problem.grids, self._problem.transform
-        taper = (
-            1.0 if transform.taper_scale is None else float(transform.taper_scale(z))
-        )
-        modal_t = to_time(field, grids.crop_index, grids.n_to, kind=self._kind)
-        return synthesise(modal_t, transform.synthesis, taper, transform.n_pol)
-
-    def _axis_statistics(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
-        scan: tuple[np.ndarray, np.ndarray] | None,
-        z: float,
-    ) -> dict[str, np.ndarray]:
-        """Return the four on-axis plasma statistics of the state (SEP 19).
-
-        A rule with a node on the axis hands over that node's row from this
-        observation's node scan; otherwise the axis row is scanned once
-        (:func:`solprop.backends.numpy_ref.populations.axis_populations`).
-
-        - ``field``: the state at this plane, shape (n_modes, n_pol, n_omega), or
-          ``None`` from a backend whose :meth:`_axis_row_populations` reads its own
-          state.
-        - ``scan``: this observation's channel fractions and peak rates at every node,
-          when the node statistics already scanned them.
-        - Returns: the four ``on_axis_*`` statistics.
-        """
-        if self._modes is None:
-            msg = (
-                "the on-axis plasma statistics need the mode set, which the kernel "
-                "contract does not carry; construct the backend with "
-                f"select({self.name!r}, problem, request, modes=modes)"
-            )
-            raise BackendError(msg)
-        from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
-            axis_node,
-            axis_statistics,
-        )
-
-        if not self._axis_node_known:
-            self._axis_node_known = True
-            self._axis_node = axis_node(
-                self._problem,
-                mode_matrix(
-                    self._modes,
-                    on_axis_rule(self._modes[0].dimlimits(0.0)[0]),
-                    0.0,
-                    components=("x", "y"),
-                ).synthesis,
-            )
-        if scan is not None and self._axis_node is not None:
-            fractions, peaks = scan
-            node = self._axis_node
-            return axis_statistics(self._problem, z, fractions[:, node], peaks[:, node])
-        self.axis_scans += 1
-        fractions, peaks = self._axis_row_populations(
-            field, self._on_axis_synthesis(self._modes, z), z
-        )
-        return axis_statistics(self._problem, z, fractions, peaks)
-
-    def _axis_row_populations(
-        self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
-        axis: Float[np.ndarray, "n_rows n_modes"],
-        z: float,
-    ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
-        """Scan this plane's axis row: one row, every channel.
-
-        - ``axis``: the mode set's synthesis on the axis at this position
-          (:meth:`_on_axis_synthesis`).
-        - Returns: the final ionised fraction and the largest rate on the axis, per
-          channel.
-        """
-        if field is None:
-            raise BackendError("the on-axis statistics scan needs the field")
-        from solprop.backends.numpy_ref.populations import (  # noqa: PLC0415 - a cycle
-            axis_populations,
-        )
-
-        return axis_populations(self._problem, field, z, axis)
-
-    def _on_axis_synthesis(
-        self, modes: Sequence[Mode], z: float
-    ) -> Float[np.ndarray, "n_rows n_modes"]:
-        """Return the mode set's synthesis matrix on the axis, at the current position.
-
-        Built once at ``z = 0`` and rescaled by the transform's own taper factor: the
-        axis is the single node ``r = 0`` of
-        :func:`solprop.modes.quadrature.on_axis_rule`, so the law that rescales the
-        transform's matrices -- a scale-invariant profile goes as ``1/a`` and its
-        normalisation as ``a^2`` -- applies to it exactly, and a set that is neither
-        constant nor scale invariant never reaches a backend (``translate.modal``).
-        Rebuilding the matrix at every call was what kept ``peak_intensity`` out of the
-        between-planes channel.
-
-        - Returns: shape ``(n_rows, n_modes)``, one row per Cartesian component on the
-          axis.
-        """
-        if self._on_axis is None:
-            rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
-            matrices = mode_matrix(modes, rule, 0.0, components=("x", "y"))
-            self._on_axis = np.ascontiguousarray(matrices.synthesis)
-        taper = self._problem.transform.taper_scale
-        if taper is None:
-            return self._on_axis
-        return self._on_axis * float(taper(z))
-
-    def _require_grid(self) -> TimeGrid:
-        """Return the grid the state lives on, or say why statistics cannot be taken."""
-        if self._grid is None:
-            msg = (
-                "statistics need the grid the state lives on, which the kernel "
-                f"contract does not carry; construct the backend with select("
-                f"{self.name!r}, problem, request, grid=grid)"
-            )
-            raise BackendError(msg)
-        return self._grid
+        return self.statistics.collect(spec, self.committed(), z, alarm=self._alarm)
 
     def nonlinear(
         self,
@@ -2718,7 +2105,7 @@ class NumpyWorkspace:
                 tabulating=self._propagator_mode == "tabulate",
                 embedded=self._embedded is not None,
                 noise=self._noise is not None,
-                statistics_weight=self._statistics_power_weight.nbytes,
+                statistics_weight=self.statistics.power_weight_bytes,
                 spatial_absorber=self._spatial_absorber.nbytes,
                 node_chunk=self.node_chunk,
             ),
@@ -2774,7 +2161,7 @@ class NumpyWorkspace:
         self._raman_rates = None
         self._raman_densities = None
         self._flow_cache = None
-        self._statistics_power_weight = np.empty(0)
+        self.statistics.close()
         self._held = None
 
 
@@ -2863,33 +2250,6 @@ _GENERAL_LEDGER_ROWS = (
 general modal guide reports these as zero rather than omitting them
 (:func:`solprop.backends.numpy_ref.general_modal.general_memory` fills them).
 """
-
-
-def _refuse_inadmissible(problem: PropagationProblem, spec: StatsSpec) -> None:
-    """Refuse a statistic this problem's basis does not define, by name.
-
-    The second door of the accessor whitelist (:mod:`solprop.output.capability`),
-    after the run loop's own admission: a caller may build a backend and ask it for
-    statistics directly, and a general guide's static synthesis matrix is a checked
-    **zero** placeholder, so an on-axis intensity taken from one would be zero
-    rather than obviously wrong.
-    """
-    refusal = refusal_for(
-        declared_capability(
-            general_modal=problem.transform.modal_tables is not None,
-            spatial=problem.transform.geometry is not None,
-        ),
-        spec.names,
-        withheld=withheld_accessors(
-            general_modal=problem.transform.modal_tables is not None,
-            coupled_flow=problem.linear.coupled_flow is not None,
-        ),
-    )
-    if refusal is not None:
-        raise BackendError(refusal)
-    refusal = axis_refusal(problem, spec.names)
-    if refusal is not None:
-        raise BackendError(refusal)
 
 
 def _general_maps(

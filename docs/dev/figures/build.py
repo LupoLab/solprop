@@ -760,7 +760,7 @@ MODULES = {
                 "engines",
                 "dense",
                 "multistep",
-                "populations",
+                "statistics",
                 "general_modal",
             ),
         ),

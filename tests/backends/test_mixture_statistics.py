@@ -104,7 +104,7 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
     values = backend.workspace.stats(
         StatsSpec(names=names, periodic=names[:2]), problem.initial.z
     )
-    nodes = backend.workspace._nodes_at(state, problem.initial.z)
+    nodes = backend.workspace.statistics._nodes_at(state, problem.initial.z)
     rates, fractions = plasma_channel_fractions(
         nodes,
         problem.responses.plasma_channels,

@@ -420,9 +420,7 @@ def plasma_stage_bound(
             state, bundle, np.ones(problem.shape, complex)
         )
         fields = np.real(
-            np.concatenate(
-                list(reference.workspace._plasma_nodes(state, 0.0))  # pyright: ignore[reportPrivateUsage]
-            )
+            np.concatenate(list(reference.workspace.statistics.node_fields(state, 0.0)))
         )
         field_error = node_field_error(reference, problem, fields)
         if len(problem.responses.plasma_channels) > 1:
