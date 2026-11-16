@@ -393,8 +393,9 @@ def solve_pin(
     Raises
     ------
     RecipeError
-        If the keyword cannot be pinned on the route, or the route does not build
-        with it at the middle of the range.
+        If the keyword cannot be pinned on the route, the route does not build
+        with it at the middle of the range, or a pressure is pinned beside a
+        temperature path, which gives no one density for each trial pressure.
 
     Examples
     --------
@@ -416,6 +417,14 @@ def solve_pin(
     middle = math.sqrt(low * high) if low > 0.0 else 0.5 * (low + high)
     simulation = _build(route, {**keywords, path: middle}, path)
     mode = _launch_mode(simulation)
+    if parameter == "pressure" and not isinstance(
+        getattr(mode, "temperature", None), int | float
+    ):
+        msg = (
+            "a pressure is pinned at one temperature, and the temperature is a path "
+            "along z: write the temperature as a number, or the pressure as a literal"
+        )
+        raise RecipeError(msg, path=path)
     wavelength = cast("float", keywords["wavelength"])
     nonlinear = _needs_gamma(target)
 
