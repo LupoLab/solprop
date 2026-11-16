@@ -936,9 +936,6 @@ def test_a_spec_refuses_a_missing_or_malformed_table():
         StatsSpec(names=("beam_spectrum",), periodic=("beam_spectrum",))
     spec = StatsSpec(names=("energy",), apertures=apertures())
     assert (spec.n_apertures, spec.n_regions, StatsSpec().n_apertures) == (1, 0, 0)
-    assert spec.same_tables(StatsSpec(apertures=apertures()))
-    assert not spec.same_tables(StatsSpec())
-    assert not StatsSpec().same_tables(spec)
 
 
 def test_collect_refuses_the_operator_statistics_and_non_cartesian_grids(grid):

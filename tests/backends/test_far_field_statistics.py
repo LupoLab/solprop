@@ -13,20 +13,17 @@ beside the reference's, and the slots and bands every pass shares.
 import dataclasses
 import importlib.util
 import math
-from contextlib import ExitStack
 
 import numpy as np
 import pytest
 from scipy import integrate
 
-from backends import test_batch_lockstep as lockstep
 from backends.planar_cases import planar_case
 from bounds import EPS, assert_within, gamma
 from legacy_geometry import bare_absorber
 from sessions.runs import launch_statistics
 from solprop.backends import registry, select
 from solprop.backends import spatial as backend_spatial
-from solprop.backends.host.group import HostGroup
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.session import Start
 from solprop.backends.spatial import (
@@ -824,29 +821,23 @@ def test_the_tables_are_formed_once_and_reused(grid):
     assert fresh is not None and fresh is not own
     assert np.array_equal(fresh.distances, [0.5])
     assert held.for_spec(StatsSpec(names=("energy",))) is None
-    modal = lockstep.simulation(0, "numpy_ref")
+    modal = Simulation.from_gnlse(
+        0.11,
+        0.001,
+        [0.0, 0.0, -1.183e-26],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=1.0,
+        shape="sech",
+        backend="numpy_ref",
+        absorber=False,
+    )
     with pytest.raises(OutputError, match="without spatial geometry"):
         FarFieldTables(
             modal.translate(), modal._run_request().observation.stats
         ).for_spec(StatsSpec(names=("beam_spectrum",)))
-
-
-@pytest.mark.parametrize("table", ["apertures", "regions"])
-def test_lockstep_members_must_carry_equal_tables(table):
-    with ExitStack() as cleanup:
-        first, second = [
-            lockstep.loaded(lockstep.simulation(index, "numpy_ref"), cleanup)
-            for index in range(2)
-        ]
-        change = (
-            {"apertures": HOLES}
-            if table == "apertures"
-            else {"spectral_regions": QUADRANTS}
-        )
-        stats = dataclasses.replace(second._request.observation.stats, **change)
-        second._request = second._request.for_run(stats=stats)
-        with pytest.raises(BackendError, match="same statistics request"):
-            HostGroup([first, second])
 
 
 def test_a_run_records_every_far_field_statistic_at_every_plane(grid):

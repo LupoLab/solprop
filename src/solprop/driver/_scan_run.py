@@ -12,7 +12,7 @@ import logging
 import math
 import time
 import traceback
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,7 +28,7 @@ from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
-from solprop.driver.executors import Batch, Executor, Local
+from solprop.driver.executors import Executor, Local
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
@@ -499,14 +499,6 @@ class _Work:
         return PointResult(
             job.point.index, "stopped", error=STOPPED, wall_time=wall_time
         )
-
-    def run_batch(self, jobs: Iterable[_Job], executor: Batch) -> Iterator[PointResult]:
-        """Delegate compatible jobs to the common lockstep scan driver."""
-        from solprop.driver._scan_batch import (  # noqa: PLC0415 - shared worker types
-            execute,
-        )
-
-        yield from execute(jobs, self, executor)
 
     def simulation(self, job: _Job) -> Simulation:
         """Construct a simulation and give its noise the point's seed.

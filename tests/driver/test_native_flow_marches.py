@@ -36,6 +36,7 @@ from solprop.translate.coupled import schur_blocks, schur_eigenbasis
 
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 pytestmark = [
     pytest.mark.filterwarnings(f"ignore::{category.__module__}.{category.__name__}")
@@ -109,9 +110,9 @@ def test_the_flow_s_actions_are_the_reference_s_within_the_formation_bound(
         state = backend._native_state
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
         for section in range(reference.frozen.shape[0]):
-            measured = state.form_flow_actions(section, dz, fractions)[0]
-            forward = state.flow_actions_to_host(inverse=False).reshape(shape)
-            inverse = state.flow_actions_to_host(inverse=True).reshape(shape)
+            measured = _testing.form_flow_actions(state, section, dz, fractions)[0]
+            forward = _testing.flow_actions_to_host(state, inverse=False).reshape(shape)
+            inverse = _testing.flow_actions_to_host(state, inverse=True).reshape(shape)
             for slot, fraction in enumerate(fractions):
                 if fraction == 0.0:
                     continue
@@ -202,11 +203,11 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
         backend = native.NativeBackend(problem, run_request, grid=simulation.grid)
         try:
             state = backend._native_state
-            state.form_flow_actions(0, length, fractions)
-            forward = state.flow_actions_to_host(inverse=False).reshape(
+            _testing.form_flow_actions(state, 0, length, fractions)
+            forward = _testing.flow_actions_to_host(state, inverse=False).reshape(
                 count, n_active, n_modes, n_modes
             )
-            inverse = state.flow_actions_to_host(inverse=True).reshape(
+            inverse = _testing.flow_actions_to_host(state, inverse=True).reshape(
                 count, n_active, n_modes, n_modes
             )
         finally:

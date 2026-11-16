@@ -58,6 +58,7 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.stage import scalars
 
 solprop_native = pytest.importorskip("solprop_native")
+_testing = pytest.importorskip("solprop_native._core")._testing
 NativeBackend = solprop_native.NativeBackend
 
 ON_DEVICE = solprop_native.build_info().device_backend != "none"
@@ -131,11 +132,11 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     try:
         native_source(backend, case.problem.initial.field0)
         native = backend._native_state
-        fine = np.array(native.projected_to_host(False))
-        landed = np.array(native.projected_to_host(True))
+        fine = np.array(_testing.projected_to_host(native, False))
+        landed = np.array(_testing.projected_to_host(native, True))
         assert np.any(landed)
-        np.testing.assert_array_equal(native.projected_to_host(True), landed)
-        np.testing.assert_array_equal(native.projected_to_host(False), fine)
+        np.testing.assert_array_equal(_testing.projected_to_host(native, True), landed)
+        np.testing.assert_array_equal(_testing.projected_to_host(native, False), fine)
     finally:
         backend.close()
     radial_problem, radial_request, grid = radial(evaluator, envelope=False, thg=True)
@@ -144,9 +145,9 @@ def test_the_embedded_rule_is_finished_once_and_only_where_it_exists(evaluator):
     try:
         native_source(backend, radial_problem.initial.field0)
         native = backend._native_state
-        before = np.array(native.projected_to_host(False))
+        before = np.array(_testing.projected_to_host(native, False))
         assert np.any(before)
-        np.testing.assert_array_equal(native.projected_to_host(False), before)
+        np.testing.assert_array_equal(_testing.projected_to_host(native, False), before)
     finally:
         backend.close()
 

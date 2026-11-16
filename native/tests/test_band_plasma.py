@@ -66,6 +66,7 @@ from solprop_native.backend import (
     _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 INFO = solprop_native.build_info()
 DEVICE_BUILD = INFO.device_backend != "none"
@@ -445,7 +446,7 @@ def test_one_evaluation_matches_the_reference() -> None:
         state = load_native(backend, problem.initial.field0, clear_fsal=False)
         # A zero-length trial exposes the first stage, N(E, z = 0).
         native_trial(backend, 0.0, 0.0)
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
+        actual = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -497,7 +498,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
             assert backend.metadata()["projection_provider"] == "folded"
         native_trial(backend, 0.0, dz)
         actual = [
-            np.asarray(state.stage_to_host(stage)).reshape(problem.shape)
+            np.asarray(_testing.stage_to_host(state, stage)).reshape(problem.shape)
             for stage in range(len(expected))
         ]
     finally:
@@ -601,7 +602,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
             rtol=0.0,
             atol=bound * float(np.max(np.abs(want_field))),
         )
-        score = state.quadrature_error
+        score = _testing.quadrature_error(state)
         assert math.isfinite(score)
         np.testing.assert_allclose(
             score, want.stats["quadrature_error"], rtol=0.0, atol=score_bound
@@ -620,7 +621,8 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         # field stay. (Its positions are the first step's, inside the problem's
         # tables, which end at the second plane.)
         native_trial(backend, dz, 0.5 * dz)
-        assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
+        # The stored accepted value, no arithmetic.
+        assert _testing.quadrature_error(state) == score
         assert math.isnan(state.quadrature_peak())
         np.testing.assert_array_equal(state.field_to_host().reshape(got.shape), got)
 
@@ -629,7 +631,7 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
         backend.prepare(problem, run_request).start(
             Start.entrance(problem), owns=False
         ).close()
-        assert math.isnan(state.quadrature_error)
+        assert math.isnan(_testing.quadrature_error(state))
         assert math.isnan(state.quadrature_peak())
         again = run(backend, problem, run_request).fields
         np.testing.assert_allclose(

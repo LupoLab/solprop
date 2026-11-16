@@ -103,8 +103,8 @@ later.
 The amplitude conversion is a separate, named boundary beside these Fourier helpers:
 `fourier.power_amplitude` maps internal `a` to saved `b`, and its inverse maps a resumed
 plane back. A session applies it on export (`backends.export.ExportRecipe` with
-`power=True`, bitwise the same as `power_amplitude`), for single runs and the batch scan
-path alike, before the output handler's conjugation. It never changes the Fourier sign. Input
+`power=True`, bitwise the same as `power_amplitude`), for single runs and scan points
+alike, before the output handler's conjugation. It never changes the Fourier sign. Input
 assembly and `Simulation.with_input` divide at the entrance. These are the amplitude
 conversion sites; no propagation kernel converts amplitudes.
 
@@ -335,12 +335,10 @@ Cartesian one).
 ## 6. Array layout and axis names
 
 Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order): one trajectory. A group of trajectories is a sequence of member
-problems, not a leading axis ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.7); a backend
-may hold its state privately with a leading axis of one (the native build's four-axis
+contiguous (C order): one trajectory. A backend may hold its state privately with a leading axis of one (the native build's four-axis
 layout), and a march snapshot's file keeps that axis. Every backend computes in binary64
-(ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a batched scan stores each member
-separately. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
+(ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a scan stores each point separately.
+Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
 
 Standard axis names, reused verbatim in every jaxtyping annotation and docstring:

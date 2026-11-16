@@ -240,6 +240,10 @@ def _launch(backend: Any, problem: Any, request: Any) -> Any:
 
 
 def _calls(nx: int, steps: int, planes: int) -> dict[str, Any]:
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     specs = {"none": StatsSpec(names=())}
     specs.update(
         (name, StatsSpec(names=(name,)))
@@ -298,7 +302,7 @@ def _calls(nx: int, steps: int, planes: int) -> dict[str, Any]:
         # host's azimuthal average of a Gaussian's fluence takes on this machine.
         widths = {
             "moments": _timed(
-                lambda: state.spatial_statistics(32, 0.5 * EPS0 * C, 0.0), 5
+                lambda: _testing.spatial_statistics(state, 32, 0.5 * EPS0 * C, 0.0), 5
             ),
             "host_average": _timed(
                 lambda: cartesian_fluence_widths(

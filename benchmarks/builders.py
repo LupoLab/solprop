@@ -573,7 +573,7 @@ def build(configuration: Record) -> Simulation:
         "fields": fields,
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
-    if case.workload in ("scan", "group"):
+    if case.workload == "scan":
         # A scan keeps the fields run_scan asks for; its points keep the default.
         del observed["fields"], observed["field_planes"]
     chosen = integrator(configuration["stepper"])

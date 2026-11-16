@@ -147,7 +147,7 @@ void vector_exp_complex(const Input<double, 1>& a, const Input<double, 1>& b,
 
 } // namespace
 
-void bind_helpers(nb::module_& module_) {
+void bind_helpers(nb::module_& module_, nb::module_& testing) {
   module_.def("clenshaw_points", &clenshaw_points<double>, "z"_a.noconvert(),
               "edges"_a.noconvert(), "lower"_a, "upper"_a, "c"_a.noconvert(),
               "out"_a.noconvert());
@@ -161,11 +161,11 @@ void bind_helpers(nb::module_& module_) {
               "corrector"_a.noconvert(), "factored"_a.noconvert(),
               "spans"_a.noconvert(), "carried"_a.noconvert(), "endpoint"_a.noconvert(),
               "defects"_a.noconvert());
-  module_.def("vector_exp", &vector_exp, "x"_a.noconvert(), "out"_a.noconvert());
-  module_.def("vector_log", &vector_log, "x"_a.noconvert(), "out"_a.noconvert());
-  module_.def("vector_sincos", &vector_sincos, "x"_a.noconvert(), "sine"_a.noconvert(),
+  testing.def("vector_exp", &vector_exp, "x"_a.noconvert(), "out"_a.noconvert());
+  testing.def("vector_log", &vector_log, "x"_a.noconvert(), "out"_a.noconvert());
+  testing.def("vector_sincos", &vector_sincos, "x"_a.noconvert(), "sine"_a.noconvert(),
               "cosine"_a.noconvert());
-  module_.def("vector_exp_complex", &vector_exp_complex, "a"_a.noconvert(),
+  testing.def("vector_exp_complex", &vector_exp_complex, "a"_a.noconvert(),
               "b"_a.noconvert(), "real"_a.noconvert(), "imag"_a.noconvert());
 }
 

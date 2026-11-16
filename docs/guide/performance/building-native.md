@@ -47,7 +47,7 @@ them:
 | [SLEEF](https://github.com/shibatch/sleef) | 3.9.0 | vector `exp`, `log` and `sincos` for the CPU kernels on x86-64 and macOS arm64 (see [vector maths](#vector-maths)); built static as its own CMake project, and not fetched where the system libm is used |
 | [GoogleTest](https://github.com/google/googletest) | 1.17.0 | the native tests only, when `BUILD_TESTING=ON` |
 
-The Python build requirements are scikit-build-core 0.11 and nanobind 2.9 or newer. CPU
+The Python build requirements are scikit-build-core 0.11 and nanobind 3.1.0, pinned. CPU
 builds contract multiply-adds (`-ffp-contract=fast` with GCC,
 `-ffp-contract=fast-honor-pragmas` with Clang, after `-fno-fast-math`) except in a few protected blocks, as
 [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;

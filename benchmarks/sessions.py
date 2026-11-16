@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build SEP 47's fibre windows and run its repeated, scanned and grouped workloads.
+"""Build SEP 47's fibre windows and run its repeated and scanned workloads.
 
 The ``sep47`` set's cases on one fibre (SEP 47 section 7.2): the N = 3 soliton of
 ``gnlse_soliton`` (its dispersion, nonlinearity, 100 fs sech launch and time grid,
@@ -20,10 +20,7 @@ measures:
   step planes becomes possible once SEP 47 schedules snapshots independently;
 - ``with_input_repeat``: three runs of other inputs through ``Simulation.with_input``;
 - ``scan_local``: four points derived from the case with ``with_input``, on ``Local``,
-  each run watched to count its steps;
-- ``group_batch``: the same four points on ``Batch(4)``, replaying ten 1.6 mm steps
-  with the split-step collar, which a fixed step this long needs. ``Batch`` watches no
-  point's run, so its steps are left uncounted except by the structural counters.
+  each run watched to count its steps.
 
 Import this module only after the worker has configured its scientific runtimes.
 """
@@ -41,7 +38,7 @@ from benchmarks.builders import SOLITON_PEAK, SOLITON_WIDTH, soliton
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES
 from solprop.driver import Simulation
-from solprop.driver.executors import Batch, Local
+from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.log import NullReporter, NullScanReporter, ProgressReporter
 from solprop.output import MemoryOutput
@@ -181,7 +178,7 @@ def repetition(
     Parameters
     ----------
     workload : str
-        ``"with_input"``, ``"scan"`` or ``"group"`` (``benchmarks.registry.Case``).
+        ``"with_input"`` or ``"scan"`` (``benchmarks.registry.Case``).
     simulation : solprop.driver.Simulation
         The case, as built.
     scratch : pathlib.Path
@@ -192,9 +189,8 @@ def repetition(
     Returns
     -------
     dict
-        Accepted and rejected steps summed over the runs, where they are watched
-        (``None`` for a group, whose ``Batch`` watches no point's run); whether the
-        last plane of every run is finite (its field, or for a field-free scan its
+        Accepted and rejected steps summed over the runs; whether the last plane of
+        every run is finite (its field, or for a field-free scan its
         statistics); the position reached and the runs made.
     numpy.ndarray or None
         The last run's final field, or ``None`` for a scan.
@@ -219,7 +215,7 @@ def repetition(
             "finite": final is not None and bool(np.all(np.isfinite(final))),
         }
         return record, final
-    if workload not in ("scan", "group"):
+    if workload != "scan":
         raise SuiteError(f"unknown workload {workload}")
     watch = _Watch()
     path = scratch / f"{workload}.h5"
@@ -227,7 +223,7 @@ def repetition(
         Scan(f"sep47_{workload}", scale=list(SCALES)),
         lambda point: simulation.with_input(launch(float(point.values["scale"]))),  # pyright: ignore[reportArgumentType] - a scale variable
         output=path,
-        executor=Batch(len(SCALES)) if workload == "group" else Local(),
+        executor=Local(),
         fields=fields,  # pyright: ignore[reportArgumentType] - a registry field retention
         progress=watch,
     )
@@ -237,10 +233,11 @@ def repetition(
     finite = [
         _finite_statistics(read_point(path, index)) for index in range(len(SCALES))
     ]
-    watched = len(watch.runs) == len(SCALES)
+    if len(watch.runs) != len(SCALES):
+        raise SuiteError(f"the {workload} watched {len(watch.runs)} runs")
     record = {
-        "accepted": sum(run.accepted for run in watch.runs) if watched else None,
-        "rejected": sum(run.rejected for run in watch.runs) if watched else None,
+        "accepted": sum(run.accepted for run in watch.runs),
+        "rejected": sum(run.rejected for run in watch.runs),
         "z": float(simulation.settings.save_planes[-1]),
         "runs": len(SCALES),
         "finite": None if None in finite else all(finite),

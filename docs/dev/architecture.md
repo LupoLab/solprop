@@ -25,7 +25,7 @@ Luna's scope and its most valuable design choices, and is designed around the fo
 - polarisation as an ordinary array axis, at no cost when unused;
 - a hot loop designed for threads and GPUs from the start, behind one seam;
 - lean memory: bounded buffers, node chunking, no materialised stages;
-- an in-process batch mode for many small or several large problems;
+- scans of many small or several large problems, from one process to a cluster;
 - a clean, fast-loading Python package that plays well with NumPy, SciPy, matplotlib and h5py.
 
 **Priorities, in order:** accuracy and reliability; then as much CPU performance as can be
@@ -139,7 +139,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 | **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
 | **T** translation | turns P objects into validated kernel-ready arrays and the `PropagationProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
 | **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
-| **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
+| **D** driver | `Simulation`, run loop over save planes, scan executors, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
 | **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
 
 **Transverse rules are built in P.** `modes/quadrature.py` constructs its rules
@@ -220,7 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `translate/` | Validated `PropagationProblem` (`translate/problem.py`) and its route union (`translate/routes.py`), assembled by `assemble` (`translate/assembly.py`), with a capillary's coherent wall and taper coupling in `translate/walls.py` and the refusals and advisories assembly applies in `translate/validation.py`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); what the general route and the coupled flow execute, checked once (`translate/admission.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, sessions, the Adams call ledger both backends keep (`ledger.py`), node chunks, scalar bodies, spatial and population statistics, and the TDSE response's host source assembly (`tdse_source.py`) | B |
 | `backends/numpy_ref/` | Reference execution, its Adams kernels and tables (`multistep.py`) and its on-axis scan (`populations.py`) | B |
-| `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group, run session and group session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the parts the Python sessions compose are in `backends/session_core.py` | B |
+| `backends/host/` | The reference's own step driver, Adams and low-storage marches and run session ([SEP 47](seps/archive/sep-0047-run-ownership.md) phase 2); the parts the Python sessions compose are in `backends/session_core.py` | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/routes/`, `driver/executors/`, `scan.py` | The `Simulation` object (`simulation.py`) with its settings and their admission (`settings.py`), its input, launch, noise and peak field (`inputs.py`), its run record (`metadata.py`), resume (`resume.py`), many-input runner (`runner.py`) and TDSE run glue (`tdse_run.py`); the keyword routes behind its constructors, one module per family (`routes/`: GNLSE, hollow guides, general modal guides, spatial grids, and the material selection and keyword attribution they share); the convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `calibration/` | The native backend's machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)): reading, showing, exporting, importing and clearing profiles in the per-user store, through solprop-native's standard-library modules loaded by path so that the native runtime never starts (`calibration/_native.py`), the measuring controller, its child processes, the synthetic problems they time, the operation-grain candidates and the selection rule (`calibration/controller.py`, `child.py`, `problems.py`, `grain.py`, `selection.py`), the refinement of one simulation (`calibration/refine.py`, stage 2, which `Simulation.calibrate` runs), and the `solprop calibrate` command (`calibration/command.py`) | D |
@@ -299,7 +299,7 @@ The outer loop is `solprop.driver.run.run_problem`, which takes a translated pro
 constructed backend, an output handler and a `Start` -- the entrance, or a resumed
 state with its call ledgers and method history -- which the run's session loads into
 the backend (SEP 47). Nothing in it is
-specific to a `Simulation`; it is the piece a batch runner or a scan calls. What the
+specific to a `Simulation`; it is the piece a runner or a scan calls. What the
 driver does not do is as much a part of the design as what it does:
 
 - It **never conjugates a spectrum**. The backend works in the FFT convention, the output
@@ -582,10 +582,9 @@ propagated state*, never at the array-namespace level
 ```python
 class Backend(Protocol):
     name: str
-    max_batch: int
+    reads_transverse_edge: bool
 
     def prepare(self, problem, request) -> PreparedExecution: ...  # a run's session
-    def prepare_group(self, members, problems, requests) -> PreparedGroup: ...
     def timing_probe(self, start) -> TimingProbe: ...  # an estimate's trial
     def metadata(self) -> dict[str, object]: ...  # what the execution was
     def available_device_memory(self) -> int | None: ...
@@ -609,8 +608,7 @@ class Backend(Protocol):
   transforms to Accelerate, OpenBLAS or cuBLAS. The CUDA build uses time-parallel
   response teams, deterministic plasma scans and device reductions and is qualified on
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
-  sanitizer run still outstanding. Fixed-schedule fibre batching runs as the native group
-  session, one native session per member (§11). The private state is read only by the backend's own
+  sanitizer run still outstanding. The private state is read only by the backend's own
   session and timing probe. Its floating-point licence is
   [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
   strict opt-outs for the protected helpers (stable increments, small-argument functions,
@@ -624,7 +622,7 @@ qualified, and §11 its current limits.
 
 ## 10. Output and statistics
 
-`MemoryOutput` (everything in RAM: fast, small problems, batch scans) and `HDF5Output`
+`MemoryOutput` (everything in RAM: fast, small problems, scan points) and `HDF5Output`
 (streaming to disk, chunked per saved plane, optional compression, cache/resume) implement one
 save protocol (`output/store.py`) and one metadata schema (`output/metadata.py`, its record types in `output/records.py`): grid, modes, simulation type,
 the full configuration that built the `Simulation` (serialised physics objects), package and
@@ -632,7 +630,7 @@ dependency versions, git provenance of the running code when available, the nois
 realisation, the stepper settings and the step schedule actually taken (z, h, error norm,
 rejections, wall time), the statistics, and the rows a periodic subset of them recorded
 between planes. Fields are stored in the canonical layout
-`(n_z, n_modes, n_pol, n_omega)` (a batched scan stores each member separately), in the **optics** sign convention
+`(n_z, n_modes, n_pol, n_omega)` (a scan stores each point separately), in the **optics** sign convention
 with the attribute `spectral_convention = "optics"` (ADR-017: the output layer conjugates on
 save and on resume); processing accessors squeeze trivial axes and accept `convention="fft"`.
 A TDSE run may also write its raw provider evaluations to a separate archive
@@ -678,71 +676,19 @@ a mode-profile rebuild per accepted step is what cost Luna a fifth of its step. 
 reduces and packs the statistics without observing the complete field. The rows are stored
 beside the step history and in the same ragged shape.
 
-## 11. Scans and batch mode
+## 11. Scans
 
 [Scans](scans.md) run above the backend seam. `Scan` gives each point a stable global
 index, parameters and seed. `run_scan` selects an executor; `Local` is the API default,
 `Pool` uses spawned processes for independent CPU runs, and `Queue`/`Slurm` provide
-durable distributed execution. A controller owns the collected HDF5 scan file.
-
-Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
-started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
-independently translated single-trajectory member problems — no problem carries a batch
-axis — each started from its own `Start`, advanced
-one common window (save plane) at a time, each member reporting its own events. The
-batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. A backend
-chooses its own group: `start_group` asks the first member to prepare it,
-`members[0].prepare_group(members, problems, requests)`, and starts the returned
-`PreparedGroup`, naming no backend. Two groups serve it:
-
-- **The native group session** (`solprop_native.group.NativeGroupSession`) serves
-  every native group, on a CPU or a device build. It owns
-  one native execution session per member (`solprop_native.session.NativeSession`,
-  adopting the member backend the scan built), so each member's march, events,
-  attempts, statistics rows, tickets and boundary monitor are its own session's, and the group only orders the members'
-  advances. Within a window the members take turns in rounds of at most 256 common
-  steps (`ROUND_STEPS`), each turn native from end to end, and each member's noise
-  realisation and the noise phase its planes store are its own session's. The running members stand
-  at one common step between rounds, and a group-wide stop is polled there. A member's
-  trajectory is its lone native session's, bit for bit at one thread. The members share
-  the schedule and nothing mutable: no fused kernel, because the native marches own
-  each whole step. Its refusals (`solprop_native.group.refusal`) are named and made
-  before allocation: a run the native session refuses, an adaptive member, step planes,
-  or members that do not share the schedule, save planes, method, field shape and
-  statistics request. A batched scan forms none of these: it requires a fixed schedule,
-  refuses step planes and groups only points of one execution layout
-  (`solprop.driver.batch.compatible_groups`).
-- **The reference's group** (`solprop.backends.host.group_session.HostGroupSession`,
-  prepared by `HostPreparedGroup`) serves every `numpy_ref` group.
-  It runs over the reference's group runner (`HostGroup`, or `NumpyBatchBackend`'s
-  member-axis stage arithmetic, which `select_batch` builds), which adopts the loaded member backends, each with its own tables,
-  state and noise, and advances them through each common step in turn. It keeps that
-  runner rather than composing one `HostSession` per member, because the runner's
-  arithmetic and failure positions are what a reference group means:
-  the module docstring gives the reasons.
-
-Admission uses memory ledgers and a free-device-memory query with headroom.
-
-Every backend has exact member-versus-singleton identity checks under the same
-schedule. That does not imply a throughput improvement on every workload: whether a
-batch beats independent runs depends on the problem size and the device. Adaptive
-lockstep is not implemented. A boundary stop (the monitor's error, or its warning
-raised as an error) fails its member alone. A group-level failure (a non-finite norm,
-a step floor, a trial exception, an in-flight failure) fails every member of that
-group, each reporting its own committed position and checkpoint eligibility. Members
-take their steps in turn, so those ahead of the failing one have already taken the
-failed step: the reference group's members are then in flight and poisoned, having
-stepped without recording; a native group's have committed and recorded their whole
-turn and stay eligible. Recovering the surviving members is an open question
-([#171](https://github.com/LupoLab/solprop/issues/171)). A native member commits its
-launch plane before its monitor judges the launch, as a lone run does (SEP 47 section
-5.3), so a refused launch ends it in the window after the launch's; the reference
-group attaches the monitors first.
+durable distributed execution. A controller owns the collected HDF5 scan file. There
+is no in-process lockstep batch: SEP 52 removed the `Batch` executor and its groups,
+which on native built a backend per member and fused nothing, so a point runs as a
+lone run does, on whichever executor.
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are
-process-global (ADR-013). Each member may use its own adaptive schedule outside a fixed
-batch.
+process-global (ADR-013). Each point may use its own adaptive schedule.
 
 ## 12. Parallelism and the GPU model
 
@@ -754,7 +700,6 @@ process counts belong to the scan executor:
 |---|---|---|---|
 | small single | serial kernels and small transform pools by measured size rules | sequential | spawned processes |
 | large single | `prange` over node chunks; FFTW/BLAS threads on batched plans | sequential | processes |
-| compatible fibre problems on GPU | member-owned stage work; fused accepted updates | fixed lockstep | backend batch |
 | large on GPU | one thread per element | sequential | one problem per device |
 
 The plasma cumulative integral is sequential in value but not necessarily in execution. On

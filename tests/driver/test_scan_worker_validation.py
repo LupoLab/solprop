@@ -13,9 +13,18 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from driver.test_scan_batch import build
+from builders import fixed_fibre_point as build
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
+from solprop.backends.registry import select
 from solprop.driver import Simulation, _scan_run
-from solprop.driver._scan_run import _Capture, _checked, _Job, _Options, _Work
+from solprop.driver._scan_run import (
+    _Capture,
+    _checked,
+    _Job,
+    _Options,
+    _Work,
+    launch_statistics,
+)
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
 from solprop.output.records import SavedPlane
@@ -246,3 +255,27 @@ def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
         build, _Options((scans.field_at_plane(),), "none", (), "none"), "worker"
     )
     assert reduced._output_bytes(simulation, {}) == plane + count * 8
+
+
+def test_a_probe_whose_launch_fails_raises_the_launch_s_own_error(point, monkeypatch):
+    # A probe's launch statistics that fail end its session with a failed terminal:
+    # the probe raises that error, never a bare assertion.
+    simulation = build(point)
+    problem = simulation.translate()
+
+    def broken(self, spec):
+        raise OutputError("manufactured launch statistics failure")
+
+    monkeypatch.setattr(NumpyRefBackend, "stats", broken)
+    backend = select(
+        "numpy_ref",
+        problem,
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
+    )
+    try:
+        with pytest.raises(OutputError, match="manufactured launch statistics"):
+            launch_statistics(backend, problem)
+    finally:
+        backend.close()

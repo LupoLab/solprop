@@ -129,7 +129,13 @@ def _native_first_stage(backend, problem):
     uploaded stage tables), loaded with the launch, as the backend's march takes it.
     """
     native_trial(backend, 0.0, 0.0, field=problem.initial.field0)
-    return np.asarray(backend._native_state.stage_to_host(0)).reshape(problem.shape)
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
+    return np.asarray(_testing.stage_to_host(backend._native_state, 0)).reshape(
+        problem.shape
+    )
 
 
 def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):

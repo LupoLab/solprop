@@ -1,6 +1,6 @@
 # Fixed schedules and repeatable propagation
 
-A fixed schedule prescribes where the solver steps. Use it to replay positions or run compatible problems in a batch, after checking its accuracy for the parameter range. Accepting every prescribed step does not make its local error acceptable. Adaptive stepping remains the starting point for discovering a suitable schedule.
+A fixed schedule prescribes where the solver steps. Use it to replay positions or run an ensemble on identical steps, after checking its accuracy for the parameter range. Accepting every prescribed step does not make its local error acceptable. Adaptive stepping remains the starting point for discovering a suitable schedule.
 
 ## Fixed schedules: discover, calibrate, replay
 
@@ -11,7 +11,7 @@ per-member variance that adds; for repeat calculations and debugging, since a re
 run takes the recorded steps and meets the original run's accuracy target (it need not
 reproduce its bits, [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md));
 and on a device, where there is nothing to synchronise. Both modes are therefore first
-class, and batch lockstep execution uses fixed schedules only.
+class.
 
 1. **Discover.** One adaptive run records $h(z)$;
    {py:obj}`~solprop.stepper.schedule.discover` turns the accepted step lengths into a

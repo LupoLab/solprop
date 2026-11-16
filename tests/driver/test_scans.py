@@ -26,7 +26,7 @@ from march_bounds import (
 from solprop import _process
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver._scan_model import name_seed
-from solprop.driver.executors import Batch, Local, pool
+from solprop.driver.executors import Local, pool
 from solprop.driver.executors.pool import MemoryBudget, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
@@ -202,8 +202,8 @@ def test_scan_equals_single_points_and_reruns_skip(tmp_path, executor):
 
 @pytest.mark.parametrize(
     "executor",
-    [Local(), pytest.param(Pool(2), marks=pytest.mark.medium), Batch(2)],
-    ids=["local", "pool", "batch"],
+    [Local(), pytest.param(Pool(2), marks=pytest.mark.medium)],
+    ids=["local", "pool"],
 )
 def test_a_rerun_with_the_same_record_skips_and_any_change_conflicts(
     tmp_path, executor

@@ -539,7 +539,7 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an unbatched HDF5 run with `fields="all"`; it no longer needs
+A snapshot requires an HDF5 run with `fields="all"`; it no longer needs
 `step_planes`, and it is taken with interpolated planes too
 ([SEP 47](../../dev/seps/archive/sep-0047-run-ownership.md)). With `interpolate_planes=True` a
 request is taken at the end of the step that crossed the plane being saved, once every

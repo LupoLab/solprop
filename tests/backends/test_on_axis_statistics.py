@@ -560,6 +560,10 @@ def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_
 
 
 def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table):
+    from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+        _testing,
+    )
+
     pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
@@ -569,12 +573,12 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
     ) as backend:
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
-            state.axis_spectrum(np.ones((1, 1)))
+            _testing.axis_spectrum(state, np.ones((1, 1)))
         load_native(backend, problem.initial.field0, clear_fsal=False)
         with pytest.raises(ValueError, match="at most two rows"):
-            state.axis_spectrum(np.ones((3, 1)))
+            _testing.axis_spectrum(state, np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):
-            state.axis_spectrum(np.ones(1))
+            _testing.axis_spectrum(state, np.ones(1))
 
 
 def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):

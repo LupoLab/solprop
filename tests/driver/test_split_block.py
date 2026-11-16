@@ -38,10 +38,8 @@ from modal_provider_cases import (
     split_guide,
 )
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
-from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import C
 from solprop.exceptions import (
-    BackendError,
     DriverError,
     OutputError,
     SolpropWarning,
@@ -438,23 +436,6 @@ def test_zdw_is_withheld_on_a_split_block_and_admitted_on_the_plain_route(
     assert withheld_from(stored) == ("zdw",)
     unlisted = replace(stored, modal={**stored.modal, "accessors": "none"})
     assert withheld_from(unlisted) == ()
-
-
-def test_a_lockstep_batch_refuses_a_member_carrying_a_coupled_flow(rotated, grid):
-    """The batch reimplements the step loop and applies neither half of the flow."""
-    simulation = guide_simulation(rotated, grid)
-    problem = simulation.translate()
-    run_request = simulation._run_request()
-    member = NumpyRefBackend(
-        problem,
-        run_request,
-        grid=simulation.grid,
-        modes=list(simulation.modes),
-        profiles=None,
-    )
-    with pytest.raises(BackendError, match="lockstep batch does not execute"):
-        NumpyBatchBackend([member])
-    member.close()
 
 
 def test_a_coupled_block_names_a_reference_outside_its_channels(rotated):

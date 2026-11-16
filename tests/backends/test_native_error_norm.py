@@ -38,6 +38,7 @@ from solprop.stepper import PIController
 
 native = pytest.importorskip("solprop_native")
 core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 STEP_RELATIVE = 16 * EPS
 """The one-step rung of ``accuracy.md`` section 7, relative to the state."""
@@ -87,7 +88,7 @@ def _operands(backend, reference, problem, run_request, dz):
     state = backend._native_state
     shape = (1, *problem.shape)
     stages = [
-        np.asarray(state.stage_to_host(index)).reshape(shape)
+        np.asarray(_testing.stage_to_host(state, index)).reshape(shape)
         for index in range(len(tableau.nodes))
     ]
     reference.set_initial(problem.initial.field0, None)
@@ -219,7 +220,7 @@ def test_the_weighted_residual_divides_each_bin_before_the_norm(
         carried, rounding = _difference(
             stages, run_request.stepper.tableau.error_weights, propagator, dz
         )
-        partials = backend._native_state.weighted_error(weights)
+        partials = _testing.weighted_error(backend._native_state, weights)
         got = math.sqrt(float(np.sum(partials)))
     finally:
         backend.close()
@@ -298,13 +299,13 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         native_trial(backend, z, dz)
         # Six evaluations: the first stage was not evaluated, it was recycled.
         assert state.rk_source_evaluations == before + 6
-        recycled = np.asarray(state.stage_to_host(0)).copy()
+        recycled = np.asarray(_testing.stage_to_host(state, 0)).copy()
         # The same stage from scratch, at the same state and step.
         state.clear_fsal()
         before = state.rk_source_evaluations
         native_trial(backend, z, dz)
         assert state.rk_source_evaluations == before + 7
-        fresh = np.asarray(state.stage_to_host(0)).copy()
+        fresh = np.asarray(_testing.stage_to_host(state, 0)).copy()
         gap = float(np.linalg.norm(recycled - fresh) / np.linalg.norm(fresh))
         # The derivative's sensitivity to an elementwise relative perturbation of the
         # state, of the size and kind rounding makes: a measured conditioning estimate,
@@ -316,7 +317,7 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         field *= 1.0 + delta * np.exp(2j * np.pi * rng.random(field.shape))
         load_native(backend, field, clear_fsal=False)
         native_trial(backend, z, dz)
-        moved = np.asarray(state.stage_to_host(0))
+        moved = np.asarray(_testing.stage_to_host(state, 0))
         sensitivity = float(np.linalg.norm(moved - fresh) / np.linalg.norm(fresh))
         sensitivity /= delta
     finally:

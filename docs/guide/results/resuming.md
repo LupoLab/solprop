@@ -304,8 +304,8 @@ A file written before this record has none: its retention reads as
 `{"state": "unknown", "reason": "legacy"}`, never as an invented reason, and it resumes
 as it always did.
 
-Scientific changes still require a new run. Device choice, batch width and execution
-memory limits may change on resume and are recorded in `outcome.execution`; a new
+Scientific changes still require a new run. Device choice and execution memory
+limits may change on resume and are recorded in `outcome.execution`; a new
 atomic call limit cannot be smaller than the calls already attempted. The driver
 validates the checkpoint and ledgers before preparing atomic resources. Resuming
 an already completed file returns it without preparing another backend or atomic

@@ -1,0 +1,310 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The private test module `solprop_native._core._testing` (solprop SEP 52 section 6.5),
+# imported as `from solprop_native._core import _testing`: the entry points only
+# solprop's own tests reach. A `State` method that moved here takes the state first.
+# `native/scripts/problem_stub.py --check` holds the names here to the module's.
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import numpy.typing as npt
+
+from solprop_native._core import State, StatisticsPlan
+
+def trial_step(
+    state: State,
+    dz: float,
+    phi_delta: npt.NDArray[np.float64],
+    phi_at: npt.NDArray[np.float64],
+    prefactor: npt.NDArray[np.float64],
+    density: npt.NDArray[np.float64],
+    taper: npt.NDArray[np.float64],
+    preionisation: npt.NDArray[np.float64],
+    raman_rates: npt.NDArray[np.float64],
+    material: dict[str, npt.NDArray[np.float64] | int] | None = None,
+    prepare_only: bool = False,
+) -> npt.NDArray[np.float64]: ...
+def adopt(state: State, field: npt.NDArray[np.complex128], dz: float) -> None: ...
+def stage_to_host(state: State, stage: int) -> npt.NDArray[np.complex128]: ...
+def projected_to_host(
+    state: State, coarse: bool = False
+) -> npt.NDArray[np.complex128]: ...
+def weighted_error(
+    state: State, scale: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]: ...
+def form_flow_actions(
+    state: State, section: int, dz: float, fractions: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]: ...
+def flow_actions_to_host(state: State, inverse: bool) -> npt.NDArray[np.complex128]: ...
+def adams_block_to_host(state: State) -> npt.NDArray[np.complex128]: ...
+def adams_exponent_to_host(state: State) -> npt.NDArray[np.complex128]: ...
+def adams_exponential_trial(
+    state: State,
+    dz: float,
+    slots: npt.NDArray[np.uint64],
+    predictor: npt.NDArray[np.float64],
+    corrector: npt.NDArray[np.float64],
+    rows: npt.NDArray[np.float64],
+    divisor: npt.NDArray[np.float64],
+    phi_delta: npt.NDArray[np.float64],
+    phi_at: npt.NDArray[np.float64],
+    prefactor: npt.NDArray[np.float64],
+    density: npt.NDArray[np.float64],
+    taper: npt.NDArray[np.float64],
+    preionisation: npt.NDArray[np.float64],
+    raman_rates: npt.NDArray[np.float64],
+    material: dict[str, npt.NDArray[np.float64] | int],
+    sample_phi_delta: npt.NDArray[np.float64],
+    sample_phi_at: npt.NDArray[np.float64],
+    sample_prefactor: npt.NDArray[np.float64],
+    sample_density: npt.NDArray[np.float64],
+    sample_taper: npt.NDArray[np.float64],
+    sample_preionisation: npt.NDArray[np.float64],
+    sample_raman_rates: npt.NDArray[np.float64],
+    sample_material: dict[str, npt.NDArray[np.float64] | int],
+    spans: npt.NDArray[np.float64],
+    comp_predictor: npt.NDArray[np.float64],
+    comp_corrector: npt.NDArray[np.float64],
+    comp_rows: npt.NDArray[np.float64],
+    rate: npt.NDArray[np.float64],
+    carrier: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]: ...
+def adams_exponential_trial_at(
+    state: State,
+    z: float,
+    dz: float,
+    nodes: npt.NDArray[np.float64],
+    slots: npt.NDArray[np.uint64],
+    order: int,
+    orders: list[int],
+    compensated: bool,
+    carrier: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]: ...
+def adams_exponential_accept(
+    state: State, dz: float, free: int, dense: npt.NDArray[np.uint64], interpolate: bool
+) -> None: ...
+def adams_start(
+    state: State,
+    slot: int,
+    phi_delta: npt.NDArray[np.float64],
+    phi_at: npt.NDArray[np.float64],
+    prefactor: npt.NDArray[np.float64],
+    density: npt.NDArray[np.float64],
+    taper: npt.NDArray[np.float64],
+    preionisation: npt.NDArray[np.float64],
+    raman_rates: npt.NDArray[np.float64],
+    material: dict[str, npt.NDArray[np.float64] | int],
+) -> None: ...
+def adams_compensation_start(
+    state: State, slot: int, rate: npt.NDArray[np.float64]
+) -> None: ...
+def adams_hold(state: State) -> None: ...
+def adams_restore(state: State) -> None: ...
+def adams_rows_to_host(state: State, name: str) -> npt.NDArray[np.complex128]: ...
+def adams_stage_scalars(
+    state: State, z0: float, z1: float
+) -> dict[str, list[float]]: ...
+def adams_stage_rate(state: State, z: float) -> list[float]: ...
+def has_stage_tables(state: State) -> bool: ...
+def table_rate_at(state: State, z: float, before: bool) -> None: ...
+def phase_sum_to_host(
+    state: State, weights: npt.NDArray[np.float64]
+) -> npt.NDArray[np.complex128]: ...
+def promote_fsal(state: State) -> None: ...
+def adams_march_run(
+    state: State, march: dict[str, object], bounds: dict[str, object]
+) -> dict[str, Any]: ...
+def rk_march_run(
+    state: State, march: dict[str, object], bounds: dict[str, object]
+) -> dict[str, Any]: ...
+def adams_march_fault(state: State, stage: str, after: int, category: str) -> None: ...
+def statistics(
+    state: State,
+    flags: int,
+    windows: npt.NDArray[np.float64],
+    on_axis: npt.NDArray[np.float64],
+    density: float,
+    taper: float,
+    preionisation: float,
+    intensity_factor: float,
+    channel_preionisation: npt.NDArray[np.float64] | None = None,
+    power_weight: npt.NDArray[np.float64] | None = None,
+) -> npt.NDArray[np.float64]: ...
+def spatial_statistics(
+    state: State, flags: int, intensity_factor: float, z: float
+) -> npt.NDArray[np.float64]: ...
+def planned_statistics(
+    state: State, plan: StatisticsPlan, z: float
+) -> npt.NDArray[np.float64]: ...
+def plane_fluence_trace(
+    state: State,
+    center_x: float,
+    center_y: float,
+    dx: float,
+    dy: float,
+    extent: float,
+    spacing: float,
+    n_radii: int,
+    cosines: npt.NDArray[np.float64],
+    sines: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]: ...
+def axis_spectrum(
+    state: State, matrix: npt.NDArray[np.float64]
+) -> npt.NDArray[np.complex128]: ...
+def monitor_reading(state: State) -> npt.NDArray[np.float64]: ...
+def quadrature_error(state: State) -> float: ...
+def watch_check(
+    policy: dict[str, object],
+    state: dict[str, object],
+    reading: npt.NDArray[np.float64],
+    z: float,
+) -> dict[str, Any]: ...
+def watch_due(
+    policy: dict[str, object], state: dict[str, object], z: float
+) -> bool: ...
+def watch_split_limit(
+    policy: dict[str, object], occupancy: npt.NDArray[np.float64]
+) -> float: ...
+def half_width(
+    t: npt.NDArray[np.float64], power: npt.NDArray[np.float64], outer: bool
+) -> float: ...
+def strict_witness(
+    a: float, b: float, c: float
+) -> tuple[float, float, float, float, float, float, float, float, float, float]: ...
+def radial_fluence_widths(
+    radius: npt.NDArray[np.float64],
+    fluence: npt.NDArray[np.float64],
+    weights: npt.NDArray[np.float64],
+    axis_fluence: float,
+    e2_fraction: float,
+) -> tuple[float, float, float]: ...
+def fluence_block_widths(
+    plan: StatisticsPlan, block: npt.NDArray[np.float64]
+) -> tuple[float, float, float]: ...
+def line_fluence_widths(
+    x: npt.NDArray[np.float64], samples: npt.NDArray[np.float64], e2_fraction: float
+) -> tuple[float, float, float]: ...
+def reference_fft3_pairs(
+    values: npt.NDArray[np.complex128], warm: int, pairs: int
+) -> list[float]: ...
+def scoped_openmp_default() -> int: ...
+def scoped_block_time() -> int: ...
+def forget_fftw_wisdom() -> None: ...
+def import_fftw_wisdom(text: str) -> bool: ...
+def vector_exp(x: npt.NDArray[np.float64], out: npt.NDArray[np.float64]) -> None: ...
+def vector_log(x: npt.NDArray[np.float64], out: npt.NDArray[np.float64]) -> None: ...
+def vector_sincos(
+    x: npt.NDArray[np.float64],
+    sine: npt.NDArray[np.float64],
+    cosine: npt.NDArray[np.float64],
+) -> None: ...
+def vector_exp_complex(
+    a: npt.NDArray[np.float64],
+    b: npt.NDArray[np.float64],
+    real: npt.NDArray[np.float64],
+    imag: npt.NDArray[np.float64],
+) -> None: ...
+
+class TransverseEdge:
+    def __init__(self, config: dict[str, object]) -> None: ...
+    def resume(self, record: dict[str, object]) -> None: ...
+    def launch(
+        self,
+        reading: dict[str, object],
+        z: float,
+        sums: tuple[float, float] | None = None,
+        noise: dict[str, object] | None = None,
+    ) -> dict[str, Any]: ...
+    def read(
+        self,
+        reading: dict[str, object],
+        z: float,
+        sums: tuple[float, float] | None = None,
+    ) -> dict[str, Any]: ...
+    def proceed(self) -> dict[str, Any]: ...
+    def step(self, current: float, z: float) -> None: ...
+    def ceiling(self) -> float: ...
+    def due(self, z: float, proposal: float) -> bool: ...
+    def wants_read(self, z: float) -> bool: ...
+    def launch_sums(self, columns: npt.NDArray[np.float64]) -> tuple[float, float]: ...
+    def read_sums(self, gap: float) -> tuple[float, float]: ...
+    def record(self) -> dict[str, Any]: ...
+    @property
+    def next_read(self) -> float: ...
+    @property
+    def every_step(self) -> bool: ...
+    @property
+    def resumed(self) -> bool: ...
+    @property
+    def pending(self) -> bool: ...
+    @property
+    def status(self) -> int: ...
+
+class Monitor:
+    def __init__(self, config: dict[str, object]) -> None: ...
+    def resume(
+        self,
+        record: dict[str, object],
+        plane: bool,
+        unwatched: list[list[float]],
+    ) -> None: ...
+    def launch(
+        self,
+        reading: npt.NDArray[np.float64],
+        z: float,
+        floor: float = 0.0,
+        floor_regions: npt.NDArray[np.float64] | None = None,
+    ) -> dict[str, Any]: ...
+    def due(self, z: float) -> bool: ...
+    def skip(self, z: float) -> None: ...
+    def step(
+        self, reading: npt.NDArray[np.float64], z: float, plane: bool = False
+    ) -> dict[str, Any]: ...
+    def plane(self, z: float) -> None: ...
+    def note_collar(self, left_out: bool) -> None: ...
+    def finish(self) -> dict[str, Any]: ...
+    def record(self) -> dict[str, Any]: ...
+    def watch_state(self) -> dict[str, Any]: ...
+    @property
+    def stale(self) -> bool: ...
+    @property
+    def collar_quiet(self) -> bool: ...
+    @property
+    def step_cap(self) -> float: ...
+    @property
+    def rests(self) -> bool: ...
+    def steps_to_check(self) -> int: ...
+
+class ScriptedMarch:
+    def __init__(
+        self,
+        policy: dict[str, object],
+        norms: npt.NDArray[np.float64],
+        carrier_rate: float,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
+    ) -> None: ...
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def log(self) -> list[dict[str, Any]]: ...
+
+class ScriptedRkMarch:
+    def __init__(
+        self,
+        policy: dict[str, object],
+        norms: npt.NDArray[np.float64],
+        h0: float,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
+    ) -> None: ...
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def log(self) -> list[dict[str, Any]]: ...
+    def used(self) -> int: ...

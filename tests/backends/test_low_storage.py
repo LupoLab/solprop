@@ -631,59 +631,6 @@ def test_planes_at_natural_steps_match_the_uninterrupted_run(
     )
 
 
-def test_a_lockstep_batch_matches_its_members_run_alone(
-    lifecycle, narrow_grid, scales, caplog
-):
-    """Each member owns its march (section 6.5); the batch is its solo runs.
-
-    The runner holds no march of its own, and its closing debug line still says the
-    run has no estimate rather than printing the members' 0.0 as a ratio.
-    """
-    from solprop.backends.registry import select_batch  # noqa: PLC0415
-
-    problem, run_request, length = lifecycle()
-    members, alone = [], []
-    for factor in (1.0, 1.1):
-        member = dataclasses.replace(
-            problem,
-            initial=dataclasses.replace(
-                problem.initial, field0=problem.initial.field0 * factor
-            ),
-        )
-        final, backend = run(member, run_request, narrow_grid)
-        backend.close()
-        alone.append(final)
-        loaded = NumpyRefBackend(member, run_request, grid=narrow_grid)
-        loaded.set_initial(member.initial.field0, None)
-        members.append(loaded)
-    runner = select_batch(members)
-    try:
-        with caplog.at_level(logging.DEBUG, logger=type(runner).__module__):
-            for plane in run_request.stepper.save_planes:
-                runner.propagate_to(float(plane))
-        observed = runner.observe_members()
-        metadata = runner.member_metadata()
-    finally:
-        runner.close()
-    bound = rounding_bound(problem, run_request.stepper.schedule, scales)
-    for observation, expected, record in zip(observed, alone, metadata, strict=True):
-        assert observation.z == length
-        assert observation.step_history.n_steps == LIFECYCLE_STEPS
-        assert np.all(observation.step_history.error_norm == 0.0)
-        assert np.linalg.norm(observation.field - expected) <= bound * np.linalg.norm(
-            expected
-        )
-        assert record["source_evaluations"] == 4 * LIFECYCLE_STEPS
-    ratios = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == type(runner).__module__
-        and "tolerance ratio" in record.getMessage()
-    ]
-    assert len(ratios) == len(run_request.stepper.save_planes)
-    assert all(line.endswith("not estimated (replayed schedule)") for line in ratios)
-
-
 @pytest.mark.parametrize("edge", ["plane", "mid-segment"])
 def test_a_resume_at_an_edge_agrees_to_rounding(lifecycle, narrow_grid, scales, edge):
     """A resume rebuilds the flow table from its own first step (section 4.3).
@@ -997,34 +944,6 @@ def test_an_abandoned_step_leaves_every_reader_refusing(lifecycle, narrow_grid, 
     assert np.linalg.norm(final - uninterrupted) <= bound * np.linalg.norm(
         uninterrupted
     )
-
-
-def test_a_lockstep_member_left_in_flight_refuses_the_next_step(lifecycle, narrow_grid):
-    from solprop.backends.registry import select_batch  # noqa: PLC0415
-
-    problem, run_request, length = lifecycle()
-    members = []
-    for _ in range(2):
-        member = NumpyRefBackend(problem, run_request, grid=narrow_grid)
-        member.set_initial(problem.initial.field0, None)
-        members.append(member)
-    runner = select_batch(members)
-    abandon_after(members[1], 1)
-    with pytest.raises(AbandonedError):
-        runner.propagate_to(length / 2)
-    # Member 0 committed the shared step before member 1 was abandoned; the next call
-    # must refuse before stepping it again from there.
-    position, state = members[0]._z, members[0]._state.copy()
-    with pytest.raises(BackendError, match="abandoned in flight"):
-        runner.propagate_to(length / 2)
-    assert members[0]._z == position
-    assert np.array_equal(members[0]._state, state)
-    assert members[0].metadata()["source_evaluations"] == 4
-    with pytest.raises(BackendError, match="abandoned in flight"):
-        runner.observe_members()
-    with pytest.raises(BackendError, match="abandoned in flight"):
-        runner.stats(StatsSpec(names=("energy",)))
-    runner.close()
 
 
 def test_a_diverged_state_stops_the_replay_in_flight(lifecycle, narrow_grid):

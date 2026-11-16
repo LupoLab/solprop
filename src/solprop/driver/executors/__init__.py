@@ -7,13 +7,12 @@
 from collections.abc import Callable, Iterable, Iterator
 from typing import Protocol, runtime_checkable
 
-from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.local import Local
 from solprop.driver.executors.pool import Pool
 from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
 
-__all__ = ["Batch", "Executor", "Local", "Pool", "Queue", "Slurm"]
+__all__ = ["Executor", "Local", "Pool", "Queue", "Slurm"]
 
 
 @runtime_checkable

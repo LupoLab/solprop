@@ -743,8 +743,8 @@ def open_run(
     """
     # A session that holds its monitor from the start (the native session) reports
     # the launch's zeros here. The execution record carries the monitor instead
-    # (`_record_execution`), as a group's points do (`_scan_batch`); a scan writes the
-    # opening record into every point's metadata.
+    # (`_record_execution`); a scan writes the opening record into every point's
+    # metadata.
     executed = {
         name: value
         for name, value in backend.metadata().items()
@@ -932,7 +932,7 @@ def _refuse_unrunnable(
     if refusal is not None:
         raise DriverError(refusal)
     # What the problem does not carry, refused here for every executor rather than at
-    # the first plane (SEP 47 section 6.3), as a preparation and a group refuse it.
+    # the first plane (SEP 47 section 6.3), as a preparation refuses it.
     refusal = statistics_unavailable(problem, [*spec.names, *spec.periodic])
     if refusal is not None:
         raise BackendError(refusal)

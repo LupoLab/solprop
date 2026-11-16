@@ -87,7 +87,11 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
                 backend, problem.initial.field0, noise_spectrum(noise, problem.shape)
             )
             native_trial(backend, position, 0.0)
-            actual = state.stage_to_host(0).reshape(expected.shape)
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
+            actual = _testing.stage_to_host(state, 0).reshape(expected.shape)
         else:
             captured = []
             nonlinear = backend._nonlinear

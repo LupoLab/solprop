@@ -57,6 +57,7 @@ pytestmark = [
 backend_module = pytest.importorskip("solprop_native.backend")
 NativeAdamsMarch = backend_module._NativeAdamsMarch
 NativeSession = pytest.importorskip("solprop_native.session").NativeSession
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
@@ -69,7 +70,9 @@ def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
     def arming(self):
         configure(self)
         if not armed:
-            self._backend._native_state.adams_march_fault(stage, after, category)
+            _testing.adams_march_fault(
+                self._backend._native_state, stage, after, category
+            )
             armed.append(self)
 
     monkeypatch.setattr(NativeAdamsMarch, "_configure", arming)

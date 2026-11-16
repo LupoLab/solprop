@@ -40,6 +40,7 @@ pytestmark = [
 native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
 core = pytest.importorskip("solprop_native._core")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 ROWS = (
     "gnlse",
@@ -134,7 +135,9 @@ def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
         allowance = backend_module._flow_allowance(modes)
         section = int(scalars(problem, z, z + dz, helpers=backend.helpers).flow_section)
         fractions = np.array([*nodes, 1.0])
-        measured = np.asarray(state.form_flow_actions(section, dz, fractions))[0]
+        measured = np.asarray(
+            _testing.form_flow_actions(state, section, dz, fractions)
+        )[0]
         if measured.size:
             halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
             expected = _refusal(
@@ -215,8 +218,9 @@ def _first_attempt(route: str, controller: PIController):
             old = math.sqrt(float(partials[0].sum()))
             new = math.sqrt(float(partials[1].sum()))
             weighted = np.asarray(
-                backend._native_state.weighted_error(
-                    np.ascontiguousarray(controller.scale(old, new), dtype=np.float64)
+                _testing.weighted_error(
+                    backend._native_state,
+                    np.ascontiguousarray(controller.scale(old, new), dtype=np.float64),
                 )
             )
     finally:

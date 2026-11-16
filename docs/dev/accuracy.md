@@ -351,8 +351,8 @@ follows the kind
 ([testing.md](testing.md) section 3):
 
 - **Matched discrete computations: rounding budgets** (class R). One application, one
-  step, eight steps, a kernel, a scan, two thread layouts, a batch member or a scan
-  point against the same computation alone: the same method, orders, history, schedule
+  step, eight steps, a kernel, a scan, two thread layouts or a scan point against the
+  same computation alone: the same method, orders, history, schedule
   and inputs on both sides. The bound is fixed from operation and reduction counts and
   transform lengths, with a margin, before anything is measured.
 - **Adaptive runs: accuracy envelopes** (class T). A full adaptive run, the reduced M2
@@ -453,13 +453,11 @@ most 3.7e-11 of the peak. So the size of a step difference says little about the
 earlier comparison of 1.9e-12 in the steps with 1.5e-10 in the field, a factor of 65, set side
 by side two effects of the plan, not a cause and its result.
 
-**Scans and batches** are execution paths, not numerical models: a scan point agrees with
-the same simulation run alone, and a batch member with the same member run singly under
-the same fixed schedule, within a matched-discrete rounding budget, on every backend (scan
-points under `Local` and a fresh `Pool`; batches of 1, 2 and 3 with a partial final
-group). Neither is required to be bitwise: a batch's lockstep reductions, its thread
-layout and a worker process's library state may order sums differently. A scan point or
-batch member run adaptively is class T against its own reference. The reduced M2 case on
+**Scans** are execution paths, not numerical models: a scan point agrees with the same
+simulation run alone within a matched-discrete rounding budget, on every backend (under
+`Local` and a fresh `Pool`). It is not required to be bitwise: a worker process's thread
+layout and library state may order sums differently. A scan point run adaptively is
+class T against its own reference. The reduced M2 case on
 the GPU agreed with the fixed-schedule CPU fields to 7.9e-14 (a diagnostic; no bound
 asserted). A calibrated reduced-M2 schedule
 (eight seeds, 515 steps) transfers to 4.7e-7 in its scalar metrics against `rtol = 1e-10`

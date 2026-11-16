@@ -64,6 +64,7 @@ from solprop.stepper.schedule import FixedSchedule
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 LENGTH = PLANES[-1]
 
@@ -501,7 +502,7 @@ def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
 
     def arming(self) -> None:
         configure(self)
-        self._backend._native_state.adams_march_fault(stage, after, category)
+        _testing.adams_march_fault(self._backend._native_state, stage, after, category)
 
     monkeypatch.setattr(march, "_configure", arming)
 

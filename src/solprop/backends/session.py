@@ -40,15 +40,6 @@ Control requests travel separately from the immutable request: a thread-safe
 :meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted
 endpoint (SEP 47 section 5.5).
 
-A :class:`GroupSession` advances compatible trajectories through one common fixed
-schedule, a window at a time, and reports each member's own events and outcome (SEP 47
-section 6.7). A backend prepares its own group the same way, from the group's first
-member (:class:`PreparedGroup`)::
-
-    prepared = members[0].prepare_group(members, problems, requests)
-    with prepared.start(starts, stop=token) as group:
-        ...
-
 :class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
 receipts, the pending barrier, closing and poisoning. It holds no numerical state.
 """
@@ -70,7 +61,6 @@ from jaxtyping import Complex
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
-    GroupBatch,
     Outcome,
     Receipt,
 )
@@ -88,9 +78,7 @@ __all__ = [
     "DEFAULT_DEADLINE",
     "DEFAULT_WORK_LIMIT",
     "ExecutionOptions",
-    "GroupSession",
     "PreparedExecution",
-    "PreparedGroup",
     "RunSession",
     "SessionBackend",
     "SessionError",
@@ -100,8 +88,6 @@ __all__ = [
     "SnapshotReceipt",
     "Start",
     "StopToken",
-    "check_group",
-    "check_member_ticket",
     "positive_count",
     "statistics_unavailable",
 ]
@@ -268,71 +254,6 @@ class ExecutionOptions:
         return None if self.node_chunk is None else operator.index(self.node_chunk)
 
 
-def check_group(
-    members: Sequence[object],
-    problems: Sequence[PropagationProblem],
-    requests: Sequence[RunRequest],
-    starts: Sequence[Start],
-) -> None:
-    """Refuse a group's inputs that no group implementation starts from.
-
-    A group (:class:`GroupSession`) takes one problem, request and start per member,
-    and starts every member at its entrance, with no method history or monitor record
-    to continue (SEP 47 section 6.7). Every check reads its inputs alone, so a refused
-    group leaves the caller's starts and backends untouched.
-
-    Parameters
-    ----------
-    members : collections.abc.Sequence of object
-        Each member's backend.
-    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
-        Each member's problem.
-    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
-        Each member's run request.
-    starts : collections.abc.Sequence of Start
-        Each member's start.
-
-    Raises
-    ------
-    SessionError
-        If the sequences differ in length or are empty, if a start is not a fresh
-        entrance whose launch plane is owed or was already used, or if two members
-        share a start or a backend.
-    solprop.exceptions.BackendError
-        If a member asks for statistics its problem does not carry
-        (:func:`statistics_unavailable`).
-    """
-    count = len(members)
-    if count == 0 or not count == len(problems) == len(requests) == len(starts):
-        msg = (
-            f"a group needs one problem, request and start per member, and got "
-            f"{count} members, {len(problems)} problems, {len(requests)} "
-            f"requests and {len(starts)} starts"
-        )
-        raise SessionError(msg)
-    for problem, request in zip(problems, requests, strict=True):
-        stats = request.observation.stats
-        refused = statistics_unavailable(problem, (*stats.names, *stats.periodic))
-        if refused is not None:
-            raise BackendError(refused)
-    for start in starts:
-        fresh = start.march is None and start.monitor is None
-        if not fresh or start.plane_index or not start.plane_pending:
-            msg = (
-                "a group starts its members at their entrance, its launch plane owed, "
-                "with no method history or monitor record to continue"
-            )
-            raise SessionError(msg)
-        if start.field is None:
-            msg = "this start was already used: a start is handed to one session"
-            raise SessionError(msg)
-    # One start or backend shared by two members would alias their state.
-    for given, name in ((starts, "start"), (members, "backend")):
-        if len({id(one) for one in given}) < count:
-            msg = f"each member of a group takes its own {name}"
-            raise SessionError(msg)
-
-
 _MODAL_ONLY = (
     "omega0",
     "energy_window",
@@ -415,29 +336,6 @@ def statistics_unavailable(
             "plasma response, and this problem declares none"
         )
     return None
-
-
-def check_member_ticket(ticket: ExportTicket, member: int) -> None:
-    """Refuse a group ticket presented for another member than the one it names.
-
-    Parameters
-    ----------
-    ticket : solprop.backends.events.ExportTicket
-        A ticket of a group's pending batch.
-    member : int
-        The member it is presented for.
-
-    Raises
-    ------
-    SessionError
-        If the ticket names another member, or none.
-    """
-    if ticket.member != member:
-        msg = (
-            f"the export ticket for z = {ticket.z!r} m is member {ticket.member}'s, "
-            f"not member {member}'s"
-        )
-        raise SessionError(msg)
 
 
 def positive_count(name: str, value: object) -> int:
@@ -812,180 +710,6 @@ class RunSession(Protocol):
 
 
 @runtime_checkable
-class GroupSession(Protocol):
-    """Compatible trajectories advanced together through one common fixed schedule.
-
-    A group request is a sequence of independently translated member problems that
-    pass the compatibility predicate a batched scan groups its points by; the
-    common schedule's maximum error norm is a diagnostic only (SEP 47 section 6.7).
-    Each :meth:`advance` runs every member still running through the next common
-    schedule window -- to the next save plane -- and reports each member's own
-    events (:class:`~solprop.backends.events.GroupBatch`)::
-
-        with group:
-            while not group.finished:
-                batch = group.advance()
-                service(batch)                 # each member's planes and outcome
-                group.acknowledge(batch.receipt)
-
-    **Failure.** A boundary error, or a boundary warning raised as an error, ends
-    that member alone with a :class:`~solprop.backends.events.Terminal`, and the
-    others go on. A non-finite error norm, a step floor, a trial exception or an
-    in-flight failure ends the group: every member still running ends with the same
-    error. Members are stepped in turn, so earlier members may already have advanced
-    the failed scheduled step: each terminal reports that member's actual committed
-    position and checkpoint eligibility, and no common cursor or rollback is
-    invented. A group-wide stop request ends every running member at a common
-    accepted endpoint.
-    """
-
-    @property
-    def n_members(self) -> int:  # numpydoc ignore=RT01
-        """Number of members."""
-        ...
-
-    @property
-    def finished(self) -> bool:  # numpydoc ignore=RT01
-        """Whether every member has ended."""
-        ...
-
-    @property
-    def closed(self) -> bool:  # numpydoc ignore=RT01
-        """Whether the group was closed."""
-        ...
-
-    def advance(self) -> GroupBatch:
-        """Run every running member through the next common window, and report it."""
-        ...
-
-    def acknowledge(self, receipt: Receipt) -> None:
-        """Release a window's batch and allow advancing past it.
-
-        Parameters
-        ----------
-        receipt : solprop.backends.events.Receipt
-            The batch's receipt.
-        """
-        ...
-
-    def export(
-        self,
-        member: int,
-        ticket: ExportTicket,
-        recipe: ExportRecipe,
-        out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
-    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Fill a destination with one member's converted field at a pending ticket.
-
-        Parameters
-        ----------
-        member : int
-            The member's index, from zero.
-        ticket : solprop.backends.events.ExportTicket
-            The member's pending ticket.
-        recipe : solprop.backends.export.ExportRecipe
-            The conversion.
-        out : numpy.ndarray or None, optional
-            The destination; a new array by default.
-
-        Returns
-        -------
-        numpy.ndarray
-            The filled destination.
-        """
-        ...
-
-    def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
-        """Return one member's noise phase at a pending ticket.
-
-        Parameters
-        ----------
-        member : int
-            The member's index, from zero.
-        ticket : solprop.backends.events.ExportTicket
-            The member's pending ticket.
-
-        Returns
-        -------
-        numpy.ndarray or None
-            The phase, or ``None`` without noise.
-        """
-        ...
-
-    def member_status(self, member: int) -> SessionStatus:
-        """Return one member's committed position, counters and outcome.
-
-        Parameters
-        ----------
-        member : int
-            The member's index, from zero.
-
-        Returns
-        -------
-        SessionStatus
-            The member's status.
-        """
-        ...
-
-    def execution_record(self, member: int) -> Mapping[str, object]:
-        """Return one member's execution facts.
-
-        Parameters
-        ----------
-        member : int
-            The member's index, from zero.
-
-        Returns
-        -------
-        collections.abc.Mapping
-            The member's execution record.
-        """
-        ...
-
-    def monitor_record(self, member: int) -> Mapping[str, object] | None:
-        """Return one member's boundary-monitor record, ``None`` when unwatched.
-
-        Parameters
-        ----------
-        member : int
-            The member's index, from zero.
-
-        Returns
-        -------
-        collections.abc.Mapping or None
-            The record.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release every member's resources; idempotent."""
-        ...
-
-    def __enter__(self) -> "GroupSession":
-        """Return the group, for scoped ownership."""
-        ...
-
-    def __exit__(
-        self,
-        kind: type[BaseException] | None,
-        error: BaseException | None,
-        trace: TracebackType | None,
-    ) -> None:
-        """Close the group.
-
-        Parameters
-        ----------
-        kind : type or None
-            The type of the exception leaving the scope, if any.
-        error : BaseException or None
-            The exception, if any.
-        trace : types.TracebackType or None
-            Its traceback, if any.
-        """
-        ...
-
-
-@runtime_checkable
 class PreparedExecution(Protocol):
     """A backend's lowering of one problem and request, reusable across sessions."""
 
@@ -1032,42 +756,6 @@ class PreparedExecution(Protocol):
 
     def close(self) -> None:
         """Release the prepared resources; idempotent."""
-        ...
-
-
-@runtime_checkable
-class PreparedGroup(Protocol):
-    """A backend's preparation of a group of compatible members (SEP 47 section 6.7).
-
-    The group's counterpart of :class:`PreparedExecution`: a backend returns it from
-    :meth:`~solprop.backends.protocol.Backend.prepare_group`, and its :meth:`start`
-    opens the backend's own :class:`GroupSession`, so that
-    :func:`solprop.backends.sessions.start_group` names no backend.
-    """
-
-    @property
-    def backend(self) -> str:  # numpydoc ignore=RT01
-        """Registered name of the backend that prepared it."""
-        ...
-
-    def start(
-        self, starts: Sequence[Start], *, stop: StopFlag | None = None
-    ) -> GroupSession:
-        """Start the group, each member from its entrance.
-
-        Parameters
-        ----------
-        starts : collections.abc.Sequence of Start
-            Each member's entrance, in member order; the group takes their fields.
-        stop : solprop.log.StopFlag or None, optional
-            A group-wide stop token.
-
-        Returns
-        -------
-        GroupSession
-            The started group, which owns the members once it is constructed; a start
-            that fails leaves them to the caller.
-        """
         ...
 
 

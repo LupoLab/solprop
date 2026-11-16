@@ -46,6 +46,7 @@ pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
 )
 backend_module = pytest.importorskip("solprop_native.backend")
+_testing = pytest.importorskip("solprop_native._core")._testing
 
 ROUTED = (
     "gnlse",
@@ -175,7 +176,9 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
         for z in (0.0, 0.37 * end, 0.8 * end):
             dz = 0.01 * end
             staged = native_trial(backend, z, dz)
-            stages = [np.array(state.stage_to_host(i)) for i in range(len(nodes))]
+            stages = [
+                np.array(_testing.stage_to_host(state, i)) for i in range(len(nodes))
+            ]
             held = anchor(problem, z, helpers=backend.helpers)
             *bundles, whole = scalars_at(
                 problem,
@@ -185,10 +188,10 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
                 helpers=backend.helpers,
             )
             arrays, material = backend._trial_arrays(bundles, whole)
-            packed = np.asarray(state.trial_step(dz, *arrays, material))
+            packed = np.asarray(_testing.trial_step(state, dz, *arrays, material))
             assert staged.tobytes() == packed.tobytes(), z
             for index, stage in enumerate(stages):
-                assert np.array(state.stage_to_host(index)).tobytes() == (
+                assert np.array(_testing.stage_to_host(state, index)).tobytes() == (
                     stage.tobytes()
                 ), (z, index)
             assert np.max(np.abs(stages[-1])) > 0.0

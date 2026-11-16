@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Drive a native session or a native group to its end and keep what it observed.
+"""Drive a native session to its end and keep what it observed.
 
 The native test root's copy of solprop's ``tests/sessions/runs.py``, with the same
 names and semantics, since this root cannot import solprop's test helpers: :func:`run`
@@ -13,19 +13,12 @@ exported as the session holds the state (:data:`IDENTITY`); :func:`final_field`,
 :func:`load_native` and :func:`native_trial` reach the native state's own trial, which
 the kernel-level checks make where they once called the driver's trial step. A failed
 run raises its error by default, as a service loop does.
-
-The group tests compare each member of a native group session
-(:class:`solprop_native.group.NativeGroupSession`, started through solprop's
-:func:`~solprop.backends.sessions.start_group`) with the same member run alone through
-the native session (:func:`alone`): the oracle that replaced the transitional lockstep
-batch in solprop SEP 47's phase 5.
 """
 
 from __future__ import annotations
 
-import functools
 import math
-from collections.abc import Callable, Generator, Sequence
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, cast
@@ -44,7 +37,7 @@ from solprop.backends.events import (
 from solprop.backends.export import ExportRecipe
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import RunSession, SessionStatus, Start
-from solprop.backends.sessions import start_group, start_session
+from solprop.backends.sessions import start_session
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 """The state as the session holds it, in the internal FFT convention."""
@@ -543,70 +536,6 @@ def native_trial(backend: Any, z: float, dz: float, *, field: Any = None) -> np.
     return np.array(state.rk_trial(z, dz, nodes, prepare_only=False), dtype=np.float64)
 
 
-class _Recorder:
-    """Keep one trajectory's observations, each with the attempts and rows since the
-    previous one, assembled from every event's chunk (exactly-once delivery).
-
-    The comparable record of a group member and of its lone session, which
-    :func:`assert_same` compares.
-    """
-
-    def __init__(self) -> None:
-        self.planes: list[dict[str, Any]] = []
-        self._chunks: list[tuple[Any, Any]] = []
-
-    def __call__(self, session: RunSession, batch: EventBatch) -> None:
-        """Record a lone session's batch, as :func:`drive`'s ``between``."""
-        self.take(session.export, batch.events)
-
-    def take(self, export: Any, events: Sequence[Any]) -> None:
-        """Record a batch's events, exporting each observation's field.
-
-        A run that failed raises its failure here, so that no caller compares a run
-        cut short.
-        """
-        for event in events:
-            if isinstance(event, Terminal) and event.error is not None:
-                raise event.error
-            history = getattr(event, "history", None)
-            if history is not None:
-                self._chunks.append((history, getattr(event, "step_stats", None)))
-            if not isinstance(event, ObservationReady):
-                continue
-            history, rows = join_attempts(self._chunks)
-            self._chunks = []
-            self.planes.append(
-                {
-                    "z": float(event.z),
-                    "attempts": {
-                        "z": np.asarray(history.z).copy(),
-                        "dz": np.asarray(history.dz).copy(),
-                        "accepted": np.asarray(history.accepted).copy(),
-                        "error_norm": np.asarray(history.error_norm).copy(),
-                    },
-                    "field": np.array(export(event.ticket, IDENTITY)),
-                    "stats": {
-                        name: np.asarray(value) for name, value in event.stats.items()
-                    },
-                    "row_z": np.asarray(rows.z).copy(),
-                    "rows": {
-                        name: np.asarray(value).copy()
-                        for name, value in rows.values.items()
-                    },
-                }
-            )
-
-
-def alone(owner: Any, problem: Any, request: Any, start: Start) -> list[dict[str, Any]]:
-    """Run one member alone through the native session; return its observations.
-
-    The session owns `owner` and closes it; the observations are :func:`grouped`'s.
-    """
-    recorder = _Recorder()
-    run(owner, problem, request, start, owns=True, export=None, between=recorder)
-    return recorder.planes
-
-
 def drain(session: Any) -> Terminal:
     """Advance a started session to its end, exporting nothing; return its terminal.
 
@@ -619,58 +548,3 @@ def drain(session: Any) -> Terminal:
         for event in batch.events:
             if isinstance(event, Terminal):
                 return event
-
-
-def grouped(
-    owners: Sequence[Any],
-    problems: Sequence[Any],
-    requests: Sequence[Any],
-    starts: Sequence[Start],
-) -> list[list[dict[str, Any]]]:
-    """Run members as one native group; return each member's observations.
-
-    The group owns `owners` and closes them.
-    """
-    group = start_group(owners, problems, requests, starts)
-    recorders = [_Recorder() for _ in range(group.n_members)]
-    try:
-        assert type(group).__name__ == "NativeGroupSession"
-        while not group.finished:
-            batch = group.advance()
-            for index, events in enumerate(batch.members):
-                recorders[index].take(functools.partial(group.export, index), events)
-            group.acknowledge(batch.receipt)
-    finally:
-        group.close()
-    return [recorder.planes for recorder in recorders]
-
-
-def one_thread() -> bool:
-    """Return whether the native backend runs one thread, as the default lane sets it.
-
-    The members of a group are bitwise their lone sessions there, where the
-    reductions' order is fixed.
-    """
-    import os
-
-    return "1" in {
-        os.environ.get("SOLPROP_NATIVE_THREADS"),
-        os.environ.get("SOLPROP_THREADS"),
-    }
-
-
-def assert_same(left: Any, right: Any, what: str = "") -> None:
-    """Assert two recorded values agree bitwise, nested dicts and lists included."""
-    if isinstance(left, dict):
-        mine, theirs = cast("dict[str, Any]", left), cast("dict[str, Any]", right)
-        assert mine.keys() == theirs.keys(), what
-        for key in mine:
-            assert_same(mine[key], theirs[key], f"{what}.{key}")
-        return
-    if isinstance(left, list):
-        mine_list, theirs_list = cast("list[Any]", left), cast("list[Any]", right)
-        assert len(mine_list) == len(theirs_list), what
-        for index, (one, other) in enumerate(zip(mine_list, theirs_list, strict=True)):
-            assert_same(one, other, f"{what}[{index}]")
-        return
-    assert np.asarray(left).tobytes() == np.asarray(right).tobytes(), what

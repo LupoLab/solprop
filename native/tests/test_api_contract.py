@@ -36,6 +36,7 @@ from thread_sizing import Sizing, assert_threaded
 
 import solprop_native as native
 from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
+from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
 
 POOL_VARIABLES = (
     "SOLPROP_NATIVE_KERNEL_THREADS",
@@ -1028,14 +1029,14 @@ def test_the_reference_parts_time_what_they_are_asked_to() -> None:
     """
     rng = np.random.default_rng(28)
     volume = rng.standard_normal((3, 4, 5)) + 1j * rng.standard_normal((3, 4, 5))
-    pairs = _core.reference_fft3_pairs(np.ascontiguousarray(volume), 1, 3)
+    pairs = _testing.reference_fft3_pairs(np.ascontiguousarray(volume), 1, 3)
     copies = _core.reference_stream_copies(1000, 1, 4)
     assert len(pairs) == 3
     assert all(seconds > 0.0 for seconds in pairs)
     assert len(copies) == 4
     assert all(seconds > 0.0 for seconds in copies)
     with pytest.raises(ValueError, match="three-dimensional"):
-        _core.reference_fft3_pairs(np.ascontiguousarray(volume[0]), 0, 1)
+        _testing.reference_fft3_pairs(np.ascontiguousarray(volume[0]), 0, 1)
 
 
 def test_operation_sizing_metadata_preserves_process_cap(

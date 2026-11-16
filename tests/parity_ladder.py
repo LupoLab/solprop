@@ -331,9 +331,15 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
         if backend.name == "native":
             native_source(backend, problem.initial.field0)
             native = backend._native_state
+            from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+                _testing,
+            )
+
             return [
-                np.array(native.projected_to_host(False)),
-                np.array(native.projected_to_host(True)) if embedded(problem) else None,
+                np.array(_testing.projected_to_host(native, False)),
+                np.array(_testing.projected_to_host(native, True))
+                if embedded(problem)
+                else None,
             ]
         forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
         # The launch native loads (:func:`masked_launch`).

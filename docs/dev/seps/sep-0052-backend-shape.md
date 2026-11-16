@@ -6,7 +6,7 @@
 | **Title** | One backend shape and a small native seam |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-15; revised after review, 2026-11-15) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2`; (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -991,6 +991,130 @@ of what it changes (§6.1).
 
 ## Part II — Implementation record
 
+### Milestone 1 (phases 0–1) — 2026-11-16
+
+Branch `feature/sep-0052-backend-shape-p1`
+([#853](https://github.com/LupoLab/solprop/pull/853)), the first of the four stacked pull
+requests of D7, started 2026-11-15 by Opus 5.5 (AI) for John Travers. The two phases were
+developed in parallel by AI agents on separate branches and merged into the milestone
+branch, where the tests both touched were rerun.
+
+**Scope.** Phase 0, native deletions and the test module (`e9631521`); phase 1, removal
+of `Batch` and the groups (`e52efb20`); their merge (`3a47dfc2`).
+
+**Delivered, phase 0.**
+
+- *Deleted bindings nothing reached:* `table_evaluate`, `table_rate`, `set_flow_actions`
+  (with its wrapper) and `shutdown_runtime`. `shutdown_kokkos` stays, because the
+  at-exit hook uses it.
+- *Deleted the dead per-step Adams adapter:* `_ResidentAdams`'s `hold`, `restore`,
+  `start`, `snapshot_rows`, `fused_trial`, `fused_accept`, `exponential_trial`,
+  `exponential_accept`, `observe` and `march_stepped`, and the four bindings only they
+  reached (`adams_fused_trial_at`, `adams_fused_accept`, `adams_observe`,
+  `adams_exponential_observe`). No test used them. The C++ behind them stays, because
+  the compiled engines, the dense output and ctest use it. Construction, `reset`,
+  `value`, `snapshot_nbytes` and `load_rows` stay, as do the timing probe's paths
+  (`_trial_step`, `_prepare_trial`, `_score_trial`, `_ResidentLowStorage.step`,
+  `_ZTables`), which phase 4 replaces.
+- *`_core._testing`:* a submodule of the same extension (`bind_testing` in
+  `native/src/bindings.cpp`, with `bind_helpers` and `bind_transverse` binding into it).
+  It holds 54 names in the seven groups of §6.5: the decision-trace marches and their
+  runners, `adams_march_fault`, `Monitor`, `TransverseEdge` and the watch functions,
+  the engine-level parity functions, the state-level statistics, the vector and width
+  helpers, and the runtime probes. State methods became functions that take the state
+  first. Eight more names moved than §6.5 lists, because tests reach them
+  (`adams_exponential_trial_at`, `adams_exponential_accept`, `adams_start`,
+  `adams_compensation_start`, `adams_hold`, `adams_restore`, `adams_rows_to_host`,
+  `table_rate_at`). `reference_stream_copies` did not move: calibration uses it.
+  `State` went from 96 bound names to 55.
+- *Stub:* `_core.pyi` (953 → 636 lines) links a hand-written `_core_testing.pyi` (310
+  lines). nanobind's `stubgen` types every record argument as a bare `dict`, which the
+  native tests' strict typing refuses, so the generated stub waits for phase 4's typed
+  record signatures. `native/scripts/problem_stub.py --check` now also compares the
+  `_testing` stub's names and members with the built module.
+- *Smoke test:* `native/ci/smoke.py` imports `_testing` and checks `vector_exp` against
+  NumPy.
+- *nanobind pinned* to 3.1.0 for the wheel build and the development group.
+- Stale citations of the deleted adapter fixed in `dense.hpp`, `dense_output.hpp`,
+  `engines.hpp`, `engines.cpp` and `docs/dev/stepper.md`; `native/AGENTS.md` states the
+  `_testing` rule.
+
+**Delivered, phase 1.**
+
+- *Deleted modules:* `driver/executors/batch.py`, `driver/batch.py`,
+  `driver/_scan_batch.py`, `backends/host/group.py`, `backends/host/group_session.py`,
+  `backends/numpy_ref/batch.py` and `solprop_native/group.py`.
+- *Removed members:* `Backend.max_batch`, `Backend.prepare_group`, `BatchBackend`,
+  `GroupSession`, `PreparedGroup`, `check_group`, `check_member_ticket`, `start_group`,
+  `select_batch`, the scan's group hook and its exports, and the `group_batch`
+  benchmark. Also group-only: `events.GroupBatch`, `ExportTicket.member`, the member
+  argument of `session_core.bind`, the native counters' group keys and
+  `StatsSpec.same_tables`. `Backend` now has exactly the members of §5.1, and its frozen
+  surface in `tests/backends/test_driver.py` is updated.
+- *Documentation:* the scans guide loses its fixed-schedule batch section, and `Batch`
+  leaves the API page and about 25 guide pages; the developer pages (`scans.md`,
+  `architecture.md`, `backends.md`, `kernel-contract.md`, `stepper.md`,
+  `benchmarking.md`, `accuracy.md`, `conventions.md`, `testing.md`, `structure.md`) and
+  the regenerated `backends.svg` and `layers.svg` no longer describe groups. The
+  `Removed` fragment names `Local`, `Pool`, `Queue` and `Slurm`; three unreleased
+  fragments that only announced `Batch` features are deleted.
+- The unit axis is untouched; it leaves in milestone 2.
+
+**Tests (§7 inventory).**
+
+- *Phase 0:* no test was deleted. Every caller of a moved name is repointed to
+  `_testing`, about 30 test files and helpers in `tests/` and `native/tests/`. Tests
+  that used the deleted adapter methods now use small helpers over the moved bindings
+  (`native_adams_start`, `native_adams_rows`, `native_exponential_trial`,
+  `native_stage_rows`, `native_rate_weights` in `tests/sessions/runs.py`).
+- *Phase 1, deleted whole, group-only:* `tests/backends/test_batch_lockstep.py`,
+  `test_batch_validation.py`, `test_batch_responses.py`; `tests/driver/test_batch.py`,
+  `test_scan_batch.py`; `tests/sessions/test_group.py`, `test_group_seam.py`,
+  `test_native_group.py`; `native/tests/test_batch.py` (95 tests).
+- *Phase 1, ported:* the scan builder became `tests/builders.py::fixed_fibre_point`; the
+  failed-launch probe test moved to `test_scan_worker_validation.py`; the group's final
+  warning became an eligibility assertion in `test_native_session_monitor.py`; the
+  z-table batch test became one single run per fibre against the reference; the
+  monitor's batch-versus-`Local` scans run on `Local`; `test_scans.py` and
+  `test_exponential_march.py` lost their batch parametrisation.
+- *Phase 1, deleted inside mixed files,* each because the group was its subject: the
+  lockstep and refusal tests in `test_exponential_march.py`, `test_low_storage.py`,
+  `test_field_free_planes.py`, `test_moving_guide.py`, `test_split_block.py`,
+  `test_general_modal.py` (7), `test_native_coupled_flow.py`,
+  `test_scan_stop_progress.py`, `test_prepare.py` and the native group tests; the
+  batch-equals-members cases in `test_optmat_cases.py`, `test_vector_raman_routes.py`,
+  `test_coherent_capillary.py`, `test_envelope_plasma.py`,
+  `test_vector_raman_output.py` and `test_scan_derived_noise.py`; the GPU group test in
+  `test_native_session_device.py`. The single-run cases of each file stay.
+
+**Verification.** On an Apple M5 Max, CPU editable build: the directly affected test
+modules at four workers (about 3,000 tests across `tests/backends`, `tests/driver`,
+`tests/sessions`, the monitor, benchmark and capillary modules, `native/tests`, the
+structure figures, the guide snippets and the changed modules' doctests), all passing
+except `native/tests/test_band_plasma.py::test_response_column_boundary_preserves_full_and_tail_windows[19]`,
+a thread-sizing assertion that also fails without this change on that machine; the
+tests both phases touched, rerun after their merge; collection of every test; ruff,
+basedpyright, the docstring check, codespell, the changelog check, `poe docs` and
+`poe size-check`. Not run locally: ctest (only comments changed in the C++ library),
+clang-tidy, the full and coverage lanes, the wheel build and smoke test, and the two
+GPU-marked tests, which run in CI or need a device.
+
+**Cost** (`poe size --all`, Python only). Total 271,036 → 266,928 lines: `backends`
+24,834 → 22,753, `solprop_native` 14,154 → 12,877, `driver` 27,203 → 26,460 (that
+figure also includes an unrelated change merged from main). Binding units:
+`bindings.cpp` 4,559 → 4,459, of which 683 now bind `_testing`. Tests: about 5,100
+lines removed with the group tests.
+
+**Deviations.** None from Part I. The `_testing` stub is hand-written until phase 4,
+as stated above.
+
+**Open questions.** None new.
+
+**Handoff.** Milestone 2 adds the run records and engine protocols, records the
+comparison corpus of §7 from this tree, pins the split collar's rules, and removes the
+unit axis. `ApertureSet.same_as` is kept because tests use it, though production no
+longer does.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, from a review of the native binding's use in production and of the
@@ -1004,6 +1128,9 @@ of what it changes (§6.1).
   completes the protocol, engine, converter and qualification contracts.
 - 2026-11-15: John Travers reviewed the revised proposal and decided D7 (stacked phase
   pull requests). Accepted by John Travers in PR #850. Part I is frozen.
+- 2026-11-15: Implementation started by Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0052-backend-shape-p1`.
+- 2026-11-16: Milestone 1 (phases 0–1) reported in Part II.
 
 ### AI review — 2026-11-15
 
