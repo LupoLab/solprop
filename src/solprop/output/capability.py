@@ -2,46 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a stored basis admits: the accessor whitelist of the run record.
+"""What a stored basis admits: the accessor gate of the run record.
 
-A saved run is read through one protocol, and for every route but one a run's mode
-axis means the same thing: an orthogonal one- or two-component basis whose
-coordinate powers add up to the physical power. A **general modal guide** resolves
-three Cartesian components at its own quadrature nodes, and its coordinate quantities
-are not that: ``energy`` and ``peak_power`` are defined for it only because its metric
-happens to be the identity, and ``peak_intensity`` is not defined for it at all. Rather
-than redefine the old names on a basis they do not describe, the record names the
-**capability** that produced the file and refuses, by name, every accessor that
-capability does not admit.
+A run's record names the **capability** of its mode axis (:data:`BasisCapability`: an
+ordinary orthogonal modal basis, a general modal guide, or a spatial beam), and every
+accessor that capability does not admit is refused by name rather than redefined.
 
-This module is the **gate**; the sets it reads are in :mod:`solprop.stats`, beside the
-catalogue of names they select from, so that a translation module can record the list a
-file publishes without importing an output one.
+- The gate: :func:`declared_capability` (of a translated problem) and
+  :func:`capability_of` (of a stored record) say which capability applies;
+  :data:`ACCESSOR_WHITELIST` and :func:`refusal_for` what it admits and why not;
+  :func:`withheld_accessors` and :func:`withheld_from` what a run withholds beyond it.
+  The name sets come from :mod:`solprop.stats.catalogue`, so that a translation module
+  records them without importing an output one.
+- The legacy readers: :func:`reading_refusal` refuses the processing readers and plots
+  on a basis they do not describe, and :data:`COLUMN_READINGS` names the readers of a
+  spatial file's columns as modes with the spatial functional to use instead
+  (:func:`spatial_field_unit` gives those columns' unit).
+- :func:`quantities` returns a :class:`Quantity` per derived quantity of a file
+  (:data:`QuantityKind`: a physical flux or a coordinate quantity, with its unit), and
+  :func:`compression_refusal` why the compressors refuse a basis.
 
-The gate is applied at four doors: at :class:`solprop.stats.StatsSpec` admission, where
-the driver knows the problem; in each CPU backend's ``stats``, for a caller who builds
-one and asks it directly; in the accessors of :mod:`solprop.processing.modal`; and in
-the legacy processing accessors of :mod:`solprop.processing.time` and
-:mod:`solprop.processing.fields` and the plots drawn from them, which see only the
-stored record (:func:`reading_refusal`). A modal run of any other route carries no
-general identity, and is read as the ordinary modal run it is: the general names are
-refused for it, because the certified metric and the stored E/H reference they promise
-are exactly what such a file does not have.
-
-**The fourth door also refuses a spatial file's columns read as modes.** The legacy
-readers were written for a mode axis of true-power amplitudes in sqrt(W). A radial or
-Cartesian column is a field sample in V m or V/m and a planar column a slab amplitude
-per y frequency, so ``|a|^2`` summed over them is neither a power nor an energy:
-:data:`COLUMN_READINGS` names those readers and the spatial functional that measures
-the quantity instead. A run's statistics are not readers and are not narrowed: the
-spatial route's ``stats/energy`` is the physical energy and is admitted as before.
-
-It also says what a file's derived quantities are on its basis (:func:`quantities`:
-a physical flux or a coordinate quantity, with its unit), and why the compressors
-refuse a basis (:func:`compression_refusal`), which :mod:`solprop.capabilities` states
-and :mod:`solprop.processing.compression` raises.
-
-The manual page is ``docs/guide/results/statistics.md``.
+The four doors the gate is applied at, and what each capability admits, are in
+``docs/guide/results/statistics.md`` ("Which names a basis admits").
 """
 
 from collections.abc import Mapping, Sequence

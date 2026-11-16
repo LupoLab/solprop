@@ -4,24 +4,19 @@
 
 """The run record: what produced an output file, and the resume key it is checked by.
 
-An output file has to answer one question years later: *what produced this?*
-:class:`RunMetadata` is that answer: the grid, the modes, the serialised physics
-configuration, the package versions, the git provenance of the running checkout, the
-noise seed and realisation, and the stepper settings.
+- :class:`RunMetadata` answers, years later, *what produced this file?*: the grid, the
+  modes, the serialised configuration, the package versions, the git provenance, the
+  noise and the stepper settings. Its :meth:`~RunMetadata.hashed` part is what was
+  computed (not the start time, the versions or the provenance), and
+  :meth:`~RunMetadata.configuration_hash`, a SHA-256 of its canonical JSON, is the
+  identity a resume, a suspended writer, a snapshot and a scan row are checked by
+  (ADR-066); :meth:`~RunMetadata.summarise_differences` names what changed.
+- :data:`SCHEMA_VERSION` is the output schema; a file of another one is refused.
+- :func:`resolve_metadata_write` is the one rule for writing a record into a handler
+  that holds one already; the ``*_ANNOTATION`` constants name the post-run annotations.
 
-**The resume key.** :meth:`RunMetadata.hashed` is the part of the record that says what
-was computed: the schema version, the grid, the modes, the configuration, the noise, the
-stepper settings with the stepping method when it is not the tableau (SEP 13), and the
-identities and policies of the run's material manifest, and nothing else: not the
-wall-clock time the run started, not the package versions, and not the git provenance.
-:meth:`RunMetadata.configuration_hash` is a SHA-256 of its canonical JSON rather than
-:func:`hash`, so it is stable across processes; it is stamped in every file and is the
-exact identity a resume, a suspended writer, a snapshot and a scan row are checked by
-(ADR-066): a resume with different physics or numerics of the same shape is refused,
-naming the fields that changed (:meth:`RunMetadata.summarise_differences`). A record
-read from a file is compared as it was written.
-
-The manual page is ``docs/guide/results/provenance.md``.
+The manual pages are ``docs/guide/results/provenance.md`` and, for what the hash
+covers, ``docs/guide/results/resuming.md`` ("What a resume compares").
 """
 
 import dataclasses

@@ -2,10 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Commit independently completed points to one recoverable HDF5 scan file.
+"""A scan's collected HDF5 file, to which one controller commits completed points.
 
-Only the controller writes this file. Staged point groups are the recovery source;
-layout arrays and exact CSR statistics are rebuilt from committed groups at close.
+- :class:`PointResult` carries one worker's complete result, or its failure with the
+  provenance available, to the single writer; :func:`validate_result` checks it before
+  any committed data changes.
+- :class:`ScanWriter` owns the collected file for one controller session, under the
+  exclusive lock of :mod:`solprop.output._scan_lock`: points are staged and flushed
+  before they are marked done, the staged groups are the recovery source, and the layout
+  arrays and the concatenated periodic statistics are rebuilt from them at close.
+- :func:`read_point` and :func:`grid_values` read committed points, masking unfinished
+  ones; :class:`solprop.processing.scans.ScanOutput` is the user's reader built on them.
+
+The manual page is ``docs/guide/workflows/scans.md`` ("Retention, reductions and
+reading").
 """
 
 import json
