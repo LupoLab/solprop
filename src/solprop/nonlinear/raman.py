@@ -26,8 +26,8 @@ declaring how its coherence dephases with density.
 The molecular and line-set models take a caller's own constants
 (:mod:`solprop.physdata.raman_types`); every built-in gas's response is optmat's
 (:mod:`solprop.nonlinear.optmat_raman`). **Units**: a gas or scalar-route model returns
-``h`` in m^5 V^-2 s^-1, so that ``P = eps0 rho E int h(t - t') E^2(t') dt'`` and ``int h
-dt`` is comparable with the Kerr ``chi3`` per unit density
+``h`` in m^5 V^-2 s^-1, so that ``P = eps0 rho E int h(t - t') E^2(t') dt'`` and
+``int h dt`` is comparable with the Kerr ``chi3`` per unit density
 (``docs/guide/media/raman.md``, "The response function and its units");
 :func:`vibrational` adds its own amplitude correction. The kernel's view is
 ``docs/dev/kernel-contract.md`` §5, and the sampling onto the doubled grid is

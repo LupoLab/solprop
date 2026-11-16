@@ -13,8 +13,8 @@ response is linear in number density and a pressure gradient scales it.
   the run's carrier, one number per species and run, recorded as a :class:`CarrierKerr`;
   :func:`gamma3`, :func:`chi3` and :func:`n2` evaluate it for a gas, and
   :func:`selected_carrier` and :func:`carriers_agree` settle the carrier.
-- **The index relation**: :func:`n2_from_chi3` and :func:`chi3_from_n2`, ``n2 = 3 chi3 /
-  (4 eps0 c n0^2)`` with ``n0`` the linear index at the carrier
+- **The index relation**: :func:`n2_from_chi3` and :func:`chi3_from_n2`,
+  ``n2 = 3 chi3 / (4 eps0 c n0^2)`` with ``n0`` the linear index at the carrier
   (``docs/dev/conventions.md`` §4).
 - **SEP 6's dispersive policies**: :class:`DispersiveKerrModel` holds a gas's whole fit
   in SI with its leg bound and band edges, and :class:`ElectronicRegions` classifies a
