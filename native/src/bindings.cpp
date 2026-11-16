@@ -1729,12 +1729,12 @@ public:
     return std::make_unique<BoundSession>(std::move(started), workspace_->columns());
   }
   std::unique_ptr<BoundProbe> probe(const nb::handle run, const nb::object& host) {
-    auto held = records::read<native::RunStart>(run, "start");
+    const auto held = records::read<native::RunStart>(run, "start");
     bind_host(host);
     std::unique_ptr<native::Probe> probe;
     {
       const nb::gil_scoped_release release;
-      probe = workspace_->probe(std::move(held));
+      probe = workspace_->probe(held);
     }
     return std::make_unique<BoundProbe>(std::move(probe), workspace_->columns());
   }

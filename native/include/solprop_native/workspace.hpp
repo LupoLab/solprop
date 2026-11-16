@@ -714,7 +714,7 @@ public:
   /** A probe from a run's start (SEP 52 section 5.5): its field, noise and position,
       and, for the low-storage replay, the policy's landings and the schedule its table
       keys come from. Its march state, history and monitor are not read. */
-  std::unique_ptr<Probe> probe(RunStart start);
+  std::unique_ptr<Probe> probe(const RunStart& start);
 
   // -- what the old seam's accessors read
   [[nodiscard]] const std::optional<stage::Tables>& stage_tables() const noexcept {

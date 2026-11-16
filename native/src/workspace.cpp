@@ -745,10 +745,11 @@ march::Result Workspace::run_adams(march::State& state, const march::Bounds& bou
   require_unleased();
   if (!march_policy_ || !stage_tables_)
     throw std::logic_error("the native Adams march is not configured");
-  engines::ResidentEngine engine(this->state(), *stage_tables_, stage_anchor_,
-                                 march_fused_, march_compensated_, march_interpolate_,
-                                 fault_);
-  return march::run(*march_policy_, state, engine, bounds, march_schedule_);
+  const auto& policy = march_policy_.value();
+  const auto& tables = stage_tables_.value();
+  engines::ResidentEngine engine(this->state(), tables, stage_anchor_, march_fused_,
+                                 march_compensated_, march_interpolate_, fault_);
+  return march::run(policy, state, engine, bounds, march_schedule_);
 }
 
 rk::Result Workspace::run_rk(rk::State& state, const march::Bounds& bounds) {
@@ -757,11 +758,13 @@ rk::Result Workspace::run_rk(rk::State& state, const march::Bounds& bounds) {
     throw std::logic_error("the native Runge-Kutta march is not configured");
   if (!runge_kutta_)
     throw std::logic_error("the native Runge-Kutta trial is not configured");
+  const auto& policy = rk_policy_.value();
+  const auto& trial = runge_kutta_.value();
   engines::ResidentRungeKutta engine(
       this->state(),
       [this](const double z, const double dz) { return staged_trial(z, dz, false); },
-      runge_kutta_->rtol, runge_kutta_->atol, runge_kutta_->weights);
-  return rk::run(*rk_policy_, state, engine, bounds, rk_schedule_);
+      trial.rtol, trial.atol, trial.weights);
+  return rk::run(policy, state, engine, bounds, rk_schedule_);
 }
 
 void Workspace::load(const std::span<const Complex> field,
@@ -915,7 +918,7 @@ std::unique_ptr<Probe> Workspace::probe(std::vector<Complex> field,
   return std::make_unique<Probe>(*this, std::move(field), std::move(noise), z);
 }
 
-std::unique_ptr<Probe> Workspace::probe(RunStart start) {
+std::unique_ptr<Probe> Workspace::probe(const RunStart& start) {
   require_open();
   // The low-storage replay's landings and table keys come from the run's records; an
   // Adams workspace's probe takes Runge-Kutta trials, which read none of them.

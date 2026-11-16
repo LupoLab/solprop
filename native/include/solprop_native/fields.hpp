@@ -117,30 +117,35 @@ struct Extent {
 
 /** A field whose conversion follows its member's type. */
 template <class Record, class Member> struct Value {
+  using Pointer = Member Record::*;
   const char* name;
-  Member Record::* member;
+  Pointer member;
 };
 
 /** An optional value held as a flag beside it: `None` clears the flag. */
 template <class Record, class Member> struct Flagged {
+  using FlagPointer = bool Record::*;
+  using Pointer = Member Record::*;
   const char* name;
-  bool Record::* flag;
-  Member Record::* member;
+  FlagPointer flag;
+  Pointer member;
 };
 
 /** An array of `Element` stored flat in a vector, C order. `Rank` zero takes any rank,
     and the record keeps the shape in its `shapes` map when it has one. */
 template <class Record, class Element, std::size_t Rank> struct Array {
+  using Pointer = Element Record::*; // a std::vector of the stored element
   const char* name;
-  Element Record::* member; // a std::vector of the stored element
+  Pointer member;
   Dtype dtype;
   std::array<Extent, Rank> extents;
 };
 
 /** A count the arrays' extents give: set from `symbol`, never read from Python. */
 template <class Record, class Member> struct Count {
+  using Pointer = Member Record::*;
   const char* symbol;
-  Member Record::* member;
+  Pointer member;
 };
 
 /** A record's table: its name and its fields, in order. */
