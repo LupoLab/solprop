@@ -107,6 +107,9 @@ def test_the_readers_agree_with_the_file_s_own_measure(radial_file: Path) -> Non
         assert radial_spectrum(output, z=0.0)[2][0] == pytest.approx(
             radial_spectrum(output, plane=0)[2][0]
         )
+        # A position beside an index other than the default names two planes.
+        with pytest.raises(ProcessingError, match="not both"):
+            radial_spectrum(output, plane=1, z=0.0)
         t, power = on_axis_power(output)
         assert t.size == power.size
         assert power.max() > 0
