@@ -417,8 +417,9 @@ void Workspace::apply(const Setup& setup) {
     configure_adams(*setup.adams);
   if (setup.low_storage)
     configure_low_storage(*setup.low_storage);
-  set_monitor(setup.monitor);
-  set_edge(setup.edge);
+  set_occupancy(setup.occupancy);
+  if (setup.crossing_workers != 0)
+    state().set_crossing_workers(setup.crossing_workers);
 }
 
 void Workspace::require_built() const {
@@ -543,63 +544,12 @@ void Workspace::configure_low_storage(const rk::low_storage::Config config) {
   low_storage_ = config;
 }
 
-void Workspace::set_monitor(std::optional<MonitorBinding> monitor) {
+void Workspace::set_occupancy(std::optional<Occupancy> occupancy) {
   require_open();
-  if (monitor && !monitor->buckets.empty() && monitor->bucket_count == 0)
-    refuse("a monitor's occupancy buckets need their count");
-  monitor_ = std::move(monitor);
+  if (occupancy && (occupancy->buckets.empty() || occupancy->count == 0))
+    refuse("a split collar's occupancy needs its buckets and their count");
+  occupancy_ = std::move(occupancy);
   occupancy_bound_ = false;
-}
-
-void Workspace::set_edge(std::optional<EdgeBinding> edge) {
-  require_open();
-  edge_ = std::move(edge);
-}
-
-void Workspace::configure_adams_march(march::Policy policy, const bool fused,
-                                      const bool compensated, const bool interpolate,
-                                      march::Schedule schedule) {
-  require_open();
-  if (!stage_tables_)
-    throw std::logic_error("the native Adams march needs the stage tables");
-  if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
-    throw std::invalid_argument("a replayed schedule has one more edge than steps");
-  march_policy_ = std::move(policy);
-  march_schedule_ = std::move(schedule);
-  march_fused_ = fused;
-  march_compensated_ = compensated;
-  march_interpolate_ = interpolate;
-}
-
-void Workspace::configure_rk_march(rk::Policy policy, std::vector<double> nodes,
-                                   const double rtol, const double atol,
-                                   march::Schedule schedule) {
-  require_open();
-  if (!stage_tables_)
-    throw std::logic_error("the native Runge-Kutta march needs the stage tables");
-  if (nodes.size() != stages_)
-    throw std::invalid_argument("the march's nodes are the tableau's stages");
-  auto config = runge_kutta_.value_or(RungeKuttaConfig{});
-  config.nodes = std::move(nodes);
-  config.rtol = rtol;
-  config.atol = atol;
-  runge_kutta_ = std::move(config);
-  rk_policy_ = std::move(policy);
-  rk_schedule_ = std::move(schedule);
-}
-
-void Workspace::set_rk_weights(std::vector<double> weights) {
-  require_open();
-  auto config = runge_kutta_.value_or(RungeKuttaConfig{});
-  config.weights = std::move(weights);
-  runge_kutta_ = std::move(config);
-}
-
-void Workspace::set_dense_weights(std::vector<double> weights) {
-  require_open();
-  auto config = runge_kutta_.value_or(RungeKuttaConfig{});
-  config.dense_weights = std::move(weights);
-  runge_kutta_ = std::move(config);
 }
 
 void Workspace::inject_fault(const engines::MarchFault fault) {
@@ -618,13 +568,12 @@ void Workspace::bind_host_source(std::shared_ptr<HostSource> source) {
 }
 
 std::vector<double> Workspace::staged_trial(const double z, const double dz,
-                                            const bool prepare_only,
-                                            const std::vector<double>* given) {
+                                            const bool prepare_only) {
   if (!stage_tables_)
     throw std::logic_error("a staged Runge-Kutta trial needs the stage tables");
-  if (given == nullptr && !runge_kutta_)
+  if (!runge_kutta_)
     throw std::logic_error("a staged Runge-Kutta trial needs the tableau's nodes");
-  const auto& nodes = given != nullptr ? *given : runge_kutta_->nodes;
+  const auto& nodes = runge_kutta_->nodes;
   if (nodes.size() != stages_)
     throw std::invalid_argument("the trial's nodes are the tableau's stages");
   const auto scalars =
@@ -692,15 +641,6 @@ void Workspace::guard_flow(const std::size_t section, const double dz,
           "bound was declared over");
   }
   flow_key_ = std::make_pair(section, dz);
-}
-
-double Workspace::weighted_score(const double* partials, const std::size_t slots,
-                                 const double rtol, const double atol) {
-  if (!runge_kutta_ || runge_kutta_->weights.empty())
-    throw std::logic_error("no weighted controller's weights were configured");
-  const std::vector<double> values(partials, partials + 3 * slots);
-  return engines::ResidentRungeKutta::weighted_norm(state(), values, rtol, atol,
-                                                    runge_kutta_->weights);
 }
 
 MethodKind Workspace::kind() const noexcept {
@@ -834,21 +774,41 @@ void Workspace::load(const std::span<const Complex> field,
   state.clear_fsal();
 }
 
-void Workspace::bind_run_monitor() {
+void Workspace::bind_run_monitor(const MonitorBinding& monitor,
+                                 const std::optional<EdgeBinding>& edge) {
   auto& state = this->state();
-  if (!monitor_)
-    refuse("a run with a boundary monitor needs the problem's monitor weights");
-  state.bind_monitor(monitor_->weights, monitor_->column_weights);
-  // A runner's points share the table: it crosses once.
-  if (!monitor_->buckets.empty() && !occupancy_bound_) {
-    state.bind_occupancy(monitor_->buckets, monitor_->bucket_count);
+  state.bind_monitor(monitor.weights, monitor.column_weights);
+  // The problem's table, shared by a runner's points: it crosses once.
+  if (monitor.split && occupancy_ && !occupancy_bound_) {
+    state.bind_occupancy(occupancy_->buckets, occupancy_->count);
     occupancy_bound_ = true;
   }
-  if (edge_) {
-    state.bind_edge(edge_->faces, edge_->clip, edge_->totals, edge_->synthesis,
-                    edge_->first_row);
-    if (edge_->lines)
-      state.bind_edge_lines(*edge_->lines);
+  if (edge) {
+    state.bind_edge(edge->faces, edge->clip, edge->totals, edge->synthesis,
+                    edge->first_row);
+    if (edge->lines)
+      state.bind_edge_lines(*edge->lines);
+  }
+}
+
+void Workspace::configure_march(const RunRecordsRecord& records) {
+  require_open();
+  if (!stage_tables_)
+    throw std::logic_error("the native marches need the stage tables");
+  auto schedule = records.schedule ? to_native(*records.schedule) : march::Schedule{};
+  if (kind() == MethodKind::adams) {
+    const auto* policy = std::get_if<march::Policy>(&records.policy);
+    if (policy == nullptr)
+      refuse("an Adams workspace's run needs the Adams march's policy");
+    march::validate(*policy);
+    march_policy_ = *policy;
+    march_schedule_ = std::move(schedule);
+  } else {
+    const auto* policy = std::get_if<RungeKuttaPolicyRecord>(&records.policy);
+    if (policy == nullptr)
+      refuse("a Runge-Kutta workspace's run needs the Runge-Kutta march's policy");
+    rk_policy_ = to_native(*policy);
+    rk_schedule_ = std::move(schedule);
   }
 }
 
@@ -856,37 +816,23 @@ std::unique_ptr<Run> Workspace::start(RunStart start) {
   require_open();
   const auto method_kind = kind();
   auto& records = start.records;
-  const auto schedule =
-      records.schedule ? to_native(*records.schedule) : march::Schedule{};
   std::variant<march::State, rk::State> initial;
   if (method_kind == MethodKind::adams) {
-    auto* policy = std::get_if<march::Policy>(&records.policy);
-    if (policy == nullptr)
-      refuse("an Adams workspace's run needs the Adams march's policy");
     if (!start.adams)
       refuse("an Adams run's start needs the march's state");
-    march::validate(*policy);
-    if (!stage_tables_)
-      throw std::logic_error("the native Adams march needs the stage tables");
-    march_policy_ = *policy;
-    march_schedule_ = schedule;
     initial = std::move(*start.adams);
   } else {
-    auto* policy = std::get_if<RungeKuttaPolicyRecord>(&records.policy);
-    if (policy == nullptr)
-      refuse("a Runge-Kutta workspace's run needs the Runge-Kutta march's policy");
     if (!start.runge_kutta)
       refuse("a Runge-Kutta run's start needs the march's state");
-    if (!stage_tables_)
-      throw std::logic_error("the native Runge-Kutta march needs the stage tables");
-    rk_policy_ = to_native(*policy);
-    rk_schedule_ = schedule;
     initial = std::move(*start.runge_kutta);
   }
-  if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
-    throw std::invalid_argument("a replayed schedule has one more edge than steps");
-  // A resumed history's rows, every one checked before any is copied, so that a
-  // refused history leaves the rows as they were.
+  if (records.monitor && !start.monitor)
+    refuse("a run with a boundary monitor needs its weights");
+  configure_march(records);
+  // The load first: a history's rows are read from a loaded state. They are every one
+  // checked before any is copied, so that a refused history leaves the rows as they
+  // were and starts no run.
+  load(start.field, start.noise);
   if (!start.rows.empty()) {
     if (method_kind != MethodKind::adams)
       refuse("only the Adams march resumes a history's rows");
@@ -904,7 +850,6 @@ std::unique_ptr<Run> Workspace::start(RunStart start) {
                ", ", extents[1], ", ", extents[2], ")");
     }
   }
-  load(start.field, start.noise);
   for (const auto& row : start.rows)
     state().adams_rows_from_host(row.name, row.values);
   session::Plan plan;
@@ -946,14 +891,14 @@ std::unique_ptr<Run> Workspace::start(RunStart start) {
       held.edge_noise = start.edge_noise;
     }
     plan.monitor = std::move(held);
-    bind_run_monitor();
+    bind_run_monitor(*start.monitor, start.edge);
   }
   auto method = this->method(method_kind, std::move(initial), planes.dense);
-  return this->start(std::move(method), std::move(plan), planes.z);
+  return launch(std::move(method), std::move(plan), planes.z);
 }
 
-std::unique_ptr<Run> Workspace::start(session::Method method, session::Plan plan,
-                                      const double z) {
+std::unique_ptr<Run> Workspace::launch(session::Method method, session::Plan plan,
+                                       const double z) {
   auto& general = state();
   auto session =
       std::make_unique<session::Session>(std::make_unique<engines::GeneralResident>(
@@ -970,11 +915,10 @@ std::unique_ptr<Probe> Workspace::probe(std::vector<Complex> field,
 
 std::unique_ptr<Probe> Workspace::probe(RunStart start) {
   require_open();
-  if (const auto* policy = std::get_if<RungeKuttaPolicyRecord>(&start.records.policy)) {
-    rk_policy_ = to_native(*policy);
-    rk_schedule_ =
-        start.records.schedule ? to_native(*start.records.schedule) : march::Schedule{};
-  }
+  // The low-storage replay's landings and table keys come from the run's records; an
+  // Adams workspace's probe takes Runge-Kutta trials, which read none of them.
+  if (kind() != MethodKind::adams)
+    configure_march(start.records);
   return probe(std::move(start.field), std::move(start.noise), start.records.planes.z);
 }
 

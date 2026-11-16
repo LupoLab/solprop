@@ -159,23 +159,37 @@ struct AdamsConfig {
       fields::array("weights", &A::weights, E::any()));
 }
 
-/** The boundary monitor's weights where the state lives (solprop SEP 21), and the split
-    collar's walk-off bucket of each bin (solprop #440; empty for none). */
+/** The boundary monitor's weights where the state lives (solprop SEP 21), a run's: each
+    run's monitor is its own (`RunRequest.for_run`). `split` says the monitor reads the
+    split collar's crossing, whose walk-off buckets are the problem's (`Occupancy`). */
 struct MonitorBinding {
   std::vector<double> weights;
   std::vector<double> column_weights;
-  std::vector<unsigned char> buckets;
-  std::size_t bucket_count = 0;
+  bool split = false;
 };
 
 [[nodiscard]] constexpr auto describe(const MonitorBinding* /*unused*/) {
   using M = MonitorBinding;
   using E = fields::Extent;
-  return fields::table<M>(
-      "MonitorBinding", fields::array("weights", &M::weights, E::any()),
-      fields::array("column_weights", &M::column_weights, E::any()),
-      fields::array("buckets", &M::buckets, fields::Dtype::uint8, E::any()),
-      fields::value("bucket_count", &M::bucket_count));
+  return fields::table<M>("MonitorBinding",
+                          fields::array("weights", &M::weights, E::any()),
+                          fields::array("column_weights", &M::column_weights, E::any()),
+                          fields::value("split", &M::split));
+}
+
+/** The split collar's walk-off bucket of each bin (solprop #440), the problem's: set
+    once, and bound to the state by the first run whose monitor reads it. */
+struct Occupancy {
+  std::vector<unsigned char> buckets;
+  std::size_t count = 0;
+};
+
+[[nodiscard]] constexpr auto describe(const Occupancy* /*unused*/) {
+  using O = Occupancy;
+  using E = fields::Extent;
+  return fields::table<O>(
+      "Occupancy", fields::array("buckets", &O::buckets, fields::Dtype::uint8, E::any()),
+      fields::value("count", &O::count));
 }
 
 [[nodiscard]] constexpr auto describe(const EdgeLines* /*unused*/) {
@@ -195,9 +209,9 @@ struct MonitorBinding {
       fields::value("batch_bytes", &L::batch_bytes));
 }
 
-/** The transverse edge's tables where the state lives (solprop SEP 44): the faces',
-    the clip's and the totals' weights, a reduction's synthesis (empty for none), the
-    first row, and a requested collar's lines. */
+/** The transverse edge's tables where the state lives (solprop SEP 44), a run's: the
+    faces', the clip's and the totals' weights, a reduction's synthesis (empty for none),
+    the first row, and a requested collar's lines. */
 struct EdgeBinding {
   std::vector<double> faces;
   std::vector<double> clip;
@@ -219,7 +233,8 @@ struct EdgeBinding {
 }
 
 /** Everything fixed for a workspace beside the problem's groups (SEP 52 section 5.3).
-    Each part is absent where the problem has none. */
+    Each part is absent where the problem has none; `crossing_workers` is the threads a
+    crossing's copy may use (zero keeps the state's default). */
 struct Setup {
   std::optional<stage::Tables> stage_tables;
   std::optional<ZSlotsConfig> z_slots;
@@ -228,8 +243,8 @@ struct Setup {
   std::optional<RungeKuttaConfig> runge_kutta;
   std::optional<AdamsConfig> adams;
   std::optional<rk::low_storage::Config> low_storage;
-  std::optional<MonitorBinding> monitor;
-  std::optional<EdgeBinding> edge;
+  std::optional<Occupancy> occupancy;
+  std::size_t crossing_workers = 0;
 };
 
 [[nodiscard]] constexpr auto describe(const Setup* /*unused*/) {
@@ -240,7 +255,8 @@ struct Setup {
       fields::value("flow_guard", &S::flow_guard),
       fields::value("runge_kutta", &S::runge_kutta), fields::value("adams", &S::adams),
       fields::value("low_storage", &S::low_storage),
-      fields::value("monitor", &S::monitor), fields::value("edge", &S::edge));
+      fields::value("occupancy", &S::occupancy),
+      fields::value("crossing_workers", &S::crossing_workers));
 }
 
 // -------------------------------------------------------------------- the run records
@@ -472,8 +488,9 @@ struct HistoryRow {
 /** What one run starts from (`Workspace::start`): its records, the initial field and
     noise as the state takes them (`set_initial`), the march's state at the start (the
     Adams march's or the Runge-Kutta march's, none for a fresh state of its own), a
-    resumed history's rows, the statistics plans, and the monitor's launch readings of
-    the input noise: its floor (energy, then four regions' shares) and the edge's. */
+    resumed history's rows, the statistics plans, the monitor's launch readings of the
+    input noise (its floor: energy, then four regions' shares; and the edge's), and the
+    run's monitor weights and edge tables where the state lives. */
 struct RunStart {
   RunRecordsRecord records;
   std::vector<Complex> field;
@@ -485,6 +502,8 @@ struct RunStart {
   std::shared_ptr<const statistics::Plan> row_statistics;
   std::optional<std::array<double, 5>> floor;
   std::optional<transverse::Noise> edge_noise;
+  std::optional<MonitorBinding> monitor;
+  std::optional<EdgeBinding> edge;
 };
 
 [[nodiscard]] constexpr auto describe(const RunStart* /*unused*/) {
@@ -497,7 +516,8 @@ struct RunStart {
       fields::value("runge_kutta", &R::runge_kutta), fields::value("rows", &R::rows),
       fields::value("plane_statistics", &R::plane_statistics),
       fields::value("row_statistics", &R::row_statistics),
-      fields::value("floor", &R::floor), fields::value("edge_noise", &R::edge_noise));
+      fields::value("floor", &R::floor), fields::value("edge_noise", &R::edge_noise),
+      fields::value("monitor", &R::monitor), fields::value("edge", &R::edge));
 }
 
 /** The Runge-Kutta march's policy from its record (kernel contract section 12): the
@@ -626,7 +646,7 @@ public:
   Workspace(Workspace&&) = delete;
   Workspace& operator=(Workspace&&) = delete;
 
-  // -- the setup, applied at construction or, for the old seam, one part at a time
+  // -- the setup, applied at construction (each part is public for the native tests)
   void set_stage_tables(stage::Tables tables);
   void configure_z_slots(const ZSlotsConfig& slots);
   void upload_z_table(const ZTable& table);
@@ -634,16 +654,7 @@ public:
   void configure_runge_kutta(RungeKuttaConfig config);
   void configure_adams(const AdamsConfig& config);
   void configure_low_storage(rk::low_storage::Config config);
-  void set_monitor(std::optional<MonitorBinding> monitor);
-  void set_edge(std::optional<EdgeBinding> edge);
-  /** The old seam's per-run march configuration. */
-  void configure_adams_march(march::Policy policy, bool fused, bool compensated,
-                             bool interpolate, march::Schedule schedule);
-  void configure_rk_march(rk::Policy policy, std::vector<double> nodes, double rtol,
-                          double atol, march::Schedule schedule);
-  void set_rk_weights(std::vector<double> weights);
-  /** The old seam's dense-output weights, from a session's plan. */
-  void set_dense_weights(std::vector<double> weights);
+  void set_occupancy(std::optional<Occupancy> occupancy);
   /** Fail the resident engine's `stage` after `after` more passes (a test hook). */
   void inject_fault(engines::MarchFault fault);
   /** Bind a host source (solprop SEP 49), or unbind with null; CPU builds only. */
@@ -669,8 +680,7 @@ public:
   // -- the trial and the coupled flow's guard
   /** A Runge-Kutta trial whose stage rows the state forms from the stage tables at
       `z + c_i dz` and the step's end (solprop SEP 45 phase 2): the partials. */
-  std::vector<double> staged_trial(double z, double dz, bool prepare_only,
-                                   const std::vector<double>* nodes = nullptr);
+  std::vector<double> staged_trial(double z, double dz, bool prepare_only);
   /** `_flow_trial`'s guards, transcribed (solprop SEP 45 phase 4): a set of actions is
       held for one (section, step); a length whose exponent needs too many squarings
       is refused before forming, and a measured conditioning above the certificate's
@@ -678,21 +688,17 @@ public:
   void guard_flow(std::size_t section, double dz, const std::vector<double>& nodes);
   /** Forget the held actions' key (a test forming its own). */
   void forget_flow_key() noexcept { flow_key_.reset(); }
-  /** A weighted controller's norm from a trial's partials `(3, slots)`. */
-  double weighted_score(const double* partials, std::size_t slots, double rtol,
-                        double atol);
 
   // -- the marches
   [[nodiscard]] MethodKind kind() const noexcept;
-  /** The march a session runs: from the configured policy, schedule and stage tables,
-      its engine over the state, its dense output when `dense`, and its state at the
-      start. */
-  session::Method method(MethodKind kind, std::variant<march::State, rk::State> start,
-                         bool dense);
-  /** One call of the configured Adams march (the decision traces' entry point). */
+  /** One call of the Adams march with the policy and schedule a run's records gave
+      (the decision traces' entry point). */
   march::Result run_adams(march::State& state, const march::Bounds& bounds);
-  /** One call of the configured Runge-Kutta march. */
+  /** One call of the Runge-Kutta march, likewise. */
   rk::Result run_rk(rk::State& state, const march::Bounds& bounds);
+  /** Take a run's march policy and schedule from its records without starting it (the
+      decision traces' configuration). */
+  void configure_march(const RunRecordsRecord& records);
 
   // -- runs and probes
   /** Load a start as a fresh workspace's (SEP 22 section 4.7): the field and noise,
@@ -700,8 +706,6 @@ public:
   void load(std::span<const Complex> field, std::span<const Complex> noise);
   /** Start one run from `start` (SEP 52 section 5.3), leasing the workspace to it. */
   std::unique_ptr<Run> start(RunStart start);
-  /** Start a session from a method and a plan the old seam formed (`start_session`). */
-  std::unique_ptr<Run> start(session::Method method, session::Plan plan, double z);
   /** Load `field` and `noise` at `z` and return a probe of the configured march. */
   std::unique_ptr<Probe> probe(std::vector<Complex> field, std::vector<Complex> noise,
                                double z);
@@ -734,7 +738,13 @@ private:
   void apply(const Setup& setup);
   void require_built() const;
   void require_open() const;
-  void bind_run_monitor();
+  void bind_run_monitor(const MonitorBinding& monitor, const std::optional<EdgeBinding>& edge);
+  /** The march a session runs: from the run's policy and schedule and the stage tables,
+      its engine over the state, its dense output when `dense`, and its state at the
+      start. */
+  session::Method method(MethodKind kind, std::variant<march::State, rk::State> start,
+                         bool dense);
+  std::unique_ptr<Run> launch(session::Method method, session::Plan plan, double z);
 
   std::size_t columns_ = 0;
   std::size_t elements_ = 0;
@@ -748,9 +758,8 @@ private:
   std::optional<RungeKuttaConfig> runge_kutta_;
   std::optional<AdamsConfig> adams_;
   std::optional<rk::low_storage::Config> low_storage_;
-  std::optional<MonitorBinding> monitor_;
+  std::optional<Occupancy> occupancy_;
   bool occupancy_bound_ = false;
-  std::optional<EdgeBinding> edge_;
   std::optional<march::Policy> march_policy_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;

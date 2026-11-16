@@ -829,7 +829,7 @@ def test_the_native_refusals_name_what_is_missing():
     problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, run_request, grid=grid)
     try:
-        native = load_native(owner, field, clear_fsal=False)
+        native = load_native(owner, field)
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()
         unknown[0, 8] = 7.0  # a profile code past supergauss

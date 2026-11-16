@@ -170,7 +170,7 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial():
     try:
         backend._staged_rows()
         assert backend._rk_staged
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         end = float(run_request.stepper.z_end)
         for z in (0.0, 0.37 * end, 0.8 * end):

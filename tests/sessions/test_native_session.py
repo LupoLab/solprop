@@ -459,9 +459,9 @@ def test_a_session_leases_its_state_exclusively():
     session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
     with pytest.raises(RuntimeError, match="leased"):
-        _testing.rk_march_run(state, {}, {})
+        _testing.rk_march_run(workspace, {}, {})
     session.close()
 
 
@@ -533,70 +533,65 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
 
 
 LEASED_CALLS = {
-    "set_initial": lambda state, n: state.set_initial(
-        np.zeros(n, np.complex128), np.empty(0, np.complex128)
+    "load": lambda workspace, n: _testing.load(
+        workspace, np.zeros(n, np.complex128), np.empty(0, np.complex128)
     ),
-    "rk_march_run": lambda state, n: _testing.rk_march_run(state, {}, {}),
-    "adams_march_run": lambda state, n: _testing.adams_march_run(state, {}, {}),
-    "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
-    "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
-    "low_storage_configure": lambda state, n: state.low_storage_configure(
-        1, False, 0.0
+    "rk_march_run": lambda workspace, n: _testing.rk_march_run(workspace, {}, {}),
+    "adams_march_run": lambda workspace, n: _testing.adams_march_run(
+        workspace, {}, {}
     ),
-    "flow_guard_configure": lambda state, n: state.flow_guard_configure(
-        [1.0], [1.0], 1.0, 1, 1.0
+    "inject_fault": lambda workspace, n: _testing.inject_fault(
+        workspace, "trial", 0, "backend"
     ),
-    "adams_march_fault": lambda state, n: _testing.adams_march_fault(
-        state, "trial", 0, "backend"
+    "field": lambda workspace, n: _testing.field(workspace),
+    "statistics": lambda workspace, n: _testing.statistics(
+        workspace, 2, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.empty(0)
     ),
-    "field_to_host": lambda state, n: state.field_to_host(),
-    "statistics": lambda state, n: _testing.statistics(
-        state, 2, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.empty(0)
-    ),
-    "finish": lambda state, n: state.finish(1e-6),
-    "promote_fsal": lambda state, n: _testing.promote_fsal(state),
-    "clear_fsal": lambda state, n: state.clear_fsal(),
-    "monitor_reading": lambda state, n: _testing.monitor_reading(state),
-    "quadrature_peak": lambda state, n: state.quadrature_peak(),
+    "finish": lambda workspace, n: _testing.finish(workspace, 1e-6),
+    "promote_fsal": lambda workspace, n: _testing.promote_fsal(workspace),
+    "monitor_reading": lambda workspace, n: _testing.monitor_reading(workspace),
+    "engines": lambda workspace, n: _testing.engines(workspace),
 }
-"""Methods of a leased state that mutate it or read its live field or workspace."""
+"""Uses of a leased workspace that mutate its state or read its live field."""
 
 
 @pytest.mark.parametrize("name", sorted(LEASED_CALLS))
 def test_a_leased_state_refuses_every_live_use(name):
-    """SEP 47 section 5.2: one mutable owner. While a session leases the state, every
-    method that mutates it or reads its live field or workspace is refused by name;
-    its fixed facts stay readable, so the execution record can be written.
+    """SEP 47 section 5.2: one mutable owner. While a session leases the workspace,
+    every use that mutates its state or reads its live field is refused by name; its
+    fixed facts stay readable (``diagnostics``), so the execution record can be
+    written.
     """
     problem, run_request = _case()
     session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
     try:
         with pytest.raises(RuntimeError, match="leased by an execution session"):
-            LEASED_CALLS[name](state, int(np.prod(problem.shape)))
-        assert state.memory_ledger()
-        assert state.cpu_execution
+            LEASED_CALLS[name](workspace, int(np.prod(problem.shape)))
+        diagnostics = workspace.diagnostics()
+        assert diagnostics["memory_ledger"]
+        assert diagnostics["cpu_execution"]
         assert "native_session" in session.execution_record()
     finally:
         session.close()
     # Closed, the session released its lease.
     with pytest.raises(Exception) as caught:
-        _testing.rk_march_run(state, {}, {})
+        _testing.rk_march_run(workspace, {}, {})
     assert "leased" not in str(caught.value)
 
 
 def test_closing_the_state_closes_its_session_first():
-    """SEP 47 section 5.2: the state's own close closes the session that leases it,
-    which then refuses to advance; nothing uses the closed state.
+    """SEP 47 section 5.2: the workspace's own close closes the session that leases
+    it, which then refuses to advance; nothing uses the closed workspace.
     """
     problem, run_request = _case()
     session = _make_native(problem, run_request)
     batch = session.advance()
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
-    backend._native_state.close()  # pyright: ignore[reportPrivateUsage]
+    backend._workspace.close()  # pyright: ignore[reportPrivateUsage]
     assert session.closed
     with pytest.raises(SessionError):
         session.acknowledge(batch.receipt)
@@ -773,10 +768,10 @@ def test_a_dense_plane_crosses_to_the_host_only_as_its_export(case):
     session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
-    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-    before = state.crossed_bytes()
+    workspace = backend._workspace  # pyright: ignore[reportPrivateUsage]
+    before = workspace.diagnostics()["crossed_bytes"]
     run = drive(Started(session), export=CONSUMER)
-    after = state.crossed_bytes()
+    after = workspace.diagnostics()["crossed_bytes"]
     status = session.native.status()
     session.close()
     assert status.exports == len(run.observations)
@@ -807,11 +802,11 @@ def test_the_ledger_counts_runge_kutta_dense_output_before_and_during_a_session(
     live = session._backend  # pyright: ignore[reportPrivateUsage]
     assert live is not None
     assert live.memory_ledger()["rk_dense"] == ledger["rk_dense"]
-    state = live._native_state  # pyright: ignore[reportPrivateUsage]
-    assert state.memory_ledger()["rk_dense"] == ledger["rk_dense"]
+    workspace = live._workspace  # pyright: ignore[reportPrivateUsage]
+    assert workspace.diagnostics()["memory_ledger"]["rk_dense"] == ledger["rk_dense"]
     # Closing the native session releases it, before its backend closes.
     session.native.close()
-    assert state.memory_ledger()["rk_dense"] == 0
+    assert workspace.diagnostics()["memory_ledger"]["rk_dense"] == 0
     session.close()
     landed, landed_request = _case(step_planes=0)
     backend = select(

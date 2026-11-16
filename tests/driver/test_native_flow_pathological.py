@@ -210,7 +210,7 @@ def _native_partials(problem, run_request, grid, field, dz):
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend._staged_rows()
-        load_native(backend, field, clear_fsal=False)
+        load_native(backend, field)
         return native_trial(backend, 0.0, dz)
     finally:
         backend.close()

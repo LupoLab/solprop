@@ -185,7 +185,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
-        state = load_native(actual, problem.initial.field0, clear_fsal=False)
+        state = load_native(actual, problem.initial.field0)
         native_trial(actual, 0.0, 0.0)
         observed = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         info = build_info()

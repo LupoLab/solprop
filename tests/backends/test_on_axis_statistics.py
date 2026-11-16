@@ -574,7 +574,7 @@ def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table
         state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(RuntimeError, match="no initial field"):
             _testing.axis_spectrum(state, np.ones((1, 1)))
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="at most two rows"):
             _testing.axis_spectrum(state, np.ones((3, 1)))
         with pytest.raises(ValueError, match="two-dimensional"):

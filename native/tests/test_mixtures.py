@@ -131,7 +131,7 @@ def test_native_statistics_refuse_channel_preionisation_shape(
     problem, run_request, grid = mixture_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         with pytest.raises(ValueError, match="channel preionisation"):
             _testing.statistics(
                 backend._native_state,  # pyright: ignore[reportPrivateUsage] - native refusal

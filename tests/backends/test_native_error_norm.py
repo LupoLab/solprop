@@ -315,7 +315,7 @@ def test_the_recycled_stage_is_the_one_it_replaces(
         delta = 1e-11
         field = _field(backend, problem).copy()
         field *= 1.0 + delta * np.exp(2j * np.pi * rng.random(field.shape))
-        load_native(backend, field, clear_fsal=False)
+        load_native(backend, field)
         native_trial(backend, z, dz)
         moved = np.asarray(_testing.stage_to_host(state, 0))
         sensitivity = float(np.linalg.norm(moved - fresh) / np.linalg.norm(fresh))

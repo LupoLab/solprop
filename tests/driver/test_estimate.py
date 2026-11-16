@@ -223,7 +223,7 @@ def _native_committed_nothing(problem, probed, fresh, dz):
     """
     assert problem.initial.noise0 is None
     fresh._staged_rows()
-    state = load_native(fresh, problem.initial.field0, clear_fsal=False)
+    state = load_native(fresh, problem.initial.field0)
     loaded = state.field_to_host()
     held = probed._native_state.field_to_host()
     assert held.tobytes() == loaded.tobytes()

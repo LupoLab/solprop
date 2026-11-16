@@ -282,7 +282,7 @@ def test_a_trial_without_the_densities_is_refused() -> None:
     problem, run_request, grid = averaged("symmetric", thg=True)
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        load_native(backend, problem.initial.field0, clear_fsal=False)
+        load_native(backend, problem.initial.field0)
         stages = run_request.stepper.tableau.n_stages
         terms = backend._terms.phi  # pyright: ignore[reportPrivateUsage]
         assert terms is not None
@@ -321,7 +321,7 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
         backend = backend_class(problem, run_request, grid=grid)
         try:
             if isinstance(backend, NativeBackend):
-                state = load_native(backend, problem.initial.field0, clear_fsal=False)
+                state = load_native(backend, problem.initial.field0)
                 native_trial(backend, 0.0, 0.0)
                 spectra.append(_testing.projected_to_host(state, False))
             else:

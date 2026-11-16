@@ -356,7 +356,7 @@ def _resident(simulation: Simulation, problem: Any, request: Any) -> Any:
     engine = backend._resident
     assert type(engine).__name__ == "_ResidentAdams"
     field = np.ascontiguousarray(problem.initial.field0, dtype=np.complex128)
-    load_native(backend, field, clear_fsal=False)
+    load_native(backend, field)
     native_adams_start(backend, 0.0)
     rows = {
         name: np.broadcast_to(row[:1], row.shape).copy()

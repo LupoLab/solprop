@@ -2032,7 +2032,10 @@ ComplexView3 GeneralWorkspace::adams_row_view(const std::string& name) const {
 }
 
 std::vector<std::string> GeneralWorkspace::adams_row_names() const {
-  require_adams();
+  // A fact of the allocation, read before any field is loaded (the workspace's
+  // diagnostics).
+  if (adams_store_.extent(0) == 0)
+    throw std::logic_error("the resident Adams history is not allocated");
   std::vector<std::string> names{"store"};
   if (adams_states_.extent(0) != 0)
     names.insert(names.end(), {"states", "rates"});

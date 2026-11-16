@@ -173,7 +173,7 @@ def finished(problem, run_request, grid, rows, dz, options=None):
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid, options=options)
     try:
-        native = load_native(backend, problem.initial.field0, clear_fsal=False)
+        native = load_native(backend, problem.initial.field0)
         _testing.adopt(native, np.ascontiguousarray(rows.reshape(-1)), dz)
         actual = native.field_to_host().reshape(problem.shape)
     finally:

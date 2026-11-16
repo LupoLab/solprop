@@ -94,7 +94,7 @@ def resident_step(problem, run_request, grid):
     dz = float(edges[1] - edges[0])
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         engine = backend_module._ResidentLowStorage(backend, MARCH)
         squared = engine.step(float(edges[0]), dz)
         state.finish(dz)

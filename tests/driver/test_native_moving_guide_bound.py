@@ -84,7 +84,7 @@ def source_at(implementation, problem, run_request, grid, positions):
         assert type(engine).__name__ == "_ResidentAdams"
         sources = []
         for z in positions:
-            load_native(backend, state, clear_fsal=False)
+            load_native(backend, state)
             native_adams_start(backend, float(z))
             sources.append(np.array(native_adams_rows(backend)["store"][0]))
         return sources

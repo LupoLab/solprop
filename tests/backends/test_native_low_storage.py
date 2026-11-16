@@ -260,7 +260,7 @@ def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     problem, run_request, grid, _ = cartesian_march("tabulate")
     backend = NativeBackend(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         backend._staged_rows()
         nodes = [float(node) for node in run_request.stepper.tableau.nodes]
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):

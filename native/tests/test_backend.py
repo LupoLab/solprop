@@ -177,7 +177,7 @@ def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     """
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
-    state = load_native(backend, problem.initial.field0, clear_fsal=False)
+    state = load_native(backend, problem.initial.field0)
     with pytest.raises(RuntimeError, match="stage"):
         _testing.stage_to_host(state, 0)
     native_trial(backend, 0.0, 1e-4)
@@ -330,7 +330,7 @@ def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) ->
     try:
         # The resident engine on the loaded state, with the key of the first step's
         # table, which no step built.
-        load_native(backend, marched.initial.field0, clear_fsal=False)
+        load_native(backend, marched.initial.field0)
         method = marched_request.stepper.integrator
         assert isinstance(method, LowStorageRungeKutta)
         engine = _ResidentLowStorage(backend, method)
@@ -898,7 +898,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        state = load_native(backend, problem.initial.field0, clear_fsal=False)
+        state = load_native(backend, problem.initial.field0)
         info = build_info()
         # The native rule: a host execution space, at this shape; the dev build
         # without TPL BLAS packs too.

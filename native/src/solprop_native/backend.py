@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import functools
 import logging
@@ -31,7 +30,6 @@ from solprop.backends.exponential import (
     refuse_formulation,
 )
 from solprop.backends.ledger import CallLedger, Derivative, source_absent
-from solprop.backends.low_storage import schedule_key, table_steps
 from solprop.backends.memory import (
     LOCAL_FLUX_STATISTICS,
     low_storage_flows,
@@ -44,7 +42,12 @@ from solprop.backends.node_chunk import (
     plan_node_chunk,
 )
 from solprop.backends.protocol import TimingProbe
-from solprop.backends.records import adams_policy
+from solprop.backends.records import (
+    RunRecords,
+    adams_policy,
+    low_storage_settings,
+    run_records,
+)
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
@@ -56,7 +59,7 @@ from solprop.backends.spatial import (
     radial_absorber_matrix,
 )
 from solprop.boundaries import SPLIT_RATE_BUCKETS
-from solprop.constants import EPS0, C
+from solprop.constants import EPS0
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -68,17 +71,15 @@ from solprop.noise import NoiseRealisation
 from solprop.output.records import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.spatial import (
-    ABSORBED_CHANNELS,
     FAR_FIELD_STATISTICS,
     ApertureTables,
 )
 from solprop.stats import (
     StatsSpec,
 )
-from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import MarchPolicy, Multistep
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.tableau import continuous_extension
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -96,7 +97,6 @@ from solprop.translate.general import (
     node_kerr_tensor,
 )
 from solprop.translate.linop import (
-    delta_phi,
     power_weight_at,
     unitary_phase,
 )
@@ -130,7 +130,6 @@ from solprop.translate.tdse import AtomicCallLedger, TDSEBinding
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.transverse_monitor import (
     TransverseEdge,
-    _EdgeReading,  # pyright: ignore[reportPrivateUsage] - released together
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
 )
 
@@ -145,7 +144,6 @@ from . import (
     _core,
     _counters,
     _host_blas,
-    _records,
     _wisdom,
     build_info,
     check_build,
@@ -370,10 +368,6 @@ class NativeBackend:
         )
         self._z_tables = None if problem.device_ready else _ZTables(problem, stepper)
         self._flow = _host_flow(problem)
-        # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
-        self._rk_staged = False
-        self._rk_nodes: list[float] = []
-        self._rk_weighted = False
         tables = problem.transform.modal_tables
         self._moving_maps = (
             tables is not None
@@ -398,12 +392,18 @@ class NativeBackend:
         stored, self._wisdom_loaded = (
             _wisdom.plans(wisdom) if fft_planning is None else ({}, False)
         )
-        self._bound_buckets: np.ndarray | None = None
         # solprop SEP 46: the workspace's CPU execution record, the process's (the
         # calibration's where it holds, else the built-in table) unless one is given,
-        # as a stage-2 refinement gives one; read back from the state it built.
+        # as a stage-2 refinement gives one; read back from the workspace it built.
         self._execution_source = (
             _package.EXECUTION_SOURCE if cpu_execution is None else "given"
+        )
+        integrator = stepper.integrator
+        # The run's carrier frame (solprop SEP 35), whose chord the stage tables read.
+        self._carrier = (
+            carrier_reference(problem, integrator)
+            if isinstance(integrator, Multistep)
+            else None
         )
         plan = _LowerPlan(
             terms=self._terms,
@@ -414,19 +414,23 @@ class NativeBackend:
             cpu_execution=cpu_execution,
             fft_planning=_planning(fft_planning, stored),
             device=_on_device(),
+            setup=self._setup(),
         )
-        self._native_state = _core.State(_lower(problem, request, plan))
+        # One workspace for the backend's life (solprop SEP 52 section 5.3): the
+        # problem and every set-once table, guard and geometry cross once, here.
+        self._workspace = _core.Workspace(_lower(problem, request, plan))
+        diagnostics = self._workspace.diagnostics()
         self._applied_execution = ExecutionRecord.from_native(
-            self._native_state.cpu_execution
+            diagnostics["cpu_execution"]
         )
         if cpu_execution is None:
             # A stage-2 refinement of this very execution (solprop SEP 46 section
             # 6.6): the workspace is built again with its record.
-            refined = _refined_record(problem, stepper, self._native_state)
+            refined = _refined_record(problem, stepper, diagnostics)
             if refined is not None:
-                stored |= _keep_plans(self._native_state, wisdom)
-                self._native_state.close()
-                self._native_state = _core.State(
+                stored |= _keep_plans(diagnostics, wisdom)
+                self._workspace.close()
+                self._workspace = _core.Workspace(
                     _lower(
                         problem,
                         request,
@@ -437,24 +441,23 @@ class NativeBackend:
                         ),
                     )
                 )
+                diagnostics = self._workspace.diagnostics()
                 self._execution_source = refined[1]
                 self._applied_execution = ExecutionRecord.from_native(
-                    self._native_state.cpu_execution
+                    diagnostics["cpu_execution"]
                 )
-        self._native_state.set_crossing_workers(thread_budget().threads)
-        # solprop SEP 49: the TDSE response is the march's host source, bound here for
-        # the backend's life; the driver owns the binding and closes it.
+        # solprop SEP 49: the TDSE response is the march's host source, handed to each
+        # run and probe; the driver owns the binding and closes it.
         self._tdse_binding = tdse_binding
         self._host_source: TDSEHostSource | None = None
         if tdse_binding is not None:
             self._host_source = TDSEHostSource(tdse_binding, problem, self._terms)
-            self._native_state.bind_host_source(self._host_source)
         if fft_planning is None:
-            _keep_plans(self._native_state, wisdom)
+            _keep_plans(diagnostics, wisdom)
         self._wisdom_digest = (
             _wisdom.digest(
                 _applied_plans(
-                    self._native_state,
+                    diagnostics,
                     stored,
                     fft_planning if fft_planning is not None else _package.PLANNING,
                 )
@@ -462,27 +465,20 @@ class NativeBackend:
             if not _on_device()
             else None
         )
-        if self._z_tables is not None:
-            self._z_tables.upload(self._native_state)
-        _upload_flux_table(self._native_state, problem)
         # The native Adams march's record (SEP 39): its policy, ledger and history,
-        # over the resident history the native state keeps (`_adams_engine`).
-        integrator = stepper.integrator
-        self._resident: _ResidentAdams | None = None
+        # over the resident history the workspace keeps.
         self._adams: _NativeAdamsMarch | None = (
-            _NativeAdamsMarch(self, integrator)
+            _NativeAdamsMarch(self, integrator, diagnostics["history_rows"])
             if isinstance(integrator, Multistep)
             else None
         )
         # The low-storage march (SEP 24) is the native session's; its resident
         # registers' step is a timing probe's trial (`timing_probe`), and the
-        # evaluations the probe makes are counted for the metadata.
-        self._resident_low_storage = (
-            _ResidentLowStorage(self, integrator)
-            if isinstance(integrator, LowStorageRungeKutta)
-            else None
-        )
+        # evaluations the probes make are counted for the metadata.
+        self._low_storage = isinstance(integrator, LowStorageRungeKutta)
         self._low_storage_evaluations = 0
+        # The open timing probe, which leases the workspace until the next run or probe.
+        self._probe: _core.Probe | None = None
         # NumPy's own BLAS pool would spin beside the native one while this backend
         # lives; it is held to one thread until the last native backend closes.
         self._host_blas = _host_blas.hold(
@@ -518,12 +514,13 @@ class NativeBackend:
         z: float,
         resume: bool,
     ) -> Loaded:
-        """Load a start into the native state, as a fresh backend's (SEP 22 4.7).
+        """Form a start's load as a fresh backend's (SEP 22 4.7).
 
-        The field and the noise realisation (:func:`solprop_native._load.load`), the
-        stages' collar back in and the recycled stage dropped, no monitor bound, and
-        the Adams record's history and accounting started afresh; a session or a
-        timing probe goes on from here.
+        The field and the noise realisation (:func:`solprop_native._load.load`) and the
+        Adams record's history and accounting started afresh; the workspace takes the
+        load with the run's start (`_run_start`), which puts the stages' collar back
+        in, drops the recycled stage and binds no monitor before a session or a timing
+        probe goes on from it.
 
         - ``field``: the state, ``complex128`` of shape ``(n_modes, n_pol, n_omega)``,
           of any strides.
@@ -535,43 +532,21 @@ class NativeBackend:
             raise BackendError("this backend is closed; its buffers were released")
         _require_initial_array(field, self._problem.shape)
         loaded = load(self._problem, self._stepper, field, noise, z=z, resume=resume)
-        self._native_state.unbind_monitor()
-        self._native_state.set_initial(loaded.field, loaded.native_noise())
         if (counters := _counters.active) is not None:
             counters.load("start", loaded.field.nbytes)
-        # A collar an earlier run rested goes back into the stages (SEP 21).
-        self._native_state.set_absorber_quiet(False)
-        self._native_state.clear_fsal()
         if self._adams is not None:
             self._adams.reset()
             self._adams.begin_run()
-        if self._resident_low_storage is not None:
-            self._resident_low_storage.reset()
         self._low_storage_evaluations = 0
-        # The state holds the field now: the record keeps no host copy past the load.
-        kept = dataclasses.replace(loaded, field=_EMPTY)
-        self._loaded = kept
-        return kept
+        return loaded
 
-    def _install(self, field: ComplexArray) -> None:
-        """Load a resumed history's own state, with the loaded noise realisation.
-
-        - ``field``: the state as the interrupted run held it, contiguous.
-        """
-        loaded = self._loaded
-        self._native_state.set_initial(
-            np.ascontiguousarray(field.reshape(-1)),
-            _EMPTY if loaded is None else loaded.native_noise(),
-        )
-        if (counters := _counters.active) is not None:
-            counters.load("restore", field.nbytes)
-
-    def _restore(self, start: Start, loaded: Loaded) -> tuple[str | None, float]:
+    def _restore(self, start: Start, loaded: Loaded) -> _Restored:
         """Restore a resumed start's ledgers and method history after its load.
 
         - Returns: why the snapshot's history was not installed (``None`` when it was or
-          none was given), and the next step's proposal, m: the snapshot's when its
-          history continues, else ``dz_init``.
+          none was given), the next step's proposal, m (the snapshot's when its
+          history continues, else ``dz_init``), and the history's own state and rows
+          the run then starts from.
         """
         adams = self._adams
         proposal = float(self._stepper.dz_init)
@@ -592,37 +567,110 @@ class NativeBackend:
                 )
         snapshot = start.march
         if snapshot is None:
-            return None, proposal
+            return _Restored(None, proposal)
         if adams is None:
-            march = (
-                "low-storage"
-                if self._resident_low_storage is not None
-                else "Runge-Kutta"
+            march = "low-storage" if self._low_storage else "Runge-Kutta"
+            return _Restored(
+                f"the run steps with the {march} march, which keeps no history",
+                proposal,
             )
-            return f"the run steps with the {march} march, which keeps no history", (
-                proposal
-            )
-        reason = adams.resume(snapshot, loaded.z)
+        reason, rows = adams.resume(snapshot, loaded.z)
         if reason is not None:
-            return reason, proposal
-        self._install(np.array(snapshot.state, copy=True))
-        return None, float(snapshot.proposal)
+            return _Restored(reason, proposal)
+        if (counters := _counters.active) is not None:
+            counters.load("restore", snapshot.state.nbytes)
+        return _Restored(
+            None,
+            float(snapshot.proposal),
+            np.ascontiguousarray(snapshot.state, dtype=np.complex128).reshape(-1),
+            rows,
+        )
 
-    def _adams_engine(
+    def _setup(self) -> dict[str, object]:
+        """Return the workspace's set-once data (solprop SEP 52 section 5.3).
+
+        The stage tables, the z tables and their slots, a coupled flow's guard, the
+        Runge-Kutta trial's nodes and error control, the resident Adams history, the
+        low-storage settings, the split collar's occupancy buckets and the crossings'
+        threads, each absent where the problem has none.
+        """
+        problem, stepper = self._problem, self._stepper
+        integrator = stepper.integrator
+        controller = stepper.controller
+        weights = (
+            np.empty(0)
+            if controller.weights is None
+            else np.ascontiguousarray(controller.weights, dtype=np.float64)
+        )
+        adams = isinstance(integrator, Multistep)
+        dense = (
+            continuous_extension(stepper.tableau)
+            if stepper.interpolate_planes and not adams
+            else None
+        )
+        tables = self._z_tables
+        setup: dict[str, object] = {
+            "stage_tables": self._stage_tables(),
+            "z_slots": None if tables is None else tables.slots_record(),
+            "z_tables": ([] if tables is None else tables.records())
+            + _flux_tables(problem),
+            "flow_guard": _flow_guard(self._flow),
+            "runge_kutta": {
+                "nodes": np.ascontiguousarray(stepper.tableau.nodes, dtype=np.float64),
+                "rtol": float(controller.rtol),
+                "atol": float(controller.atol),
+                "weights": weights,
+                "dense_weights": np.empty(0)
+                if dense is None
+                else np.ascontiguousarray(dense, dtype=np.float64),
+            },
+            "adams": None,
+            "low_storage": None,
+            "occupancy": None,
+            "crossing_workers": thread_budget().threads,
+        }
+        if isinstance(integrator, Multistep):
+            setup["adams"] = {
+                "slots": integrator.order + 2,
+                "compensated": self._compensated(integrator, "transported"),
+                "interpolate": bool(stepper.interpolate_planes),
+                "fused": integrator.formulation != "exponential",
+                "rtol": float(controller.rtol),
+                "atol": float(controller.atol),
+                "weights": weights,
+            }
+        settings = low_storage_settings(problem, stepper)
+        if settings is not None:
+            setup["low_storage"] = dataclasses.replace(
+                settings,
+                flows=_resident_flows(settings.flows, stepper, device=_on_device()),
+            )
+        crossing = problem.split_crossing
+        if crossing is not None:
+            # The split collar's walk-off bucket of each bin (solprop #440), bound by
+            # the first run whose monitor reads its crossing limit.
+            setup["occupancy"] = {
+                "buckets": np.ascontiguousarray(
+                    crossing.buckets, dtype=np.uint8
+                ).reshape(-1),
+                "count": SPLIT_RATE_BUCKETS,
+            }
+        return setup
+
+    def _compensated(
         self,
         method: Multistep,
         compensation: Literal["transported", "untransported"],
-    ) -> object:
-        """Return the resident Adams history (solprop SEP 16).
+    ) -> bool:
+        """Return whether the resident Adams history carries a compensation (SEP 16).
 
         Either formulation keeps its history, its step arithmetic and its norms in the
-        native state (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6),
-        whose interaction formulation the admission refuses (`_refuse_adams`).
+        workspace (solprop ADR-043), beside a coupled flow too (SEP 16 phase 6), whose
+        interaction formulation the admission refuses (`_refuse_adams`). A varying
+        operator's exponential formulation carries the transported compensation
+        natively, as does a frozen-residual flow's residual, whatever the diagonal's
+        representation; the untransported test witness is the reference's alone.
         """
-        # A varying operator's exponential formulation carries the transported
-        # compensation natively, as does a frozen-residual flow's residual, whatever
-        # the diagonal's representation; the untransported test witness is the
-        # reference's alone.
         flow = self._flow
         linear = self._problem.linear
         residual = flow is not None and flow.residual_terms is not None
@@ -639,27 +687,10 @@ class NativeBackend:
                 "untransported one is a test witness of backend='numpy_ref'"
             )
             raise BackendError(msg)
-        self._resident = _ResidentAdams(
-            native=self._native_state,
-            method=method,
-            controller=self._stepper.controller,
-            shape=self._problem.shape,
-            compensated=compensated,
-            interpolate=self._stepper.interpolate_planes,
-            carrier=carrier_reference(self._problem, method),
-        )
-        # solprop SEP 39 phases 1 and 3: the native state reads the scalar tables
-        # itself, uploaded once; the admission refused a problem whose rows they do not
-        # read (`host_rows_refusal`).
-        tables = self._stage_tables()
-        assert tables is not None
-        self._native_state.adams_stage_tables(
-            tables | _chord_tables(self._resident.carrier)
-        )
-        return self._resident
+        return compensated
 
     def _stage_tables(self) -> dict[str, object] | None:
-        """Return the tables a resident Adams trial reads natively, or ``None``.
+        """Return the tables the native marches read each stage's scalars from.
 
         solprop SEP 39 phases 1 and 4: every scalar table ``translate.stage.scalars``
         reads at a stage -- the weights of a constant or expanded ``Phi`` and
@@ -667,12 +698,13 @@ class NativeBackend:
         the Kerr density, the plasma channels' densities and fractions, SEP 6's
         channel densities -- and an expansion's rate table, each packed as its batch
         pass reads it (``PiecewiseChebyshev.packed``). A separable operator's rows are
-        a constant's, the distance and the position with a unit prefactor
-        (`_trial_arrays`), and read no span. A z table's rows are its slots, which the
-        native state loads through the cache `_ZTables` shares. A coupled flow's
-        section and residual weights and a moving guide's map weights are sectioned
-        Chebyshev rows (`flow_weights`, `transform_weights`), formed natively from
-        their edges.
+        a constant's, the distance and the position with a unit prefactor, and read no
+        span. A z table's rows are its slots, which the workspace loads through the
+        cache the z tables share. A coupled flow's section and residual weights and a
+        moving guide's map weights are sectioned Chebyshev rows, formed natively from
+        their edges; the carrier frame's chord is read beside them
+        (:func:`_chord_tables`). ``None`` where the rows are not tables, which the
+        admission refuses (:func:`host_rows_refusal`).
         """
         problem = self._problem
         if not stage_tables_available(problem):
@@ -682,69 +714,79 @@ class NativeBackend:
         separable = self._terms.separable is not None
         tables = self._z_tables
         if tables is not None and tables.phi:
-            phi = _STAGE_TABLE
+            phi = "table"
         elif separable or linear.phi_constant is not None:
-            phi = _STAGE_CONSTANT
+            phi = "constant"
         elif linear.phi_expansion is not None:
-            phi = _STAGE_EXPANSION
+            phi = "expansion"
             phi_weights = linear.phi_expansion.weights.packed()
             phi_rate = linear.rate.packed()
         else:
             return None
         low = high = 0.0
         if tables is not None and tables.prefactor:
-            prefactor = _STAGE_TABLE
+            prefactor = "table"
         elif separable:
-            prefactor = _STAGE_CONSTANT
+            prefactor = "constant"
             low, high = -math.inf, math.inf
         elif responses.prefactor_constant is not None:
-            prefactor = _STAGE_CONSTANT
+            prefactor = "constant"
             low, high = responses.prefactor_span
         elif responses.prefactor_expansion is not None:
-            prefactor = _STAGE_EXPANSION
+            prefactor = "expansion"
             prefactor_weights = responses.prefactor_expansion.weights.packed()
         else:
             return None
         kerr = responses.kerr_coefficients
         taper = problem.transform.taper_scale
-        return {
-            "n_stages": self._stepper.tableau.n_stages,
-            "phi": phi,
-            "phi_weights": phi_weights,
-            "phi_rate": phi_rate,
-            "prefactor": prefactor,
-            "prefactor_weights": prefactor_weights,
-            "prefactor_low": float(low),
-            "prefactor_high": float(high),
-            "density": responses.density.packed(),
-            "taper": None if taper is None else taper.packed(),
-            "raman_rates": [
-                table.packed()
-                for term in responses.raman_terms
-                for table in term.decay_rates
-            ],
-            "kerr": 0 if kerr is None else 1 if kerr.density is None else 2,
-            "kerr_density": None
-            if kerr is None or kerr.density is None
-            else kerr.density.packed(),
-            "plasma_densities": [
-                channel.density.packed() for channel in responses.population_channels
-            ],
-            "plasma_preionisation": [
-                channel.preionisation.packed()
-                for channel in responses.population_channels
-            ],
-            "raman_densities": [
-                None if term.density is None else term.density.packed()
-                for term in responses.raman_terms
-            ],
-            "dispersive_densities": []
-            if responses.dispersive_kerr is None
-            else [table.packed() for table in responses.dispersive_kerr.densities],
-        } | _section_tables(
-            problem,
-            moving=self._moving_maps,
-            residual=self._flow is not None and self._flow.residual_terms is not None,
+        return (
+            {
+                "n_stages": self._stepper.tableau.n_stages,
+                "phi": phi,
+                "phi_weights": phi_weights,
+                "phi_rate": phi_rate,
+                "prefactor": prefactor,
+                "prefactor_weights": prefactor_weights,
+                "prefactor_low": float(low),
+                "prefactor_high": float(high),
+                "density": responses.density.packed(),
+                "taper": None if taper is None else taper.packed(),
+                "raman_rates": [
+                    table.packed()
+                    for term in responses.raman_terms
+                    for table in term.decay_rates
+                ],
+                "kerr": "none"
+                if kerr is None
+                else "density"
+                if kerr.density is None
+                else "table",
+                "kerr_density": None
+                if kerr is None or kerr.density is None
+                else kerr.density.packed(),
+                "plasma_densities": [
+                    channel.density.packed()
+                    for channel in responses.population_channels
+                ],
+                "plasma_preionisation": [
+                    channel.preionisation.packed()
+                    for channel in responses.population_channels
+                ],
+                "raman_densities": [
+                    None if term.density is None else term.density.packed()
+                    for term in responses.raman_terms
+                ],
+                "dispersive_densities": []
+                if responses.dispersive_kerr is None
+                else [table.packed() for table in responses.dispersive_kerr.densities],
+            }
+            | _section_tables(
+                problem,
+                moving=self._moving_maps,
+                residual=self._flow is not None
+                and self._flow.residual_terms is not None,
+            )
+            | _chord_tables(self._carrier)
         )
 
     @property
@@ -758,325 +800,60 @@ class NativeBackend:
         """
         return propagator_mode(self._problem, self._stepper, device=_on_device())
 
-    def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
-        partials = self._prepare_trial(z, dz)
-        return self._score_trial(partials), self._native_state
-
-    def _staged_rows(self) -> None:
-        """Upload the stage tables a Runge-Kutta trial's rows are formed from, once.
-
-        solprop SEP 45 phase 2: every row a trial reads is one of the uploaded stage
-        tables', and the state evaluates each stage's scalars at ``z + c_i dz``
-        natively. Phase 4 adds the z table, whose positions the state loads into the
-        one slot cache stage by stage. Beside a coupled flow the state also forms the
-        step's flow actions behind its guards, transcribed with their constants. The
-        admission refuses a problem whose rows the tables do not read
-        (:func:`host_rows_refusal`), so the tables are always formed.
-        """
-        if self._rk_staged:
-            return
-        tables = self._stage_tables()
-        assert tables is not None  # `host_rows_refusal` admitted the problem
-        self._native_state.adams_stage_tables(tables | _chord_tables(None))
-        self._rk_nodes = [float(node) for node in self._stepper.tableau.nodes]
-        flow = self._flow
-        if flow is not None:
-            modes = int(flow.vectors.shape[-1])
-            self._native_state.flow_guard_configure(
-                [float(value) for value in flow.row_sum],
-                [float(value) for value in np.ravel(flow.condition_bound)],
-                _TAYLOR_SCALE,
-                _MAX_FLOW_SQUARINGS,
-                _flow_allowance(modes),
-            )
-        self._rk_staged = True
-
-    def _prepare_trial(self, z: float, dz: float) -> RealArray:
-        """Prepare a Runge-Kutta trial's stages on the staged rows and score it."""
-        self._staged_rows()
-        with _envelope_errors():
-            return self._native_state.rk_trial(
-                z, dz, self._rk_nodes, prepare_only=False
-            )
-
-    def _trial_arrays(
-        self, bundles: Sequence[StageScalars], whole: StageScalars
-    ) -> tuple[
-        tuple[
-            RealArray, RealArray, RealArray, RealArray, RealArray, RealArray, RealArray
-        ],
-        dict[str, npt.NDArray[np.float64] | int],
-    ]:
-        """Pack the stages' host scalars into the engine's trial arrays."""
-        if self._terms.separable is not None:
-            phi_delta = np.array([[one.z1 - one.z0] for one in [*bundles, whole]])
-            phi_at = np.array([[one.z1] for one in bundles])
-            prefactor = np.ones((len(bundles), 1))
-        else:
-            phi_delta, phi_at, prefactor = self._weight_rows(bundles, whole)
-        density = np.ascontiguousarray(
-            np.array([bundle.density for bundle in bundles], dtype=np.float64)
-        )
-        taper = np.ascontiguousarray(
-            np.array([bundle.taper_scale for bundle in bundles], dtype=np.float64)
-        )
-        preionisation = np.ascontiguousarray(
-            np.array([bundle.preionisation for bundle in bundles], dtype=np.float64)
-        )
-        raman_rates = np.ascontiguousarray(
-            np.array([bundle.raman_rates for bundle in bundles], dtype=np.float64)
-        )
-        material: dict[str, npt.NDArray[np.float64] | int] = {
-            "kerr_density": np.asarray([one.kerr_density for one in bundles]),
-            "plasma_densities": np.asarray([one.plasma_densities for one in bundles]),
-            "plasma_preionisation": np.asarray(
-                [one.plasma_preionisation for one in bundles]
-            ),
-            "raman_densities": np.asarray([one.raman_densities for one in bundles]),
-        }
-        if self._problem.responses.dispersive_kerr is not None:
-            # solprop SEP 6's channel densities, each stage's row; the native response
-            # weighs its channels and rebuilds a mixture's filter from them.
-            material["dispersive_densities"] = np.ascontiguousarray(
-                [one.dispersive_kerr_densities for one in bundles], dtype=np.float64
-            )
-        if self._moving_maps:
-            # Schema 14's row: each stage's weights of a moving guide's maps, which the
-            # engine combines natively per stage.
-            material["transform_weights"] = np.ascontiguousarray(
-                np.stack(
-                    [
-                        _required(one.transform_weights, "transform_weights")
-                        for one in bundles
-                    ]
-                ),
-                dtype=np.float64,
-            )
-        arrays = (
-            phi_delta,
-            phi_at,
-            prefactor,
-            density,
-            taper,
-            preionisation,
-            raman_rates,
-        )
-        return arrays, material
-
-    def _weight_rows(
-        self, bundles: Sequence[StageScalars], whole: StageScalars
-    ) -> tuple[RealArray, RealArray, RealArray]:
-        """Return the stages' weights of ``Phi`` and of the prefactor over the terms.
-
-        Each stage's increment, the whole step's and each stage's value of ``Phi``, and
-        each stage's prefactor: the bundles' own weights of a constant or an expansion,
-        or, for a z table, the +-1 weights of its slots (solprop SEP 29 G1), whose
-        positions are evaluated natively first where no slot holds them.
-        """
-        tables = self._z_tables
-        slot_of: dict[float, int] = {}
-        if tables is not None:
-            stages = [*bundles, whole]
-            slot_of = tables.load(
-                [one.z0 for one in stages if tables.phi] + [one.z1 for one in stages]
-            )
-        if tables is not None and tables.phi:
-            phi_delta = np.stack(
-                [tables.phi_row(slot_of, one.z0, one.z1) for one in [*bundles, whole]]
-            )
-            phi_at = np.stack(
-                [tables.at_row(slot_of, one.z1, tables.n_phi) for one in bundles]
-            )
-        else:
-            phi_delta = np.stack(
-                [
-                    *(_required(bundle.phi_delta, "phi_delta") for bundle in bundles),
-                    _required(whole.phi_delta, "whole phi_delta"),
-                ]
-            )
-            phi_at = np.stack(
-                [_required(bundle.phi_at, "phi_at") for bundle in bundles]
-            )
-        if tables is not None and tables.prefactor:
-            prefactor = np.stack(
-                [tables.at_row(slot_of, one.z1, tables.slots) for one in bundles]
-            )
-        else:
-            prefactor = np.stack(
-                [_required(bundle.prefactor, "prefactor") for bundle in bundles]
-            )
-        return (
-            np.ascontiguousarray(phi_delta),
-            np.ascontiguousarray(phi_at),
-            np.ascontiguousarray(prefactor),
-        )
-
-    def _phi_increment(self, z0: float, z1: float) -> RealArray:
-        """Return the weights of ``Phi(z1) - Phi(z0)`` over the native terms.
-
-        The bundle's own for a constant or an expansion; a z table's two slots,
-        evaluated where no slot holds them, for a z table (solprop SEP 29 G1).
-        """
-        tables = self._z_tables
-        if tables is not None and tables.phi:
-            return tables.phi_row(tables.load([z0, z1]), z0, z1)
-        return _required(self._stage_scalars(z0, z1).phi_delta, "phi_delta")
-
-    def _delta_phi(self, bundle: StageScalars) -> ComplexArray:
-        """Return the stage's exponent on the host, a z table's from its native slots.
-
-        A host engine's propagator and the dense observation's stiffness test read it;
-        a z table's two values are copied from the native slots and subtracted once, as
-        the stage kernels subtract them (solprop SEP 29 G1).
-        """
-        tables = self._z_tables
-        if tables is not None and tables.phi:
-            here = tables.values("phi", bundle.z1)
-            anchored = tables.values("phi", bundle.z0)
-            return (here - anchored).reshape(self._problem.shape)
-        if bundle.phi_delta is None or self._terms.phi is None:
-            return delta_phi(
-                self._problem.linear, bundle.z0, bundle.z1, helpers=self.helpers
-            )
-        return combine(bundle.phi_delta, self._terms.phi)
-
     def _unitary_phase(self, bundle: StageScalars) -> RealArray:
-        """Return ``Im Phi`` at the stage's position, a z table's from its slot.
+        """Return ``Im Phi`` at the stage's position, formed on the host.
 
         An expansion of ``Phi`` is cumulative and vanishes at the start of the range,
-        so its value at a position is the bundle's ``phi_at`` against the same terms.
+        so its value at a position is the bundle's ``phi_at`` against the same terms. A
+        z table's value is the workspace's (``Session.noise_phase``).
         """
-        tables = self._z_tables
-        if tables is not None and tables.phi:
-            return np.imag(tables.values("phi", bundle.z1)).reshape(self._problem.shape)
         if bundle.phi_at is None or self._terms.phi is None:
             return unitary_phase(self._problem.linear, bundle.z1)
         return np.imag(combine(bundle.phi_at, self._terms.phi))
-
-    def _hoist(self, z0: float) -> None:
-        """Hoist a step's anchor in the stage cache (`_load.StageCache.hoist`)."""
-        self._stages.hoist(z0)
-
-    def _stage_bundles(
-        self, z0: float, positions: Sequence[float]
-    ) -> tuple[StageScalars, ...]:
-        """Return several stages' scalars taken together (`StageCache.bundles`)."""
-        return self._stages.bundles(z0, positions)
 
     def _stage_scalars(self, z0: float, z1: float) -> StageScalars:
         """Return one stage's scalars (`StageCache.scalars`)."""
         return self._stages.scalars(z0, z1)
 
-    def _score_trial(self, partials: RealArray) -> float:
-        """Reduce one member's partials to the trial's scaled error norm.
+    def _diagnostics(self) -> dict[str, Any]:
+        """Return the workspace's facts and counters (``Workspace.diagnostics``)."""
+        return cast("dict[str, Any]", self._workspace.diagnostics())
 
-        solprop's own weak scale is formed natively, the partials summed in order
-        (solprop SEP 45 phase 2, Q1), and a weighted one likewise (phase 4). A
-        controller with a scale of its own never reaches here: the backend refuses it
-        where it is built.
+    def _monitor_binding(self, monitor: BoundaryMonitor) -> dict[str, object]:
+        """Return a run's boundary monitor weights where the state lives (SEP 21).
+
+        From the run's start on, the engine's finish adds a split-step collar's removal
+        at every accepted step, on every march; a split monitor reads the problem's
+        walk-off buckets beside its five numbers (solprop #440).
         """
-        controller = self._stepper.controller
-        if controller.weights is None:
-            return float(_core.rk_score(partials, controller.rtol, controller.atol))
-        # The weighted scale and its reduction, in order (SEP 45 phase 4).
-        self._rk_weights_ready()
-        return float(
-            self._native_state.rk_weighted_score(
-                np.ascontiguousarray(partials, dtype=np.float64),
-                controller.rtol,
-                controller.atol,
-            )
-        )
-
-    def _rk_weights_ready(self) -> None:
-        """Hand the native state a weighted controller's weights, once (SEP 45)."""
-        if not self._rk_weighted:
-            weights = self._stepper.controller.weights
-            assert weights is not None
-            self._native_state.rk_weights_configure(
-                [float(value) for value in np.asarray(weights, dtype=np.float64)]
-            )
-            self._rk_weighted = True
-
-    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
-        """Hold the boundary monitor's weights in the native state (solprop SEP 21).
-
-        From here on the engine's finish adds a split-step collar's removal at every
-        accepted step, on every march, and :meth:`_boundary_energies` reads it.
-        """
-        if monitor is None:
-            self._native_state.unbind_monitor()
-            return
-        columns = (
-            np.empty(0, dtype=np.float64)
-            if monitor.columns is None
-            else np.ascontiguousarray(monitor.columns, dtype=np.float64)
-        )
-        self._native_state.bind_monitor(
-            np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
-        )
-        crossing = monitor.crossing
-        # A runner's points share the table: uploading it again would move a sixteenth
-        # of a state per point.
-        if crossing is not None and crossing.buckets is not self._bound_buckets:
-            # The split collar's crossing limit, read from the state's occupancy of
-            # its walk-off buckets at every check (solprop #440).
-            self._native_state.bind_occupancy(
-                np.ascontiguousarray(crossing.buckets, dtype=np.uint8).reshape(-1),
-                SPLIT_RATE_BUCKETS,
-            )
-            self._bound_buckets = crossing.buckets
-        edge = getattr(monitor, "transverse", None)
-        if edge is not None:
-            # Weights and no faces: what it reads comes back to the edge's judging.
-            tables = edge.tables
-            synthesis = edge.reduction.synthesis()
-            self._native_state.bind_edge(
-                np.ascontiguousarray(tables.faces, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(tables.clip, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(tables.totals, dtype=np.float64).reshape(-1),
-                np.empty(0, dtype=np.float64)
-                if synthesis is None
-                else np.ascontiguousarray(synthesis, dtype=np.float64).reshape(-1),
-                int(np.argmax(tables.rows)),
-            )
-            self._bind_edge_lines(edge)
-
-    def _bind_edge_lines(self, edge: TransverseEdge) -> None:
-        """Hand native a requested collar's lines, as arrays (solprop SEP 44)."""
-        lines = edge.reduction.lines
-        axes = {"r": 0, "x": 1, "y": 2}
-        none = 2**64 - 1
-        strip = [np.asarray(line.strip, dtype=np.uint64) for line in lines]
-        window = [np.asarray(line.window, dtype=np.float64) for line in lines]
-        onsets = [
-            line.onset if line.onset is not None else (none, 0, 0) for line in lines
-        ]
-        space = edge.space
-        self._native_state.bind_edge_lines(
-            np.array([axes[line.axis] for line in lines], dtype=np.uint64),
-            np.array([array.size for array in strip], dtype=np.uint64),
-            np.concatenate(strip) if strip else np.empty(0, dtype=np.uint64),
-            np.concatenate(window) if window else np.empty(0, dtype=np.float64),
-            np.array([line.inward for line in lines], dtype=np.uint64).reshape(-1),
-            np.array(
-                [
-                    line.spacing / (2 * array.size) * line.measure
-                    if array.size
-                    else 0.0
-                    for line, array in zip(lines, strip, strict=True)
-                ],
-                dtype=np.float64,
+        return {
+            "weights": np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(
+                -1
             ),
-            np.array([line.measure for line in lines], dtype=np.float64),
-            np.array(onsets, dtype=np.uint64).reshape(-1),
-            np.array([line.onset_step for line in lines], dtype=np.float64),
-            float(edge.k_min),
-            np.sqrt(np.asarray(space.r, dtype=np.float64))
-            if lines and isinstance(space, RadialGrid)
-            else np.empty(0, dtype=np.float64),
-            transverse_monitor._STRIP_BATCH_BYTES,  # pyright: ignore[reportPrivateUsage]
-        )
+            "column_weights": np.empty(0, dtype=np.float64)
+            if monitor.columns is None
+            else np.ascontiguousarray(monitor.columns, dtype=np.float64),
+            "split": bool(monitor.split) and self._problem.split_crossing is not None,
+        }
+
+    def _edge_binding(self, edge: TransverseEdge) -> dict[str, object]:
+        """Return a transverse edge's tables where the state lives (solprop SEP 44).
+
+        Weights and no faces: what it reads comes back to the edge's judging. A
+        requested collar's lines go as arrays.
+        """
+        tables = edge.tables
+        synthesis = edge.reduction.synthesis()
+        return {
+            "faces": np.ascontiguousarray(tables.faces, dtype=np.float64).reshape(-1),
+            "clip": np.ascontiguousarray(tables.clip, dtype=np.float64).reshape(-1),
+            "totals": np.ascontiguousarray(tables.totals, dtype=np.float64).reshape(-1),
+            "synthesis": np.empty(0, dtype=np.float64)
+            if synthesis is None
+            else np.ascontiguousarray(synthesis, dtype=np.float64).reshape(-1),
+            "first_row": int(np.argmax(tables.rows)),
+            "lines": _edge_lines(edge),
+        }
 
     def edge_memory(self, space: object) -> int:
         """Return what reading the edge holds in the state's memory space (SEP 44).
@@ -1096,79 +873,50 @@ class NativeBackend:
             cast("Any", space), transverse_of(self._problem.route), n_pol, n_omega
         )
 
-    def _edge_reading(
-        self,
-        state: _core.State,
-        edge: TransverseEdge,
-        *,
-        faces: bool = True,
-        current: bool = False,
-        full: bool = False,
-    ) -> _EdgeReading:
-        """Read the state for the transverse edge where it lives (solprop SEP 44).
-
-        - Returns: the reading, of which only numbers crossed. A requested collar still
-          reduces a host copy of the state.
-        """
-        if state is not self._native_state:
-            raise BackendError("the read state does not belong to this backend")
-        if (counters := _counters.active) is not None:
-            counters.transverse_reads += 1
-        collar = edge.every_step
-        sums, columns, strip, rate = state.edge_reading(
-            faces, full, collar, faces and collar, current
-        )
-        rate_value = float(rate) if current else None
-        if not faces:
-            return _EdgeReading(current=rate_value)
-        values = np.asarray(sums).reshape(-1)
-        if full:
-            clip, totals = values[4:8], values[8:12]
-        else:
-            clip, totals = None, values[4:8] if collar else None
-        return _EdgeReading(
-            faces=values[:4],
-            clip=clip,
-            totals=totals,
-            columns=np.asarray(columns).reshape(-1),
-            strip=np.asarray(strip).reshape(-1, 2) if collar else None,
-            current=rate_value,
-        )
-
-    def _finish(self, state: _core.State, dz: float) -> _core.State:
-        if state is not self._native_state:
-            raise BackendError("the advanced state does not belong to this backend")
-        state.finish(dz)
-        return state
-
-    def _launch_clean_columns(self, edge: TransverseEdge) -> RealArray | None:
+    def _launch_clean_columns(
+        self, edge: TransverseEdge, loaded: Loaded
+    ) -> RealArray | None:
         """Return each column's launched energy without the input draw, or ``None``.
 
         What the transverse edge's safety ramp is judged on (SEP 40), so a run with no
-        ramp needs none. Formed where the load held both parts (`_load`), which needs
-        no state on the host; only a launch that resumed without its edge's record has
-        none, and then the loaded state crosses once.
+        ramp needs none. Formed where the load held both parts (`_load`); a launch that
+        resumed without its edge's record has none, and is formed from the loaded state.
 
         - Returns: the unweighted energies, or ``None`` with no draw, no ramp or on a
           resumed launch.
         """
-        loaded = self._loaded
-        floor = None if loaded is None else loaded.floor
-        if loaded is None or floor is None or edge.resumed or edge.design is None:
+        floor = loaded.floor
+        if floor is None or edge.resumed or edge.design is None:
             return None
         if loaded.clean_columns is not None:
             return loaded.clean_columns
-        state = np.asarray(self._observed_field(self._native_state))
+        state = np.asarray(loaded.field).reshape(self._problem.shape)
         return edge.reduction.column_power(state - np.asarray(floor))
+
+    def _take_workspace(self) -> _core.Workspace:
+        """Return the workspace for a run or a probe, closing an open probe first."""
+        if self._closed:
+            raise BackendError("this backend is closed; its buffers were released")
+        if self._probe is not None:
+            self._probe.close()
+            self._probe = None
+            if self._workspace.closed:
+                raise BackendError(
+                    "this backend's workspace closed with its low-storage timing "
+                    "probe, whose trials advanced the registers in place (solprop SEP "
+                    "52 section 5.5); build another backend"
+                )
+        return self._workspace
 
     def timing_probe(self, start: Start) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.
 
         The start's field, noise, position and resume flag are loaded as a session
         loads them (`_load`); its method history, ledgers and monitor continuation are
-        not read. A Runge-Kutta trial (``rk_trial``) leaves the loaded state alone; the
-        low-storage march's step advances the discarded registers in place, so a
-        backend probed so is closed afterwards (solprop SEP 47 section 6.6).
+        not read. A Runge-Kutta trial leaves the loaded state alone; the low-storage
+        march's step advances the discarded registers in place, so a backend probed so
+        is closed afterwards (solprop SEP 52 section 5.5). The probe holds the
+        workspace until the backend's next run or probe.
 
         Parameters
         ----------
@@ -1186,94 +934,14 @@ class NativeBackend:
             z=float(start.z),
             resume=start.resume,
         )
-        return NativeProbe(self, loaded, start.noise)
-
-    def _observed_field(self, state: _core.State) -> ComplexArray:
-        if state is not self._native_state:
-            raise BackendError("the observed state does not belong to this backend")
-        field = state.field_to_host().reshape(self._problem.shape)
-        if (counters := _counters.active) is not None:
-            counters.crossing("plane", field.nbytes)
-        return field
-
-    def _raman_spectrum(
-        self, rates: tuple[float, ...], densities: tuple[float, ...] = ()
-    ) -> None:
-        """Prepare the native Raman kernel for private memoization diagnostics."""
-        if not self._problem.responses.raman_terms:
-            return None
-        self._native_state.prepare_raman(
-            np.ascontiguousarray(np.asarray(rates, dtype=np.float64)),
-            np.ascontiguousarray(np.asarray(densities, dtype=np.float64)),
-        )
-
-    @property
-    def _raman_transforms(self) -> int:
-        """Return the number of native Raman-kernel transforms."""
-        return int(self._native_state.raman_kernel_transforms)
-
-    def _far_field_statistics(
-        self, names: set[str], spec: StatsSpec | None
-    ) -> dict[str, np.ndarray]:
-        """Form the far-field statistics in the native banded pass (SEP 23 section 6).
-
-        The tables are those solprop's :class:`~solprop.backends.spatial.FarFieldTables`
-        forms for the call's spec, packed as :func:`_aperture_payload` says, and
-        ``(n_regions, 4)`` boxes; the pass returns each statistic finished, in
-        :data:`_FAR_FIELD_ORDER`.
-        """
-        far = names & set(FAR_FIELD_STATISTICS)
-        tables = (
-            None
-            if not far
-            else self._far_field.for_spec(
-                self._request.observation.stats if spec is None else spec
+        records = run_records(self._problem, self._request, start)
+        workspace = self._take_workspace()
+        with _envelope_errors():
+            probe = workspace.probe(
+                _probe_start(records, loaded), host_source=self._host_source
             )
-        )
-        if far and tables is None:
-            raise BackendError(
-                f"the far-field statistics {sorted(far)} need the tables the backend "
-                "forms at construction"
-            )
-        n_omega = self._problem.shape[-1]
-        apertures, regions, exponent = _aperture_payload(tables, n_omega)
-        flags = 0
-        for name in names:
-            flags |= _FAR_FIELD_FLAGS[name]
-        packed = np.asarray(
-            self._native_state.aperture_statistics(
-                flags, apertures, exponent, regions, 0.5 * EPS0 * C
-            )
-        ).ravel()
-        n_apertures = apertures.shape[0]
-        rows = {
-            "beam_spectrum": None,
-            "absorbed_power": 0,
-            "region_spectrum": regions.shape[0],
-            "aperture_spectrum": n_apertures,
-            "aperture_on_axis_spectrum": n_apertures,
-            "on_axis_spectrum": None,
-        }
-        values: dict[str, np.ndarray] = {}
-        offset = 0
-        for name in _FAR_FIELD_ORDER:
-            if name not in names:
-                continue
-            count = rows[name]
-            if name == "absorbed_power":
-                size, shape = len(ABSORBED_CHANNELS), (1, len(ABSORBED_CHANNELS))
-            elif count is None:
-                size, shape = n_omega, (1, n_omega)
-            else:
-                size, shape = count * n_omega, (1, count, n_omega)
-            values[name] = packed[offset : offset + size].reshape(shape)
-            offset += size
-        if offset != packed.size:
-            raise BackendError(
-                f"native far-field statistics returned {packed.size} values; "
-                f"consumed {offset}"
-            )
-        return values
+        self._probe = probe
+        return NativeProbe(self, probe, loaded)
 
     def march_export_refusal(self) -> str | None:
         """Return ``None``: every march the backend admits carries its history.
@@ -1294,6 +962,7 @@ class NativeBackend:
         (:func:`_build_facts`); the native state's counters are read at every call.
         """
         facts = _build_facts()
+        native = self._diagnostics()
         work: dict[str, object] = {
             "backend": self.name,
             "propagator_mode": self._propagator_mode,
@@ -1311,15 +980,15 @@ class NativeBackend:
         # Runge-Kutta trials' dispatches (SEP 30); a session states its own run's.
         if self._adams is not None:
             work["response_calls"] = self._adams.ledger.to_record()
-        elif self._resident_low_storage is not None:
+        elif self._low_storage:
             work["source_evaluations"] = self._low_storage_evaluations
         else:
-            work["source_evaluations"] = self._native_state.rk_source_evaluations
+            work["source_evaluations"] = native["rk_source_evaluations"]
         # Which march steps the run (solprop SEP 39 and 45 section 5): the native one,
         # the only one since SEP 47 phase 5.
         if self._adams is not None:
             work["adams_march"] = "native"
-        elif self._resident_low_storage is None:
+        elif not self._low_storage:
             work["rk_march"] = "native"
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
@@ -1349,15 +1018,15 @@ class NativeBackend:
                 _package.BUILTIN_EXECUTION,
                 self._execution_source,
             )
-            | _planning_record(self._native_state),
+            | _planning_record(native),
             "host_blas": self._host_blas,
-            "planning_seconds": self._native_state.planning_seconds,
+            "planning_seconds": native["planning_seconds"],
             "wisdom_loaded": self._wisdom_loaded,
             "wisdom_digest": self._wisdom_digest,
-            "raman_fft_provider": self._native_state.raman_fft_provider,
-            "raman_fft_tasks": self._native_state.raman_fft_tasks,
-            "execution_sizing": self._native_state.execution_sizing,
-            "raman_planning_seconds": self._native_state.raman_planning_seconds,
+            "raman_fft_provider": native["raman_fft_provider"],
+            "raman_fft_tasks": native["raman_fft_tasks"],
+            "execution_sizing": native["execution_sizing"],
+            "raman_planning_seconds": native["raman_planning_seconds"],
             "raman_enabled": self._problem.flags.has_raman,
             "raman_terms": sum(
                 term.n_terms for term in self._problem.responses.raman_terms
@@ -1375,13 +1044,13 @@ class NativeBackend:
                 and self._problem.grid_kind == "field"
                 else "cycle_averaged"
             ),
-            "raman_kernel_transforms": self._native_state.raman_kernel_transforms,
-            "fsal_ready": self._native_state.fsal_ready,
-            "dispersive_path": dict(self._native_state.dispersive_path) or None,
-            "synthesis_provider": self._native_state.synthesis_provider,
-            "projection_provider": self._native_state.projection_provider,
-            "gemm_shape_policy": self._native_state.gemm_shape_policy,
-            "device_team_size": self._native_state.response_team_size,
+            "raman_kernel_transforms": native["raman_kernel_transforms"],
+            "fsal_ready": native["fsal_ready"],
+            "dispersive_path": dict(native["dispersive_path"]) or None,
+            "synthesis_provider": native["synthesis_provider"],
+            "projection_provider": native["projection_provider"],
+            "gemm_shape_policy": native["gemm_shape_policy"],
+            "device_team_size": native["response_team_size"],
             "device_team_size_limit": facts.device_team_size,
             "device_team_size_policy": (
                 "256 below n_to=8192; configured limit otherwise"
@@ -1414,7 +1083,7 @@ class NativeBackend:
         """
         ledger = {
             str(name): int(value)
-            for name, value in self._native_state.memory_ledger().items()
+            for name, value in self._diagnostics()["memory_ledger"].items()
         }
         stepper = self._stepper
         if (
@@ -1464,16 +1133,12 @@ class NativeBackend:
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
-            # Closing the state drops a host source with the engine that borrowed it,
-            # also while a session still leases the state (SEP 49). The state's own
-            # reference to the source is invisible to the garbage collector, which
-            # could then never free a cycle through it (a kept exception's traceback
-            # reaching the session), so it is dropped once the state is closed. A
-            # session that could not close still uses the state, and keeps it.
-            self._native_state.close()
-            if self._host_source is not None:
-                with contextlib.suppress(RuntimeError):
-                    self._native_state.bind_host_source(None)
+            # Closing the workspace closes a session or probe that leases it first and
+            # drops a host source with the engine that borrowed it (SEP 49), whose
+            # reference the garbage collector cannot see. A session that could not
+            # close still uses the workspace, and keeps it.
+            self._probe = None
+            self._workspace.close()
             _host_blas.release()
         self._closed = True
 
@@ -1528,117 +1193,127 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
     # 42), and the driver's load copies the field into a contiguous state first.
 
 
-@dataclasses.dataclass
-class _ResidentAdams:
-    """solprop's Adams history kept in the native state (solprop SEP 16 phase 3b).
+@dataclasses.dataclass(frozen=True)
+class _Restored:
+    """What a resumed start restores beside its load (`NativeBackend._restore`).
 
-    The native Adams march (solprop SEP 39) takes its trials, accepts, start-up and
-    dense observations in C++ (``adams_march.cpp``, ``dense.cpp``); this record holds
-    what Python still does with the history: it allocates the rows and sets the
-    controller's scale when it is built, and copies a resumed snapshot's rows in
-    (:meth:`load_rows`). A session snapshot copies them out natively
-    (``Session.march_snapshot``).
+    `reason` says why the snapshot's history was not installed (``None`` when it was or
+    none was given); `proposal` is the next step's, m; `field`, when the history
+    continues, is its own state, flat, which the run starts from in the loaded one's
+    place, and `rows` its persistent rows as the workspace takes them (``HistoryRow``).
     """
 
-    native: _core.State
-    method: Multistep
-    controller: PIController
-    shape: tuple[int, ...]
-    """The state layout, ``(n_modes, n_pol, n_omega)``."""
-    interpolate: bool
-    compensated: bool = False
-    """Whether trials carry a varying operator's transported compensation."""
-    carrier: CarrierReference | None = None
-    """The run's carrier frame (solprop SEP 35), whose chord tables the native state
-    reads (:func:`_chord_tables`)."""
+    reason: str | None
+    proposal: float
+    field: ComplexArray | None = None
+    rows: tuple[dict[str, object], ...] = ()
 
-    def __post_init__(self) -> None:
-        """Allocate the history's rows in the native state."""
-        self.native.adams_allocate(self.n_slots, self.compensated, self.interpolate)
-        # The controller's scale is formed on the device each trial, so that the
-        # state's magnitude never crosses: it is solprop's own, since PIController
-        # is final (ADR-077).
-        controller = self.controller
-        weights = controller.weights
-        self.native.adams_scale(
-            float(controller.rtol),
-            float(controller.atol),
-            np.empty(0, dtype=np.float64)
-            if weights is None
-            else np.ascontiguousarray(weights, dtype=np.float64),
-        )
 
-    @property
-    def n_slots(self) -> int:
-        """The history's rows: the method's order and two more."""
-        return self.method.order + 2
+def _probe_start(records: RunRecords, loaded: Loaded) -> dict[str, object]:
+    """Return a timing probe's start (solprop SEP 52 section 5.5).
 
-    def reset(self) -> None:
-        """Forget the last step: the native march holds no trial between calls."""
+    The run's records (the low-storage replay's landings and schedule), the loaded
+    field and noise and its position; no march state, history or monitor.
+    """
+    return {
+        "records": records,
+        "field": np.ascontiguousarray(loaded.field).reshape(-1),
+        "noise": np.ascontiguousarray(loaded.native_noise()),
+        "adams": None,
+        "runge_kutta": None,
+        "rows": [],
+        "plane_statistics": None,
+        "row_statistics": None,
+        "floor": None,
+        "edge_noise": None,
+        "monitor": None,
+        "edge": None,
+    }
 
-    def value(self, slot: int) -> None:
-        """The rows are resident: there is no host row to name."""
-        del slot
 
-    # --- persistence across a resume (solprop SEP 29 G2) ------------------------------
+def _edge_lines(edge: TransverseEdge) -> dict[str, object]:
+    """Return a requested collar's lines as the workspace takes them (SEP 44)."""
+    lines = edge.reduction.lines
+    axes = {"r": 0, "x": 1, "y": 2}
+    none = 2**64 - 1
+    strip = [np.asarray(line.strip, dtype=np.uint64) for line in lines]
+    window = [np.asarray(line.window, dtype=np.float64) for line in lines]
+    onsets = [line.onset if line.onset is not None else (none, 0, 0) for line in lines]
+    space = edge.space
+    return {
+        "axes": np.array([axes[line.axis] for line in lines], dtype=np.uint64),
+        "counts": np.array([array.size for array in strip], dtype=np.uint64),
+        "positions": np.concatenate(strip) if strip else np.empty(0, dtype=np.uint64),
+        "windows": np.concatenate(window) if window else np.empty(0, dtype=np.float64),
+        "inward": np.array([line.inward for line in lines], dtype=np.uint64).reshape(
+            -1
+        ),
+        "factors": np.array(
+            [
+                line.spacing / (2 * array.size) * line.measure if array.size else 0.0
+                for line, array in zip(lines, strip, strict=True)
+            ],
+            dtype=np.float64,
+        ),
+        "measures": np.array([line.measure for line in lines], dtype=np.float64),
+        "onsets": np.array(onsets, dtype=np.uint64).reshape(-1),
+        "steps": np.array([line.onset_step for line in lines], dtype=np.float64),
+        "k_min": float(edge.k_min),
+        "scale": np.sqrt(np.asarray(space.r, dtype=np.float64))
+        if lines and isinstance(space, RadialGrid)
+        else np.empty(0, dtype=np.float64),
+        "batch_bytes": transverse_monitor._STRIP_BATCH_BYTES,  # pyright: ignore[reportPrivateUsage]
+    }
 
-    def snapshot_nbytes(self) -> int:
-        """Return the bytes a snapshot of the rows copies, copying nothing."""
-        rows = len(self.native.adams_row_names())
-        return rows * self.n_slots * math.prod(self.shape) * 2 * 8
 
-    def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
-        """Install a snapshot's rows, for a state of `shape`.
+def _z_table(kind: str, table: PiecewiseChebyshev) -> dict[str, object]:
+    """Return one z table as the workspace makes it resident: its breakpoints, the
+    admitted span (``_EDGE_SLACK_FRACTION`` past each end) and its coefficients."""
+    low, high = table.z_span
+    slack = _EDGE_SLACK_FRACTION * (high - low)
+    n_intervals, n_terms = table.coefficients.shape[:2]
+    return {
+        "kind": kind,
+        "edges": np.ascontiguousarray(table.breakpoints, dtype=np.float64),
+        "lower": low - slack,
+        "upper": high + slack,
+        "coefficients": np.ascontiguousarray(
+            table.coefficients, dtype=np.complex128
+        ).reshape(n_intervals, n_terms, -1),
+    }
 
-        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_modes,
-        n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
-        ``"rates"``. A frozen-residual flow's history holds each sample's generator
-        applied to its state, ``"applied"``, where the host engine holds the sample's
-        weights (``"weights_<row>"``); the two are not interchangeable, and each engine
-        refuses the other's. Everything is checked before any row is copied, so a
-        refused snapshot leaves the history as it was.
-        """
-        names = self.native.adams_row_names()
-        weights = sorted(name for name in rows if name.startswith("weights_"))
-        if weights:
-            listed = ", ".join(weights)
-            raise BackendError(
-                "the native backend cannot continue this Adams history: the snapshot "
-                f"holds the host engine's frozen-residual weights ({listed}), and the "
-                "native engine keeps each sample's applied generator ('applied') "
-                "instead"
-            )
-        foreign = sorted(set(rows) - set(names))
-        missing = [name for name in names if name not in rows]
-        if foreign or missing:
-            raise BackendError(
-                "the native backend cannot continue this Adams history: its engine "
-                f"keeps the rows {names}, and the snapshot "
-                + (f"lacks {missing}" if missing else f"also holds {foreign}")
-            )
-        expected = (self.n_slots, *shape)
-        for name in names:
-            row = rows[name]
-            if row.shape != expected or not np.iscomplexobj(row):
-                raise BackendError(
-                    f"the snapshot's {name!r} rows ({row.dtype}, shape {row.shape}) do "
-                    f"not fit the native backend's complex store of shape {expected}"
-                )
-        for name in names:
-            flat = np.ascontiguousarray(rows[name], dtype=np.complex128)
-            self.native.adams_rows_from_host(
-                name, flat.reshape(self.n_slots, -1, shape[-1])
-            )
+
+def _flux_tables(problem: PropagationProblem) -> list[dict[str, object]]:
+    """Return a radial plane measure's material z table, or none (SEP 34)."""
+    flux = flux_of(problem.route)
+    if flux is None or flux.material is None:
+        return []
+    return [_z_table("flux", flux.material)]
+
+
+def _flow_guard(flow: _HostFlow | None) -> dict[str, object] | None:
+    """Return a coupled flow's certificate and the guard's constants, or ``None``.
+
+    Each section's row-sum norm and conditioning bound per active bin, with the scale
+    solprop's reference reduces an exponent below, the most squarings and the
+    rounding allowance on two spectral norms (solprop SEP 45 phase 4).
+    """
+    if flow is None:
+        return None
+    row_sum = np.ascontiguousarray(flow.row_sum, dtype=np.float64)
+    return {
+        "row_sum": row_sum,
+        "condition_bound": np.ascontiguousarray(
+            flow.condition_bound, dtype=np.float64
+        ).reshape(row_sum.size, -1),
+        "taylor_scale": _TAYLOR_SCALE,
+        "max_squarings": _MAX_FLOW_SQUARINGS,
+        "allowance": _flow_allowance(int(flow.vectors.shape[-1])),
+    }
 
 
 _EMPTY = np.empty(0, dtype=np.complex128)
 """No modified-noise realisation: the native state adds none."""
-
-_STAGE_CONSTANT = 1
-_STAGE_EXPANSION = 2
-_STAGE_TABLE = 3
-"""How the stage tables name a constant, an expanded or a z table's ``Phi`` and
-prefactor (``stage::Terms``)."""
 
 
 def _section_tables(
@@ -1649,28 +1324,27 @@ def _section_tables(
     `transform_section`), and whether the flow carries a frozen residual."""
     flow = problem.linear.coupled_flow
     maps = problem.transform.modal_tables if moving else None
+    none: dict[str, object] = {"edges": [], "degrees": 0, "slack": 0.0}
     out: dict[str, object] = {
-        "flow_edges": [],
-        "flow_degrees": 0,
-        "flow_slack": 0.0,
+        "flow": none,
         "flow_residual": False,
-        "transform_edges": [],
-        "transform_degrees": 0,
-        "transform_slack": 0.0,
+        "transform": none,
     }
     if flow is not None:
         out |= {
-            "flow_edges": np.asarray(flow.z_edges, dtype=np.float64).tolist(),
-            "flow_degrees": int(flow.n_deg),
-            "flow_slack": float(flow_edge_slack(flow)),
+            "flow": {
+                "edges": np.asarray(flow.z_edges, dtype=np.float64).tolist(),
+                "degrees": int(flow.n_deg),
+                "slack": float(flow_edge_slack(flow)),
+            },
             "flow_residual": residual,
         }
     if maps is not None and maps.synthesis is not None:
         edges = np.asarray(maps.z_edges, dtype=np.float64)
-        out |= {
-            "transform_edges": edges.tolist(),
-            "transform_degrees": int(maps.synthesis.shape[1]),
-            "transform_slack": _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0]),
+        out["transform"] = {
+            "edges": edges.tolist(),
+            "degrees": int(maps.synthesis.shape[1]),
+            "slack": _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0]),
         }
     return out
 
@@ -1687,7 +1361,7 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     chord = None if carrier is None or not carrier.active else carrier.chord
     if chord is not None and chord.constant is not None:
         return {
-            "chord": 1,
+            "chord": "constant",
             "chord_rate": float(np.imag(chord.constant)),
             "chord_terms": [],
             "chord_table": None,
@@ -1695,7 +1369,7 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     if chord is not None and chord.expansion is not None:
         terms = np.imag(np.asarray(chord.expansion.terms))
         return {
-            "chord": 2,
+            "chord": "expansion",
             "chord_rate": 0.0,
             "chord_terms": terms.tolist(),
             "chord_table": None,
@@ -1706,12 +1380,12 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
         # same operations (`stage::chord`).
         column = np.ascontiguousarray(np.imag(coefficients))
         return {
-            "chord": 3,
+            "chord": "table",
             "chord_rate": 0.0,
             "chord_terms": [],
             "chord_table": (edges, lower, upper, column),
         }
-    return {"chord": 0, "chord_rate": 0.0, "chord_terms": [], "chord_table": None}
+    return {"chord": "none", "chord_rate": 0.0, "chord_terms": [], "chord_table": None}
 
 
 def _on_device() -> bool:
@@ -1830,6 +1504,21 @@ def _resident_flows(flows: int, stepper: StepperSettings, *, device: bool) -> in
     """
     return 0 if device and stepper.propagator_mode == "auto" else flows
 
+
+FRESH_WATCH: Mapping[str, object] = types.MappingProxyType(
+    {
+        "has_last": False,
+        "last_z": 0.0,
+        "since": 0,
+        "busy": False,
+        "quiet_run": 0,
+        "quiet": False,
+        "warned": False,
+        "cap": math.inf,
+    }
+)
+"""The boundary watch's state at a run's start (``watch::State``): no check yet; a
+session's monitor holds its own from there (solprop SEP 45 section 4.8)."""
 
 _MARCH_COUNTERS = (
     "startup",
@@ -1953,62 +1642,64 @@ def host_rows_refusal(problem: PropagationProblem) -> str | None:
 class _NativeAdamsMarch:
     """The native Adams march's record: its policy, ledger and history (SEP 39, 47).
 
-    The native state steps solprop's exponential Adams march (solprop SEP 39 phase 2):
-    the controller, the history, the landings and the call ledger's counts advance
+    The native workspace steps solprop's exponential Adams march (solprop SEP 39 phase
+    2): the controller, the history, the landings and the call ledger's counts advance
     natively, from one policy record (:func:`~solprop.backends.records.adams_policy`).
     This record is what the run starts from: the policy, the history's entries
     (position, identity and engine row), the order, the rejection flags and the
-    :class:`~solprop.backends.numpy_ref.multistep.CallLedger`, each fresh at a load
-    (:meth:`reset`, :meth:`begin_run`) or restored from a resume's snapshot and ledger
-    (:meth:`resume`, :meth:`restore_ledger`). A native session hands it to the native
-    state once (:meth:`start_state`, :meth:`_configure`) and holds the march's state
-    there from then on (solprop SEP 47 section 5.2).
+    :class:`~solprop.backends.ledger.CallLedger`, each fresh at a load (:meth:`reset`,
+    :meth:`begin_run`) or restored from a resume's snapshot and ledger (:meth:`resume`,
+    :meth:`restore_ledger`). A native session hands it to the workspace once, with the
+    run's start (:meth:`start_state`), and holds the march's state there from then on
+    (solprop SEP 47 section 5.2).
+
+    `rows` are the names of the resident history's persistent rows
+    (``Workspace.diagnostics``); `engine` is a scripted harness's own history.
     """
 
     def __init__(
-        self, backend: Any, method: Multistep, *, engine: object | None = None
+        self,
+        backend: Any,
+        method: Multistep,
+        rows: Sequence[str] = (),
+        *,
+        engine: object | None = None,
     ) -> None:
         """Build the record over the backend's resident history, with no history."""
         self._backend = backend
-        self._configured = False
         self._method = method
+        self._rows = tuple(str(name) for name in rows)
+        self._engine: Any = engine
         stepper = backend._stepper
         problem = backend._problem
-        # Whether the run interpolates its planes (ADR-036, ADR-039).
-        self._interpolate = bool(stepper.interpolate_planes)
-        exponential_form = method.formulation == "exponential"
-        # The interaction formulation takes the fused path.
-        self._fused = not exponential_form
-        resident = engine is None
-        self._engine: Any = (
-            backend._adams_engine(method, "transported") if engine is None else engine
-        )
         self._history: list[Derivative] = []
         self._rejections = 0
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
         self.ledger = CallLedger()
-        carrier = getattr(self._engine, "carrier", None)
+        carrier = carrier_reference(problem, method)
         # Every number the native controller and landings read (SEP 39 section 4.2),
         # formed as the reference forms it.
         self._policy: MarchPolicy = adams_policy(
-            problem,
-            stepper,
-            method,
-            carrier=isinstance(carrier, CarrierReference) and carrier.active,
+            problem, stepper, method, carrier=carrier is not None and carrier.active
         )
         # Whether the stages left a quiet collar out at the last attempt.
         self._collar_was_quiet = False
         # The admission refuses a carrier frame on an operator with no chord
-        # (``refuse_carrier_frame``); a scripted harness keeps its own engine.
-        assert not resident or (
-            isinstance(self._engine, _ResidentAdams)
-            and not (
-                self._policy.carrier
-                and self._engine.carrier is not None
-                and self._engine.carrier.chord is None
-            )
+        # (``refuse_carrier_frame``).
+        assert not (
+            self._policy.carrier and carrier is not None and carrier.chord is None
         )
+
+    @property
+    def n_slots(self) -> int:
+        """The history's rows: the method's order and two more."""
+        return self._method.order + 2
+
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes a snapshot of the history's rows copies, copying nothing."""
+        shape = self._backend._problem.shape
+        return len(self._rows) * self.n_slots * math.prod(shape) * 2 * 8
 
     # -- the record ------------------------------------------------------------------
 
@@ -2016,7 +1707,6 @@ class _NativeAdamsMarch:
         """Forget the history: the state was loaded outside the march."""
         self._history = []
         self._rejections = 0
-        self._engine.reset()
 
     def begin_run(self) -> None:
         """Start a run's accounting afresh: the ledger and the last attempt's flags.
@@ -2042,26 +1732,29 @@ class _NativeAdamsMarch:
         if logical:
             self.ledger = CallLedger.from_record(logical)
 
-    def resume(self, snapshot: MarchSnapshot, z: float) -> str | None:
-        """Install a snapshot's history taken where the run resumes, at `z`.
+    def resume(
+        self, snapshot: MarchSnapshot, z: float
+    ) -> tuple[str | None, tuple[dict[str, object], ...]]:
+        """Take a snapshot's history where the run resumes, at `z`.
 
-        The history's rows go to the resident engine and its entries, order and flags
-        to this record; the snapshot's state and proposal are the caller's to load. A
-        snapshot that cannot continue the march changes nothing.
+        Its entries, order and flags go to this record, and its rows are returned as
+        the workspace installs them with the run's start; the snapshot's state and
+        proposal are the caller's. A snapshot that cannot continue the march changes
+        nothing.
 
         - ``z``: the loaded position, m.
-        - Returns: ``None`` when the history was installed, otherwise why the march
-          starts afresh, as a resume did before snapshots were kept.
+        - Returns: ``None`` and the rows when the history continues, otherwise why the
+          march starts afresh, as a resume did before snapshots were kept, and no rows.
         """
         reason = self._refusal(snapshot, z)
         if reason is not None:
-            return reason
+            return reason, ()
         try:
-            self._engine.load_rows(snapshot.rows, self._backend._problem.shape)
+            rows = self._rows_record(snapshot.rows, self._backend._problem.shape)
         except BackendError as error:
-            return str(error)
+            return str(error), ()
         self._history = [
-            Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
+            Derivative(float(z), None, identity, int(slot))
             for z, identity, slot in zip(
                 snapshot.positions, snapshot.identities, snapshot.slots, strict=True
             )
@@ -2070,7 +1763,55 @@ class _NativeAdamsMarch:
         self._rejections = snapshot.rejections
         self._last_rejected = snapshot.last_rejected
         self._collar_was_quiet = snapshot.collar_was_quiet
-        return None
+        return None, rows
+
+    def _rows_record(
+        self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]
+    ) -> tuple[dict[str, object], ...]:
+        """Return a snapshot's rows as the workspace takes them, for a state of `shape`.
+
+        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_modes,
+        n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
+        ``"rates"``. A frozen-residual flow's history holds each sample's generator
+        applied to its state, ``"applied"``, where the host engine holds the sample's
+        weights (``"weights_<row>"``); the two are not interchangeable, and each engine
+        refuses the other's. Everything is checked before any row is copied.
+        """
+        names = list(self._rows)
+        weights = sorted(name for name in rows if name.startswith("weights_"))
+        if weights:
+            listed = ", ".join(weights)
+            raise BackendError(
+                "the native backend cannot continue this Adams history: the snapshot "
+                f"holds the host engine's frozen-residual weights ({listed}), and the "
+                "native engine keeps each sample's applied generator ('applied') "
+                "instead"
+            )
+        foreign = sorted(set(rows) - set(names))
+        missing = [name for name in names if name not in rows]
+        if foreign or missing:
+            raise BackendError(
+                "the native backend cannot continue this Adams history: its engine "
+                f"keeps the rows {names}, and the snapshot "
+                + (f"lacks {missing}" if missing else f"also holds {foreign}")
+            )
+        expected = (self.n_slots, *shape)
+        for name in names:
+            row = rows[name]
+            if row.shape != expected or not np.iscomplexobj(row):
+                raise BackendError(
+                    f"the snapshot's {name!r} rows ({row.dtype}, shape {row.shape}) do "
+                    f"not fit the native backend's complex store of shape {expected}"
+                )
+        return tuple(
+            {
+                "name": name,
+                "values": np.ascontiguousarray(rows[name], dtype=np.complex128).reshape(
+                    self.n_slots, -1, shape[-1]
+                ),
+            }
+            for name in names
+        )
 
     def _refusal(self, snapshot: MarchSnapshot, z: float) -> str | None:
         """Return why a snapshot cannot continue this march at `z`, or ``None``."""
@@ -2098,11 +1839,7 @@ class _NativeAdamsMarch:
                 "the snapshot's newest sample is not at its position",
             ),
             (
-                bool(
-                    np.any(
-                        (snapshot.slots < 0) | (snapshot.slots >= self._engine.n_slots)
-                    )
-                ),
+                bool(np.any((snapshot.slots < 0) | (snapshot.slots >= self.n_slots))),
                 "the snapshot's history names no row of this engine",
             ),
         )
@@ -2131,29 +1868,8 @@ class _NativeAdamsMarch:
                 for entry in self._history
             ],
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
+            "watch": FRESH_WATCH,
         }
-
-    def _configure(self, policy: MarchPolicy, schedule: FixedSchedule | None) -> None:
-        """Hand the native state a run's policy and a replay's schedule, once.
-
-        - ``policy``: the run's record
-          (:attr:`~solprop.backends.records.RunRecords.policy`), with no quiet
-          interval: a session's native monitor holds its own (SEP 47 section 6.4).
-        """
-        if self._configured:
-            return
-        backend = self._backend
-        engine = cast("_ResidentAdams", self._engine)
-        steps, edges = _records.schedule_arrays(schedule)
-        backend._native_state.adams_march_configure(
-            _records.adams_policy(policy),
-            self._fused,
-            engine.compensated,
-            engine.interpolate,
-            steps,
-            edges,
-        )
-        self._configured = True
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a native call returned with, if any.
@@ -2200,153 +1916,32 @@ def _raise_native(result: Mapping[str, Any]) -> None:
     raise RuntimeError(message)
 
 
-class _ResidentLowStorage:
-    """solprop's low-storage RK4IP engine on the native state (SEP 24 section 6.7).
-
-    A ``solprop.backends.low_storage.LowStorageEngine``: the native state is the
-    register ``A`` and holds ``B``, ``C`` (unless elided, solprop's Q4) and the flows;
-    a step is one native call making the four register passes in the route's own
-    scratch (the transverse scratch, or the modal fine spectrum) through the stage core
-    the Runge-Kutta march shares, accepted in place. Only the step's host scalars
-    cross: one bundle per position (the start, the midpoint, the end) and the flows'
-    intervals.
-
-    **The flows.** A constant operator tabulating holds one volume, ``exp(h_t D / 2)``
-    for the key ``h_t`` of solprop's ``table_steps`` (the step's run's mean, SEP 24
-    Q10), built from the operator's origin as solprop's engines build it and rebuilt
-    only when the key changes; a varying operator tabulating holds the step's ``P``
-    and ``Q``; recomputing holds none and forms each flow per element in the finish
-    that applies it -- on a modal route from the phase terms, so a varying operator's
-    flows are never transients outside the ledger.
-
-    **The stiffness indicator** (SEP 24 Q11) is not formed:
-    ``stiffness`` is NaN. Recovering ``g1`` and ``F2`` needs ``C``, which is elided on
-    the Cartesian and line routes the march is for or split across the exchange's two
-    evaluations, and two more reductions a step.
-
-    Attributes
-    ----------
-    stiffness : float
-        Always NaN: not formed on this backend.
-    atomic : bool
-        Always ``True``: the step is one native call, during which no signal handler
-        runs, so solprop's march commits the step, the finish and the move together.
-    """
-
-    def __init__(self, backend: NativeBackend, method: LowStorageRungeKutta) -> None:
-        """Hold the backend and the schedule's table keys."""
-        self._backend = backend
-        self._method = method
-        self.stiffness = math.nan
-        self.atomic = True
-        problem = backend._problem  # pyright: ignore[reportPrivateUsage] - the owner's problem
-        stepper = backend._stepper  # pyright: ignore[reportPrivateUsage] - the owner's policy
-        flows = _low_storage_flows(problem, stepper, device=_on_device())
-        assert flows is not None  # the march is the low-storage one
-        self._flows = flows
-        schedule = stepper.schedule
-        assert schedule is not None  # the translation refused the march without one
-        self._keys, self._edges = table_steps(schedule), schedule.edges
-        self._table_step = math.nan
-        self._separable = backend._terms.separable is not None  # pyright: ignore[reportPrivateUsage] - the owner's fixed terms
-
-    def reset(self) -> None:
-        """Drop the table's key: a resume builds it again from its own step."""
-        self._table_step = math.nan
-
-    def close(self) -> None:
-        """Forget the table; the native state releases the views when it closes."""
-        self.reset()
-
-    def step(self, z: float, dz: float) -> float:
-        """Take one step in four native register passes, accepted in place.
-
-        - ``z``: where the step starts, m.
-        - ``dz``: the step, m, positive.
-        """
-        backend = self._backend
-        if (counters := _counters.active) is not None:
-            counters.low_storage_steps += 1
-        midpoint, end = z + 0.5 * dz, z + dz
-        # The engine reads its owner's tables, as solprop's engines read theirs.
-        hoist = backend._hoist  # pyright: ignore[reportPrivateUsage]
-        bundles_at = backend._stage_bundles  # pyright: ignore[reportPrivateUsage]
-        # A z table's increments are its slots' (solprop SEP 29 G1).
-        increment = backend._phi_increment  # pyright: ignore[reportPrivateUsage]
-        problem = backend._problem  # pyright: ignore[reportPrivateUsage]
-        hoist(z)
-        # Each evaluation reads its position as its own anchor (solprop's engines);
-        # a modal flow formed for the step reads its interval.
-        modal = not self._separable and self._flows != 1
-        bundles = [
-            bundles_at(z, [z, midpoint] if modal else [z])[0],
-            bundles_at(midpoint, [midpoint, end] if modal else [midpoint])[0],
-            bundles_at(end, [end])[0],
-        ]
-        stages = backend._stepper.tableau.n_stages  # pyright: ignore[reportPrivateUsage]
-        padded = bundles + [bundles[-1]] * (stages - len(bundles))
-        arrays, material = backend._trial_arrays(padded, bundles[-1])  # pyright: ignore[reportPrivateUsage]
-        phi_delta = np.zeros_like(arrays[0])
-        rebuild = False
-        key = math.nan
-        if self._flows == 1:
-            key = schedule_key(self._keys, self._edges, z, dz)
-            rebuild = key != self._table_step
-        if self._separable:
-            # A constant operator's increment is the distance itself.
-            phi_delta[0:2, 0] = 0.5 * dz
-            if rebuild:
-                phi_delta[2, 0] = 0.5 * key
-        else:
-            if modal:
-                phi_delta[0] = increment(z, midpoint)
-                phi_delta[1] = increment(midpoint, end)
-            if rebuild:
-                # From the operator's origin, not fl(z + h/2) - z (solprop's engines).
-                origin = float(problem.linear.z_span[0])
-                half = origin + 0.5 * key
-                bundles_at(origin, [half])
-                phi_delta[2] = increment(origin, half)
-        with _envelope_errors():
-            squared = backend._native_state.low_storage_step(  # pyright: ignore[reportPrivateUsage]
-                dz,
-                np.ascontiguousarray(phi_delta),
-                *arrays[1:],
-                material,
-                rebuild,
-            )
-        if rebuild:
-            self._table_step = key
-        return float(squared)
-
-
 _TABLE_POINTS = 16
 """The most positions one native table evaluation takes (``z_table::max_points``)."""
 
 
 class _ZTables:
-    """The general z tables of one native state (solprop SEP 29 section 6.6, G1).
+    """The general z tables of one workspace (solprop SEP 29 section 6.6, G1).
 
     solprop falls back to a Chebyshev table of the state's size for ``Phi``
     (``linear.phi_coefficients``) or the response prefactor (``responses.prefactor``)
-    when neither is a weighted sum of fixed arrays. The coefficients cross once, at
-    construction (``table_upload``), and stay resident; a trial's positions are then
-    evaluated natively into the native state's term slots, ``slots`` of them, and the
+    when neither is a weighted sum of fixed arrays. The coefficients cross once, with
+    the workspace's setup (:meth:`records`), and stay resident; a trial's positions are
+    then evaluated natively into the state's term slots, ``slots`` of them, and the
     stage weights select them: ``Phi(z1) - Phi(z0)`` is the row ``e_1 - e_0`` and
     ``Phi(z1)`` the row ``e_1``, so every native consumer of the terms (the Runge-Kutta
     stages, the low-storage flows, the Adams phase and the noise) reads the table
     unchanged, as one rounded subtraction of two values, as solprop's reference forms
     it. The prefactor's slots are its values at the same positions, one-hot weighted.
 
-    The slots are kept as a least-recently-used set of positions, in the native state
-    (``stage::ZSlots``, solprop SEP 39 phase 4), where the native Adams march reads
-    them too: each call's positions are evaluated only where no slot holds them yet,
-    so an accepted step's end, which is the next step's anchor, is never evaluated
-    twice. A call's positions
-    number at most ``slots`` (the tableau's distinct stage fractions, five for the
-    low-storage march), so none of one call's positions is evicted by another of its
-    own. A compensated Adams march reads ``D = dPhi/dz`` from the derivative table
-    (``linear.rate``) into one more ``Phi`` slot, ``rate_slot``.
+    The slots are kept as a least-recently-used set of positions in the workspace
+    (``stage::ZSlots``, solprop SEP 39 phase 4): each call's positions are evaluated
+    only where no slot holds them yet, so an accepted step's end, which is the next
+    step's anchor, is never evaluated twice. A call's positions number at most
+    ``slots`` (the tableau's distinct stage fractions, five for the low-storage march),
+    so none of one call's positions is evicted by another of its own. A compensated
+    Adams march reads ``D = dPhi/dz`` from the derivative table (``linear.rate``) into
+    one more ``Phi`` slot, ``rate_slot``.
 
     Attributes
     ----------
@@ -2377,12 +1972,6 @@ class _ZTables:
             and not source_absent(problem)
         )
         self.rate_slot = self.slots if compensated else None
-        self._native: _core.State | None = None
-
-    @property
-    def evaluations(self) -> int:
-        """Positions evaluated so far, a count for the tests and the benchmarks."""
-        return 0 if self._native is None else self._native.table_evaluations()
 
     @property
     def n_phi(self) -> int:
@@ -2391,7 +1980,7 @@ class _ZTables:
 
     @property
     def nbytes(self) -> int:
-        """The bytes of the coefficients that cross to the native state."""
+        """The bytes of the coefficients that cross to the workspace."""
         coefficients = 0
         if self.phi:
             phi = self._problem.linear.phi_coefficients
@@ -2405,69 +1994,27 @@ class _ZTables:
             coefficients += table.coefficients.nbytes
         return int(coefficients)
 
-    def upload(self, native: _core.State) -> None:
-        """Make the tables resident in `native`, once, before its first trial."""
-        self._native = native
-        native.table_slots(
-            self.phi, self.prefactor, self.slots, self.rate_slot is not None
-        )
+    def slots_record(self) -> dict[str, object]:
+        """Return the slots as the workspace configures them (``ZSlots``)."""
+        return {
+            "phi": self.phi,
+            "prefactor": self.prefactor,
+            "slots": self.slots,
+            "rate": self.rate_slot is not None,
+        }
+
+    def records(self) -> list[dict[str, object]]:
+        """Return the tables the workspace makes resident (``ZTable``)."""
+        out: list[dict[str, object]] = []
         if self.phi:
-            self._upload("phi", self._problem.linear.polynomial)
+            out.append(_z_table("phi", self._problem.linear.polynomial))
             if self.rate_slot is not None:
-                self._upload("rate", self._problem.linear.rate)
+                out.append(_z_table("rate", self._problem.linear.rate))
         if self.prefactor:
             table = self._problem.responses.prefactor
             assert table is not None
-            self._upload("prefactor", table)
-
-    def _upload(self, kind: str, table: PiecewiseChebyshev) -> None:
-        """Send one table's breakpoints and coefficients, and its admitted span."""
-        assert self._native is not None
-        low, high = table.z_span
-        slack = _EDGE_SLACK_FRACTION * (high - low)
-        n_intervals, n_terms = table.coefficients.shape[:2]
-        self._native.table_upload(
-            kind,
-            np.ascontiguousarray(table.breakpoints, dtype=np.float64),
-            low - slack,
-            high + slack,
-            np.ascontiguousarray(table.coefficients, dtype=np.complex128).reshape(
-                n_intervals, n_terms, -1
-            ),
-        )
-
-    def load(self, positions: Sequence[float]) -> dict[float, int]:
-        """Return each position's slot, evaluating those no slot holds, in one call.
-
-        - ``positions``: the positions one native call reads, m, at most ``slots``
-          distinct.
-        """
-        assert self._native is not None
-        wanted = [float(z) for z in positions]
-        try:
-            slots = self._native.table_load(wanted)
-        except ValueError as error:
-            raise BackendError(str(error)) from error
-        return dict(zip(wanted, slots, strict=True))
-
-    def phi_row(self, slot_of: Mapping[float, int], z0: float, z1: float) -> RealArray:
-        """Return the weights of ``Phi(z1) - Phi(z0)`` over the native terms."""
-        row = np.zeros(self.n_phi)
-        row[slot_of[z1]] += 1.0
-        row[slot_of[z0]] -= 1.0
-        return row
-
-    def at_row(self, slot_of: Mapping[float, int], z: float, count: int) -> RealArray:
-        """Return the one-hot weights of a table's value at `z` over `count` terms."""
-        row = np.zeros(count)
-        row[slot_of[z]] = 1.0
-        return row
-
-    def values(self, kind: Literal["phi", "prefactor"], z: float) -> ComplexArray:
-        """Return a table's value at `z` on the host, from its native slot."""
-        assert self._native is not None
-        slot = self.load([z])[float(z)]
-        return self._native.table_terms_to_host(kind, slot)
+            out.append(_z_table("prefactor", table))
+        return out
 
 
 def _refuse_tdse(
@@ -2735,7 +2282,9 @@ def _aperture_payload(
 
 
 def _refined_record(
-    problem: PropagationProblem, stepper: StepperSettings, state: _core.State
+    problem: PropagationProblem,
+    stepper: StepperSettings,
+    diagnostics: Mapping[str, Any],
 ) -> tuple[ExecutionRecord, str] | None:
     """Return a stored stage-2 refinement of this execution, or ``None``.
 
@@ -2754,7 +2303,7 @@ def _refined_record(
         shape=(1, *problem.shape),
         grid_kind=problem.grid_kind,
         integrator=type(stepper.integrator).__name__,
-        sizing=state.execution_sizing,
+        sizing=diagnostics["execution_sizing"],
         process=_package.PROCESS,
         fingerprint=_package.PROFILE.fingerprint.digest,
     )
@@ -2790,14 +2339,14 @@ def _planning(
     return dict(chosen) | {"stored": dict(stored), "keep": True}
 
 
-def _keep_plans(state: _core.State, path: Path | None) -> dict[str, str]:
+def _keep_plans(diagnostics: Mapping[str, Any], path: Path | None) -> dict[str, str]:
     """Keep the plans a workspace measured, in this process and in `path`; return them.
 
     A key the profile holds is never kept: its winner takes precedence.
     """
     if _on_device():
         return {}
-    measured = cast(dict[str, str], state.fft_planning["measured"])
+    measured = cast(dict[str, str], diagnostics["fft_planning"]["measured"])
     profiled = cast(Mapping[str, str], (_package.PLANNING or {}).get("wisdom", {}))
     kept = {key: plan for key, plan in measured.items() if key not in profiled}
     if kept:
@@ -2807,7 +2356,7 @@ def _keep_plans(state: _core.State, path: Path | None) -> dict[str, str]:
 
 
 def _applied_plans(
-    state: _core.State,
+    diagnostics: Mapping[str, Any],
     stored: Mapping[str, str],
     planning: Mapping[str, object] | None,
 ) -> dict[str, str]:
@@ -2815,7 +2364,7 @@ def _applied_plans(
 
     `planning` is the one it was given, or the profile's; `stored` the plans offered.
     """
-    found = state.fft_planning
+    found = diagnostics["fft_planning"]
     profiled = cast(Mapping[str, str], (planning or {}).get("wisdom", {}))
     missing = set(cast(list[str], found["missing"]))
     applied = {
@@ -2827,7 +2376,7 @@ def _applied_plans(
     return applied | cast(dict[str, str], found["measured"])
 
 
-def _planning_record(state: _core.State) -> dict[str, object]:
+def _planning_record(diagnostics: Mapping[str, Any]) -> dict[str, object]:
     """Return what a workspace's FFT planning applied, for its run's metadata.
 
     The plans keyed in its profile that no longer build from their wisdom are listed:
@@ -2835,7 +2384,7 @@ def _planning_record(state: _core.State) -> dict[str, object]:
     """
     if _on_device():
         return {}
-    found = state.fft_planning
+    found = diagnostics["fft_planning"]
     groups = cast(dict[str, str], found["groups"])
     if not groups:
         return {"fft_planning": "policy"}
@@ -2855,7 +2404,8 @@ class _LowerPlan:
     `tables` the z tables; the chunks are the backend's lowered execution choices
     (solprop SEP 47 section 6.5), the automatic plan's when absent. `cpu_execution`
     is the workspace's CPU record (the process's when absent) and `fft_planning` its
-    FFT planning record (none on a device); `device` says the state is a device's.
+    FFT planning record (none on a device); `device` says the state is a device's, and
+    `setup` holds the workspace's set-once data by part (`NativeBackend._setup`).
     """
 
     terms: StageTerms
@@ -2866,6 +2416,7 @@ class _LowerPlan:
     cpu_execution: ExecutionRecord | None = None
     fft_planning: Mapping[str, object] | None = None
     device: bool = False
+    setup: Mapping[str, object] | None = None
 
 
 def _lower(
@@ -2988,6 +2539,11 @@ def _lower(
     _lower_flow(native, plan.flow)
     _lower_dispersive(native, problem)
     _lower_flux(native, problem, request.observation.stats)
+    if plan.setup is not None:
+        # The set-once data, each part read through its record's table (SEP 52).
+        held: Any = native
+        for name, value in plan.setup.items():
+            setattr(held, name, value)
     return native
 
 
@@ -3333,7 +2889,7 @@ def _lower_flux(
     which the native state already holds: nothing more is packed, and a plan that is
     not that operator is refused. A radial run packs the entrance's material and
     transverse squares and whether a material z table follows
-    (:func:`_upload_flux_table`); the admission record is not read. ``closure``
+    (:func:`_flux_tables`); the admission record is not read. ``closure``
     sizes the magnetic closure's buffers for the run's own local statistics,
     `stats`.
     """
@@ -3356,26 +2912,6 @@ def _lower_flux(
     native.flux.kperp_sq = np.ascontiguousarray(base.kperp_sq, dtype=np.float64)
     native.flux.kperp_sq_low = np.ascontiguousarray(base.kperp_sq_low, dtype=np.float64)
     native.flux.table = flux.material is not None
-
-
-def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None:
-    """Make a radial plane measure's material z table resident, once (SEP 34)."""
-    flux = flux_of(problem.route)
-    if flux is None or flux.material is None:
-        return
-    table = flux.material
-    low, high = table.z_span
-    slack = _EDGE_SLACK_FRACTION * (high - low)
-    n_intervals, n_terms = table.coefficients.shape[:2]
-    native.table_upload(
-        "flux",
-        np.ascontiguousarray(table.breakpoints, dtype=np.float64),
-        low - slack,
-        high + slack,
-        np.ascontiguousarray(table.coefficients, dtype=np.complex128).reshape(
-            n_intervals, n_terms, -1
-        ),
-    )
 
 
 def _lower_general(
