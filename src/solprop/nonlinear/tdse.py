@@ -4,12 +4,16 @@
 
 """Declare the immutable, provider-independent helium TDSE response specification.
 
-All physical quantities use SI. The optional atomic package is imported only by
-its runtime adapter, never by these records. See SEP 12 for the distinct linear,
-cubic and ionisation calibrations and the restricted first implementation, and
-SEP 20 for the haCC two-electron model (:class:`HaccBasis`), the atomic time
-window (:class:`TDSEAtomicWindow`) and the weak-field consistency policy
-(:class:`TDSEConsistency`).
+:class:`TDSEGasResponse` is the complete electronic nonlinear response of scalar helium,
+built from its atomic basis (:class:`TDSEBasis`, or the haCC two-electron model
+:class:`HaccBasis`), its :class:`TDSECalibration`, the refinement of the response
+lattice (:class:`TDSESampling`), the runtime resources (:class:`TDSEExecution`), the
+atomic time window (:class:`TDSEAtomicWindow`) and the weak-field consistency policy
+(:class:`TDSEConsistency`). All quantities are SI. The optional atomic package is
+imported only by the runtime adapter, never by these records. SEP 12 describes the
+linear, cubic and ionisation calibrations and the restricted first implementation, and
+SEP 20 the haCC model, the window and the consistency policy; the manual page is
+``docs/guide/media/tdse.md``.
 """
 
 import math

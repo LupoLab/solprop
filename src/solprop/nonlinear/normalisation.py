@@ -5,24 +5,21 @@
 """Prefactors that turn a nonlinear polarisation into a rate of change of the field.
 
 The nonlinear term of the propagation equation is the polarisation, transformed to the
-frequency domain, multiplied by
+frequency domain, times ``-i omega / (2 eps0 c n_eff(omega))``, with ``omega`` the
+absolute frequency the grid stores, on a field grid and an envelope grid alike. Its
+``omega`` dependence **is** the optical shock term: turning the shock off freezes
+``omega`` at the carrier.
 
-``-i omega / (2 eps0 c n_eff(omega))``
+- :func:`uppe_prefactor` is that factor on the coarse grid.
+- :func:`sqrtw_to_vm` converts a mode-averaged amplitude, in the square root of watts,
+  to a field in V/m, and :func:`mode_average_prefactor` composes the two.
+- :func:`modal_kerr_coefficient` is the self-phase-modulation coefficient of one vector
+  channel.
 
-(``docs/dev/architecture.md`` section 2). That one expression covers both grids: on
-a field grid it multiplies the transform of the real polarisation, on an envelope grid
-the transform of its envelope, and in both ``omega`` is the absolute frequency the grid
-stores. Its ``omega`` dependence **is** the optical shock term, so turning the shock off
-is not a different equation but the same prefactor with ``omega`` frozen at the
-carrier.
-
-Mode-averaged propagation adds one more step: the propagated amplitude is in the square
-root of watts, and a response needs volts per metre. :func:`sqrtw_to_vm` is that
-conversion and :func:`mode_average_prefactor` is the two composed.
-
-What is *not* here is the transform normalisation: the crop and pad scale factors belong
-to the grid and are folded in by the translation layer (``docs/dev/kernel-contract.md``
-section 5).
+The transform normalisation (the crop and pad scale factors) is not here: it belongs to
+the grid and is folded in by the translation layer (``docs/dev/kernel-contract.md`` §5).
+``docs/guide/media/nonlinear.md``, "From polarisation to propagation", derives the
+prefactor.
 """
 
 import logging

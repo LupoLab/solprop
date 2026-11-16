@@ -2,47 +2,35 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Raman response models and the reference evaluation of the Raman polarisation.
+"""Raman response models and the reference evaluation of the Raman polarisation.
 
-A Raman response is a medium's *delayed* answer to the field: the molecular vibration
-or rotation the pulse drives keeps ringing after the pulse has gone, and the
-polarisation at time ``t`` depends on the whole history of the drive. It is therefore a
-convolution, where the Kerr response of :mod:`solprop.nonlinear.responses` is pointwise,
-and that difference is the whole of why this module exists separately.
+A Raman response is a medium's *delayed* answer to the field, a convolution over the
+history of the drive where the Kerr response of :mod:`solprop.nonlinear.responses` is
+pointwise. Each model is a frozen dataclass returning ``h(t)`` for ``t >= 0`` and
+declaring how its coherence dephases with density.
 
-The models here are a damped oscillator, the
-vibrational mode of a molecular gas, the non-rigid-rotor rotational ladder with its
-Boltzmann populations, the intermediate-broadening line set of an amorphous solid, and
-a shape sampled from an optmat silica bundle. Each is a frozen dataclass returning
-``h(t)`` for ``t >= 0``, and each declares how its coherence dephases with density.
+- **Models** (:class:`RamanModel`): :class:`DampedOscillator` (and
+  :func:`normalised_damped_oscillator`), a molecular vibration (:func:`vibrational`),
+  the non-rigid rotational ladder (:class:`RotationalLines`,
+  :func:`rotational_nonrigid`), an amorphous solid's line set
+  (:class:`IntermediateBroadening`) and a shape sampled from optmat's silica bundle
+  (:class:`SampledShape`, :func:`bundle_response`), with :func:`undamped_dephasing` for
+  a coherence that does not decay with density.
+- **Responses**: :class:`RamanResponse`, the delayed polarisation of a medium from its
+  models, each declared for vector use as a :class:`RamanTensorTerm`, with its NumPy
+  reference evaluation driven by :func:`raman_drive`; :class:`SilicaTensorResponse`,
+  fused silica's tensor response in a general modal guide's material region, whose
+  kernels are a share of the region's ``chi3`` and so in 1/s; :func:`response_for`
+  builds a named material's response.
+
 The molecular and line-set models take a caller's own constants
 (:mod:`solprop.physdata.raman_types`); every built-in gas's response is optmat's
-(:mod:`solprop.nonlinear.optmat_raman`, SEP 3) and fused silica's is its bundle.
-
-Beside them is :class:`SilicaTensorResponse`: the delayed
-**tensor** response of fused silica declared by a material region of a general modal
-guide, whose two channels are a share of the region's own ``chi3`` rather than a
-per-density response, and whose kernels are therefore in **1/s** and not in the units
-below.
-
-**Units.** Every model of a gas or a scalar route returns ``h(t)`` in
-**m^5 V^-2 s^-1**, the units that make
-
-.. math::
-
-    P(t) = \varepsilon_0\, \rho\, E(t) \int h(t - t')\, E^2(t')\, dt'
-
-hold with ``P`` in C/m^2, the number density ``rho`` in m^-3 and the field ``E`` in V/m.
-So ``integral h dt`` carries the units of
-:attr:`solprop.nonlinear.responses.KerrResponse.chi3` per unit density, m^5/V^2, and the
-Raman and Kerr responses of the same medium are directly comparable. The ``eps0``
-stands outside the integral, so ``h`` here is linear in ``eps0``; a convention whose
-outer expression has no ``eps0`` hides it inside every ``K`` as ``(4 pi eps0)^2`` and
-has an ``h`` quadratic in ``eps0``, larger by that factor. The scalar vibrational factor
-also includes the independent amplitude correction described in :func:`vibrational`.
-
-The manual page is ``docs/guide/media/raman.md``; the kernel's view of the response is
-``docs/dev/kernel-contract.md`` section 5, and the sampling onto the doubled grid is
+(:mod:`solprop.nonlinear.optmat_raman`). **Units**: a gas or scalar-route model returns
+``h`` in m^5 V^-2 s^-1, so that ``P = eps0 rho E int h(t - t') E^2(t') dt'`` and ``int h
+dt`` is comparable with the Kerr ``chi3`` per unit density
+(``docs/guide/media/raman.md``, "The response function and its units");
+:func:`vibrational` adds its own amplitude correction. The kernel's view is
+``docs/dev/kernel-contract.md`` §5, and the sampling onto the doubled grid is
 :mod:`solprop.translate.raman`.
 """
 
