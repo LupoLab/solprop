@@ -2,14 +2,36 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe bulk media and exact longitudinal propagation of spatial fields.
+"""Describe bulk media, exact longitudinal propagation and spatial field measures.
 
-Spatial fields are in V/m. Energy, fluence and intensity are the axial Poynting flux
-of the medium at the measured plane (:class:`SpatialFlux`, SEP 34). On a
-line uniform in y (:class:`solprop.grid.LineGrid`) every transverse integral is per
-metre of y: energy in J/m and power in W/m, while intensity and fluence stay local.
-Transverse wave numbers are angular frequencies in rad/m. The propagation sign
-and co-moving frame are those of ``docs/dev/conventions.md``.
+The physics behind the free-space routes and the spatial statistics, in sections:
+
+- Media and dispersion: :class:`SpatialMedium` (a gas, glass or constant complex
+  index) and :class:`SpatialDispersion` (exact :math:`k_z` in the run's frame, with
+  the evanescent cap :data:`EVANESCENT_RATE`); :func:`attenuation_extremes` and
+  :func:`physical_evanescent_rate` bound the field attenuation a grid holds.
+- The flux measure (SEP 34): :class:`SpatialFlux` resolves one plane's axial
+  Poynting flux (:func:`plane_sample`; :data:`FluxSide` at an index jump), and the
+  energy functions read it: :func:`spatial_energy` and its spectra
+  (:func:`spatial_energy_spectrum`, :func:`column_spectrum`, :func:`node_spectrum`),
+  the maps in time (:func:`spatial_power`, :func:`spatial_intensity`,
+  :func:`spatial_fluence`, :func:`peak_field`) and their ``planar_*`` counterparts.
+- On-axis readings: :func:`on_axis_field`, :func:`on_axis_trace`,
+  :func:`on_axis_intensity`, :func:`on_axis_spectrum`.
+- Far-field apertures (SEP 23): the edge profiles and outlines
+  (:func:`edge_profile`, :func:`aperture_profile`, :class:`ApertureOutline`), the
+  mask-plane geometry (:func:`aperture_scale`, :func:`mask_plane_offsets`,
+  :func:`mask_plane_radius`), and :func:`aperture_statistics` over the constants of
+  :class:`ApertureTables`, with the statistic names :data:`FAR_FIELD_STATISTICS`.
+- Beam widths: :func:`radial_fluence_widths`, :func:`cartesian_fluence_widths`,
+  :func:`beam_radius`, :func:`fwhm_r`; and the Townes :func:`critical_power`.
+
+Spatial fields are in V/m and transverse wave numbers in rad/m. On a line uniform in y
+(:class:`solprop.grid.LineGrid`) every transverse integral is per metre of y (energy in
+J/m, power in W/m) while intensity and fluence stay local. The propagation sign and
+co-moving frame are those of ``docs/dev/conventions.md``. The manual pages are under
+``docs/guide/free-space/`` (the flux in ``flux.md``) and the apertures in
+``docs/guide/results/statistics.md``.
 """
 
 import copy
