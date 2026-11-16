@@ -1307,7 +1307,7 @@ class NativeSession:
         native = records["monitor"]
         if native is None:
             return None
-        record = _watch.record_of(monitor.check, native)
+        record = _watch.record_of(monitor.check_record(), native)
         edge = records["edge"]
         if monitor.transverse is not None and edge is not None:
             record["transverse"] = _transverse.record_of(monitor.transverse, edge)
