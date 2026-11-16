@@ -275,7 +275,7 @@ def prop_planar(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_gnlse)
 def prop_gnlse(  # numpydoc ignore=PR01
     gamma: float | None,
-    length: float,
+    length: float | None = None,
     betas: Sequence[float] | np.ndarray | None = None,
     *,
     wavelength: float,
@@ -389,8 +389,8 @@ def prop_gnlse(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_capillary)
 def prop_capillary(  # numpydoc ignore=PR01
     radius: float | ZProfile,
-    length: float,
-    gas: Gas | str | Mapping[str, float] | Mixture,
+    length: float | None = None,
+    gas: Gas | str | Mapping[str, float] | Mixture | None = None,
     pressure: Pressure | None = None,
     *,
     pressure_floor: float | None = None,
@@ -531,7 +531,7 @@ def prop_capillary(  # numpydoc ignore=PR01
 @_propagates(Simulation.from_waveguide)
 def prop_waveguide(  # numpydoc ignore=PR01
     modes: Sequence[Mode],
-    length: float,
+    length: float | None = None,
     gas: Gas | str | Mapping[str, float] | Mixture | None = None,
     pressure: Pressure | None = None,
     *,

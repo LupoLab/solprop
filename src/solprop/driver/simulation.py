@@ -132,6 +132,7 @@ from solprop.driver.settings import (
     _adopted,
     _boundary,
     _quiet_collar,
+    _run_length,
     _same_setting,
     _scheme,
     _spatial_default,
@@ -2283,7 +2284,7 @@ class Simulation(Displayed):
     def from_gnlse(
         cls,
         gamma: float | None,
-        length: float,
+        length: float | None = None,
         betas: Sequence[float] | np.ndarray | None = None,
         *,
         wavelength: float,
@@ -2338,8 +2339,12 @@ class Simulation(Displayed):
         ----------
         gamma : float or None
             Nonlinear coefficient in 1/(W m), positive for a self-focusing medium.
-        length : float
-            Fibre length, m, positive.
+        length : float or None, optional
+            Fibre length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         betas : array_like, optional
             Taylor coefficients of ``beta`` about `wavelength`, ``beta_0, beta_1, ...``,
             in s^n/m. ``beta_0`` and ``beta_1`` only fix the frame and change no
@@ -2357,7 +2362,8 @@ class Simulation(Displayed):
             An envelope grid to propagate on instead of building one from `length`,
             `wavelength`, `wavelength_limits` and `trange`. This is the way to choose
             the sample spacing, the oversampling factor or the transform size. A field
-            grid is refused: the GNLSE mapping is the envelope Kerr response.
+            grid is refused: the GNLSE mapping is the envelope Kerr response. Its
+            length is the run's (`length`).
         beta : tuple or callable, optional
             The propagation constant as data instead of a series: a pair of arrays
             ``(omega, beta)`` in rad/s and 1/m with strictly increasing frequencies, or
@@ -2536,6 +2542,7 @@ class Simulation(Displayed):
         >>> simulation.settings.save_planes.tolist()
         [0.005, 0.01]
         """
+        length = _run_length(length, grid)
         materials = MaterialSelection() if materials is None else materials
         _refuse_dispersive_policy(materials, "a GNLSE run's fitted gamma")
         working = _gnlse_grid(
@@ -2617,8 +2624,8 @@ class Simulation(Displayed):
     def from_capillary(
         cls,
         radius: float | ZProfile,
-        length: float,
-        gas: Gas | str | Mapping[str, float] | Mixture,
+        length: float | None = None,
+        gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
         pressure_floor: float | None = None,
@@ -2702,11 +2709,16 @@ class Simulation(Displayed):
         ----------
         radius : float or solprop.profiles.ZProfile
             Core radius, m, constant or along z.
-        length : float
-            Capillary length, m.
+        length : float or None, optional
+            Capillary length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps and profiles
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         gas : Gas, str, Mapping or Mixture
-            Built-in gas, mole fractions keyed by species name, or ordered populations
-            carrying their own density paths. A mapping uses total pressure.
+            Required. Built-in gas, mole fractions keyed by species name, or
+            ordered populations carrying their own density paths. A mapping uses
+            total pressure.
         pressure : float, sequence, ZProfile or None, optional
             None uses one bar for a gas or fractions. Omit pressure beside a Mixture;
             every explicit pressure is refused because it already carries its paths.
@@ -2746,7 +2758,8 @@ class Simulation(Displayed):
             Requested width of the time window, s. Required unless `grid` is given.
         grid : solprop.grid.TimeGrid or None, optional
             A grid of one's own, instead of the three keywords above; the only way to
-            reach ``dt``, ``ffac`` or the transform size.
+            reach ``dt``, ``ffac`` or the transform size. Its length is the run's
+            (`length`).
         envelope : bool, optional
             Propagate an envelope. Plasma is off by default; explicit ``plasma=True``
             selects cycle averaging of instantaneous rates. Plasma forbids THG.
@@ -3028,6 +3041,10 @@ class Simulation(Displayed):
         >>> sorted(simulation.profiles)
         ['core_radius', 'density', 'pressure']
         """
+        length = _run_length(length, grid)
+        if gas is None:
+            msg = "a capillary run needs its fill: pass gas="
+            raise DriverError(msg, parameter="gas")
         return _from_hollow(
             cls,
             keyword_request(
@@ -3042,7 +3059,7 @@ class Simulation(Displayed):
     def from_waveguide(
         cls,
         modes: Sequence[Mode],
-        length: float,
+        length: float | None = None,
         gas: Gas | str | Mapping[str, float] | Mixture | None = None,
         pressure: Pressure | None = None,
         *,
@@ -3143,8 +3160,12 @@ class Simulation(Displayed):
             `provider` it must be empty or exactly the guide's own ordered channels:
             a guide supplies its channels itself, and the provider has already
             validated their order against its fields.
-        length : float
-            Waveguide length, m.
+        length : float or None, optional
+            Waveguide length, which is the run's length and its end, m, positive
+            (SEP 51): the grid is built with it, and the default steps and profiles
+            derive from it. Optional beside `grid`, whose ``grid.length`` it must
+            then agree with to within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+            ulps; one of the two is required.
         gas : Gas, str, Mapping, Mixture or None
             Built-in gas, mole fractions keyed by species name, or ordered populations
             carrying their own density paths. A mapping uses total pressure. Required
@@ -3249,7 +3270,8 @@ class Simulation(Displayed):
             Requested width of the time window, s. Required unless `grid` is given.
         grid : solprop.grid.TimeGrid or None, optional
             A grid of one's own, instead of the three keywords above; the only way to
-            reach ``dt``, ``ffac`` or the transform size.
+            reach ``dt``, ``ffac`` or the transform size. Its length is the run's
+            (`length`).
         envelope : bool, optional
             Propagate an envelope. Plasma is off by default; explicit ``plasma=True``
             selects cycle averaging of instantaneous rates. Plasma forbids THG.
@@ -3473,6 +3495,7 @@ class Simulation(Displayed):
             provider, a general-guide keyword is given without one, or any supplied
             setting is invalid.
         """
+        length = _run_length(length, grid)
         if provider is not None:
             # The gas-filled keywords are carried to be refused by name if set.
             scope = locals()

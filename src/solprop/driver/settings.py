@@ -1047,6 +1047,27 @@ def _observation_planes(
     return frozen_copy(np.append(interior, length), np.float64)
 
 
+def _run_length(length: float | None, grid: TimeGrid | None) -> float:
+    """Return a keyword route's one length, m, from `length`, `grid` or both (SEP 51).
+
+    Given both, they must agree within :data:`~solprop.stepper.schedule.LANDING_ULPS`
+    ulps of ``grid.length``, which is then the canonical value; a supplied grid is never
+    rebuilt, and a conflict is never settled silently.
+    """
+    if grid is None:
+        if length is None:
+            msg = "a length or a grid is required: pass length=, or grid="
+            raise DriverError(msg, parameter=("length", "grid"), rule="length-or-grid")
+        return length
+    if length is not None and not _at(length, float(grid.length)):
+        msg = (
+            f"length = {length!r} m and grid.length = {grid.length!r} m disagree: the "
+            "run ends at its one length, so give one of them, or make them agree"
+        )
+        raise DriverError(msg, parameter=("length", "grid"), rule="length-grid")
+    return float(grid.length)
+
+
 def _replay_refusal(
     schedule: FixedSchedule, entrance: float, length: float
 ) -> str | None:
