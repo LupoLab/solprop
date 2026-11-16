@@ -972,7 +972,10 @@ if(BUILD_TESTING)
     tests/native/test_transverse.cpp
     tests/native/test_session_transverse.cpp
     tests/native/test_adams_phi.cpp
-    tests/native/test_core.cpp
+    tests/native/test_cpu_execution.cpp
+    tests/native/test_gemm.cpp
+    tests/native/test_general_state.cpp
+    tests/native/test_plasma_scan.cpp
     tests/native/test_crossing.cpp
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp
@@ -980,6 +983,7 @@ if(BUILD_TESTING)
     tests/native/test_general_modal.cpp
     tests/native/test_chebyshev.cpp
     tests/native/test_z_table.cpp
+    tests/native/test_stage_tables.cpp
     tests/native/test_coupled_flow.cpp
     tests/native/test_dispersive.cpp
     tests/native/test_far_field.cpp
