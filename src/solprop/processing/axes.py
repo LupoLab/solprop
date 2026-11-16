@@ -522,30 +522,24 @@ def _nearest_plane(output: Output, z: float) -> int:
     return int(np.argmin(np.abs(positions - z)))
 
 
-def _check_plane_or_z(
-    plane: int | None, z: float | None, *, default: int | None
-) -> None:
-    """Refuse a selection that names a plane both by index and by position.
-
-    - ``default``: the plane index a function selects when given neither, ``-1`` for a
-      reader of one plane and ``None`` for one of every plane; an index equal to it
-      was not given.
-    """
-    if z is not None and plane != default:
+def _check_plane_or_z(plane: int | None, z: float | None) -> None:
+    """Refuse a selection that names a plane both by index and by position."""
+    if plane is not None and z is not None:
         msg = f"give a plane index or a position, not both: plane={plane}, z={z}"
         raise ProcessingError(msg)
 
 
-def _plane_index(output: Output, plane: int, z: float | None) -> int:
+def _plane_index(output: Output, plane: int | None, z: float | None) -> int:
     """Return the index of the one saved plane a reader of one plane is asked for.
 
-    - ``plane``: plane index, negative from the end; ``-1``, the last, by default.
-    - ``z``: plane position, m: the nearest saved plane; given with any `plane` but
-      the default, the selection is refused.
-    - Returns: the index as given, or the nearest plane's to `z`.
+    - ``plane``: plane index, negative from the end; ``None``, the last.
+    - ``z``: plane position, m: the nearest saved plane; refused beside a `plane`.
+    - Returns: the index as given, the last plane's (-1), or the nearest to `z`.
     """
-    _check_plane_or_z(plane, z, default=-1)
-    return plane if z is None else _nearest_plane(output, z)
+    _check_plane_or_z(plane, z)
+    if z is not None:
+        return _nearest_plane(output, z)
+    return -1 if plane is None else plane
 
 
 def _refuse_by_basis(output: Output, name: str) -> None:
@@ -589,7 +583,7 @@ def _plane_field(
     - Returns: shape ``(n_z, n_modes, n_pol, n_omega)`` when no plane was selected, and
       ``(n_modes, n_pol, n_omega)`` when one was.
     """
-    _check_plane_or_z(plane, z, default=None)
+    _check_plane_or_z(plane, z)
     if z is not None:
         return output.plane_field(_nearest_plane(output, z), convention)
     if plane is not None:

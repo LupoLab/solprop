@@ -427,7 +427,7 @@ def _pulse_of(
     grid: TimeGrid | None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
     *,
-    plane: int,
+    plane: int | None,
     z: float | None,
     modes: ModeChoice,
     bandpass: spectra.Bandpass | None,
@@ -449,7 +449,7 @@ def _pulse_of(
         index = _plane_index(output, plane, z)
         stored = _plane_field(output, index, None, convention="fft")
     elif grid is not None and spectrum is not None:
-        if z is not None or plane != -1:
+        if z is not None or plane is not None:
             msg = "plane and z select a plane of an output; a spectrum is one plane"
             raise ProcessingError(msg)
         working = grid
@@ -468,7 +468,7 @@ def apply_transfer(
     output: Output,
     transfer: TransferFunction,
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
 ) -> tuple[Float[np.ndarray, " n_x"], Complex[np.ndarray, "*shape n_x"]]:
@@ -480,11 +480,11 @@ def apply_transfer(
         An opened output handler.
     transfer : TransferFunction
         The element, from :mod:`solprop.optics`.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     modes : int, sequence of int or None, optional
         Which modes to return.
 
@@ -528,7 +528,7 @@ def transform_limit(
     *,
     grid: TimeGrid | None = None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -546,11 +546,11 @@ def transform_limit(
         One plane's spectrum in the optics convention, as ``output["field"][i]`` or
         ``output.plane_field(i)`` holds it: shape ``(n_omega,)`` or ``(n_modes,
         n_pol, n_omega)``.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose summed power is measured.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional
@@ -645,7 +645,7 @@ def compress_taylor(
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
     order: int = 2,
     wavelength: float | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -677,11 +677,11 @@ def compress_taylor(
         the search is SciPy's differential evolution, seeded, then polished.
     wavelength : float or None, optional
         Wavelength the phase is expanded about, m; the grid's reference by default.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional
@@ -789,7 +789,7 @@ def compress_material(
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
     wavelength: float | None = None,
     pressure: float | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -817,11 +817,11 @@ def compress_material(
         reference by default.
     pressure : float or None, optional
         Pressure in bar, for a built-in gas.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional
@@ -908,7 +908,7 @@ def compress_mirrors(
     grid: TimeGrid | None = None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
     wavelength: float | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -941,11 +941,11 @@ def compress_mirrors(
         n_pol, n_omega)``.
     wavelength : float or None, optional
         Wavelength at which the material's group delay is removed, m.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional
@@ -1030,7 +1030,7 @@ def optimise_cep(
     *,
     grid: TimeGrid | None = None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     mode: int = 0,
     oversampling: int = 4,
@@ -1055,11 +1055,11 @@ def optimise_cep(
         One plane's spectrum in the optics convention, as ``output["field"][i]`` or
         ``output.plane_field(i)`` holds it: shape ``(n_omega,)`` or ``(n_modes,
         n_pol, n_omega)``.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     mode : int, optional
         The one mode whose field is optimised: modal fields do not add away from a
         point in space. The first polarisation component is used.
@@ -1147,7 +1147,7 @@ def _pair_pulse(
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None,
     *,
     pair: GratingPair | PrismPair,
-    plane: int,
+    plane: int | None,
     z: float | None,
     modes: ModeChoice,
     bandpass: spectra.Bandpass | None,
@@ -1359,7 +1359,7 @@ def compress_gratings(
     separation_range: tuple[float, float],
     grid: TimeGrid | None = None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -1385,11 +1385,11 @@ def compress_gratings(
         One plane's orthogonal power amplitudes in the optics convention, as
         ``output["field"][i]`` holds them, shape ``(n_omega,)`` or ``(n_modes, n_pol,
         n_omega)``. Coordinate power must equal physical power.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose powers are summed; all by default, including both polarisations.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional
@@ -1444,7 +1444,7 @@ def compress_prisms(
     separation_range: tuple[float, float] | None = None,
     grid: TimeGrid | None = None,
     spectrum: Complex[np.ndarray, "*shape n_omega"] | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeChoice = None,
     bandpass: spectra.Bandpass | None = None,
@@ -1474,11 +1474,11 @@ def compress_prisms(
         One plane's orthogonal power amplitudes in the optics convention, as
         ``output["field"][i]`` holds them, shape ``(n_omega,)`` or ``(n_modes, n_pol,
         n_omega)``. Coordinate power must equal physical power.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane of `output`, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane of `output` instead, m: the nearest saved plane.
-        Refused beside a `plane` other than the default.
+        Refused beside a `plane`.
     modes : int, sequence of int or None, optional
         Modes whose powers are summed; all by default, including both polarisations.
     bandpass : tuple of float, Passband, numpy.ndarray or None, optional

@@ -839,7 +839,7 @@ def get_spectrogram(
     output: Output,
     axis: SpectralAxis = "f",
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     modes: ModeSelection = None,
     time_range: tuple[float, float] | None = None,
@@ -869,11 +869,11 @@ def get_spectrogram(
         An opened output handler.
     axis : {'f', 'omega', 'wavelength'}
         The spectral abscissa, in Hz, rad/s or m.
-    plane : int
+    plane : int or None, optional
         Index of the plane, negative from the end; the last by default.
     z : float or None
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     modes : int, sequence of int, 'sum' or None
         Which mode. A multimode run must name one: a spectrogram is of a field, and
         modal fields do not add away from a point in space.

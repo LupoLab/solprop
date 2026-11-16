@@ -568,7 +568,7 @@ def electric_field(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     analytic: bool = False,
     convention: Convention = "optics",
@@ -593,11 +593,11 @@ def electric_field(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     analytic : bool, optional
         Return the complex analytic signal instead of the real physical field. The
         real field is ``numpy.real`` of it, and the two flux accessors differ in
@@ -634,7 +634,7 @@ def magnetic_field(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     analytic: bool = False,
     convention: Convention = "optics",
@@ -659,11 +659,11 @@ def magnetic_field(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     analytic : bool, optional
         Return the complex analytic signal instead of the real physical field.
     convention : {'optics', 'fft'}, optional
@@ -714,7 +714,7 @@ def reconstructed_flux(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     density: bool = False,
 ) -> Float[np.ndarray, "*shape"]:
@@ -750,11 +750,11 @@ def reconstructed_flux(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     density : bool, optional
         Return the flux **density** at each node, ``(n_nodes, n_t)`` in W/m^2,
         instead of its weighted sum over the cross-section.
@@ -792,7 +792,7 @@ def instantaneous_flux(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     density: bool = False,
 ) -> Float[np.ndarray, "*shape"]:
@@ -835,11 +835,11 @@ def instantaneous_flux(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
     density : bool, optional
         Return the flux **density** at each node, ``(n_nodes, n_t)`` in W/m^2,
         instead of its weighted sum over the cross-section.
@@ -877,7 +877,7 @@ def coordinate_intensity(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
 ) -> Float[np.ndarray, "n_modes n_nodes n_t"]:
     """Return the flux density each channel would carry alone, in W/m^2.
@@ -905,11 +905,11 @@ def coordinate_intensity(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
 
     Returns
     -------
@@ -947,7 +947,7 @@ def plane_nodes(
     *,
     guide: ModalGuide,
     tables: ModalTransformTables | None = None,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
 ) -> tuple[Float[np.ndarray, "n_nodes 2"], Float[np.ndarray, " n_nodes"]]:
     """Return where one saved plane is reconstructed: its nodes and area weights.
@@ -975,11 +975,11 @@ def plane_nodes(
         The run's reference tables, rebuilt from `guide` by default; pass them to
         reuse one rebuild across many calls. Their identity is checked against the
         file's either way.
-    plane : int, optional
+    plane : int or None, optional
         Index of the plane wanted, negative from the end; the last by default.
     z : float or None, optional
         Position of the plane instead, m: the nearest saved plane. Refused beside a
-        `plane` other than the default.
+        `plane`.
 
     Returns
     -------

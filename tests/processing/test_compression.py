@@ -250,7 +250,7 @@ def test_the_global_optimum_is_found_among_several():
                 None,
                 grid,
                 as_optics(grid, stored),
-                plane=-1,
+                plane=None,
                 z=None,
                 modes=None,
                 bandpass=None,
@@ -518,6 +518,9 @@ def test_a_plane_named_twice_is_refused():
     grid, stored = gaussian()
     with pytest.raises(ProcessingError, match="not both"):
         compression.compress_taylor(run, plane=0, z=0.0)
+    # The last plane named explicitly is still a plane named.
+    with pytest.raises(ProcessingError, match="not both"):
+        compression.compress_taylor(run, plane=-1, z=0.0)
     with pytest.raises(ProcessingError, match="not both"):
         compression.apply_transfer(run, TaylorPhase((), WAVELENGTH), plane=0, z=0.0)
     with pytest.raises(ProcessingError, match="a spectrum is one plane"):

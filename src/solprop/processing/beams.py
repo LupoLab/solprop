@@ -77,7 +77,7 @@ def _radial_space(output: Output) -> RadialGrid:
 
 
 def _measured_plane(
-    output: Output, plane: int, z: float | None
+    output: Output, plane: int | None, z: float | None
 ) -> tuple[np.ndarray, SpatialFlux]:
     """Return one saved plane's spectrum and its measure, from the file alone.
 
@@ -154,7 +154,7 @@ def radial_spectrum(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
 ) -> tuple[
     Float[np.ndarray, " n_r"], Float[np.ndarray, " n_x"], Float[np.ndarray, "n_r n_x"]
@@ -167,11 +167,10 @@ def radial_spectrum(
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
-    plane : int, optional
+    plane : int or None, optional
         The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position instead, m: the nearest saved plane. Refused beside a `plane`
-        other than the default.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
 
     Returns
     -------
@@ -197,7 +196,7 @@ def far_field(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     angles: int = FAR_FIELD_ANGLES,
 ) -> tuple[
@@ -218,11 +217,10 @@ def far_field(
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
-    plane : int, optional
+    plane : int or None, optional
         The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position instead, m: the nearest saved plane. Refused beside a `plane`
-        other than the default.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     angles : int, optional
         How many angles to read onto, evenly spaced from the axis.
 
@@ -319,7 +317,7 @@ def fluence_along(
 
 
 def radial_intensity(
-    output: Output, *, plane: int = -1, z: float | None = None
+    output: Output, *, plane: int | None = None, z: float | None = None
 ) -> tuple[
     Float[np.ndarray, " n_r"], Float[np.ndarray, " n_t"], Float[np.ndarray, "n_r n_t"]
 ]:
@@ -329,11 +327,10 @@ def radial_intensity(
     ----------
     output : solprop.output.store.Output
         The run's output.
-    plane : int, optional
+    plane : int or None, optional
         The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position instead, m: the nearest saved plane. Refused beside a `plane`
-        other than the default.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
 
     Returns
     -------
@@ -356,7 +353,7 @@ def radial_intensity(
 def on_axis_power(
     output: Output,
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     oversampling: int = 1,
 ) -> tuple[Float[np.ndarray, " n_t"], Float[np.ndarray, " n_t"]]:
@@ -366,11 +363,10 @@ def on_axis_power(
     ----------
     output : solprop.output.store.Output
         The run's output.
-    plane : int, optional
+    plane : int or None, optional
         The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position instead, m: the nearest saved plane. Refused beside a `plane`
-        other than the default.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     oversampling : int, optional
         Factor by which to resample the time axis by zero-padding the spectrum, at
         least 1, as :func:`~solprop.processing.fields.get_power` does.
@@ -391,7 +387,7 @@ def on_axis_spectrogram(
     output: Output,
     axis: SpectralAxis = "wavelength",
     *,
-    plane: int = -1,
+    plane: int | None = None,
     z: float | None = None,
     time_range: tuple[float, float] | None = None,
     gate_fwhm: float | None = None,
@@ -412,11 +408,10 @@ def on_axis_spectrogram(
         The run's output.
     axis : {'f', 'omega', 'wavelength'}, optional
         The spectral abscissa.
-    plane : int, optional
+    plane : int or None, optional
         The plane, negative from the end; the last by default.
     z : float or None, optional
-        Its position instead, m: the nearest saved plane. Refused beside a `plane`
-        other than the default.
+        Its position instead, m: the nearest saved plane. Refused beside a `plane`.
     time_range : tuple of float or None, optional
         The time range the gate positions cover, s; the whole window by default.
     gate_fwhm : float or None, optional

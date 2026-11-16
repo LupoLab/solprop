@@ -84,14 +84,14 @@ def _source_part(source: object, name: str) -> object:
     return getattr(source, name)
 
 
-def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
+def _selected(output: Output, plane: int | None, z: float | None) -> tuple[int, float]:
     """Return the index and stored position of the plane a selection names.
 
-    - ``z``: position that must match a stored plane, m; refused beside a `plane`
-      other than the default.
+    - ``plane``: plane index, negative from the end; ``None``, the last.
+    - ``z``: position that must match a stored plane, m; refused beside a `plane`.
     - Returns: the index counted from the start, and its stored position in m.
     """
-    _check_plane_or_z(plane, z, default=-1)
+    _check_plane_or_z(plane, z)
     positions = np.asarray(output["z"], dtype=float)
     if positions.size == 0:
         msg = "the output holds no saved plane"
@@ -106,6 +106,7 @@ def _selected(output: Output, plane: int, z: float | None) -> tuple[int, float]:
             )
             raise ProcessingError(msg)
         return index, float(positions[index])
+    plane = -1 if plane is None else plane
     index = plane + positions.size if plane < 0 else plane
     if not 0 <= index < positions.size:
         msg = f"plane {plane} is out of range for {positions.size} saved planes"
@@ -184,7 +185,7 @@ def _plane_fluence(
 
 
 def fluence_map(
-    output: Output, plane: int = -1, *, z: float | None = None
+    output: Output, plane: int | None = None, *, z: float | None = None
 ) -> FluenceMap:
     """Lay one saved plane's fluence out on the run's transverse axes.
 
@@ -196,11 +197,12 @@ def fluence_map(
     ----------
     output : solprop.output.store.Output
         An opened memory or HDF5 output of a spatial run.
-    plane : int, optional
+    plane : int or None, optional
         Index of the saved plane, negative from the end; default the last.
     z : float or None, optional
         Position of the plane instead, m; it must be a stored plane's to
-        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted.
+        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted. Refused beside
+        a `plane`.
 
     Returns
     -------
@@ -446,7 +448,7 @@ def _general_parts(
 
 def field_plane(
     output: Output,
-    plane: int = -1,
+    plane: int | None = None,
     *,
     z: float | None = None,
     source: object | None = None,
@@ -467,11 +469,12 @@ def field_plane(
     ----------
     output : solprop.output.store.Output
         An opened memory or HDF5 output whose record carries its plane reference.
-    plane : int, optional
+    plane : int or None, optional
         Index of the saved plane, negative from the end; default the last.
     z : float or None, optional
         Position of the plane instead, m; it must be a stored plane's to
-        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted.
+        :data:`PLANE_TOLERANCE`. A nearby plane is never substituted. Refused beside
+        a `plane`.
     source : solprop.driver.Simulation or None, optional
         The simulation that wrote the output, for what the file deliberately does
         not embed: a general guide's E/H reference and a dense Gram, checked against

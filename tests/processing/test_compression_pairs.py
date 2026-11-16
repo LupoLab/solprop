@@ -254,7 +254,7 @@ def test_fixed_band_cannot_improve_trial_by_clipping():
         grid,
         as_optics(grid, stored),
         pair=target,
-        plane=-1,
+        plane=None,
         z=None,
         modes=None,
         bandpass=None,

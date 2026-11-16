@@ -129,12 +129,13 @@ def test_plane_field_refuses_a_plane_it_cannot_name(output, index, z, error, mes
 
 
 def test_plane_index_takes_the_last_plane_or_the_nearest_position(output):
-    assert axes._plane_index(output, -1, None) == -1
+    assert axes._plane_index(output, None, None) == -1
     assert axes._plane_index(output, 2, None) == 2
-    assert axes._plane_index(output, -1, 0.049) == 2
-    # A plane other than the default beside a position names two planes.
-    with pytest.raises(ProcessingError, match="not both"):
-        axes._plane_index(output, 1, 0.049)
+    assert axes._plane_index(output, None, 0.049) == 2
+    # Any plane beside a position names two planes, the last one included.
+    for plane in (1, -1):
+        with pytest.raises(ProcessingError, match="not both"):
+            axes._plane_index(output, plane, 0.049)
 
 
 def test_layout_reads_no_field(synthetic, monkeypatch):

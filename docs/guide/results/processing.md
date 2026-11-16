@@ -49,15 +49,14 @@ wavelength is undefined and asking for one raises.
 
 **Plane.** Every function of {py:mod}`solprop.processing` (and the compressors) selects
 a saved plane the same way: by index with `plane=` (negative from the end) or by position
-with `z=` (the nearest saved plane), never both. A function that returns **one** plane —
-the compressors, `apply_transfer`, `get_spectrogram`, the beam readers of
-{py:mod}`~solprop.processing.beams`, the reconstructions of
-{py:mod}`~solprop.processing.modal`, `fluence_map` and `field_plane` — reads the last
-plane by default (`plane=-1`), and `z=` beside any other `plane` raises
-{py:class}`~solprop.exceptions.ProcessingError`. The metrics and field accessors that can
-return **every** plane (`energy`, `peak_power`, `get_spectrum`, `get_power`,
-`physical_energy`, ...) take `plane=None` by default and then return them all with a
-leading `n_z` axis; giving both `plane` and `z` raises the same error. `fluence_map` and
+with `z=` (the nearest saved plane), never both: giving both raises
+{py:class}`~solprop.exceptions.ProcessingError`. Both default to `None`. With neither, a
+function that returns **one** plane — the compressors, `apply_transfer`,
+`get_spectrogram`, the beam readers of {py:mod}`~solprop.processing.beams`, the
+reconstructions of {py:mod}`~solprop.processing.modal`, `fluence_map` and `field_plane` —
+reads the last plane, and the metrics and field accessors that can return **every**
+plane (`energy`, `peak_power`, `get_spectrum`, `get_power`, `physical_energy`, ...)
+return them all with a leading `n_z` axis. `fluence_map` and
 `field_plane` read a plane for a coupling or a map, so their `z=` must be a stored
 plane's position rather than the nearest one.
 
