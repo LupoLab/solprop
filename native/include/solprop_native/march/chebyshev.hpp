@@ -29,7 +29,7 @@
  * weights whose difference is a stage's phase increment (solprop SEP 25 section 4.2).
  *
  * The functions are callable from host and device code; the host bindings are in
- * src/bindings_helpers.cpp.
+ * src/bindings/helpers.cpp.
  */
 namespace solprop_native::chebyshev {
 

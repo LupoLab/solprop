@@ -11,7 +11,7 @@ namespace solprop_native::bindings {
 /**
  * Add the host helpers solprop's per-stage and per-step evaluations take from this
  * backend to the extension module: `clenshaw_points`, `basis_rows` and
- * `trial_tables` (bindings_helpers.cpp); and the vector-maths layer's batch functions,
+ * `trial_tables` (helpers.cpp); and the vector-maths layer's batch functions,
  * for its tests, to the private `testing` module.
  */
 void bind_helpers(nanobind::module_& module_, nanobind::module_& testing);

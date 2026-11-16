@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "bindings_transverse.hpp"
+#include "transverse.hpp"
 
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/optional.h>
