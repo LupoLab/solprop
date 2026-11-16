@@ -54,18 +54,6 @@ constexpr std::uint64_t temporal_integration = statistics_plasma_integration;
 /** The parts of the plasma integration diagnostics, packed last. */
 constexpr std::size_t integration_parts = 6;
 
-// `GeneralState::spatial_statistics`' scalar flags.
-constexpr std::uint64_t spatial_energy = 1;
-constexpr std::uint64_t spatial_axis = 2;
-constexpr std::uint64_t spatial_peak = 4;
-constexpr std::uint64_t spatial_spectrum = 8;
-/** The widths' fluence block: the signed fluence at each node, the axis fluence and
-    the largest magnitude. */
-constexpr std::uint64_t spatial_fluence = 16;
-/** A Cartesian plane's fluence moments, which hold its scaled profile for the trace. */
-constexpr std::uint64_t spatial_moments = 32;
-constexpr std::size_t plane_moments = 8;
-
 // `GeneralState::aperture_statistics`' flags (far_field.hpp), packed in this order.
 constexpr std::uint64_t far_beam = 1ULL << 5U;
 constexpr std::uint64_t far_absorbed = 1ULL << 7U;
@@ -509,7 +497,7 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
     const bool plane = plan.widths == Widths::plane;
     const auto packed = state.spatial_statistics(
         plane ? spatial_moments : spatial_fluence, plan.intensity_factor, z);
-    if (packed.size() != (plane ? plane_moments : plan.n_nodes + 2))
+    if (packed.size() != (plane ? plane_moment_slots : plan.n_nodes + 2))
       throw std::logic_error("a fluence pass packed the wrong number of values");
     const auto values =
         plane ? widths::of_plane(state, plan, packed) : widths::of_block(plan, packed);

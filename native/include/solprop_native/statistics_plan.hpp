@@ -268,13 +268,14 @@ namespace widths {
                                          const std::vector<double>& samples,
                                          double e2_fraction);
 
-/** The widths of a separable or radial fluence block, `spatial_statistics` flag 16:
-    the signed fluence at each node, the axis fluence and the largest magnitude. */
+/** The widths of a separable or radial fluence block, `spatial_statistics` flag
+    `spatial_fluence`: the signed fluence at each node, the axis fluence and the
+    largest magnitude. */
 [[nodiscard]] std::array<double, 3> of_block(const Plan& plan,
                                              const std::vector<double>& block);
 
-/** A Cartesian plane's widths from its moments, flag 32, and the trace `state` forms
-    of the scaled fluence those moments left. */
+/** A Cartesian plane's widths from its moments, flag `spatial_moments`, and the
+    trace `state` forms of the scaled fluence those moments left. */
 [[nodiscard]] std::array<double, 3> of_plane(GeneralState& state, const Plan& plan,
                                              const std::vector<double>& moments);
 

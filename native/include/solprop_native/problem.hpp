@@ -47,6 +47,23 @@ enum StatisticsFlag : std::uint64_t {
   statistics_plasma_integration = 1ULL << 12U,
 };
 
+// `GeneralState::spatial_statistics`' scalar flags.
+inline constexpr std::uint64_t spatial_energy = 1;
+inline constexpr std::uint64_t spatial_axis = 2;
+inline constexpr std::uint64_t spatial_peak = 4;
+inline constexpr std::uint64_t spatial_spectrum = 8;
+/** The widths' fluence block: the signed fluence at each node, the axis fluence and
+    the largest magnitude. */
+inline constexpr std::uint64_t spatial_fluence = 16;
+/** A Cartesian plane's fluence moments, which hold its scaled profile for the trace. */
+inline constexpr std::uint64_t spatial_moments = 32;
+/** Every spatial flag. */
+inline constexpr std::uint64_t spatial_flags = spatial_energy | spatial_axis |
+                                               spatial_peak | spatial_spectrum |
+                                               spatial_fluence | spatial_moments;
+// What a Cartesian plane's widths read of its fluence (`plane_fluence_moments`).
+inline constexpr std::size_t plane_moment_slots = 8;
+
 /** The widest band rule solprop designs (SEP 18 section 5): K <= 8, so 9 taps. */
 inline constexpr std::size_t plasma_max_taps = 9;
 

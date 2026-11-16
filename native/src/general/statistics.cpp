@@ -1545,12 +1545,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
         "spatial statistics need an initial field and spatial geometry");
   if (flux_.square.empty())
     throw std::logic_error("spatial statistics need the run's plane measure");
-  if ((flags & ~std::uint64_t{63}) != 0 || !std::isfinite(intensity_factor) ||
+  if ((flags & ~spatial_flags) != 0 || !std::isfinite(intensity_factor) ||
       intensity_factor <= 0.0 || !std::isfinite(z))
     throw std::invalid_argument(
         "invalid spatial statistic flags, intensity factor or position");
-  if ((flags & 32U) != 0 && (!problem_.free_geometry() || problem_.slab_geometry() ||
-                             problem_.spatial.n_y < 2))
+  if ((flags & spatial_moments) != 0 &&
+      (!problem_.free_geometry() || problem_.slab_geometry() ||
+       problem_.spatial.n_y < 2))
     throw std::invalid_argument("a plane's fluence moments need a Cartesian plane");
   constexpr double lowest = std::numeric_limits<double>::lowest();
   std::size_t packed_size = 0;
@@ -1562,17 +1563,18 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
     packed_size = checked_sum(packed_size, count, "spatial statistics output");
     return offset;
   };
-  const auto energy_offset = reserve(1, 1);
-  const auto axis_peak_offset = reserve(2, 1);
-  const auto peak_offset = reserve(4, 1);
-  const auto spectrum_offset = reserve(8, problem_.dims.n_omega);
+  const auto energy_offset = reserve(spatial_energy, 1);
+  const auto axis_peak_offset = reserve(spatial_axis, 1);
+  const auto peak_offset = reserve(spatial_peak, 1);
+  const auto spectrum_offset = reserve(spatial_spectrum, problem_.dims.n_omega);
   // Widths read the signed fluence at the nodes, the separately reconstructed axis,
   // which only a radial width reads, and the largest magnitude, which fixes the
   // fluence's rounding budget (solprop SEP 34).
   const auto fluence_offset =
-      reserve(16, checked_sum(problem_.dims.n_nodes, 2, "spatial statistics output"));
+      reserve(spatial_fluence,
+              checked_sum(problem_.dims.n_nodes, 2, "spatial statistics output"));
   // On a Cartesian plane the widths reduce here instead, and the moments cross.
-  const auto moments_offset = reserve(32, plane_moment_slots);
+  const auto moments_offset = reserve(spatial_moments, plane_moment_slots);
   if (packed_size == 0)
     return {};
   if (statistics_packed_.size() < packed_size) {
@@ -1581,7 +1583,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   }
   // Every field statistic is the axial flux of the medium at the plane z.
   flux_at(z);
-  const bool local = (flags & (2U | 4U | 16U | 32U)) != 0;
+  const bool local =
+      (flags & (spatial_axis | spatial_peak | spatial_fluence | spatial_moments)) != 0;
   if (local)
     require_flux_closure();
   const auto packed = statistics_packed_;

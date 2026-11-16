@@ -19,9 +19,6 @@ namespace solprop_native {
 // Refuse a problem the workspace cannot run, before it allocates (checks.cpp).
 void require_general_problem(const Problem& problem);
 
-// What a Cartesian plane's widths read of its fluence (`plane_fluence_moments`).
-inline constexpr std::size_t plane_moment_slots = 8;
-
 class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem);
