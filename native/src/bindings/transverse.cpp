@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The transverse edge's bindings (transverse.hpp, solprop SEP 47 section 6.4): its
+// configuration, resumption, launch noise and readings read from solprop's
+// dictionaries key by key, its record and notices written back, and the
+// `TransverseEdge` class for the recorded-readings harness.
+
 #include "transverse.hpp"
 
 #include <nanobind/ndarray.h>

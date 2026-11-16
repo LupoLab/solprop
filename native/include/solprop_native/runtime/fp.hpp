@@ -4,6 +4,13 @@
 
 #pragma once
 
+// Strict floating-point blocks (solprop SEP 25): the `SOLPROP_NATIVE_STRICT_FUNCTION`
+// and `SOLPROP_NATIVE_STRICT_BLOCK` macros that keep a function's arithmetic as written
+// under the CPU builds' contraction, and the strict complex helpers a protected block
+// spells its arithmetic with (`strict_add`, `strict_sub`, `strict_scale`, `strict_mul`,
+// `strict_norm`, `strict_accumulate` and `strict_divide`). The note below gives the
+// policy, the formulas it protects and each compiler's form.
+
 #include <Kokkos_Core.hpp>
 
 /*

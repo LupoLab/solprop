@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// solprop SEP 28 section 4.2's reference timings (reference_timing.hpp): a rank-3
+// Kokkos-FFT forward-then-backward pair on the FFT execution space, and a scaled copy
+// between two complex volumes first touched in parallel, each timed per repeat after
+// untimed warm-up repeats.
+
 #include "solprop_native/transforms/reference_timing.hpp"
 
 #include "solprop_native/runtime/cpu_execution.hpp"

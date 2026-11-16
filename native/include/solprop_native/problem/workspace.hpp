@@ -4,6 +4,17 @@
 
 #pragma once
 
+// The native workspace (solprop SEP 52 section 5.3): one problem's state, built once
+// and reused across the runs of a scan, with every set-once table, guard and geometry
+// applied from the problem's `Setup`; the lease between it and the one session or
+// probe that uses it; the coupled flow's guard; the marches' construction from a run's
+// records; and the timing probe of section 5.5.
+//
+// Types: `Workspace` (the state, its setup, lease, marches, runs and probes), `Run` (a
+// session over the leased workspace, with the reads only the workspace can make),
+// `Probe` (march trials that commit nothing) and `MethodKind` (which march the setup
+// configures).
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/engines.hpp"
@@ -27,17 +38,9 @@
 #include <variant>
 #include <vector>
 
-/*
- * The native workspace (solprop SEP 52 section 5.3): one problem's state, built once
- * and reused across the runs of a scan, with every set-once table, guard and geometry
- * applied from the problem's `Setup`; the lease between it and the one session or
- * probe that uses it; the coupled flow's guard; the marches' construction from a run's
- * records; and the timing probe of section 5.5.
- */
 namespace solprop_native {
 
-// ------------------------------------------------------------------------ the
-// workspace
+// ------------------------------------------------------------------ the workspace
 
 /** Which march a workspace runs, from its setup: the Adams march with its history,
     the low-storage replay with its settings, or else the Runge-Kutta march. */

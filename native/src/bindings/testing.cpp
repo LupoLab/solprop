@@ -2,6 +2,17 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The private `_testing` module (solprop SEP 52 section 6.5): every entry point that
+// only solprop's own tests reach, shipped in the wheel and promising nothing
+// (`bind_testing`), and native's engines through solprop's Python protocols for the
+// engine-level parity tests (`bind_engines`).
+//
+// Types: `TestState` (a workspace's state for the entry points that read or step it,
+// holding no lease), `TestEngines` (the configured engines, leasing the workspace),
+// `ScriptedMarch` and `ScriptedRkMarch` (the decision-trace tests' scripted marches).
+// Functions: the trial-scalar and Adams-table readers, `round_trip` (a record through
+// its table and back) and `bind_testing`'s one table of entry points.
+
 #include "arrays.hpp"
 #include "bind.hpp"
 #include "march.hpp"
@@ -311,10 +322,6 @@ nb::dict round_trip(const std::string& name, const nb::handle value) {
   native::refuse("no record is named '", name, "'");
 }
 
-// solprop SEP 52 section 6.5: native's engines through solprop's Python protocols
-// (`solprop.backends.engines`), for the engine-level parity tests, with a read-back of
-// the field and of a stage register. The object leases the workspace while it lives,
-// as a session does.
 // A test's view of a workspace's state, for the `_testing` entry points that read or
 // step it directly (solprop SEP 52 section 6.5): it owns nothing and holds no lease, so
 // each call refuses while a session or probe holds the workspace.
@@ -458,6 +465,10 @@ private:
   native::Workspace* workspace_;
 };
 
+// solprop SEP 52 section 6.5: native's engines through solprop's Python protocols
+// (`solprop.backends.engines`), for the engine-level parity tests, with a read-back of
+// the field and of a stage register. The object leases the workspace while it lives,
+// as a session does.
 class TestEngines {
 public:
   explicit TestEngines(BoundWorkspace& owner) : owner_(&owner.workspace()) {

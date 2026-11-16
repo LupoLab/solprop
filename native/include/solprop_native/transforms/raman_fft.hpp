@@ -4,6 +4,13 @@
 
 #pragma once
 
+// The Raman response's real-row FFT plans (`RamanFftPlan`): on macOS with
+// `SOLPROP_NATIVE_RAMAN_ACCELERATE`, Accelerate's vDSP (`AccelerateRamanPlan`, in
+// src/transforms/raman_fft.cpp) for contiguous power-of-two rows where it beats FFTW,
+// and otherwise Kokkos-FFT's plan, FFTW-seeded on the host as every row transform is.
+// `execute_raman` runs a plan; `provider` and `tasks` report the choice for the
+// workspace's diagnostics.
+
 #include "solprop_native/runtime/launch.hpp"
 #include "solprop_native/transforms/fft_plan.hpp"
 

@@ -4,19 +4,17 @@
 
 #pragma once
 
+// The transverse edge's bindings (solprop SEP 47 section 6.4): its record and its
+// notices, to solprop's dictionaries (`solprop_native._transverse`), and
+// `TransverseEdge`, the edge itself, for the recorded-readings harness, which reads
+// its configuration, the record a resume continues and a launch's noise readings
+// (transverse.cpp). module.cpp's session record and events use the two writers.
+
 #include "solprop_native/session/transverse.hpp"
 
 #include <nanobind/nanobind.h>
 
 namespace solprop_native::bindings {
-
-/*
- * The transverse edge's bindings (solprop SEP 47 section 6.4): its record and its
- * notices, to solprop's dictionaries (`solprop_native._transverse`), and
- * `TransverseEdge`, the edge itself, for the recorded-readings harness, which reads
- * its configuration, the record a resume continues and a launch's noise readings
- * (transverse.cpp).
- */
 
 /** The edge's record and finish, as `_transverse.record_of` reads them. */
 nanobind::dict transverse_record_to(const transverse::Record& record,

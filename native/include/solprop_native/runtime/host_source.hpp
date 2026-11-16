@@ -4,23 +4,25 @@
 
 #pragma once
 
+// A source the host evaluates for the resident Adams march (solprop SEP 49 section
+// 6.2): a lab-frame field in, a spectral source out, and an attempt's start and end.
+// It knows nothing of what evaluates it; solprop's TDSE response is its first user,
+// through the binding layer, which wraps a Python object and takes the interpreter
+// lock for each call. The engine calls it from the thread that called `advance`,
+// outside every parallel region, and only on a CPU build: a device build refuses a
+// problem that needs one before anything is allocated.
+//
+// Python-free: an exception the host raises reaches the march as a `HostSourceError`,
+// the original kept by the binding layer for solprop's session to raise.
+//
+// Types: `HostSource` (the interface: `begin`, `evaluate` and `end`), `HostPurpose` and
+// `HostOutcome` (an evaluation's label and an attempt's ending), `HostSourceError`.
+
 #include <complex>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 
-/*
- * A source the host evaluates for the resident Adams march (solprop SEP 49 section
- * 6.2): a lab-frame field in, a spectral source out, and an attempt's start and end.
- * It knows nothing of what evaluates it; solprop's TDSE response is its first user,
- * through the binding layer, which wraps a Python object and takes the interpreter
- * lock for each call. The engine calls it from the thread that called `advance`,
- * outside every parallel region, and only on a CPU build: a device build refuses a
- * problem that needs one before anything is allocated.
- *
- * Python-free: an exception the host raises reaches the march as a `HostSourceError`,
- * the original kept by the binding layer for solprop's session to raise.
- */
 namespace solprop_native {
 
 /** Why an evaluation is made, the march's label for it (solprop's `TDSEPurpose`). */

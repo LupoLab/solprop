@@ -4,15 +4,22 @@
 
 #pragma once
 
+// The host FFTW plan policy and wisdom (solprop SEP 46, ADR-076): the effort a
+// transform is seeded at, the workspace's planning and the process's wisdom as text.
+// Plan-time code only. fftw3.h stays in fftw_wisdom.cpp and in fft_plan.hpp, which
+// seeds row transforms through these. A device build keeps only an empty
+// `FftPlanningScope`: cuFFT and rocFFT keep no wisdom.
+//
+// Types: `FftShape` (rows or transverse planes), `FftPlanningScope` (the calling
+// thread's planning while a workspace builds), `PlanAlone` (a timed plan).
+// Functions: the policy (`fftw_seed_effort`, `fftw_effort_flag`); a seed's transaction
+// (`begin_seed`, `end_seed`, keyed by `fft_plan_key`); the process's wisdom
+// (`export_fftw_wisdom`, `import_fftw_wisdom`, `forget_fftw_wisdom`); `time_fft_plan`;
+// and `seed_fftw_wisdom`, a transverse plane's seed.
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
 
-/*
- * The host FFTW plan policy and wisdom (solprop SEP 46, ADR-076): the effort a
- * transform is seeded at, the workspace's planning and the process's wisdom as text.
- * Plan-time code only. fftw3.h stays in fftw_wisdom.cpp and in fft_plan.hpp, which
- * seeds row transforms through these.
- */
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <optional>
 #include <string>

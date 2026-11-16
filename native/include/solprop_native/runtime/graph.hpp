@@ -4,6 +4,17 @@
 
 #pragma once
 
+// Device graph replay (`solprop_native::graph`, CUDA or HIP): a `Region` records the
+// device operations of a repeated host region, captures them once into a graph and,
+// while a later run issues the same operations in order, launches the instantiated
+// graph in their place. The note on the namespace below gives why a match replays
+// exactly and what disables a region.
+//
+// Types: `Region`, `Key` (an operation's identity) and `Admit`. Functions: the
+// recording `parallel_for` and `deep_copy` (`graph::execute`, a transform's, is in
+// transforms/fft_plan.hpp), `operation` and `unrecordable`. Host builds, and builds
+// with `SOLPROP_NATIVE_DEVICE_GRAPH=OFF`, keep only a `Region` that runs its code.
+
 #include <Kokkos_Core.hpp>
 
 #include <utility>

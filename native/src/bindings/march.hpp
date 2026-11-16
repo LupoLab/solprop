@@ -4,18 +4,19 @@
 
 #pragma once
 
+// The native marches' records from and to solprop's dictionaries (march.cpp): the
+// Adams march's policy, state, bounds and result (solprop SEP 39 phase 2), the
+// Runge-Kutta march's state and result, and the boundary watch's policy, state,
+// configuration, record and judgement (solprop SEP 45 phase 1, SEP 47 section 6.4).
+// A reader is named `..._from` and a writer `..._to`; testing.cpp and module.cpp call
+// them.
+
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/rk_march.hpp"
 #include "solprop_native/session/watch.hpp"
 
 #include <nanobind/nanobind.h>
 
-/*
- * The native marches' records from and to solprop's dictionaries (march.cpp): the
- * Adams march's policy, state, bounds and result (solprop SEP 39 phase 2), the
- * Runge-Kutta march's state and result, and the boundary watch's policy, state,
- * configuration, record and judgement (solprop SEP 45 phase 1, SEP 47 section 6.4).
- */
 namespace solprop_native::bindings {
 
 namespace nb = nanobind;

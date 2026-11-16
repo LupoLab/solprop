@@ -4,6 +4,18 @@
 
 #pragma once
 
+// The entry points of the extension's binding files and the declarations they share.
+// module.cpp's `NB_MODULE(_core, ...)` calls the entry points in one fixed order, which
+// the type names in later signatures and the generated stubs depend on: the problem
+// (problem.cpp), the session, workspace and probe classes (module.cpp), then the
+// private `_testing` module: `bind_helpers` (helpers.hpp), `bind_transverse`
+// (transverse.hpp), `bind_testing` and `bind_engines` (testing.cpp). runtime.cpp holds
+// the runtime's configuration, its library lookups and the build record; march.cpp the
+// marches' records (march.hpp); module.hpp the classes the test entry points take.
+//
+// Types: `Owned` (a native object the runtime closes before Kokkos is finalised) and
+// `RuntimeRecord` (the runtime's one record, with its field table).
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/fields.hpp"
 
@@ -11,16 +23,6 @@
 
 #include <optional>
 
-/*
- * The entry points of the extension's binding files and the declarations they share.
- * module.cpp's `NB_MODULE(_core, ...)` calls the entry points in one fixed order, which
- * the type names in later signatures and the generated stubs depend on: the problem
- * (problem.cpp), the session, workspace and probe classes (module.cpp), then the
- * private `_testing` module: `bind_helpers` (helpers.hpp), `bind_transverse`
- * (transverse.hpp), `bind_testing` and `bind_engines` (testing.cpp). runtime.cpp holds
- * the runtime's configuration, its library lookups and the build record; march.cpp the
- * marches' records (march.hpp); module.hpp the classes the test entry points take.
- */
 namespace solprop_native::bindings {
 
 namespace nb = nanobind;

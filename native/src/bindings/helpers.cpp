@@ -2,6 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Host bindings of the helpers solprop's shared evaluations take from the backend
+// that runs them (solprop SEP 29 section 6.6, R2): the stage scalars' Chebyshev rows,
+// the Adams basis and an exponential Adams trial's coefficient tables, formed from
+// that basis in one call. Each is a call of a microsecond or less on a few hundred
+// numbers, so the GIL is held, nothing is allocated, and every array is the caller's:
+// its dtype, rank, C-contiguity and shape are checked exactly and nothing is
+// converted. The host vector-maths layer's batch functions (vmath.hpp) are bound the
+// same way, for its accuracy tests against a high-precision reference.
+//
+// `bind_helpers` puts `clenshaw_points` on the extension module, and `basis_rows`,
+// `trial_tables` and the vector functions on the private `_testing` module.
+
 #include "helpers.hpp"
 
 #include "solprop_native/march/chebyshev.hpp"
@@ -19,16 +31,6 @@
 #include <string>
 #include <vector>
 
-/*
- * Host bindings of the helpers solprop's shared evaluations take from the backend
- * that runs them (solprop SEP 29 section 6.6, R2): the stage scalars' Chebyshev rows,
- * the Adams basis and an exponential Adams trial's coefficient tables, formed from
- * that basis in one call. Each is a call of a microsecond or less on a few hundred
- * numbers, so the GIL is held, nothing is allocated, and every array is the caller's:
- * its dtype, rank, C-contiguity and shape are checked exactly and nothing is
- * converted. The host vector-maths layer's batch functions (vmath.hpp) are bound the
- * same way, for its accuracy tests against a high-precision reference.
- */
 namespace solprop_native::bindings {
 namespace {
 

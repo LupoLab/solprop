@@ -4,6 +4,17 @@
 
 #pragma once
 
+// The engine's dense real products, `c = a * b + beta * c`, and each build's kernel for
+// them. `selected_gemm`, the hybrid provider, takes `engine_gemm` for an eligible
+// transform and the custom kernel (`custom_gemm`) for the rest. `engine_gemm` takes the
+// device kernel (`device_dense_gemm`) on an FP64-poor NVIDIA GA10x, KokkosBlas's own
+// arithmetic through the faster host kernel `native_order_gemm` on a host build without
+// a vendor BLAS, and the vendor BLAS through KokkosBlas otherwise.
+// `one_mode_projection` and `one_mode_synthesis` form a single mode's products on the
+// caller's team
+// (`one_mode_products_enabled`). Each kernel's comment gives its measured evidence and
+// the rounding it keeps.
+
 #include "solprop_native/runtime/launch.hpp"
 
 #include <KokkosBlas3_gemm.hpp>

@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The host FFTW plan policy and wisdom of fftw_wisdom.hpp (solprop SEP 46, ADR-076):
+// the effort policy and its `SOLPROP_FFTW_PLAN` override, the process's wisdom as text,
+// the calling thread's planning (`FftPlanningScope`) and each seed's transaction
+// (`begin_seed`, `end_seed`, a transform with stored wisdom planned alone), the plan
+// key, a plan's execution timed alone (`time_fft_plan`, solprop issue #595) and the
+// transverse planes' seed. Host builds only: a device build compiles nothing here.
+
 #include "solprop_native/transforms/fftw_wisdom.hpp"
 
 #include "solprop_native/runtime/cpu_execution.hpp"

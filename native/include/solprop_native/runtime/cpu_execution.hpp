@@ -4,6 +4,23 @@
 
 #pragma once
 
+// The host CPU execution policy (solprop SEP 46): how wide each kernel, transform and
+// product runs, from the process's thread pools and a workspace's CPU execution record,
+// and the scopes that keep a compact problem's OpenMP, FFTW and OpenBLAS work on one
+// team. Device builds dispatch as Kokkos does.
+//
+// Types: `ThreadPolicy` (the process-start pool capacities and the band column's form);
+// `CpuOperation`, `CpuPool`, `OperationGrain` and `CpuExecution` (the operation
+// classes, their pools and grains: solprop's execution record); `FftPlanning` (how a
+// workspace plans its host FFTW transforms, and what planning found);
+// `CpuExecutionPool` (a workspace's execution instances, by width); `CpuTeamScope` (a
+// native call's team).
+//
+// Functions: `configure_thread_policy` and `thread_policy`, `execution_instance`,
+// `operation_threads` (a width, without side effects), `require_cpu_execution`,
+// `row_length`, `fftw_team_loops`, `register_openmp_blas`, `configure_native_spin`, and
+// the test hooks `scoped_block_time` and `scoped_openmp_default`.
+
 #include "solprop_native/runtime/execution.hpp"
 
 #include <array>

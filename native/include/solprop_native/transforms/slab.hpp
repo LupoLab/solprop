@@ -4,6 +4,10 @@
 
 #pragma once
 
+// The hybrid planar kind's real slab rule in x, applied to whole y rows in time
+// (`slab_contract`): the slab synthesis and projection, shared by the engine's planar
+// stage and SEP 6's dispersive response.
+
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/launch.hpp"
 

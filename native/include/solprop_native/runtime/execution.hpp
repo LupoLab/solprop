@@ -4,6 +4,13 @@
 
 #pragma once
 
+// The backend's Kokkos vocabulary: the execution and memory spaces, the layout, the
+// complex type and the one-dimensional views every unit uses (`ExecutionSpace`,
+// `MemorySpace`, `Layout`, `Complex`, `ComplexView`, `RealView` and their const forms),
+// and the two-dimensional range whose last index runs fastest (`Range2Policy`, made by
+// `Range2`, which tiles it on the host by `host_range2_tile`). It also gives `Complex`
+// its NumPy dtype for the field tables (`fields.hpp`) and fixes `general_vector_lanes`.
+
 #include "solprop_native/runtime/fields.hpp"
 
 #include <Kokkos_Complex.hpp>

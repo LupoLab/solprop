@@ -4,6 +4,16 @@
 
 #pragma once
 
+// The field-table converter between Python records and the C++ records of `fields.hpp`
+// (solprop SEP 52 section 5.3), as one set of templates: `read` a dataclass, mapping or
+// tuple into a new record, `write_record` and `write_value` a record back as a
+// dictionary, and `collect` each table's schema for `_core.schemas()`. The note on the
+// namespace below gives what reading checks and how a refusal names its field.
+//
+// Types: `Source` (the fields a Python record offers), `Borrowed` (a checked array),
+// `Symbols` (the symbols the extents bind), `Extern` (the hook for a bound type a table
+// names) and the trait `FieldKind`. The non-template helpers are in records.cpp.
+
 #include "solprop_native/runtime/fields.hpp"
 
 #include <nanobind/nanobind.h>

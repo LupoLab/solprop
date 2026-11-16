@@ -4,6 +4,18 @@
 
 #pragma once
 
+// The Python-free problem a native state is built from (`Problem`): fixed data grouped
+// as solprop's kernel contract groups it, filled field by field through each group's
+// field table, and checked by `validate` before a state allocates anything.
+//
+// Types: `Problem` and its groups (`Dims`, `Grid`, `Spatial`, `Flux`, `Stepper`,
+// `Linear`, `Absorber`, `Transform`, `Kerr`, `Plasma`, `Raman`, `General`, `Flow`,
+// `Dispersive`), with its CPU execution record, FFT planning and shared set-once
+// `Setup` (run_records.hpp); `FieldFamily`; the statistics and spatial-statistics
+// flags; the plasma column's bounds (`plasma_max_taps`, `plasma_diagnostic_parts`).
+// Functions: each group's `describe` (its field table, solprop SEP 52 section 5.3) and
+// `compact_problem` (whether a problem runs on a compact CPU team).
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/fields.hpp"

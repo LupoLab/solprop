@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The field-table converter's non-template helpers (records.hpp): the refusals and
+// field paths, the Python type checks, `Source` over a dataclass (its field names read
+// once per type and each looked up by an interned name), a mapping or a tuple,
+// `borrow`'s array checks, the extents' relations (`relate`), and owned NumPy arrays
+// (`owned_array`).
+
 #include "records.hpp"
 
 #include <nanobind/stl/string.h>

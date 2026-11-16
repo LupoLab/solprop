@@ -4,11 +4,13 @@
 
 #pragma once
 
+// The build's facts as constants -- `cuda`, `hip`, `device`, `host` and `openmp` in
+// `solprop_native::build` -- for `if constexpr` where both branches compile in every
+// build (CPU, CUDA and HIP); code that names a device or host-only facility keeps its
+// `#if`.
+
 #include <Kokkos_Macros.hpp>
 
-/** The build's facts as constants, for `if constexpr` where both branches compile in
-    every build (CPU, CUDA and HIP); code that names a device or host-only facility
-    keeps its `#if`. */
 namespace solprop_native::build {
 
 #ifdef KOKKOS_ENABLE_CUDA

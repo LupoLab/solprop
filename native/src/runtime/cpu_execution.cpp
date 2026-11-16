@@ -2,6 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The host CPU execution policy of cpu_execution.hpp (solprop SEP 46): the process's
+// thread policy and an execution instance of a width, an operation's width from its
+// grain (`operation_threads`), and `CpuExecutionPool::get`, which also records the
+// sizing a workspace reports. A `CpuTeamScope` runs FFTW's threaded loops on a compact
+// problem's team (through FFTW's loop callback), holds an OpenMP OpenBLAS at one
+// thread, gives the thread the runtime's OpenMP default width, and sets LLVM OpenMP's
+// spin time for a native call; the comments at each give the measured reason.
+
 #include "solprop_native/runtime/cpu_execution.hpp"
 
 #include "solprop_native/runtime/execution.hpp"

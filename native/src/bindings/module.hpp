@@ -4,6 +4,16 @@
 
 #pragma once
 
+// The classes module.cpp binds that the private `_testing` entry points (testing.cpp)
+// also take: the workspace and the statistics plan. A session, a probe and a host
+// source are module.cpp's alone, so the workspace members that make them are defined
+// there.
+//
+// Types: `BoundWorkspace` (a problem's native workspace, bound as `Workspace`, which
+// the runtime closes as an `Owned`), `BoundStatisticsPlan` (a statistics evaluation
+// lowered once from the problem), and the `records::Extern` specialisation through
+// which a run's start names bound plans.
+
 #include "bind.hpp"
 #include "records.hpp"
 #include "solprop_native/problem/problem.hpp"
@@ -25,12 +35,6 @@
 #include <utility>
 #include <vector>
 
-/*
- * The classes module.cpp binds that the private `_testing` entry points (testing.cpp)
- * also take: the workspace and the statistics plan. A session, a probe and a host
- * source are module.cpp's alone, so the workspace members that make them are defined
- * there.
- */
 namespace solprop_native::bindings {
 
 class BoundSession;

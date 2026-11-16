@@ -4,6 +4,11 @@
 
 #pragma once
 
+// The backend's refusals: the exception types solprop maps to its own errors
+// (`EnvelopeConvergenceError` and `BackendRefusal`, which the extension registers as
+// Python exceptions), and `refuse`, which throws an error whose message `concat` builds
+// from text and numbers.
+
 #include <stdexcept>
 #include <string>
 #include <string_view>
