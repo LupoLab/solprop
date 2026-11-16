@@ -1221,6 +1221,94 @@ monitor resumes through its own `BoundaryMonitor` path: all three go with the dr
 private-import count is at its cap (87), because `records.py` reads two private monitor
 names.
 
+### Milestone 3 (the rest of phase 3) — 2026-11-16
+
+Branch `feature/sep-0052-backend-shape-p3`, stacked on milestone 2, by Opus 5.5 (AI) for
+John Travers. Two steps were developed by AI agents one after the other and merged:
+the workspace, engines and marches (`56101a60`, `48436c62`, `f2db1084`), then the session
+and the deletion of `HostDriver` (`8afa8465`, `2ba96039`, `090c6ae7`, `19e10596`,
+`85643973`).
+
+**Delivered.**
+
+- *`NumpyWorkspace`* (`numpy_ref/workspace.py`) holds the state and every state-sized
+  operation, with no march state: load and install, mask, finish (which takes the split
+  collar's sums on the masked field before the temporal split, where `_finish` took them,
+  and returns them in an `AcceptRecord`), the stage bundles and scalars, the source, the
+  propagator, the coupled block, the residual, the flow actions, the error norm, the
+  statistics, the boundary and edge readings, the quadrature reading, the noise, the TDSE
+  ledger operations, the metadata and the memory ledger. The `_adams_*` hooks became
+  march-neutral operations (the naming item of #344). `numpy_ref/backend.py` went from
+  about 2,920 lines to about 550.
+- *Engines* implementing §5.2: `NumpyRungeKutta` (`numpy_ref/engines.py`) keeps its
+  stages and trial and commits only at `accept`; `HostLowStorage` is the same
+  `RungeKuttaEngine`, with the destructive trial, the in-flight interval and the stiffness
+  in its `AcceptRecord`; `HostHistory` implements the new `AdamsEngine`, with the retained
+  history passed to `accept`, `step_carrier` and the TDSE reservation as
+  `begin_attempt`/`end_attempt`. The old `AdamsEngine` and `LowStorageEngine` protocols
+  are deleted.
+- *Marches that own their state* (`host/marches.py`, `host/runge_kutta.py`, `host/adams.py`,
+  `host/low_storage.py`): the new `RungeKuttaMarch` (adaptive and replayed) and the
+  rewritten Adams and low-storage marches hold position, proposal, schedule index,
+  accepted norms and ledgers in their own state, and write no other object's fields. The
+  Adams attempt follows native's: an accepted attempt ends before its floor is raised.
+- *`HostSession` owns the schedule* (`host/session.py`), in `session.cpp`'s order: planes,
+  step planes, natural stops, yields, the snapshot latch, halts, the dense hold and
+  observation (`numpy_ref/dense.py`, `RungeKuttaDense` and `AdamsDense`, the exponential
+  observation applying the step's carrier rotations), periodic rows, the Adams rows
+  (`AdamsRows`), the load and noise, the monitor and edge checks with the split sums
+  accumulated from `AcceptRecord`s under the pinned rules, the quadrature report, events
+  and exports. The engines lost `reset`, `hold`, `restore`, `observe`, `value` and their
+  snapshot members; the backend builds a fresh march and engines per run.
+- *Deleted:* `host/driver.py`, `HostStepping`, `stepping()` and the three periodic
+  statistics storage hooks.
+- *Boundary warnings are `WARNING` barrier events* on the reference too: the monitor and
+  the transverse edge take a sink, and warn directly only when used on their own. The
+  service loop's `HostSession` special case is gone; both sessions report through
+  `execution_record`. Warnings-as-errors, the warning text and the saved field are
+  unchanged, so there is no changelog fragment.
+- *Tests:* about 135 test files changed, ported to sessions, the workspace and engines
+  (`builders.load_reference`, `builders.reference_trial`), or scripted engines, which now
+  host the real marches in `HostScriptedDriver`, `HostSessionScript`, `ScriptedSession`
+  and both trace harnesses; `native_trace_marches.py` is unchanged. New:
+  `tests/backends/test_numpy_engines.py` (the engine-contract cases, the split sums before
+  the split, the accumulation rules) and `tests/backends/test_host_marches.py`. Deleted,
+  each because its subject no longer exists: the inheritance and stepping-seam tests, the
+  storage-hook and reporter tests, the default-hook refusals, three unreachable-target
+  guards (a session's targets are its validated planes), a duplicate launch-plane test,
+  and the `_collar_can_rest` assertion. `HOST_SURFACE` in `test_driver.py` became
+  `metadata` and `restore_call_ledgers`.
+- *Docs:* `backends.md` (§1, the marches as one shape with two implementations, the
+  warnings), `architecture.md` §9, `kernel-contract.md` §8 and §§11–12, `stepper.md`,
+  `structure.md`, `algorithms.md`, `testing.md` (scripted engines), and the regenerated
+  structure figures.
+
+**Numbers.** No change. After each step, the `numpy_ref` corpus arrays and records were
+recorded from the base and the new tree on one build and one thread: all 13 cases are
+bitwise identical, `capillary_adams_carrier` included. The engine keeping its own trial,
+the expected first change of §4, changed no bits, so nothing was measured or accepted
+under §4 and native has nothing to follow. The decision traces, the split collar's rules
+and the deep-collar residue test pass unchanged; no corpus was regenerated.
+
+**Verification.** On an Apple M5 Max: the affected modules at four workers, the
+conformance and trace suites, doctests, ruff, basedpyright, the docstring check and the
+size check. On a 32-core AMD EPYC 7763 node of a Slurm cluster, the whole of
+`tests/backends`, `tests/driver`, `tests/sessions`, `tests/output`, `tests/stepper` and
+`native/tests`, on the base and on each step: every failure on the final tree was also a
+failure on the base, and those four were fixed on milestone 2. After merging, the corpus,
+rules, traces, frozen surfaces, records, protocols, monitor, identity, snapshot and native
+session modules were rerun together (565 passed).
+
+**Cost** (`poe size --all`). `backends` 24,208 → 24,862 lines, of which public docstrings
+rise by about 840, because the workspace's operations are now public and documented, and
+private docstrings fall by about 590; `host/driver.py` (2,530 lines) is gone,
+`host/session.py` is 2,123 lines and `numpy_ref/dense.py` 320. Total 267,882 → 268,538.
+Tests: about 3,300 lines added and 2,000 removed.
+
+**Handoff.** Milestone 4 adds the engine-level parity tests over both backends' engines,
+now that the reference has them. The two new refusals in the session (`_Held.restore`,
+the rows install) are covered only if CI's coverage lane says so.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, from a review of the native binding's use in production and of the
@@ -1238,6 +1326,7 @@ names.
   `feature/sep-0052-backend-shape-p1`.
 - 2026-11-16: Milestone 1 (phases 0–1) reported in Part II.
 - 2026-11-16: Milestone 2 (phase 2 and the axis removal) reported in Part II.
+- 2026-11-16: Milestone 3 (the reference restructured, `HostDriver` deleted) reported in Part II.
 
 ### AI review — 2026-11-15
 
