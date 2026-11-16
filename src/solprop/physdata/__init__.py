@@ -12,7 +12,7 @@ own data take (physics layer).
 from typing import TYPE_CHECKING
 
 from solprop.physdata.equation_of_state import density, ideal_gas_density, pressure
-from solprop.physdata.gases import Gas, as_gas, is_molecule
+from solprop.physdata.gases import Gas, as_gas, is_air, is_molecule
 from solprop.physdata.glasses import (
     CompositeGlass,
     GlassIndex,
@@ -145,6 +145,7 @@ __all__ = [
     "heat_capacity_ratio",
     "ideal_gas_density",
     "ionisation_potential",
+    "is_air",
     "is_molecule",
     "linewidth_from_dephasing_time",
     "magnesium_fluoride",

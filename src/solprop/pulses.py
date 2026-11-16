@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 
 # sech^2(x) falls to one half at x = ln(1 + sqrt(2)), so a sech^2 pulse of intensity
 # FWHM tau has natural width tau/(2 ln(1 + sqrt(2))).
-SECH_FWHM_TO_WIDTH = 1.0 / (2.0 * math.log(1.0 + math.sqrt(2.0)))
+_SECH_FWHM_TO_WIDTH = 1.0 / (2.0 * math.log(1.0 + math.sqrt(2.0)))
 
 # cosh(340)**2 is 1.2e294, the largest such square that stays finite in double
 # precision, and sech^2 there is 8e-295: zero for every purpose, but reached without an
@@ -2004,7 +2004,7 @@ def _sech_width(fwhm: float | None, width: float | None) -> float:
         msg = "one of fwhm or width must be given, got neither"
         raise PulseError(msg, parameter=("fwhm", "width"), rule="fwhm-or-width")
     positive(fwhm, "fwhm", PulseError, parameter="fwhm")
-    return fwhm * SECH_FWHM_TO_WIDTH
+    return fwhm * _SECH_FWHM_TO_WIDTH
 
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)
@@ -3331,7 +3331,7 @@ class CWPulse(Displayed):
             # the same FWHM-to-natural-width ratio as a sech**2 pulse.
             width = (
                 2.0 * np.pi * C * self.bandwidth / self.wavelength**2
-            ) * SECH_FWHM_TO_WIDTH
+            ) * _SECH_FWHM_TO_WIDTH
             scaled = np.minimum(np.abs((grid.omega - omega_p) / width), _SECH_CLIP)
             rng = np.random.default_rng(self.seed)
             optics = np.exp(1j * rng.uniform(0.0, 2.0 * np.pi, grid.n_omega)) / np.cosh(

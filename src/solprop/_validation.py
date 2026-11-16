@@ -7,7 +7,9 @@
 Each check takes the value, the name the message gives it and the exception class of
 the calling layer, so a refusal reads the same wherever it is raised and is still the
 caller's own error. Bespoke physics checks stay where they are; these are only the
-plain conditions that recur everywhere.
+plain conditions that recur everywhere. A warning, which cannot refuse, is attributed
+to the caller's line the same way everywhere too: :data:`PACKAGE_FILES` is the
+``skip_file_prefixes`` that steps out of the package.
 
 This module imports nothing from the rest of the package except the exception
 hierarchy, so that any module may use it.
@@ -15,10 +17,20 @@ hierarchy, so that any module may use it.
 
 import math
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Final
 
 from solprop.exceptions import ParameterPath, SolpropError
 
-__all__ = ["choice", "finite", "positive", "shape"]
+__all__ = ["PACKAGE_FILES", "choice", "finite", "positive", "shape"]
+
+PACKAGE_FILES: Final = (str(Path(__file__).resolve().parent),)
+"""The package's own files, as ``skip_file_prefixes`` for :func:`warnings.warn`.
+
+A warning raised several calls deep inside solprop -- through a constructor, a recipe,
+a scan or the service -- skips every frame under the package root, so that it names the
+caller's line; no fixed ``stacklevel`` reaches the user's code from all of those paths.
+"""
 
 
 def positive(

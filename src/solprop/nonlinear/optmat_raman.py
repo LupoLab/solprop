@@ -66,7 +66,7 @@ from solprop.physdata.species import (
     built_in_population,
     dispersion_only_air,
 )
-from solprop.profiles import Sum, ZProfile, _probe_positions
+from solprop.profiles import Sum, ZProfile, _probe_positions, _weighted_mean
 
 __all__ = [
     "COMPOSITION_TOLERANCE",
@@ -1412,11 +1412,10 @@ def _reference_density(path: _Path) -> float | None:
     :math:`N_\mathrm{ref} = \int N^2\,dz / \int N\,dz`, by quadrature across the
     path's breakpoints.
 
-    - Returns: the reference density in m^-3, or ``None`` over an unbounded run.
+    - Returns: the reference density in m^-3, or ``None`` over an unbounded run or
+      one the density vanishes over.
     """
-    from solprop.nonlinear.mixtures import _mean_temperature  # noqa: PLC0415 - a cycle
-
     start, end = path.span
     if not (math.isfinite(start) and math.isfinite(end) and end > start):
         return None
-    return _mean_temperature(path.total, path.total, start, end, path.z)
+    return _weighted_mean(path.total, path.total, start, end, path.z)

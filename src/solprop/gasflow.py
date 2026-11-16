@@ -55,7 +55,6 @@ import math
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final, Literal, get_args
 
 import numpy as np
@@ -66,7 +65,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 
 from solprop._display import Displayed, engineering, line
-from solprop._validation import choice, positive
+from solprop._validation import PACKAGE_FILES, choice, positive
 from solprop.constants import BAR, K_B, N_A, ROOM_TEMPERATURE, STD_ATMOSPHERE
 from solprop.exceptions import GasFlowWarning, MaterialError, TranslationError
 from solprop.physdata.mixtures import Mixture
@@ -201,13 +200,6 @@ weight built from the law is then integrated exactly.
 _VISCOSITY_CHECKS: Final = 4
 """Check points per degree at which a trial viscosity law is compared with direct calls:
 ``4 d + 1`` evenly spaced temperatures, never the interpolation nodes themselves."""
-
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parent),)
-"""Frames a flow warning skips, so that it names the caller's line, not solprop's.
-
-A fill is built several calls deep inside the package (a constructor, the mixture, the
-builder), and no fixed ``stacklevel`` reaches the user's code from all of them.
-"""
 
 
 @dataclass(frozen=True)
@@ -1662,7 +1654,7 @@ def _check_regime(report: FlowReport) -> None:
             "bore",
             GasFlowWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     for stage in report.stages:
         span = f"{stage.start:.4g} m to {stage.end:.4g} m"
@@ -1682,7 +1674,7 @@ def _check_regime(report: FlowReport) -> None:
                 "more",
                 GasFlowWarning,
                 stacklevel=2,
-                skip_file_prefixes=_PACKAGE_FILES,
+                skip_file_prefixes=PACKAGE_FILES,
             )
         else:
             logger.info(

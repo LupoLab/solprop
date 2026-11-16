@@ -2007,10 +2007,10 @@ def _fft_order(n: int) -> Float[np.ndarray, " n"]:
 # ------------------------------------------------------------------ grid suggestions
 
 _TIME_BANDWIDTH: Final = {
-    "GaussianPulse": 2.0 * math.log(2.0) / math.pi,
-    "SechPulse": 0.315,
+    "gaussian": 2.0 * math.log(2.0) / math.pi,
+    "sech": 0.315,
 }
-"""Transform-limited intensity time-bandwidth products of the shaped pulses."""
+"""Transform-limited intensity time-bandwidth products of the pulse shapes."""
 
 _SUGGESTED_HALF_WIDTH: Final = {"gnlse": 0.5, "capillary": 1.0}
 """The least half-width of a suggested band, as a fraction of the carrier, by route.
@@ -2068,7 +2068,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
       delay, s.
     """
     from solprop.pulses import (  # noqa: PLC0415 - pulses import this module
-        SECH_FWHM_TO_WIDTH,
+        _SECH_FWHM_TO_WIDTH,
         DataPulse,
         GaussianPulse,
         SechPulse,
@@ -2077,9 +2077,10 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
     if isinstance(pulse, GaussianPulse | SechPulse):
         fwhm = pulse.fwhm
         if fwhm is None and isinstance(pulse, SechPulse):
-            fwhm = float(cast("float", pulse.width)) / SECH_FWHM_TO_WIDTH
+            fwhm = float(cast("float", pulse.width)) / _SECH_FWHM_TO_WIDTH
         fwhm = float(cast("float", fwhm))
-        product = _TIME_BANDWIDTH[type(pulse).__name__]
+        shape = "sech" if isinstance(pulse, SechPulse) else "gaussian"
+        product = _TIME_BANDWIDTH[shape]
         return C / pulse.wavelength, product / fwhm, fwhm, abs(pulse.t0)
     if isinstance(pulse, DataPulse):
         frequency = np.asarray(pulse.omega) / (2.0 * math.pi)
@@ -2088,7 +2089,7 @@ def _extent(pulse: object) -> tuple[float, float, float, float]:
         bandwidth = float(above.max() - above.min()) or float(np.ptp(frequency))
         centre = float(np.sum(frequency * power) / np.sum(power))
         # Its duration if it were transform-limited and Gaussian.
-        limited = _TIME_BANDWIDTH["GaussianPulse"] / bandwidth
+        limited = _TIME_BANDWIDTH["gaussian"] / bandwidth
         return centre, bandwidth, limited, abs(pulse.t0)
     msg = (
         f"no grid can be suggested for a {type(pulse).__name__}: give a "
@@ -2141,6 +2142,8 @@ def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
     >>> suggestion.wavelength_limits, suggestion.trange
     ((3.1e-07, 4e-06), 2.3e-13)
     """
+    from solprop.pulses import PulseSum  # noqa: PLC0415 - pulses import this module
+
     if route not in _SUGGESTED_HALF_WIDTH:
         msg = f"no grid suggestion for route {route!r}; the routes are gnlse, capillary"
         raise GridError(msg, parameter="route")
@@ -2148,9 +2151,8 @@ def suggest(pulses: object, *, route: str = "capillary") -> GridSuggestion:
     flat: list[object] = []
     while members:
         member = members.pop(0)
-        inner = getattr(member, "pulses", None)
-        if type(member).__name__ == "PulseSum" and inner is not None:
-            members.extend(inner)
+        if isinstance(member, PulseSum):
+            members.extend(member.pulses)
         else:
             flat.append(member)
     if not flat:

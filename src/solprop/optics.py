@@ -169,9 +169,9 @@ def stored_factor(
     Examples
     --------
     >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.optics import TaylorPhase, stored_factor
-    >>> from solprop.processing._examples import example_grid
-    >>> grid = example_grid()
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (400e-9, 2e-6), 400e-15)
     >>> factor = stored_factor(grid, TaylorPhase((0.0, 0.0, 100e-30), 800e-9))
     >>> bool(np.allclose(np.abs(factor), 1.0))
     True

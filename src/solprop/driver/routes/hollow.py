@@ -13,12 +13,12 @@ import functools
 import logging
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 from scipy.special import j0, jn_zeros
 
+from solprop._validation import PACKAGE_FILES
 from solprop.boundaries import Absorber, warn_walkoff
 from solprop.driver.defaults import WAVEGUIDE_ATOL, resolve_noise, route_row
 from solprop.driver.inputs import (
@@ -33,7 +33,6 @@ from solprop.driver.inputs import (
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
-    is_air,
     mixture_profiles,
 )
 from solprop.driver.routes.keywords import (
@@ -91,7 +90,7 @@ from solprop.nonlinear.responses import (
 )
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
 from solprop.output.records import ModeRecord
-from solprop.physdata import Gas, Mixture, species
+from solprop.physdata import Gas, Mixture, is_air, species
 from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
@@ -936,10 +935,6 @@ def _check_wall_declaration(
 _WALKOFF_SAMPLES: Final = 33
 
 
-_PACKAGE_FILES: Final = (str(Path(__file__).resolve().parents[1]),)
-"""Frames a fill warning skips, so that it names the caller's line, not solprop's."""
-
-
 def _flow_radius(
     modes: int | Sequence[Mode], pressure: Pressure | None
 ) -> ZProfile | None:
@@ -979,7 +974,7 @@ def _flow_radius(
             message,
             GasFlowWarning,
             stacklevel=2,
-            skip_file_prefixes=_PACKAGE_FILES,
+            skip_file_prefixes=PACKAGE_FILES,
         )
     return None
 
@@ -1011,7 +1006,7 @@ def _warn_boreless_gradient(mixture: Mixture, radius: ZProfile | None) -> None:
         "and let the constructor build the fill",
         GasFlowWarning,
         stacklevel=2,
-        skip_file_prefixes=_PACKAGE_FILES,
+        skip_file_prefixes=PACKAGE_FILES,
     )
 
 
