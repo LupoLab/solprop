@@ -229,9 +229,7 @@ class _Loaded:
         self.calls: int | None = None
 
     def _load(self, *args: object, **keywords: object) -> object:
-        loaded = getattr(type(self._owner), self._name)(
-            self._owner, *args, **keywords
-        )
+        loaded = getattr(type(self._owner), self._name)(self._owner, *args, **keywords)
         self.calls = source_calls(self._engine)
         self.ended = time.perf_counter_ns()
         return loaded

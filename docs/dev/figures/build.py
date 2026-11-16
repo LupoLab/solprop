@@ -2555,7 +2555,7 @@ def _step_panel(
 
 
 BACKEND_OVERRIDES = ("NumpyWorkspace", "engines", "marches", "dense output")
-"""What the reference backend supplies to `HostSession`, and nothing else of the loop."""
+"""What the reference backend supplies to `HostSession`; nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2634,9 +2634,7 @@ def backends() -> drawsvg.Drawing:
     )
 
     drawing = _canvas(height)
-    _header(
-        drawing, "One seam, a session, and the backends behind them", subtitle
-    )
+    _header(drawing, "One seam, a session, and the backends behind them", subtitle)
 
     y = top
     _table(

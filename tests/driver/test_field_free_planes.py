@@ -14,6 +14,7 @@ adaptive run is compared with a tighter-tolerance reference within an accuracy e
 
 import dataclasses
 import logging
+import math
 from typing import cast
 
 import h5py
@@ -444,11 +445,15 @@ IDENTITY = ExportRecipe(power=False, optics=False)
 
 
 def _first_plane(owner, problem, run_request, start):
-    """Start the reference's session, acknowledge its launch, return the first plane."""
+    """Start the reference's session, acknowledge its launch, return the first plane.
+
+    The plane's advance is unbounded, so that no yield on a slow host splits its march
+    into a progress batch before the plane's.
+    """
     session = owner.prepare(problem, run_request).start(start, owns=False)
     launch = session.advance()
     session.acknowledge(launch.receipt)
-    batch = session.advance()
+    batch = session.advance(work_limit=1 << 30, deadline=math.inf)
     return session, batch
 
 

@@ -160,13 +160,18 @@ class NumpyRefBackend:
     ...                    controller=PIController(rtol=1e-8, atol=1e-16),
     ...                    save_planes=[0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
+    >>> from solprop.backends.events import Progress
     >>> from solprop.backends.session import Start
     >>> backend = NumpyRefBackend(problem, request, grid=grid)
     >>> session = backend.prepare(problem, request).start(Start.entrance(problem))
-    >>> kinds = []
+    >>> kinds = []  # the barriers; a bounded yield on a slow host adds a Progress
     >>> while not session.finished:
     ...     batch = session.advance()
-    ...     kinds += [type(event).__name__ for event in batch.events]
+    ...     kinds += [
+    ...         type(event).__name__
+    ...         for event in batch.events
+    ...         if not isinstance(event, Progress)
+    ...     ]
     ...     session.acknowledge(batch.receipt)
     >>> kinds
     ['ObservationReady', 'ObservationReady', 'Terminal']
