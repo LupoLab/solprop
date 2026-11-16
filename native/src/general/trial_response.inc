@@ -1306,6 +1306,7 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
  * A band column's node field: `scale` times the real row of a field-family node (or of
  * the folded single node's modal row), and its magnitude over a node's components.
  */
+// NOLINTNEXTLINE(misc-use-internal-linkage): internal linkage trips GCC's -Wsubobject-linkage
 template <FieldFamily Family, std::size_t Components> struct BandField {
   RealView2 real;
   ComplexView2 complex;
@@ -1327,6 +1328,7 @@ template <FieldFamily Family, std::size_t Components> struct BandField {
 };
 
 /** A band column's ionisation rate: the single gas's table, or a mixture channel's. */
+// NOLINTNEXTLINE(misc-use-internal-linkage): internal linkage trips GCC's -Wsubobject-linkage
 template <bool Multiple> struct BandRate {
   RealView coefficients;
   RealView2 parameters;
