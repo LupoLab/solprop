@@ -21,12 +21,12 @@ from solprop_native._execution import (
     ExecutionRecord,
     builtin,
 )
-from solprop_native._wait import SPIN_MILLISECONDS
-from solprop_native.backend import (
-    NativeBackend,
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage]
     _LowerPlan,  # pyright: ignore[reportPrivateUsage]
 )
+from solprop_native._wait import SPIN_MILLISECONDS
+from solprop_native.backend import NativeBackend
 
 # The constants of core.hpp before SEP 46 moved them here (solprop PR #576), Linux and
 # Windows, with the transforms' shape rule of solprop issue #587: every value of the

@@ -2,10 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the coupled flow (`response/coupled_flow.hpp`,
+// `response/flow_functions.hpp`) through the general state: the whole-step and
+// residual stage actions against host references, the actions' formation on both
+// routes and its conditioning, a defective block's phi functions and squarings,
+// refusals before allocation, and the ledger.
+
 #include "execution.hpp"
-#include "solprop_native/core.hpp"
-#include "solprop_native/coupled_flow.hpp"
-#include "solprop_native/flow_functions.hpp"
+#include "solprop_native/general/general_state.hpp"
+#include "solprop_native/problem/problem.hpp"
+#include "solprop_native/response/coupled_flow.hpp"
+#include "solprop_native/response/flow_functions.hpp"
+#include "solprop_native/runtime/execution.hpp"
 
 #include <gtest/gtest.h>
 

@@ -9,7 +9,7 @@
 // the cadence of the resident rows, yields that change nothing, the stop and snapshot
 // controls, the export's recipe to the bit, and the strict unit's own rounding.
 
-#include "solprop_native/session.hpp"
+#include "solprop_native/session/session.hpp"
 
 #include <gtest/gtest.h>
 

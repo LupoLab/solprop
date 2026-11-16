@@ -1,0 +1,143 @@
+// SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+// The low-storage RK4IP replay in the native session (solprop SEP 24, SEP 47 section
+// 6.3): the engine that takes one in-place step of the march from its stage scalars,
+// which it forms natively from the uploaded stage tables, and the table keys of the
+// schedule it replays. The replay loop itself is the Runge-Kutta march's
+// (`rk::run` with a schedule), whose every step this engine takes: the schedule's steps
+// as given, never rejected, each committed and recorded in order.
+//
+// Each function performs the operations of the solprop function it is named after in
+// the same order: `table_steps` and `schedule_key` of `solprop.backends.low_storage`,
+// and `scalars`, the arrays `HostLowStorage` forms from its stage bundles, as the
+// native backend's adapter once packed them. The translation unit is compiled without
+// contraction on every build, as the marches' are.
+//
+// A step is accepted in place: from its first pass to its finish the state is neither
+// end of the step, and a failure there -- a native exception, or a non-finite norm --
+// leaves no consistent state behind (`ResidentLowStorage::in_flight`), which the
+// session reports as a poisoned terminal with no checkpoint (SEP 47 section 5.5).
+//
+// Host code only.
+//
+// Types: `rk::low_storage::Config` (the flows a step holds and its operator's origin)
+// and `engines::ResidentLowStorage`, the `rk::Engine` that takes the in-place steps.
+//
+// Functions: `table_steps`, `schedule_key` and `scalars` (low_storage.cpp, strict).
+
+#include "solprop_native/general/general_state.hpp"
+#include "solprop_native/march/engines.hpp"
+#include "solprop_native/march/rk_march.hpp"
+#include "solprop_native/march/stage_tables.hpp"
+#include "solprop_native/runtime/fields.hpp"
+
+#include <cstddef>
+#include <optional>
+#include <vector>
+
+namespace solprop_native::rk::low_storage {
+
+/** The flows a step holds and where its operator starts, as the native backend's
+    lowering resolves them into its `Problem`. */
+struct Config {
+  /** The native problem's `low_storage_flows`: 0 recomputes every flow per element,
+      1 holds a constant operator's table, 2 a varying operator's `P` and `Q`. */
+  std::size_t flows = 0;
+  /** A separable geometry's operator, whose increments are the distances themselves. */
+  bool separable = false;
+  /** The operator's origin, `linear.z_span[0]`, m, from which a table is built. */
+  double origin = 0.0;
+};
+
+/** The source evaluations of one step: the four register passes of the scheme the
+    native step implements (solprop's `LowStorageRungeKutta().evaluations`). */
+inline constexpr std::size_t evaluations = 4;
+
+/** The settings' field table:`solprop.backends.records.LowStorageSettings` (solprop
+    SEP 52 section 5.3), with the flows the adapter resolved for this build. */
+[[nodiscard]] constexpr auto describe(const Config* /*unused*/) {
+  return fields::table<Config>("LowStorageSettings",
+                               fields::value("flows", &Config::flows),
+                               fields::value("separable", &Config::separable),
+                               fields::value("origin", &Config::origin));
+}
+
+/**
+ * `solprop.backends.low_storage.table_steps`: the key each of a schedule's steps builds
+ * its table on, the mean step of its run -- the longest stretch of steps within
+ * `landing_ulps` ulps of the run's first, the ulps of the run's farthest position or of
+ * the step -- or its own step for a run of one.
+ */
+[[nodiscard]] std::vector<double> table_steps(const std::vector<double>& steps,
+                                              const std::vector<double>& edges,
+                                              int landing_ulps);
+
+/** `schedule_key`: the key of the schedule step from `z`, found by its midpoint. */
+[[nodiscard]] double schedule_key(const std::vector<double>& keys,
+                                  const std::vector<double>& edges, double z,
+                                  double dz);
+
+/**
+ * A step's scalars from `z` over `dz`, as `HostLowStorage` forms them: each
+ * of the start, the midpoint and the end read as its own anchor, the end's row repeated
+ * to the tableau's stages; the increment's rows the flows' -- a separable operator's
+ * half steps, or a varying operator's `Phi(z_m) - Phi(z)` and `Phi(z + h) - Phi(z_m)`
+ * where its flows are formed for the step -- and, when `rebuild`, the table's interval
+ * from the operator's origin to half its `key`. A z table's three positions are loaded
+ * together first, as the host loads them.
+ */
+[[nodiscard]] TrialScalars scalars(const stage::Tables& tables, stage::Anchor& anchor,
+                                   const Config& config, double z, double dz,
+                                   bool rebuild, double key);
+
+/** The strictness test's witness, as this translation unit rounds `a b + c`; never
+    inlined, as `march::strict_probe`. */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
+
+} // namespace solprop_native::rk::low_storage
+
+namespace solprop_native::engines {
+
+/**
+ * The resident low-storage engine (solprop SEP 24 section 6.7, SEP 47 section 6.3): a
+ * trial is one whole in-place step of the four register passes, its scalars formed
+ * natively, scoring 0.0 ("not estimated") or, when the field diverged, the accepted
+ * state's non-finite squared norm; the accept is the backend's finish and the
+ * accepted-step hook. A constant operator's table is rebuilt only where the schedule's
+ * key changes, as `HostLowStorage` keeps it.
+ */
+class ResidentLowStorage final : public rk::Engine {
+public:
+  ResidentLowStorage(GeneralState& state, const stage::Tables& tables,
+                     stage::Anchor& anchor, rk::low_storage::Config config,
+                     const march::Schedule& schedule, int landing_ulps,
+                     std::optional<MarchFault>& fault);
+  double trial(double z, double dz) override;
+  void accept(double dz) override;
+  std::vector<double> reading() override;
+  [[nodiscard]] bool in_flight() const noexcept override { return in_flight_; }
+  /** The last trial's squared norm over the norm mask, from the passes' own threaded
+      reduction, before the history's 0.0 replaces a finite one (a test's reading). */
+  [[nodiscard]] double squared() const noexcept { return squared_; }
+
+private:
+  void inject(march::Stage stage);
+
+  GeneralState& state_;
+  const stage::Tables& tables_;
+  stage::Anchor& anchor_;
+  rk::low_storage::Config config_;
+  std::vector<double> keys_;
+  std::vector<double> edges_;
+  std::optional<MarchFault>& fault_;
+  /** The key the held table was built for; NaN before the first step. */
+  double table_step_;
+  double squared_ = 0.0;
+  bool in_flight_ = false;
+};
+
+} // namespace solprop_native::engines

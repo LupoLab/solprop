@@ -149,7 +149,7 @@ the bundle's floats and nothing about the representation reaches the backend
 split, so `PropagationProblem.device_ready` is false for it. NumPy evaluates the general
 representation directly. The native CPU build gives the table the split itself (SEP 29 section 6.6): its coefficients
 cross once, in the workspace's `Problem` (its `z_tables`, uploaded where the workspace is
-built; `include/solprop_native/z_table.hpp`), and each trial has the table evaluated at
+built; `include/solprop_native/march/z_table.hpp`), and each trial has the table evaluated at
 its distinct positions into term slots of the state's size (`stage::ZSlots` in
 `stage_tables.hpp`, a strict Clenshaw pass per position), least recently used first so
 that a step's end is not evaluated again as the next step's anchor; no position crosses
@@ -175,7 +175,7 @@ backend sets the class attribute `helpers` (kernel schema 34), a
 Adams march and its engines pass it down. `numpy_ref` takes
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
 checks; `native` takes its own `NATIVE`, the C++ transcription of the Chebyshev rows
-(`native/include/solprop_native/chebyshev.hpp`), which its adapter still evaluates for
+(`native/include/solprop_native/march/chebyshev.hpp`), which its adapter still evaluates for
 the stage scalars at a plane. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
 filled them. `NATIVE` names no Adams basis: the compiled Adams march forms its basis and
@@ -211,8 +211,8 @@ operation (SEP 52 §5.1). The backend builds a fresh march and engines for each 
 | `HostAdamsMarch.march_to`, in `backends/host/adams.py` | adaptive Adams | an `AdamsEngine`: `HostHistory` |
 | `HostAdamsMarch._replay_to` | Adams on a fixed schedule | the same engine |
 | `HostLowStorageMarch.replay_to`, in `backends/host/low_storage.py` | low-storage, always on a schedule | a `RungeKuttaEngine` with a destructive trial: `NumpyLowStorage` |
-| the native session's Adams march, `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
-| the native session's Runge-Kutta march, `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
+| the native session's Adams march, `native/src/march/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine (`engines::ResidentEngine`, a `march::Engine`), the march's state from the run record (`_NativeAdamsMarch.start_state`) |
+| the native session's Runge-Kutta march, `native/src/march/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm |
 | the native session's low-storage replay | low-storage, always on a schedule | one in-place native step a schedule step |
 
 The reference's Runge-Kutta march is the reference for the compiled Runge-Kutta march,
@@ -586,7 +586,7 @@ A backend that does not set it reports `unwatched` and refuses a requested colla
 
 **Under the native execution session the judgement is native too** ([SEP 47](seps/archive/sep-0047-run-ownership.md) §6.4).
 `NativeSession` hands no reading to a Python edge: `transverse::Edge`
-(`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
+(`native/include/solprop_native/session/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
 -- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
 the resume and the record -- and the session reads the resident state for it (`Resident::edge_reading`, the same
 reduction as `NumpyWorkspace.edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
@@ -637,7 +637,7 @@ two-stage reductions, and moving the whole inner loop into compiled code: one na
 executes a Runge–Kutta trial (§3.5). On a CPU build's trapezoid column the whole nonlinear
 term at one node — the rate lookup, the plasma's two running sums, the loss-current guard,
 the Kerr cubic and the Raman drive — is **one traversal of `t`**, the plasma's sums carried
-in scalars across the loop (`response_plasma`, `native/src/general/trial.cpp`); the band column
+in scalars across the loop (`response_plasma`, `native/src/general/trial_response.inc`); the band column
 (§3.12) uses complete row passes instead. The solution and the embedded estimate are
 running accumulators (ADR-009), which is also why there is no dense output by default. An
 isolated step timing is not comparable with a whole-run average, which carries the
@@ -645,12 +645,14 @@ once-per-run FFTW planning and the output's planes.
 
 ### 3.1a What exists
 
-The adapter `native/src/solprop_native/backend.py`, its session
-`native/src/solprop_native/session.py` and the engine under `native/src/general/`. The public default is `"auto"`: the
+The adapter `native/src/solprop_native/backend.py` (with the lowering
+`_lowering.py`, the march protocol `_march.py` and the build's facts `_device.py`), its
+session `native/src/solprop_native/session.py` and the engine under
+`native/src/general/`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
-**Three response families** (`FieldFamily`, `include/solprop_native/core.hpp`), which is
+**Three response families** (`FieldFamily`, `include/solprop_native/problem/problem.hpp`), which is
 all `kerr_coefficients` compiles to, each its own compiled column:
 
 | family | grid | `thg` | the column works on | plasma |
@@ -752,7 +754,7 @@ mask and the in-stage absorber preserve it, and the measured saving are
     `build_info().optimization_policy` records the flag.
   - **Strict blocks.** A protected function or lambda carries
     `SOLPROP_NATIVE_STRICT_FUNCTION` and starts its body with `SOLPROP_NATIVE_STRICT_BLOCK`
-    (`include/solprop_native/fp.hpp`): under Clang a `#pragma clang fp
+    (`include/solprop_native/runtime/fp.hpp`): under Clang a `#pragma clang fp
     contract(off)`, which survives inlining; under GCC, which ignores the pragma,
     `optimize("fp-contract=off")` on the function, so a protected helper is a call there.
     Both settings are lexical, and `Kokkos::complex`'s operators keep their header's
@@ -846,7 +848,7 @@ build (ADR-076, §4).
 | compact problem | one column on one node, fewer than 65 536 fine samples | kernels on a team of at most eight threads, transforms on that team, products on one BLAS thread | independent scans: Local, or spawned processes through Pool |
 | sized problem | the rest | each operation's width chosen from its own element count at construction: stage, response, dense product, FFT, Raman, copy, flow, modal and Adams | one process per problem |
 
-The widths are constants of `include/solprop_native/core.hpp` (`operation_threads`, with
+The widths are constants of `include/solprop_native/runtime/cpu_execution.hpp` (`operation_threads`, with
 their calibration in
 [benchmarks.md](benchmarks.md#kokkos-cpu-operation-size-threading)), and `SOLPROP_NATIVE_*_THREADS`
 overrides a pool ([Performance tuning](../guide/performance/tuning.md)). The stage boundary
@@ -918,7 +920,7 @@ wash with the Raman convolution.
 The native backend's host kernels form these exponentials, the exponential Adams
 method's flows, phi-function exponentials and compensation factors, and the plasma's
 rates and fractions in passes over blocks of elements through one vector-maths layer
-(`native/include/solprop_native/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
+(`native/include/solprop_native/runtime/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
 builds, the system libm, with each element's own calls, on Arm and on devices
 ([ADR-059](decisions.md)).
 
@@ -962,7 +964,7 @@ admits (`solprop.translate.admission.check_general_route`), which it runs where 
 built, so a refusal there is a refusal on both backends, raised once. It adds one limit of its own: a delayed response must be the
 six channels of the silica tensor Raman model on three components (§4,
 `_refuse_native_route`). `linear.coupled_flow` is §3.9. The route is a **second execution
-path** (`src/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
+path** (`src/response/general_modal.cpp`, `GeneralModalSource`) beside the fused pipeline and not an
 extension of it, for the reason §3.1a's three families make plain: those are one real
 transverse matrix in the time domain, and this route's synthesis is a complex
 frequency-dependent map of three Cartesian components.
@@ -1060,7 +1062,7 @@ name.
   and on either route (SEP 16 phase 6, SEP 47 phase 4): a bin on the eigenbasis route takes its
   flow and moments `k! phi_(k+1)` as `W f(Delta Phi + h lambda) Y`, and a bin off it reads them,
   as the reference does, off the first block row of the exponential of the augmented matrix of
-  `X = Delta Phi I + h T` (`include/solprop_native/flow_functions.hpp`): the reference's
+  `X = Delta Phi I + h T` (`include/solprop_native/response/flow_functions.hpp`): the reference's
   scaling, sixteen-term series and squaring, where the reference takes SciPy's Padé `expm`, a
   rounding-level difference (SEP 25), with the shift's exponential kept apart in the carry of a
   history sample. Every block row past the first is a scaled shift, so the passes form the first
@@ -1097,7 +1099,7 @@ modified noise draw, and every statistic.
   unnormalised in-place transform over the y axis. The rows go to time a **block of whole y rows**
   at a time, as many as the node chunk holds (the reference's block), so `n_p n_y` rows are
   transformed each way, never `n_x n_y` nodes. The x synthesis and projection are team kernels
-  (`slab_contract`, `include/solprop_native/slab.hpp`) with each sum in increasing order and the
+  (`slab_contract`, `include/solprop_native/transforms/slab.hpp`) with each sum in increasing order and the
   vector loop over contiguous samples, and SEP 6's dispersive response shares them.
 - **The operator** is evaluated per element and never tabulated under Runge–Kutta (the contract
   refuses `propagator_mode = "tabulate"` for the kind outside the low-storage march). It subtracts
@@ -1125,7 +1127,7 @@ modified noise draw, and every statistic.
 (mode-averaged, multimode and radial), Cartesian free space and the line, the hybrid
 planar route and the general modal route -- on field and envelope grids, with both
 evaluators, both sectors, one, two or three components, mixtures, beside Raman, plasma
-and envelope plasma (`src/dispersive.cpp`). The operator is the reference's
+and envelope plasma (`src/response/dispersive.cpp`). The operator is the reference's
 `G[w (G E)^3]`: the temporal collar on the products, before `Π₊` and the output multipliers.
 Everywhere the multipliers move off the nodes, to wherever the route already holds a spectrum:
 
@@ -1213,7 +1215,7 @@ column's population and free-current integrands with the problem's $2K+1$ taps b
 sum, reading $K$ samples ahead, so the fused one-sample traversal cannot carry it.
 
 - **The team column** (`GeneralWorkspace::team_band_plasma_column`, described in
-  `native/include/solprop_native/plasma.hpp`). The plasma runs in whole-row passes per node: the
+  `native/include/solprop_native/response/plasma.hpp`). The plasma runs in whole-row passes per node: the
   rate; the filtered rate (`team_band_filter`), then the exposure's scan (`team_trapezoid_window`),
   then pointwise the fraction, the loss guard and the weight $f\,q/m$; per component the
   free-current integrand, its filter, then its scan with the current formed from the prefix. The
@@ -1257,7 +1259,7 @@ The band rule's cost against the trapezoid's is in
 [benchmarks.md](benchmarks.md#band-rule-plasma-integration).
 
 **native device builds** run a different column, written down in
-`native/include/solprop_native/plasma.hpp`: parallel filters and scans form the exposure and the free current, with the
+`native/include/solprop_native/response/plasma.hpp`: parallel filters and scans form the exposure and the free current, with the
 pointwise population and loss-current steps between, on both the team and the tiled
 device paths. The stencil keeps the reference's summation order, so it is deterministic
 and independent of the team size; the scan associates differently from the serial sum, so
@@ -1271,7 +1273,7 @@ build defaults to its own: direct reads on CUDA, staging on HIP
 
 [SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)'s six far-field statistics and
 `on_axis_spectrum` are one native pass over the stored state on the Cartesian and line kinds
-(`GeneralState::aperture_statistics`, `native/include/solprop_native/far_field.hpp`,
+(`GeneralState::aperture_statistics`, `native/include/solprop_native/response/far_field.hpp`,
 `FarFieldPass`), in place of the shared host pass `spatial.aperture_statistics` that `numpy_ref`
 keeps as the oracle. The pass has its own flag mask beside `spatial_statistics` (values from 32:
 the six names and `on_axis_spectrum`, the `W = 1` slot, which on the Cartesian and line kinds
@@ -1410,7 +1412,7 @@ the edge's tables. The timing probe is `Workspace.probe(start)`, and `diagnostic
 one record of metadata, memory, sizing, planning and crossed bytes, beside the live
 `counters()` a run reads at its start and close. Nothing configures a workspace after it is
 built. Each C++ record that crosses declares its fields once, beside its definition
-(`include/solprop_native/fields.hpp`), and one converter (`src/records.hpp`) reads a
+(`include/solprop_native/runtime/fields.hpp`), and one converter (`src/bindings/records.hpp`) reads a
 dataclass, mapping or tuple into it by that table, refusing a missing or unknown field, a
 wrong dtype, rank or extent relation, a strided array and an integer for an enumeration by
 the field's path before anything is allocated; `_core.schemas()` exports the tables and a
@@ -1424,8 +1426,8 @@ stub, `_core.pyi` with `_core_testing.pyi`, is generated by nanobind's `stubgen`
 (`native/scripts/problem_stub.py`, checked by the native gate).
 
 In an editable
-checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
-and `native/include`, once per process, and refuses an extension built from anything else
+checkout it also recomputes the digest of `native/CMakeLists.txt`, its modules in `native/cmake`
+and the C++ under `native/src` and `native/include`, once per process, and refuses an extension built from anything else
 (`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
 version it was built at without comparing it, so an editable build stays valid across solprop
 commits that leave `native/` alone. Solprop knows only the registry
@@ -1456,7 +1458,7 @@ use separate FFT plans for the final partial chunk, aliased onto existing storag
 Kokkos-FFT plans at `FFTW_ESTIMATE` and consumes measured wisdom in the linked FFTW
 library, which the workspace seeds before it makes its first plan: a plan made before
 its wisdom stays at estimate for the run. One policy (`fftw_seed_effort`,
-`include/solprop_native/fft_plan.hpp`) decides every seed by the transform's shape and
+`include/solprop_native/transforms/fftw_wisdom.hpp`) decides every seed by the transform's shape and
 width. Unset, row transforms (temporal, modal, Raman and plasma) are measured on one
 thread and left at estimate when threaded, because measured wisdom can select slower
 threaded plans; free space's transverse planes are measured at any width. An explicit
@@ -1493,7 +1495,7 @@ atomic rename; writers serialise on `<file>.lock` (`flock` on POSIX), merge the 
 plans with their own and replace it only when that adds or changes one. A calibration's
 own workspaces (given `fft_planning`) and its children (`off`) neither read nor write
 the store. The C++ side only converts wisdom to and from text (`export_fftw_wisdom`,
-`import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's threaded solvers first,
+`import_fftw_wisdom` in `fftw_wisdom.hpp`), registering FFTW's threaded solvers first,
 since they are part of the planner signature an import must match. Metadata records
 `wisdom_loaded` (the file held plans) and `wisdom_digest` (of the plans the workspace
 built from wisdom or measured).
@@ -1592,7 +1594,7 @@ response column's `if constexpr` blocks carry a capture anchor, because CUDA 13'
 lambdas otherwise refuse the capture.
 
 Every top-level kernel dispatches through `launch::parallel_for`, `parallel_reduce` and
-`parallel_scan` (`native/include/solprop_native/launch.hpp`). On a device they hint a
+`parallel_scan` (`native/include/solprop_native/runtime/launch.hpp`). On a device they hint a
 functor of at most 3840 B light-weight, which Kokkos passes as the kernel's argument;
 Kokkos's HIP default copied any functor of 512 B or more into constant memory, a blit
 kernel behind a wait on the previous such launch, which kept the host from queuing a
@@ -1615,7 +1617,7 @@ execution instances are its one stream. A device holds the two held plasma curre
 fine and coarse rows in one buffer that one plan transforms.
 
 On a device an elementwise Adams trial's source evaluation runs in a graph region
-(`graph::Region`, `native/include/solprop_native/graph.hpp`). The region's launches, its
+(`graph::Region`, `native/include/solprop_native/runtime/graph.hpp`). The region's launches, its
 device-to-device copies and its transforms go through `launch::parallel_for`,
 `graph::deep_copy` and `graph::execute`, which key each operation by its kind and the
 value bytes of its policy and functor, or of its views, plan and scalars. The first trial
@@ -1664,7 +1666,7 @@ prefactors, before field-sized allocation (the CPU build runs them, §1). Suppor
 cross as stage scalars; z dependence alone is not a refusal.
 
 **The general modal route** is a second execution path beside the node pipeline
-(`src/general_modal.cpp`, `GeneralModalSource`), exactly as it is one in `numpy_ref`
+(`src/response/general_modal.cpp`, `GeneralModalSource`), exactly as it is one in `numpy_ref`
 (§2). Per node chunk: the coarse-grid synthesis of the three Cartesian components from
 the complex map `S`, placed into a zeroed fine spectrum; one complex inverse transform to
 the analytic signal; the rank-four contraction on the real field or on the analytic
@@ -1698,7 +1700,7 @@ terms summed in order from zero, `GeneralModalSource::combine`) into the two map
 synthesis and projection read; nothing is allocated in a trial, and the ledger adds the
 weights (`general_map_weights`).
 
-**The coupled flow** (`src/coupled_flow.cpp`, `CoupledFlowAction`) executes the
+**The coupled flow** (`src/response/coupled_flow.cpp`, `CoupledFlowAction`) executes the
 constant-Schur and frozen-residual sections, every section the translation builds. The
 adapter uploads each section's eigenbasis
 (`solprop.translate.coupled.schur_eigenbasis`: `W`, `Y`, the eigenvalues and the route per
@@ -1726,7 +1728,7 @@ subtracts its channel's `kappa_sq` last. Ten fixed steps agree with `numpy_ref` 
 1.2e-14 to 6.6e-14 against bounds of 2.5e-11 and more, and thread counts agree within
 those bounds.
 
-**The dispersive electronic response** (`src/dispersive.cpp`, `DispersiveResponse`;
+**The dispersive electronic response** (`src/response/dispersive.cpp`, `DispersiveResponse`;
 [SEP 6](seps/archive/sep-0006-dispersive-nonlinearity.md)) runs on every route
 `numpy_ref` runs it, with the structure of §3.11 route by route: the fused node
 path (one or two components), `SeparableDispersive` on the Cartesian free-space, line and
@@ -1784,7 +1786,7 @@ at most:
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
   nothing. This threshold and the stage threshold switch only on `__APPLE__`
-  (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
+  (`include/solprop_native/runtime/cpu_execution.hpp`): Windows and linux-aarch64 builds take the values
   measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
   those platforms ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the

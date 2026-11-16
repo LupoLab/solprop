@@ -40,7 +40,7 @@ from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, _core, build_info
 from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - validate the native boundary
 )
@@ -454,6 +454,7 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
         built.plasma.envelope_rule_nodes = nodes
         return built
 
+    # Patched where the backend looks it up: backend.py imports it from _lowering.
     monkeypatch.setattr(adapter, "_lower", corrupt_payload)
     owner = NativeBackend(
         problem, run_request, grid=grid, options=envelope_options(geometry)

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Host vector maths for the CPU kernels' transcendental passes (solprop ADR-059,
-# include/solprop_native/vmath.hpp): SLEEF's vector exp, log and sincos, its 1.0 ulp
+# include/solprop_native/runtime/vmath.hpp): SLEEF's vector exp, log and sincos, its 1.0 ulp
 # (u10) functions, called over contiguous blocks. glibc's scalar exp, cos and sin cost a
 # complex exponential 10 to 30 ns on an AMD EPYC 7763 and 9.8 ns on an Intel Xeon Gold
 # 6240, and SLEEF's AVX2 and AVX-512 functions take it 3 to 3.6 times faster at the same
@@ -28,6 +28,10 @@
 #
 # SLEEF 3.9.0 is fetched like Kokkos (FETCHCONTENT_SOURCE_DIR_SLEEF names a local copy
 # for an offline build) and linked static.
+#
+# Included by cmake/Dependencies.cmake; expects cmake/HostLibraries.cmake's
+# _device_build and _x86_processor. Defines SOLPROP_NATIVE_VECTOR_MATH (resolved),
+# SOLPROP_NATIVE_SLEEF_VERSION, sleef_SOURCE_DIR and solprop_native_link_vector_math().
 set(SOLPROP_NATIVE_SLEEF_VERSION "3.9.0")
 set(SOLPROP_NATIVE_VECTOR_MATH "AUTO" CACHE STRING
     "Host vector maths for the transcendental passes: AUTO, SLEEF or SCALAR")

@@ -5,7 +5,7 @@
 """The native Runge-Kutta march against the decision corpus (SEP 45 section 7.2).
 
 ``tests/data/rk_traces.json.gz`` holds the decisions solprop's march made on scripted
-norms before SEP 45 refactored it. The native march (``native/src/rk_march.cpp``),
+norms before SEP 45 refactored it. The native march (``native/src/march/rk_march.cpp``),
 driven through its adapter on a scripted engine, must make every one of them: each
 attempt's step and norm, acceptance, landing, the start-up rule, the caps, natural
 stops, and how it stopped -- at a call's bound of one attempt, seven, and the default,

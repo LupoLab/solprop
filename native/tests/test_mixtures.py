@@ -23,7 +23,7 @@ from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
 from solprop_native._core import _testing  # pyright: ignore[reportPrivateUsage]
-from solprop_native.backend import (
+from solprop_native._lowering import (
     _lower,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
     _LowerPlan,  # pyright: ignore[reportPrivateUsage] - corrupt native payloads
 )

@@ -405,8 +405,8 @@ def augmented_formation_bound(n_modes, count, size, spread, row_sum, real):
     ``M_k = k! phi_(k+1)(X)``, ``X = x I + h T`` with ``x`` the moments' argument
     (``Delta Phi``, less ``i sigma`` under a carrier frame), off the first block row
     of the exponential of the augmented matrix ``A`` of ``count + 1`` blocks
-    (``native/include/solprop_native/flow_functions.hpp``), whose block rows past the
-    first are a shift. The native passes are the full augmented scaling and
+    (``native/include/solprop_native/response/flow_functions.hpp``), whose block rows
+    past the first are a shift. The native passes are the full augmented scaling and
     squaring's to the sign of a zero, at ``N = n (count + 1)`` channels and the
     ``s`` squarings of ``A``'s row-sum norm `row_sum`.
 

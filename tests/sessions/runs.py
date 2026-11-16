@@ -797,7 +797,7 @@ def native_trial(
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
     )
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _envelope_errors,
     )
 
@@ -1071,7 +1071,7 @@ def native_adams_start(backend: Any, z: float, slots: Sequence[int] = (0,)) -> N
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
     )
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _envelope_errors,
     )
 
@@ -1153,7 +1153,7 @@ def native_exponential_trial(
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
     )
-    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    from solprop_native._march import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _envelope_errors,
     )
 

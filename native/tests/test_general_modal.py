@@ -5,8 +5,8 @@
 """The general modal route of solprop on the native backend, against ``numpy_ref``.
 
 The route's source is a second execution path beside the
-node pipeline (``src/general_modal.cpp``); everything before and after it -- the
-lab-frame stage input, the in-stage absorber, the prefactor and the interaction
+node pipeline (``src/response/general_modal.cpp``); everything before and after it --
+the lab-frame stage input, the in-stage absorber, the prefactor and the interaction
 picture -- is the engine's existing code. Each case propagates ten fixed steps on
 both backends from the same problem and compares the fields against a bound derived
 before the run (:func:`_parity_bound`).

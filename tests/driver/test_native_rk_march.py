@@ -306,6 +306,6 @@ def test_a_check_due_by_distance_beside_the_edge(route):
 @pytest.mark.parametrize("route", ["gnlse", "capillary (multimode)"])
 def test_a_device_build_s_march(route):
     """On a device the march drives the resident engine from the host (SEP 45)."""
-    if not backend_module._on_device():
+    if not pytest.importorskip("solprop_native._device")._on_device():
         pytest.skip("the installed solprop-native build has no accelerator backend")
     _held(lambda: runge_kutta_route(route))

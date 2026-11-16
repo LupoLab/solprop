@@ -2,8 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The host vector-maths layer (`runtime/vmath.hpp`): every block length, in place, the
+// special values, agreement with the system libm and the build's route. Its accuracy
+// against a high-precision reference over the kernels' argument ranges is solprop's
+// tests/backends/test_native_vector_math.py.
+
 #include "bounds.hpp"
-#include "solprop_native/vmath.hpp"
+#include "solprop_native/runtime/vmath.hpp"
 
 #include <gtest/gtest.h>
 
@@ -13,10 +18,6 @@
 #include <random>
 #include <vector>
 
-// The host vector-maths layer (include/solprop_native/vmath.hpp): every block length,
-// the special values, and agreement with the system libm. Its accuracy against a
-// high-precision reference over the kernels' argument ranges is
-// tests/test_vector_math.py.
 namespace {
 namespace vmath = solprop_native::vmath;
 using solprop_native::test::kUnitRoundoff;

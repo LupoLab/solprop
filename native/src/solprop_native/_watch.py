@@ -6,12 +6,12 @@
 
 solprop SEP 47 section 6.4 and the maintainer's decision 4 at its acceptance: the
 native session owns the boundary monitor's every decision and record
-(``watch::Monitor``, ``native/include/solprop_native/watch.hpp``). The monitor's
+(``watch::Monitor``, ``native/include/solprop_native/session/watch.hpp``). The monitor's
 configuration and a resume's continuation are solprop's run records
-(:mod:`solprop.backends.records`, SEP 52), which :mod:`solprop_native._records`
-converts. This module only translates what comes back: it formats the native record
-as :meth:`~solprop.monitor.BoundaryMonitor.summary` lays it out, and a native verdict
-as solprop's warning or exception. It decides nothing.
+(:mod:`solprop.backends.records`, SEP 52), which the extension's record converter
+(``native/src/bindings/records.hpp``) reads. This module only translates what comes
+back: it formats the native record as :meth:`~solprop.monitor.BoundaryMonitor.summary`
+lays it out, and a native verdict as solprop's warning or exception. It decides nothing.
 """
 
 from __future__ import annotations

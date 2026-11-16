@@ -11,7 +11,7 @@
 // work done once after it, a stop a terminal failure there, a stale step checked at
 // its plane, and the final check before completion.
 
-#include "solprop_native/session.hpp"
+#include "solprop_native/session/session.hpp"
 
 #include <gtest/gtest.h>
 

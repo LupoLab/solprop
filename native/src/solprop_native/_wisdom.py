@@ -17,8 +17,9 @@ transform's kind, sizes, strides, placement, alignment and threads, as a calibra
 keys its winners) holds the wisdom of that transform alone, measured in place by the
 run that first planned it. A workspace is offered the plans it may use; a transform the
 store holds plans from its own wisdom only, and one it lacks is measured alone and
-added (``FftPlanning`` in ``fft_plan.hpp``). A calibration profile's winners keep
-precedence: a key the profile holds is never read from or written to this store.
+added (``FftPlanning``, applied in ``fftw_wisdom.cpp``). A calibration profile's
+winners keep precedence: a key the profile holds is never read from or written to this
+store.
 
 By default the file is ``wisdom.json`` in the calibration store's directory of this
 machine and build (``<store>/machines/<fingerprint>/``), so different machines and
