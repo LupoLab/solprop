@@ -201,7 +201,7 @@ def node_fields(
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         return np.concatenate(
-            list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+            list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
         )
     finally:
         reference.close()
@@ -277,8 +277,8 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
@@ -333,7 +333,7 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
         bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
             )
         )
         field_error = node_field_error(reference, problem, fields)

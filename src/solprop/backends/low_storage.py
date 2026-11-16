@@ -81,7 +81,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+_State = Complex[np.ndarray, "n_modes n_pol n_omega"]
 
 
 def table_steps(schedule: FixedSchedule) -> Float[np.ndarray, " n_steps"]:
@@ -180,7 +180,9 @@ class LowStorageEngine(Protocol):
 
     Part of the kernel seam (schema 29): the march keeps the schedule, the commit and
     the records; an engine keeps the registers and the flow table and does every
-    state-sized operation of a step. :class:`HostLowStorage` is the reference.
+    state-sized operation of a step. :class:`HostLowStorage` is the reference. SEP 52's
+    phase 3 replaces it with :class:`solprop.backends.engines.RungeKuttaEngine`, which
+    the native low-storage engine already implements.
     """
 
     stiffness: float

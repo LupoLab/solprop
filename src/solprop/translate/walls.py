@@ -829,7 +829,7 @@ def _check_wall_total_varying(  # noqa: PLR0917 - called positionally
     budget = (64 * count * float(np.finfo(float).eps) + 2.0 * tail) * scale
     for index in range(edges.size - 1):
         lo, hi = float(edges[index]), float(edges[index + 1])
-        carrier = np.real(delta_phi(linear, lo, hi))[0, :, 0, :] / (hi - lo)
+        carrier = np.real(delta_phi(linear, lo, hi))[:, 0, :] / (hi - lo)
         frozen = np.tensordot(means, coefficients[index], axes=1)
         allowance = budget + _normalisation_rate(block, grid, lo, hi)
         total = (
@@ -933,7 +933,7 @@ def _check_wall_total(
     - ``generator``: the stored internal-convention generator in 1/m.
     """
     assert linear.phi_constant is not None
-    total = np.real(linear.phi_constant[0, :, 0, :]) + np.real(
+    total = np.real(linear.phi_constant[:, 0, :]) + np.real(
         generator[np.arange(count), np.arange(count)]
     )
     scale = float(np.max(abs(generator))) + float(np.max(abs(linear.phi_constant)))

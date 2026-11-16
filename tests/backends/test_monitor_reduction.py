@@ -587,7 +587,7 @@ def test_successive_occupancies_are_the_reference_s(backend: str, route: str) ->
         for third in (1, 2, 3):
             stepping(theirs).propagate_to(LENGTH * third / 3)
             expected = reading(theirs).occupancy
-            state = as_driver(theirs)._require_state()[0]
+            state = as_driver(theirs)._require_state()
             got = native_reading(ours, monitor, np.array(state)).occupancy
             assert expected is not None and got is not None
             np.testing.assert_allclose(

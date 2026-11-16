@@ -722,6 +722,8 @@ MODULES = {
             (
                 "protocol",
                 "registry",
+                "records",
+                "engines",
                 "spatial",
                 "populations",
                 "tdse_source",

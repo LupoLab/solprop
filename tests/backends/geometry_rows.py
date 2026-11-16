@@ -613,7 +613,7 @@ def the_leaf_is_pathological(built: Built) -> bool:
     assert leaf is not None
     leaves.assert_the_leaf_is_pathological(leaf)
     if leaf.kappa_sq is not None and built.run_request.stepper.integrator is None:
-        operator = leaves.separable_values(leaf)[0][0]
+        operator = leaves.separable_values(leaf)[0]
         assert not np.allclose(operator[0], operator[1])
     return True
 

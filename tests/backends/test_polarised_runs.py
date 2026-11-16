@@ -150,9 +150,9 @@ def problem_derivative(backend_class, problem, run_request, grid, modes):
             backend._hoist(0.0)
             bundle = backend._stage_scalars(0.0, 0.0)
             derivative = backend._nonlinear(
-                problem.initial.field0[None],
+                problem.initial.field0,
                 bundle,
-                np.ones((1, *problem.shape), complex),
+                np.ones(problem.shape, complex),
             )
         else:
             # The first stage of a trial is exactly N(initial, 0). Observation reads

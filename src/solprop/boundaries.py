@@ -966,8 +966,8 @@ class SplitCrossing:
     ----------
     buckets : numpy.ndarray
         Each bin's bucket, ``uint8``, shape ``(n_modes, n_omega)``: the fastest of its
-        batch members, polarisations and positions along the guide; evanescent and
-        inactive bins in the last.
+        polarisations and positions along the guide; evanescent and inactive bins in
+        the last.
     width : float
         The collar's width at its narrower edge, s.
     launch_limit : float
@@ -986,7 +986,7 @@ class SplitCrossing:
     >>> from solprop.boundaries import SplitCrossing, split_rate_buckets
     >>> buckets = split_rate_buckets(np.array([[1e-12, 1e-10]]))
     >>> crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
-    >>> occupancy = crossing.occupancy(np.array([[[[1.0, 1e-4]]]], dtype=complex))
+    >>> occupancy = crossing.occupancy(np.array([[[1.0, 1e-4]]], dtype=complex))
     >>> # The fast bin holds 1e-8 of the energy and is set aside: the slow bin's limit,
     >>> # 50 mm at 1e-12 s/m, a little shorter at its bucket's edge.
     >>> round(crossing.limit(occupancy) * 1e3, 1)
@@ -1008,7 +1008,7 @@ class SplitCrossing:
 
     def occupancy(
         self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
         columns: Float[np.ndarray, " n_modes"] | None = None,
     ) -> Float[np.ndarray, " n_buckets"]:
         """Return a state's energy per bucket, on the host: the reference reduction.
@@ -1033,8 +1033,8 @@ class SplitCrossing:
 
         def _block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
             """Return a block of modes' energy per bucket."""
-            energy = np.einsum("bmpw,bmpw->mw", re[:, rows], re[:, rows]) + np.einsum(
-                "bmpw,bmpw->mw", im[:, rows], im[:, rows]
+            energy = np.einsum("mpw,mpw->mw", re[rows], re[rows]) + np.einsum(
+                "mpw,mpw->mw", im[rows], im[rows]
             )
             if weights is not None:
                 energy = energy * weights[rows, None]
@@ -1044,7 +1044,7 @@ class SplitCrossing:
                 minlength=SPLIT_RATE_BUCKETS,
             ).astype(np.float64)
 
-        return np.sum(parallel_rows(spectrum.shape[1], spectrum.nbytes, _block), axis=0)
+        return np.sum(parallel_rows(spectrum.shape[0], spectrum.nbytes, _block), axis=0)
 
     def limit(self, occupancy: Float[np.ndarray, " n_buckets"]) -> float:
         """Return the crossing limit of an occupancy, m.

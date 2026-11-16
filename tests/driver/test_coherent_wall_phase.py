@@ -91,7 +91,7 @@ def predicted(problem, grid, sign):
     flow = problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
-    carrier = delta_phi(problem.linear, 0.0, LENGTH)[0, :, 0, index]
+    carrier = delta_phi(problem.linear, 0.0, LENGTH)[:, 0, index]
     assert np.all(carrier == carrier[0])
     start = np.zeros(flow.n_modes, dtype=complex)
     start[:2] = AMPLITUDE / np.sqrt(2.0) * np.array([1.0, sign])

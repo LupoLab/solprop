@@ -73,7 +73,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 2
+    assert metadata.schema_version == 3
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"
@@ -173,7 +173,7 @@ def test_radial_simulation_records_noise_model_and_seed(case, model, backend, re
     # With no nonlinear source, both noise models obey the exact linear flow
     # of their saved entrance. The phase subtraction and complex exponential
     # cost fewer than 64 rounded operations per optical phase magnitude.
-    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)[0]
+    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)
     bound = 64 * EPS * (1 + float(np.max(np.abs(phase))))
     fields = simulation.run().fields("fft")
     expected = np.exp(phase) * fields[0]

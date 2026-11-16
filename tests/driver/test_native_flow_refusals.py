@@ -196,7 +196,7 @@ def test_every_flow_the_reference_refuses_native_refuses_in_the_same_words(
     constant = problem.linear.phi_constant
     assert constant is not None
     varied = constant.copy()
-    varied[0, 1] *= 1.0000001
+    varied[1] *= 1.0000001
     metric = orthonormal_metric(
         problem.grids.omega,
         problem.linear.phi_breakpoints[[0, -1]],

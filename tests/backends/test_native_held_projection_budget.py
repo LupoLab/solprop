@@ -124,7 +124,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             )
             for collar in collars
         ]
-        reference._nonlinear(state[None], bundle, np.ones_like(state[None]))
+        reference._nonlinear(state, bundle, np.ones_like(state))
         assert reference._last_plasma is not None
         _, _, coarse_gate, coarse_edge = reference._last_plasma
         assert coarse_gate is not None and coarse_edge is not None

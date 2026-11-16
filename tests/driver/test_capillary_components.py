@@ -264,7 +264,7 @@ def test_a_negligible_wall_beside_a_two_component_set_is_the_uncoupled_run(kind)
     constant = problem.linear.phi_constant
     assert constant is not None
     folded = constant.copy()
-    folded[0, :, 0, :] += diagonal[index, index]
+    folded[:, 0, :] += diagonal[index, index]
     inside = replace(
         problem,
         linear=replace(uncoupled.linear, phi_constant=folded),

@@ -59,7 +59,7 @@ def test_an_input_draw_is_added_at_the_launch_alone():
         host = cast("Any", reference)
         assert loaded.floor is not None and loaded.noise is None
         assert np.array_equal(loaded.floor, host._input_floor)
-        expected = np.asarray(field)[np.newaxis] + loaded.floor
+        expected = np.asarray(field) + loaded.floor
         assert np.array_equal(loaded.field, expected.reshape(-1))
         assert loaded.clean_columns is not None
         assert np.array_equal(loaded.clean_columns, host._clean_columns)

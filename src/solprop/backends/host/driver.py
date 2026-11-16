@@ -46,7 +46,11 @@ from solprop.backends.protocol import (
     StepSummary,
     TimingProbe,
 )
-from solprop.backends.rk_core import rk_policy
+from solprop.backends.records import (
+    RungeKuttaPolicy,
+    collar_rests,
+    runge_kutta_policy,
+)
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
@@ -141,8 +145,7 @@ class _StepStatsBuffer:
         """Add one row.
 
         - ``z``: position the row was taken at, m.
-        - ``values``: what the backend's ``stats`` returned, keyed by name, without a
-          batch axis.
+        - ``values``: what the backend's ``stats`` returned, keyed by name.
         """
         if self._capacity == 0:
             self._allocate(values)
@@ -267,7 +270,7 @@ class _TrialProbe:
         if self._trial is None:
             raise BackendError("take a trial before reading its field")
         state, length = self._trial
-        field = np.array(driver._observed_field(driver._finish(state, length))[0])
+        field = np.array(driver._observed_field(driver._finish(state, length)))
         self._trial = None
         return field
 
@@ -376,7 +379,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._profiles = profiles
         self._logger = logging.getLogger(type(self).__module__)
         self._state: _StateT | None = None
-        self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
+        self._noise: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None
         self._z = 0.0
         self._proposal = self._stepper.dz_init
         self._clean_columns: Float[np.ndarray, " n_columns"] | None = None
@@ -437,7 +440,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     @abstractmethod
     def _apply_mask(
-        self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> _StateT:
         """Apply the hard band mask to a state that has not been through a step.
 
@@ -470,7 +473,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         del dz
         return self._apply_mask(
-            cast(Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], state)
+            cast(Complex[np.ndarray, "n_modes n_pol n_omega"], state)
         )
 
     def _reserve_source_calls(self, count: int) -> None:
@@ -487,14 +490,14 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _adams_source(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         anchor: float,
         position: float,
         *,
         purpose: TDSEPurpose = "predictor",
     ) -> tuple[
-        Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        Complex[np.ndarray, "n_modes n_pol n_omega"],
+        Complex[np.ndarray, "n_modes n_pol n_omega"],
     ]:
         """Evaluate the source once for the low-call Adams march (SEP 13, SEP 14).
 
@@ -517,11 +520,11 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _adams_lab_source(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         position: float,
         *,
         purpose: TDSEPurpose = "predictor",
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Evaluate the source once, untransported, for exponential Adams (SEP 16).
 
         The complete source assembly ``F`` -- the nonlinear response, the run's noise
@@ -562,7 +565,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _adams_propagator(
         self, anchor: float, position: float
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the linear propagator of an Adams step, ``U(position, anchor)``.
 
         - ``anchor``, ``position``: the step's anchor and its end, m.
@@ -572,7 +575,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         bundle = self._stage_scalars(anchor, position)
         return np.exp(self._delta_phi(bundle))
 
-    def _adams_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    def _adams_state(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the accepted state as the Adams march reads it, a host array.
 
         The default is the protected state itself; a backend whose state lives
@@ -580,23 +583,21 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         - Returns: the accepted state in the canonical layout.
         """
-        return cast(
-            Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], self._require_state()
-        )
+        return cast(Complex[np.ndarray, "n_modes n_pol n_omega"], self._require_state())
 
     def _adams_adopt(
-        self, advanced: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], dz: float
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        self, advanced: Complex[np.ndarray, "n_modes n_pol n_omega"], dz: float
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Adopt an accepted Adams step: its boundary treatments, then the state.
 
         - ``dz``: the step, m, which the split-step absorber needs.
         """
         finished = self._finish(cast(_StateT, advanced), dz)
         self._state = finished
-        return cast(Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], finished)
+        return cast(Complex[np.ndarray, "n_modes n_pol n_omega"], finished)
 
     def _adams_restore(
-        self, z: float, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, z: float, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> None:
         """Restore an accepted Adams state after interpolation or a failed correction.
 
@@ -607,7 +608,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _observed_field(
         self, state: _StateT
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return an owning host view of a backend's protected state.
 
         Array-backed CPU implementations use the identity. A device backend overrides
@@ -616,7 +617,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         - Returns: an owning host ``complex128`` field in canonical layout.
         """
-        return cast(Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], state)
+        return cast(Complex[np.ndarray, "n_modes n_pol n_omega"], state)
 
     @abstractmethod
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
@@ -635,7 +636,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, without a batch axis.
+            Small host arrays keyed by statistic name.
         """
 
     def _on_accepted_step(self) -> None:  # noqa: B027 - optional by design
@@ -968,7 +969,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _delta_phi(
         self, bundle: StageScalars
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the stage's propagator exponent from the bundle.
 
         One linear combination of the terms this backend holds over the bundle's
@@ -997,7 +998,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _unitary_phase(
         self, bundle: StageScalars
-    ) -> Float[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Float[np.ndarray, "n_modes n_pol n_omega"]:
         """Return ``Im Phi`` at the stage's position, from the same terms.
 
         An expansion of ``Phi`` is cumulative and vanishes at the start of the range,
@@ -1081,9 +1082,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 f"{self._problem.shape} from the contract"
             )
             raise BackendError(msg)
-        # The march holds its state with a leading axis of one, privately: the layout
-        # its kernels and the native build's read (SEP 47 section 6.2).
-        values = values[np.newaxis]
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
@@ -1096,7 +1094,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ):
             if transverse_of(self._problem.route) is not None:
                 self._clean_columns = _clean_launch_columns(
-                    values[0], drawn[0], self._problem.grids.active_mask
+                    values, drawn, self._problem.grids.active_mask
                 )
             values = values + drawn
         self._state = self._apply_mask(values)
@@ -1331,7 +1329,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             hold(whole)
         plane = Observation(
             z=self._z,
-            field=None if whole is None else whole[0],
+            field=whole,
             noise_phase=self._noise_phase() if field else None,
             step_history=history,
             n_steps=history.n_steps,
@@ -1448,31 +1446,25 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         - ``target``: position to reach, m.
         """
-        settings = self._stepper
         policy = self._controller_policy()
-        dense = settings.interpolate_planes
+        dense = policy.interpolate
         if dense and self._dense_ahead is not None:
             # The march is ahead of the last interpolated plane; resume it there.
             self._adams_restore(*self._dense_ahead)
             self._dense_ahead = None
         if self._natural_stop_due(target):
             return
-        breakpoints = self._problem.linear.phi_breakpoints
-        if not settings.interval_cap:
-            # The cumulative table makes the flow exact across its intervals, so only
-            # the table's two ends bound a step (SEP 14 section 4.1).
-            breakpoints = breakpoints[[0, -1]]
+        # The policy's landings (SEP 45 section 4.2): only the operator table's two
+        # ends bound a step without the interval cap (SEP 14 section 4.1), and dense
+        # output steps across the save planes, still landing on the end of the run and
+        # the hard kinks (SEP 14 section 4.3).
         targets = StepTargets(
-            # Dense output steps across the save planes; the end of the run and the
-            # hard kinks are still landed on (SEP 14 section 4.3).
-            save_planes=np.empty(0)
-            if dense
-            else np.asarray(settings.save_planes, dtype=np.float64),
-            hard_kinks=self._problem.linear.hard_kinks,
-            breakpoints=breakpoints,
-            dz_max=settings.dz_max,
-            z_end=settings.z_end if dense else target,
-            stretch=settings.stretch,
+            save_planes=np.asarray(policy.save_planes, dtype=np.float64),
+            hard_kinks=np.asarray(policy.hard_kinks, dtype=np.float64),
+            breakpoints=np.asarray(policy.breakpoints, dtype=np.float64),
+            dz_max=policy.dz_max,
+            z_end=policy.z_end if dense else target,
+            stretch=policy.stretch,
         )
         while not reached(self._z, target):
             self._poll_stop()
@@ -1543,7 +1535,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         - Returns: the anchor, the step and the five coefficients, host arrays.
         """
         start = self._observed_field(cast(_StateT, self._state)).reshape(
-            (1, *self._problem.shape)
+            self._problem.shape
         )
         coefficients = extension_coefficients(
             self._stepper.tableau, start, self._dense_stages(), dz
@@ -1570,7 +1562,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._dense_ahead = (
             self._z,
             self._observed_field(cast(_StateT, self._state)).reshape(
-                (1, *self._problem.shape)
+                self._problem.shape
             ),
         )
         self._state = self._apply_mask(self._adams_propagator(z, position) * value)
@@ -1585,9 +1577,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         msg = f"{self.name} does not observe densely"
         raise BackendError(msg)
 
-    def _controller_policy(self) -> rk_core.RungeKuttaPolicy:
-        """Return the Runge-Kutta march's controller policy (SEP 45)."""
-        return rk_policy(self._stepper)
+    def _controller_policy(self) -> RungeKuttaPolicy:
+        """Return the Runge-Kutta march's controller and landing policy (SEP 45)."""
+        return runge_kutta_policy(self._problem, self._stepper)
 
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
@@ -1765,7 +1757,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     _monitor: BoundaryMonitor | None = None
     """The run's boundary monitor (SEP 21), fed every committed step; ``None``."""
 
-    _input_floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
+    _input_floor: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None
     """The input-noise draw the launch carries, the monitor's floor; ``None``."""
 
     _split_removed: float = 0.0
@@ -1846,7 +1838,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     current=edge.every_step and edge.resumed,
                 ),
                 self._z,
-                noise=None if floor is None else np.asarray(floor[0]),
+                noise=None if floor is None else np.asarray(floor),
                 clean_columns=self._edge_clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
                 reads=self.reads_transverse_edge,
@@ -1914,7 +1906,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         - ``full``: whether every node is wanted, not only the rows a read uses.
         """
         return edge.reduction.reading(
-            np.asarray(self._observed_field(state)[0]),
+            np.asarray(self._observed_field(state)),
             faces=faces,
             current=current,
             full=full,
@@ -1938,8 +1930,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return None
         if self._clean_columns is not None:
             return self._clean_columns
-        state = np.asarray(self._observed_field(self._require_state())[0])
-        return edge.reduction.column_power(state - np.asarray(floor[0]))
+        state = np.asarray(self._observed_field(self._require_state()))
+        return edge.reduction.column_power(state - np.asarray(floor))
 
     def _next_step(self) -> float:
         """Return the step the march takes next, m.
@@ -2151,28 +2143,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _collar_can_rest(self) -> bool:
         """Return whether this run's stages may leave a quiet temporal collar out.
 
-        One rule for every backend: a modal or radial stage with the in-stage
-        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
-        coupled flows, the general modal route, a real-space collar sharing the term,
-        and the Cartesian, line and planar routes, whose stages keep the term whatever
-        the monitor says, keep the collar in every stage (SEP 21 D15).
-
-        - Returns: True when the term may be left out while the collar is quiet.
+        The one rule every backend reads (:func:`solprop.backends.records.collar_rests`,
+        SEP 21 D15).
         """
-        problem = self._problem
-        responses = problem.responses
-        geometry = problem.transform.geometry
-        resting_geometry = geometry is None or (
-            geometry.kind == "radial" and not np.any(geometry.absorber_rate)
-        )
-        return (
-            self._low_storage is None
-            and responses.temporal_absorber is not None
-            and responses.absorber_scheme == "nonlinear"
-            and problem.linear.coupled_flow is None
-            and problem.transform.modal_tables is None
-            and resting_geometry
-        )
+        return collar_rests(self._problem, self._stepper)
 
     def _collar_changed(self) -> None:  # noqa: B027 - optional by design
         """Drop whatever was evaluated under the other collar setting.
@@ -2262,7 +2236,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _noise_field(
         self, noise: NoiseRealisation | None
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return the noise realisation to carry, in the canonical layout.
 
         - Returns: the noise spectrum, or ``None`` when no noise model is active.
@@ -2270,13 +2244,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         if noise is not None:
-            return noise_spectrum(noise, self._problem.shape)[np.newaxis]
-        noise0 = self._problem.initial.noise0
-        return None if noise0 is None else noise0[np.newaxis]
+            return noise_spectrum(noise, self._problem.shape)
+        return self._problem.initial.noise0
 
     def _noise_at(
         self, bundle: StageScalars
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return the shot-noise field advanced to a stage's position.
 
         ``N(z) = N0 exp(i Im Phi(omega, z))``: dispersion yes, loss and gain no, from
@@ -2300,9 +2273,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         phase = self._unitary_phase(self._stage_scalars(self._z, self._z))
-        return np.ascontiguousarray(
-            np.broadcast_to(phase, (1, *self._problem.shape))[0]
-        )
+        return np.ascontiguousarray(np.broadcast_to(phase, self._problem.shape))
 
     # --- guards --------------------------------------------------------------------
 
@@ -2311,13 +2282,13 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         scan: tuple[np.ndarray, np.ndarray] | None,
     ) -> dict[str, np.ndarray]:
-        """Return the four on-axis plasma statistics of one batch member (SEP 19).
+        """Return the four on-axis plasma statistics of the state (SEP 19).
 
         A rule with a node on the axis hands over that node's row from this
         observation's node scan; otherwise the axis row is scanned once
         (:func:`solprop.backends.numpy_ref.populations.axis_populations`).
 
-        - ``field``: one batch member at this plane, shape (n_modes, n_pol, n_omega), or
+        - ``field``: the state at this plane, shape (n_modes, n_pol, n_omega), or
           ``None`` from a backend whose :meth:`_axis_row_populations` reads its own
           state.
         - ``scan``: this observation's channel fractions and peak rates at every node,

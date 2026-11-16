@@ -326,7 +326,7 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
                 spectra.append(_testing.projected_to_host(state, False))
             else:
                 backend.set_initial(problem.initial.field0, None)
-                backend._adams_lab_source(problem.initial.field0[None], 0.0)  # pyright: ignore[reportPrivateUsage]
+                backend._adams_lab_source(problem.initial.field0, 0.0)  # pyright: ignore[reportPrivateUsage]
                 projected = np.asarray(backend._last_projected)  # pyright: ignore[reportPrivateUsage]
                 spectra.append(np.asarray(np.fft.rfft(projected, axis=-1)))
         finally:

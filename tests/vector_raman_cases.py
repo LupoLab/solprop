@@ -139,9 +139,9 @@ def result(backend_class, problem, run_request, grid, modes, options=CHUNK):
             backend._hoist(0.0)
             bundle = backend._stage_scalars(0.0, 0.0)
             rhs = backend._nonlinear(
-                problem.initial.field0[None],
+                problem.initial.field0,
                 bundle,
-                np.ones((1, *problem.shape), complex),
+                np.ones(problem.shape, complex),
             )
         else:
             assert backend.name == "native"

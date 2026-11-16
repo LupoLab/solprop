@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2`; (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1115,6 +1115,112 @@ comparison corpus of §7 from this tree, pins the split collar's rules, and remo
 unit axis. `ApertureSet.same_as` is kept because tests use it, though production no
 longer does.
 
+### Milestone 2 (phase 2 and phase 3's axis removal) — 2026-11-16
+
+Branch `feature/sep-0052-backend-shape-p2`
+([#854](https://github.com/LupoLab/solprop/pull/854)), stacked on milestone 1, by Opus 5.5
+(AI) for John Travers. Three parts were developed by AI agents on separate branches and merged in
+order: the corpus (`39fab778`), the run records and protocols (`32fe1130`) and the axis
+removal (`e75271e8`).
+
+**Delivered.**
+
+- *The pinned corpus* (§7), recorded from the milestone 1 tree before anything moved:
+  `tests/backend_corpus_cases.py`, `tests/data/generate_backend_corpus.py` and
+  `tests/data/backend_corpus.npz` (1.2 MB), compared by
+  `tests/backends/test_backend_corpus.py`. Thirteen cases, each on both backends:
+  replayed, adaptive and low-storage Runge–Kutta on a fibre; fused Adams with transported
+  history, exponential Adams, and exponential Adams in the carrier frame with
+  interpolated planes on a capillary; envelope plasma; general modal; radial; Cartesian;
+  the line route with a real-space collar under exponential Adams and under low-storage;
+  and the planar hybrid. Each records the last field, the planes and their statistics,
+  the step history, the monitor and edge records (split removal and occupancies
+  included), a stop at the middle plane resumed from its file, and two probe trials or
+  the low-storage refusal. Fixed schedules are held to `march_bounds.march_bound` (SEP
+  25), statistics to four times that, and adaptive runs to their accuracy envelope; a
+  bitwise comparison is reported as a diagnostic only. Moving a field or the removal by
+  ten budgets is detected in every case. The generator refuses to overwrite the corpus
+  without `--force`, which its docstring permits only under §4.
+- *The split collar's rules pinned* (§5.2), in `tests/sessions/test_split_collar_rules.py`,
+  on both backends through sessions, each with a guard that what it rules out exceeds 100
+  tolerances.
+- *The run records,* `solprop.backends.records`: `run_records(problem, request, start)`
+  builds a `RunRecords` of the method's policy (`RungeKuttaPolicy`, lifted from
+  `rk_core` and now carrying the landings; `adams_policy` building the `MarchPolicy`,
+  formerly derived twice), `LowStorageSettings`, the schedule, the `PlanePlan` and the
+  `MonitorRecords` (`MonitorConfig`, `EdgeConfig`, `MonitorContinuation`). The monitor,
+  edge and notice records moved here from `solprop_native._watch` and `_transverse`, and
+  the quiet-collar rule `collar_rests`, formerly duplicated, lives here once. Native's
+  session builds every configuration dictionary from the records
+  (`solprop_native/_records.py`); the reference reads its controller policy, landings,
+  Adams policy, quiet-collar rule and plane bookkeeping from them. What crosses into
+  `_core` is unchanged.
+- *The engine protocols,* `solprop.backends.engines`: `RungeKuttaEngine`, `AdamsEngine`,
+  `AcceptRecord`, `BoundaryReading`, `HistoryEntry` and `AttemptOutcome`, as §5.2 states
+  them, with the commit contract and the low-storage difference in the docstrings. The
+  old `AdamsEngine` and `LowStorageEngine` protocols remain in use until milestone 3.
+  `tests/backends/test_engines.py` pins the new members and signatures.
+- *The unit axis removed everywhere* (§5.4, #618): translation's value tables
+  (`phi_coefficients` is `(n_intervals, n_deg, n_modes, n_pol, n_omega)`), the separable
+  operators, the stage terms, `SplitCrossing` and `BoundaryMonitor`, the reference's state,
+  passes, history and ledgers, native's load, readback, chord tables and history rows (in
+  the Python adapter; no C++ changed), the carrier chord, resume, and the stored
+  `MarchSnapshot`. `HOST_SURFACE` in `tests/backends/test_driver.py` loses `n_batch`; no
+  field was added or removed. `conventions.md` §6 drops `n_batch`, and ADR-003's status
+  records the change.
+- *Output schema 3.* `SCHEMA_VERSION` goes from 2, which 0.2.0 wrote, to 3, the one bump
+  for the next release. A snapshot with a leading axis of one is refused by name ("…the
+  layout (1, …) of a file written before output schema 3…"), and a snapshot of any other
+  wrong shape is refused too, where it used to be skipped with a warning.
+- Changelog fragments: `sep-0052-run-records.changed.md`,
+  `sep-0052-unit-axis.changed.md` (the seam fragment of ADR-068) and
+  `sep-0052-snapshot-layout.breaking.md`.
+
+**Verification.** On an Apple M5 Max, CPU editable build: the corpus passes unchanged
+after the axis removal, without regeneration, so the layout change moved no number past
+its budget; the corpus also passes on the milestone 1 tree, so phase 0 moved none. The
+directly affected modules pass: `tests/translate` (1,420), `tests/backends`, `tests/driver`,
+`tests/processing` and `tests/recipe` (about 4,200), `tests/sessions`, `tests/output`,
+`tests/nonlinear`, the monitor, split-crossing and spatial-boundary modules, the decision
+traces, and the affected `native/tests` files, apart from the thread-sizing failure noted
+in milestone 1. After the three merges, the corpus, the collar rules, the records,
+protocols, frozen tables, traces, snapshot layout and native session-history modules were
+rerun together (391 passed). One run under load once failed
+`test_native_session_history.py::test_a_noisy_run_on_a_z_table_meets_the_reference[input-runge-kutta]`
+(accepted step ends 2.3e-6 relative against a 1e-6 tolerance); it passed on every rerun
+and is likely the multithreaded reductions' order. Not run locally: the full and coverage
+lanes, the docs build, the whole native suite.
+
+**Decisions.**
+
+- The dense-observation rule of §5.2 cannot be exercised: translation refuses dense
+  observation beside the split collar, so the rule holds because the combination cannot
+  run. The refusal is pinned instead.
+- `BoundaryReading` follows §5.2 and leaves out the split sums, which travel in
+  `AcceptRecord`; native's C++ reading still carries them until phase 4.
+- Schema 3, not a number above the pre-0.1.0 development schemas (which reached 28): a
+  development file that says 3 is still refused by its configuration hash and missing
+  fields, though not by name.
+- The calibration store key keeps its `(1, …)` shape, because it is written on users'
+  disks and changing it would orphan their stored refinements.
+
+**Findings.**
+
+- A native run's bits depend on what ran before it in the process: at one build and
+  thread setting, a native run after a `numpy_ref` run differs in the last bits from one
+  in a fresh process. SEP 25 allows it, but it is worth an issue.
+
+**Cost** (`poe size --all`, Python). Total 266,928 → 267,882; `backends` 22,753 → 24,208
+(the records and protocols, mostly docstrings); `translate` 35,021 → 35,005. Tests: about
+2,700 lines added, most of them the corpus and the record and collar tests.
+
+**Handoff.** Milestone 3 restructures the reference over the protocols and records, and
+deletes `HostDriver`; the corpus is its comparison. `HostLowStorage` still derives its flow
+treatment, `HostDriver` still owns its row period and step planes, and the reference's
+monitor resumes through its own `BoundaryMonitor` path: all three go with the driver. The
+private-import count is at its cap (87), because `records.py` reads two private monitor
+names.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, from a review of the native binding's use in production and of the
@@ -1131,6 +1237,7 @@ longer does.
 - 2026-11-15: Implementation started by Opus 5.5 (AI) for John Travers, on
   `feature/sep-0052-backend-shape-p1`.
 - 2026-11-16: Milestone 1 (phases 0–1) reported in Part II.
+- 2026-11-16: Milestone 2 (phase 2 and the axis removal) reported in Part II.
 
 ### AI review — 2026-11-15
 

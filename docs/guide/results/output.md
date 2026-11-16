@@ -275,7 +275,7 @@ For a modal run:
   step_stats/<name>     already available periodic statistics
 /march_snapshot/       optional; attrs: z (NaN while being written), method, order,
                        rejections, last_rejected, proposal, identities (JSON)
-  state                 (1, n_modes, n_pol, n_omega)        the accepted state, internal
+  state                 (n_modes, n_pol, n_omega)           the accepted state, internal
   positions, slots      (n_entries,)                        the history's entries
   rows/<name>           (n_slots, ...)                      the engine's rows
 ```
@@ -428,13 +428,15 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 ## The schema version
 
 Every file records its `schema_version`; this release writes and reads output
-schema **2** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
-that of 0.1.0; schema 2 adds `spectral_phase` to the record of a
-{py:class}`~solprop.pulses.DataPulse`. A file of any other schema is refused by name
-wherever it is opened, read or resumed: files written by an earlier release or by
-development versions of solprop, which declared output schemas up to 28, are not read,
-and nor is a file from a later release. Read such a file with the solprop version that
-wrote it. A scan file is refused the same way, by the output schema each point's run
+schema **3** (`solprop.output.SCHEMA_VERSION`). Schema 1 was the first released layout,
+that of 0.1.0; schema 2, that of 0.2.0, adds `spectral_phase` to the record of a
+{py:class}`~solprop.pulses.DataPulse`; schema 3 stores a march snapshot's `state` and
+its engine `rows` without the leading axis of one they kept before, and a snapshot
+written in that earlier layout is refused by name. A file of any other schema is refused
+by name wherever it is opened, read or resumed: files written by an earlier release or
+by development versions of solprop, which declared output schemas up to 28, are not
+read, and nor is a file from a later release. Read such a file with the solprop version
+that wrote it. A scan file is refused the same way, by the output schema each point's run
 record declares, whether it is read or resumed; its own `scan_schema_version` versions
 the scan container, not the records in it, and is still 1. A resume needs the file's
 schema to be this one, and checks that before it compares the records

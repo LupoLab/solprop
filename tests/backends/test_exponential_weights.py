@@ -151,8 +151,8 @@ def test_phi_functions_agree_with_the_augmented_exponential(x):
 def test_kernel_moments_agree_with_the_augmented_exponential(x):
     # The moments k! phi_{k+1}(x) the reference's trial takes.
     count = MAX_PHI_ORDER
-    exponent = np.full((1, 1, 1, 1), x, dtype=np.complex128)
-    moments = ExponentialKernels().moments(exponent, count)[:, 0, 0, 0, 0]
+    exponent = np.full((1, 1, 1), x, dtype=np.complex128)
+    moments = ExponentialKernels().moments(exponent, count)[:, 0, 0, 0]
     reference = augmented_phi(complex(x), count)
     for k in range(count):
         scale = math.factorial(k)

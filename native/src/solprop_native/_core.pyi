@@ -257,10 +257,9 @@ class State:
     # `solprop.translate.problem.PropagationProblem`: its shared grid, operator,
     # response and source components, with the route variant the adapter visited
     # (solprop SEP 47 section 6.2); `n_modes` and `n_pol_state` are the state's
-    # `(n_modes, n_pol, n_omega)`. The workspace keeps its four-axis layout
-    # `(1, n_modes, n_pol, n_omega)`: `set_initial`, `field_to_host` and the
-    # Adams rows carry the leading axis of one, which the adapter adds and removes,
-    # and a single trajectory crosses the Python seam without it.
+    # `(n_modes, n_pol, n_omega)`. `set_initial` takes, and `field_to_host` and the
+    # Adams rows return, that layout as contiguous elements, which the adapter
+    # reshapes.
     def __init__(self, problem: Problem) -> None: ...
     def set_initial(
         self,
