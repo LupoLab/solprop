@@ -388,6 +388,9 @@ def pressure_rdw(
         Positive input power FWHM in s, required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
         Unchirped input shape.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}, optional
         Largest constituent by default; supplied power preserves gamma P0/2
         without fwhm. Linear requires omitting pulse numbers.
