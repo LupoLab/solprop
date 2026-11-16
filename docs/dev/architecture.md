@@ -591,9 +591,10 @@ class Backend(Protocol):
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
 
-    # The reference's host stepping seam (set_initial, propagate_to, observe, stats, the
-    # monitor and the march's snapshot) is a protocol of its own, HostStepping, which
-    # its session drives (backends.md section 1).
+    # Nothing else: a run is its session's on both backends (SEP 52). Behind the
+    # protocol each backend has a lowering, a workspace, engines, marches and a
+    # session; the reference's session (HostSession) is the Python counterpart of
+    # native's session.cpp (backends.md section 1).
 ```
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
@@ -736,7 +737,7 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
   stored, the stores allocate field storage for the kept planes only, and the admission
   charges those alone (its `output` group). The backend is asked for the field only on
-  the kept planes: `HostDriver.observe(field=False)` transfers nothing from a device,
+  the kept planes: a field-free observation transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
   alone. Under the low-storage march a step abandoned in flight after such a plane leaves
@@ -745,7 +746,8 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
   admitted once; each session's load restores everything a march reads (the native
-  backend's `_load`, the reference's `HostDriver.set_initial`), so a reused backend
+  backend's `_load`; the reference's session builds its march afresh and loads its
+  workspace), so a reused backend
   repeats a fresh one's run. An input array of more than 2²⁰ elements is
   recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
   reads such an array in place and marches on a problem without it, so no input outlives

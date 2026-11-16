@@ -653,13 +653,9 @@ class _TrialProbe:
     def trial(self, z: float | None = None, dz: float | None = None) -> None:
         """Take one trial step and keep its end state for :meth:`field`.
 
-        Parameters
-        ----------
-        z : float or None, optional
-            Where the trial starts, m; the loaded position by default.
-        dz : float or None, optional
-            Its length, m, positive; the problem's ``dz_init`` by default, or the
-            scheduled step at the loaded position for the low-storage march.
+        - ``z``: where the trial starts, m; the loaded position by default.
+        - ``dz``: its length, m, positive; the problem's ``dz_init`` by default, or the
+          scheduled step at the loaded position for the low-storage march.
         """
         stepper = self._backend.request.stepper
         start = self._z if z is None else float(z)
@@ -680,18 +676,11 @@ class _TrialProbe:
         The trial's state after the accepted-step boundary treatments (the band mask,
         and the split-step absorber where it runs). A trial is held beside the loaded
         state, so finishing it leaves the loaded state alone, and no monitor is bound,
-        so the finish takes no split sums.
+        so the finish takes no split sums. Refused for the low-storage march, and with
+        no trial since the last read-back.
 
-        Returns
-        -------
-        numpy.ndarray
-            An owning copy, internal units and the FFT convention, shape
-            ``(n_modes, n_pol, n_omega)``.
-
-        Raises
-        ------
-        BackendError
-            For the low-storage march, or with no trial since the last read-back.
+        - Returns: an owning copy, internal units and the FFT convention, shape
+          ``(n_modes, n_pol, n_omega)``.
         """
         if self._low_storage:
             msg = (

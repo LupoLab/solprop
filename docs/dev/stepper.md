@@ -175,9 +175,10 @@ order conditions are checked for both weight vectors and the propagated solution
 fifth-order one, and the FSAL stage is not recycled before anything that depends on the
 completed step (irrelevant without dense output, but tested).
 
-**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md)). The NumPy reference runs
-its own step driver and marches in `backends/host/`: `HostDriver`, `HostAdamsMarch`
-and `HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
+**Who marches** ([SEP 47](seps/archive/sep-0047-run-ownership.md), [SEP 52](seps/sep-0052-backend-shape.md)).
+The NumPy reference's session schedules its runs and drives its marches in
+`backends/host/`: `HostSession` over `RungeKuttaMarch`, `HostAdamsMarch` and
+`HostLowStorageMarch`. Every native run is its native session's, whose compiled Runge-Kutta, Adams and low-storage
 marches decide natively from one policy record each: the native backend loads a start
 itself (`solprop_native._load`) and keeps its Adams march's policy, ledger and history
 in a record of its own (`_NativeAdamsMarch`), and inherits no Python step loop. The
@@ -283,8 +284,9 @@ of `table_steps` and the flows' increments, the native state forms from its stag
 tables (`native/src/low_storage.cpp`), with no return to Python; a failure partway
 through a step leaves no consistent state, so the session's terminal event is poisoned
 and claims no checkpoint. There is no estimate: the history's norm is 0.0, "not estimated". The step
-is **in flight** from its start to its commit (`HostDriver._in_flight`), and every entry
-that reads or advances the state refuses it until `set_initial`; divergence is detected
+is **in flight** from its start to its commit (the engine's `in_flight`, which the march
+reports with the step's start and length), and every entry that reads or advances the
+state refuses it until a new session loads a start; divergence is detected
 on the accepted state's squared norm, which pass 4 reduces over the norm mask. The
 stiffness indicator `h rho = 2 ||F3 - F2|| / ||F2 - g1||` (exactly `|h lambda|` for
 `u' = lambda u`) is kept by the host engine and logged when it passes RK4's negative-real
@@ -400,7 +402,7 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample.
 
 **The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
-`HostDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
+`RungeKuttaMarch.march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
