@@ -15,13 +15,14 @@ lenses, apertures, mirrors, interfaces and spectral optics.
 ## A plane, and what it means
 
 A {py:class}`~solprop.coupling.plane.FieldPlane` holds a field's native coefficients
-exactly as an output stores them -- the optics-convention raw spectrum of each
-column, referenced to the centre of the time window -- together with everything
-needed to use them:
+exactly as an output stores them -- the optics-convention raw forward DFT of each
+column, referenced to the centre of the time window
+({py:func}`~solprop.fourier.spectrum_to_optics`), shape `(n_modes, n_pol, n_omega)` --
+together with everything needed to use them:
 
 | part | what it says |
 |---|---|
-| `kind`, `units`, `basis` | the representation: ordinary true-power mode coefficients (`modal`, √W), general-modal coordinates (`general_modal`, √W), the Hankel spectrum of a radial field (`radial`, V m) or the transverse DFT of a Cartesian one (`cartesian`, V/m); the basis carries an identity digest |
+| `kind`, `units`, `basis` | the representation: ordinary true-power mode coefficients $b = \sqrt{\operatorname{Re}n_{\rm eff}}\,a$ (`modal`, √W), general-modal coordinates (`general_modal`, √W), the order-zero Hankel spectrum of a radial field (`radial`, V m), the transverse DFT of a Cartesian one (`cartesian`, V/m) or the slab amplitude per y frequency of a planar one (`planar`, √(W/m)); the basis carries an identity digest |
 | `grid` | the temporal grid: field or envelope layout, time samples, the absolute frequency of every bin, the carrier |
 | `reference` | the affine reference of the stored spectrum (below) |
 | `geometry` | the plane's position, the side of a declared index jump, and its oriented right-handed transverse frame |
@@ -110,6 +111,21 @@ with $q = 2$ on interior bins of a field grid and 1 otherwise, and $\Delta$,
 $\Delta\phi$ the change of reference, so that the absolute spectrum is unchanged. The
 direct sum is the implementation; complex spectral zeros and separated bands need no
 special case, since no phase is unwrapped and nothing is interpolated.
+
+Three things are kept apart: the sign convention (a plane's samples are already in the
+optics convention), the raw DFT's time origin (the window centre) and its amplitude
+scaling. With $s_k$ a plane's stored spectrum, its normalised analytic spectral density
+is $f_k = (\Delta t/\sqrt{2\pi})\,q_k s_k$, so that
+$\Delta\omega\sum_k f_k^\dagger Q_k f_k$ is the energy in the native metric $Q$ ($q_k$
+is 1 at a field grid's zero-frequency and Nyquist bins as on every envelope bin), and
+copying $f$ between identical physical frequencies is the operation that raw DFT
+amplitudes do not give. The analytic signal is
+$a_j = N^{-1}\sum_k q_k s_k e^{-i\omega_k t_j}$ at the source's own time samples. The sum
+is evaluated only on target bins inside the source lattice's own span: beyond it a sum of
+samples spaced $\Delta t$ repeats with period $2\pi/\Delta t$ and returns aliases of the
+record, not light. It is evaluated in bounded chunks of target bins, and its one
+acceleration is the identical lattice in an unchanged reference, where the map is the
+identity and the samples are copied (checked against the direct sum by the tests).
 
 ```python
 from solprop.coupling import regrid

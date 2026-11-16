@@ -2,46 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Move a field plane onto another temporal lattice, or another reference.
+"""Move a field plane onto another temporal lattice, or another reference.
 
-The one controlled temporal conversion of SEP 31 (section 4.5). Three things are
-kept apart: the sign convention (a plane's samples are already optics-convention),
-the raw DFT's time origin (the window centre) and its amplitude scaling. With
-:math:`s_k` a plane's stored spectrum, its normalised analytic spectral density is
+:func:`regrid` is the one controlled temporal conversion of SEP 31 (section 4.5): each
+target bin receives the finite-time Fourier sum of the source's analytic signal, zero
+outside its window, shifted by the change of reference
+(:class:`~solprop.coupling.plane.PlaneReference`) so that the absolute spectrum is
+unchanged. It is a direct sum, evaluated only on target bins inside the source
+lattice's span (beyond it the sum returns aliases), with the identical lattice in an
+unchanged reference copied. Light outside the target's band or window is removed only
+on request (``crop_band``, ``truncate``) and its share reported in a
+:class:`RegridReport`; a record with light at its edges is not extended without
+``truncate``; nothing is renormalised. :data:`DEFAULT_TOLERANCE` is the share of a
+record's norm below which a band or window counts as unoccupied.
 
-.. math:: f_k = \frac{\Delta t}{\sqrt{2\pi}}\,q_k s_k,
-
-:math:`q_k = 2` on interior positive bins of a field grid, 1 at its zero-frequency
-and Nyquist bins, and 1 on an envelope grid, so that
-:math:`\Delta\omega\sum_k f_k^\dagger Q_k f_k` is the energy in the native metric Q.
-Copying raw DFT amplitudes between lattices of different N or Δt is not this
-operation; copying f between identical physical frequencies is.
-
-**The map.** The source record is the analytic signal at its own time samples,
-:math:`a_j = N^{-1}\sum_k q_k s_k e^{-i\omega_k t_j}`, zero outside its window. A
-target bin of absolute frequency :math:`\omega'_m` receives its finite-time
-Fourier sum
-
-.. math:: s'_m = \frac{\Delta t}{\Delta t'\,q'_m}\,e^{i\Delta\phi}
-          \sum_j a_j\,e^{i\omega'_m (t_j + \Delta)},
-
-with :math:`\Delta = \tau - \tau'` and :math:`\Delta\phi = \phi - \phi'` the change of
-reference (:class:`~solprop.coupling.plane.PlaneReference`), so that the absolute
-spectrum is unchanged. The sum is evaluated only on target bins inside the source
-lattice's own span: beyond it the sum of samples spaced Δt repeats with period 2π/Δt
-and returns aliases of the record, not light. The direct sum is the reference
-implementation; it is evaluated in bounded chunks of target bins. The one
-acceleration is the identical lattice in an unchanged reference, where the map is the
-identity and the samples are copied; the tests check it against the direct sum.
-Complex spectral zeros need no special case: no phase is unwrapped and nothing is
-interpolated.
-
-**What is lost is reported, and what cannot be represented is refused.** Light
-outside the target's active band, or outside its time window after the shift, is
-removed only on request (`crop_band`, `truncate`), with its share in the report. A
-record whose edges carry light, or whose exterior is unknown, is not extended into a
-larger window without `truncate`, which declares it zero outside. Nothing is
-renormalised: the energy out is whatever the map gives.
+The map and the normalisation it preserves are in ``docs/guide/workflows/coupling.md``,
+section "Moving a plane between grids".
 """
 
 import math
