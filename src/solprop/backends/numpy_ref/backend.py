@@ -7,8 +7,9 @@
 One :class:`NumpyRefBackend` steps one problem in plain NumPy. It builds the
 workspace that holds the state and does every state-sized operation
 (:class:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace`) and, for each run, the
-engines a march asks of it (:class:`~solprop.backends.numpy_ref.engines.
-NumpyRungeKutta`, :class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
+engines a march asks of it
+(:class:`~solprop.backends.numpy_ref.engines.NumpyRungeKutta`,
+:class:`~solprop.backends.numpy_ref.multistep.HostHistory`,
 :class:`~solprop.backends.low_storage.HostLowStorage`), the run's march and its dense
 output (:meth:`NumpyRefBackend.method`); it keeps ``prepare``, the metadata, the
 memory ledger, the timing probe and ``close``. Every run is the reference's own
@@ -592,8 +593,10 @@ class NumpyRefBackend:
     def memory_ledger(self) -> dict[str, int]:
         """Return the size of every buffer the backend works in, in bytes.
 
-        The workspace's (:meth:`NumpyWorkspace.memory_ledger`): what one step has
-        resident at its peak, every buffer named even when it is empty.
+        The workspace's
+        (:meth:`~solprop.backends.numpy_ref.workspace.NumpyWorkspace.memory_ledger`):
+        what one step has resident at its peak, every buffer named even when it is
+        empty.
 
         Returns
         -------

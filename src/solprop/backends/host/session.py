@@ -20,9 +20,10 @@ operation are the backend's workspace's
 **Boundary warnings are barriers.** The monitor's and the edge's warnings go into a
 sink (:attr:`solprop.monitor.BoundaryMonitor.sink`) rather than being issued where they
 arise, and each is reported, in order, as a ``WARNING`` barrier event at the committed
-endpoint it arose at, whose consumer emits it (:func:`~solprop.backends.events.
-emit_warning`): its filters may raise it, which fails the run there. Once allowed, the
-next advance does the rest of that point's work, once, as native's session does.
+endpoint it arose at, whose consumer emits it
+(:func:`~solprop.backends.events.emit_warning`): its filters may raise it, which
+fails the run there. Once allowed, the next advance does the rest of that point's work,
+once, as native's session does.
 
 :class:`HostPrepared` is the prepared execution (SEP 47 section 5.2) a reference backend
 returns from ``prepare``; each of its starts opens one session. The session composes the

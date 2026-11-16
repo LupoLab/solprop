@@ -4,12 +4,12 @@
 
 """The reference's Runge-Kutta march, adaptive and replayed (SEP 45, SEP 52).
 
-:class:`RungeKuttaMarch` holds the march's state (:class:`~solprop.backends.host.
-marches.MarchState`) and makes its decisions with :mod:`solprop.backends.rk_core`'s
-functions of one policy record; every state-sized operation is its engine's
-(:class:`~solprop.backends.engines.RungeKuttaEngine`). It is the counterpart of
-native's ``rk_march.cpp``, whose decisions on identical inputs are its own (the
-decision traces of ``tests/backends``).
+:class:`RungeKuttaMarch` holds the march's state
+(:class:`~solprop.backends.host.marches.MarchState`) and makes its decisions with
+:mod:`solprop.backends.rk_core`'s functions of one policy record; every state-sized
+operation is its engine's (:class:`~solprop.backends.engines.RungeKuttaEngine`). It is
+the counterpart of native's ``rk_march.cpp``, whose decisions on identical inputs are
+its own (the decision traces of ``tests/backends``).
 
 **The controller's state is its own proposal**, never the clipped or stretched step
 that was executed, and what the history and a rejection see is the norm the proposal

@@ -152,8 +152,9 @@ class AdamsDense:
     engine : solprop.backends.numpy_ref.multistep.HostHistory
         The engine that kept the step's samples.
     march : solprop.backends.host.adams.HostAdamsMarch
-        The march whose record of the step (:attr:`~HostAdamsMarch.last_step`) gives
-        the weights' nodes and the carrier rotations.
+        The march whose record of the step
+        (:attr:`~solprop.backends.host.adams.HostAdamsMarch.last_step`) gives the
+        weights' nodes and the carrier rotations.
     """
 
     def __init__(

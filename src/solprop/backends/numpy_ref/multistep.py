@@ -1512,7 +1512,7 @@ class HostHistory:
         )
         self._trial_weights: np.ndarray | None = None
         self.dense: Any = None
-        self.exponential_dense: _ExponentialStep | None = None
+        self.exponential_dense: Any = None
         self._fused_trial: _FusedTrial | None = None
         self._exponential_trial: _ExponentialTrial | None = None
         # SEP 35: the carrier phase each exponential trial removes from the samples
