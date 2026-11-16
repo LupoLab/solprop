@@ -38,14 +38,17 @@ from solprop.modes import (
     RectMode,
     TubeLattice,
     VincettiMode,
-    WallLimits,
     capillary,
     vector_wall_operator,
-    wall_connection,
     wall_operator,
+)
+from solprop.modes.capillary import (
+    ModeKind,
+    WallLimits,
+    _cladding_term_and_derivative,
+    wall_connection,
     wall_square_root_metric,
 )
-from solprop.modes.capillary import ModeKind, _cladding_term_and_derivative
 from solprop.profiles import FromCallable, Linear, ZProfile
 
 ORACLE = Path(__file__).resolve().parents[1] / "data" / "wall_oracle"

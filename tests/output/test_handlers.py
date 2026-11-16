@@ -22,20 +22,19 @@ from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import input_noise
 from solprop.output import (
-    COMPRESSIONS,
-    HISTORY_FIELDS,
     HDF5Output,
     MemoryOutput,
     Output,
-    PlaneStore,
     check_cache,
     open_file,
     resume,
 )
 from solprop.output import hdf5 as hdf5_module
+from solprop.output.hdf5 import COMPRESSIONS
 from solprop.output.metadata import PEAK_FIELDS_ANNOTATION, SCHEMA_VERSION, RunMetadata
 from solprop.output.provenance import BackendRecord
 from solprop.output.records import (
+    HISTORY_FIELDS,
     GridRecord,
     NoiseRecord,
     SavedPlane,
@@ -44,6 +43,7 @@ from solprop.output.records import (
     StepperRecord,
     StepStats,
 )
+from solprop.output.store import PlaneStore
 from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 

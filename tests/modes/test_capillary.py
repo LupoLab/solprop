@@ -20,16 +20,10 @@ from witness_materials import ONE_BAR_0C, borzsonyi, ermolov_helium
 from bounds import EPS, assert_within
 from solprop.constants import EPS0, C
 from solprop.exceptions import MaterialRangeWarning, ModeError
-from solprop.modes import (
-    EVANESCENT_INDEX_FLOOR,
-    MarcatiliMode,
-    MarcatiliTerms,
-    Mode,
-    ModeKind,
-    bessel_zero,
-)
+from solprop.modes import EVANESCENT_INDEX_FLOOR, MarcatiliMode, Mode, ModeKind
 from solprop.modes.antiresonant import TubeLattice, VincettiMode
 from solprop.modes.base import alpha, beta, beta1, beta2, zdw
+from solprop.modes.capillary import MarcatiliTerms, bessel_zero
 from solprop.physdata import Gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.mixtures import Mixture

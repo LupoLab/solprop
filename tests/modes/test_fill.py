@@ -9,7 +9,8 @@ import pytest
 from witness_materials import ermolov_helium, kingston_argon
 
 from solprop.exceptions import ModeError
-from solprop.modes import GasFillMixin, MarcatiliMode, TubeLattice, VincettiMode
+from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
+from solprop.modes.fill import GasFillMixin
 from solprop.physdata import Mixture
 from solprop.profiles import Linear, PressureGradient
 

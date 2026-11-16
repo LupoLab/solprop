@@ -36,7 +36,6 @@ from solprop.modes import (
     IndexTable,
     MarcatiliMode,
     MaterialKerr,
-    ModalConnection,
     ModalGuide,
     ModeCollection,
     PowerLawPermittivity,
@@ -50,6 +49,7 @@ from solprop.modes import (
     vector_wall_operator,
     wall_operator,
 )
+from solprop.modes.connection import ModalConnection
 from solprop.modes.guide import ModalPath, circular_pair
 from solprop.modes.protocol import ChannelLabel
 from solprop.nonlinear.raman import SilicaTensorResponse

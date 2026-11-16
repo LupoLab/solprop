@@ -29,7 +29,8 @@ from solprop.backends.protocol import (
 )
 from solprop.backends.registry import select
 from solprop.backends.session import Start
-from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
+from solprop.driver import Simulation, SimulationSettings, run_problem
+from solprop.driver.metadata import metadata_for
 from solprop.driver.run import history_of, plane_from_observation
 from solprop.exceptions import DriverError
 from solprop.grid import EnvelopeGrid

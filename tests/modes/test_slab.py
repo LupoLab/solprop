@@ -27,16 +27,16 @@ from solprop.modes import (
     SlabPolarisation,
     gaussian_coupling,
     gaussian_to_per_unit_width,
-    on_axis_rule,
     per_unit_width_to_gaussian,
-    taper_scale,
-    transverse_measure,
 )
+from solprop.modes.collection import transverse_measure
 from solprop.modes.protocol import PolarisationComponent
 from solprop.modes.quadrature import (
     cartesian_nodes,
     mode_matrix,
+    on_axis_rule,
     quadrature_rule,
+    taper_scale,
     transverse_quadrature,
 )
 from solprop.physdata import Mixture, aluminium, silver

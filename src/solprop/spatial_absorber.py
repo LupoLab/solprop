@@ -52,25 +52,8 @@ from solprop.exceptions import GridError
 from solprop.grid import planck_taper
 
 __all__ = [
-    "CROSSING_ADAPTIVE",
-    "CROSSING_FIXED",
-    "DAMPING_BOUND",
-    "DEFAULT_ATTENUATION",
-    "LAUNCH_BAND_FACTOR",
-    "PROFILE_FLOOR",
-    "PROTECTED_CUTOFF",
-    "RAMP_K_FLOOR",
-    "RAMP_MARGIN",
-    "THRESHOLD_LAW",
     "SpatialAbsorber",
     "SpatialAbsorberDesign",
-    "collar_attenuation",
-    "collar_profile",
-    "collar_strength",
-    "crossing_limit",
-    "reflection_threshold",
-    "rms_wavenumber",
-    "safety_ramp_strength",
 ]
 
 DEFAULT_ATTENUATION: Final = math.log(5e3)

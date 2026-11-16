@@ -44,7 +44,6 @@ from solprop.exceptions import (
 )
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output import (
-    TDSE_ARCHIVE_SCHEMA,
     MemoryOutput,
     TDSEArchive,
     open_file,
@@ -52,6 +51,7 @@ from solprop.output import (
     resume,
 )
 from solprop.output import tdse_archive as archive_module
+from solprop.output.tdse_archive import TDSE_ARCHIVE_SCHEMA
 from solprop.stats import StatsSpec
 
 pytestmark = pytest.mark.medium

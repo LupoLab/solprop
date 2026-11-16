@@ -49,11 +49,8 @@ from solprop.exceptions import (
     SolpropWarning,
 )
 from solprop.log import NullReporter
-from solprop.modes import (
-    MarcatiliMode,
-    SlabMode,
-    transverse_measure,
-)
+from solprop.modes import MarcatiliMode, SlabMode
+from solprop.modes.collection import transverse_measure
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.output.hdf5 import open_file
 from solprop.output.metadata import RunMetadata

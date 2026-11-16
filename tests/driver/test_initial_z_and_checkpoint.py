@@ -51,12 +51,11 @@ from solprop.output import (
     RunOutcome,
     SavedPlane,
     StepHistory,
-    TerminalCheckpoint,
     resume,
 )
 from solprop.output.hdf5 import ResumeState
 from solprop.output.metadata import RunMetadata
-from solprop.output.records import Convention
+from solprop.output.records import Convention, TerminalCheckpoint
 from solprop.output.serialisation import serialise
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse

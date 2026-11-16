@@ -36,7 +36,7 @@ In scripts and library code, import from the home modules listed below.
 
 | module | what it holds |
 |---|---|
-| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, and `ModalGuide` for the general modal route |
+| {mod}`solprop.modes` | waveguide modes: Marcatili capillary modes and the `CoherentWall`, antiresonant, rectangular, slab and [tabulated](tabulated.md) modes, the step-index and graded-index providers, `ModalGuide` for the general modal route, and the derived quantities of any mode (`beta2`, `zdw`, `aeff`, `db_per_m`, … from {mod}`solprop.modes.base`, also exported by `solprop.modes`) |
 | {mod}`solprop.nonlinear` | the nonlinear responses — Kerr, Raman, plasma and ionisation — and the mode-averaged GNLSE |
 | {mod}`solprop.nonlinear.tdse` | frozen helium TDSE physics, calibration, sampling and execution declarations, the haCC basis, the atomic window and the consistency policy ([the TDSE response](../guide/media/tdse.md#declaring-a-response)) |
 | {mod}`solprop.driver.tdse` | atomic preset resolution (`basis_from_preset`, the haCC `hacc_preset` and `hacc_basis`); its binding interfaces are for developers |

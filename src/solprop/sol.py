@@ -126,7 +126,7 @@ from solprop.output import (
     TDSEArchive,
     open_tdse_archive,
 )
-from solprop.output.hdf5 import open_file, resume
+from solprop.output.hdf5 import open_file
 from solprop.physdata import (
     Gas,
     MaterialSelection,
@@ -233,6 +233,7 @@ from solprop.pulses import (
     SpatialPulse,
     TimeDataPulse,
 )
+from solprop.stats import StatsSpec
 from solprop.stepper import Multistep, RungeKutta
 from solprop.tools import (
     RDW,
@@ -346,6 +347,7 @@ __all__ = [
     "SolitonParams",
     "SpatialPulse",
     "SpecifiedMode",
+    "StatsSpec",
     "StepIndexMode",
     "TDSEArchive",
     "TDSEAtomicWindow",
@@ -473,7 +475,6 @@ __all__ = [
     "real_field_oversampling",
     "reconstructed_flux",
     "refractive_index",
-    "resume",
     "run_scan",
     "sapphire",
     "self_focusing_power",

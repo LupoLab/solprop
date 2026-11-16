@@ -308,7 +308,7 @@ Cartesian one).
   measured in `docs/guide/waveguides/modes.md`. For a solid guide the same connection is `Γ = W⁻¹S`
   with `S_mn = ⟨ψ_m|∂_zψ_n⟩` on the flux metric and its self-terms kept, anti-Hermitian
   rather than antisymmetric, its diagonal the normalisation's own rate plus a gauge phase
-  (`solprop.modes.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
+  (`solprop.modes.connection.modal_connection`, `docs/guide/waveguides/general-modal.md`); the Bessel form is its
   real exactly-normalised special case. The cumulative `Φ` beside such a block must be a
   multiple of the identity in the channel axis, so its normalisation term is the lowest
   channel's, and the flow's diagonal carries the rest of each channel's own,

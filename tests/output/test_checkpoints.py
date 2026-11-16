@@ -22,13 +22,16 @@ from solprop.output import (
     RunOutcome,
     SavedPlane,
     StepHistory,
-    TerminalCheckpoint,
     open_file,
     resume,
 )
 from solprop.output.hdf5 import _dataset, _write_checkpoint
 from solprop.output.metadata import _example_metadata
-from solprop.output.records import StepStats, _prepend_checkpoint_history
+from solprop.output.records import (
+    StepStats,
+    TerminalCheckpoint,
+    _prepend_checkpoint_history,
+)
 
 
 @pytest.fixture
