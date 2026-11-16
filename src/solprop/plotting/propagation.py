@@ -664,6 +664,21 @@ def _drawn_labels(output: Output, count: int, modes: ModeSelection) -> list[str]
     return [every[one] for one in chosen]
 
 
+def _plane_time_range(
+    output: Output,
+    plane: int,
+    modes: ModeSelection,
+    transfer: TransferFunction | None,
+) -> tuple[float, float]:
+    """Return the default time range of one plane's power (:func:`default_time_range`).
+
+    - ``plane``: the saved plane, an index.
+    - ``modes``, ``transfer``: as the plot drawing it was given them.
+    """
+    t, power = _power(output, plane=plane, modes=modes, transfer=transfer)
+    return default_time_range(t, power)
+
+
 def _limits(
     output: Output, axis: SpectralAxis, spec_range: tuple[float, float] | None
 ) -> tuple[float, float]:

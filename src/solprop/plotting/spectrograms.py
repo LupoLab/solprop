@@ -19,7 +19,7 @@ from matplotlib.figure import Figure
 from solprop.constants import C
 from solprop.optics import TransferFunction
 from solprop.output.store import Output
-from solprop.plotting.propagation import _limits, default_time_range
+from solprop.plotting.propagation import _limits, _plane_time_range
 from solprop.plotting.style import (
     T_TO_FS,
     _display_limits,
@@ -30,7 +30,6 @@ from solprop.processing.axes import ModeSelection, SpectralAxis
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
     _check_spec_range,
-    _power,
     get_spectrogram,
     nearest_plane,
 )
@@ -119,8 +118,7 @@ def spectrogram(
     """
     plane = output.n_saved - 1 if z is None else nearest_plane(output, z)
     if time_range is None:
-        t, power = _power(output, plane=plane, modes=modes, transfer=transfer)
-        time_range = default_time_range(t, power)
+        time_range = _plane_time_range(output, plane, modes, transfer)
     # The map per unit frequency, drawn against the axis asked for as it stands:
     # the colour scale is arbitrary, and a figure keeps its look on every axis.
     times, frequency, intensity = get_spectrogram(
