@@ -2,6 +2,23 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The exponential Adams march's decisions and loop (solprop SEP 39 phase 2).
+//
+// Each function performs the operations of the solprop function it is named after
+// (`solprop.backends.adams_core`, `stepper.schedule.landing`, `stepper.controller
+// .limit_step`, `stepper.schedule.reached`, and `HostAdamsMarch.march_to` with its
+// attempt, decision, rejection and landing), in the same order, including how a
+// comparison treats a NaN: Python's `min(a, b)` is `b` only if `b < a`, its `max` over
+// a sequence keeps the first element unless a later one is strictly greater, and a
+// comparison with a NaN is false. This translation unit is compiled without contraction
+// and without fast-math on every build (CMakeLists.txt), so every product and sum
+// rounds as Python's do; `pow` is the C library's, as Python's float power is.
+//
+// Functions: `validate`, the decisions adams_march.hpp declares, and `run`, whose
+// attempt loop is the local `Attempt` (trial, decision, rejection, landing and the
+// host-event returns); `strict_probe` is the strictness test's witness of this unit's
+// rounding.
+
 #include "solprop_native/march/adams_march.hpp"
 
 #include "solprop_native/runtime/host_source.hpp"
@@ -25,19 +42,6 @@
 #pragma GCC optimize("fp-contract=off")
 #endif
 
-/*
- * The exponential Adams march's decisions and loop (solprop SEP 39 phase 2).
- *
- * Each function performs the operations of the solprop function it is named after
- * (`solprop.backends.adams_core`, `stepper.schedule.landing`, `stepper.controller
- * .limit_step`, `stepper.schedule.reached`, and `HostAdamsMarch.march_to` with its
- * attempt, decision, rejection and landing), in the same order, including how a
- * comparison treats a NaN: Python's `min(a, b)` is `b` only if `b < a`, its `max` over
- * a sequence keeps the first element unless a later one is strictly greater, and a
- * comparison with a NaN is false. This translation unit is compiled without contraction
- * and without fast-math on every build (CMakeLists.txt), so every product and sum
- * rounds as Python's do; `pow` is the C library's, as Python's float power is.
- */
 namespace solprop_native::march {
 namespace {
 

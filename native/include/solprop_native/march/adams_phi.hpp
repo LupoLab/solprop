@@ -2,6 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+
+// The exponential Adams march's phi-functions (solprop backends/exponential.py,
+// `phi_functions`): `adams_phi` for one element, and on the host the same values for a
+// block of elements held as lanes (`AdamsLanes`, `adams_lanes_phi`), which the trial's
+// host passes use. tests/native/test_adams_phi.cpp holds the two to the same bits.
+//
+// Functions: `adams_phi_halvings` (the series branch's exact halvings),
+// `adams_phi_fixed` and `adams_phi` (one element, strict, the series below
+// `adams_phi_join` and the closed form above it); on the host, `AdamsLanes` with
+// `adams_lanes_classify`, `adams_lanes_phi` and `adams_lanes_large_exponential` form a
+// lane block's branches and values.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/fp.hpp"
@@ -13,13 +25,6 @@
 #include <cstddef>
 #include <cstdint>
 
-/*
- * The exponential Adams march's phi-functions (solprop backends/exponential.py,
- * phi_functions):
- * `adams_phi` for one element, and on the host the same values for a block of
- * elements held as lanes (`AdamsLanes`, `adams_lanes_phi`), which the trial's host
- * passes use. tests/native/test_adams_phi.cpp holds the two to the same bits.
- */
 namespace solprop_native {
 
 inline constexpr double adams_phi_join = 3.0;

@@ -4,6 +4,26 @@
 
 #pragma once
 
+// The native session's dense output over the resident state (solprop SEP 47 section
+// 5.3): the session-side half of `session::Dense`, whose field arithmetic is the
+// general state's.
+//
+// The weights an observation reads are formed here, by the operations of solprop's
+// Python in their order, so that they are the transitional driver's to the bit: the
+// Adams march's interpolant weights over `lagrange::basis_rows` (the native helpers
+// the driver's `integrated_weights` and `lagrange_coefficients` call) and an
+// observation's fraction of its step (`dense::`). This translation unit (dense.cpp)
+// is compiled strict: no contraction, no fast-math.
+//
+// Host code only.
+//
+// Types: `engines::AdamsDense` and `engines::RungeKuttaDense` (DOPRI5's continuous
+// extension), the two marches' `session::Dense` implementations over the general state.
+//
+// Functions (namespace `dense`): `fraction`, `fused_weights` and `exponential_weights`
+// form an observation's fraction and interpolant weights; `strict_probe` witnesses the
+// unit's rounding.
+
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/march/stage_tables.hpp"
 #include "solprop_native/session/session_dense.hpp"
@@ -12,20 +32,6 @@
 #include <cstddef>
 #include <vector>
 
-/*
- * The native session's dense output over the resident state (solprop SEP 47 section
- * 5.3): the session-side half of `session::Dense`, whose field arithmetic is the
- * general state's.
- *
- * The weights an observation reads are formed here, by the operations of solprop's
- * Python in their order, so that they are the transitional driver's to the bit: the
- * Adams march's interpolant weights over `lagrange::basis_rows` (the native helpers
- * the driver's `integrated_weights` and `lagrange_coefficients` call) and an
- * observation's fraction of its step (`dense::`). This translation unit (dense.cpp)
- * is compiled strict: no contraction, no fast-math.
- *
- * Host code only.
- */
 namespace solprop_native::dense {
 
 /** An observation's fraction of its step, `(position - z) / dz`. */

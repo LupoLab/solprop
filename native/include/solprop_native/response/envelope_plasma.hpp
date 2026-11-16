@@ -4,6 +4,19 @@
 
 #pragma once
 
+// Device helpers of the envelope plasma response on a two-component envelope: the
+// pointwise arithmetic of solprop's shared envelope body, which the general workspace's
+// response passes call per node and time. No atomic data lives here.
+//
+// Types: `EnvelopeAxes` (an envelope's scaled polarisation ellipse) and
+// `EnvelopeMoments` (the rate's positive directional cycle moments, s^-1, and a
+// refinement-failure flag).
+//
+// Functions: `envelope_axes` resolves a Cartesian V/m envelope's ellipse;
+// `envelope_moments` refines the accepted split quadrant rules (64 to 512 points) to
+// the frozen moment budget; `envelope_loss` reconstructs the two loss-current
+// components, A/m^2, from the moments.
+
 #include <Kokkos_Array.hpp>
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>

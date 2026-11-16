@@ -4,6 +4,20 @@
 
 #pragma once
 
+// The native execution session (solprop SEP 47): the one mutable owner of a trajectory,
+// which runs the marches between Python's service points and owns the scheduler, the
+// boundary monitor, the transverse edge and the dense observations. Its contract,
+// decisions and strictness are the note after the includes.
+//
+// Types: `Session` and its `Plan` (with `AdamsMethod` or `RungeKuttaMethod` and a
+// `MonitorPlan`); what an advance reports, `Batch` of `Event`s, `Notice`, `Failure`,
+// `Status` and `SnapshotReceipt`; the `State`, `EventKind`, `Observation` and `Outcome`
+// enums; and `LifecycleError`.
+//
+// Functions: the scheduler's strict free functions, `plane_reached`, `replay_tolerance`
+// and `steps_to_next`, and the export's `apply_recipe`. `Session` is implemented in
+// session.cpp and its transverse edge actions in session_edge.cpp.
+
 #include "solprop_native/march/adams_march.hpp"
 #include "solprop_native/march/rk_march.hpp"
 #include "solprop_native/session/session_dense.hpp"

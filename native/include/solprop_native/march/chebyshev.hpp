@@ -4,6 +4,30 @@
 
 #pragma once
 
+// Piecewise Chebyshev evaluation by Clenshaw recursion, as solprop forms it.
+//
+// solprop's tables (`solprop.translate.chebyshev.PiecewiseChebyshev`) hold, on interval
+// `k` of the breakpoints `edges`, the coefficients `c[k, i, j]` of value `j` in the
+// Chebyshev basis, lowest degree first, laid out `(n_intervals, n_terms, n_values)` and
+// C-contiguous. A position `z` takes the interval `searchsorted(edges, z, "right") - 1`
+// clamped to the intervals, so an interior breakpoint belongs to the interval starting
+// there and the span's right end to the last one; it is mapped onto [-1, 1] as
+// `x = (2 z - lo - hi) / (hi - lo)` and every value is NumPy's `chebval` recursion at
+// `x`. The functions here perform the operations of solprop's `_clenshaw_points`, in
+// its order, under strict arithmetic (fp.hpp): no contraction and no reassociation, and
+// complex values multiplied by a real `x` as NumPy multiplies a complex by a real
+// promoted to complex, `(a + i b)(x + i 0)`. Contraction would change the integrated
+// weights whose difference is a stage's phase increment (solprop SEP 25 section 4.2).
+//
+// The functions are callable from host and device code; the host bindings are in
+// src/bindings/helpers.cpp.
+//
+// Functions (namespace `chebyshev`): the strict scalar `add`, `sub` and `mul`;
+// `unit_position` and `interval_index` (the mapping and the interval search);
+// `clenshaw_column` (one column's recursion) and `clenshaw_points` (a batch of
+// positions, returning the first refused one). `Coefficient` adapts the stored element
+// types, NumPy's complex128 among them.
+
 #include "solprop_native/runtime/fp.hpp"
 
 #include <Kokkos_Complex.hpp>
@@ -12,25 +36,6 @@
 #include <complex>
 #include <cstddef>
 
-/*
- * Piecewise Chebyshev evaluation by Clenshaw recursion, as solprop forms it.
- *
- * solprop's tables (`solprop.translate.chebyshev.PiecewiseChebyshev`) hold, on interval
- * `k` of the breakpoints `edges`, the coefficients `c[k, i, j]` of value `j` in the
- * Chebyshev basis, lowest degree first, laid out `(n_intervals, n_terms, n_values)` and
- * C-contiguous. A position `z` takes the interval `searchsorted(edges, z, "right") - 1`
- * clamped to the intervals, so an interior breakpoint belongs to the interval starting
- * there and the span's right end to the last one; it is mapped onto [-1, 1] as
- * `x = (2 z - lo - hi) / (hi - lo)` and every value is NumPy's `chebval` recursion at
- * `x`. The functions here perform the operations of solprop's `_clenshaw_points`, in
- * its order, under strict arithmetic (fp.hpp): no contraction and no reassociation, and
- * complex values multiplied by a real `x` as NumPy multiplies a complex by a real
- * promoted to complex, `(a + i b)(x + i 0)`. Contraction would change the integrated
- * weights whose difference is a stage's phase increment (solprop SEP 25 section 4.2).
- *
- * The functions are callable from host and device code; the host bindings are in
- * src/bindings/helpers.cpp.
- */
 namespace solprop_native::chebyshev {
 
 using Complex = Kokkos::complex<double>;

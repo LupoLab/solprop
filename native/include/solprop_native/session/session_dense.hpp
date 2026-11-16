@@ -4,25 +4,27 @@
 
 #pragma once
 
+// Dense output in the native execution session (solprop SEP 47 section 5.3): a save
+// plane interpolated inside the accepted step that crossed it (`interpolate_planes`,
+// SEP 14 phase 3 and ADR-036), formed where the state lives. The session keeps the
+// committed propagation state and the dense observation's position apart: it asks
+// for an observation once the march has crossed the plane, exports and measures the
+// interpolated field, and restores the committed state before the march goes on. The
+// observation neither rewinds the controller nor advances the history.
+//
+// The implementations (`engines::AdamsDense`, `engines::RungeKuttaDense`,
+// dense.hpp) are solprop's own observations transcribed: the Adams march's
+// interpolant over the last accepted step (`HostHistory.observe`), and DOPRI5's
+// continuous extension of Hairer, Norsett and Wanner II.6 carried to the plane by the
+// linear flow (`RungeKuttaDense.observe`).
+//
+// Python-free and Kokkos-free: host code only.
+//
+// Types: `session::Dense`, the interface a session observes a crossed plane through
+// (`stepped`, `crosses`, `observe`, `restore`).
+
 #include "solprop_native/march/adams_march.hpp"
 
-/*
- * Dense output in the native execution session (solprop SEP 47 section 5.3): a save
- * plane interpolated inside the accepted step that crossed it (`interpolate_planes`,
- * SEP 14 phase 3 and ADR-036), formed where the state lives. The session keeps the
- * committed propagation state and the dense observation's position apart: it asks
- * for an observation once the march has crossed the plane, exports and measures the
- * interpolated field, and restores the committed state before the march goes on. The
- * observation neither rewinds the controller nor advances the history.
- *
- * The implementations (`engines::AdamsDense`, `engines::RungeKuttaDense`,
- * dense.hpp) are solprop's own observations transcribed: the Adams march's
- * interpolant over the last accepted step (`HostHistory.observe`), and DOPRI5's
- * continuous extension of Hairer, Norsett and Wanner II.6 carried to the plane by the
- * linear flow (`RungeKuttaDense.observe`).
- *
- * Python-free and Kokkos-free: host code only.
- */
 namespace solprop_native::session {
 
 /** A march's dense output: what a session interpolates a crossed plane from. */

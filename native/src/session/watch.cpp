@@ -2,6 +2,20 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The boundary monitor's predictions (solprop SEP 45 section 4.8). Each function
+// performs the operations of the solprop function it is named after, in the same order,
+// including how a comparison treats a NaN: Python's `max(a, b, ...)` keeps the first
+// argument unless a later one compares strictly greater, NumPy's `maximum(x, 0.0)`
+// keeps a NaN, and a comparison with a NaN is false. This translation unit is compiled
+// without contraction and without fast-math on every build (CMakeLists.txt), so every
+// product, quotient and sum rounds as solprop's do; `sqrt` is correctly rounded, as
+// Python's `math.sqrt` is.
+//
+// Functions: the predictions watch.hpp declares (`validate`, `due`, `skip`,
+// `split_limit`, `check`, ...), with their local helpers `settle` and the share
+// judgements, and the members of `Monitor`: its launch, per-step and plane checks, the
+// read cap and cadence, the quiet collar, resume, record and finish.
+
 #include "solprop_native/session/watch.hpp"
 
 #include "solprop_native/runtime/refuse.hpp"
@@ -21,16 +35,6 @@
 #pragma GCC optimize("fp-contract=off")
 #endif
 
-/*
- * The boundary monitor's predictions (solprop SEP 45 section 4.8). Each function
- * performs the operations of the solprop function it is named after, in the same order,
- * including how a comparison treats a NaN: Python's `max(a, b, ...)` keeps the first
- * argument unless a later one compares strictly greater, NumPy's `maximum(x, 0.0)`
- * keeps a NaN, and a comparison with a NaN is false. This translation unit is compiled
- * without contraction and without fast-math on every build (CMakeLists.txt), so every
- * product, quotient and sum rounds as solprop's do; `sqrt` is correctly rounded, as
- * Python's `math.sqrt` is.
- */
 namespace solprop_native::watch {
 namespace {
 

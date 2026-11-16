@@ -4,6 +4,29 @@
 
 #pragma once
 
+// The boundary monitor's checks inside a compiled march (solprop SEP 45 section 4.8)
+// and the monitor itself, owned by a native session (SEP 47 section 6.4).
+//
+// A march asks, after each committed step, whether solprop's boundary monitor would
+// check it (`due`), and if so takes the state's reading and decides what the monitor
+// makes of it (`check`): the split collar's new crossing cap, the cadence, the quiet
+// collar's verdict, and whether the check warns for the first time or stops the run.
+// Under solprop's driver these are predictions: solprop replays every reading through
+// its own monitor, and they only decide where the march must hand back. Under a native
+// session the march checks with `Monitor`, which owns the monitor's whole state and
+// record and decides by these same functions. Each performs the comparisons and
+// arithmetic of the solprop method it is named after (`BoundaryMonitor.due`, `.skip`,
+// `.step` with `_read_cap`, `_found`, `_judged`, `_above`, `_settle` and `_judge`, and
+// `SplitCrossing.limit`), in the same order, with Python's comparison semantics. Every
+// threshold arrives precomputed, so no constant is held here.
+//
+// Types: the prediction's `Policy`, `State` and `Verdict`; the owned monitor's
+// `Monitor` with its `Config`, `Resumption`, `Record`, `Judgement` and `Finish`.
+//
+// Functions: `due`, `skip`, `split_limit`, `steps_to_check`, `check`, `longest_ahead`
+// and `refused_crossing` (the predictions), and `owned_check`, a march's check through
+// a session's `Monitor`.
+
 #include "solprop_native/runtime/fields.hpp"
 
 #include <array>
@@ -14,23 +37,6 @@
 #include <stdexcept>
 #include <vector>
 
-/*
- * The boundary monitor's checks inside a compiled march (solprop SEP 45 section 4.8)
- * and the monitor itself, owned by a native session (SEP 47 section 6.4).
- *
- * A march asks, after each committed step, whether solprop's boundary monitor would
- * check it (`due`), and if so takes the state's reading and decides what the monitor
- * makes of it (`check`): the split collar's new crossing cap, the cadence, the quiet
- * collar's verdict, and whether the check warns for the first time or stops the run.
- * Under solprop's driver these are predictions: solprop replays every reading through
- * its own monitor, and they only decide where the march must hand back. Under a native
- * session the march checks with `Monitor`, which owns the monitor's whole state and
- * record and decides by these same functions. Each performs the comparisons and
- * arithmetic of the solprop method it is named after (`BoundaryMonitor.due`, `.skip`,
- * `.step` with `_read_cap`, `_found`, `_judged`, `_above`, `_settle` and `_judge`, and
- * `SplitCrossing.limit`), in the same order, with Python's comparison semantics. Every
- * threshold arrives precomputed, so no constant is held here.
- */
 namespace solprop_native::watch {
 
 /** A reading's layout: the state's energy, its four regions, the split's removal since

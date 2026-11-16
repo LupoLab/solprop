@@ -2,6 +2,15 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The coupled flow's implementation (coupled_flow.hpp): `require_coupled_flow`'s extent
+// and data checks, `CoupledFlowAction`'s construction and uploads, and its kernels. The
+// native formation of a section's actions (`form_actions`) takes `W exp(+-l Lambda) Y`
+// on a well-conditioned eigenbasis and otherwise the reference's scaling, sixteen-term
+// Taylor series and squaring of the Schur factor `l T`, then measures each bin's
+// `norm(U)_2 norm(U^-1)_2` by Jacobi sweeps of a Gram matrix (`spectral_norm`) for the
+// host's certificate check. The stage carry and residual kernels follow. Every per-bin
+// product is a fixed-order serial loop, so no result depends on the thread count.
+
 #include "solprop_native/response/coupled_flow.hpp"
 
 #include "solprop_native/runtime/launch.hpp"
@@ -47,7 +56,7 @@ using ComplexView3 = CoupledFlowAction::ComplexView3;
 using ComplexView4 = CoupledFlowAction::ComplexView4;
 
 // solprop's reference `_TAYLOR_ORDER` and `_TAYLOR_SCALE`
-// (`numpy_ref/backend.py`): the series degree and the row-sum norm the exponent is
+// (`numpy_ref/workspace.py`): the series degree and the row-sum norm the exponent is
 // scaled below; the host refuses a length needing more than 30 squarings first.
 constexpr int kTaylorOrder = 16;
 constexpr double kTaylorScale = 0.5;

@@ -2,6 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The statistics plan, implemented (statistics_plan.hpp): `Plan::validate`, `width` and
+// `packed_size`, the tables' reads (`Table::validate`, `at`, `scalar`), and `evaluate`,
+// which takes the state's native statistics passes for a route (`temporal`, `spatial`,
+// `general`), finishes every statistic natively -- the half-maximum widths
+// (`half_width`), the species reduction, the plasma integration ratios and the modal
+// power weight -- and packs the values in the plan's order (`Cursor`, `Wanted`).
+
 #include "solprop_native/session/statistics_plan.hpp"
 
 #include "solprop_native/general/general_state.hpp"

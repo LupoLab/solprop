@@ -7,6 +7,9 @@
 // `_read_transverse` at a committed endpoint and at a plane, and the barrier each
 // warning makes. The edge itself is `transverse::Edge`; the readings are the resident
 // state's (`Resident::edge_reading`), so nothing here returns to Python.
+//
+// Functions: `Session::next_step`, `edge_reading`, `edge_judged`, `edge_proceed`,
+// `edge_launch`, `edge_endpoint` and `edge_plane`.
 
 #include "solprop_native/session/session.hpp"
 

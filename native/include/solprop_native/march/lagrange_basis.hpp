@@ -4,24 +4,27 @@
 
 #pragma once
 
+// The Lagrange basis of a variable-step Adams formula, as solprop forms it.
+//
+// solprop's `solprop.stepper.multistep._basis_rows`: on distinct normalised nodes
+// `theta_m`, each basis numerator `prod_{m != j} (theta - theta_m)` is built from its
+// own roots, ascending, as `numpy.polynomial.polyfromroots` builds it, then either
+// divided by its denominator `prod_{m != j} (theta_j - theta_m)` (the monomial
+// coefficients) or integrated from 0 to `upper` by Horner's rule and divided (the
+// integrated weights). These are the multistep increments and defects, small
+// differences of large products, so every operation is rounded on its own and in
+// solprop's order (fp.hpp, solprop SEP 25 section 4.2).
+//
+// Functions (namespace `lagrange`): `basis_rows` writes the basis's monomial
+// coefficients or its integrated weights on up to `max_nodes` nodes; `trial_tables`
+// forms an exponential Adams trial's tables from them, as solprop's reference does.
+
 #include "solprop_native/runtime/fp.hpp"
 
 #include <Kokkos_Core.hpp>
 
 #include <cstddef>
 
-/*
- * The Lagrange basis of a variable-step Adams formula, as solprop forms it.
- *
- * solprop's `solprop.stepper.multistep._basis_rows`: on distinct normalised nodes
- * `theta_m`, each basis numerator `prod_{m != j} (theta - theta_m)` is built from its
- * own roots, ascending, as `numpy.polynomial.polyfromroots` builds it, then either
- * divided by its denominator `prod_{m != j} (theta_j - theta_m)` (the monomial
- * coefficients) or integrated from 0 to `upper` by Horner's rule and divided (the
- * integrated weights). These are the multistep increments and defects, small
- * differences of large products, so every operation is rounded on its own and in
- * solprop's order (fp.hpp, solprop SEP 25 section 4.2).
- */
 namespace solprop_native::lagrange {
 
 /** The most nodes a basis takes: the scratch is on the stack. */
@@ -84,11 +87,12 @@ KOKKOS_INLINE_FUNCTION void basis_rows(const double* points, const std::size_t n
 /**
  * Write an exponential Adams trial's coefficient tables in one call.
  *
- * solprop's `solprop.backends.multistep.trial_tables` over `basis_rows`, every value
- * formed by the same operations in the same order, so the tables are those of its
- * composition over this backend's basis, bit for bit. On the history's normalised
- * nodes `nodes`, newest first, for a step of order `order` scoring the orders
- * `orders` (`n_orders` of them, the step's own first) and `width = 1 + max(orders)`:
+ * solprop's `solprop.backends.numpy_ref.multistep.trial_tables` over `basis_rows`,
+ * every value formed by the same operations in the same order, so the tables are those
+ * of its composition over this backend's basis, bit for bit. On the history's
+ * normalised nodes `nodes`, newest first, for a step of order `order` scoring the
+ * orders `orders` (`n_orders` of them, the step's own first) and `width = 1 +
+ * max(orders)`:
  *
  * - `predictor` `(order, order)`: the Lagrange coefficients on the `order` newest
  *   nodes;

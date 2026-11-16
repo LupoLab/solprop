@@ -4,6 +4,17 @@
 
 #pragma once
 
+// The plain records a resident state's readings travel in, shared by the general state,
+// the resident engines and the native session: the custom Kokkos reduction values and
+// the transverse edge's inputs and outputs.
+//
+// Types: `MonitorSums` (the boundary monitor's five sums, solprop SEP 21), `SplitSums`
+// (what a split-step collar's finish reads), `OccupancySums` (the energy per walk-off
+// bucket, sized by `occupancy_bucket_limit` and, on HIP, a device's shared memory),
+// `CrossedBytes` (whole-state transfers, solprop SEP 44), and `EdgeNumbers` and
+// `EdgeLines` (what the transverse edge reads and a requested collar's lines). The
+// `Kokkos::reduction_identity` specialisations close the file.
+
 #include "solprop_native/runtime/fields.hpp"
 
 #include <Kokkos_Core.hpp>

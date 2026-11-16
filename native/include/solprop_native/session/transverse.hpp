@@ -4,6 +4,16 @@
 
 #pragma once
 
+// The boundary monitor's transverse edge, owned by a native session (solprop SEP 40 and
+// SEP 47): solprop's `TransverseEdge` less its reductions, with every decision and
+// record held natively and taken strictly in solprop's order. Its contract, the
+// reductions left to the reading and the barrier protocol are the note after the
+// includes.
+//
+// Types: `Edge` (launch, reads, collar current, resume, record and finish), its
+// `Config`, the inputs (`Reading`, `Noise`, `LaunchSums`, `ReadSums`), the outputs
+// (`Notice`, `Record`, `Finish`), `Resumption`, and the `Status` and `Reason` enums.
+
 #include "solprop_native/runtime/fields.hpp"
 
 #include <array>

@@ -4,6 +4,33 @@
 
 #pragma once
 
+// The far-field statistics of solprop SEP 23 on a Cartesian or line grid: one banded
+// pass over the stored transverse spectrum that forms the beam spectrum, the five
+// absorbed-power channels, the region spectra, each aperture's collected spectrum and
+// on-axis amplitude, and the on-axis amplitude itself (the `W = 1` slot, which
+// `on_axis_spectrum` reads). Every quantity is measured by the medium's axial flux
+// (solprop SEP 34): a squared modulus is weighted by the real admittance
+// `c Re k_z / omega` of the operator's root, and each amplitude carries its magnetic
+// closure, the same sum with `conj(c k_z / omega)` applied first, formed per element
+// (no column-by-frequency table is held). It takes the
+// slot layout of `solprop.backends.spatial.far_field_layout`, the band edges of
+// `far_field_bands` (the same units and budget), the radius of `mask_plane_radius`
+// compiled without contraction, the outlines of `ApertureOutline`, the zeros of
+// `aperture_weight` and the root of `longitudinal_root`. Each band sums its columns in
+// ascending order and the bands are then summed in ascending order, so every value has
+// one association whatever the thread count (solprop SEP 25 compares it with the
+// reference within a rounding bound, never by bits).
+//
+// Types: `FarFieldPass` (one state's pass: its column axes, band partials and packed
+// output), `FarFieldLayout` (where each quantity lives in the slots), the table codes
+// (`FarFieldConstant`, `FarFieldProfile`, `FarFieldShape`, `FarFieldFlag`) and
+// `FarFieldOutline`.
+//
+// Functions: `far_field_layout` and `far_field_band_count` lay out a request; the
+// strict device helpers (`far_field_radius`, `far_field_edge_weight`,
+// `far_field_shaped_weight`, `far_field_member` and their kin) weigh one column against
+// an aperture or a region.
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/fp.hpp"
@@ -14,25 +41,6 @@
 #include <cstdint>
 #include <numbers>
 #include <vector>
-
-/*
- * The far-field statistics of solprop SEP 23 on a Cartesian or line grid: one banded
- * pass over the stored transverse spectrum that forms the beam spectrum, the five
- * absorbed-power channels, the region spectra, each aperture's collected spectrum and
- * on-axis amplitude, and the on-axis amplitude itself (the `W = 1` slot, which
- * `on_axis_spectrum` reads). Every quantity is measured by the medium's axial flux
- * (solprop SEP 34): a squared modulus is weighted by the real admittance
- * `c Re k_z / omega` of the operator's root, and each amplitude carries its magnetic
- * closure, the same sum with `conj(c k_z / omega)` applied first, formed per element
- * (no column-by-frequency table is held). It takes the
- * slot layout of `solprop.backends.spatial.far_field_layout`, the band edges of
- * `far_field_bands` (the same units and budget), the radius of `mask_plane_radius`
- * compiled without contraction, the outlines of `ApertureOutline`, the zeros of
- * `aperture_weight` and the root of `longitudinal_root`. Each band sums its columns in
- * ascending order and the bands are then summed in ascending order, so every value has
- * one association whatever the thread count (solprop SEP 25 compares it with the
- * reference within a rounding bound, never by bits).
- */
 
 namespace solprop_native {
 

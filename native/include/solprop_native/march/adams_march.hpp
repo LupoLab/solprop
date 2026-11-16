@@ -4,6 +4,34 @@
 
 #pragma once
 
+// The exponential Adams march executed natively (solprop SEP 39 phase 2).
+//
+// solprop's `HostAdamsMarch` and its controller core (`solprop.backends.adams_core`)
+// are the reference; SEP 39 section 4 and the kernel contract's section 11 specify the
+// algorithm. The march here performs it for a run of attempts, returning to solprop
+// only at a host event: a reached or crossed target, an accepted step on which solprop
+// has work (a statistics row, a natural stop, a monitor check), the call's bound, the
+// budget, the floor, or a native error. Every number it reads comes in the `Policy`
+// solprop forms (`solprop.stepper.multistep.MarchPolicy`); it holds no default and no
+// constant of its own (native/AGENTS.md).
+//
+// Field arithmetic is the engine's (`Engine`): the resident engine's trial, accept and
+// startup over the native state, or, in tests, a script of norms. The decisions and
+// the landing rule are compiled strict (no contraction, no fast-math) in their own
+// translation unit, so that they round as solprop's Python does; the only elementary
+// function they call is the C library's `pow`.
+//
+// Host code only.
+//
+// Types: `Policy`, the march's `State` (its history `Entry` rows and call `Ledger`),
+// the controller's records (`Schedule`, `Stencil`, `Landing`, `Approach`,
+// `OrderChoice`, `Rejection`), the `Engine` interface, and a call's `Bounds` and
+// `Result` with its `Reason`, failing `Stage` and error `Category`.
+//
+// Functions: `run` advances the march to its next host event; the decisions (`factor`,
+// `stencil`, `choose_order`, `rejection`, the caps, `landing`, `approach`, `proposal`,
+// `reached`) are adams_march.cpp's strict transcriptions of solprop's.
+
 #include "solprop_native/runtime/host_source.hpp"
 #include "solprop_native/session/watch.hpp"
 
@@ -17,26 +45,6 @@
 #include <utility>
 #include <vector>
 
-/*
- * The exponential Adams march executed natively (solprop SEP 39 phase 2).
- *
- * solprop's `HostAdamsMarch` and its controller core (`solprop.backends.adams_core`)
- * are the reference; SEP 39 section 4 and the kernel contract's section 11 specify the
- * algorithm. The march here performs it for a run of attempts, returning to solprop
- * only at a host event: a reached or crossed target, an accepted step on which solprop
- * has work (a statistics row, a natural stop, a monitor check), the call's bound, the
- * budget, the floor, or a native error. Every number it reads comes in the `Policy`
- * solprop forms (`solprop.stepper.multistep.MarchPolicy`); it holds no default and no
- * constant of its own (native/AGENTS.md).
- *
- * Field arithmetic is the engine's (`Engine`): the resident engine's trial, accept and
- * startup over the native state, or, in tests, a script of norms. The decisions and
- * the landing rule are compiled strict (no contraction, no fast-math) in their own
- * translation unit, so that they round as solprop's Python does; the only elementary
- * function they call is the C library's `pow`.
- *
- * Host code only.
- */
 namespace solprop_native::march {
 
 /** The most history entries a march holds: the highest order and two more. */
@@ -234,7 +242,7 @@ struct Rejection {
   bool restart = false;
 };
 
-// The decisions, solprop.backends.adams_core's functions (adams_control.cpp).
+// The decisions, solprop.backends.adams_core's functions (adams_march.cpp).
 [[nodiscard]] double factor(const Policy& policy, double norm, std::size_t order,
                             double growth);
 [[nodiscard]] Stencil stencil(const Policy& policy, double z, double dz,

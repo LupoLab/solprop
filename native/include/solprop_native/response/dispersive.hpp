@@ -4,6 +4,21 @@
 
 #pragma once
 
+// solprop SEP 6's frequency-dependent electronic response (`responses.dispersive_kerr`)
+// on the native backend, on every route that carries it. The route-by-route design is
+// the note after the includes.
+//
+// Types: `DispersiveForm` (the product form of a grid and a sector);
+// `DispersiveWeights`, the channels' weights and filter rows at a stage, shared by
+// every route; `DispersiveResponse` on the engine's fused node path;
+// `SeparableDispersive` on the Cartesian free-space, line and hybrid planar routes;
+// `GeneralDispersive` on the general modal route.
+//
+// Functions: `require_dispersive` refuses an unexecutable layout; the device sample
+// bodies (`dispersive_isotropic`, `dispersive_conserving`, `dispersive_harmonic`, their
+// three-component forms and the one-component closed forms) form the products;
+// `dispersive_mixture_rows` writes a symmetric mixture's filter rows at a stage.
+
 #include "solprop_native/problem/problem.hpp"
 #include "solprop_native/runtime/cpu_execution.hpp"
 #include "solprop_native/runtime/execution.hpp"
