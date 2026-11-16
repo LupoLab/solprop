@@ -21,7 +21,9 @@ polarisation components. :math:`J = 1` is the transform limit and is the target.
 Each compressor takes a saved run (``output``, one plane of it chosen by ``plane`` or
 ``z``) or, instead, a ``grid`` with one plane's ``spectrum`` in the optics convention --
 the convention ``output["field"]`` and ``plane_field`` return (``conventions.md``
-section 2) -- which it takes to the internal one itself. Every search is deterministic: SciPy's bounded scalar minimiser after a coarse scan, or
+section 2) -- which it takes to the internal one itself.
+
+Every search is deterministic: SciPy's bounded scalar minimiser after a coarse scan, or
 its differential evolution with a fixed seed. A search that ends on a bound or fails is
 reported in the result and logged; it never raises for that and never claims success.
 """
