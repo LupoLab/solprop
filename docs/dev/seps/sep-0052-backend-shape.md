@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 39, 45 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3`; (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, through four stacked pull requests (D7): (1) phases 0–1, branch `feature/sep-0052-backend-shape-p1` ([#853](https://github.com/LupoLab/solprop/pull/853)); (2) phase 2 and phase 3's axis removal, `feature/sep-0052-backend-shape-p2` ([#854](https://github.com/LupoLab/solprop/pull/854)); (3) the rest of phase 3, `feature/sep-0052-backend-shape-p3` ([#858](https://github.com/LupoLab/solprop/pull/858)); (4) phases 4–5, `feature/sep-0052-backend-shape-p4`; started 2026-11-15 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1223,8 +1223,9 @@ names.
 
 ### Milestone 3 (the rest of phase 3) — 2026-11-16
 
-Branch `feature/sep-0052-backend-shape-p3`, stacked on milestone 2, by Opus 5.5 (AI) for
-John Travers. Two steps were developed by AI agents one after the other and merged:
+Branch `feature/sep-0052-backend-shape-p3`
+([#858](https://github.com/LupoLab/solprop/pull/858)), stacked on milestone 2, by Opus 5.5
+(AI) for John Travers. Two steps were developed by AI agents one after the other and merged:
 the workspace, engines and marches (`56101a60`, `48436c62`, `f2db1084`), then the session
 and the deletion of `HostDriver` (`8afa8465`, `2ba96039`, `090c6ae7`, `19e10596`,
 `85643973`).
