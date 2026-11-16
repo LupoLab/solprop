@@ -392,7 +392,7 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
         jones=(1, 0.5j),
     )
     # These stencil stress windows cannot certify the held-source collar.
-    # Their raw band closures remain tested natively in test_core.cpp.
+    # Their raw band closures remain tested natively in test_plasma_scan.cpp.
     assert grid.n_to < 3 * half + 2 * half + 1
     with pytest.raises(TranslationError, match="held plasma current"):
         assemble(

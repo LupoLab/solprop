@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the Chebyshev helpers (`march/chebyshev.hpp`) and the Lagrange basis
+// (`march/lagrange_basis.hpp`): columns against NumPy's chebval, the interval search,
+// point evaluation and its refusals, and the Adams weights, basis coefficients and
+// trial tables on equal steps.
+
 #include "solprop_native/march/chebyshev.hpp"
 #include "solprop_native/march/lagrange_basis.hpp"
 
