@@ -6,15 +6,14 @@
 
 Every digest that identifies a record -- a run's resume key, a scan's common record, a
 coupling plane's basis, a material population, a TDSE basis or descriptor, a cache key
--- is taken over :func:`canonical_json`, so that two records equal as JSON have one
-identity on every platform and in every process. The text has its keys sorted and no
-whitespace. A NumPy scalar (a bool, an integer or a floating number, which records built
-from arrays carry) is written as the Python number it holds; any other value JSON cannot
-hold raises :class:`TypeError`: an identity that stringified an object would silently
-merge records that differ (an array's ``str`` is abbreviated). Non-finite numbers are
-written as JSON's ``NaN`` and ``Infinity``, which spell them deterministically (a
-material's open interval bound is infinite), unless the caller asks for finite values
-only.
+-- is :func:`canonical_digest`, the :func:`text_digest` of :func:`canonical_json`, so
+that two records equal as JSON have one identity on every platform and in every process.
+The text has its keys sorted and no whitespace. A NumPy scalar is written as the Python
+number it holds; any other value JSON cannot hold raises :class:`TypeError`, since an
+identity that stringified an object would silently merge records that differ (an array's
+``str`` is abbreviated). Non-finite numbers are written as JSON's ``NaN`` and
+``Infinity`` (a material's open interval bound is infinite), unless the caller asks for
+finite values only.
 
 Like ``_display``, this module imports nothing from the rest of the package (NumPy
 alone), so any layer may use it.

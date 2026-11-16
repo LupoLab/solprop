@@ -2,11 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Material data.
+"""Material data: gases, mixtures and solids, mostly from optmat (SEP 3).
 
-Species, mixtures and solids from optmat (SEP 3), their equations of state and
-transport properties, the Kerr coefficient at the carrier, and the types a caller's
-own data take (physics layer).
+The physics layer's material data and the types a caller's own data take; the commonly
+used names are re-exported here.
+
+- **Gases**: :mod:`~solprop.physdata.gases` (the :class:`~solprop.physdata.gases.Gas`
+  names), :mod:`~solprop.physdata.species` (a species and its data),
+  :mod:`~solprop.physdata.mixtures` (labelled populations and their fills),
+  :mod:`~solprop.physdata.sellmeier` (refractive index),
+  :mod:`~solprop.physdata.equation_of_state` (number density),
+  :mod:`~solprop.physdata.transport` (viscosity, sound speed, mean free path) and
+  :mod:`~solprop.physdata.nonlinear_data` (the Kerr coefficient).
+- **Solids**: :mod:`~solprop.physdata.glasses` and :mod:`~solprop.physdata.metals`.
+- **Supplied Raman data**: :mod:`~solprop.physdata.raman_types`.
+- **Selection and records**: :mod:`~solprop.physdata.selection`, the models a run
+  chooses and the manifest of those it resolved.
+
+``Mixture`` and ``Component`` are loaded on first access, because
+:mod:`solprop.profiles` imports this package and the mixtures import the profiles. The
+manual page is ``docs/guide/media/materials.md``.
 """
 
 from typing import TYPE_CHECKING

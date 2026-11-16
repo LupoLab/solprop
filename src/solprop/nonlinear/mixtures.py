@@ -2,7 +2,18 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Select nonlinear responses for the labelled populations of a mixture."""
+"""Select nonlinear responses for the labelled populations of a mixture.
+
+The response-selection role among the four per-layer ``mixtures`` modules: the type is
+:mod:`solprop.physdata.mixtures`, declarations are resolved by
+:mod:`solprop.driver.mixtures`, and a saved run's populations are analysed by
+:mod:`solprop.processing.mixtures`. :func:`responses_for` builds the electronic, plasma
+and Raman responses bound to a mixture's ordered labels under a material selection;
+:func:`electronic_response` builds one species' electronic third-order response under
+the selection's policy (the Kerr coefficient at the carrier or SEP 6's dispersive
+response); and :func:`raman_temperature` is the one reference temperature a component's
+rotational Raman populations take when the fill's temperature varies along z.
+"""
 
 import logging
 import math

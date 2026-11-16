@@ -4,9 +4,10 @@
 
 """Provide silver and aluminium optical constants for waveguide walls.
 
-The historical name ``GlassIndex`` denotes the common index interface, including
-metals. Each metal is optmat's stitched table with the interpolant's exact derivative
-(:doc:`/guide/media/materials`).
+:func:`silver` and :func:`aluminium` each return optmat's stitched table with the
+interpolant's exact derivative, as a :class:`~solprop.physdata.glasses.GlassIndex`, the
+common index interface whose historical name covers metals too
+(``docs/guide/media/materials.md``).
 """
 
 from solprop.physdata.glasses import GlassIndex, _resolve

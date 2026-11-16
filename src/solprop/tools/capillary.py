@@ -5,10 +5,11 @@
 
 """Soliton parameters of a mode or a gas-filled capillary, and capillary designs.
 
-The full set of design numbers for a pulse in a mode (:func:`soliton_params`) or a
-capillary (:func:`capillary_params`), the capillary that gives a soliton order
-(:func:`capillary_design`) and the gas mixing ratio of a bulk dispersion
-(:func:`gas_ratio`).
+The full set of design numbers (:class:`SolitonParams`) for a pulse in a mode
+(:func:`soliton_params`) or a capillary (:func:`capillary_params`), the pressure and
+energy that give a capillary a soliton design (:func:`capillary_design`), and the ratios
+of bulk dispersion and Kerr response of two gases (:func:`gas_ratio`,
+:class:`GasRatio`).
 """
 
 import math

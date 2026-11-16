@@ -6,18 +6,34 @@
 
 solprop models ultrafast pulse propagation with the unidirectional pulse propagation
 equation (UPPE) and the generalised nonlinear Schrödinger equation (GNLSE), for the full
-electric field or a complex envelope, in one mode, in many modes of a waveguide and
-in radial or Cartesian free space. The design is described under ``docs/dev/`` and the
-manual under ``docs/``.
+electric field or a complex envelope, in one mode, in many modes of a waveguide and in
+radial or Cartesian free space. The manual is under ``docs/guide/`` and the design under
+``docs/dev/``.
 
-The package installs a :class:`logging.NullHandler`; call
+- **Setting up and running**: :mod:`~solprop.driver` (the ``prop_*`` entry points and
+  scans), :mod:`~solprop.recipe`, :mod:`~solprop.grid`, :mod:`~solprop.pulses`,
+  :mod:`~solprop.profiles`, :mod:`~solprop.gasflow`, :mod:`~solprop.stepper`,
+  :mod:`~solprop.boundaries` and :mod:`~solprop.noise`.
+- **The physics**: :mod:`~solprop.modes`, :mod:`~solprop.nonlinear`,
+  :mod:`~solprop.physdata`, :mod:`~solprop.linear`, :mod:`~solprop.spatial`,
+  :mod:`~solprop.spatial_absorber`, :mod:`~solprop.adiabatic`,
+  :mod:`~solprop.polarisation`, :mod:`~solprop.fourier`, :mod:`~solprop.hankel` and
+  :mod:`~solprop.constants`.
+- **Results**: :mod:`~solprop.output`, :mod:`~solprop.processing`,
+  :mod:`~solprop.stats`, :mod:`~solprop.monitor` and :mod:`~solprop.transverse_monitor`,
+  :mod:`~solprop.plotting`, :mod:`~solprop.coupling`, :mod:`~solprop.optics` and the
+  design calculators of :mod:`~solprop.tools`.
+- **Session and tooling**: :mod:`~solprop.sol` (the interactive namespace),
+  :mod:`~solprop.log`, :mod:`~solprop.exceptions`, :mod:`~solprop.cli`,
+  :mod:`~solprop.scan`, :mod:`~solprop.capabilities`, :mod:`~solprop.calibration` and
+  :mod:`~solprop.service`.
+- **Internals**: :mod:`~solprop.translate` and :mod:`~solprop.backends`.
+
+Every submodule is an attribute of the package, imported on first access (:pep:`562`),
+so ``dir(solprop)`` and tab completion list them while ``import solprop`` stays within
+its import-time budget: h5py, matplotlib and a compiled backend load only when used. The
+package installs a :class:`logging.NullHandler`; call
 :func:`solprop.log.configure_logging` from a script to see progress and diagnostics.
-
-Every submodule is an attribute of the package -- ``solprop.grid``, ``solprop.driver``,
-``solprop.plotting`` -- loaded on first access (:pep:`562`), so ``dir(solprop)`` and tab
-completion list them while ``import solprop`` stays within its import-time budget: the
-modules that pull in h5py, matplotlib or a compiled backend are not imported until they
-are used.
 """
 
 import importlib

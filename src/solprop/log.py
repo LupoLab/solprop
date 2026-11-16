@@ -6,15 +6,22 @@
 
 Library modules log through ``logging.getLogger(__name__)`` and never configure
 handlers; scripts call :func:`configure_logging` once. Progress during a propagation is
-reported by the driver through a :class:`ProgressReporter`, never from inside compiled
-kernels (``docs/dev/architecture.md`` section 14).
+reported by the driver, never from inside compiled kernels (``docs/dev/architecture.md``
+§14).
 
-This module is deliberately free of every other part of the package. ``import solprop``
-imports it eagerly, and reaching the seam from here -- for the type of the summary a
-save plane hands a reporter -- would pull NumPy and jaxtyping into that import and take
+- **Run reporters** (:class:`ProgressReporter`): :class:`NullReporter`,
+  :class:`LogReporter` (periodic log lines, each formed as a :class:`ProgressStatus`)
+  and :class:`BarReporter` (a bar redrawn in place); :func:`resolve_reporter` and
+  :func:`default_reporter` turn a ``progress=`` choice into one, under the process-wide
+  default of :func:`set_default_progress`.
+- **Scan reporters**: :class:`ScanReporter` and :class:`NullScanReporter`.
+- **Helpers**: :class:`StopFlag`, :func:`is_interactive` and :func:`format_duration`.
+
+The module imports nothing from the rest of the package: ``import solprop`` imports it
+eagerly, and reaching the seam would pull NumPy and jaxtyping into that import and take
 it from 0.06 s to 0.6 s, past the budget ``tests/test_package.py`` holds. Hence
-:class:`PlaneSummary`, which is the structural half of
-:class:`solprop.backends.protocol.StepSummary` that a reporter actually reads.
+:class:`PlaneSummary`, the structural half of
+:class:`solprop.backends.protocol.StepSummary` that a reporter reads.
 """
 
 import builtins

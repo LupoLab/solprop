@@ -2,49 +2,28 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Steady gas flow in a hollow fibre: the fill, the choked end and the flow regime.
+"""Steady gas flow in a hollow fibre: the fill, the choked end and the flow regime.
 
-A hollow fibre filled from gas cells at its ends carries a steady laminar flow. For an
-isothermal ideal gas in Poiseuille flow the mass flow is constant along each stage and
-proportional to :math:`a^4\,p\,\mathrm{d}p/\mathrm{d}z`, which makes :math:`p^2` linear
-in the hydraulic resistance :math:`R = \int a^{-4}\,\mathrm{d}z`
-(:class:`solprop.profiles.PressureGradient`, Pennetta et al., APL Photonics 4, 056105
-(2019), eq. 6). The PV throughput of a stage is
+The steady laminar (Poiseuille) flow of an ideal gas fed from cells at a fibre's ends,
+with ``p^2`` linear in the hydraulic resistance of the bore
+(:func:`solprop.profiles.hydraulic_integral`).
 
-.. math:: Q = \frac{\pi\,(p_h^2 - p_l^2)}{16\,\eta\,R}.
+- **The fill**: :func:`steady_fill` builds a taper-aware
+  :class:`~solprop.profiles.PressureGradient`, raises an outer vacuum end to its choked
+  pressure unless told otherwise (:data:`VacuumEnd`), and checks the flow regime,
+  warning (:class:`~solprop.exceptions.GasFlowWarning`) past
+  :data:`REYNOLDS_LAMINAR_LIMIT` or the Knudsen limits; :func:`temperature_weight` is
+  the flow weight ``eta(T) T`` along a temperature path.
+- **The report**: :func:`flow_report` returns a :class:`FlowReport` of a fill, one
+  :class:`StageFlow` per stage.
+- **Closed forms**: :func:`throughput`, :func:`choked_pressure`, :func:`mass_flow`,
+  :func:`reynolds_number`, :func:`knudsen_number`, and :func:`chamber_pressure`, the
+  pressure at which a pump removes a throughput.
 
-**Choked ends.** An end that exhausts into a pumped chamber cannot pass more than the
-sonic throughput :math:`p_e \pi a_e^2 c`. Equating the two, as HiSol.jl's
-``choked_pressure`` does (which then drops :math:`p_e^2`), gives
-
-.. math:: k (p_h^2 - p_e^2) = p_e, \quad k = \frac{1}{16\,\eta\,c\,a_e^2 R}, \quad
-   p_e = \frac{2 k p_h^2}{1 + \sqrt{1 + 4 k^2 p_h^2}},
-
-solved here in that non-cancelling form. :func:`steady_fill` applies
-:math:`\max(\text{declared}, \text{choked}, \text{floor})` at each outer end that is the
-low end of its stage: a fill "to vacuum" ends at its choked pressure, not at zero and
-not at a numerical floor. ``c`` is the adiabatic sound speed at the fill temperature,
-as HiSol takes it; an independent integration of the one-dimensional compressible
-flow (``tests/test_gasflow.py``) brackets the result between an isothermal and an
-adiabatic wall, which is why the adiabatic speed is kept (``docs/dev/decisions.md``).
-
-**Flow regime.** Gebhardt et al., Opt. Express 29, 6957 (2021), measured output-beam
-instabilities in differentially pumped capillaries from :math:`Re \approx 2040`, worst
-near 2400, and recommend :math:`Re < 2000` (their eq. 4); the laminar fill itself is not
-valid there. With :math:`Re = 4\dot m/(\pi d \eta)` and the mass flow constant along a
-stage, the narrowest point of a taper has the largest Reynolds number. At the other
-extreme the gas stops being a continuum: with :math:`Kn = \lambda / d`, first-order
-wall slip raises the throughput by :math:`8\,Kn`, and above 0.1 the flow is
-transitional. :func:`steady_fill` warns
-(:class:`~solprop.exceptions.GasFlowWarning`) for a Reynolds number above 2000, for a
-stage whose Knudsen number at its mean pressure and narrowest bore exceeds 0.01, or for
-one with more than 1 % of its gas where the Knudsen number exceeds 0.1, and otherwise
-logs the exit's Knudsen number. It does not replace the laminar law: a turbulent or
-rarefied fill is out of scope.
-
-Pressures are in **bar** at this interface (``docs/dev/conventions.md`` section 1);
-throughputs are in Pa m^3 s^-1, with :func:`mbar_litres_per_second` and
-:func:`standard_litres_per_minute` for the units vacuum practice quotes.
+Pressures are in **bar** (``docs/dev/conventions.md`` §1); throughputs are in Pa m^3
+s^-1, with :func:`mbar_litres_per_second` and :func:`standard_litres_per_minute` for the
+units vacuum practice quotes. The manual page ``docs/guide/waveguides/profiles.md``,
+"Steady-flow fills", derives the choke and the regime limits and gives their sources.
 """
 
 import dataclasses
@@ -547,7 +526,8 @@ def choked_pressure(
     -------
     float
         The exit pressure in bar below which the exit throughput would exceed the
-        sonic limit; the module docstring gives the relation.
+        sonic limit; ``docs/guide/waveguides/profiles.md``, "A vacuum end is
+        choked", gives the relation.
 
     Raises
     ------

@@ -2,21 +2,32 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The CPUs this process may run on, as the scheduler granted them.
+"""The process's share of the machine: CPUs, threads, BLAS pools, memory and identity.
 
-Linux reports affinity per thread. An OpenMP runtime started with ``OMP_PROC_BIND``
-or ``OMP_PLACES`` set -- GNU libgomp, which Kokkos's builds load -- binds the **main**
-thread to the first of its places when it starts, so after the first parallel region
-``os.sched_getaffinity(0)`` names one CPU although the process was granted many. A
-thread pool sized from that answer runs on one core (measured: an 18-core allocation
-gave a pool sized this way one thread). The affinity is therefore read once, when
-``solprop`` is imported, before any of its runtimes start, and the later answer is
-believed only when it is not that collapse.
+This module imports nothing from the rest of the package, so every layer may use it, and
+``import solprop`` imports it first.
 
-It also says when a process started (:func:`process_stamp`), which tells a process
-from a later one given its number: the scan queue's owners and the front end's runs
-both need it, and this module, which imports nothing from the rest of the package,
-sits below both.
+- **The CPU grant**: :func:`allowed_cpus`, read once at import, before an OpenMP runtime
+  can bind the main thread to one CPU, and believed later only when the answer is not
+  that collapse (ADR-052 in ``docs/dev/decisions.md``).
+- **The thread budget** (ADR-052): :func:`thread_budget` returns a
+  :class:`ThreadBudget`, the least of the grant, the :func:`physical_cores` and
+  :func:`top_tier_cores` holding it, the control groups' CPU quota (:func:`cgroup_cpus`)
+  and ``SOLPROP_THREADS``; :func:`thread_count` reads a count from the environment and
+  :func:`oversubscribing` the opt-in past the CPUs. :func:`cgroup_memory` is the memory
+  limit, and :func:`parallel_rows` threads a large NumPy pass over a state's rows within
+  the budget.
+- **Host BLAS**: :func:`host_blas` holds NumPy's and SciPy's BLAS pools within the
+  budget during host construction, through process-owned leases
+  (:func:`acquire_host_blas`) that save each library's original width once;
+  :data:`LOAD_TIME_BLAS_VARIABLES` and :func:`sizes_blas_after_load` mark the platform
+  where a width set at load crashes.
+- **Child processes**: :func:`child_environment`, :func:`batch_script` and
+  :func:`spawn_environment` (one lock for every caller) give each Python process solprop
+  starts :data:`BLAS_IDLE_DEFAULTS`; :data:`THREAD_VARIABLES` are those that size its
+  pools.
+- **Process identity**: :func:`process_stamp`, when a process started, which tells it
+  from a later one given its number (the scan queue's owners, the front end's runs).
 """
 
 import contextlib

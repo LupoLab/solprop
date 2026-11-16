@@ -4,21 +4,16 @@
 
 """Gas number density and pressure from the equation of state.
 
-Number densities are optmat's real-gas equations of state (SEP 3): CoolProp's
+:func:`density` is optmat's real-gas equation of state (SEP 3), CoolProp's
 Helmholtz-energy equations through ``optmat.gas.eos``, adapted by
-:class:`~solprop.physdata.species.OptmatGas`, whose exact inverse gives the pressure.
-An ideal-gas expression is available for comparison; the two agree to better than
-1e-3 relative below about 0.1 bar for every gas here.
+:class:`~solprop.physdata.species.OptmatGas`; :func:`pressure` is its exact inverse, and
+:func:`ideal_gas_density` the ideal-gas value for comparison.
 
-.. note::
-
-   Pressures in this module are in **bar**, the one documented departure from SI at
-   the user interface (``docs/dev/conventions.md`` section 1), because the field works
-   in bar. Everything else is SI: number densities are in m^-3, temperatures in K.
-
+Pressures are in **bar**, the one documented departure from SI at the user interface
+(``docs/dev/conventions.md`` §1); number densities are in m^-3 and temperatures in K.
 optmat imports CoolProp, which costs about a second, so the import happens inside the
-functions and ``import solprop`` stays cheap. Lookups are cached, and none is made at
-module load.
+functions and ``import solprop`` stays cheap; lookups are cached, and none is made at
+module load. The manual page is ``docs/guide/media/materials.md``, "Density".
 """
 
 import functools

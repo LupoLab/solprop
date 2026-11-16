@@ -2,41 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Adapt optmat's gas Raman responses onto solprop's existing Raman terms (SEP 3).
+"""Adapt optmat's gas Raman responses onto solprop's existing Raman terms (SEP 3).
 
-optmat gives a molecular gas's, or a gas mixture's, delayed response as a sum of
-lines,
-
-.. math::
-
-    h(\tau; N) = \Theta(\tau) \sum_k A_k \sin(\Omega_k(N)\tau)\, e^{-\Gamma_k(N)\tau},
-    \qquad \Gamma_k = \pi\, \Delta\nu_k(N),
-
-for one composition, one temperature and one pump wavelength, with the amplitudes in
-m^5 V^-2 s^-1 per molecule of the **whole** composition: a constituent's lines carry
-its mole fraction, so a mixture's response is driven by its total density. That is
-solprop's own convention (:mod:`solprop.nonlinear.raman`), so no unit changes here.
-
-Lines that share a width law and a shift form one **damping group** (optmat's
-``groups()``). Each group and tensor family becomes one existing
+optmat gives a molecular gas's, or a gas mixture's, delayed response as a sum of damped
+lines in solprop's own units and convention (:mod:`solprop.nonlinear.raman`), driven by
+the composition's total density. Lines sharing a width law and a shift form one damping
+group, and each group and tensor family becomes one existing
 :class:`~solprop.nonlinear.raman.RamanTensorTerm`: an undamped row
-``u(t) = sum_k A_k sin(Omega_k t)`` (:class:`RamanGroupLines`) and the group's decay
-rate as a function of density (:class:`GroupDephasing`), which the translation layer
-composes with the density path. The isotropic amplitudes become an isotropic term and
-the anisotropic ones a rank-two term, so a copolarised probe sees ``a + b`` and a
-cross-polarised one ``a`` (Hellwarth's functions). The mapping is exact for every gas
-whose lines do not shift, at any density path. H2's Q lines shift with density: at a
-constant density their row is built at that density, which is exact; along a
-gradient they are refused unless the selection names the approximation
-``raman_shift="reference-density"``, whose phase bound is recorded.
+(:class:`RamanGroupLines`) and a density-dependent decay rate (:class:`GroupDephasing`).
 
-A mixture's response is built once, for the composition of all its labelled
-populations, and is driven, and damped, by the **summed** density of those labels
-(:attr:`OptmatRamanResponse.labels`). optmat builds a mixture's response only from the
-collision partners whose broadening it has curated, and a mixture with any other
-partner is refused here by name, naming the pair (SEP 3, D16). The derivation and the
-limits are on the manual page ``docs/guide/media/raman-data.md``, "Raman responses from
-optmat".
+- :func:`gas_raman` builds a pure gas's response and :func:`mixture_raman` a mixture's
+  whole composition, an :class:`OptmatRamanResponse` driven and damped by the summed
+  density of its labels; a mixture with a collision partner optmat has not curated is
+  refused by name. :class:`RamanAssembly` records how the mapping was made.
+- :class:`RamanShift` says how a density-dependent line shift (H2's Q lines) is held:
+  exact at a constant density, refused along a gradient unless the selection names
+  ``raman_shift="reference-density"``.
+- :func:`raman_status` reports what optmat holds for a gas.
+
+The mapping, its exactness and its limits are on the manual page
+``docs/guide/media/raman-data.md``.
 """
 
 import functools

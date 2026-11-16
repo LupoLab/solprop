@@ -4,9 +4,15 @@
 
 """The exception and warning hierarchies.
 
-Every error raised by solprop is a :class:`SolpropError` and every warning it emits is a
-:class:`SolpropWarning`, so callers can catch or filter the whole family with one clause
-and still tell the cases apart. Raise the most specific subclass; never raise a bare
+Every error solprop raises is a :class:`SolpropError`, one subclass per layer or concern
+(:class:`GridError`, :class:`MaterialError`, :class:`TranslationError`,
+:class:`BackendError`, :class:`OutputError`, ...), and every warning it emits is a
+:class:`SolpropWarning`, likewise subclassed (:class:`MaterialRangeWarning`,
+:class:`GasFlowWarning`, :class:`BoundaryWarning`, ...), so callers can catch or filter
+the whole family with one clause and still tell the cases apart. The two signals that
+end a run from outside are not errors: :class:`RunTerminated` (SIGTERM) is a
+:class:`SystemExit` and :class:`StopRequested` (the run's stop flag) a
+:class:`BaseException`. Raise the most specific subclass; never raise a bare
 :class:`Exception`, and never return a sentinel where raising is correct.
 """
 

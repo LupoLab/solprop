@@ -60,7 +60,7 @@ GEBHARDT_LENGTH = 5.0
 
 
 def _factor(gas, radius, length, *, exit_radius=None):
-    """k = 1 / (16 eta c a_e^2 R) of the module docstring, in Pa^-1."""
+    """k = 1 / (16 eta c a_e^2 R) of the manual's choked end, in Pa^-1."""
     resistance = hydraulic_integral(radius, [0.0, length])[0]
     exit_radius = radius if exit_radius is None else exit_radius
     eta, c = viscosity(gas, ROOM), sound_speed(gas, temperature=ROOM)

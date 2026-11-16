@@ -2,39 +2,30 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Design calculators: soliton numbers and dispersive-wave phase matching.
+"""Design calculators: the numbers a person works out before a run.
 
-The numbers a person works out before a run. For a pulse of energy :math:`E` and
-full width at half maximum :math:`\tau_{\rm fwhm}` in a mode with group-velocity
-dispersion :math:`\beta_2`, effective area :math:`A_{\rm eff}` and a fill of nonlinear
-index :math:`n_2`,
+The commonly used names of the submodules are re-exported here.
 
-.. math::
-   \gamma = \frac{n_2\omega_0}{cA_{\rm eff}},\quad
-   L_D = \frac{\tau_0^2}{|\beta_2|},\quad
-   L_{NL} = \frac{1}{\gamma P_0},\quad
-   N = \sqrt{L_D/L_{NL}},\quad
-   L_{\rm fiss} = L_D/N,
-
-with the natural width :math:`\tau_0` and the peak power :math:`P_0` of the chosen pulse
-shape (:func:`~solprop.tools.pulse.pulse_width`,
-:func:`~solprop.tools.pulse.pulse_peak_power`). One shape runs through the whole chain,
-so the Gaussian numbers are never computed with a ``sech`` width.
-
-A dispersive wave is phase matched to a soliton at the frequencies where
-
-.. math::
-   \Delta\beta(\omega) = \beta_{\rm dw}(\omega) - \beta_{\rm s}(\omega_0)
-   - \beta_{1,\rm s}(\omega_0)(\omega-\omega_0) - k_{\rm NL}
-
-vanishes (:func:`~solprop.tools.phase_matching.phase_mismatch`). The last term is the
-soliton's nonlinear wavenumber and uses the largest unchirped constituent when pulse
-data are given (:func:`~solprop.tools.soliton.soliton_content`). Without pulse data the
-condition is linear. ``docs/guide/workflows/design-tools.md`` derives both and says what
-the nonlinear term assumes.
+- :mod:`~solprop.tools.pulse`: the natural width, peak power and energy of a ``sech`` or
+  Gaussian pulse, one shape through the whole chain.
+- :mod:`~solprop.tools.soliton`: dispersion and nonlinear lengths, soliton orders, the
+  fission length, the soliton content of an unchirped pulse and the fill's nonlinear
+  coefficient.
+- :mod:`~solprop.tools.phase_matching`: the phase mismatch between a soliton and a
+  dispersive wave, and its roots in wavelength.
+- :mod:`~solprop.tools.capillary`: every design number of a pulse in a mode or a
+  gas-filled capillary, the capillary that gives a soliton design, and gas mixing
+  ratios.
+- :mod:`~solprop.tools.design`: the guide or fill parameter that meets a design target
+  (a zero-dispersion wavelength, a dispersive-wave wavelength, a soliton order).
+- :mod:`~solprop.tools.beam`: the critical power for self-focusing, Gaussian-beam
+  numbers and the conversion between field and intensity.
+- :mod:`~solprop.tools.waveguide`: the fill (:data:`~solprop.tools.waveguide.Fill`) and
+  the mode a design evaluates.
 
 Everything is SI except pressure, which is in bar as at the rest of the user interface
-(``docs/dev/conventions.md`` section 1).
+(``docs/dev/conventions.md`` §1). ``docs/guide/workflows/design-tools.md`` derives the
+soliton numbers and the phase-matching condition and says what each assumes.
 """
 
 from solprop.tools.beam import (
