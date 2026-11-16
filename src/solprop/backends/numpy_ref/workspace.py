@@ -325,11 +325,6 @@ class NumpyWorkspace:
         """The ``input`` noise draw the state carries (the monitor's floor), or None."""
         return self._input_floor
 
-    @property
-    def quadrature(self) -> float:  # numpydoc ignore=RT01
-        """The quadrature alarm of the plane's last accepted step; NaN without one."""
-        return self._alarm
-
     def load(
         self,
         field: _State,

@@ -1739,22 +1739,16 @@ class HostSession:
             raise BackendError(in_flight_refusal(self._name, *pending))
 
     def _check_target(self, target: float) -> None:
-        """Refuse a save plane behind the observed position or outside the table."""
+        """Refuse a plane behind the observed position: a start's wrong plane index.
+
+        The planes themselves are the validated request's: finite, increasing and
+        inside the operator table (`validate_run`).
+        """
         z = self._here()
-        if not math.isfinite(target):
-            msg = f"the save plane must be finite, got {target!r}"
-            raise BackendError(msg)
         if target < z:
             msg = (
                 f"cannot propagate backwards: asked for z = {target:.6g} m from "
-                f"{z:.6g} m"
-            )
-            raise BackendError(msg)
-        span = self._problem.linear.z_span
-        if target > span[1]:
-            msg = (
-                f"z = {target:.6g} m lies beyond the operator table, which covers "
-                f"[{span[0]:.6g}, {span[1]:.6g}] m"
+                f"{z:.6g} m; the start's plane index names a plane behind it"
             )
             raise BackendError(msg)
 
@@ -1770,9 +1764,14 @@ class HostSession:
 
         The field is the workspace's state itself, frozen and held so that an
         observation takes a view of it without a copy: the next step replaces it.
-        With ``field=False`` nothing crosses (SEP 22 section 5.1).
+        With ``field=False`` nothing crosses (SEP 22 section 5.1) and nothing of the
+        state is read, so a failure's terminal event drains its attempts even when the
+        failure was the backend's closing; a state left in flight is refused either way.
         """
-        self._require_state()
+        if field:
+            self._require_state()
+        else:
+            self._refuse_in_flight()
         history = _history_record(self._history)
         whole = self._workspace.state if field else None
         if whole is not None:
