@@ -165,7 +165,7 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
         self._runner = runner
         self._ahead: tuple[float, object] | None = None
 
-    def _configure(self) -> None:
+    def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
 
     def _observe(self, position: float) -> object:
@@ -460,7 +460,7 @@ class TraceRungeKuttaMarch(session_module._NativeRungeKuttaMarch):
         """Return the record with the harness's quiet interval."""
         return super()._policy(self._interval() if interval is None else interval)
 
-    def _configure(self) -> None:
+    def _configure(self, *_: object) -> None:
         """Configure nothing: the scripted runner takes the policy itself."""
 
     MAX_ATTEMPTS: int = 256

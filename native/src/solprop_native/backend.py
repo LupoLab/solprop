@@ -44,6 +44,7 @@ from solprop.backends.node_chunk import (
     plan_node_chunk,
 )
 from solprop.backends.protocol import TimingProbe
+from solprop.backends.records import adams_policy
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
@@ -76,11 +77,8 @@ from solprop.stats import (
 )
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import (
-    MarchPolicy,
-    Multistep,
-    march_policy,
-)
+from solprop.stepper.multistep import MarchPolicy, Multistep
+from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -147,6 +145,7 @@ from . import (
     _core,
     _counters,
     _host_blas,
+    _records,
     _wisdom,
     build_info,
     check_build,
@@ -154,7 +153,7 @@ from . import (
 from ._execution import ExecutionRecord
 from ._helpers import NATIVE
 from ._host_source import TDSEHostSource
-from ._load import Loaded, StageCache, collar_rests, load, propagator_mode
+from ._load import Loaded, StageCache, load, propagator_mode
 from ._probe import NativeProbe
 from ._statistics import (
     StatisticsLowering,
@@ -1152,10 +1151,6 @@ class NativeBackend:
         state.finish(dz)
         return state
 
-    def _collar_rests(self) -> bool:
-        """Return whether this run's stages may leave a quiet collar out (SEP 21)."""
-        return collar_rests(self._problem, self._stepper)
-
     def _launch_clean_columns(self, edge: TransverseEdge) -> RealArray | None:
         """Return each column's launched energy without the input draw, or ``None``.
 
@@ -1649,9 +1644,6 @@ class _ResidentAdams:
 _EMPTY = np.empty(0, dtype=np.complex128)
 """No modified-noise realisation: the native state adds none."""
 
-_NO_SCHEDULE = np.empty(0, dtype=np.float64)
-"""The empty schedule of an adaptive march's configuration."""
-
 _STAGE_CONSTANT = 1
 _STAGE_EXPANSION = 2
 _STAGE_TABLE = 3
@@ -1835,7 +1827,17 @@ def _low_storage_flows(
     """
     if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return None
-    flows = low_storage_flows(problem, stepper, "native")
+    return _resident_flows(
+        low_storage_flows(problem, stepper, "native"), stepper, device=device
+    )
+
+
+def _resident_flows(flows: int, stepper: StepperSettings, *, device: bool) -> int:
+    """Return the flow volumes the native state holds for a CPU's count `flows`.
+
+    A device build recomputes under ``"auto"`` and holds none
+    (:class:`~solprop.backends.records.LowStorageSettings` counts a CPU's).
+    """
     return 0 if device and stepper.propagator_mode == "auto" else flows
 
 
@@ -1963,7 +1965,7 @@ class _NativeAdamsMarch:
 
     The native state steps solprop's exponential Adams march (solprop SEP 39 phase 2):
     the controller, the history, the landings and the call ledger's counts advance
-    natively, from one policy record (:func:`~solprop.stepper.multistep.march_policy`).
+    natively, from one policy record (:func:`~solprop.backends.records.adams_policy`).
     This record is what the run starts from: the policy, the history's entries
     (position, identity and engine row), the order, the rejection flags and the
     :class:`~solprop.backends.numpy_ref.multistep.CallLedger`, each fresh at a load
@@ -1996,31 +1998,13 @@ class _NativeAdamsMarch:
         self._last_rejected = False
         self._order = 1 if method.variable_order else method.order
         self.ledger = CallLedger()
-        # An in-stage temporal collar's largest rate bounds each order's stable step
-        # in the exponential formulation (`adams_core`'s order choice).
-        responses = problem.responses
-        collar = responses.temporal_absorber
-        collar_rate = (
-            0.5 * float(np.max(collar))
-            if collar is not None
-            and responses.absorber_scheme == "nonlinear"
-            and exponential_form
-            else 0.0
-        )
-        linear = problem.linear
         carrier = getattr(self._engine, "carrier", None)
-        # Every number the native controller and landings read (SEP 39 section 4.2).
-        self._policy: MarchPolicy = march_policy(
+        # Every number the native controller and landings read (SEP 39 section 4.2),
+        # formed as the reference forms it.
+        self._policy: MarchPolicy = adams_policy(
+            problem,
+            stepper,
             method,
-            dz_min=stepper.dz_min,
-            dz_max=stepper.dz_max,
-            stretch=stepper.stretch,
-            z_end=stepper.z_end,
-            save_planes=np.asarray(stepper.save_planes, dtype=np.float64).tolist(),
-            hard_kinks=np.asarray(linear.hard_kinks, dtype=np.float64).tolist(),
-            breakpoints=np.asarray(linear.phi_breakpoints, dtype=np.float64).tolist(),
-            interpolate=self._interpolate,
-            collar_rate=collar_rate,
             carrier=isinstance(carrier, CarrierReference) and carrier.active,
         )
         # Whether the stages left a quiet collar out at the last attempt.
@@ -2161,24 +2145,20 @@ class _NativeAdamsMarch:
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
         }
 
-    def _configure(self) -> None:
-        """Hand the native state the run's policy and a replay's schedule, once.
+    def _configure(self, policy: MarchPolicy, schedule: FixedSchedule | None) -> None:
+        """Hand the native state a run's policy and a replay's schedule, once.
 
-        The policy carries no quiet interval: a session's native monitor holds its
-        own (SEP 47 section 6.4).
+        - ``policy``: the run's record
+          (:attr:`~solprop.backends.records.RunRecords.policy`), with no quiet
+          interval: a session's native monitor holds its own (SEP 47 section 6.4).
         """
         if self._configured:
             return
-        policy = dataclasses.replace(self._policy, quiet_interval=None)
         backend = self._backend
         engine = cast("_ResidentAdams", self._engine)
-        schedule = backend._stepper.schedule
-        steps = edges = _NO_SCHEDULE
-        if schedule is not None:
-            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
-            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+        steps, edges = _records.schedule_arrays(schedule)
         backend._native_state.adams_march_configure(
-            dataclasses.asdict(policy),
+            _records.adams_policy(policy),
             self._fused,
             engine.compensated,
             engine.interpolate,

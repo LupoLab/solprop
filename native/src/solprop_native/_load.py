@@ -16,8 +16,8 @@ the problem and the request alone:
 - :class:`StageCache`: a step's stage scalars
   (:func:`solprop.translate.stage.scalars_at`), the anchor hoisted once a step, kept
   until the next hoist.
-- :func:`collar_rests` and :func:`propagator_mode`: the run's quiet-collar rule (SEP 21
-  D15) and its flow treatment (SEP 24 section 4.3).
+- :func:`propagator_mode`: the run's flow treatment (SEP 24 section 4.3); the
+  quiet-collar rule is solprop's (:func:`solprop.backends.records.collar_rests`).
 
 Each is the reference's arithmetic (``solprop.backends.host.driver.HostDriver``),
 operation for operation, as the step driver the native backend inherited until SEP 47
@@ -58,7 +58,6 @@ type RealArray = npt.NDArray[np.float64]
 __all__ = [
     "Loaded",
     "StageCache",
-    "collar_rests",
     "load",
     "propagator_mode",
     "schedule_index",
@@ -271,31 +270,6 @@ class StageCache:
             return kept
         held = self._anchor if self._anchor.z == z0 else None
         return scalars(self._problem, z0, z1, at=held, helpers=self._helpers)
-
-
-def collar_rests(problem: PropagationProblem, stepper: StepperSettings) -> bool:
-    """Return whether a run's stages may leave a quiet temporal collar out (SEP 21).
-
-    A modal or radial stage with the in-stage (``"nonlinear"``) scheme and a temporal
-    collar alone. The low-storage march, coupled flows, the general modal route, a
-    real-space collar sharing the term, and the Cartesian, line and planar routes keep
-    the collar in every stage (SEP 21 D15).
-
-    - Returns: True when the term may be left out while the collar is quiet.
-    """
-    responses = problem.responses
-    geometry = problem.transform.geometry
-    resting_geometry = geometry is None or (
-        geometry.kind == "radial" and not np.any(geometry.absorber_rate)
-    )
-    return (
-        not isinstance(stepper.integrator, LowStorageRungeKutta)
-        and responses.temporal_absorber is not None
-        and responses.absorber_scheme == "nonlinear"
-        and problem.linear.coupled_flow is None
-        and problem.transform.modal_tables is None
-        and resting_geometry
-    )
 
 
 def propagator_mode(

@@ -180,7 +180,9 @@ class LowStorageEngine(Protocol):
 
     Part of the kernel seam (schema 29): the march keeps the schedule, the commit and
     the records; an engine keeps the registers and the flow table and does every
-    state-sized operation of a step. :class:`HostLowStorage` is the reference.
+    state-sized operation of a step. :class:`HostLowStorage` is the reference. SEP 52's
+    phase 3 replaces it with :class:`solprop.backends.engines.RungeKuttaEngine`, which
+    the native low-storage engine already implements.
     """
 
     stiffness: float

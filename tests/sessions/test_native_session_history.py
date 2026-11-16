@@ -500,8 +500,8 @@ def _armed(monkeypatch, stage: str, after: int, category: str) -> None:
     march = native_backend._NativeAdamsMarch
     configure = march._configure
 
-    def arming(self) -> None:
-        configure(self)
+    def arming(self, *args: Any) -> None:
+        configure(self, *args)
         _testing.adams_march_fault(self._backend._native_state, stage, after, category)
 
     monkeypatch.setattr(march, "_configure", arming)

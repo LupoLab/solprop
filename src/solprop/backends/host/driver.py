@@ -46,7 +46,11 @@ from solprop.backends.protocol import (
     StepSummary,
     TimingProbe,
 )
-from solprop.backends.rk_core import rk_policy
+from solprop.backends.records import (
+    RungeKuttaPolicy,
+    collar_rests,
+    runge_kutta_policy,
+)
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
@@ -1448,31 +1452,25 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         - ``target``: position to reach, m.
         """
-        settings = self._stepper
         policy = self._controller_policy()
-        dense = settings.interpolate_planes
+        dense = policy.interpolate
         if dense and self._dense_ahead is not None:
             # The march is ahead of the last interpolated plane; resume it there.
             self._adams_restore(*self._dense_ahead)
             self._dense_ahead = None
         if self._natural_stop_due(target):
             return
-        breakpoints = self._problem.linear.phi_breakpoints
-        if not settings.interval_cap:
-            # The cumulative table makes the flow exact across its intervals, so only
-            # the table's two ends bound a step (SEP 14 section 4.1).
-            breakpoints = breakpoints[[0, -1]]
+        # The policy's landings (SEP 45 section 4.2): only the operator table's two
+        # ends bound a step without the interval cap (SEP 14 section 4.1), and dense
+        # output steps across the save planes, still landing on the end of the run and
+        # the hard kinks (SEP 14 section 4.3).
         targets = StepTargets(
-            # Dense output steps across the save planes; the end of the run and the
-            # hard kinks are still landed on (SEP 14 section 4.3).
-            save_planes=np.empty(0)
-            if dense
-            else np.asarray(settings.save_planes, dtype=np.float64),
-            hard_kinks=self._problem.linear.hard_kinks,
-            breakpoints=breakpoints,
-            dz_max=settings.dz_max,
-            z_end=settings.z_end if dense else target,
-            stretch=settings.stretch,
+            save_planes=np.asarray(policy.save_planes, dtype=np.float64),
+            hard_kinks=np.asarray(policy.hard_kinks, dtype=np.float64),
+            breakpoints=np.asarray(policy.breakpoints, dtype=np.float64),
+            dz_max=policy.dz_max,
+            z_end=policy.z_end if dense else target,
+            stretch=policy.stretch,
         )
         while not reached(self._z, target):
             self._poll_stop()
@@ -1585,9 +1583,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         msg = f"{self.name} does not observe densely"
         raise BackendError(msg)
 
-    def _controller_policy(self) -> rk_core.RungeKuttaPolicy:
-        """Return the Runge-Kutta march's controller policy (SEP 45)."""
-        return rk_policy(self._stepper)
+    def _controller_policy(self) -> RungeKuttaPolicy:
+        """Return the Runge-Kutta march's controller and landing policy (SEP 45)."""
+        return runge_kutta_policy(self._problem, self._stepper)
 
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
@@ -2151,28 +2149,10 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _collar_can_rest(self) -> bool:
         """Return whether this run's stages may leave a quiet temporal collar out.
 
-        One rule for every backend: a modal or radial stage with the in-stage
-        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
-        coupled flows, the general modal route, a real-space collar sharing the term,
-        and the Cartesian, line and planar routes, whose stages keep the term whatever
-        the monitor says, keep the collar in every stage (SEP 21 D15).
-
-        - Returns: True when the term may be left out while the collar is quiet.
+        The one rule every backend reads (:func:`solprop.backends.records.collar_rests`,
+        SEP 21 D15).
         """
-        problem = self._problem
-        responses = problem.responses
-        geometry = problem.transform.geometry
-        resting_geometry = geometry is None or (
-            geometry.kind == "radial" and not np.any(geometry.absorber_rate)
-        )
-        return (
-            self._low_storage is None
-            and responses.temporal_absorber is not None
-            and responses.absorber_scheme == "nonlinear"
-            and problem.linear.coupled_flow is None
-            and problem.transform.modal_tables is None
-            and resting_geometry
-        )
+        return collar_rests(self._problem, self._stepper)
 
     def _collar_changed(self) -> None:  # noqa: B027 - optional by design
         """Drop whatever was evaluated under the other collar setting.
