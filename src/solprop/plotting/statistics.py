@@ -8,8 +8,8 @@ Two figures: what the pulse did, and what the waveguide and the gas were doing w
 it did it. Only the statistics the run actually recorded are drawn, and a figure with
 nothing to put in it is not made at all rather than raising.
 
-The catalogue of names, shapes and units is :data:`solprop.stats.CATALOGUE`; the display
-units are :mod:`solprop.plotting.style`'s.
+The catalogue of names, shapes and units is :data:`solprop.stats.catalogue.CATALOGUE`;
+the display units are :mod:`solprop.plotting.style`'s.
 """
 
 from typing import Any

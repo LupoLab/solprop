@@ -87,23 +87,26 @@ class StatDefinition:
         otherwise.
     metric : bool
         Whether its value depends on the basis's flux metric
-        (:data:`METRIC_WEIGHTED_STATISTICS`).
+        (:data:`~solprop.stats.catalogue.METRIC_WEIGHTED_STATISTICS`).
     weight : {'poynting', 'unit'} or None
         How it depends on the modal power weight: ``'poynting'`` for one a backend forms
         in its weighted Poynting pass, ``'unit'`` for a general modal statistic valid
         only under the constant weight (:func:`~solprop.stats.weight_refusal_for`).
     profile : bool
-        Whether it reads the z-profile of its own name (:data:`PROFILE_STATISTICS`).
+        Whether it reads the z-profile of its own name
+        (:data:`~solprop.stats.catalogue.PROFILE_STATISTICS`).
     plasma : {'on_axis', 'integration'} or None
-        Its family of plasma statistics (:data:`ON_AXIS_PLASMA_STATISTICS`,
-        :data:`PLASMA_INTEGRATION_STATISTICS`).
+        Its family of plasma statistics
+        (:data:`~solprop.stats.catalogue.ON_AXIS_PLASMA_STATISTICS`,
+        :data:`~solprop.stats.catalogue.PLASMA_INTEGRATION_STATISTICS`).
     general : {'admitted', 'no_flow', 'diagnostic', 'medium'} or None
-        How a general modal basis treats it: admitted, admitted unless the block
-        couples (:data:`WITHHELD_WITH_A_FLOW`), a step diagnostic the basis does not
-        decide, refused because the guide has no gas fill or spatial geometry, or
-        (``None``) refused because of the basis.
+        How a general modal basis treats it: admitted, admitted unless the block couples
+        (:data:`~solprop.stats.catalogue.WITHHELD_WITH_A_FLOW`), a step diagnostic the
+        basis does not decide, refused because the guide has no gas fill or spatial
+        geometry, or (``None``) refused because of the basis.
     advice : str or None
-        What to use instead on a general modal basis (:data:`ACCESSOR_ADVICE`).
+        What to use instead on a general modal basis
+        (:data:`~solprop.stats.catalogue.ACCESSOR_ADVICE`).
 
     Examples
     --------
@@ -559,12 +562,12 @@ translation module importing an output one.
 
 ``omega0``, ``fwhm_t`` and ``fwhm_t_outer`` are functionals of the same-frequency flux
 ``a.H W a`` and take the basis metric
-(:data:`solprop.stats.METRIC_WEIGHTED_STATISTICS`), so they are exact on a declared
-basis as well as on the identity one;
-``zdw`` is a property of the channels' propagation constants and of no basis at all
--- until a declared basis couples channels whose propagation constants differ, when
-the block executes through a coupled flow and each channel's constant is the block's
-mean; the route then withholds it (:data:`WITHHELD_WITH_A_FLOW`).
+(:data:`solprop.stats.catalogue.METRIC_WEIGHTED_STATISTICS`), so they are exact on a
+declared basis as well as on the identity one; ``zdw`` is a property of the channels'
+propagation constants and of no basis at all -- until a declared basis couples channels
+whose propagation constants differ, when the block executes through a coupled flow and
+each channel's constant is the block's mean; the route then withholds it
+(:data:`WITHHELD_WITH_A_FLOW`).
 
 ``spectral_flux`` is the one array of the family -- the same flux as a density in
 frequency rather than integrated. It

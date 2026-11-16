@@ -486,8 +486,8 @@ def withheld_accessors(*, general_modal: bool, coupled_flow: bool) -> tuple[str,
 
     A general modal problem carrying ``linear.coupled_flow`` executes a declared
     basis of a split block, whose per-channel propagation constant is the block's
-    mean, so it withholds :data:`solprop.stats.WITHHELD_WITH_A_FLOW`; every other
-    problem withholds nothing. The two execution doors pass this to
+    mean, so it withholds :data:`solprop.stats.catalogue.WITHHELD_WITH_A_FLOW`;
+    every other problem withholds nothing. The two execution doors pass this to
     :func:`refusal_for`, and the route leaves the same names out of the record's
     published list so that the file doors agree (:func:`withheld_from`).
 
@@ -521,9 +521,9 @@ def withheld_from(metadata: RunMetadata) -> tuple[str, ...]:
 
     The file doors' half of :func:`withheld_accessors`: a general modal record whose
     published ``accessors`` list leaves out a name of
-    :data:`solprop.stats.WITHHELD_WITH_A_FLOW` was written by a split-block route,
-    and the name is refused from the file exactly as it was from the run. A record
-    of any other basis, or one with no published list, withholds nothing.
+    :data:`solprop.stats.catalogue.WITHHELD_WITH_A_FLOW` was written by a split-block
+    route, and the name is refused from the file exactly as it was from the run. A
+    record of any other basis, or one with no published list, withholds nothing.
 
     Parameters
     ----------

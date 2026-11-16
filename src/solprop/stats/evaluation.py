@@ -149,9 +149,9 @@ def collect(
     metric : numpy.ndarray or None, optional
         The basis flux metric ``W(omega)`` at this plane, shape
         ``(n_modes, n_modes, n_omega)``, for the names in
-        :data:`~solprop.stats.METRIC_WEIGHTED_STATISTICS`; ``None``, the default, is the
-        identity and every statistic is then bitwise what it was. A caller that holds a
-        general modal problem gets it from
+        :data:`~solprop.stats.catalogue.METRIC_WEIGHTED_STATISTICS`; ``None``, the
+        default, is the identity and every statistic is then bitwise what it was. A
+        caller that holds a general modal problem gets it from
         :func:`solprop.translate.coupled.metric_at`.
 
     Returns

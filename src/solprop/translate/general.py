@@ -1686,7 +1686,7 @@ def modal_identity(
     declared susceptibility of each region; **which guide**, by provider,
     sampling and materials; the shared co-moving frame; the run's active band;
     the basis the noise was drawn in; and which accessors the basis admits
-    (:data:`solprop.stats.GENERAL_MODAL_ACCESSORS`, which
+    (:data:`solprop.stats.catalogue.GENERAL_MODAL_ACCESSORS`, which
     :mod:`solprop.output.capability` gates with).
 
     It goes into :attr:`solprop.output.metadata.RunMetadata.modal`, which is inside

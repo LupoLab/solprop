@@ -175,7 +175,8 @@ class ApertureSet:
     Raises
     ------
     OutputError
-        If there are no apertures or more than :data:`MAX_APERTURES`; an array is
+        If there are no apertures or more than
+        :data:`~solprop.stats.spec.MAX_APERTURES`; an array is
         not finite or not of its stated shape; a diameter, an extent or a distance
         breaks its rule above; a half-plane's centre is off the axis it names; an edge
         is missing, given for a ``hard`` set or row, or out of its range (with ``D``
@@ -616,7 +617,8 @@ class StatsSpec:
     ----------
     names : tuple
         Statistics to evaluate at every saved plane, in the order they are evaluated.
-        Every name must be in :data:`~solprop.stats.CATALOGUE` and must be implemented.
+        Every name must be in :data:`~solprop.stats.catalogue.CATALOGUE` and must be
+        implemented.
     energy_windows : numpy.ndarray
         Spectral windows, shape ``(n_windows, 2)``, rad/s, each row ``(lo, hi)`` with
         ``lo < hi``. Infinite edges are allowed, so that a pair of windows can tile the
@@ -635,11 +637,11 @@ class StatsSpec:
         out of the run's configuration record, so every earlier record keeps its
         hash.
     spectral_regions : numpy.ndarray
-        Boxes of physical transverse wavevector in rad/m, shape ``(n_regions, 4)``,
-        rows ``(kx_lo, kx_hi, ky_lo, ky_hi)``, each a half-open box ``[lo, hi)`` on
-        both axes, at most :data:`MAX_REGIONS` rows, infinite edges allowed.
-        Required by ``region_spectrum``. Empty by default, and then left out of the
-        configuration record.
+        Boxes of physical transverse wavevector in rad/m, shape ``(n_regions, 4)``, rows
+        ``(kx_lo, kx_hi, ky_lo, ky_hi)``, each a half-open box ``[lo, hi)`` on both
+        axes, at most :data:`~solprop.stats.spec.MAX_REGIONS` rows, infinite edges
+        allowed. Required by ``region_spectrum``. Empty by default, and then left out of
+        the configuration record.
 
     Raises
     ------

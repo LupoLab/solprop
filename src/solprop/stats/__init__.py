@@ -8,8 +8,8 @@ The package, each module importing only those above it:
 
 - :mod:`solprop.stats.definitions`: the reference definition of each statistic on
   internal spectra (:func:`energy`, :func:`peak_power`, :func:`fwhm_t`, ...).
-- :mod:`solprop.stats.catalogue`: :data:`CATALOGUE`, one :class:`StatDefinition` per
-  name, and the name sets derived from it.
+- :mod:`solprop.stats.catalogue`: :data:`~solprop.stats.catalogue.CATALOGUE`, one
+  :class:`StatDefinition` per name, and the name sets derived from it.
 - :mod:`solprop.stats.spec`: :class:`StatsSpec`, the request a run records statistics
   by, its :class:`ApertureSet`, and the far-field tables every backend shares.
 - :mod:`solprop.stats.evaluation`: :func:`collect` on a saved plane and
