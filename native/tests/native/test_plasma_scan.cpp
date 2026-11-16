@@ -33,7 +33,7 @@ struct EmptyTeamBody {
 
 constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
 
-TEST(GeneralState, PortablePlasmaTeamScanMatchesTheSerialTrapezoid) {
+TEST(PlasmaBandScan, PortablePlasmaTeamScanMatchesTheSerialTrapezoid) {
   using View = Kokkos::View<double**, native::Layout, native::MemorySpace>;
   const native::ExecutionSpace execution_space;
   View rates("solprop_native.test.plasma_rates", 2, 8);
@@ -159,7 +159,7 @@ team_band_scan(const std::vector<double>& values, const std::size_t rows,
   return {filtered_values, prefix_values};
 }
 
-TEST(GeneralState, BandTeamScanMatchesTheSerialFilterAndTrapezoid) {
+TEST(PlasmaBandScan, BandTeamScanMatchesTheSerialFilterAndTrapezoid) {
   // A K = 8 rule of unit sum with alternating taps, as the certified designs have.
   std::vector<double> taps(native::plasma_max_taps);
   double wings = 0.0;
@@ -321,7 +321,7 @@ std::vector<int> tiled_team_sizes() {
 #endif
 }
 
-TEST(GeneralState, TiledTrapezoidScanIsExactOnIntegers) {
+TEST(PlasmaBandScan, TiledTrapezoidScanIsExactOnIntegers) {
   // The device trapezoid plasma's two-level scan: integer samples and a spacing of
   // two make every increment and partial sum an exact integer, so any association
   // gives the serial result exactly, over tiles and team sizes.
@@ -367,7 +367,7 @@ TEST(GeneralState, TiledTrapezoidScanIsExactOnIntegers) {
   }
 }
 
-TEST(GeneralState, BandTileSizesFollowTheRowLength) {
+TEST(PlasmaBandScan, BandTileSizesFollowTheRowLength) {
   EXPECT_EQ(native::band_tile_samples(64), native::band_tile_min);
   EXPECT_EQ(native::band_tile_samples(8192), std::size_t{256});
   EXPECT_EQ(native::band_tile_samples(16384), std::size_t{512});
@@ -378,7 +378,7 @@ TEST(GeneralState, BandTileSizesFollowTheRowLength) {
   EXPECT_EQ(native::band_tile_count(1000, 256), std::size_t{4});
 }
 
-TEST(GeneralState, TiledBandScanIsExactOnIntegers) {
+TEST(PlasmaBandScan, TiledBandScanIsExactOnIntegers) {
   // Integer taps, integer samples and a spacing of two: every reflection, filtered
   // sample, increment `2 (y_n + y_{n-1}) / 2` and partial sum is an integer far below
   // 2^53, so any association and contraction gives the serial result exactly.
@@ -419,7 +419,7 @@ TEST(GeneralState, TiledBandScanIsExactOnIntegers) {
   }
 }
 
-TEST(GeneralState, TiledBandScanMatchesTheSerialFilterAndTrapezoid) {
+TEST(PlasmaBandScan, TiledBandScanMatchesTheSerialFilterAndTrapezoid) {
   std::vector<double> taps(native::plasma_max_taps);
   double wings = 0.0;
   for (std::size_t k = 1; k < taps.size(); ++k) {
@@ -584,7 +584,7 @@ WindowedScan windowed_band_scan(const std::vector<double>& row,
   return result;
 }
 
-TEST(GeneralState, BandWindowSkipsOnlyExactZeros) {
+TEST(PlasmaBandScan, BandWindowSkipsOnlyExactZeros) {
   std::vector<double> taps(native::plasma_max_taps);
   double wings = 0.0;
   for (std::size_t k = 1; k < taps.size(); ++k) {
