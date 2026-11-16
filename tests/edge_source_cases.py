@@ -167,7 +167,7 @@ def make_case(
     """
     parent = FieldGrid.from_limits(0.001, 800e-9, limits, trange, fft_size=fft_size)
     grid = refine_response_grid(parent, TDSESampling(refinement))
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     problem = assemble(
         grid,
         mode,

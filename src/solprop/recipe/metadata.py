@@ -975,11 +975,19 @@ def _capillary() -> tuple[Parameter, ...]:
             resolvable=True,
         ),
         Parameter(
-            "loss",
-            (_BOOLEAN, Form("number"), Form("callable", recipe=False)),
+            "alpha",
+            (_number("m^-1", minimum=0.0), Form("callable", recipe=False)),
+            "medium",
+            "advanced",
+            "An absolute power attenuation in place of the capillary's own loss.",
+            "guide/waveguides/capillary-model.md",
+        ),
+        Parameter(
+            "loss_scale",
+            (_number(minimum=0.0),),
             "medium",
             "basic",
-            "Include the capillary's loss: on or off, a scale, or a curve.",
+            "Factor on the capillary's own loss; zero is lossless.",
             "guide/waveguides/capillary-model.md",
             resolvable=True,
         ),
@@ -1526,7 +1534,7 @@ _PROFILE: Final = _object(*_TYPE_PROFILES)
 _CALLABLE: Final = Form("callable", recipe=False)
 _UNREGISTERED: Final = Form("object", recipe=False)
 _TYPE_PULSES: Final = ("GaussianPulse", "SechPulse", "load_spectrum")
-_LOSS: Final = (_TYPE_BOOLEAN, _number(minimum=0.0), _CALLABLE)
+_ALPHA: Final = (_number("m^-1", minimum=0.0), _CALLABLE)
 _CLADDING: Final = (_UNREGISTERED, Form("mapping"))
 _GAS: Final = (_STRING,)
 _FIBRE_MATERIAL: Final = (_number(minimum=0.0, exclusive=True), _object("glass"))
@@ -1753,10 +1761,16 @@ def _hollow_rows(cladding: str) -> tuple[Row, ...]:
     """Return a hollow mode's loss and cladding keywords."""
     return (
         _keyword(
-            "loss",
-            _LOSS,
+            "alpha",
+            _ALPHA,
             "advanced",
-            "The model's loss, none, a scale of it, or an absolute loss.",
+            "An absolute power attenuation in place of the model's loss.",
+        ),
+        _keyword(
+            "loss_scale",
+            _number(minimum=0.0),
+            "advanced",
+            "Factor on the model's own loss; zero is lossless.",
         ),
         _keyword(
             "cladding",
@@ -2649,10 +2663,10 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             display="nm",
         ),
         _keyword(
-            "loss",
+            "alpha",
             (_number("m^-1", minimum=0.0), _CALLABLE),
             "advanced",
-            "Power attenuation.",
+            "Power attenuation coefficient.",
         ),
     ),
     "glass": _type(

@@ -34,10 +34,10 @@ __all__ = [
     "malitson_silica",
 ]
 
-ONE_BAR_0C = ReferenceState(pressure_bar=1.0, temperature=273.15)
+ONE_BAR_0C = ReferenceState(pressure=1.0, temperature=273.15)
 """Börzsönyi's state, 1000 mbar and 0 degrees Celsius; also the Kingston argon fit's."""
 
-ONE_ATM_0C = ReferenceState(pressure_bar=1.01325, temperature=273.15)
+ONE_ATM_0C = ReferenceState(pressure=1.01325, temperature=273.15)
 """1 atm and 0 degrees Celsius, the state of the Ermolov helium expansion."""
 
 BORZSONYI_CITATION = (

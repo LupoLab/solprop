@@ -332,7 +332,7 @@ def taper_gradient() -> Case:
 def lossless_taper() -> Case:
     """The taper coupling of a lossless three-channel taper, no wall."""
     return _capillary_case(
-        varying(loss=False, cladding=1.45, pressure=PRESSURE, energy=ENERGY)
+        varying(loss_scale=0.0, cladding=1.45, pressure=PRESSURE, energy=ENERGY)
     )
 
 
@@ -478,7 +478,7 @@ def reference_and_linear(case: Case) -> tuple[np.ndarray, np.ndarray]:
 
 def lossless(**overrides):
     """Return the ten-step three-channel qualification taper, lossless, no wall."""
-    return varying(loss=False, cladding=1.45, **overrides)
+    return varying(loss_scale=0.0, cladding=1.45, **overrides)
 
 
 # --- the wide flows and the bins off the route ---------------------------------------
@@ -517,7 +517,7 @@ def wide_simulation(modes: int, backend: str = "numpy_ref") -> Simulation:
         "He",
         PRESSURE,
         wall=None,
-        loss=False,
+        loss_scale=0.0,
         cladding=1.45,
         modes=modes,
         wavelength=800e-9,

@@ -247,7 +247,7 @@ class _FlowGas:
             composition=composition,
             temperature=float(temperature),
             viscosity=viscosity(composition, temperature),
-            sound_speed=sound_speed(composition, temperature),
+            sound_speed=sound_speed(composition, temperature=temperature),
             molar_mass=molar_mass(composition),
         )
 
@@ -584,14 +584,14 @@ def choked_pressure(
 def mass_flow(
     gas: Composition | Mixture,
     throughput: float,
-    pressure_bar: float,
+    pressure: float,
     *,
     temperature: float = ROOM_TEMPERATURE,
 ) -> float:
     """Return the mass flow carried by a PV throughput measured at a given pressure.
 
     ``mdot = Q rho(p, T) / p`` with the real-gas mass density at the reference state
-    ``(pressure_bar, temperature)``; a mixture sums its species' partial densities. A
+    ``(pressure, temperature)``; a mixture sums its species' partial densities. A
     throughput is conventionally quoted at the low-pressure end, where the gas is
     close to ideal and this is ``Q M / (R T)``, which is also the limit taken at zero
     pressure.
@@ -602,7 +602,7 @@ def mass_flow(
         One built-in gas, gases to mole fractions, or a mixture with a shared fill.
     throughput : float
         PV throughput in Pa m^3 s^-1, >= 0.
-    pressure_bar : float
+    pressure : float
         Pressure in bar at which the throughput is measured, >= 0.
     temperature : float, optional
         Gas temperature in K.
@@ -627,23 +627,21 @@ def mass_flow(
     """
     flow = _FlowGas.of(gas, temperature)
     rate = _checked_pressure(throughput, "throughput")
-    return rate * _mass_per_pv(flow, _checked_pressure(pressure_bar, "pressure_bar"))
+    return rate * _mass_per_pv(flow, _checked_pressure(pressure, "pressure"))
 
 
-def _mass_per_pv(flow: _FlowGas, pressure_bar: float) -> float:
+def _mass_per_pv(flow: _FlowGas, pressure: float) -> float:
     """Return ``rho / p`` in kg per Pa m^3 at a pressure, real-gas where it matters.
 
-    - ``pressure_bar``: pressure in bar, >= 0.
+    - ``pressure``: pressure in bar, >= 0.
     """
-    if pressure_bar == 0.0:
+    if pressure == 0.0:
         return flow.molar_mass / (_GAS_CONSTANT * flow.temperature)
     total = math.fsum(
-        member.density(fraction * pressure_bar, flow.temperature)
-        * member.molar_mass
-        / N_A
+        member.density(fraction * pressure, flow.temperature) * member.molar_mass / N_A
         for member, fraction in _composition(flow.composition, "density")
     )
-    return total / (pressure_bar * BAR)
+    return total / (pressure * BAR)
 
 
 def reynolds_number(
@@ -714,7 +712,7 @@ def _reynolds(
 
 def knudsen_number(
     gas: Composition | Mixture,
-    pressure_bar: ArrayLike | float,
+    pressure: ArrayLike | float,
     radius: ArrayLike | float,
     *,
     temperature: float = ROOM_TEMPERATURE,
@@ -725,10 +723,10 @@ def knudsen_number(
     ----------
     gas : Gas, str, Species, Mapping or Mixture
         One built-in gas, gases to mole fractions, or a mixture with a shared fill.
-    pressure_bar : array_like or float
+    pressure : array_like or float
         Pressure in bar, >= 0; zero gives an infinite Knudsen number.
     radius : array_like or float
-        Core radius in m, > 0, broadcast against `pressure_bar`.
+        Core radius in m, > 0, broadcast against `pressure`.
     temperature : float, optional
         Gas temperature in K.
 
@@ -751,7 +749,7 @@ def knudsen_number(
     >>> f"{float(knudsen_number('N2', 0.01, 250e-6)):.4f}"
     '0.0130'
     """
-    pressures = np.asarray(pressure_bar, dtype=float)
+    pressures = np.asarray(pressure, dtype=float)
     radii = np.asarray(radius, dtype=float)
     if not np.all(np.isfinite(pressures)) or np.any(pressures < 0.0):
         raise TranslationError("pressures must be finite and not negative")
@@ -817,17 +815,17 @@ def chamber_pressure(
 
 
 def _pump_excess(
-    pressure_bar: float, *, pump_speed: Callable[[float], float], rate: float
+    pressure: float, *, pump_speed: Callable[[float], float], rate: float
 ) -> float:
     """Return a pump's throughput less the gas's at a chamber pressure.
 
-    - ``pressure_bar``: chamber pressure in bar.
+    - ``pressure``: chamber pressure in bar.
     - ``pump_speed``: pumping speed in m^3 s^-1 as a function of the pressure in bar.
     - ``rate``: the gas throughput in Pa m^3 s^-1.
     - Returns: ``p S(p) - Q`` in Pa m^3 s^-1.
     """
-    speed = positive(pump_speed(pressure_bar), "pump speed in m^3/s", TranslationError)
-    return pressure_bar * BAR * speed - rate
+    speed = positive(pump_speed(pressure), "pump speed in m^3/s", TranslationError)
+    return pressure * BAR * speed - rate
 
 
 def mbar_litres_per_second(throughput: float) -> float:

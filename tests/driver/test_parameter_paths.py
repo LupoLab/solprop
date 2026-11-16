@@ -356,9 +356,9 @@ REFUSALS = [
         id="capillary-wall-taper",
     ),
     pytest.param(
-        lambda: _hollow(wall=CoherentWall(), loss=False),
+        lambda: _hollow(wall=CoherentWall(), loss_scale=0.0),
         DriverError,
-        ("wall", "loss"),
+        ("wall", "loss_scale"),
         "is the loss model",
         id="capillary-wall-loss",
     ),

@@ -207,6 +207,9 @@ def phase_mismatch(
         Input power FWHM in s, positive; required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
         Unchirped input shape for the largest constituent.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}, optional
         Default uses the largest constituent. Supplied power uses gamma P0/2 and
         requires omitting fwhm. Linear requires omitting all pulse numbers.
@@ -279,6 +282,9 @@ def lambda_rdw_all(
         Input power FWHM in s, positive; required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
         Unchirped input shape for the largest constituent.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}, optional
         Default uses the largest constituent. Supplied power uses gamma P0/2 and
         requires omitting fwhm. Linear requires omitting all pulse numbers.
@@ -399,6 +405,9 @@ def lambda_rdw(
         Input power FWHM in s, positive; required with power for the default phase.
     shape : {'sech', 'gauss'}, optional
         Unchirped input shape for the largest constituent.
+        Default ``"sech"``, unlike the ``"gauss"`` default of
+        :func:`~solprop.driver.interface.prop_capillary` and
+        :func:`~solprop.driver.interface.prop_gnlse`.
     nonlinear_phase : {'largest', 'supplied_power', 'linear'}, optional
         Default uses the largest constituent. Supplied power uses gamma P0/2 and
         requires omitting fwhm. Linear requires omitting all pulse numbers.

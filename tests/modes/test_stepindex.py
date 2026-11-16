@@ -263,7 +263,7 @@ def test_stepindex_exact_cutoffs_and_weak_guidance_limit():
         ({"n": 0}, "require"),
         ({"m": 0}, "radial"),
         ({"parity": "bad"}, "parity"),
-        ({"loss": -1.0}, "loss"),
+        ({"alpha": -1.0}, "alpha"),
         ({"core": 0.9}, "core index"),
         ({"core": float("nan")}, "indices"),
         ({"profile_wavelength": 0.0}, "profile_wavelength"),
@@ -360,7 +360,7 @@ def test_stepindex_corrected_luna_witness():
             profile_wavelength=row["wavelength"],
             # Luna's lossless, even-parity mode, stated (``docs/dev/testing.md``).
             parity="even",
-            loss=0.0,
+            alpha=0.0,
         )
         omega = np.asarray([2 * math.pi * C / row["wavelength"]])
         # Independent double Bessel libraries and independent bracketing: rounding.
@@ -441,7 +441,7 @@ def test_stepindex_absolute_loss_and_derivative(caplog):
     omega = np.asarray([2e15, 2.5e15])
     lossless = mode()
     for loss in (2.0, LossCurve(), lambda omega: (omega / 1e15) ** 2):
-        one = mode(loss=loss)
+        one = mode(alpha=loss)
         attenuation = (
             np.full_like(omega, loss) if isinstance(loss, (int, float)) else loss(omega)
         )
@@ -470,8 +470,8 @@ def test_stepindex_absolute_loss_and_derivative(caplog):
 
 @pytest.mark.parametrize("output", [-1.0, np.nan, np.inf, [1.0, 2.0]])
 def test_stepindex_invalid_callable_loss(output):
-    one = mode(loss=lambda omega: np.asarray(output))
-    with pytest.raises(ModeError, match="loss callable"):
+    one = mode(alpha=lambda omega: np.asarray(output))
+    with pytest.raises(ModeError, match="alpha callable"):
         one.neff(np.asarray([2e15]))
 
 
@@ -479,8 +479,8 @@ def test_stepindex_invalid_derivative_and_solver_results(monkeypatch):
     omega = np.asarray([2e15])
     curve = LossCurve()
     monkeypatch.setattr(curve, "derivative", lambda omega: np.asarray([np.nan]))
-    with pytest.raises(ModeError, match="loss derivative"):
-        mode(loss=curve).dneff_domega(omega)
+    with pytest.raises(ModeError, match="alpha derivative"):
+        mode(alpha=curve).dneff_domega(omega)
     one = mode()
     with monkeypatch.context() as patch:
         # Failure injection qualifies the public response to a singular implicit

@@ -112,7 +112,7 @@ def envelope_case(preionisation):
         for index, component in enumerate(mixture.components)
     )
     grid = EnvelopeGrid.from_limits(ENVELOPE_LENGTH, 800e-9, (500e-9, 1.2e-6), 80e-15)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     initial = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7).build(grid)
     step = ENVELOPE_LENGTH / 4
     problem, run_request = assemble(

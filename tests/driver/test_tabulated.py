@@ -180,7 +180,7 @@ def test_mixture_rebinding_and_species_material_output(cls):
     )
     metadata = simulation.metadata()
     assert "medium" in metadata.configuration
-    callable_mode = table_mode(cls, mixture=mixture, loss=np.ones_like)
+    callable_mode = table_mode(cls, mixture=mixture, alpha=np.ones_like)
     assert _cross_sections(mixture, [callable_mode], omega) is None
 
 

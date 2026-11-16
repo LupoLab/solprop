@@ -48,7 +48,7 @@ def supplied(name: str, gas: Gas, **data) -> Species:
     law = PoleSumSusceptibility(
         gas=gas,
         source="supplied",
-        reference_state=ReferenceState(pressure_bar=1.0, temperature=273.15),
+        reference_state=ReferenceState(pressure=1.0, temperature=273.15),
         wavelength_range=(200e-9, 5e-6),
         citation="placeholder: these tests read only the density and the Raman data",
         b=(5.8e-4,),

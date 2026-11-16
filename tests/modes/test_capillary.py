@@ -150,7 +150,13 @@ def test_a_mode_of_every_family_satisfies_the_protocol(kind, model):
         ({"kind": "TE", "n": 1}, "needs n = 0"),
         ({"kind": "TM", "n": 2}, "needs n = 0"),
         ({"temperature": 0.0}, "temperature must be positive"),
-        ({"loss": -1.0}, "must not be negative"),
+        ({"loss_scale": -1.0}, "loss_scale must be a finite non-negative"),
+        ({"loss_scale": math.inf}, "loss_scale must be a finite non-negative"),
+        ({"loss_scale": False}, "loss_scale must be a finite non-negative"),
+        ({"alpha": -1.0}, "alpha must be a finite non-negative"),
+        ({"alpha": math.nan}, "alpha must be a finite non-negative"),
+        ({"alpha": 1.0, "loss_scale": 0.5}, "give one of them, not both"),
+        ({"alpha": np.ones_like, "loss_scale": 0.0}, "give one of them, not both"),
         ({"m": 0}, "positive integer"),
     ],
 )
@@ -164,7 +170,8 @@ def test_a_bad_mode_is_refused(kwargs, message):
     [
         ("kind", "EH", "kind must be"),
         ("model", "exact", "model must be"),
-        ("loss", "high", "loss must be"),
+        ("alpha", "high", "alpha must be"),
+        ("loss_scale", "high", "loss_scale must be"),
     ],
 )
 def test_a_value_outside_a_declared_literal_is_refused(attribute, value, message):
@@ -334,8 +341,8 @@ def test_an_evacuated_capillary_guides_below_the_vacuum_index():
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_loss_false_removes_the_imaginary_part(model):
-    mode = MarcatiliMode(125e-6, "He", 1.0, model=model, loss=False)
+def test_a_zero_loss_scale_removes_the_imaginary_part(model):
+    mode = MarcatiliMode(125e-6, "He", 1.0, model=model, loss_scale=0.0)
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
     assert np.all(np.imag(mode.neff(omega)) == 0.0)
     assert np.all(np.imag(mode.dneff_domega(omega)) == 0.0)
@@ -345,7 +352,7 @@ def test_loss_false_removes_the_imaginary_part(model):
 def test_a_loss_scale_multiplies_the_model_loss(model):
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
     full = MarcatiliMode(125e-6, "He", 1.0, model=model)
-    scaled = MarcatiliMode(125e-6, "He", 1.0, model=model, loss=0.25)
+    scaled = MarcatiliMode(125e-6, "He", 1.0, model=model, loss_scale=0.25)
     np.testing.assert_allclose(
         np.imag(scaled.neff(omega)), 0.25 * np.imag(full.neff(omega)), rtol=1e-15
     )
@@ -354,16 +361,39 @@ def test_a_loss_scale_multiplies_the_model_loss(model):
     )
 
 
-def test_a_loss_callable_replaces_the_model_loss_with_an_absolute_alpha():
-    """A float scales, a callable replaces: see the guide's capillary model."""
+def test_an_alpha_callable_replaces_the_model_loss_with_an_absolute_alpha():
+    """A loss_scale scales, an alpha replaces: see the guide's capillary model."""
     curve = np.vectorize(lambda w: 1e-15 * w)
-    mode = MarcatiliMode(125e-6, "He", 1.0, loss=curve)
+    mode = MarcatiliMode(125e-6, "He", 1.0, alpha=curve)
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
     np.testing.assert_allclose(alpha(mode, omega), curve(omega), rtol=1e-14)
     plain = MarcatiliMode(125e-6, "He", 1.0)
     np.testing.assert_allclose(
         np.real(mode.neff(omega)), np.real(plain.neff(omega)), rtol=0.0, atol=0.0
     )
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_a_constant_alpha_is_a_flat_curve(model):
+    omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
+    constant = MarcatiliMode(125e-6, "He", 1.0, model=model, alpha=0.3)
+
+    class Flat:
+        def __call__(self, values):
+            return np.full_like(values, 0.3)
+
+        def derivative(self, values):
+            return np.zeros_like(values)
+
+    flat = MarcatiliMode(125e-6, "He", 1.0, model=model, alpha=Flat())
+    # The same arithmetic on the same numbers: a number is the flat curve exactly.
+    np.testing.assert_array_equal(constant.neff(omega), flat.neff(omega))
+    np.testing.assert_array_equal(
+        constant.dneff_domega(omega), flat.dneff_domega(omega)
+    )
+    # alpha = 2 omega Im(n) / c, to a few roundings of the quotient.
+    np.testing.assert_allclose(alpha(constant, omega), 0.3, rtol=1e-14)
+    assert repr(constant).endswith("loss=alpha 0.3 1/m)")
 
 
 def test_a_loss_callable_with_a_derivative_is_analytic():
@@ -374,7 +404,7 @@ def test_a_loss_callable_with_a_derivative_is_analytic():
         def derivative(self, omega):
             return 2e-30 * omega
 
-    mode = MarcatiliMode(125e-6, "He", 1.0, loss=Curve())
+    mode = MarcatiliMode(125e-6, "He", 1.0, alpha=Curve())
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
     # Im n = c alpha / (2 omega) = c * 1e-30 * omega / 2, so d(Im n)/d(omega) is a
     # constant that the quotient rule must reproduce exactly.
@@ -386,7 +416,7 @@ def test_a_loss_callable_with_a_derivative_is_analytic():
 def test_a_loss_callable_without_a_derivative_is_differenced_and_says_so(caplog):
     curve = np.vectorize(lambda w: 1e-30 * w**2)
     with caplog.at_level("WARNING", logger="solprop.modes.capillary"):
-        mode = MarcatiliMode(125e-6, "He", 1.0, loss=curve)
+        mode = MarcatiliMode(125e-6, "He", 1.0, alpha=curve)
     assert "Richardson" in caplog.text
     omega = omega_of(np.linspace(400e-9, 1000e-9, 16))
     # Same curve as the analytic case above, so the difference must land on the same
@@ -592,20 +622,20 @@ def test_dneff_dz_is_the_finite_difference_of_the_implemented_index(
 def test_dneff_dz_follows_the_loss_specification_and_a_mixture():
     """The slope of what `neff` returns, whatever the loss setting does to it.
 
-    `loss=False` drops the imaginary part, a float scales it, a measured curve has no
-    z in it, and the real part moves with none of them. A fill whose populations are
-    declared separately sums their slopes, checked against the fourth-order difference
-    at the taper's gate.
+    `loss_scale=0` drops the imaginary part, another scale scales it, a measured
+    `alpha` has no z in it, and the real part moves with none of them. A fill whose
+    populations are declared separately sums their slopes, checked against the
+    fourth-order difference at the taper's gate.
     """
     omega = omega_of(np.linspace(450e-9, 1000e-9, 7))
     z = 7.3e-5
     reference = MarcatiliMode(Z_TAPER, "He", 1.0, m=2).dneff_dz(omega, z)
-    lossless = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, loss=False).dneff_dz(omega, z)
-    scaled = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, loss=0.5).dneff_dz(omega, z)
+    lossless = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, loss_scale=0.0).dneff_dz(omega, z)
+    scaled = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, loss_scale=0.5).dneff_dz(omega, z)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         measured = MarcatiliMode(
-            Z_TAPER, "He", 1.0, m=2, loss=lambda values: np.full(values.shape, 1e-3)
+            Z_TAPER, "He", 1.0, m=2, alpha=lambda values: np.full(values.shape, 1e-3)
         ).dneff_dz(omega, z)
     # The loss setting touches only the imaginary part, structurally: the real part
     # is the same array, and a lossless or z-free loss is an explicit zero slope.
@@ -616,7 +646,7 @@ def test_dneff_dz_follows_the_loss_specification_and_a_mixture():
     np.testing.assert_array_equal(np.imag(measured), 0.0)
     assert np.all(np.imag(reference) != 0.0)
     # The reduced model drops its loss term, slope included, when declared lossless.
-    polynomial = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, model="reduced", loss=False)
+    polynomial = MarcatiliMode(Z_TAPER, "He", 1.0, m=2, model="reduced", loss_scale=0.0)
     slope = polynomial.dneff_dz(omega, z)
     np.testing.assert_array_equal(np.imag(slope), 0.0)
     difference = np.real(
@@ -691,7 +721,7 @@ def test_the_reduced_model_has_no_floor():
     up to the floor. A complex cladding term would add a *real* contribution through
     i v, which is a separate quirk of the reduced model and would muddy the point.
     """
-    mode = MarcatiliMode(1e-6, model="reduced", cladding=0.5, loss=False)
+    mode = MarcatiliMode(1e-6, model="reduced", cladding=0.5, loss_scale=0.0)
     omega = omega_of(np.array([50e-6]))
     assert np.real(mode.neff(omega))[0] < -100.0
 
@@ -1248,7 +1278,7 @@ def test_an_injected_susceptibility_replaces_the_one_the_gas_selects():
     mode = MarcatiliMode(125e-6, "He", 0.8, susceptibility=luna_helium())
     injected = mode.susceptibility
     assert injected is not None
-    assert injected.reference_state.pressure_bar == 1.0
+    assert injected.reference_state.pressure == 1.0
 
 
 def test_an_injected_susceptibility_leaves_the_density_path_alone():

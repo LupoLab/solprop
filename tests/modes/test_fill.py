@@ -57,8 +57,8 @@ def test_fill_rebinding_retains_concrete_geometry_and_clears_legacy_material():
 
 def test_fill_rejects_invalid_loss_and_freezes_single_species_density():
     mode = MarcatiliMode(125e-6)
-    object.__setattr__(mode, "loss", object())
-    with pytest.raises(ModeError, match="loss must be"):
+    object.__setattr__(mode, "alpha", object())
+    with pytest.raises(ModeError, match="alpha must be"):
         mode._check_fill_arguments()
     filled = MarcatiliMode(125e-6, mixture=Mixture.fill({"He": 1.0}, 1.0))
     frozen = filled.at_parameters({"density": 1e25})

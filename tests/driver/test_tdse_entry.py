@@ -17,7 +17,12 @@ from tests.driver.test_sep12_sep14_integration import _Binding
 from tests.hacc_cases import hacc_response, plain, preset_basis
 
 import solprop.driver.tdse_run as tdse_run_module
-from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
+from record_numbers import (
+    assert_record_numbers,
+    record_skeleton,
+    skeleton_hash,
+    with_former_names,
+)
 from solprop.driver import Simulation, prop_capillary
 from solprop.driver import tdse as runtime
 from solprop.driver.settings import SimulationSettings
@@ -263,7 +268,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
         "tdse_execution": simulation.settings.tdse_execution,
     }
     skeleton, numbers, floors = record_skeleton(
-        json.loads(json.dumps(record, sort_keys=True, default=repr))
+        with_former_names(json.loads(json.dumps(record, sort_keys=True, default=repr)))
     )
     assert skeleton_hash(skeleton) == _UNCHANGED
     assert_record_numbers(

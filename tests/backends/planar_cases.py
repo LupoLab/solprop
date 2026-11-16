@@ -77,7 +77,7 @@ def planar_case(name, *, steps=None):
     grid, gas, energy, fwhm, plasma, raman, n_r, _, count, scheme = FAMILIES[family]
     steps = count if steps is None else max(1, steps)
     orders = ORDERS.get(family, (1, 3, 5))
-    modes = ModeCollection.slab(HALF_GAP, orders, gas, 1.0).modes
+    modes = ModeCollection.slab(HALF_GAP, gas, 1.0, orders=orders).modes
     simulation = Simulation.from_waveguide(
         list(modes),
         LENGTH,

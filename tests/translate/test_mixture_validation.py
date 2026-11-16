@@ -225,7 +225,7 @@ def test_explicit_response_density_cannot_override_a_mixture():
 def test_bare_and_explicit_aliases_cannot_duplicate_one_population(case, kind):
     component = case[0].components[0]
     mixture = Mixture.of(component)
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     kerr = KerrResponse(1e-52, thg=False)
     if kind == "kerr":
         responses = (kerr, dataclasses.replace(kerr, species=component.label))

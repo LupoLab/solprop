@@ -202,7 +202,7 @@ def test_a_linear_taper_conserves_power_per_unit_width():
     ``rtol=1e-10`` (2.3e-10 on ten fixed steps, where its history starts at order
     one); bound 1e-12.
     """
-    mode = SlabMode(Linear(HALF_GAP, 50e-6, LENGTH), cladding=1.45, loss=False)
+    mode = SlabMode(Linear(HALF_GAP, 50e-6, LENGTH), cladding=1.45, loss_scale=0.0)
     output = prop_waveguide(
         [mode],
         LENGTH,

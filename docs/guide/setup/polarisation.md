@@ -122,7 +122,7 @@ from solprop.polarisation import horizontal, rotate, waveplate
 from solprop.pulses import GaussianPulse
 
 grid = EnvelopeGrid.from_limits(0.002, 800e-9, (300e-9, 2e-6), 100e-15)
-mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
 pulse = GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-6).build(grid)
 jones = to_internal(rotate(waveplate(np.pi / 2), np.pi / 5) @ horizontal())
 product_input = pulse * jones[None, :, None]
@@ -173,9 +173,9 @@ statistic is recorded during propagation.
 
 ## Angular integration and plasma
 
-`ModeCollection.marcatili(radius, gas, pressure, kinds, n, m)` builds an ordered set
-of hybrid (`"HE"`) and transverse (`"TE"`, `"TM"`) capillary modes, one per entry of the
-three sequences, which must have the same length; `with_polarisations()` then adds the
+`ModeCollection.marcatili(radius, gas, pressure, kinds=..., n=..., m=...)` builds an
+ordered set of hybrid (`"HE"`) and transverse (`"TE"`, `"TM"`) capillary modes, one per
+entry of the three sequences, which must have the same length; `with_polarisations()` then adds the
 degenerate orthogonal partners. The transverse quadrature must resolve their angular
 dependence. The Cartesian harmonic of HE modes is `h=abs(n-1)`; TE and TM have `h=1`.
 A Kerr projection contains four modal factors, so the periodic angular rule must

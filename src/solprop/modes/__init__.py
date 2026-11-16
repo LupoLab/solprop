@@ -18,7 +18,6 @@ from solprop.modes.antiresonant import (
 from solprop.modes.capillary import (
     EVANESCENT_INDEX_FLOOR,
     CoherentWall,
-    LossSpec,
     MarcatiliMode,
     MarcatiliModel,
     MarcatiliTerms,
@@ -123,7 +122,6 @@ __all__ = [
     "GradedIndexProvider",
     "IndexMaterial",
     "IndexTable",
-    "LossSpec",
     "MarcatiliMode",
     "MarcatiliModel",
     "MarcatiliTerms",

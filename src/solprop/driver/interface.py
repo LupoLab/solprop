@@ -45,9 +45,9 @@ from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
     CoherentWall,
     GlassIndex,
-    LossSpec,
     MarcatiliModel,
 )
+from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
@@ -415,7 +415,8 @@ def prop_capillary(  # numpydoc ignore=PR01
     wall: CoherentWall | None = None,
     taper_coupling: bool = True,
     model: MarcatiliModel = "full",
-    loss: LossSpec = True,
+    alpha: float | LossFunction | None = None,
+    loss_scale: float = 1.0,
     cladding: GlassIndex | complex | None = None,
     susceptibility: GasSusceptibility | None = None,
     temperature: float | ZProfile | None = None,

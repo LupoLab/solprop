@@ -61,7 +61,7 @@ as {py:func}`~solprop.driver.interface.prop_capillary` would for the same argume
 ...                      wavelength=800e-9, cladding=1.45)
 >>> print(p)
 MODE:
-  MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
+  MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
 WAVEGUIDE:
   Aeff = 2.34e-08 m^2, Lloss = 7.05e+00 m (1/e power)
 FILL:
@@ -385,7 +385,9 @@ from solprop.physdata import n2
 from solprop.tools import lambda_rdw_all, nonlinear_coefficient, pressure_rdw
 
 radius = 20e-6
-lattice = TubeLattice.from_inner_diameter_ratio(radius, 300e-9, 0.6, 6)
+lattice = TubeLattice.from_inner_diameter_ratio(
+    radius, wall_thickness=300e-9, inner_diameter_ratio=0.6, n_tubes=6
+)
 mode = VincettiMode(radius, "He", 2.0, lattice=lattice)
 gamma = nonlinear_coefficient(mode, n2("He", pressure=2.0, wavelength=800e-9), 800e-9)
 roots = lambda_rdw_all(

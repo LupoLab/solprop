@@ -60,7 +60,7 @@ for label, grid in (("Carrier resolved", field_grid), ("Envelope", envelope_grid
         energy=1e-3,
         mode_average=True,
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
         kerr=False,
         plasma=rate,
         rtol=1e-6,

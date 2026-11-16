@@ -477,7 +477,7 @@ def _run_request(case):
     The case keeps the problem alone, so the request is assembled again from the
     same run settings on the case's grid.
     """
-    mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, cladding=1.45, loss_scale=0.0)
     return assemble(
         case.grid,
         mode,

@@ -318,7 +318,7 @@ PLANAR = textwrap.dedent(
 
 def _planar_call() -> Simulation:
     grid = EnvelopeGrid.from_limits(1e-2, 800e-9, (650e-9, 1000e-9), 400e-15)
-    modes = ModeCollection.slab(63.5e-6, (1, 3), "Ar", 1.0)
+    modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3))
     return Simulation.from_planar(
         grid,
         PlanarGrid(modes, 1e-3, 16, n_x=24),

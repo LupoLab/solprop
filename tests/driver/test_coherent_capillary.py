@@ -452,12 +452,17 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
 LATTICE = TubeLattice(180e-9, 10.38e-6, 6)
 """Six 10.38 micrometre tubes, a Vincetti set the bare capillary wall must refuse."""
 
-LOSSES = [False, 0.0, 0.5, lambda omega: np.full_like(np.asarray(omega), 100.0)]
+LOSSES = [
+    {"loss_scale": 0.0},
+    {"loss_scale": 0.5},
+    {"alpha": 100.0},
+    {"alpha": lambda omega: np.full_like(np.asarray(omega), 100.0)},
+]
 """Loss settings that a wall, which *is* the loss model, would otherwise discard.
 
 Measured before the refusal existed: the largest internal field-loss rate of a 50
-micrometre helium bore at `N = 1` was 17.730 /m with the wall for `loss=True`,
-`False`, `0.0`, `0.5` and a 100 /m callable **alike**, against 17.751, 0.030, 8.891
+micrometre helium bore at `N = 1` was 17.730 /m with the wall for the model's loss,
+none, half of it and a 100 /m attenuation **alike**, against 17.751, 0.030, 8.891
 and 50.030 /m on the uncoupled route -- the whole setting vanished, because the
 assembly subtracts the entire `HE_11` wavenumber and re-adds the block's own diagonal.
 """
@@ -492,7 +497,7 @@ def _lattice_capillary():
 ROUTE_REFUSALS = [
     *(
         pytest.param(
-            lambda loss=loss: capillary(wall=CoherentWall(), loss=loss),
+            lambda loss=loss: capillary(wall=CoherentWall(), **loss),
             DriverError,
             "is the loss model",
             id=f"loss-{index}",
@@ -615,7 +620,7 @@ def _pair(first, second):
 BLOCK_REFUSALS = [
     *(
         pytest.param(
-            lambda loss=loss: [MarcatiliMode(RADIUS, "He", 1.0, m=1, loss=loss)],
+            lambda loss=loss: [MarcatiliMode(RADIUS, "He", 1.0, m=1, **loss)],
             "is the loss model",
             id=f"loss-{index}",
         )
@@ -1812,8 +1817,8 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
     what this checks is that a **taper** reaches all of them rather than slipping past
     on the new branch, which is the way a new route usually loses an admission.
     """
-    with pytest.raises(DriverError, match="loss=False"):
-        varying(wall=CoherentWall(), loss=False).translate()
+    with pytest.raises(DriverError, match=r"loss_scale=0\.0"):
+        varying(wall=CoherentWall(), loss_scale=0.0).translate()
     with pytest.raises(DriverError, match="one capillary model"):
         varying(wall=CoherentWall(), model="reduced").translate()
     with pytest.raises(DriverError, match="tube lattice"):
@@ -2497,13 +2502,14 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
     """Every door on the scalar route is reached by a vector block too.
 
     Not assumed: the vector route is a branch of its own inside `_wall_assembly`, so
-    each refusal is taken again through it. `loss=`, `model=` and `lattice=` are named
+    each refusal is taken again through it. `loss_scale=`, `model=` and `lattice=` are
+    named
     at the keyword, the mode set's own settings at the block, and `n_pol`, a noise
     draw and a route that cannot carry a wall in the translation layer.
     """
     modes = vector_modes()
     for overrides, error, message in (
-        ({"loss": False}, DriverError, "is the loss model"),
+        ({"loss_scale": 0.0}, DriverError, "is the loss model"),
         ({"model": "reduced"}, DriverError, "one capillary model"),
         ({"lattice": TubeLattice(180e-9, 9e-6, 6)}, DriverError, "tube lattice"),
         (

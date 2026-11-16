@@ -117,10 +117,10 @@ class CountingState:
     gas: Gas
     calls: list[int] = field(default_factory=lambda: [0])
 
-    def density(self, pressure_bar: float, temperature: float) -> float:
+    def density(self, pressure: float, temperature: float) -> float:
         """Return the built-in (optmat) density, counting the call."""
         self.calls[0] += 1
-        return eos_density(self.gas, pressure_bar, temperature)
+        return eos_density(self.gas, pressure, temperature)
 
     def pressure(self, number_density: float, temperature: float) -> float:
         """Not used here."""
@@ -342,7 +342,7 @@ def test_a_hot_exit_chokes_with_its_own_viscosity_and_sound_speed():
     resistance, _ = quad(integrand, 0.0, length, epsabs=0.0, epsrel=1e-13)
     exit_temperature = 394.0
     factor = exit_temperature / (
-        16.0 * sound_speed(gas, exit_temperature) * radius**2 * resistance
+        16.0 * sound_speed(gas, temperature=exit_temperature) * radius**2 * resistance
     )
     top = high * BAR
     expected = brentq(
@@ -427,10 +427,10 @@ def test_a_path_that_never_varies_is_tabulated_on_a_widened_axis():
 class KinkedState:
     """An equation of state whose compressibility kinks at 5 bar: not smooth."""
 
-    def density(self, pressure_bar: float, temperature: float) -> float:
+    def density(self, pressure: float, temperature: float) -> float:
         """Return a density whose compressibility has a kink."""
-        factor = 1.0 + 0.05 * abs(pressure_bar - 5.0)
-        return pressure_bar * BAR / (1.380649e-23 * temperature * factor)
+        factor = 1.0 + 0.05 * abs(pressure - 5.0)
+        return pressure * BAR / (1.380649e-23 * temperature * factor)
 
     def pressure(self, number_density: float, temperature: float) -> float:
         """Not used here."""

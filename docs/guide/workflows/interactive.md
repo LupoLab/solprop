@@ -156,8 +156,8 @@ FieldGrid: a real field grid
 In [2]: simulation
 Simulation: 2 modes
   grid:      FieldGrid(n_t=2048, window=455.4 fs, band=200-2000 nm, reference=800 nm)
-  mode 0:    MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
-  mode 1:    MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)
+  mode 0:    MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
+  mode 1:    MarcatiliMode(HE12, a=125 um, He, model=full, loss=model)
   responses: KerrResponse, PlasmaResponse
   input:     <2x1x1025 complex>
   noise:     none
@@ -185,8 +185,8 @@ GaussianPulse
 
 In [5]: modes
 ModeCollection: 2 modes
-  0: MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
-  1: MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)
+  0: MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)
+  1: MarcatiliMode(HE12, a=125 um, He, model=full, loss=model)
 ```
 
 An {py:class}`~solprop.output.hdf5.HDF5Output` says whether its file is open, closed,

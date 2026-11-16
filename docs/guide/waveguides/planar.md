@@ -20,7 +20,7 @@ reports per unit width (see [Per unit width](#per-unit-width)).
 from solprop.modes import ModeCollection, SlabMode
 
 mode = SlabMode(63.5e-6, "Ar", 1.0)  # TE1, E along y, silica plates
-modes = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)
+modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5))
 ```
 
 **TE and TM.** `polarisation="te"` (the default) has its electric field along y,
@@ -177,7 +177,7 @@ from solprop.driver import Simulation
 from solprop.modes import ModeCollection, gaussian_coupling
 from solprop.pulses import GaussianPulse
 
-modes = ModeCollection.slab(63.5e-6, (1, 3, 5), "Ar", 1.0)
+modes = ModeCollection.slab(63.5e-6, "Ar", 1.0, orders=(1, 3, 5))
 simulation = Simulation.from_waveguide(
     modes.modes,
     0.1,

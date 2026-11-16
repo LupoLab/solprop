@@ -182,7 +182,7 @@ def propagation_studies():
 def mixture_propagation(oversampling, *, backend_class=NumpyRefBackend):
     """Compare two independently depleting species through complete propagation."""
     fill = Mixture.fill({"Ar": 0.3, "He": 0.7}, 1.0)
-    mode = MarcatiliMode(125e-6, mixture=fill, cladding=1.45, loss=False)
+    mode = MarcatiliMode(125e-6, mixture=fill, cladding=1.45, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-3)
     rates = {
         species: InstantaneousPolynomial(

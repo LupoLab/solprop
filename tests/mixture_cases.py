@@ -116,7 +116,7 @@ def mixture_translation(
     grid = FieldGrid.from_limits(
         1e-3, 800e-9, (400e-9, 2e-6), 100e-15, ffac=4.0, **LEGACY_GRID
     )
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     responses = []
     for index, component in enumerate(components):
         if kerr:
@@ -158,7 +158,7 @@ def construct(mixture, responses, grid, original, original_request):
     The launch, controller and steps are :func:`mixture_translation`'s (`original` and
     `original_request`); returns the mode, the problem and its run's request.
     """
-    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
+    mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss_scale=0.0)
     problem, run_request = assemble(
         grid,
         mode,

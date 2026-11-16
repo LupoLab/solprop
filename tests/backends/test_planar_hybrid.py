@@ -78,7 +78,7 @@ def modal_and_planar(family):
     """Translate one launch through the modal route and uniform in y on the planar."""
     grid, gas, energy, fwhm, plasma, raman, n_r, n_y, steps, scheme = FAMILIES[family]
     orders = ORDERS.get(family, (1, 3, 5))
-    modes = ModeCollection.slab(HALF_GAP, orders, gas, 1.0).modes
+    modes = ModeCollection.slab(HALF_GAP, gas, 1.0, orders=orders).modes
     simulation = Simulation.from_waveguide(
         list(modes),
         LENGTH,
@@ -539,7 +539,7 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
     """
     length = 0.5
     grid = EnvelopeGrid.from_limits(length, 800e-9, (760e-9, 845e-9), 4e-12)
-    mode = SlabMode(HALF_GAP, "Ar", 1.0, loss=False)
+    mode = SlabMode(HALF_GAP, "Ar", 1.0, loss_scale=0.0)
     k = float(grid.omega0 * np.real(mode.neff(np.array([grid.omega0]))[0]) / C)
     omega = math.sqrt(2 * 6.0 * k)
     space = PlanarGrid([mode], 2 * (2 * math.pi / omega), 16, collar_fraction=0.0)

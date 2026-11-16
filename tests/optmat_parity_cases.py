@@ -337,7 +337,7 @@ def _bundle_vector() -> Case:
         thg=True,
         tensor=True,
     )
-    mode = MarcatiliMode(10e-6, cladding=1.45, loss=False)
+    mode = MarcatiliMode(10e-6, cladding=1.45, loss_scale=0.0)
     modes = [mode, mode.rotated(math.pi / 2)]
     launch = _vector_launch(grid, 2e-9)
 

@@ -20,6 +20,7 @@ from record_numbers import (
     assert_record_numbers,
     record_skeleton,
     skeleton_hash,
+    with_former_names,
     without_sep21_absorber,
 )
 from solprop import _display, tools
@@ -594,10 +595,10 @@ def test_ipython_is_shown_the_block_and_a_cycle_the_repr(examples, name):
 
 def test_the_reprs_that_existed_keep_their_text(examples):
     assert repr(examples["MarcatiliMode"]) == (
-        "MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)"
+        "MarcatiliMode(HE11, a=125 um, He, model=full, loss=model)"
     )
     assert repr(examples["VincettiMode"]) == (
-        "VincettiMode(HE11, a=15 um, t=180 nm, r_ext=9 um, N=6, Ar 1 bar, loss=True)"
+        "VincettiMode(HE11, a=15 um, t=180 nm, r_ext=9 um, N=6, Ar 1 bar, loss=model)"
     )
     assert repr(examples["IndexTable"]) == "IndexTable(64 rows, 400-2000 nm, loss=log)"
     assert repr(examples["TabulatedMode"]) == (
@@ -609,7 +610,7 @@ def test_the_reprs_that_existed_keep_their_text(examples):
         "IndexTable(64 rows, 400-2000 nm, loss=log))"
     )
     assert repr(MarcatiliMode(50e-6)) == (
-        "MarcatiliMode(HE11, a=50 um, evacuated, model=full, loss=True)"
+        "MarcatiliMode(HE11, a=50 um, evacuated, model=full, loss=model)"
     )
 
 
@@ -655,8 +656,8 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     # the transverse quadrature, the norm's region in the controller, the
     # interaction formulation's name in an Adams method's representation, the
     # held-current identity, whose record and hash
-    # separation have their own held-source contract test, and the absorber's spatial
-    # flag (SEP 21).
+    # separation have their own held-source contract test, the absorber's spatial
+    # flag (SEP 21), and the names later renames changed (with_former_names).
     # Every built-in material is optmat's since SEP 3, so the manifest is never
     # empty here.
     #
@@ -695,7 +696,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
         )
     hashed["stepper"] = stepper
     skeleton, values, floor = record_skeleton(
-        without_optmat_release(without_sep21_absorber(hashed))
+        with_former_names(without_optmat_release(without_sep21_absorber(hashed)))
     )
     assert skeleton_hash(skeleton) == RUN_RECORD_SKELETON
     assert_record_numbers(
@@ -717,7 +718,7 @@ def test_a_mode_built_over_a_mixture_names_its_fill():
     # The run interfaces build every capillary mode over a mixture, and such a mode
     # must not print as evacuated.
     mode = MarcatiliMode(125e-6, mixture=Mixture.air(1.0, argon=False))
-    assert repr(mode) == "MarcatiliMode(HE11, a=125 um, N2+O2, model=full, loss=True)"
+    assert repr(mode) == "MarcatiliMode(HE11, a=125 um, N2+O2, model=full, loss=model)"
     assert "N2+O2 1 bar" in str(mode)
     assert "evacuated" in str(MarcatiliMode(50e-6))
     apart = MarcatiliMode(125e-6, mixture=Mixture.of(*Mixture.air(1.0).components))
@@ -807,14 +808,14 @@ def test_a_mode_in_a_message_stays_on_one_line(caplog):
         mode.at_parameters({"pressure": 1.0})
     assert "\n" not in str(refusal.value)
     assert repr(mode) in str(refusal.value)
-    curve = replace(mode, loss=lambda omega: np.full_like(omega, 2.0))
+    curve = replace(mode, alpha=lambda omega: np.full_like(omega, 2.0))
     with caplog.at_level("WARNING", logger="solprop"):
         curve.neff(np.array([2.4e15]))
     (record,) = [r for r in caplog.records if "derivative" in r.getMessage()]
     assert "\n" not in record.getMessage()
     assert repr(curve) in record.getMessage()
     assert "loss:" in str(curve)
-    assert "callable" in str(curve)
+    assert "alpha(omega)" in str(curve)
 
 
 def test_a_mode_without_a_parity_prints_without_one():
@@ -824,9 +825,11 @@ def test_a_mode_without_a_parity_prints_without_one():
     assert repr(mode).startswith("StepIndexMode(TE01, a=2 um")
 
 
-def test_a_loss_factor_of_zero_prints_as_the_number_it_is():
-    assert "loss=0.0" in repr(MarcatiliMode(125e-6, "He", 1.0, loss=0.0))
-    assert "loss=False" in repr(MarcatiliMode(125e-6, "He", 1.0, loss=False))
+def test_a_loss_declaration_prints_as_what_it_does():
+    assert "loss=model)" in repr(MarcatiliMode(125e-6, "He", 1.0))
+    assert "loss=none)" in repr(MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.0))
+    assert "loss=model x 0.5)" in repr(MarcatiliMode(125e-6, "He", 1.0, loss_scale=0.5))
+    assert "loss=alpha 2 1/m)" in repr(MarcatiliMode(125e-6, "He", 1.0, alpha=2.0))
 
 
 def test_a_scan_file_is_described_and_a_missing_one_is_not_an_error(tmp_path):

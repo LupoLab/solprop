@@ -32,7 +32,7 @@ from jaxtyping import Complex, Float, Inexact
 from solprop._display import engineering, line
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, ModeError
-from solprop.modes.fill import GasFillMixin, LossSpec, _sqrt1p_minus_one
+from solprop.modes.fill import GasFillMixin, LossFunction, _sqrt1p_minus_one
 from solprop.modes.protocol import (
     ChannelLabel,
     CrossSection,
@@ -400,8 +400,8 @@ class _WallPairFill(GasFillMixin):
         Returns
         -------
         numpy.ndarray
-            Complex index derivative in s/rad, shape ``(n_omega,)``; only a
-            slope-free loss callable uses the shared numerical loss derivative.
+            Complex index derivative in s/rad, shape ``(n_omega,)``; only an
+            `alpha` callable without a slope uses the shared numerical derivative.
         """
         return self._values(omega, z)[1]
 
@@ -416,29 +416,35 @@ class RectMode(_WallPairFill):
         Positive half-widths a and b in m. A shared path object gives a uniform
         scale taper; independently varying paths are not scale invariant.
     gas : Gas or str or None
-        Legacy gas declaration; None means vacuum unless a mixture is supplied.
+        The fill gas; None means vacuum unless a mixture is supplied.
     pressure : float or ZProfile
-        Legacy gas pressure in bar, non-negative.
+        Absolute fill pressure in **bar**, non-negative, or a path of it along z.
     n, m : int
         Positive mode indices along y and x respectively.
     polarisation : {'x', 'y'}
         Nonzero transverse electric-field component. Its partner is a distinct
         mode with a different index unless the geometry makes them degenerate.
-    loss : bool or float or callable
-        Shared hollow-mode policy: model loss, no loss, a non-negative model scale,
-        or an absolute power attenuation in 1/m.
+    alpha : float or callable or None
+        An absolute power attenuation coefficient in 1/m that replaces the model's
+        loss, a number or a callable ``alpha(omega)``, as on
+        :class:`~solprop.modes.capillary.MarcatiliMode`; ``None`` (the default)
+        keeps the model's loss.
+    loss_scale : float
+        Multiplies the model's own loss: ``1.0`` (the default) is the model, ``0.0``
+        lossless. Finite and non-negative; refused beside an ``alpha``.
     cladding : GlassIndex or complex or None
         Wall index, positive imaginary part for absorption. None selects fused silica.
     temperature : float, ZProfile or None
-        Positive legacy fill temperature in K, or a path of it along z in m, which
+        Positive fill temperature in K, or a path of it along z in m, which
         the density follows. ``None`` (the default) is 293.15 K for a gas and the
         mixture's own beside a mixture; a different one beside it is refused.
     susceptibility : GasSusceptibility or None
-        Explicit legacy gas susceptibility; ``None`` takes the built-in gas's.
+        Explicit gas susceptibility; ``None`` takes the built-in gas's.
     mixture : Mixture or None
-        Ordered material populations; excludes competing legacy fill arguments.
+        Ordered material populations; excludes gas, pressure and susceptibility.
     width_x, width_y : ZProfile
-        Resolved geometry paths in m.
+        Resolved half-width paths a(z) and b(z) in m: despite the names, half the
+        full widths, as `half_width_x` and `half_width_y` declare them.
     density : ZProfile
         Total number-density path in m^-3.
     cladding_index : GlassIndex or complex
@@ -470,7 +476,8 @@ class RectMode(_WallPairFill):
     n: int = 1
     m: int = 1
     polarisation: Literal["x", "y"] = "x"
-    loss: LossSpec = True
+    alpha: float | LossFunction | None = None
+    loss_scale: float = 1.0
     cladding: GlassIndex | complex | None = None
     temperature: float | ZProfile | None = None
     susceptibility: GasSusceptibility | None = None
@@ -692,7 +699,7 @@ class RectMode(_WallPairFill):
         Returns
         -------
         str
-            For example ``RectMode(x11, 200 um x 400 um, Ar 1 bar, loss=True)``.
+            For example ``RectMode(x11, 200 um x 400 um, Ar 1 bar, loss=model)``.
         """
         entrance = np.array([0.0])
         width = 2.0 * float(self.width_x(entrance)[0])
@@ -703,12 +710,7 @@ class RectMode(_WallPairFill):
                 ("", f"{self.polarisation}{self.n}{self.m}"),
                 ("", f"{engineering(width, 'm')} x {engineering(height, 'm')}"),
                 ("", self._fill_text()),
-                (
-                    "loss",
-                    self.loss
-                    if isinstance(self.loss, (bool, int, float))
-                    else "callable",
-                ),
+                ("loss", self._loss_text()),
             ],
         )
 

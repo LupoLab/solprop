@@ -68,7 +68,7 @@ def host_case(
 ) -> tuple[PropagationProblem, RunRequest, EnvelopeGrid]:
     """Return the original's case: argon, two components, 10 % preionised."""
     grid = EnvelopeGrid.from_limits(0.001, 800e-9, (500e-9, 1.2e-6), 80e-15)
-    mode = MarcatiliMode(radius, "Ar", 1.0, loss=False)
+    mode = MarcatiliMode(radius, "Ar", 1.0, loss_scale=0.0)
     pulse = GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-5).build(grid)
     field = pulse * np.array([1.0, 0.35j])[None, :, None] / np.sqrt(1 + 0.35**2)
     with warnings.catch_warnings():

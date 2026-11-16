@@ -106,7 +106,7 @@ def _averaged(scale: float) -> Simulation:
         wavelength=1030e-9,
         fwhm=40e-15,
         energy=3e-6,
-        loss=False,
+        loss_scale=0.0,
         plasma=False,
         modes=1,
         mode_average=True,

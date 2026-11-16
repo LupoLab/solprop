@@ -227,7 +227,8 @@ second entry point; the [GNLSE page](../waveguides/gnlse.md) has the model under
 dispersion, declared with the area".
 
 The fibre carries its loss, so any explicit `loss_db_per_m` beside it,
-including zero, is refused. Scale or replace loss on the supplied mode.
+including zero, is refused. Scale the loss (`loss_scale`) or replace it (`alpha`) on
+the supplied mode.
 Tables must cover every active-band frequency, including collars, and any
 derivative probes; extrapolation is refused. The
 [tabulated-mode guide](../waveguides/tabulated-modes.md#modes-from-tabulated-data) explains the area,
@@ -319,8 +320,8 @@ refused for a set of HE₁ₘ modes: `|J₀(u r/a)|` does not depend on the angl
 azimuthal node would be a copy of the same integrand.
 
 A **supplied** mode set is the run's geometry: the positional radius must agree with its
-modes' core radius along the run, and a `model`, `loss` or `cladding` declared away from
-its default must be theirs, or the call is refused by name. It may contain
+modes' core radius along the run, and a `model`, `alpha`, `loss_scale` or `cladding`
+declared away from its default must be theirs, or the call is refused by name. It may contain
 `TabulatedHollowMode` (an evacuated table plus the declared gas) or `TabulatedMode` (one
 filled table's whole index); the driver keeps their type and table while binding the
 declared mixture. Hollow tables support pressure gradients; filled tables require
@@ -347,8 +348,8 @@ $\mathrm{HE}_{1m}$ channel to every other with a definite phase and so converts 
 between them. On a taper or a pressure gradient it also carries the connection the moving
 basis costs. `CoherentWall(impedance="te_tm")` condenses the wall's two impedances
 instead of their average, coupling the two radial families of one azimuthal order, on a
-straight bore or a taper alike. The block is the run's loss model, so `loss=` must stay
-`True`; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
+straight bore or a taper alike. The block is the run's loss model, so `alpha` and
+`loss_scale` must keep their defaults; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
 model is refused beside it. It runs on `numpy_ref` and the native

@@ -193,7 +193,7 @@ def population_taper() -> Built:
         Linear(30e-6, 27e-6, grid.length),
         mixture=mixture,
         cladding=1.45,
-        loss=False,
+        loss_scale=0.0,
     )
     problem, run_request = assemble(
         grid,

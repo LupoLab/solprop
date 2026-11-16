@@ -1515,11 +1515,12 @@ def test_a_set_that_is_not_one_azimuthal_order_is_refused_by_name(modes, message
 
 
 def test_a_vector_block_refuses_what_it_would_otherwise_override():
-    """`loss=`, `model=`, a mixed guide, a mixed angle and a lattice, each by name."""
+    """`loss_scale=`, `alpha=`, `model=`, a mixed guide, a mixed angle, a lattice."""
     omega = np.array([2.356e15])
     for overridden, message in (
-        (vector_block((1, 1), loss=False), "is the loss model"),
-        (vector_block((1, 1), loss=0.5), "is the loss model"),
+        (vector_block((1, 1), loss_scale=0.0), "is the loss model"),
+        (vector_block((1, 1), loss_scale=0.5), "is the loss model"),
+        (vector_block((1, 1), alpha=1.0), "is the loss model"),
         (vector_block((1, 1), model="reduced"), "one capillary model"),
     ):
         with pytest.raises(ModeError, match=message):

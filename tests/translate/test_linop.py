@@ -144,7 +144,9 @@ def test_the_constant_propagator_is_exactly_the_exponential_of_d_times_h(pair):
 
 def test_a_z_constant_mode_takes_the_constant_path():
     grid = EnvelopeGrid.from_limits(1.0, 1030e-9, (700e-9, 2e-6), 2e-12)
-    mode = SpecifiedMode.from_taylor([0.0, 0.0, 2e-26], omega_ref=grid.omega0, loss=0.3)
+    mode = SpecifiedMode.from_taylor(
+        [0.0, 0.0, 2e-26], omega_ref=grid.omega0, alpha=0.3
+    )
     frame = Frame.comoving(grid)
     table = build_phi(mode, grid, frame, z_max=1.0)
     assert table.phi_representation == "constant"

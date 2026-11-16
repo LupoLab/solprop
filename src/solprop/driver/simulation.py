@@ -172,12 +172,12 @@ from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
     CoherentWall,
     GlassIndex,
-    LossSpec,
     MarcatiliMode,
     MarcatiliModel,
     taper_coupling_block,
     worst_wall_limits,
 )
+from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import JsonValue
 from solprop.modes.protocol import Mode, ParameterisedMode
@@ -2813,7 +2813,8 @@ class Simulation(Displayed):
         wall: CoherentWall | None = None,
         taper_coupling: bool = True,
         model: MarcatiliModel = "full",
-        loss: LossSpec = True,
+        alpha: float | LossFunction | None = None,
+        loss_scale: float = 1.0,
         cladding: GlassIndex | complex | None = None,
         susceptibility: GasSusceptibility | None = None,
         temperature: float | ZProfile | None = None,
@@ -2964,9 +2965,9 @@ class Simulation(Displayed):
             for orthonormality. Supplied sets may include TabulatedHollowMode or
             TabulatedMode with their own tables. A supplied set **carries its own
             geometry**: `radius` must agree with every mode's core radius along the run,
-            and a `model`, `loss` or `cladding` declared away from its default must be
-            every mode's own, or the call is refused by name rather than the argument
-            ignored.
+            and a `model`, `alpha`, `loss_scale` or `cladding` declared away from its
+            default must be every mode's own, or the call is refused by name rather
+            than the argument ignored.
         mode_average : bool, optional
             Propagate the one mode **mode-averaged**, as a uniform disc of its effective
             area, instead of resolving it on the transverse rule, as Luna.jl's default
@@ -3004,9 +3005,16 @@ class Simulation(Displayed):
         model : {'full', 'reduced'}, optional
             Which Marcatili model the modes use; beside a supplied set, refused unless
             it is the default or the modes' own.
-        loss : bool, float or callable, optional
-            Propagation loss of the modes; beside a supplied set, refused unless it
-            is the default or the modes' own.
+        alpha : float, callable or None, optional
+            An absolute power attenuation coefficient in 1/m replacing the modes'
+            own loss: a number, or a callable ``alpha(omega)``
+            (:class:`~solprop.modes.capillary.MarcatiliMode`). ``None``, the default,
+            keeps the model's loss. Refused beside a `loss_scale` other than 1 and
+            beside `wall`; beside a supplied set, refused unless it is the modes' own.
+        loss_scale : float, optional
+            Factor on the modes' own loss: ``1.0``, the default, is the model and
+            ``0.0`` lossless. Refused away from 1 beside `wall`; beside a supplied
+            set, refused unless it is the default or the modes' own.
         cladding : GlassIndex, complex or None, optional
             Cladding index; ``None`` is the package's cited silica. Beside a
             supplied set, refused unless it is the default or the modes' own.

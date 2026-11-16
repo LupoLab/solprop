@@ -22,7 +22,7 @@ b' = \bigl(iB(z) - C(z)\bigr)\,b,
 
 the walled generator with the wall term $H$ zero, except that $B$ is each channel's
 **own** propagation constant $\beta_n = n_{\rm eff}\,\omega/c$ — the Marcatili index of
-whatever `model=` and `loss=` the modes declare, lossless or not — rather than the wall
+whatever `model=`, `alpha=` and `loss_scale=` the modes declare, lossless or not — rather than the wall
 block's paraxial condensation of it, so that with $C$ dropped the flow propagates
 exactly what the adiabatic route propagates. The assembly is the varying wall's: the
 cumulative $\Phi$ carries the lowest channel for every channel, the flow's diagonal the
