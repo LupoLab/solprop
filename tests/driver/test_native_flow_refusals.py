@@ -25,7 +25,7 @@ from flow_parity import (
     ten_step_bound,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import _coupled_flow_maps
+from solprop.backends.numpy_ref.coupled_flow import held_flow
 from solprop.exceptions import BackendError, TranslationError
 from solprop.translate.coupled import constant_schur_flow, orthonormal_metric
 
@@ -129,7 +129,7 @@ def test_a_constant_flow_s_factors_are_the_reference_s(cases, name):
     try:
         flow = backend._flow
         assert flow is not None
-        reference = _coupled_flow_maps(problem)
+        reference = held_flow(problem)
         assert reference is not None
         for field in ("vectors", "triangular", "frozen", "condition_bound"):
             assert np.array_equal(getattr(flow, field), getattr(reference, field)), (
@@ -159,7 +159,7 @@ def test_a_varying_flow_s_factors_are_the_reference_s_to_their_rounding(cases, n
     try:
         flow = backend._flow
         assert flow is not None
-        reference = _coupled_flow_maps(problem)
+        reference = held_flow(problem)
         assert reference is not None
         tables = problem.linear.coupled_flow
         active = flow.active

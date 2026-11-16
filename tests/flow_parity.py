@@ -109,12 +109,12 @@ from modal_provider_cases import (
 )
 from sessions.runs import bare, final_field
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.workspace import (
+from solprop.backends.numpy_ref.coupled_flow import (
     _TAYLOR_ORDER,
     _TAYLOR_SCALE,
-    _coupled_flow_maps,
-    _general_maps,
+    held_flow,
 )
+from solprop.backends.numpy_ref.workspace import _general_maps
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
 from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
@@ -541,7 +541,7 @@ def formation_bound(problem: PropagationProblem, run_request, dz: float) -> floa
     Every section, active bin, distinct stage fraction and direction
     (:func:`section_formation_bounds`, with the declared certificate's largest row).
     """
-    held = _coupled_flow_maps(problem)
+    held = held_flow(problem)
     assert held is not None
     certificate = float(np.max(held.condition_bound))
     fractions = {float(node) for node in run_request.stepper.tableau.nodes} | {1.0}
@@ -568,7 +568,7 @@ def adams_formation_bound(
     real part for the growth; `carrier` is a carrier frame's largest ``|sigma|`` per
     step, which the carry does not take.
     """
-    held = _coupled_flow_maps(problem)
+    held = held_flow(problem)
     assert held is not None
     schedule = run_request.stepper.schedule
     assert schedule is not None

@@ -756,6 +756,7 @@ MODULES = {
             (
                 "backend",
                 "workspace",
+                "coupled_flow",
                 "engines",
                 "dense",
                 "multistep",
