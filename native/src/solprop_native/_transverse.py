@@ -2,39 +2,32 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native session's transverse edge, as solprop configures and reads it.
+"""The native transverse edge's launch readings, record and verdicts, for solprop.
 
 solprop SEP 47 section 6.4 and the maintainer's decision 4 at its acceptance: the
 native session owns a free-space run's transverse edge (SEP 40 section 5.3) with every
 decision and record (``transverse::Edge``,
-``native/include/solprop_native/transverse.hpp``). This module only translates: it
-forms the edge's configuration from solprop's
-:class:`~solprop.transverse_monitor.TransverseEdge` and the problem, reads an earlier
-execution's ``transverse`` record into what a resume restores, formats the native
-record as :meth:`~solprop.transverse_monitor.TransverseEdge.summary` lays it out, and
-formats a native verdict as the edge's warning or exception with the edge's own texts.
-It decides nothing.
+``native/include/solprop_native/transverse.hpp``). The edge's configuration and a
+resume's continuation are solprop's run records (:mod:`solprop.backends.records`, SEP
+52), which :mod:`solprop_native._records` converts. This module only translates the
+rest: it forms the input noise's readings a launch carries, formats the native record
+as :meth:`~solprop.transverse_monitor.TransverseEdge.summary` lays it out, and formats
+a native verdict as the edge's warning or exception with the edge's own texts. It
+decides nothing.
 """
 
 from __future__ import annotations
 
-import enum
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
+from solprop.backends.records import STATUSES, EdgeNotice, EdgeNoticeKind
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
-from solprop.spatial_absorber import RAMP_K_FLOOR
-from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import (
     _UNWATCHED_MESSAGE,  # pyright: ignore[reportPrivateUsage] - the edge's texts
     _UNWATCHED_REASON,  # pyright: ignore[reportPrivateUsage]
-    BACKSTOP_READS,
-    NOISE_FACTOR,
-    REACH_GROWTH,
-    READS,
     _clip_message,  # pyright: ignore[reportPrivateUsage]
     _coarse_message,  # pyright: ignore[reportPrivateUsage]
     _face_message,  # pyright: ignore[reportPrivateUsage]
@@ -48,192 +41,18 @@ from solprop.transverse_monitor import (
     _stop_message,  # pyright: ignore[reportPrivateUsage]
 )
 
-from ._watch import _number  # pyright: ignore[reportPrivateUsage] - one reading
-
 if TYPE_CHECKING:
-    from solprop.translate.problem import PropagationProblem, StepperSettings
-    from solprop.transverse_monitor import TransverseEdge, TransverseStatus
+    from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
-    "STATUSES",
-    "EdgeConfig",
-    "EdgeNotice",
-    "NoticeKind",
-    "config_of",
-    "declared",
-    "edge_config",
+    "edge_notice_of",
     "log_declared",
     "log_finish",
     "noise_readings",
     "notice_error",
     "notice_warning",
     "record_of",
-    "resumption",
 ]
-
-STATUSES: tuple[TransverseStatus, ...] = (
-    "clear",
-    "warned",
-    "stopped",
-    "insensitive",
-    "coarse",
-    "unwatched",
-)
-"""The transverse statuses in the native order (``transverse::Status``)."""
-
-
-class NoticeKind(enum.IntEnum):
-    """A native edge notice's kind (``transverse::Notice::Kind``).
-
-    Attributes
-    ----------
-    NONE : int
-        No notice.
-    RAMP_BAND : int
-        The launch's share in the safety ramp's band.
-    UNWATCHED : int
-        The backend does not read the edge.
-    CLIP : int
-        A face's clip of the launch.
-    INSENSITIVE : int
-        The input noise's allowance exceeds the warning.
-    COARSE : int
-        A fixed schedule's longest step outruns the read spacing.
-    FACE : int
-        A face's judged share.
-    RETURNED : int
-        A requested collar's returned share.
-    RAMP_REMOVAL : int
-        The safety ramp's removal.
-    """
-
-    NONE = 0
-    RAMP_BAND = 1
-    UNWATCHED = 2
-    CLIP = 3
-    INSENSITIVE = 4
-    COARSE = 5
-    FACE = 6
-    RETURNED = 7
-    RAMP_REMOVAL = 8
-
-
-_NUMBERS = (
-    "launch_energy",
-    "noise_allowance",
-    "raw_ramp_removed",
-    "noise_ramp_removed",
-    "noise_share_in_ramp",
-    "declared_share_in_ramp",
-    "spatial_removed",
-    "current",
-    "current_baseline",
-    "strip_baseline",
-    "strip_floor",
-    "strip_max",
-    "returned_max",
-    "largest_gap",
-    "warned_at",
-)
-"""The numbers a resume reads from an earlier record (``transverse::Resumption``)."""
-
-
-@dataclass(frozen=True, eq=False)
-class EdgeConfig:
-    """The native edge's configuration (``transverse::Config``).
-
-    Attributes
-    ----------
-    values : collections.abc.Mapping
-        Each field, as ``_core`` reads it.
-    """
-
-    values: Mapping[str, object]
-
-    def native(self) -> dict[str, object]:
-        """Return the configuration as ``_core`` reads it."""
-        return dict(self.values)
-
-
-def declared(problem: PropagationProblem) -> bool:
-    """Return whether a run declares content above ``discard_above``.
-
-    - Returns: True when its transverse specification sets ``discard_above``.
-    """
-    design = transverse_of(problem.route)
-    return design is not None and design.specification.discard_above is not None
-
-
-def edge_config(
-    edge: TransverseEdge, problem: PropagationProblem, stepper: StepperSettings
-) -> EdgeConfig:
-    """Return the native edge's configuration for a run's fresh edge.
-
-    - ``stepper``: the run's stepper section: its fixed schedule, if any.
-    """
-    schedule = stepper.schedule
-    steps = None if schedule is None else np.asarray(schedule.steps)
-    return config_of(edge, steps=steps, declared=declared(problem))
-
-
-def config_of(
-    edge: TransverseEdge,
-    *,
-    steps: np.ndarray | None,
-    declared: bool,
-    reads: bool = True,
-) -> EdgeConfig:
-    """Return the native edge's configuration for an edge and its launch's arguments.
-
-    Every threshold is formed here as the edge forms it, so that the native edge
-    compares the same numbers: ``budget ** 2``, ``(stop_factor * budget) ** 2``, the
-    longest fixed step, and the input noise's share of the weights and count of modes.
-    """
-    design = edge.design
-    faces = edge._faces  # pyright: ignore[reportPrivateUsage]
-    weights = edge._weights  # pyright: ignore[reportPrivateUsage]
-    first = faces[0].edge
-    modes = max(int(np.count_nonzero(first)), 1) * max(int(edge.band.size), 1)
-    return EdgeConfig(
-        {
-            "faces": [face.name for face in faces],
-            "warn": edge.budget**2,
-            "stop": (edge.stop_factor * edge.budget) ** 2,
-            "length": float(edge.length),
-            "guard": float(edge._guard),  # pyright: ignore[reportPrivateUsage]
-            "k_min": float(edge.k_min),
-            "k_floor": float(RAMP_K_FLOOR),
-            "reads": float(READS),
-            "backstop_reads": float(BACKSTOP_READS),
-            "reach_growth": float(REACH_GROWTH),
-            "noise_factor": float(NOISE_FACTOR),
-            "columns": np.ascontiguousarray(
-                edge._columns,  # pyright: ignore[reportPrivateUsage]
-                dtype=np.float64,
-            ),
-            "kappa": np.ascontiguousarray(
-                edge._kappa,  # pyright: ignore[reportPrivateUsage]
-                dtype=np.float64,
-            ),
-            "kappa_order": np.ascontiguousarray(
-                edge._kappa_order,  # pyright: ignore[reportPrivateUsage]
-                dtype=np.uint64,
-            ),
-            "design": design is not None,
-            "ramp_rate": np.empty(0, dtype=np.float64)
-            if design is None
-            else np.ascontiguousarray(design.ramp_rate, dtype=np.float64),
-            "collar": design is not None and design.has_collar,
-            "collar_rate": design is not None and design.collar_rate is not None,
-            "declared": bool(declared),
-            "reads_edge": bool(reads),
-            "longest_step": float(np.max(steps))
-            if steps is not None and steps.size
-            else None,
-            "noise_share": float(np.sum(weights[first])) / float(np.sum(weights)),
-            "noise_modes": float(modes),
-        }
-    )
 
 
 def noise_readings(
@@ -275,58 +94,6 @@ def noise_readings(
         if clean is None
         else np.ascontiguousarray(clean, dtype=np.float64),
     }
-
-
-def resumption(record: object, faces: int) -> dict[str, object]:
-    """Return what the native resume reads of an earlier execution's edge record.
-
-    Only the record's types are read here, as :meth:`TransverseEdge.resume` reads
-    them: each number present, and, once the record's launch energy and baseline make
-    that resume read further, each per-face maximum that has a value per face and the
-    reads, made whole as it makes them and refused as it refuses them. Which fields are
-    restored, their defaults and the status a resume keeps are native.
-
-    - ``record``: the ``transverse`` entry of the earlier monitor record, or anything
-      else when there is none.
-    - Returns: the resumption, as ``_core`` reads it.
-    """
-    if not isinstance(record, Mapping):
-        return {"record": False}
-    mapping = cast("Mapping[str, object]", record)
-    out: dict[str, object] = {"record": True}
-    for name in _NUMBERS:
-        value = _number(mapping, name)
-        if value is not None:
-            out[name] = value
-    baseline = _per_face(mapping, "edge_baseline", faces)
-    launch = cast("float", out.get("launch_energy", math.nan))
-    if launch > 0.0 and baseline is not None:
-        # `TransverseEdge.resume` reads the maxima and the count only past its test
-        # of the launch and the baseline: a record it ignores is not read further.
-        out["edge_baseline"] = baseline
-        for name in ("edge_max", "edge_max_raw"):
-            value = _per_face(mapping, name, faces)
-            if value is not None:
-                out[name] = value
-        reads = _number(mapping, "reads")
-        out["reads"] = int(0.0 if reads is None else reads)
-    status = mapping.get("transverse_status")
-    if isinstance(status, str):
-        out["transverse_status"] = status
-    return out
-
-
-def _per_face(
-    record: Mapping[str, object], name: str, faces: int
-) -> list[float] | None:
-    """Return a record's per-face list, or ``None`` when it has no value per face.
-
-    As ``TransverseEdge.resume``'s ``numbers`` reads it.
-    """
-    value = record.get(name)
-    if not isinstance(value, list) or len(cast("list[object]", value)) != faces:
-        return None
-    return [float(cast("float", one)) for one in cast("list[object]", value)]
 
 
 def record_of(edge: TransverseEdge, native: Mapping[str, object]) -> dict[str, object]:
@@ -378,48 +145,17 @@ def record_of(edge: TransverseEdge, native: Mapping[str, object]) -> dict[str, o
     }
 
 
-@dataclass(frozen=True)
-class EdgeNotice:
-    """A native edge's verdict (``transverse::Notice``): a warning or a stop.
-
-    Attributes
-    ----------
-    kind : NoticeKind
-        What it is.
-    stop : bool
-        Whether it stops the run.
-    face : int
-        The face it names, by index.
-    value : float
-        The share, allowance or step it names.
-    z : float
-        Where, m.
-    spacing : float
-        A coarse schedule's read spacing, m.
-    warned_at : float
-        Where the edge first warned, for a face's stop, m; NaN where it did not.
-    """
-
-    kind: NoticeKind
-    stop: bool
-    face: int
-    value: float
-    z: float
-    spacing: float
-    warned_at: float
-
-    @classmethod
-    def of(cls, native: Mapping[str, object]) -> EdgeNotice:
-        """Return the notice ``_core`` reports."""
-        return cls(
-            NoticeKind(int(cast("int", native["kind"]))),
-            bool(native["stop"]),
-            int(cast("int", native["face"])),
-            float(cast("float", native["value"])),
-            float(cast("float", native["z"])),
-            float(cast("float", native["spacing"])),
-            float(cast("float", native["warned_at"])),
-        )
+def edge_notice_of(native: Mapping[str, object]) -> EdgeNotice:
+    """Return the edge notice ``_core`` reports (``SessionEvent.notice["edge"]``)."""
+    return EdgeNotice(
+        EdgeNoticeKind(int(cast("int", native["kind"]))),
+        bool(native["stop"]),
+        int(cast("int", native["face"])),
+        float(cast("float", native["value"])),
+        float(cast("float", native["z"])),
+        float(cast("float", native["spacing"])),
+        float(cast("float", native["warned_at"])),
+    )
 
 
 def _face(edge: TransverseEdge, notice: EdgeNotice) -> str:
@@ -430,22 +166,22 @@ def _face(edge: TransverseEdge, notice: EdgeNotice) -> str:
 def notice_warning(edge: TransverseEdge, notice: EdgeNotice) -> BoundaryWarning:
     """Return a native edge's warning, as the edge issues it."""
     kind = notice.kind
-    if notice.stop or kind is NoticeKind.NONE:
+    if notice.stop or kind is EdgeNoticeKind.NONE:
         msg = f"the native transverse edge warned with a {kind.name.lower()} notice"
         raise BackendError(msg)
-    if kind is NoticeKind.RAMP_BAND:
+    if kind is EdgeNoticeKind.RAMP_BAND:
         text = _ramp_band_message(notice.value, stop=False)
-    elif kind is NoticeKind.UNWATCHED:
+    elif kind is EdgeNoticeKind.UNWATCHED:
         text = _UNWATCHED_MESSAGE
-    elif kind is NoticeKind.CLIP:
+    elif kind is EdgeNoticeKind.CLIP:
         text = _clip_message(notice.value, _face(edge, notice))
-    elif kind is NoticeKind.INSENSITIVE:
+    elif kind is EdgeNoticeKind.INSENSITIVE:
         text = _insensitive_message(notice.value)
-    elif kind is NoticeKind.COARSE:
+    elif kind is EdgeNoticeKind.COARSE:
         text = _coarse_message(notice.value, notice.spacing)
-    elif kind is NoticeKind.FACE:
+    elif kind is EdgeNoticeKind.FACE:
         text = _face_message(_face(edge, notice), notice.z, notice.value)
-    elif kind is NoticeKind.RETURNED:
+    elif kind is EdgeNoticeKind.RETURNED:
         text = _return_message(notice.value, notice.z, None)
     else:
         text = _ramp_removal_message(notice.value, None)
@@ -460,9 +196,9 @@ def notice_error(edge: TransverseEdge, notice: EdgeNotice) -> BaseException:
         return BackendError(
             f"the native transverse edge stopped on a {kind.name.lower()} warning"
         )
-    if kind is NoticeKind.RAMP_BAND:
+    if kind is EdgeNoticeKind.RAMP_BAND:
         return BoundaryError(_ramp_band_message(notice.value, stop=True))
-    if kind is NoticeKind.FACE:
+    if kind is EdgeNoticeKind.FACE:
         return BoundaryError(
             _stop_message(
                 edge.space,
@@ -474,9 +210,9 @@ def notice_error(edge: TransverseEdge, notice: EdgeNotice) -> BaseException:
                 warned_at=notice.warned_at,
             )
         )
-    if kind is NoticeKind.RETURNED:
+    if kind is EdgeNoticeKind.RETURNED:
         return BoundaryError(_return_message(notice.value, notice.z, stop))
-    if kind is NoticeKind.RAMP_REMOVAL:
+    if kind is EdgeNoticeKind.RAMP_REMOVAL:
         return BoundaryError(_ramp_removal_message(notice.value, stop))
     return BackendError(
         f"the native transverse edge stopped on a {kind.name.lower()} notice"

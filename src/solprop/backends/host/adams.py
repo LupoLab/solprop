@@ -34,10 +34,11 @@ from solprop.backends.numpy_ref.multistep import (
     ExponentialKernels,
     HostHistory,
 )
+from solprop.backends.records import adams_policy
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
-from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
+from solprop.stepper.multistep import MarchPolicy, Multistep
 from solprop.stepper.schedule import FixedSchedule, landing
 
 __all__ = ["HostAdamsMarch"]
@@ -107,35 +108,15 @@ class HostAdamsMarch:
         self._order = 1 if method.variable_order else method.order
         self._ahead: tuple[float, object] | None = None
         self.ledger = CallLedger()
-        # An in-stage temporal collar adds -alpha(t) / 2 to the derivative: in the
-        # exponential formulation, whose linear flow is exact, it is the one stiff term
-        # the explicit history integrates, and its largest rate bounds each order's
-        # stable step, which the order choice weighs (`_choose_order`).
-        responses = backend._problem.responses
-        collar = responses.temporal_absorber
-        collar_rate = (
-            0.5 * float(np.max(collar))
-            if collar is not None
-            and responses.absorber_scheme == "nonlinear"
-            and method.formulation == "exponential"
-            else 0.0
-        )
         # Every number the controller and the landings read, from one record (SEP 39
-        # section 4.2); the decisions are `adams_core`'s functions of it.
-        settings = backend._stepper
-        linear = backend._problem.linear
+        # section 4.2); the decisions are `adams_core`'s functions of it. An in-stage
+        # temporal collar's largest rate, the one stiff term the exponential history
+        # integrates, bounds each order's stable step there (`_choose_order`).
         carrier = self._engine.carrier
-        self._policy: MarchPolicy = march_policy(
+        self._policy: MarchPolicy = adams_policy(
+            backend._problem,
+            backend._stepper,
             method,
-            dz_min=settings.dz_min,
-            dz_max=settings.dz_max,
-            stretch=settings.stretch,
-            z_end=settings.z_end,
-            save_planes=np.asarray(settings.save_planes, dtype=np.float64).tolist(),
-            hard_kinks=np.asarray(linear.hard_kinks, dtype=np.float64).tolist(),
-            breakpoints=np.asarray(linear.phi_breakpoints, dtype=np.float64).tolist(),
-            interpolate=self._interpolate,
-            collar_rate=collar_rate,
             carrier=isinstance(carrier, CarrierReference) and carrier.active,
         )
         # Whether the stages left a quiet collar out at the last attempt: the step

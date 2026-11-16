@@ -48,7 +48,8 @@ following and refuses every other feature by name before allocating anything
   each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
   and a stop a terminal failure, the edge's readings and a collar's current are taken
   from the resident state with no return to Python, and a monitored resume continues
-  both records natively (:mod:`solprop_native._transverse`);
+  both records natively from solprop's run records
+  (:mod:`solprop.backends.records`, converted by :mod:`solprop_native._records`);
 - dense output (``interpolate_planes``), for Adams and the embedded Runge-Kutta
   tableau alike: a plane the march steps across is interpolated natively inside the
   step that crossed it, the committed state held aside, and observed in order before
@@ -99,6 +100,13 @@ from solprop.backends.export import destination_refusal
 from solprop.backends.ledger import CallLedger, budget_error
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
+from solprop.backends.records import (
+    NoticeKind,
+    RungeKuttaPolicy,
+    monitor_continuation,
+    run_records,
+    runge_kutta_policy,
+)
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
@@ -128,15 +136,14 @@ from solprop.output.capability import (
 )
 from solprop.output.records import MarchSnapshot
 from solprop.stats import weight_refusal_for
-from solprop.stepper.controller import START_GROWTH, ControlRecord
+from solprop.stepper.controller import ControlRecord
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.stepper.schedule import LANDING_ULPS
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import QUADRATURE_ALARM, warn_quadrature
 
-from . import _core, _counters, _transverse, _watch
+from . import _core, _counters, _records, _transverse, _watch
 from ._load import Loaded
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
@@ -152,12 +159,11 @@ from .backend import (
     _DIVERGED,  # pyright: ignore[reportPrivateUsage]
     _ERROR,  # pyright: ignore[reportPrivateUsage]
     _FLOOR,  # pyright: ignore[reportPrivateUsage]
-    _NO_SCHEDULE,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
-    _low_storage_flows,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
     _raise_native,  # pyright: ignore[reportPrivateUsage]
+    _resident_flows,  # pyright: ignore[reportPrivateUsage]
 )
 
 _LOG = logging.getLogger(__name__)
@@ -169,6 +175,7 @@ if TYPE_CHECKING:
 
     from solprop.backends.events import Event
     from solprop.backends.export import ExportRecipe
+    from solprop.backends.records import RunRecords
     from solprop.backends.session import RunSession, Start
     from solprop.grid import TimeGrid
     from solprop.log import StopFlag
@@ -176,6 +183,8 @@ if TYPE_CHECKING:
     from solprop.monitor import BoundaryMonitor
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
+    from solprop.stepper.multistep import MarchPolicy
+    from solprop.stepper.schedule import FixedSchedule
     from solprop.translate.problem import PropagationProblem, StepperSettings
     from solprop.translate.run_request import RunRequest
 
@@ -187,19 +196,6 @@ __all__ = [
     "NativeSession",
     "refusal",
 ]
-
-CALL_ATTEMPTS = 256
-"""A march call's most attempts, as the driver's native marches bound them (SEP 39)."""
-
-CALL_SECONDS = 0.1
-"""A march call's most wall time, s."""
-
-ATTEMPT_CAPACITY = 4096
-"""The most attempts the native session holds between two events; a full buffer yields
-a progress event carrying them (SEP 47 section 5.3)."""
-
-ROW_CAPACITY = 1024
-"""The most periodic rows it holds between two events, likewise."""
 
 _SESSION_IDS = itertools.count(1)
 _KINDS = (
@@ -417,6 +413,10 @@ class NativeSession:
         if refused is not None:
             msg = f"the native session does not run {refused}"
             raise BackendError(msg)
+        if request.boundary.monitor is not None:
+            _refuse_foreign_monitor(
+                NativeBackend.name, problem, request.boundary.monitor
+            )
         owned = backend is None
         if backend is not None:
             adopted = self._driver(backend)
@@ -439,10 +439,16 @@ class NativeSession:
         # The stepping policy as one record (`RunRequest.stepper`).
         self._stepper = request.stepper
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
+        # Every record the run reads, formed once (SEP 52 section 5.1): the method's
+        # policy, the low-storage settings, the schedule, the plane plan and the
+        # monitor's configuration and continuation.
+        self._records: RunRecords = run_records(problem, request, start)
         self._finish_logged = False
         # A declared launch's share in the ramp's band is logged once it is launched.
-        edge = None if self._monitor is None else self._monitor.transverse
-        self._declared_logged = edge is None or not _transverse.declared(problem)
+        held = self._records.monitor
+        self._declared_logged = (
+            held is None or held.edge is None or not held.edge.declared
+        )
         self._sequence = 0
         self._id = next(_SESSION_IDS)
         self._listener = listener
@@ -486,12 +492,7 @@ class NativeSession:
         self._owns = owned or owns
         # Every position a plane statistic is taken at, where the request fixes them
         # all: its start and its save planes, with no step or interpolated plane.
-        observation = request.observation
-        self._planes: tuple[float, ...] | None = (
-            None
-            if observation.dense or observation.step_planes
-            else (float(start.z), *(float(z) for z in observation.save_planes))
-        )
+        self._planes = self._records.planes.fixed_positions
         lowering = self._lower(union, grid, modes, profiles)
         self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
@@ -524,7 +525,7 @@ class NativeSession:
             # count, less what earlier runs on the backend made (SEP 19).
             self._axis_scans = int(backend._native_state.axis_scans)  # pyright: ignore[reportPrivateUsage]
             self._native = backend._native_state.start_session(  # pyright: ignore[reportPrivateUsage]
-                kind, state, self._plan(start), float(start.z)
+                kind, state, self._plan(), float(start.z)
             )
         except BaseException:
             if owned:
@@ -593,15 +594,20 @@ class NativeSession:
         )
         self._loaded = loaded
         self._march_refusal, proposal = driver._restore(start, loaded)
+        records = self._records
         if isinstance(integrator, Multistep):
             march = driver._adams
-            march._configure()  # pyright: ignore[reportPrivateUsage]
+            march._configure(  # pyright: ignore[reportPrivateUsage]
+                cast("MarchPolicy", records.policy), records.schedule
+            )
         else:
             # The Runge-Kutta march, and the low-storage replay, which is the native
             # Runge-Kutta march's over the stage tables the state reads each step's
             # scalars from (SEP 47 section 6.3).
             driver._staged_rows()
-            _NativeRungeKuttaMarch(backend)._configure()  # pyright: ignore[reportPrivateUsage]
+            _NativeRungeKuttaMarch(backend)._configure(  # pyright: ignore[reportPrivateUsage]
+                cast("RungeKuttaPolicy", records.policy), records.schedule
+            )
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):
             kind = "adams"
@@ -609,18 +615,15 @@ class NativeSession:
             kind = "low_storage"
             # The flows `_ResidentLowStorage` holds, and the operator's origin, from
             # which a constant operator's table is built.
-            flows = _low_storage_flows(
-                self._problem, self._stepper, device=_on_device()
-            )
-            assert flows is not None  # the march is the low-storage one
+            settings = records.low_storage
+            assert settings is not None  # the march is the low-storage one
             backend._native_state.low_storage_configure(  # pyright: ignore[reportPrivateUsage]
-                flows,
-                driver._terms.separable is not None,
-                float(self._problem.linear.z_span[0]),
+                _resident_flows(settings.flows, self._stepper, device=_on_device()),
+                settings.separable,
+                settings.origin,
             )
         monitor = self._monitor
         if monitor is not None:
-            _refuse_foreign_monitor(driver.name, self._problem, monitor)
             # The monitor's weights where the state lives, read at every check, and the
             # split collar's walk-off buckets; the monitor stays solprop's and fresh:
             # the session owns its state natively.
@@ -635,7 +638,7 @@ class NativeSession:
             ledger = adams.ledger
             self._calls = dataclasses.replace(ledger, orders=list(ledger.orders))
             self._method = adams._method
-            self._max_calls = adams._policy.max_calls
+            self._max_calls = cast("MarchPolicy", records.policy).max_calls
             # The history's persistent rows, sized while the state is not leased.
             self._rows_nbytes = int(adams._engine.snapshot_nbytes())
             state: dict[str, object] = adams.start_state(
@@ -649,10 +652,10 @@ class NativeSession:
                 "norms": norms,
                 "cursor": int(loaded.cursor),
             }
-        self._edge_noise = self._noise_readings(driver, start)
+        self._edge_noise = self._noise_readings(driver)
         return kind, state
 
-    def _noise_readings(self, driver: Any, start: Start) -> dict[str, object] | None:
+    def _noise_readings(self, driver: Any) -> dict[str, object] | None:
         """Return the input noise's readings the transverse edge's launch carries.
 
         The edge's launch takes the input draw and the launch's columns without it
@@ -661,7 +664,7 @@ class NativeSession:
         before the native session leases it. A launch that resumes an earlier edge's
         record is not judged, so it takes no such columns and no state is read for
         them: the native edge resumes exactly when the record's resumption holds a
-        launch baseline (:func:`solprop_native._transverse.resumption`).
+        launch baseline (:func:`solprop.backends.records.edge_resumption`).
 
         - Returns: the readings (:func:`solprop_native._transverse.noise_readings`), or
           ``None`` without an edge or input noise.
@@ -671,8 +674,10 @@ class NativeSession:
         drawn = self._loaded.floor
         if edge is None or drawn is None:
             return None
-        resumed = start.monitor is not None and "edge_baseline" in cast(
-            "dict[str, object]", self._continuation(start.monitor)["edge_record"]
+        held = self._records.monitor
+        continuation = None if held is None else held.continuation
+        resumed = (
+            continuation is not None and continuation.edge.edge_baseline is not None
         )
         clean = None if resumed else driver._launch_clean_columns(edge)
         return _transverse.noise_readings(edge, np.asarray(drawn[0]), clean)
@@ -689,31 +694,16 @@ class NativeSession:
         assert backend is not None
         return backend
 
-    def _plan(self, start: Start) -> dict[str, object]:
+    def _plan(self) -> dict[str, object]:
         """Return the observation request and itinerary for the native session."""
-        observation = self._request.observation
-        schedule = (
-            None if self._request.replay is None else self._request.replay.schedule
+        planes = self._records.planes
+        return _records.session_plan(
+            planes,
+            plane_statistics=self._plane_lowering.plan,
+            row_statistics=self._row_lowering.plan,
+            monitor=self._monitor_plan(),
+            dense=self._dense_plan() if planes.dense else None,
         )
-        rows = bool(self._row_names)
-        return {
-            "planes": np.ascontiguousarray(observation.save_planes, dtype=np.float64),
-            "next_plane": int(start.plane_index),
-            "launch_pending": bool(start.plane_pending),
-            "step_planes": int(observation.step_planes),
-            "plane_statistics": self._plane_lowering.plan,
-            "row_statistics": self._row_lowering.plan,
-            "period": int(self._spec.period) if rows else 0,
-            "attempt_capacity": ATTEMPT_CAPACITY,
-            "row_capacity": ROW_CAPACITY,
-            "replay": schedule is not None,
-            "replay_steps": 0 if schedule is None else int(schedule.n_steps),
-            "replay_length": 0.0 if schedule is None else float(schedule.total_length),
-            "call_attempts": CALL_ATTEMPTS,
-            "call_seconds": CALL_SECONDS,
-            "monitor": self._monitor_plan(start),
-            "dense": self._dense_plan() if observation.dense else None,
-        }
 
     def _dense_plan(self) -> dict[str, object]:
         """Return the dense output the native session interpolates planes with.
@@ -729,22 +719,18 @@ class NativeSession:
         assert weights is not None  # the translation refuses dense output without one
         return {"weights": np.ascontiguousarray(weights, dtype=np.float64)}
 
-    def _monitor_plan(self, start: Start) -> dict[str, object] | None:
+    def _monitor_plan(self) -> dict[str, object] | None:
         """Return the native monitor's configuration and any record it continues.
 
         - Returns: the monitor's plan, or ``None`` without a monitor.
         """
         monitor = self._monitor
-        if monitor is None:
+        held = self._records.monitor
+        if monitor is None or held is None:
             return None
-        backend = self._driver(self._backend)
         plan: dict[str, object] = {
-            "config": _watch.monitor_config(
-                monitor,
-                self._problem.split_crossing if monitor.split else None,
-                can_rest=bool(backend._collar_rests()),
-            ).native(),
-            "resume": start.monitor is not None,
+            "config": _records.monitor_config(held.config),
+            "resume": held.continuation is not None,
         }
         assert self._loaded is not None  # `_prepare` loaded the start
         drawn = self._loaded.floor
@@ -753,42 +739,12 @@ class NativeSession:
             # `BoundaryMonitor.launch` reads it.
             floor = float(monitor.power(drawn).sum())
             plan["floor"] = [floor, *(floor * monitor.weights.mean(axis=1)).tolist()]
-        if monitor.transverse is not None:
-            plan["edge"] = _transverse.edge_config(
-                monitor.transverse, self._problem, self._stepper
-            ).native()
+        if held.edge is not None:
+            plan["edge"] = _records.edge_config(held.edge)
             plan["edge_noise"] = self._edge_noise
-        if start.monitor is not None:
-            plan.update(self._continuation(start.monitor))
+        if held.continuation is not None:
+            plan.update(_records.continuation(held.continuation))
         return plan
-
-    def _continuation(self, continuation: Mapping[str, object]) -> dict[str, object]:
-        """Return a monitored resume's continuation as the native session reads it.
-
-        - Returns: the earlier record's resumption and its transverse edge's, whether
-          the run resumes at a saved plane, and the stretches run since without a
-          monitor.
-        """
-        record = continuation.get("record")
-        edge = None if self._monitor is None else self._monitor.transverse
-        faces = 0 if edge is None else len(edge._faces)  # pyright: ignore[reportPrivateUsage]
-        return {
-            "edge_record": _transverse.resumption(
-                cast("Mapping[str, object]", record).get("transverse")
-                if isinstance(record, Mapping)
-                else None,
-                faces,
-            ),
-            "record": _watch.resumption(
-                cast("Mapping[str, object]", record)
-                if isinstance(record, Mapping)
-                else None
-            ).native(),
-            "plane": bool(continuation.get("plane", False)),
-            "unwatched": _watch.unwatched_of(
-                cast("Sequence[tuple[float, float]]", continuation.get("unwatched", ()))
-            ),
-        }
 
     # -- protocol -------------------------------------------------------------------
 
@@ -1394,7 +1350,7 @@ class NativeSession:
         """
         if self._monitor is None:
             return
-        held = self._continuation(continuation)
+        held = _records.continuation(monitor_continuation(self._monitor, continuation))
         try:
             self._native.continue_monitor(
                 cast("dict[str, object]", held["record"]),
@@ -1615,7 +1571,8 @@ class NativeSession:
         if event.kind == _PROGRESS:
             # The native session's yield (`Session::advance`): a full chunk buffer
             # first, then the attempt bound, else the time bound.
-            if attempts >= ATTEMPT_CAPACITY or rows >= ROW_CAPACITY:
+            planes = self._records.planes
+            if attempts >= planes.attempt_capacity or rows >= planes.row_capacity:
                 name += ":buffer"
             elif attempts >= limit:
                 name += ":work_limit"
@@ -1711,8 +1668,8 @@ class NativeSession:
             # A boundary warning (SEP 47 section 5.5): the caller emits it, and its
             # filters may raise it; the committed field and the chunk are there for
             # that failure's checkpoint.
-            notice = _watch.Notice.of(event.notice)
-            if notice.kind is _watch.NoticeKind.REMOVAL:
+            notice = _watch.notice_of(event.notice)
+            if notice.kind is NoticeKind.REMOVAL:
                 self._log_finish()
             warning = self._warning(event.notice)
             return ServiceRequired(
@@ -1823,10 +1780,10 @@ class NativeSession:
         """
         monitor = self._monitor
         assert monitor is not None
-        notice = _watch.Notice.of(native)
-        if notice.kind is _watch.NoticeKind.TRANSVERSE:
+        notice = _watch.notice_of(native)
+        if notice.kind is NoticeKind.TRANSVERSE:
             assert monitor.transverse is not None
-            edge = _transverse.EdgeNotice.of(
+            edge = _transverse.edge_notice_of(
                 cast("Mapping[str, object]", native["edge"])
             )
             return _transverse.notice_warning(monitor.transverse, edge)
@@ -1874,14 +1831,14 @@ class NativeSession:
         """
         if outcome is Outcome.STOPPED:
             return StopRequested(self._stop)
-        notice = _watch.Notice.of(event.notice)
-        if notice.kind is _watch.NoticeKind.TRANSVERSE and self._monitor is not None:
+        notice = _watch.notice_of(event.notice)
+        if notice.kind is NoticeKind.TRANSVERSE and self._monitor is not None:
             assert self._monitor.transverse is not None
-            edge = _transverse.EdgeNotice.of(
+            edge = _transverse.edge_notice_of(
                 cast("Mapping[str, object]", event.notice["edge"])
             )
             return _transverse.notice_error(self._monitor.transverse, edge)
-        if notice.kind is not _watch.NoticeKind.NONE and self._monitor is not None:
+        if notice.kind is not NoticeKind.NONE and self._monitor is not None:
             return _watch.notice_error(self._monitor.check, notice)
         if event.schedule_exhausted:
             schedule = self._stepper.schedule
@@ -1944,7 +1901,8 @@ class _NativeRungeKuttaMarch:
     The adaptive loop -- the landing candidate, the trial on the staged rows, the
     equivalent norm and acceptance, the start-up rule, the next proposal or the
     rejection's, and the boundary checks -- runs natively in the session from one
-    policy record (the kernel contract's section 12), which this hands the native
+    policy record (the kernel contract's section 12,
+    :class:`~solprop.backends.records.RungeKuttaPolicy`), which this hands the native
     state once.
     """
 
@@ -1953,58 +1911,26 @@ class _NativeRungeKuttaMarch:
         self._driver: Any = backend
 
     def _policy(self, interval: float | None = None) -> dict[str, object]:
-        """Return the run's controller and landing record (kernel contract 12).
+        """Return the backend's controller and landing record (kernel contract 12).
 
         - ``interval``: a resting collar's quiet interval, m; ``None`` for a session,
           whose native monitor holds its own.
         """
         backend = self._driver
-        stepper = backend._stepper
-        controller = stepper.controller
-        breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
-        if not stepper.interval_cap:
-            breakpoints = breakpoints[[0, -1]]
-        return {
-            "dz_min": float(stepper.dz_min),
-            "dz_max": float(stepper.dz_max),
-            "stretch": float(stepper.stretch),
-            "z_end": float(stepper.z_end),
-            # Interpolated planes are stepped across (SEP 14 section 4.3).
-            "save_planes": []
-            if stepper.interpolate_planes
-            else [float(z) for z in stepper.save_planes],
-            "interpolate": bool(stepper.interpolate_planes),
-            "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
-            "breakpoints": [float(z) for z in breakpoints],
-            "landing_ulps": LANDING_ULPS,
-            "quiet_interval": interval,
-            "safety": float(controller.safety),
-            "beta1": float(controller.beta1),
-            "beta2": float(controller.beta2),
-            "min_factor": float(controller.min_factor),
-            "max_factor": float(controller.max_factor),
-            "lag": int(controller.lag),
-            "reject_free": bool(controller.reject_free),
-            "power": float(controller.estimator_order + 1),
-            "exponent": 1.0 / (controller.estimator_order + 1),
-            "start_growth": float(START_GROWTH),
-            "auto_init": bool(stepper.auto_init),
-        }
+        policy = runge_kutta_policy(backend._problem, backend._stepper)
+        return _records.rk_policy(dataclasses.replace(policy, quiet_interval=interval))
 
-    def _configure(self) -> None:
+    def _configure(
+        self, policy: RungeKuttaPolicy, schedule: FixedSchedule | None
+    ) -> None:
         """Hand the native state the run's policy and a replay's schedule."""
         backend = self._driver
-        stepper = backend._stepper
-        controller = stepper.controller
+        controller = policy.controller
         if controller.weights is not None:
             backend._rk_weights_ready()
-        schedule = stepper.schedule
-        steps = edges = _NO_SCHEDULE
-        if schedule is not None:
-            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
-            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+        steps, edges = _records.schedule_arrays(schedule)
         backend._native_state.rk_march_configure(
-            self._policy(),
+            _records.rk_policy(policy),
             list(backend._rk_nodes),
             float(controller.rtol),
             float(controller.atol),

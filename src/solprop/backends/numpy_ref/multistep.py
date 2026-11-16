@@ -1273,6 +1273,8 @@ class AdamsEngine(Protocol):
     The march keeps the controller; an engine keeps the history's rows and does every
     state-sized operation, so that a backend can keep them where its state lives.
     :class:`HostHistory` is the reference; ``docs/dev/stepper.md`` states the contract.
+    SEP 52's phase 3 replaces it with :class:`solprop.backends.engines.AdamsEngine`,
+    which mirrors the native ``march::Engine``.
     """
 
     dense: Any

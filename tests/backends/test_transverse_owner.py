@@ -36,6 +36,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from solprop.backends import records
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -59,6 +60,10 @@ def _modules() -> tuple[Any, Any]:
         importlib.import_module("solprop_native._core")._testing,
         importlib.import_module("solprop_native._transverse"),
     )
+
+
+def _native_records() -> Any:
+    return importlib.import_module("solprop_native._records")
 
 
 def _space(geometry: str) -> LineGrid | FreeGrid | RadialGrid:
@@ -133,9 +138,11 @@ class Pair:
             space, _design(space, design), budget, 10.0, 0.01, np.arange(1), K800
         )
         self.native = core.TransverseEdge(
-            transverse.config_of(
-                self.python, steps=steps, declared=declared, reads=reads
-            ).native()
+            _native_records().edge_config(
+                records.edge_config(
+                    self.python, steps=steps, declared=declared, reads=reads
+                )
+            )
         )
         self.steps = steps
         self.declared = declared
@@ -223,8 +230,8 @@ class Pair:
     def _native_call(self, first: dict[str, object]) -> list[tuple[str, str]]:
         """Serve a native call's notices, each warning then the rest of its point."""
         out: list[tuple[str, str]] = []
-        notice = self.transverse.EdgeNotice.of(first)
-        while notice.kind != self.transverse.NoticeKind.NONE:
+        notice = self.transverse.edge_notice_of(first)
+        while notice.kind != records.EdgeNoticeKind.NONE:
             if notice.stop:
                 out.append(
                     ("stop", str(self.transverse.notice_error(self.python, notice)))
@@ -234,7 +241,7 @@ class Pair:
             warning = self.transverse.notice_warning(self.python, notice)
             assert type(warning) is BoundaryWarning
             out.append(("warn", str(warning)))
-            notice = self.transverse.EdgeNotice.of(self.native.proceed())
+            notice = self.transverse.edge_notice_of(self.native.proceed())
         return out
 
     def state(self, z: float, proposal: float) -> None:
@@ -244,7 +251,7 @@ class Pair:
         assert native.ceiling() == python.ceiling(z)
         assert native.every_step == python.every_step
         assert native.resumed == python.resumed
-        assert self.transverse.STATUSES[native.status] == python.status
+        assert records.STATUSES[native.status] == python.status
         for ahead in (0.0, proposal, 2 * proposal, python.ceiling(z)):
             if math.isfinite(ahead):
                 assert native.due(z, ahead) == python.due(z, ahead)
@@ -426,7 +433,9 @@ def test_a_resume_continues_the_record_as_solprop_does(
     pair = Pair(geometry, design)
     faces = len(pair.python._faces)  # pyright: ignore[reportPrivateUsage]
     pair.python.resume(record)
-    pair.native.resume(pair.transverse.resumption(record, faces))
+    pair.native.resume(
+        _native_records().edge_resumption(records.edge_resumption(record, faces))
+    )
     pair.launch(launch, z)
     pair.state(z, 1e-4)
     pair.record()
@@ -505,7 +514,7 @@ def test_a_warning_the_caller_raises_leaves_the_rest_of_its_point_undone():
         with pytest.raises(BoundaryWarning):
             pair.python.read(python_reading, 2e-3)
     notice = pair.native.read(values, 2e-3, sums)
-    assert notice["kind"] == pair.transverse.NoticeKind.FACE and not notice["stop"]
+    assert notice["kind"] == records.EdgeNoticeKind.FACE and not notice["stop"]
     assert pair.native.pending
     pair.record()
 
@@ -602,7 +611,9 @@ def test_a_record_solprop_s_resume_ignores_is_ignored_alike(record):
     # reads nothing more: the maxima and the reads are not converted, nor refused.
     pair = Pair("line", "none")
     pair.python.resume(record)
-    pair.native.resume(pair.transverse.resumption(record, 2))
+    pair.native.resume(
+        _native_records().edge_resumption(records.edge_resumption(record, 2))
+    )
     assert not pair.python.resumed and not pair.native.resumed
     pair.launch(Readings([0.0] * 4, [0.0] * 4, 0, 0, [1.0], [0.0], 0.0))
     pair.record()

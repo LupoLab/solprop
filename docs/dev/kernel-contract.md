@@ -1360,8 +1360,9 @@ one record and holds no default and no constant of its own (`native/AGENTS.md`).
 [SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
 its interface.
 
-**The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run
-by `rk_policy`, with the landings of the run):
+**The policy record** (`solprop.backends.records.RungeKuttaPolicy`, formed once per run
+by `runge_kutta_policy` with the landings of the run, one of the run records both
+backends read):
 
 | field | meaning |
 |---|---|
