@@ -1853,10 +1853,9 @@ class Simulation(Displayed):
 
         Raises
         ------
-        ValueError
-            If `resume` is not one of its three values.
         DriverError
-            If a resume is asked for and `output` is not a path, or the file's last
+            If `resume` is not one of its three values, a resume is asked for and
+            `output` is not a path, or the file's last
             plane was interpolated and `resume` is not ``"interpolated"``; or
             `tdse_archive` is given without a TDSE response or at the
             path of the optical file.
