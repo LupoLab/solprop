@@ -46,7 +46,7 @@ pulse, noise and output keywords; these differ, by interface:
 | `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
 | `rtol`, `atol`, `backend` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
 | `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
-| loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
+| loss | `loss_db_per_m`, a fibre's attenuation | `loss_scale=1.0`, the capillary's own wall loss (`alpha=` replaces it) | the modes' own | the medium's own |
 | `step_planes`, `interpolate_planes` | yes (`step_planes=None`, the default, and `0` are off) | yes (`None` is off, or every step with the TDSE response) | yes (`None` is off) | in the settings |
 | `polarisation_taper` | yes | yes | yes | in the settings |
 | the launch | the pulse | `launch=`, or the first mode | `launch=`; with `provider=` also `channel=` or `incident=` with `coupling=`; or the first channel | a beam (`SpatialPulse`, `PlanarPulse`) |
