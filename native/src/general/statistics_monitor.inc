@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The boundary monitor's readings (solprop SEP 21): its bind and sums, the
-// transverse edge's lines and readings, the split's sums, the monitor reading and
-// the walk-off occupancy.
+// The boundary monitor's readings (solprop SEP 21) and the transverse edge's (solprop
+// SEP 44): bind_monitor and the monitor's sums, the edge's bind_edge, bind_edge_lines
+// and edge_reading, split_sums, monitor_reading and bind_occupancy, the split collar's
+// walk-off occupancy. These passes only form sums; the judgements are made elsewhere.
 //
 // Part of statistics.cpp's translation unit (included there, in place; never
 // compiled alone).

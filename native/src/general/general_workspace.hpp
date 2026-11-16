@@ -4,9 +4,20 @@
 
 #pragma once
 
-// The general workspace (GeneralState's implementation), private to the units of
-// src/general/: checks.cpp, setup.cpp, trial.cpp (the hot set, kept in one unit so
-// that its inlining is the compiler's whole view), statistics.cpp and state.cpp.
+// The general workspace (GeneralState's implementation): GeneralState
+// (include/solprop_native/general/general_state.hpp) owns one GeneralWorkspace and
+// forwards each call to it inside the problem's CPU team scope (state.cpp). The
+// workspace holds every view, FFT plan and execution instance one bound Problem needs,
+// allocated once at construction, and runs the general route on them: the trial step
+// and its stages, the Adams history's and the low-storage march's passes, the RK dense
+// output, the z tables and coupled flows, the statistics, the boundary monitor and
+// transverse edge, and the host source hook (solprop SEP 49).
+// Private to the units of src/general/: checks.cpp (refusals), setup.cpp
+// (construction, plans, ledger), trial.cpp (the hot set, kept in one unit so that its
+// inlining is the compiler's whole view), statistics.cpp (statistics and monitor) and
+// state.cpp (transfers, destruction, GeneralState's forwarders).
+// Types: GeneralWorkspace. Functions: require_general_problem, the refusal before
+// allocation.
 #ifdef SOLPROP_NATIVE_STRICT_TU
 #error "general_workspace.hpp contracts: a strict translation unit must not include it"
 #endif

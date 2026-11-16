@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// The exponential Adams march's phi-functions on a host block's lanes
+// (`march/adams_phi.hpp`) against the element-by-element `adams_phi`: every lane's
+// values are the scalar form's bits, whatever its neighbours, on each of the three
+// branches, at the branch and halving thresholds, and under a carrier frame. Host
+// builds only.
+
 #include "solprop_native/march/adams_phi.hpp"
 
 #include <gtest/gtest.h>
@@ -15,11 +21,6 @@
 #include <random>
 #include <vector>
 
-// The exponential Adams march's phi-functions on a host block's lanes
-// (include/solprop_native/march/adams_phi.hpp) against the element-by-element
-// `adams_phi`: every lane's values are the scalar form's bits, whatever its neighbours,
-// on each of the three branches, at the branch and halving thresholds, and under a
-// carrier frame.
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 namespace {
 namespace native = solprop_native;

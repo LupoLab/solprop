@@ -2,6 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the floating-point policy (`runtime/fp.hpp`): a protected block and the
+// strict helpers it inlines round every product and sum separately, and ordinary code
+// contracts where an optimised build targets fused multiply-add.
+
 #include "solprop_native/runtime/execution.hpp"
 #include "solprop_native/runtime/fp.hpp"
 

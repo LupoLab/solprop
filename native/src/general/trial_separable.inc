@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The separable geometries' stage path: transverse chunks and transforms, the
-// stage input, packing and nodes, the finishing transform and the volume, spatial
-// and separable cores.
+// The separable geometries' stage path (free space and the hybrid planar kind):
+// transverse chunks and transforms, the stage input, packing and nodes, the finishing
+// transform, evaluate_separable_stage, the moves between time and frequency, and the
+// volume, spatial and separable cores.
 //
 // Part of trial.cpp's translation unit (included there, in order; never
 // compiled alone).

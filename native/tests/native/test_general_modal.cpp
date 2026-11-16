@@ -2,6 +2,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the general modal source (`response/general_modal.hpp`) alone and through
+// the general state: both cubics, crops and the delayed tensor response against a
+// straightforward host source, chunking and repetition within rounding bounds, refusals
+// before allocation, transform policy and ledger rows, the Adams rows and an edge line,
+// and moving guides' stage maps.
+
 #include "execution.hpp"
 #include "solprop_native/general/general_state.hpp"
 #include "solprop_native/problem/problem.hpp"

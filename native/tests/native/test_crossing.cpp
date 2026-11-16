@@ -2,6 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the crossing ring (`runtime/crossing.hpp`): every byte crosses both ways at
+// each size, the ring holds nothing before its first crossing and after its release,
+// takes no turn on a host build or below its threshold, and `host_buffer` is writable.
+
 #include "solprop_native/runtime/crossing.hpp"
 
 #include <gtest/gtest.h>

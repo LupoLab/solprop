@@ -7,7 +7,22 @@
 // The general workspace's helpers: device-callable functions, kernel functors and the
 // workspace's view and plan types, shared by its translation units (there is no
 // relocatable device code, so a helper a kernel calls is defined here, inline).
-// Contracting code: a strict translation unit never includes it.
+// Contracting code: a strict translation unit never includes it; its few strict
+// helpers (`decayed_fraction`, `compensation_residual`, `StageTerms::phase_sum`, ...)
+// carry fp.hpp's macros themselves. Everything lives in solprop_native::general.
+// Types: the reduction values NormSums and FluenceMoments; the scope guards FlowAside
+// and SwappedAside; the view and plan aliases (ComplexView2/3, RealView2/3, the real
+// row, Raman, transverse, volume, slab and strip plans); the plasma current streams
+// (EnvelopeStream, FieldCurrentStream); the separable geometry's descriptors
+// (TransverseLayout, PhysicalSpectrum, RegisterIndex, TransverseChunk,
+// SpatialCoefficients); UpdateColumn; and StageTerms, a stage's pointwise entry and
+// finish over the coarse spectrum (with EntryPhase, EntryFactors and EntryBlock).
+// Functions: the host and device traversals between registers and the transverse
+// scratch (cartesian_for, crossing_tiles, crossing_for, tiled_crossing,
+// tiled_update); the propagator exponentials (propagator_exp, entry_exponential);
+// the ionisation fractions and rate table (ionised_fraction, band_fraction,
+// ionisation_rate); upload_span and copy_vector; and accept_update, a step's update
+// with its three norms in one pass.
 #ifdef SOLPROP_NATIVE_STRICT_TU
 #error "general/kernels.hpp contracts: a strict translation unit must not include it"
 #endif
@@ -1019,7 +1034,7 @@ void copy_vector(const ExecutionSpace& execution_space, const View& destination,
 // a host build).
 [[maybe_unused]] inline constexpr std::size_t plasma_tile_samples = 1024;
 
-// Descriptors borrow allocations retained by the member GeneralState owners. They
+// Descriptors borrow allocations retained by the owning GeneralWorkspace. They
 // contain no ownership or reference counts and are refreshed after state swaps.
 struct UpdateColumn {
   const Complex *current{}, *solution{}, *error{}, *whole{};

@@ -8,7 +8,8 @@
 // optimisation). The unit is this file and the fragments it includes, in this order,
 // each a contiguous run of definitions that is never compiled alone:
 //
-//   trial.cpp              the transform providers' policy and the trial's entry
+//   trial.cpp              the transform providers' policy, the trial's scalars and
+//                          entry (set_initial, prepare_trial, trial_step, adopt)
 //   trial_low_storage.inc  the low-storage RK4IP march (SEP 24)
 //   trial_adams.inc        the Adams history and trials, and the RK dense output
 //   trial_separable.inc    the separable geometries' stage path

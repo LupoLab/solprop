@@ -2,6 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Tests of the z tables (`march/z_table.hpp`): `locate` takes solprop's interval and
+// edge side and refuses what it cannot evaluate, evaluation writes each position into
+// its slot, a constant table is its coefficient, and the blocked evaluation is the
+// per-value recursion exactly.
+
 #include "solprop_native/march/chebyshev.hpp"
 #include "solprop_native/march/z_table.hpp"
 #include "solprop_native/runtime/execution.hpp"
