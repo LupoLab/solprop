@@ -73,7 +73,7 @@ def launch_case(kerr, n_pol):
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
         state = reference._require_state()
-        peak = max(float(np.max(abs(one))) for one in reference._plasma_nodes(state[0]))
+        peak = max(float(np.max(abs(one))) for one in reference._plasma_nodes(state))
     finally:
         reference.close()
     assert peak > 0.0

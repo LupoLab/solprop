@@ -154,8 +154,8 @@ class ParameterExpansion:
         present, contributes the rest.
     terms : numpy.ndarray
         The expansion coefficients, shape ``(n_terms, *value_shape)``. For the kernel
-        contract's section 3 the value shape is ``(1, n_modes, n_pol,
-        n_omega)`` and the array is complex128.
+        contract's section 3 the value shape is ``(n_modes, n_pol, n_omega)`` and
+        the array is complex128.
     weights : solprop.translate.chebyshev.PiecewiseChebyshev
         The scalar tables along z, value shape ``(n_terms,)``, float64: the products
         ``T_j(p_hat(z))`` for a plain quantity and their integrals from the start of the

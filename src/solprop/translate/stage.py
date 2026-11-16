@@ -80,8 +80,8 @@ class StageTerms:
     Attributes
     ----------
     phi : numpy.ndarray or None
-        The terms of ``Phi``, complex128, shape ``(n_phi_terms, 1, n_modes,
-        n_pol, n_omega)``. One term for a constant operator, ``n_terms`` for an
+        The terms of ``Phi``, complex128, shape ``(n_phi_terms, n_modes, n_pol,
+        n_omega)``. One term for a constant operator, ``n_terms`` for an
         expansion, and ``None`` for the z table, which has no such form.
     prefactor : numpy.ndarray or None
         The terms of the prefactor, complex128, shape ``(n_pre_terms, n_modes, n_pol,
@@ -97,10 +97,10 @@ class StageTerms:
     >>> from solprop.translate.stage import StageTerms
     >>> table = constant_phi(np.array([-1j, -2j]), 1.0)
     >>> StageTerms(phi=table.phi_constant[np.newaxis], prefactor=None).phi.shape
-    (1, 1, 1, 1, 2)
+    (1, 1, 1, 2)
     """
 
-    phi: Complex[np.ndarray, "n_phi_terms n_batch n_modes n_pol n_omega"] | None
+    phi: Complex[np.ndarray, "n_phi_terms n_modes n_pol n_omega"] | None
     prefactor: Complex[np.ndarray, "n_pre_terms n_modes_p n_pol_p n_omega_p"] | None
     separable: SeparableOperator | None = None
 
@@ -403,7 +403,7 @@ def terms(problem: PropagationProblem) -> StageTerms:
 
 def _phi_terms(
     linear: LinearOperator,
-) -> Complex[np.ndarray, "n_phi_terms n_batch n_modes n_pol n_omega"] | None:
+) -> Complex[np.ndarray, "n_phi_terms n_modes n_pol n_omega"] | None:
     """Return the terms of ``Phi``, or ``None`` for the z table."""
     if linear.phi_constant is not None:
         return linear.phi_constant[np.newaxis]

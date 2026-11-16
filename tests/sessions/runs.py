@@ -823,7 +823,7 @@ def native_source(backend: Any, field: np.ndarray, z: float = 0.0) -> np.ndarray
     Returns
     -------
     numpy.ndarray
-        The source, shape ``(1, n_modes, n_pol, n_omega)`` as the reference's.
+        The source, shape ``(n_modes, n_pol, n_omega)`` as the reference's.
     """
     from solprop_native._core import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
         _testing,
@@ -831,7 +831,7 @@ def native_source(backend: Any, field: np.ndarray, z: float = 0.0) -> np.ndarray
 
     state = load_native(backend, field)
     native_trial(backend, z, 0.0)
-    return np.array(_testing.stage_to_host(state, 0)).reshape(1, *np.shape(field))
+    return np.array(_testing.stage_to_host(state, 0)).reshape(np.shape(field))
 
 
 def bind_native_monitor(
@@ -1112,7 +1112,7 @@ def native_exponential_trial(
     if reference is not None and reference.active:
         # (Im sigma, Re f_0, Im f_0, ...), f_t = exp(sigma (1 - theta_t)), over the
         # rows read; sigma is the reference element's chord over the step (SEP 35).
-        shift = float(np.imag(reference.chord.exponent(z, z + dz))[0])
+        shift = float(np.imag(reference.chord.exponent(z, z + dz)))
         spans = 1.0 - np.asarray(nodes[:rows], dtype=np.float64)
         carrier = np.empty(1 + 2 * rows, dtype=np.float64)
         carrier[0] = shift

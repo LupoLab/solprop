@@ -83,10 +83,10 @@ def _native_trial(problem, run_request, grid, dz):
 
 
 def _operands(backend, reference, problem, run_request, dz):
-    """Return native's stages and state, and the reference's propagator, 4-D."""
+    """Return native's stages and state, and the reference's propagator."""
     tableau = run_request.stepper.tableau
     state = backend._native_state
-    shape = (1, *problem.shape)
+    shape = problem.shape
     stages = [
         np.asarray(_testing.stage_to_host(state, index)).reshape(shape)
         for index in range(len(tableau.nodes))
@@ -126,7 +126,7 @@ def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
         before = problem.initial.field0
         backend._native_state.finish(dz)
         after = _field(backend, problem)
-        wanted = reference._error_norm(carried, before[None], after[None])
+        wanted = reference._error_norm(carried, before, after)
         controller = run_request.stepper.controller
         mask = problem.grids.norm_mask
         scale = float(

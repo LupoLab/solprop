@@ -360,6 +360,16 @@ these records.
   compared; where the explicit value is solprop's own rather than Luna's, deliberately,
   to measure the difference, the test says so. A witness is retired, with its
   generator, only when it blocks a change, and that change says so.
+- **The backend corpus** (`tests/data/backend_corpus.npz`, [SEP 52](seps/index.md) §7)
+  pins what every march and route family left on `numpy_ref` and the native CPU build
+  before that SEP restructured them: short fixed-schedule runs (and two adaptive ones),
+  their monitor and edge records, a resume and the timing probe
+  (`tests/backend_corpus_cases.py`). `tests/backends/test_backend_corpus.py` holds each
+  backend to its own record within the matched march's budget (class R) or an accuracy
+  envelope (class T), and reports bitwise agreement on the recording build and thread
+  setting as a diagnostic only. Its generator refuses to overwrite it unless a change
+  of the reference's numbers is recorded under SEP 52 §4. The split collar's session
+  rules are held beside it (`tests/sessions/test_split_collar_rules.py`).
 - **Analytic problems** (P1, P2) are truth and need no stored data.
 - **Converged solprop references** (P3) are produced by the three-level ladder with the order
   gate and stored with their observed order.

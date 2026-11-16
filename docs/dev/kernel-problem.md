@@ -260,7 +260,7 @@ mask.
    # A dispersion-specified fibre does not vary along z, so the prefactor is the array
    # of the fast path rather than a Clenshaw pass over its table.
    prefactor = np.abs(problem.responses.prefactor_constant[0, 0])[order]
-   operator = problem.linear.phi_constant[0, 0, 0][order]
+   operator = problem.linear.phi_constant[0, 0][order]
 
    fig, (left, right) = plt.subplots(1, 2, figsize=(7.0, 3.0), layout="constrained")
    left.plot(detuning, -np.imag(operator), lw=1.6, color="C0")

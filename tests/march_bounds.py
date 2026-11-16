@@ -50,6 +50,7 @@ from bounds import (
     UNIT_ROUNDOFF,
     AccuracyEnvelope,
     assert_within,
+    assert_work_within,
     fft_bound,
     propagation_growth,
     step_evaluations,
@@ -179,8 +180,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        # The backend's private state keeps its leading axis of one.
-        state = problem.initial.field0[np.newaxis]
+        state = problem.initial.field0
         bundle = backend._stage_scalars(0.0, 0.0)
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:
@@ -190,9 +190,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     maps = _general_maps(problem)
     kappa = 1.0
     if maps is not None:
-        kappa = conditioning(
-            maps.at(bundle.transform_weights), state[0], simulation.grid
-        )
+        kappa = conditioning(maps.at(bundle.transform_weights), state, simulation.grid)
     return phi, kappa
 
 
@@ -343,3 +341,62 @@ def assert_points_matched(
             factors=factors,
             what=f"{what} {point.index}",
         )
+
+
+def reading_tolerance(reference: float, bound: float, steps: int) -> float:
+    """Return how far a monitor reading may move when the field moves by `bound`.
+
+    A reading is an energy share ``s = ||a||_w^2`` of a weighted region, mostly as a
+    fraction of the launch's energy, so a departure of the state, normwise `bound` of
+    it, moves it by at most ``2 sqrt(s) bound + bound^2``: the cross term and the
+    square. The split collar's removal adds such readings over a run's `steps`, whose
+    square roots add to at most ``sqrt(steps s)`` (Cauchy-Schwarz), and a ratio of two
+    readings carries :data:`STATISTIC_FACTOR` of the relative departure. So
+    ``STATISTIC_FACTOR bound |s| + 2 sqrt(steps |s|) bound + steps bound^2``, which
+    holds an empty guard's rounding residue (of order ``n eps^2``) as well as a filled
+    guard.
+    """
+    size = abs(reference)
+    return (
+        STATISTIC_FACTOR * bound * size
+        + 2.0 * math.sqrt(steps * size) * bound
+        + steps * bound**2
+    )
+
+
+def assert_record_within(
+    got, expected, bound: float, steps: int, *, what: str = "", work: bool = False
+) -> None:
+    """Assert a monitor or edge record agrees with another to a field's departure.
+
+    The keys (in any order), flags, texts and ``None`` exactly; each real number within
+    :func:`reading_tolerance` of `bound` over `steps`; each integer exactly (the checked
+    and skipped steps, the reads), or with `work` -- an adaptive march, whose checks
+    fall on its own steps -- within a factor of two (:func:`bounds.assert_work_within`).
+    """
+    if isinstance(expected, dict):
+        assert isinstance(got, dict) and sorted(got) == sorted(expected), what
+        for key, value in expected.items():
+            assert_record_within(
+                got[key], value, bound, steps, what=f"{what}.{key}", work=work
+            )
+        return
+    if isinstance(expected, list | tuple):
+        assert isinstance(got, list | tuple) and len(got) == len(expected), what
+        for index, (one, other) in enumerate(zip(got, expected, strict=True)):
+            assert_record_within(
+                one, other, bound, steps, what=f"{what}[{index}]", work=work
+            )
+        return
+    if expected is None or isinstance(expected, bool | str):
+        assert got == expected, (what, got, expected)
+        return
+    if isinstance(expected, int):
+        if work and expected > 0:
+            assert_work_within(int(got), expected, factor=2.0, what=what)
+        else:
+            assert got == expected, (what, got, expected)
+        return
+    tolerance = reading_tolerance(float(expected), bound, steps)
+    error = abs(float(got) - float(expected))
+    assert error <= tolerance, (what, got, expected, tolerance)

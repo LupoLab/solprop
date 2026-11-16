@@ -361,14 +361,14 @@ and falls to the z table below. The names are the vocabulary of
 | `phi_representation` | `"constant" \| "expansion" \| "table" \| "separable"` | the representation consumed by `delta_phi` and `unitary_phase`; every kind except the z table has a device form |
 | `phi_breakpoints` | `(n_intervals + 1,) float64` | interval edges in z — of the table itself, or of the expansion's scalar tables |
 | `phi_degrees` | `(n_intervals,) intp` | degree used per interval (diagnostic) |
-| `phi_coefficients` | `(n_intervals, n_deg, 1, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z (the leading axis of one is the value layout the native build reads; the state has none); present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
+| `phi_coefficients` | `(n_intervals, n_deg, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z; present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
 | `phi_expansion` | frozen dataclass or `None` | Φ as an expansion in the mode set's scalar paths (`translate.expansion.ParameterExpansion`; a leaf, see below); present exactly when `phi_representation` is `"expansion"` |
 | `hard_kinks` | `(n_kinks,) float64` | z positions where D, or a scalar path a response consumes (a plasma channel's preionisation, an explicit density), jumps or kinks; steps land on them |
-| `phi_constant` | `(1, n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
+| `phi_constant` | `(n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
 | `power_weight_representation` | `"constant" \| "expansion" \| "table"` or `None` | modal power weight representation, present exactly for modal transforms and absent for spatial geometry |
 | `power_weight` | `PiecewiseChebyshev` or `None` | positive dimensionless `Re n_eff`, or the prefactor's index override, per `(n_modes, n_pol, n_omega)`; table and constant representations only; unit weight outside the active band |
 | `power_weight_expansion` | `ParameterExpansion` or `None` | the weight with plain basis-product weights; expansion representation only |
-| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only. It carries no leading axis of one, unlike `phi_constant`'s value layout |
+| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only |
 | `beta0`, `beta1` | `ZProfile` tables | frame quantities along z (diagnostic; already inside Φ) |
 | `separable` | `SeparableOperator` or `None` | shared constant spatial coefficients, present exactly for `"separable"`; described below and shared by identity with `responses.separable` |
 | `coupled_flow` | `CoupledFlowTables` or `None` | the generator of a guide whose channels couple, dense or factored, with its residual, conditioning and error certificate and one method per section; a leaf in `translate.coupled`, described in [the coupled-flow leaf](#the-coupled-flow-leaf) below |
@@ -457,7 +457,7 @@ blocks' tensor sizes. Reuse reweights each block with its original weight kind.
 this document; they are `parameters` (the path names, in the order of the term
 multi-index), `ranges` (`(n_params, 2) float64`, the values each path reaches over the
 tabulated range), `degrees` (`(n_params,) intp`, the Chebyshev degree per parameter),
-`terms` (`(n_terms, 1, n_modes, n_pol, n_omega) complex128`, with
+`terms` (`(n_terms, n_modes, n_pol, n_omega) complex128`, with
 `n_terms = Π(degrees + 1) + Π(endpoint_degrees + 1)` when the endpoint block
 is present, otherwise just the first product, and each multi-index flattened in C
 order) and `weights`, the concatenated integral and endpoint tables along z as a `(n_terms,)`-valued `PiecewiseChebyshev`. Its
@@ -1360,8 +1360,9 @@ one record and holds no default and no constant of its own (`native/AGENTS.md`).
 [SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
 its interface.
 
-**The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run
-by `rk_policy`, with the landings of the run):
+**The policy record** (`solprop.backends.records.RungeKuttaPolicy`, formed once per run
+by `runge_kutta_policy` with the landings of the run, one of the run records both
+backends read):
 
 | field | meaning |
 |---|---|

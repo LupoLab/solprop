@@ -99,7 +99,7 @@ def test_a_rejected_step_is_recorded_and_not_kept(driver):
     # 5.0 is far above the controller's threshold of one, so the first step is refused
     # and the second, from the same position, is taken.
     made = driver(norms=[5.0, 0.1], factor=2.0)
-    before = present(made._state)[0].copy()
+    before = present(made._state).copy()
     made.propagate_to(LENGTH)
     observed = made.observe()
     assert not bool(observed.step_history.accepted[0])
@@ -290,8 +290,8 @@ def test_the_input_noise_model_adds_its_realisation_once(
     resumed = scripted(problem, run_request, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
-    assert not np.array_equal(present(entrance._state)[0], masked)
-    assert np.array_equal(present(resumed._state)[0], masked)
+    assert not np.array_equal(present(entrance._state), masked)
+    assert np.array_equal(present(resumed._state), masked)
     assert entrance._noise is None
 
 
@@ -308,7 +308,7 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
     made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert np.array_equal(
-        present(made._state)[0], problem.initial.field0 * problem.grids.active_mask
+        present(made._state), problem.initial.field0 * problem.grids.active_mask
     )
     drawn = present(made._noise)
     advanced = present(made._noise_at(made._stage_scalars(0.0, LENGTH / 2)))
@@ -444,7 +444,7 @@ def test_started_is_announced_once_per_load_and_a_resume_announces_it_again(driv
     assert reporter.order.count("started") == 1
     assert reporter.extent == (0.0, LENGTH, 2)
 
-    made.set_initial(present(made._state)[0], None, z=LENGTH / 2)
+    made.set_initial(present(made._state), None, z=LENGTH / 2)
     made.propagate_to(LENGTH)
     assert reporter.order.count("started") == 2
     assert reporter.extent == (LENGTH / 2, LENGTH, 2)
@@ -946,26 +946,25 @@ HOST_SURFACE: dict[str, str] = {
     "_adams_block": "(self, z: float, dz: float) -> object",
     "_adams_lab_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], position: float, *, "
+        "'n_modes n_pol n_omega'], position: float, *, "
         "purpose: Literal['startup', 'predictor', 'corrected', "
         "'diagnostic'] = 'predictor') -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
+        "'n_modes n_pol n_omega']"
     ),
     "_adams_propagator": (
         "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']"
+        "'n_modes n_pol n_omega']"
     ),
     "_adams_source": (
         "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], anchor: float, position: float, *, "
+        "'n_modes n_pol n_omega'], anchor: float, position: float, *, "
         "purpose: Literal['startup', 'predictor', 'corrected', "
         "'diagnostic'] = 'predictor') -> tuple[jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']]"
+        "'n_modes n_pol n_omega'], jaxtyping.Complex[ndarray, "
+        "'n_modes n_pol n_omega']]"
     ),
     "_apply_mask": (
-        "(self, state: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega']) -> _StateT"
+        "(self, state: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega']) -> _StateT"
     ),
     "_begin_plane": "(self) -> None",
     "_dense_stages": "(self) -> list[numpy.ndarray]",

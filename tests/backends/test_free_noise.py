@@ -75,10 +75,10 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(position)
         expected = reference._nonlinear(
-            rotated[None],
+            rotated,
             reference._stage_scalars(position, position),
-            np.ones((1, *problem.shape), complex),
-        )[0]
+            np.ones(problem.shape, complex),
+        )
         # Zero distance isolates one nonlinear evaluation while still exercising
         # each backend's real stage-input/noise path at nonzero absolute z.
         if backend.name == "native":

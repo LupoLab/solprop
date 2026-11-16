@@ -386,9 +386,7 @@ def test_the_split_step_absorber_leaves_nothing_outside_the_active_band(
         # above can see).
         rate = problem.responses.temporal_absorber
         assert rate is not None
-        absorbed = apply_temporal_rate(
-            field[None], rate, length / BAND_STEPS, kind=kind
-        )
+        absorbed = apply_temporal_rate(field, rate, length / BAND_STEPS, kind=kind)
         assert outside[0]
         assert np.abs(absorbed[..., 0]).max() > 1e-3 * np.abs(absorbed).max()
 

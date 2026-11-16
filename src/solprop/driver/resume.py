@@ -119,8 +119,8 @@ def _start(
     field = state.plane.field
     if problem.transform.geometry is None:
         field = power_amplitude(
-            field[np.newaxis], power_weight_at(problem, state.plane.z), inverse=True
-        )[0]
+            field, power_weight_at(problem, state.plane.z), inverse=True
+        )
     integrator = request.integration.method
     record, march = _continue_march(
         simulation,

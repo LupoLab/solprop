@@ -67,8 +67,8 @@ def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:
     armed: list[Any] = []
     configure = NativeAdamsMarch._configure
 
-    def arming(self):
-        configure(self)
+    def arming(self, *args):
+        configure(self, *args)
         if not armed:
             _testing.adams_march_fault(
                 self._backend._native_state, stage, after, category

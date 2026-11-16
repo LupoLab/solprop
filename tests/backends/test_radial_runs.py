@@ -97,7 +97,7 @@ def test_radial_operator_and_prefactor_match_vacuum_dispersion(radial_case):
     assert not problem.flags.mode_averaged
     assert problem.flags.constant_linop
     assert_allclose(
-        delta_phi(problem.linear, 0.0, grid.length)[0, :, 0],
+        delta_phi(problem.linear, 0.0, grid.length)[:, 0],
         expected * grid.length,
         rtol=0,
         atol=bound,

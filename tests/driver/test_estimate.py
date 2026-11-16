@@ -276,7 +276,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             # to a few roundings of the field's largest magnitude bounds it (SEP 25).
             stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test
             _, state = stepping._trial_step(float(problem.initial.z), dz)
-            trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
+            trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))
         scale = float(np.max(np.abs(trial)))
         np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
         # A copy the probe owns: a later trial does not write to it.

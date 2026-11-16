@@ -319,7 +319,7 @@ def reference_nonlinear(problem, kerr, plasma, state, z):
     fine = np.zeros(
         (transform.n_modes, fourier.n_omega_for(grids.n_to, "field")), dtype=complex
     )
-    fine[..., grids.crop_index] = state[0, :, 0, :]
+    fine[..., grids.crop_index] = state[:, 0, :]
     modal = fourier.inverse(fine, kind="field")
     nodes = transform.synthesis @ modal
     plane_plasma = dataclasses.replace(
@@ -370,7 +370,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     problem, run_request, kerr, plasma = ionising_capillary(preionisation)
     backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
-    state = problem.initial.field0[None]
+    state = problem.initial.field0
     ones = np.ones_like(state)
     got = backend._nonlinear(state, backend._stage_scalars(0.0, 0.05), ones)
     want = reference_nonlinear(problem, kerr, plasma, state, 0.05)

@@ -34,10 +34,11 @@ from solprop.backends.numpy_ref.multistep import (
     ExponentialKernels,
     HostHistory,
 )
+from solprop.backends.records import adams_policy
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.records import MarchSnapshot
 from solprop.stepper.controller import limit_step
-from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
+from solprop.stepper.multistep import MarchPolicy, Multistep
 from solprop.stepper.schedule import FixedSchedule, landing
 
 __all__ = ["HostAdamsMarch"]
@@ -107,35 +108,15 @@ class HostAdamsMarch:
         self._order = 1 if method.variable_order else method.order
         self._ahead: tuple[float, object] | None = None
         self.ledger = CallLedger()
-        # An in-stage temporal collar adds -alpha(t) / 2 to the derivative: in the
-        # exponential formulation, whose linear flow is exact, it is the one stiff term
-        # the explicit history integrates, and its largest rate bounds each order's
-        # stable step, which the order choice weighs (`_choose_order`).
-        responses = backend._problem.responses
-        collar = responses.temporal_absorber
-        collar_rate = (
-            0.5 * float(np.max(collar))
-            if collar is not None
-            and responses.absorber_scheme == "nonlinear"
-            and method.formulation == "exponential"
-            else 0.0
-        )
         # Every number the controller and the landings read, from one record (SEP 39
-        # section 4.2); the decisions are `adams_core`'s functions of it.
-        settings = backend._stepper
-        linear = backend._problem.linear
+        # section 4.2); the decisions are `adams_core`'s functions of it. An in-stage
+        # temporal collar's largest rate, the one stiff term the exponential history
+        # integrates, bounds each order's stable step there (`_choose_order`).
         carrier = self._engine.carrier
-        self._policy: MarchPolicy = march_policy(
+        self._policy: MarchPolicy = adams_policy(
+            backend._problem,
+            backend._stepper,
             method,
-            dz_min=settings.dz_min,
-            dz_max=settings.dz_max,
-            stretch=settings.stretch,
-            z_end=settings.z_end,
-            save_planes=np.asarray(settings.save_planes, dtype=np.float64).tolist(),
-            hard_kinks=np.asarray(linear.hard_kinks, dtype=np.float64).tolist(),
-            breakpoints=np.asarray(linear.phi_breakpoints, dtype=np.float64).tolist(),
-            interpolate=self._interpolate,
-            collar_rate=collar_rate,
             carrier=isinstance(carrier, CarrierReference) and carrier.active,
         )
         # Whether the stages left a quiet collar out at the last attempt: the step
@@ -181,9 +162,7 @@ class HostAdamsMarch:
         backend = self._backend
         return MarchSnapshot(
             z=float(backend._z),
-            # The snapshot's state is the trajectory's own; the march holds it with a
-            # leading axis of one.
-            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
+            state=np.array(backend._adams_state(), dtype=np.complex128, copy=True),
             proposal=float(backend._proposal),
             method=repr(self._method),
             order=int(self._order),
@@ -236,14 +215,11 @@ class HostAdamsMarch:
         if reason is not None:
             return reason
         load_rows = self._engine.load_rows
-        # The engine's rows keep the march's layout, a leading axis of one beside
-        # their own (the snapshot's disk format, SEP 47 section 6.7).
-        shape = (1, *backend._problem.shape)
         try:
-            load_rows(snapshot.rows, shape)
+            load_rows(snapshot.rows, backend._problem.shape)
         except BackendError as error:
             return str(error)
-        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
+        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True))
         self._history = [
             Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
@@ -474,7 +450,7 @@ class HostAdamsMarch:
             "the run stops at its last accepted step, unfinished"
         )
         return ResponseBudgetError(
-            msg, z=backend._z, field=backend._adams_state()[0].copy(), calls=spent
+            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
         )
 
     def _start(self) -> None:
@@ -492,7 +468,7 @@ class HostAdamsMarch:
         Under a carrier frame no step covers more than
         :data:`~solprop.stepper.multistep.CARRIER_PHASE_CAP` of carrier phase (SEP 35
         section 6.4), measured by one chord of the reference element's operator over
-        the proposal (:class:`CarrierChord`), the largest over the batch
+        the proposal (:class:`CarrierChord`)
         (:func:`~solprop.backends.adams_core.carrier_capped`). Applied before the
         landing rule, so a shortened step is not a landing; a fixed schedule's replay
         is not capped.

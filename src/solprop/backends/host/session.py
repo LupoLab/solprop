@@ -53,6 +53,7 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
+from solprop.backends.records import plane_plan
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
@@ -152,10 +153,14 @@ class HostSession:
         self._problem = problem
         self._request = request
         self._ledger = SessionLedger()
-        self._planes = np.asarray(request.observation.save_planes, dtype=np.float64)
+        # The run's plane plan (SEP 52 section 5.1): its planes, the first beyond the
+        # start, whether the start's own plane is owed, and the step planes.
+        plan = plane_plan(request, start)
+        self._planes = plan.planes
+        self._step_planes = plan.step_planes
         self._owns = owns
-        self._index = start.plane_index
-        self._launch_pending = start.plane_pending
+        self._index = plan.next_plane
+        self._launch_pending = plan.launch_pending
         # The session takes over the request's fresh monitor and feeds it.
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
         self._monitor_resume = start.monitor
@@ -299,9 +304,7 @@ class HostSession:
             return self._issue([Progress(self._z, history, rows)])
         self._summary = None
         return self._observation(
-            ObservationKind.STEP
-            if self._request.observation.step_planes
-            else ObservationKind.NATURAL,
+            ObservationKind.STEP if self._step_planes else ObservationKind.NATURAL,
             self._index,
             summary,
         )

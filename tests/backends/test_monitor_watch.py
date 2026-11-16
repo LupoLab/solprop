@@ -57,7 +57,7 @@ def _monitor(*, split: bool, quiet: bool, budget: float = 1e-3) -> BoundaryMonit
         buckets[0, :4] = np.arange(4)
         monitor.crossing = SplitCrossing(buckets, 1e-13, launch_limit=0.05)
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    spectrum = np.fft.fft(pulse)[None, None, None, :]
+    spectrum = np.fft.fft(pulse)[None, None, :]
     energies = monitor.energies(spectrum)
     if split:
         energies = BoundaryEnergies(

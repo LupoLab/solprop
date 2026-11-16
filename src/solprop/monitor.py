@@ -505,7 +505,7 @@ class BoundaryMonitor:
         return cls(check, weights, grid.kind, columns, split, grid.length / CHECKS)
 
     def power(
-        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> Float[np.ndarray, " n_t"]:
         """Return the time-domain energy density summed over everything but time.
 
@@ -526,11 +526,11 @@ class BoundaryMonitor:
         )
         density = np.abs(samples) ** 2
         if self.columns is not None:
-            density = density * self.columns[None, :, None, None]
+            density = density * self.columns[:, None, None]
         return density.reshape(-1, density.shape[-1]).sum(axis=0)
 
     def energies(
-        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"]
     ) -> BoundaryEnergies:
         """Return a state's energy and its four weighted energies, on the host.
 
@@ -555,7 +555,7 @@ class BoundaryMonitor:
         >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1.2e-6), 1e-12)
         >>> monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
         >>> pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-        >>> energies = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
+        >>> energies = monitor.energies(np.fft.fft(pulse)[None, None, :])
         >>> bool(np.isclose(energies.total, np.sum(np.abs(pulse) ** 2)))
         True
         """
@@ -564,7 +564,7 @@ class BoundaryMonitor:
 
     def split_sums(
         self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field_spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
         step: float,
     ) -> Float[np.ndarray, " 5"]:
         """Return what one accepted step's split collar takes, and what it finds.
@@ -607,7 +607,7 @@ class BoundaryMonitor:
         >>> edge = 0.5 * grid.n_t * grid.dt
         >>> pulse = np.exp(-(((grid.t - 0.98 * edge) / 10e-15) ** 2)).astype(complex)
         >>> taken, found, low, high, collar = monitor.split_sums(
-        ...     np.fft.fft(pulse)[None, None, None, :], 0.01
+        ...     np.fft.fft(pulse)[None, None, :], 0.01
         ... )
         >>> bool(taken > 0.0), bool(low < 1e-20 * found), bool(high > 0.5 * found)
         (True, True, True)
@@ -650,7 +650,7 @@ class BoundaryMonitor:
         energies: BoundaryEnergies,
         z: float,
         *,
-        floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None,
+        floor: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
     ) -> None:
         """Record the launch, and warn or refuse if it already fills a guard.
 

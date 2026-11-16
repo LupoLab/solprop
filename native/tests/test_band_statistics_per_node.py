@@ -146,7 +146,7 @@ def fields_of(
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         return np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
             )
         )
     finally:
@@ -174,7 +174,7 @@ def node_fields_and_error(
         reference._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
             )
         )
         return fields, node_field_error(reference, problem, fields)

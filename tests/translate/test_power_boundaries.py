@@ -244,7 +244,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
     phi = linear.phi_expansion
     assert phi is not None and phi.endpoint_degrees is not None
     assert phi.parameters == ("core_radius", "density")
-    n_pol = linear.value_shape[2]
+    n_pol = linear.value_shape[1]
     (mode,) = simulation.modes
     assert isinstance(mode, ParameterisedMode)
     sample = linop._log_weight_sampler((mode,), simulation.grid, n_pol, None)

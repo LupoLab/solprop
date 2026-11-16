@@ -12,8 +12,8 @@ for bit, under bounds that return at every attempt, at every seventh, at the wal
 clock's every attempt, and never.
 
 Every native run marches in the native execution session (SEP 47), whose march calls
-take the session's call bound (``solprop_native.session.CALL_ATTEMPTS`` and
-``CALL_SECONDS``), dense output and a transverse edge included.
+take the session's call bound (``solprop.backends.records.CALL_ATTEMPTS`` and
+``CALL_SECONDS``, the plane plan's), dense output and a transverse edge included.
 """
 
 import dataclasses
@@ -29,7 +29,7 @@ import pytest
 from backends.test_exponential_varying import EXPONENTIAL, gradient
 from backends.test_transverse_backends import radial_collar
 from legacy_geometry import LEGACY_GRID, bare_absorber
-from solprop.backends import available
+from solprop.backends import available, records
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
 from solprop.monitor import BoundaryCheck
@@ -235,8 +235,8 @@ def _counted_attempts(patch: pytest.MonkeyPatch, most: int, seconds: float) -> C
     """Bound the session's native calls; return the record that fills with them."""
     # The session's own bound: a call's attempts and time; its advances are lifted,
     # so that only the call's bound returns it.
-    patch.setattr(native_session, "CALL_ATTEMPTS", most)
-    patch.setattr(native_session, "CALL_SECONDS", seconds if seconds > 0 else 1e-300)
+    patch.setattr(records, "CALL_ATTEMPTS", most)
+    patch.setattr(records, "CALL_SECONDS", seconds if seconds > 0 else 1e-300)
     advance = native_session.NativeSession.advance
     calls = Calls()
 
@@ -335,5 +335,5 @@ def test_the_rejections_case_rejects_steps(build_simulation, tmp_path):
 
 def test_the_call_bound_is_the_documented_one():
     # `docs/guide/results/resuming.md` and `docs/dev/kernel-contract.md` state these.
-    bound = (native_session.CALL_ATTEMPTS, native_session.CALL_SECONDS)
+    bound = (records.CALL_ATTEMPTS, records.CALL_SECONDS)
     assert bound == (256, 0.1)

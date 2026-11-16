@@ -72,7 +72,10 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 - **Status:** accepted; amended by [SEP 47](seps/archive/sep-0047-run-ownership.md) §6.2, which
   removes the nominal `n_batch` from the single-trajectory seam: the state is
-  `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems
+  `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems; and by
+  [SEP 52](seps/sep-0052-backend-shape.md) §5.4, which removes the remaining leading axis
+  of one everywhere: the backends' state, the operator's value tables, the memory ledgers
+  and a march snapshot's stored state
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar
   vs vector polarisation and for mode-averaged vs modal propagation. Polarisation support must
   not slow single-polarisation runs; batch mode must be a first-class leading axis.

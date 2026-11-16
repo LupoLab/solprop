@@ -711,7 +711,7 @@ def _two_pulses(share: float, at: float) -> tuple[EnvelopeGrid, np.ndarray]:
         return np.exp(-(((t - centre) / 10e-15) ** 2)).astype(complex)
 
     state = math.sqrt(1.0 - share) * pulse(0.0) + math.sqrt(share) * pulse(at * t.max())
-    return grid, np.fft.fft(state)[None, None, None, :]
+    return grid, np.fft.fft(state)[None, None, :]
 
 
 def _launch_with(share: float, at: float) -> BoundaryMonitor:
@@ -788,16 +788,16 @@ def test_a_field_absorbed_to_nothing_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, :]), 0.0)
     residue = np.full(grid.n_t, 1e-12, dtype=complex)
-    monitor.step(monitor.energies(np.fft.fft(residue)[None, None, None, :]), 0.1)
+    monitor.step(monitor.energies(np.fft.fft(residue)[None, None, :]), 0.1)
     assert monitor.summary()["guard_low_max"] == 0.0
 
 
 def test_a_launch_with_no_light_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    dark = np.zeros((1, 1, 1, grid.n_t), dtype=complex)
+    dark = np.zeros((1, 1, grid.n_t), dtype=complex)
     monitor.launch(monitor.energies(dark), 0.0)
     monitor.step(monitor.energies(dark), 0.1)
     summary = monitor.summary()
@@ -814,9 +814,9 @@ def _split_monitor(
     check = BoundaryCheck(budget=1.0, stop_factor=1.0)
     monitor = BoundaryMonitor.build(grid, rate, check, split=True)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    spectrum = np.fft.fft(pulse)[None, None, None, :]
+    spectrum = np.fft.fft(pulse)[None, None, :]
     rng = np.random.default_rng(5)
-    draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, :]
     reading = monitor.energies(spectrum)
     monitor.launch(reading, 0.0, floor=draw if floor else None)
     # A step's reading carries what its split found: a centred pulse, clear of the
@@ -891,7 +891,7 @@ def test_the_in_stage_scheme_ignores_what_a_split_would_have_found() -> None:
         grid, np.full(grid.n_t, 10.0), BoundaryCheck(budget=1.0, stop_factor=1.0)
     )
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    reading = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
+    reading = monitor.energies(np.fft.fft(pulse)[None, None, :])
     monitor.launch(reading, 0.0)
     found = reading.total * np.array([1.0, 0.0, 0.1, 0.2])
     monitor.step(dataclasses.replace(reading, found=found), 0.1)
@@ -929,7 +929,7 @@ def test_a_plane_is_recorded_once() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, :]), 0.0)
     monitor.plane(0.0)
     monitor.plane(0.0)
     planes = monitor.summary()["planes"]
@@ -978,7 +978,7 @@ def test_with_noise_the_removed_fraction_is_still_the_signal_lost() -> None:
 def test_a_launch_of_the_floor_alone_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     rng = np.random.default_rng(3)
-    draw = np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    draw = np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, :]
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     with warnings.catch_warnings():
         warnings.simplefilter("error", BoundaryWarning)
@@ -1121,7 +1121,7 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     edge = np.exp(-(((grid.t - 0.97 * grid.t.max()) / 30e-15) ** 2)).astype(complex)
     spectrum = lambda samples: monitor.energies(  # noqa: E731
-        np.fft.fft(samples)[None, None, None, :]
+        np.fft.fft(samples)[None, None, :]
     )
     assert monitor.checked_at is None
     monitor.launch(spectrum(centred), 0.0)
@@ -1154,7 +1154,7 @@ def test_a_collar_returns_at_once_and_rests_again_only_after_quiet_checks() -> N
     # warning at this relaxed budget.
     near = 1e-3 * np.exp(-(((grid.t - 0.93 * grid.t.max()) / 30e-15) ** 2))
     spectrum = lambda samples: monitor.energies(  # noqa: E731
-        np.fft.fft(samples)[None, None, None, :]
+        np.fft.fft(samples)[None, None, :]
     )
     monitor.launch(spectrum(centred), 0.0)
     verdicts = []
@@ -1173,7 +1173,7 @@ def test_a_resting_collar_adds_no_removal() -> None:
     check = BoundaryCheck(budget=1.0, stop_factor=1.0)
     monitor = BoundaryMonitor.build(grid, rate, check)
     pulse = np.fft.fft(np.exp(-((grid.t / 50e-15) ** 2)).astype(complex))
-    state = pulse[None, None, None, :]
+    state = pulse[None, None, :]
     monitor.launch(monitor.energies(state), 0.0)
     monitor.note_collar(True)
     monitor.step(monitor.energies(state), 0.1)

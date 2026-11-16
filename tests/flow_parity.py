@@ -670,8 +670,7 @@ def flow_scales(
         generator = flow.n_deg * float(np.max(norms)) + float(np.max(norms[:, 0]))
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        # The backend's private state keeps its leading axis of one.
-        state = problem.initial.field0[np.newaxis]
+        state = problem.initial.field0
         bundle = backend._stage_scalars(0.0, 0.0)
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:

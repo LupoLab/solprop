@@ -149,7 +149,7 @@ class _Engine:
                 reason="scripted",
                 # A constant operator whose reference element turns by `rate` per
                 # metre: the chord's phase over a step is `rate` times its length.
-                chord=CarrierChord(constant=np.array([1j * rate])),
+                chord=CarrierChord(constant=np.array(1j * rate)),
             )
         )
 
@@ -351,7 +351,7 @@ class _Scripted:
     # The driver surface the march uses.
 
     def _adams_state(self) -> np.ndarray:
-        return np.zeros((1, 1, 1, 1), dtype=np.complex128)
+        return np.zeros((1, 1, 1), dtype=np.complex128)
 
     def _reserve_source_calls(self, count: int) -> None:
         pass

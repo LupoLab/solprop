@@ -140,7 +140,7 @@ def test_exponential_is_the_exact_linear_flow_without_a_source(
     )
     field, march, _ = run(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0] * start
     # A zero source leaves the flows' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
     assert ledger_of(march).rejected_steps == 0
@@ -372,7 +372,7 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
     observed = backend.observe().require_field()[0, 0]
     backend.close()
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0] * start
     np.testing.assert_allclose(
         observed, exact, rtol=0, atol=1e-12 * np.abs(start).max()
     )
@@ -574,7 +574,7 @@ def test_a_backend_without_the_lab_frame_source_refuses_the_formulation(driver):
     # Every shipped backend implements the hook; an external one that does not is
     # told which formulation to use instead.
     stub = SimpleNamespace(name="external")
-    lab = np.zeros((1, 1, 1, 4), dtype=complex)
+    lab = np.zeros((1, 1, 4), dtype=complex)
     with pytest.raises(BackendError, match="external does not execute"):
         driver._adams_lab_source(stub, lab, 0.0, purpose="startup")
 

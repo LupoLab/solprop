@@ -161,10 +161,7 @@ def parity_bound(problem, run_request, *, growth=2.0, transverse=1, depth=0):
         for a, b in itertools.pairwise(edges)
     )
     final = np.abs(delta_phi(problem.linear, float(edges[0]), float(edges[-1])))
-    # The exponent keeps the operator tables' leading axis of one.
-    argument = (
-        EPS * ARGUMENT_FACTOR * np.broadcast_to(swept + final, (1, *problem.shape))[0]
-    )
+    argument = EPS * ARGUMENT_FACTOR * np.broadcast_to(swept + final, problem.shape)
     bins = populated([problem.initial.field0], 1e-3)
     separable = problem.linear.separable
     roots = (

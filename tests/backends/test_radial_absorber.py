@@ -118,10 +118,10 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
             backend.set_initial(problem.initial.field0, None)
             backend._hoist(0.0)
             measured = backend._nonlinear(
-                problem.initial.field0[None],
+                problem.initial.field0,
                 backend._stage_scalars(0.0, 0.0),
-                np.ones((1, *problem.shape), complex),
-            )[0]
+                np.ones(problem.shape, complex),
+            )
         else:
             # The native state's own trial (``rk_trial`` on the uploaded stage
             # tables), loaded with the launch: its first stage is N(E, z=0).

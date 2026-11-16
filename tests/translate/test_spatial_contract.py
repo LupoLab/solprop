@@ -224,10 +224,10 @@ def test_separable_values_cover_propagating_cutoff_loss_and_gain(coefficients):
         prefactor[i, j] = -2j / root[i, j].real
     prefactor *= coefficients.active
     actual, measured_prefactor = separable_values(coefficients)
-    assert actual.shape == coefficients.value_shape == (1, 3, 2, 4)
-    assert_allclose(actual[0, :, 0], expected, rtol=gamma(16), atol=0)
+    assert actual.shape == coefficients.value_shape == (3, 2, 4)
+    assert_allclose(actual[:, 0], expected, rtol=gamma(16), atol=0)
     assert_allclose(measured_prefactor[:, 0], prefactor, rtol=gamma(16), atol=0)
-    np.testing.assert_array_equal(actual[0, :, 0], actual[0, :, 1])
+    np.testing.assert_array_equal(actual[:, 0], actual[:, 1])
 
 
 @pytest.mark.parametrize(

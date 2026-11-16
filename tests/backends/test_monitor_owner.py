@@ -36,6 +36,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from solprop.backends import records
 from solprop.backends.registry import available
 from solprop.boundaries import SPLIT_RATE_BUCKETS, SplitCrossing
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
@@ -56,6 +57,10 @@ def _modules() -> tuple[Any, Any]:
         importlib.import_module("solprop_native._core")._testing,
         importlib.import_module("solprop_native._watch"),
     )
+
+
+def _native_records() -> Any:
+    return importlib.import_module("solprop_native._records")
 
 
 def _grid() -> EnvelopeGrid:
@@ -86,7 +91,9 @@ class Pair:
         self.python = monitor
         self.watch = watch
         self.native = core.Monitor(
-            watch.monitor_config(monitor, monitor.crossing, can_rest=can_rest).native()
+            _native_records().monitor_config(
+                records.monitor_config(monitor, monitor.crossing, can_rest=can_rest)
+            )
         )
         self.can_rest = can_rest
         self.steps = 0
@@ -160,9 +167,9 @@ class Pair:
     def resume(self, record: dict | None, *, plane: bool, unwatched=()) -> None:
         self.python.resume(record, plane=plane, unwatched=unwatched)
         self.native.resume(
-            self.watch.resumption(record).native(),
+            _native_records().resumption(records.resumption(record)),
             plane,
-            self.watch.unwatched_of(unwatched),
+            [[float(start), float(end)] for start, end in unwatched],
         )
 
     def launch(self, energies: BoundaryEnergies, z: float, floor=None) -> int:
@@ -282,7 +289,7 @@ def _launch(pair: Pair, *, floor: np.ndarray | None = None) -> int:
     """Launch a centred pulse, its reading the host reduction's."""
     grid = _grid()
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    energies = pair.python.energies(np.fft.fft(pulse)[None, None, None, :])
+    energies = pair.python.energies(np.fft.fft(pulse)[None, None, :])
     if pair.python.split:
         energies = BoundaryEnergies(
             energies.total,
@@ -387,7 +394,7 @@ def test_a_resume_continues_the_record_as_solprop_does(
     pair.resume(record, plane=plane, unwatched=[(z, z + 1e-3), (z, z)])
     grid = _grid()
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    energies = pair.python.energies(np.fft.fft(pulse)[None, None, None, :])
+    energies = pair.python.energies(np.fft.fft(pulse)[None, None, :])
     pair.launch(energies, z)
     _, ended = _run(pair, then, z)
     pair.records()
@@ -480,7 +487,7 @@ def test_the_floor_s_split_removal_is_within_its_bound(steps, seed):
     floor = 1e-6 * (
         rng.standard_normal(grid.n_omega) + 1j * rng.standard_normal(grid.n_omega)
     )
-    if _launch(pair, floor=floor[None, None, None, :]) == STOP:
+    if _launch(pair, floor=floor[None, None, :]) == STOP:
         return
     _run(pair, steps)
     pair.records(floor_steps=pair.steps)
@@ -495,7 +502,7 @@ def test_light_after_a_launch_that_held_none_fails_alike():
     assert pair.launch(empty, 0.0) == NONE
     light = _energies(pair.python, 1.0, [0.0, 0.0, 0.0, 1e-3], 1.0)
     assert pair.step(light, 1e-3) == DIVIDE
-    notice = watch.Notice(watch.NoticeKind.DIVISION, False, 1e-3, 0.0, 0.0, 0.0)
+    notice = records.Notice(records.NoticeKind.DIVISION, False, 1e-3, 0.0, 0.0, 0.0)
     error = watch.notice_error(pair.python.check, notice)
     with pytest.raises(ZeroDivisionError) as raised:
         _ = 1.0 / 0.0
@@ -508,7 +515,6 @@ def test_light_after_a_launch_that_held_none_fails_alike():
 )
 def test_a_record_s_counts_are_read_alike(name, value):
     # A count that is not whole is refused by both resumes alike; a fraction truncates.
-    _, watch = _modules()
     earlier = Pair(_python(split=False, quiet=False), can_rest=False)
     _launch(earlier)
     record = earlier.python.summary()
@@ -522,5 +528,5 @@ def test_a_record_s_counts_are_read_alike(name, value):
     with pytest.raises(BoundaryError) as python:
         _python(split=False, quiet=False).resume(record, plane=False)
     with pytest.raises(BoundaryError) as native:
-        watch.resumption(record)
+        records.resumption(record)
     assert str(native.value) == str(python.value)

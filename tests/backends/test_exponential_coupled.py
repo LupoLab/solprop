@@ -52,7 +52,7 @@ def test_the_matrix_moments_are_the_integrals_they_stand_for():
     generator[np.tril_indices(3, -1)] *= 0.05
     vectors, triangular = schur_blocks(generator[:, :, np.newaxis])
     shift = -0.4 + 2.5j
-    exponent = np.full((1, 3, 1, 1), shift)
+    exponent = np.full((3, 1, 1), shift)
     block = CoupledBlock(
         active=np.array([True]), vectors=vectors, triangular=triangular, section=0
     )
@@ -81,7 +81,7 @@ def test_the_eigenbasis_route_matches_the_augmented_exponential():
     vectors, triangular = schur_blocks(np.moveaxis(generator, 0, -1))
     basis = schur_eigenbasis(vectors, triangular)
     assert basis[3].tolist() == [True, False]
-    exponent = np.full((1, 3, 1, 2), -0.3 + 4.0j)
+    exponent = np.full((3, 1, 2), -0.3 + 4.0j)
     reference = CoupledBlock(
         active=np.array([True, True]),
         vectors=vectors,
@@ -128,7 +128,7 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
         ),
         "no route": plain,
     }
-    exponent = np.full((1, 3, 1, 2), -0.3 + 4.0j)
+    exponent = np.full((3, 1, 2), -0.3 + 4.0j)
     shape = (3, *exponent.shape)
     rates = rng.normal(size=shape) + 1j * rng.normal(size=shape)
     states = rng.normal(size=shape) + 1j * rng.normal(size=shape)
@@ -145,12 +145,10 @@ def test_the_reference_carry_keeps_a_span_zero_sample_on_and_off_the_route():
     for row, span in enumerate(spans):
         for index in range(generator.shape[0]):
             action = expm(
-                span * (exponent[0, 0, 0, 0] * np.eye(3) + dz * generator[index])
+                span * (exponent[0, 0, 0] * np.eye(3) + dz * generator[index])
             )
-            term = (rates[row] - exponent / dz)[0, :, 0, index] * states[row][
-                0, :, 0, index
-            ]
-            unrouted[row, 0, :, 0, index] = action @ term
+            term = (rates[row] - exponent / dz)[:, 0, index] * states[row][:, 0, index]
+            unrouted[row, :, 0, index] = action @ term
     for name, block in blocks.items():
         expected = reference.carry_coupled(exponent, dz, rows, slots, spans, block)
         # The route forms W f(x + h lambda) Y where its absence forms the augmented
