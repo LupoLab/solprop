@@ -548,11 +548,10 @@ def test_the_loop_runs_without_a_simulation(narrow_grid, soliton):
 
 @pytest.mark.parametrize(
     ("save_planes", "message"),
-    [([1.0, 0.5], "positive and increasing"), ([0.0, 0.5], "saved anyway")],
+    [([1.0, 0.5], "must increase strictly"), ([0.5, 0.5], "repeats")],
 )
-def test_the_settings_refuse_save_planes_out_of_order_or_at_the_entrance(
-    save_planes, message
-):
+def test_the_settings_refuse_save_planes_out_of_order_or_repeated(save_planes, message):
+    # The entrance may be listed (SEP 51 D8): it is kept once, at adoption.
     with pytest.raises(DriverError, match=message):
         SimulationSettings(
             controller=PIController(rtol=1e-8, atol=1e-18),

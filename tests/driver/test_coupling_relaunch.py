@@ -16,6 +16,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import grid_at, held_collar
 from solprop.backends.registry import available
 from solprop.coupling import CouplingModel, couple
 from solprop.driver import Simulation, SimulationSettings
@@ -127,7 +128,11 @@ def test_an_interior_relaunch_continues_its_own_run(reference):
 
 
 def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
-    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+    window = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+    # A run ends at its grid's length (SEP 51): a stage runs on the window cut at its
+    # length, with the collar the whole two millimetres gave, so every stage and the
+    # whole run share one absorber.
+    grid = grid_at(window, length)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-10, atol=1e-16),
         save_planes=np.linspace(0.0, length, 3)[1:],
@@ -145,6 +150,7 @@ def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
         [],
         pulse,
         settings=settings,
+        absorber=held_collar(grid, window.length),
         noise=None,
     )
 
