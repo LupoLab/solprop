@@ -53,7 +53,14 @@ class CallbackOutput:
     crossed with. The field is as a backend produces it: in the internal FFT convention,
     in the square root of watts. A reduction of the squared modulus does not depend on
     the convention, and :func:`solprop.fourier.spectrum_to_optics` gives the form a file
-    stores, in a second volume.
+    stores, in a second volume. The array functions to reduce it with are
+    :func:`solprop.stats.energy`, :func:`solprop.stats.peak_power` and
+    :func:`solprop.stats.fwhm_t`, given the run's grid (``simulation.grid``) and
+    ``plane.field`` as it arrives: they take the internal convention the plane is in,
+    as the run's own statistics do, and no conversion is needed; the
+    :mod:`solprop.processing` readers of the same names read a stored run instead. Like
+    those readers they measure the squared amplitude, and the plane's own
+    ``plane.stats`` carries what the run recorded.
 
     The run's ``fields`` setting
     (:class:`~solprop.driver.settings.SimulationSettings`) decides what a plane
