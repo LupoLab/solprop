@@ -5,20 +5,17 @@
 """Grid data, masks, absorber rates and the noise field, in the kernel's layout.
 
 Everything a backend needs to know about the frequency axis and the time window, read
-from the grid and the absorber rather than recomputed: the two band masks, the spectral
-and temporal windows, the oversampling crop index and its two scale factors, the
-temporal absorber rates, and the shot-noise realisation in the canonical
-state layout.
+from :class:`solprop.grid.TimeGrid`, :class:`solprop.boundaries.Absorber` and
+:class:`solprop.noise.NoiseRealisation` rather than recomputed, so a mask can never
+disagree with the grid that produced it; nothing here computes physics.
 
-Section 2 of ``docs/dev/kernel-contract.md`` is the class :class:`Grids`, field for
-field; the temporal rates belong to section 5 and the noise field to section 6, so those
-are functions here and are stored by :mod:`solprop.translate.responses` and
-:mod:`solprop.translate.problem`.
-
-Nothing in this module computes physics. Every value is taken from
-:class:`solprop.grid.TimeGrid`, :class:`solprop.boundaries.Absorber` or
-:class:`solprop.noise.NoiseRealisation`, so a mask can never disagree with the grid that
-produced it.
+- :class:`Grids` (:func:`build_masks`): section 2 of ``docs/dev/kernel-contract.md``,
+  field for field -- the band masks, the spectral and temporal windows, the
+  oversampling crop index and its two scale factors.
+- :func:`temporal_rates`: the temporal absorber rates of the chosen
+  :data:`AbsorberScheme` (section 5, stored by :mod:`solprop.translate.responses`).
+- :func:`noise_spectrum`: the shot-noise realisation in the canonical state layout
+  (section 6, stored by :mod:`solprop.translate.problem`).
 """
 
 import logging
