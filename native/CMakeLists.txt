@@ -812,7 +812,7 @@ endif()
 
 add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
   src/general/checks.cpp src/general/setup.cpp src/general/trial.cpp
-  src/general/statistics.cpp src/general/state.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
+  src/general/statistics.cpp src/general/state.cpp src/general/memory.cpp src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
   src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
   src/session_edge.cpp src/dense.cpp src/workspace.cpp src/problem.cpp

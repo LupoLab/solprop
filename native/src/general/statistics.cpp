@@ -4,6 +4,7 @@
 
 // The general workspace's statistics and its boundary monitor's readings.
 
+#include "memory.hpp"
 #include "workspace.hpp"
 
 namespace solprop_native {
