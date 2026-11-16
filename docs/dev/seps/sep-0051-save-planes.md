@@ -702,6 +702,77 @@ them only to wrap a now-optional `save_planes` for the type checker.
 list over `grid.length`: the settings metadata now offers `n_save` beside `save_planes`
 (an array only), and the resolved planes always end at the length.
 
+### Phase 2 — Front end
+
+**Scope.** 2026-11-16; Opus 5.5 (AI) for John Travers; branch
+`feature/sep-0051-gui`, on phase 1, commits from `3646b0e5` (the sheets) to the commit
+that appends this report.
+
+**Delivered.**
+
+- `gui/src/solprop_gui/classes/problem.py`: `Field.positions` replaces `planes_over` and
+  `moves_planes`. A saved-planes row reads the positions a recipe lists, or else its
+  count, and never turns a list into its count; its change writes a list as the
+  positions and anything else as the count, and unsets the other selector in the same
+  change. `even_planes` and the length row's rewriting of the list are removed.
+  `sheet_paths` and `other_keywords` count the positions as the row's, so the keyword
+  routes' `save_planes` leaves Advanced.
+- `gui/src/solprop_gui/classes/catalog.py`: every class's "Saved planes" row is
+  `n_save` with `positions="save_planes"`, at the top level on the keyword routes and in
+  `settings` on the object routes; the object sheets' length rows no longer move planes.
+- `gui/src/solprop_gui/ui/fields.py`: a row may name its forms (`mode_titles`); its
+  picker then shows them on a sheet, its text editor shows only what no other editor
+  holds, and leaving the text as shown writes nothing, so switching forms never replaces
+  a value by itself. `ParameterRow.current_mode` is new.
+- `gui/src/solprop_gui/ui/sheet.py`: the row offers "Evenly spaced" (the count's integer
+  form) and "Explicit positions" (the positions' array form, as inline TOML). One value
+  typed as positions is a list of one. An issue on the positions shows at the row.
+- Tests: `gui/tests/test_classes.py` (both forms on every class, at the route's level; a
+  uniform and a non-uniform loaded list shown as lists; each form replacing the other,
+  and clearing both; a length change moving the length alone; a count on the filament
+  built by solprop, ending at the shortened length, and a position beyond it refused at
+  `settings.save_planes`). `gui/tests/test_ui_workflow.py` (the keyword sheet: it opens
+  on its count; a length change keeps the count; switching forms writes nothing until an
+  entry; the entry replaces the count in one undoable edit, undone and redone; a lone
+  position; a position beyond a shortened length shown at the row and the Ready line;
+  save and reopen on the positions; back to a count; a non-uniform list opening as
+  itself; and the filament's object sheet opening its listed planes as explicit
+  positions, replaced by a count and restored by one undo). Every step checks that the
+  recipe never holds both selectors.
+- Pages: `docs/guide/front-end/first-run.md` (the row's two forms),
+  `docs/dev/gui/design.md` (W3's rows and the numerics line), and a front-end sentence
+  in `changelog.d/sep-0051-save-planes.changed.md`.
+
+**Deviations from the proposal.** None in behaviour. One reading of §5.10: switching
+the picker shows the other form's editor, empty, and the first entry there is the one
+undoable edit that writes it and removes the other selector. A switch alone writes
+nothing, because a count has no positions to show and a list has no count (D7), so
+neither can be written for the user.
+
+**Verification.** On the Xeon, through Slurm, one thread per worker: `ruff format`,
+`ruff check`, codespell on the touched files, `poe gui-types` (0 errors) and
+`poe gui-docstrings` pass; `tests/test_classes.py` and the doctests of
+`solprop_gui.classes` and `ui/fields.py` (91 passed); the whole front-end suite without
+coverage, 440 passed: 433 in one run, and the seven that start a run passed when rerun
+with the Slurm job's environment unset (inside a Slurm job, a run's worker records
+itself as a Slurm job, which the window then cannot follow; they fail the same way on
+phase 1's commit). `tests/test_seps.py`, `poe changelog-check` and the Sphinx build
+(`-W -n`) pass; the build first failed on a cross-reference phase 1 added to
+`guide/setup/recipes.md` (`solprop.recipe.RecipeError`, documented as
+`solprop.recipe.errors.RecipeError`), corrected in its own commit. Not run locally: `gui-test` with coverage (the 100 % bar on
+`classes`), which CI runs.
+
+**Sources checked.** None needed.
+
+**Limitations.** The positions are typed as inline TOML (`["5 cm", "10 cm"]`), as
+Advanced edits them; a friendlier list editor is not part of this phase. Advanced's
+`settings` editor on the object routes still shows `n_save` and `save_planes` side by
+side, so a recipe edited there can hold both, which solprop's check refuses at the row.
+
+**Cost** (`git diff --numstat` against `ccadb278`): front-end code +133 −88
+(`classes` +47 −68), tests +206 −20, pages +17 −2 and the changelog +5. The proposal
+estimated about 60 lines removed plus the new field and its tests.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, after the investigation of #533 found that no route ties the
@@ -715,6 +786,7 @@ list over `grid.length`: the settings metadata now offers `n_save` beside `save_
 - 2026-11-15: Implementation started on `feature/sep-0051-save-planes`.
 - 2026-11-16: Phase 1 (driver and recipes) reported in Part II, with an interim
   deviation on keyword-only `length` pending with the maintainer.
+- 2026-11-16: Phase 2 (front end) reported in Part II, on `feature/sep-0051-gui`.
 
 ### AI review — 2026-11-15
 
