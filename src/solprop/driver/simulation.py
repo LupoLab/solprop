@@ -33,7 +33,6 @@ import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
@@ -705,14 +704,14 @@ class Simulation(Displayed):
         return self._noise_resolution
 
     @property
-    def profiles(self) -> Mapping[str, ZProfile]:  # numpydoc ignore=RT01
-        """The z-profiles keyed by statistic name, read-only."""
-        return MappingProxyType(self._profiles)
+    def profiles(self) -> dict[str, ZProfile]:  # numpydoc ignore=RT01
+        """The z-profiles keyed by statistic name, as a copy that changes nothing."""
+        return dict(self._profiles)
 
     @property
-    def configuration(self) -> Mapping[str, object]:  # numpydoc ignore=RT01
-        """The extra provenance the run records, read-only."""
-        return MappingProxyType(self._configuration)
+    def configuration(self) -> dict[str, object]:  # numpydoc ignore=RT01
+        """The extra provenance the run records, as a copy that changes nothing."""
+        return dict(self._configuration)
 
     @property
     def spatial_grid(  # numpydoc ignore=RT01

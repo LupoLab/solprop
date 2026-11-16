@@ -7,6 +7,7 @@
 import contextlib
 import dataclasses
 import math
+import pickle
 import subprocess
 import sys
 import warnings
@@ -101,14 +102,18 @@ def test_assigning_what_a_simulation_is_built_from_is_refused(build_simulation, 
     assert getattr(simulation, name) is before or name in ("profiles", "configuration")
 
 
-def test_the_recorded_mappings_are_read_only(build_simulation):
-    """Changing the configuration or profiles in place would change the record alone."""
+def test_the_recorded_mappings_are_copies(build_simulation):
+    """Changing the configuration or profiles in place would change the record alone,
+    so each read is a plain copy: picklable, and changing it changes nothing."""
     simulation = build_simulation(n_save=2)
-    with pytest.raises(TypeError):
-        simulation.configuration["label"] = "changed"  # pyright: ignore[reportIndexIssue]
-    with pytest.raises(TypeError):
-        simulation.profiles["density"] = Constant(1.0)  # pyright: ignore[reportIndexIssue]
+    configuration = simulation.configuration
+    configuration["label"] = "changed"
+    profiles = simulation.profiles
+    profiles["density"] = Constant(1.0)
+    assert "label" not in simulation.configuration
+    assert "density" not in simulation.profiles
     assert "label" not in simulation.metadata().configuration
+    pickle.dumps((simulation.configuration, simulation.profiles))
 
 
 def test_with_input_derives_the_run_a_new_pulse_makes(build_simulation):
