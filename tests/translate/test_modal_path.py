@@ -21,6 +21,7 @@ from solprop.backends.numpy_ref.general_modal import GeneralMaps
 from solprop.exceptions import BackendError, ModeError
 from solprop.modes.connection import band_connection, modal_connection
 from solprop.modes.guide import ModalGuide, ModalPath, ProviderChannelMode
+from solprop.modes.tables import sample_modal_table
 from solprop.modes.vector import ModalNodeRule, flux_product
 from solprop.profiles import Linear, PiecewiseLinear
 from solprop.translate.modal_path import (
@@ -36,11 +37,7 @@ from solprop.translate.modal_path import (
     transform_section,
     transform_weights,
 )
-from solprop.translate.modal_tables import (
-    _projection_map,
-    modal_transform_tables,
-    sample_modal_table,
-)
+from solprop.translate.modal_tables import modal_transform_tables, projection_map
 
 LENGTH = 1e-3
 """Length of every declared path here, m: a millimetre."""
@@ -412,7 +409,7 @@ def test_the_maps_reproduce_each_sampled_snapshot_and_a_fresh_solve_between(
     projected = np.tensordot(weights, projection[..., column], axes=1)
     budget = sampling.path.z_error + sampling.profile_error
     assert float(np.max(abs(synthesised - sample.electric))) <= budget * scale
-    expected = _projection_map(sample, rule.weights)
+    expected = projection_map(sample, rule.weights)
     assert float(np.max(abs(projected - expected))) <= (
         budget + fresh.gram_defect
     ) * float(np.max(abs(expected)))

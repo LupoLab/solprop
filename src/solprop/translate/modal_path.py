@@ -64,6 +64,13 @@ from solprop._ownership import frozen_copy
 from solprop.exceptions import ModeError
 from solprop.modes.connection import ModalConnection, band_connection
 from solprop.modes.guide import ChannelBasis
+from solprop.modes.tables import (
+    DEFAULT_GRAM_ATOL,
+    MIN_OVERLAP_DOMINANCE,
+    DenseModalTable,
+    apply_channel_basis,
+    cross_poynting,
+)
 from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample, flux_product
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,
@@ -72,14 +79,9 @@ from solprop.translate.chebyshev import (
     refinement_points,
 )
 from solprop.translate.modal_tables import (
-    DEFAULT_GRAM_ATOL,
-    MIN_OVERLAP_DOMINANCE,
-    DenseModalTable,
     ModalTransformTables,
-    _coordinate_dual,
-    _overlap,
-    _projection_map,
-    apply_channel_basis,
+    coordinate_dual,
+    projection_map,
 )
 
 __all__ = [
@@ -274,7 +276,7 @@ def _check_gauge(
     reference: ModalSample, sample: ModalSample, nodes: ModalNodeRule, where: str
 ) -> None:
     """Refuse a provider whose own gauge is not continuous between two samples."""
-    overlap = _overlap(reference, sample, nodes)
+    overlap = cross_poynting(reference, sample, nodes)
     diagonal = np.diag(overlap)
     size = np.abs(overlap)
     off = size - np.diag(np.abs(diagonal))
@@ -307,7 +309,7 @@ def path_snapshot(
 ) -> DenseModalTable:
     """Solve one position of a path over the band, in the provider's own gauge.
 
-    Unlike :func:`solprop.translate.modal_tables.sample_modal_table` the knots are
+    Unlike :func:`solprop.modes.tables.sample_modal_table` the knots are
     **not** aligned to one another: they are kept exactly as the provider returns
     them, with the gauge's continuity across the band checked instead
     (:data:`GAUGE_PHASE_ATOL`), because the connection a moving guide is propagated
@@ -333,7 +335,7 @@ def path_snapshot(
 
     Returns
     -------
-    solprop.translate.modal_tables.DenseModalTable
+    solprop.modes.tables.DenseModalTable
         A snapshot table at `z`.
 
     Raises
@@ -380,7 +382,7 @@ class ModalPathTable(Displayed):
     degree : int
         The Chebyshev degree along z every section is sampled at, at least one; each
         section holds ``degree + 1`` positions, its two ends included.
-    tables : tuple of solprop.translate.modal_tables.DenseModalTable
+    tables : tuple of solprop.modes.tables.DenseModalTable
         One snapshot per position, section by section and increasing inside each, so
         a position on an edge between two sections appears twice, as the end of one
         and the start of the next.
@@ -480,7 +482,7 @@ class ModalPathTable(Displayed):
 
         Returns
         -------
-        tuple of solprop.translate.modal_tables.DenseModalTable
+        tuple of solprop.modes.tables.DenseModalTable
             Its ``degree + 1`` snapshots.
         """
         width = self.degree + 1
@@ -915,7 +917,7 @@ def path_transform_tables(
             for column in np.flatnonzero(inside):
                 sample = table.evaluate(float(coarse[column]), float(table.z[0]))
                 synthesis[section, position, :, :, :, column] = sample.electric
-                projection[section, position, :, :, :, column] = _projection_map(
+                projection[section, position, :, :, :, column] = projection_map(
                     sample, weights
                 )
     synthesis = section_coefficients(synthesis)
@@ -940,7 +942,7 @@ def path_transform_tables(
             sample = table.evaluate(float(coarse[column]), float(table.z[0]))
             electric[row, :, :, :, column] = sample.electric
             magnetic[row, :, :, :, column] = sample.magnetic
-            dual[row, :, :, :, column] = _coordinate_dual(sample, table.nodes.weights)
+            dual[row, :, :, :, column] = coordinate_dual(sample, table.nodes.weights)
             if backward[0] is not None and backward[1] is not None:
                 backward[0][row, :, :, :, column] = sample.backward_electric
                 backward[1][row, :, :, :, column] = sample.backward_magnetic
@@ -1061,7 +1063,7 @@ def in_frequency(
     """Return knot values interpolated onto a run's bins, zero outside the band.
 
     The same not-a-knot cubic in frequency the dense tables interpolate their fields
-    with (:class:`solprop.translate.modal_tables.DenseModalTable`), so a connection and
+    with (:class:`solprop.modes.tables.DenseModalTable`), so a connection and
     the maps it is propagated beside are carried onto the run's grid alike.
 
     Parameters

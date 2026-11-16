@@ -281,7 +281,7 @@ def modal_kerr_coefficient(
     projection map -- rather than by one. Passing `metric` makes this coefficient
     the same statement as that run's, to rounding, instead of one that differs by
     the basis's departure from orthonormal. A
-    table built by :func:`solprop.translate.modal_tables.sample_modal_table` gates
+    table built by :func:`solprop.modes.tables.sample_modal_table` gates
     that departure at ``DEFAULT_GRAM_ATOL`` and reports it, and a caller assembling
     a rule by hand checks it itself.
 

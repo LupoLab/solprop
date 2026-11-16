@@ -880,7 +880,7 @@ def orthonormal_metric(
     """Build the identity metric of a basis certified orthonormal in true power.
 
     A Poynting-normalised bound basis whose sampled Gram passed the construction
-    gate of :class:`solprop.translate.modal_tables.DenseModalTable` has ``W = I`` to
+    gate of :class:`solprop.modes.tables.DenseModalTable` has ``W = I`` to
     within that gate's budget, so the metric owns no coefficient array at all and the
     measured defect is what the error row carries. The extreme eigenvalues are one: a
     certified positive metric, which is what the noise draw and the controller norm

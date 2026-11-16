@@ -24,10 +24,10 @@ from solprop.modes.guide import (
 )
 from solprop.modes.material import IndexMaterial, MaterialKerr, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.profiles import ZProfile
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import sample_modal_table
 
 WAVELENGTH = 835e-9
 OMEGA = 2 * np.pi * C / WAVELENGTH

@@ -54,6 +54,7 @@ from solprop import fourier, stats
 from solprop.exceptions import ModeError, OutputError, TranslationError
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.modes.vector import ModalNodeRule
 from solprop.output.capability import capability_of, refusal_for, withheld_from
 from solprop.output.metadata import RunMetadata
@@ -63,7 +64,7 @@ from solprop.processing.axes import _plane_field, _plane_index, grid_of
 from solprop.translate import general
 from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
 from solprop.translate.modal_path import path_rule, path_snapshot
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.modal_tables import ModalTransformTables
 
 __all__ = [
     "channel_amplitudes",

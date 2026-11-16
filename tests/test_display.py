@@ -52,6 +52,7 @@ from solprop.modes import (
 from solprop.modes.connection import ModalConnection
 from solprop.modes.guide import ModalPath, circular_pair
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import sample_modal_table
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.optics import Chain, ChirpedMirror, Material, TaylorPhase
 from solprop.output.hdf5 import open_file, resume
@@ -86,7 +87,6 @@ from solprop.translate.modal_path import sample_modal_path
 from solprop.translate.modal_tables import (
     modal_transform_tables,
     project_transverse_field,
-    sample_modal_table,
 )
 from solprop.translate.responses import (
     RegionalResponseTables,

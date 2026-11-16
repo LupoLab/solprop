@@ -71,6 +71,7 @@ from solprop.modes.guide import (
     provider_channels,
 )
 from solprop.modes.material import MaterialKerr
+from solprop.modes.tables import apply_channel_basis, channel_area
 from solprop.nonlinear.gnlse import GnlseProblem, SpecifiedMode, _warn_surrogate_area
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.output.hdf5 import check_cache, resume
@@ -92,7 +93,6 @@ from solprop.translate.assembly import _carrier
 from solprop.translate.coupled import flow_weights, residual_truncation
 from solprop.translate.general import general_modal_route
 from solprop.translate.modal_path import path_rule, path_snapshot
-from solprop.translate.modal_tables import apply_channel_basis, channel_area
 from solprop.translate.stage import scalars
 from solprop.translate.validation import MOVING_FLOW_CERTIFICATE
 

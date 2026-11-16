@@ -16,13 +16,12 @@ from modal_provider_cases import OMEGA, make_provider
 from solprop.exceptions import ModeError
 from solprop.modes.guide import StepIndexProvider
 from solprop.modes.material import MaterialRegion
+from solprop.modes.tables import DenseModalTable, sample_modal_table
 from solprop.profiles import Linear
 from solprop.translate.modal_tables import (
-    DenseModalTable,
     ModalTransformTables,
     modal_transform_tables,
     project_transverse_field,
-    sample_modal_table,
 )
 
 
@@ -208,7 +207,7 @@ def test_the_maps_are_the_reference_fields_and_the_reciprocal_projection(referen
     """S is the stored profile; Q carries W^-1, the weights and the 1/4.
 
     This is a **wiring** test and not a physical one: it asserts that the constructor
-    puts the fields and the projection functional of `_projection_map` in the axes the
+    puts the fields and the projection functional of `projection_map` in the axes the
     record declares, in the order a backend reads them. What the projection *is* --
     the source functional of a bound reciprocal basis,
     `da_m/dz = -i omega [W^-1]_mn int(e_n* . P) dA / 4`, with the `-i omega` held

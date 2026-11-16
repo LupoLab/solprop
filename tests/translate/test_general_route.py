@@ -36,6 +36,7 @@ from solprop.modes import StepIndexMode
 from solprop.modes.guide import ModalGuide, StepIndexProvider
 from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.quadrature import quadrature_rule
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata.glasses import bk7
@@ -52,7 +53,6 @@ from solprop.translate.general import (
     occupancy_weight,
 )
 from solprop.translate.modal import general_modal_transform
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL
 from solprop.translate.problem import debug_summary
 from solprop.translate.responses import (
     KerrForm,

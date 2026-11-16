@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop.exceptions import TranslationError
+from solprop.modes.tables import DEFAULT_GRAM_ATOL
 from solprop.translate.coupled import CoupledFlowTables, ModalMetricTables
 from solprop.translate.general import (
     MAX_DENSE_METRIC_DEPARTURE,
@@ -27,7 +28,7 @@ from solprop.translate.general import (
     metric_departure,
 )
 from solprop.translate.linop import LinearOperator
-from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL, ModalTransformTables
+from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.responses import RegionalResponseTables
 
 if TYPE_CHECKING:

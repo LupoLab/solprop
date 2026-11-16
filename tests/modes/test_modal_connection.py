@@ -495,7 +495,7 @@ def test_the_connection_is_taken_in_the_declared_channel_basis():
     """A declared unitary basis reaches the connection as it reaches the tables.
 
     The transform is applied after the tracking gauge, in the same fixed order
-    :func:`solprop.translate.modal_tables.composed_gauge` documents, so the
+    :func:`solprop.modes.tables.composed_gauge` documents, so the
     connection is ``U^H Gamma U`` -- a similarity, because a *constant* declaration
     adds no term of its own.
     """

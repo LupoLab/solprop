@@ -29,13 +29,13 @@ from solprop.modes.guide import (
 )
 from solprop.modes.material import IndexMaterial, MaterialKerr, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
-from solprop.modes.tabulated import _SampledIndexTable
+from solprop.modes.tables import channel_area
+from solprop.modes.tabulated import SampledIndexTable
 from solprop.modes.vector import ModalNodeRule, ModalProvider
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.physdata import fused_silica
 from solprop.polarisation import stokes
 from solprop.profiles import Linear
-from solprop.translate.modal_tables import channel_area
 
 
 @pytest.fixture(scope="module")
@@ -678,7 +678,7 @@ def test_the_surrogate_area_of_a_guide_channel_comes_from_the_median_knot():
         # median over this +-2 % band, 25 % over +-20 % and 66 % over +-40 %.
         assert 1.015 < channel_area(lowest, nodes, channel) / mode.aeff() < 1.025
         table = cast("ProviderChannelMode", mode).table
-        identity = dict(cast("_SampledIndexTable", table).source_identity)
+        identity = dict(cast("SampledIndexTable", table).source_identity)
         assert identity["channel_area_omega"] == float(omega[middle])
 
 

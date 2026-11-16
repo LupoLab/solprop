@@ -53,6 +53,7 @@ from solprop.modes.material import (
     quantised_measurement,
 )
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.tables import DEFAULT_GRAM_ATOL, DenseModalTable, sample_modal_table
 from solprop.nonlinear.mixtures import electronic_response
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import DispersiveKerrResponse, KerrResponse
@@ -68,13 +69,7 @@ from solprop.translate.coupled import (
     orthonormal_metric,
 )
 from solprop.translate.linop import DEFAULT_MARGIN, profile_table
-from solprop.translate.modal_tables import (
-    DEFAULT_GRAM_ATOL,
-    DenseModalTable,
-    ModalTransformTables,
-    modal_transform_tables,
-    sample_modal_table,
-)
+from solprop.translate.modal_tables import ModalTransformTables, modal_transform_tables
 from solprop.translate.responses import (
     DELAYED_MODEL_ID,
     KERR_MODEL_FORMS,
@@ -122,7 +117,7 @@ and a nonunitary transform does not.
 
 **The number.** The quantity is measured on the run's own coarse grid, **between**
 the table's knots, where an interpolated basis is further from orthonormal than at
-the knots :data:`solprop.translate.modal_tables.DEFAULT_GRAM_ATOL` gates: the weakly
+the knots :data:`solprop.modes.tables.DEFAULT_GRAM_ATOL` gates: the weakly
 guiding fixture of ``tests/driver/test_general_modal.py``, whose knot defect is
 6.97e-8, reaches 1.136e-4 there at 13 knots -- three orders apart. So this budget
 cannot be the knot budget.
@@ -146,8 +141,8 @@ departure a provider here produces; it is a factor of a few above a poorly sampl
 one and three orders below the order-one departure a nonunitary transform produces,
 which is the departure it exists to catch. It is the loosest of the three gates a
 declared basis passes -- the declaration's own 1e-12 unitarity budget
-(:data:`solprop.modes.guide.BASIS_UNITARY_ATOL`), which the per-knot invariance
-check of :func:`solprop.translate.modal_tables.apply_channel_basis` takes as its own
+(:data:`solprop.modes.vector.BASIS_UNITARY_ATOL`), which the per-knot invariance
+check of :func:`solprop.modes.tables.apply_channel_basis` takes as its own
 floor, is the tight one -- and it is the one a **backend** can apply, since it sees
 the stored block and not the declaration.
 """
@@ -187,7 +182,7 @@ class GeneralModalRoute(Displayed):
     **The metric is the identity unless a basis is declared.** A guide built in the
     provider's own coordinates is a Poynting-normalised orthogonal basis whose
     sampled Gram passed the construction gate of
-    :class:`solprop.translate.modal_tables.DenseModalTable`, so ``W = I`` to within
+    :class:`solprop.modes.tables.DenseModalTable`, so ``W = I`` to within
     `gram_defect` and the route declares the identity. A guide that declares a
     unitary change of basis (:class:`solprop.modes.guide.ChannelBasis`) carries the
     **dense** metric `metric_tables` instead: ``W' = U.H W U`` is the identity in
@@ -237,9 +232,9 @@ class GeneralModalRoute(Displayed):
         whether it will. Zero on a record assembled by hand.
     gram_atol : float
         Largest defect this route will call the identity, dimensionless and
-        positive; :data:`solprop.translate.modal_tables.DEFAULT_GRAM_ATOL` by
+        positive; :data:`solprop.modes.tables.DEFAULT_GRAM_ATOL` by
         default, which is the budget
-        :class:`~solprop.translate.modal_tables.DenseModalTable` gates its own
+        :class:`~solprop.modes.tables.DenseModalTable` gates its own
         sampling with. A defect above it is refused here rather than propagated: the
         route **is** the statement ``W = I``, and on a continuous wave the resulting
         error in ``da/dz`` is ``|1/W_00 - 1|``, which is the defect itself to first
@@ -1153,7 +1148,7 @@ def coupled_block(
     flow and this returns ``None``: the ordinary route, untouched. A declared
     unitary basis of a **split** block does not, because ``U.H diag(beta) U`` is
     diagonal only where the block's propagation constants are equal
-    (:func:`solprop.translate.modal_tables.apply_channel_basis`), and then what the
+    (:func:`solprop.modes.tables.apply_channel_basis`), and then what the
     run propagates is a matrix flow.
 
     What is returned is the whole generator **less** ``reference``'s own diagonal
@@ -1170,7 +1165,7 @@ def coupled_block(
 
     Parameters
     ----------
-    table : solprop.translate.modal_tables.DenseModalTable
+    table : solprop.modes.tables.DenseModalTable
         The tracked reference, in whatever basis was declared on it.
     grid : solprop.grid.TimeGrid
         The run's field grid, whose coarse bins the block is tabulated on.
@@ -1195,7 +1190,7 @@ def coupled_block(
     >>> import numpy as np
     >>> from solprop.grid import FieldGrid
     >>> from solprop.translate.general import coupled_block
-    >>> from solprop.translate.modal_tables import sample_modal_table
+    >>> from solprop.modes.tables import sample_modal_table
     >>> from solprop.modes.guide import ModalGuide
     >>> from solprop.modes.stepindex import StepIndexMode
     >>> from solprop.modes.material import IndexMaterial, MaterialRegion
@@ -1444,7 +1439,7 @@ def interpolated_gram(
 
     Parameters
     ----------
-    table : solprop.translate.modal_tables.DenseModalTable
+    table : solprop.modes.tables.DenseModalTable
         The tracked reference, in whatever basis it was built in.
     tables : solprop.translate.modal_tables.ModalTransformTables
         The flat record, whose coarse grid the block is sampled on.
