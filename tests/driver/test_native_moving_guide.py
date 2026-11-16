@@ -77,14 +77,14 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen():
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     bound = moving_parity_bound(case, expected, linear)
     backend = NumpyRefBackend(case.problem, case.run_request, grid=case.grid)
-    single = backend._stage_scalars
+    single = backend.workspace.stage_scalars
 
     def frozen(z0, z1):
         first = single(z0, z0).transform_weights
         return dataclasses.replace(single(z0, z1), transform_weights=first)
 
-    # The reference's trial reads each stage's bundle through `_stage_scalars`.
-    backend._stage_scalars = frozen
+    # The reference's trial reads each stage's bundle through `stage_scalars`.
+    backend.workspace.stage_scalars = frozen
     try:
         backend.set_initial(case.problem.initial.field0, None)
         backend.propagate_to(case.length)

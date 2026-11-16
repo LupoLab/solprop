@@ -15,7 +15,7 @@ import dataclasses
 import importlib
 import importlib.util
 from collections.abc import Callable
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -336,7 +336,7 @@ def test_a_borrowed_observed_field_is_detached(case):
         # The observation's own array stays frozen; a fresh export is the caller's.
         assert held.flags.writeable
         assert not np.shares_memory(held, seen[-1].field)
-        state = cast("HostDriver[np.ndarray]", stepping)._state
+        state = cast("Any", stepping).workspace.state
         assert not np.shares_memory(held, state)
     finally:
         session.close()

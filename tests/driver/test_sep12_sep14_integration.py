@@ -5,6 +5,7 @@
 """Keep atomic budgets and checkpoints intact across the shared Adams march."""
 
 import dataclasses
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -178,7 +179,9 @@ def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulat
         initial = backend.observe()
         assert backend._adams is not None
         # The interaction formulation's fused path, or the exponential one's own.
-        assert (backend._adams._exponential is None) is (formulation == "interaction")
+        assert (cast("Any", backend._adams._engine)._exponential is None) is (
+            formulation == "interaction"
+        )
         with pytest.raises(BackendError, match="predictor chunk failure"):
             backend.propagate_to(simulation.grid.length)
         actual = backend.observe()

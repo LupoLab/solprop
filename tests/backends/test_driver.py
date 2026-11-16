@@ -99,7 +99,7 @@ def test_a_rejected_step_is_recorded_and_not_kept(driver):
     # 5.0 is far above the controller's threshold of one, so the first step is refused
     # and the second, from the same position, is taken.
     made = driver(norms=[5.0, 0.1], factor=2.0)
-    before = present(made._state).copy()
+    before = present(made.workspace.state).copy()
     made.propagate_to(LENGTH)
     observed = made.observe()
     assert not bool(observed.step_history.accepted[0])
@@ -196,26 +196,21 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
 
 def test_a_replay_that_runs_out_says_so(scripted, soliton_problem, narrow_grid):
     """A schedule too short for the target is an error, not a quiet stop."""
-    full, full_request = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
-        save_planes=[LENGTH],
+        save_planes=[LENGTH / 2, LENGTH],
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
-    )
-    # The operator table still covers the whole run, so the guard that fires is the
-    # schedule's own and not the table's.
-    problem = full
-    run_request = full_request.with_stepper(
-        dataclasses.replace(
-            full_request.stepper,
-            schedule=FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8),
-        )
     )
     made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH / 2)
+    # The operator table still covers the whole run, so the guard that fires is the
+    # schedule's own and not the table's: the march replays a schedule that ends at
+    # the plane it stands on (the translation refuses one that misses a save plane).
+    short = FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8)
     with pytest.raises(BackendError, match="cannot reach"):
-        made.propagate_to(LENGTH)
+        made._march.replay_to(short, LENGTH)
 
 
 def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
@@ -290,9 +285,9 @@ def test_the_input_noise_model_adds_its_realisation_once(
     resumed = scripted(problem, run_request, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
-    assert not np.array_equal(present(entrance._state), masked)
-    assert np.array_equal(present(resumed._state), masked)
-    assert entrance._noise is None
+    assert not np.array_equal(present(entrance.workspace.state), masked)
+    assert np.array_equal(present(resumed.workspace.state), masked)
+    assert entrance.workspace.noise is None
 
 
 def test_the_modified_noise_model_keeps_its_realisation_apart(
@@ -308,14 +303,17 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
     made = scripted(problem, run_request, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert np.array_equal(
-        present(made._state), problem.initial.field0 * problem.grids.active_mask
+        present(made.workspace.state),
+        problem.initial.field0 * problem.grids.active_mask,
     )
-    drawn = present(made._noise)
-    advanced = present(made._noise_at(made._stage_scalars(0.0, LENGTH / 2)))
+    drawn = present(made.workspace.noise)
+    advanced = present(
+        made.workspace.noise_at(made.workspace.stage_scalars(0.0, LENGTH / 2))
+    )
     # Dispersion yes, loss and gain no: the magnitude is untouched by the advance.
     assert np.allclose(np.abs(advanced), np.abs(drawn))
     assert not np.array_equal(advanced, drawn)
-    assert present(made._noise_phase()).shape == problem.shape
+    assert present(made.workspace.noise_phase(made._z)).shape == problem.shape
 
 
 def test_a_given_realisation_replaces_the_contract_s(
@@ -333,17 +331,19 @@ def test_a_given_realisation_replaces_the_contract_s(
         problem.initial.field0,
         modified_noise(narrow_grid, np.random.default_rng(11)),
     )
-    assert not np.array_equal(present(made._noise), problem.initial.noise0)
+    assert not np.array_equal(present(made.workspace.noise), problem.initial.noise0)
 
 
 def test_a_run_without_noise_reports_no_phase(driver, narrow_grid):
     """``noise_model = "none"`` has neither a realisation nor a phase to report."""
     made = driver()
+    workspace = made.workspace
     assert (
-        made._noise_field(modified_noise(narrow_grid, np.random.default_rng(3))) is None
+        workspace._noise_field(modified_noise(narrow_grid, np.random.default_rng(3)))
+        is None
     )
-    assert made._noise_phase() is None
-    assert made._noise_at(made._stage_scalars(0.0, 0.0)) is None
+    assert workspace.noise_phase(made._z) is None
+    assert workspace.noise_at(workspace.stage_scalars(0.0, 0.0)) is None
 
 
 def test_the_guards_refuse_what_cannot_be_done(
@@ -382,9 +382,10 @@ def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
     problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
     made = scripted(problem, run_request)
     with pytest.raises(BackendError, match="'scripted'"):
-        made._require_grid()
+        made.workspace._require_grid()
     assert (
-        scripted(problem, run_request, grid=narrow_grid)._require_grid() is narrow_grid
+        scripted(problem, run_request, grid=narrow_grid).workspace._require_grid()
+        is narrow_grid
     )
 
 
@@ -444,7 +445,7 @@ def test_started_is_announced_once_per_load_and_a_resume_announces_it_again(driv
     assert reporter.order.count("started") == 1
     assert reporter.extent == (0.0, LENGTH, 2)
 
-    made.set_initial(present(made._state), None, z=LENGTH / 2)
+    made.set_initial(present(made.workspace.state), None, z=LENGTH / 2)
     made.propagate_to(LENGTH)
     assert reporter.order.count("started") == 2
     assert reporter.extent == (LENGTH / 2, LENGTH, 2)
@@ -803,7 +804,9 @@ def test_the_history_records_the_executed_norm_and_the_controller_the_equivalent
     assert taken != proposal
     executed = (taken / made._scale) ** 5
     assert float(history.error_norm[last]) == pytest.approx(executed)
-    assert made._accepted_norms[-1] == pytest.approx(executed * (proposal / taken) ** 5)
+    assert made._march.state.norms[-1] == pytest.approx(
+        executed * (proposal / taken) ** 5
+    )
     # And no accepted step of an adaptive run scores above one, by construction.
     assert np.all(history.error_norm[accepted] <= 1.0)
 
@@ -816,12 +819,12 @@ def test_the_controller_keeps_only_the_norms_it_reads(driver):
     """
     made = driver()
     lag = made._stepper.controller.lag
-    assert made._accepted_norms.maxlen == lag + 2
+    assert made._march.state.norms.maxlen == lag + 2
     summary = made.propagate_to(LENGTH)
     assert summary.n_steps > lag + 2
-    assert len(made._accepted_norms) == lag + 2
+    assert len(made._march.state.norms) == lag + 2
     made.set_initial(made._problem.initial.field0, None)
-    assert len(made._accepted_norms) == 0
+    assert len(made._march.state.norms) == 0
 
 
 # --- the seam a compiled backend subclasses ----------------------------------------
@@ -900,7 +903,7 @@ MARCH_POLICY_FIELDS = (
 
 
 def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
-    """``_stage_bundles`` reads the tables once and ``_stage_scalars`` takes the kept.
+    """``stage_bundles`` reads the tables once and ``stage_scalars`` takes the kept.
 
     The bundles equal the per-position ones bit for bit; a later stage at the same
     anchor and position is the kept bundle itself, and the next step's hoist drops
@@ -909,8 +912,9 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
     made = driver()
     z0, dz = LENGTH / 4, LENGTH / 8
     positions = [z0 + dz, z0, z0 + 0.5 * dz, z0 + dz]
-    made._hoist(z0)
-    together = made._stage_bundles(z0, positions)
+    workspace = made.workspace
+    workspace.hoist(z0)
+    together = workspace.stage_bundles(z0, positions)
     assert together[0] is together[3]
     for z1, bundle in zip(positions, together, strict=True):
         alone = scalars(made._problem, z0, z1)
@@ -918,12 +922,12 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
         assert np.array_equal(present(bundle.phi_delta), present(alone.phi_delta))
         assert np.array_equal(present(bundle.prefactor), present(alone.prefactor))
         assert bundle.density == alone.density
-        assert made._stage_scalars(z0, z1) is bundle
+        assert workspace.stage_scalars(z0, z1) is bundle
     # Asked again at the same anchor, nothing is read: the kept bundles come back.
-    again = made._stage_bundles(z0, positions[1:3])
+    again = workspace.stage_bundles(z0, positions[1:3])
     assert again[0] is together[1] and again[1] is together[2]
-    made._hoist(z0 + dz)
-    assert made._stage_scalars(z0, z0 + dz) is not together[0]
+    workspace.hoist(z0 + dz)
+    assert workspace.stage_scalars(z0, z0 + dz) is not together[0]
     made.close()
 
 
@@ -943,56 +947,17 @@ def test_the_bundles_a_compiled_backend_packs_are_frozen():
 
 
 HOST_SURFACE: dict[str, str] = {
-    "_adams_block": "(self, z: float, dz: float) -> object",
-    "_adams_lab_source": (
-        "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega'], position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', "
-        "'diagnostic'] = 'predictor') -> jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega']"
-    ),
-    "_adams_propagator": (
-        "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega']"
-    ),
-    "_adams_source": (
-        "(self, lab: jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega'], anchor: float, position: float, *, "
-        "purpose: Literal['startup', 'predictor', 'corrected', "
-        "'diagnostic'] = 'predictor') -> tuple[jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega'], jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega']]"
-    ),
-    "_apply_mask": (
-        "(self, state: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega']) -> _StateT"
-    ),
-    "_begin_plane": "(self) -> None",
-    "_dense_stages": "(self) -> list[numpy.ndarray]",
-    "_finish": "(self, state: _StateT, dz: float) -> _StateT",
-    "_march_to": "(self, target: float) -> None",
-    "_on_accepted_step": "(self) -> None",
-    "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
-    "_release_source_calls": "(self) -> None",
-    "_reserve_source_calls": "(self, count: int) -> None",
-    "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
     "metadata": "(self) -> dict[str, object]",
     "restore_call_ledgers": (
         "(self, logical: collections.abc.Mapping[str, object], "
         "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
     ),
-    "set_initial": (
-        "(self, field: jaxtyping.Complex[ndarray, "
-        "'n_modes n_pol n_omega'], "
-        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
-        "resume: bool = False) -> None"
-    ),
-    "stats": "(self, spec: solprop.stats.StatsSpec) -> dict[str, numpy.ndarray]",
 }
-"""Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
+"""Every ``HostDriver`` member the NumPy reference backend overrides (SEP 52).
 
-The reference's own driver is no compiled seam, but its backends are written against
-these signatures: a change here changes what ``numpy_ref`` overrides, in the same
-commit."""
+Since SEP 52 the physics is the workspace's and the engines', not driver hooks: the
+backend overrides only these. A change here changes what ``numpy_ref`` overrides, in
+the same commit."""
 
 HOST_ATTRIBUTES = (
     "helpers",
@@ -1049,20 +1014,17 @@ def test_linear_operator_fields_are_frozen_with_the_driver_seam():
     )
 
 
-def test_the_adams_and_dense_hooks_default_to_refusal(driver):
-    # A backend that executes neither the Adams march nor dense observation inherits
-    # these defaults; the propagator is the shared one, exp(Phi(b) - Phi(a)).
+def test_the_workspace_propagator_is_the_operator_s_flow(driver):
+    # The propagator is the shared one, exp(Phi(b) - Phi(a)); a Runge-Kutta engine
+    # that holds no accepted step's extension refuses a dense observation.
     made = driver()
-    field = made._require_state()
-    with pytest.raises(BackendError, match="low-call Adams integrator"):
-        made._adams_source(field, 0.0, LENGTH / 4)
-    with pytest.raises(BackendError, match="does not observe densely"):
-        made._dense_stages()
-    propagator = made._adams_propagator(0.0, LENGTH / 4)
+    propagator = made.workspace.propagator(0.0, LENGTH / 4)
     expected = np.exp(delta_phi(made._problem.linear, 0.0, LENGTH / 4))
     np.testing.assert_allclose(
         propagator.reshape(-1), np.broadcast_to(expected, propagator.shape).reshape(-1)
     )
+    with pytest.raises(BackendError, match="no accepted step is held"):
+        made._runge_kutta_engine.observe(LENGTH / 8)
 
 
 # --- the descriptor (SEP 47 section 6.2) -------------------------------------------

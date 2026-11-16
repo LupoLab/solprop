@@ -745,6 +745,8 @@ MODULES = {
             "backends/host/",
             (
                 "driver",
+                "marches",
+                "runge_kutta",
                 "adams",
                 "low_storage",
                 "session",
@@ -754,6 +756,8 @@ MODULES = {
             "backends/numpy_ref/",
             (
                 "backend",
+                "workspace",
+                "engines",
                 "passes",
                 "multistep",
                 "populations",
@@ -1250,20 +1254,15 @@ SEAM_METHODS = (
 `HostStepping`'s, which its session drives."""
 
 DRIVER_PARTS = (
-    ("the march and the landing", ("_march_to",)),
-    ("the replay", ("_replay_to", "_schedule_index_at")),
+    ("the planes and the halts", ("propagate_to", "_natural_stop", "request_halt")),
+    ("the replay's cursor", ("_schedule_index_at",)),
     ("the history", ("_record", "observe")),
     ("the progress reporter", ("set_progress",)),
     ("the statistics channel", ("_take_step_stats", "stats")),
-    ("the noise", ("_noise_field", "_noise_at", "_noise_phase")),
-    (
-        "the per-stage bundle",
-        ("_hoist", "_stage_scalars", "_delta_phi", "_unitary_phase"),
-    ),
-    (
-        "what a backend supplies",
-        ("_trial_step", "_apply_mask", "_finish", "_begin_plane", "_on_accepted_step"),
-    ),
+    ("the boundary monitor", ("attach_monitor", "_absorb", "_boundary_energies")),
+    ("the caps a march asks for", ("_quiet_capped", "_transverse_capped")),
+    ("the march's state, read", ("_z", "_proposal", "_schedule_index")),
+    ("the quadrature alarm", ("_begin_plane", "_on_accepted_step")),
 )
 """What `backends/host/driver.py` owns, and the `HostDriver` members of each part."""
 
@@ -2555,8 +2554,8 @@ def _step_panel(
             _text(drawing, line, x + PAD + 8, cursor, size=SMALL_SIZE, klass="dim")
 
 
-BACKEND_OVERRIDES = ("_trial_step", "_apply_mask", "_finish", "_observed_field")
-"""What a reference backend supplies to `HostDriver`, and nothing else of the loop."""
+BACKEND_OVERRIDES = ("NumpyWorkspace", "engines", "marches")
+"""What the reference backend supplies to `HostDriver`, and nothing else of the loop."""
 
 DEVICE_SLOT = (
     "solprop-native distribution, native/",
@@ -2660,7 +2659,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "HostDriver (the reference's step loop)",
+        "HostDriver (the reference's scheduler)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

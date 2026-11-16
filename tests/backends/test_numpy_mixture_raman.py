@@ -23,14 +23,19 @@ from solprop.stepper import FixedSchedule
 from solprop.translate.stage import scalars
 
 
+def _owner(backend):
+    """Return what holds a backend's Raman kernel: the reference's workspace."""
+    return getattr(backend, "workspace", backend)
+
+
 def raman_refreshes(backend):
     """Read the selected backend's owned Raman kernel refresh counter."""
-    return backend._raman_transforms
+    return _owner(backend)._raman_transforms
 
 
 def prepare_raman(backend, rates, densities):
     """Exercise the actual cached Raman owner without a propagation."""
-    backend._raman_spectrum(rates, densities)
+    _owner(backend)._raman_spectrum(rates, densities)
 
 
 @pytest.fixture
@@ -81,23 +86,26 @@ def test_raman_cache_tracks_every_amplitude_and_decay_rate(case):
     grid, problem, run_request = case
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     bundle = scalars(problem, 0.0, 0.0)
-    first = backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-    assert backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities) is first
+    first = _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+    assert (
+        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+        is first
+    )
     densities = list(bundle.raman_densities)
     for index in range(len(densities)):
         densities[index] *= 1.1
-        fresh = backend._raman_spectrum(bundle.raman_rates, tuple(densities))
+        fresh = _owner(backend)._raman_spectrum(bundle.raman_rates, tuple(densities))
         assert fresh is not first
         first = fresh
     rates = list(bundle.raman_rates)
     for index in range(len(rates)):
         rates[index] += 1e12
-        fresh = backend._raman_spectrum(tuple(rates), tuple(densities))
+        fresh = _owner(backend)._raman_spectrum(tuple(rates), tuple(densities))
         assert fresh is not first
         first = fresh
-    assert backend._raman_transforms == 5
+    assert _owner(backend)._raman_transforms == 5
     backend.close()
-    assert backend._raman_densities is None
+    assert _owner(backend)._raman_densities is None
 
 
 def test_raman_component_extents_are_checked(case):

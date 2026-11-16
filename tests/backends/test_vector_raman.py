@@ -31,6 +31,11 @@ from vector_raman_cases import (
 from vector_raman_tensor_oracle import BUDGETS, cartesian_direct, convolution_bound
 
 
+def _owner(backend):
+    """Return what holds a backend's Raman kernel: the reference's workspace."""
+    return getattr(backend, "workspace", backend)
+
+
 def test_reference_pass_rejects_three_physical_components():
     with pytest.raises(BackendError, match="one or two physical components"):
         passes.raman_polarisation(
@@ -229,18 +234,18 @@ def test_vector_kernel_cache_refreshes_all_dynamic_inputs(backend_class):
     backend = backend_class(problem, run_request, grid=grid, modes=modes)
     bundle = scalars(problem, 0.0, 0.0)
     try:
-        backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        assert backend._raman_transforms == 1
+        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+        _owner(backend)._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
+        assert _owner(backend)._raman_transforms == 1
         rates = list(bundle.raman_rates)
         for index in range(len(rates)):
             rates[index] += 1e12
-            backend._raman_spectrum(tuple(rates), bundle.raman_densities)
-            assert backend._raman_transforms == 2 + index
+            _owner(backend)._raman_spectrum(tuple(rates), bundle.raman_densities)
+            assert _owner(backend)._raman_transforms == 2 + index
         # Single-component amplitude is applied after convolution, so density
         # changes alone need no kernel rebuild (unlike mixtures).
-        backend._raman_spectrum(tuple(rates), (2 * bundle.raman_densities[0],))
-        assert backend._raman_transforms == 1 + len(rates)
+        _owner(backend)._raman_spectrum(tuple(rates), (2 * bundle.raman_densities[0],))
+        assert _owner(backend)._raman_transforms == 1 + len(rates)
     finally:
         backend.close()
 

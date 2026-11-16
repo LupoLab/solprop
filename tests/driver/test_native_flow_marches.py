@@ -27,7 +27,7 @@ from flow_parity import (
     formation_bound,
     section_formation_bounds,
 )
-from solprop.backends.numpy_ref.backend import (
+from solprop.backends.numpy_ref.workspace import (
     _coupled_flow_maps,
     _flow_action,
     _triangular_exponential,

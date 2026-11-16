@@ -167,8 +167,8 @@ def finished(problem, run_request, grid, rows, dz, options=None):
     reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        expected = np.array(reference._finish(rows.copy(), dz))
+        reference.workspace.hoist(0.0)
+        expected = np.array(reference.workspace.finish(rows.copy(), dz)[0])
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid, options=options)

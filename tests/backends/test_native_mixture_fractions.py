@@ -52,10 +52,16 @@ def oracle(kerr, n_pol):
     reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
-        reference._hoist(0.0)
-        bundle = reference._stage_scalars(0.0, 0.0)
+        reference.workspace.hoist(0.0)
+        bundle = reference.workspace.stage_scalars(0.0, 0.0)
         fields = np.real(
-            np.concatenate(list(reference._plasma_nodes(reference._require_state())))
+            np.concatenate(
+                list(
+                    reference.workspace._plasma_nodes(
+                        reference._require_state(), reference._z
+                    )
+                )
+            )
         )
     finally:
         reference.close()

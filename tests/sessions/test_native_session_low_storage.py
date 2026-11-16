@@ -200,13 +200,13 @@ def _reference(
     if failing is not None:
         march = cast("HostDriver[Any]", driver)._low_storage
         assert march is not None
-        engine = march.engine
-        engine.step = _FailingStep(engine.step, failing)
+        engine = cast("Any", march.engine)
+        engine.trial = _FailingStep(engine.trial, failing)
     return HostSession(driver, problem, run_request, entrance(problem))
 
 
 class _FailingStep:
-    """An engine step that raises after the step `failing` has made its passes."""
+    """An engine trial that raises after the step `failing` has made its passes."""
 
     def __init__(self, step: Any, failing: int) -> None:
         """Wrap the engine's step."""

@@ -180,9 +180,9 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
     )
     try:
         reference.set_initial(problem.initial.field0, None)
-        expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
+        expected = reference.workspace.nonlinear(  # pyright: ignore[reportPrivateUsage]
             problem.initial.field0,
-            reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+            reference.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
             np.ones(problem.shape, complex),
         )
         state = load_native(actual, problem.initial.field0, clear_fsal=False)

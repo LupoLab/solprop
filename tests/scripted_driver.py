@@ -4,21 +4,21 @@
 
 """A step driver whose numerical outcomes are scripted rather than computed.
 
-:class:`solprop.backends.host.driver.HostDriver` is the reference's marching half, with
-the kernels left abstract. :class:`HostScriptedDriver` fills them with a stage
-evaluation that multiplies by a constant and an error norm taken from a list, so step
-control, the
-session lifecycle and the service loop can be tested without any physics being
-evaluated correctly. ``tests/sessions`` tests the execution-session lifecycle with it
-(SEP 47 section 7.1: "Script the same numerical outcomes to test this exact lifecycle
-property on every executor").
+:class:`HostScriptedDriver` is the reference backend with its Runge-Kutta engine
+replaced by a script: a trial multiplies the state by a constant and scores an error
+norm taken from a list, so step control, the session lifecycle and the service loop
+can be tested without any physics being evaluated correctly. ``tests/sessions`` tests
+the execution-session lifecycle with it (SEP 47 section 7.1: "Script the same
+numerical outcomes to test this exact lifecycle property on every executor").
 """
 
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from solprop.backends.host.driver import HostDriver
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.engines import NumpyRungeKutta
+from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 
 SCALE = 0.02 / 8
 """The step length, m, whose default scripted norm is one: an eighth of a 2 cm run."""
@@ -53,11 +53,16 @@ class _Scripted:
 
     if TYPE_CHECKING:
         # What the mixin reads of the driver it is mixed into.
-        _proposal: float
         _problem: Any
-        _z: float
-        _state: Any
+
+        @property
+        def _z(self) -> float: ...
+
+        @property
+        def _proposal(self) -> float: ...
+
         _closed: bool
+        _workspace: Any
 
         def _require_state(self) -> Any: ...
 
@@ -98,11 +103,28 @@ class _Scripted:
     def _begin_plane(self):
         self.planes_begun += 1
 
+    def _runge_kutta(self, workspace: NumpyWorkspace) -> NumpyRungeKutta:
+        """Return the scripted engine in place of the reference's."""
+        return _ScriptedEngine(workspace, self)
+
     def close(self):
         """Release the state, as the seam requires."""
-        self._state = None
+        self._workspace.close()
         self._closed = True
 
 
-class HostScriptedDriver(_Scripted, HostDriver):
-    """The script on the reference's step driver."""
+class _ScriptedEngine(NumpyRungeKutta):
+    """A Runge-Kutta engine whose trial is the driver's script (``_trial_step``)."""
+
+    def __init__(self, workspace: NumpyWorkspace, driver: Any) -> None:
+        super().__init__(workspace, workspace.stepper.tableau)
+        self._driver = driver
+
+    def trial(self, z: float, dz: float) -> float:
+        norm, state = self._driver._trial_step(z, dz)
+        self._trial = (state, [])
+        return norm
+
+
+class HostScriptedDriver(_Scripted, NumpyRefBackend):
+    """The script on the reference backend's engine."""

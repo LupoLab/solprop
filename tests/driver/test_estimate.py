@@ -12,6 +12,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from builders import reference_trial
 from capability_routes import ROUTES
 from sessions.runs import load_native, native_trial
 from solprop.backends.protocol import stepping as host_stepping
@@ -140,9 +141,10 @@ def test_a_low_storage_estimate_times_the_march_s_own_step(backend, monkeypatch)
 
     def spy(constructed, problem, run_request):
         step, evaluations = build(constructed, problem, run_request)
+        engine = getattr(constructed, "_runge_kutta_engine", None)
         monkeypatch.setattr(
-            constructed,
-            "_trial_step",
+            constructed if engine is None else engine,
+            "_trial_step" if engine is None else "trial",
             lambda *_: pytest.fail("a low-storage estimate took a trial step"),
         )
 
@@ -275,8 +277,8 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
             # same arithmetic again, on one thread layout in one process, so agreement
             # to a few roundings of the field's largest magnitude bounds it (SEP 25).
             stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test
-            _, state = stepping._trial_step(float(problem.initial.z), dz)
-            trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))
+            _, state = reference_trial(stepping, float(problem.initial.z), dz)
+            trial = np.asarray(stepping.workspace.finish(state, dz)[0])
         scale = float(np.max(np.abs(trial)))
         np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
         # A copy the probe owns: a later trial does not write to it.

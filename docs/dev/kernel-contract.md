@@ -244,64 +244,58 @@ too. The test that compares this document with the dataclass walks the tree by t
 in both directions; a second test checks the flags and counts named in the `flags` row of this section
 against the fields of `Flags`.
 
-**The transverse edge.** `HostDriver._edge_reading(state, edge, *, faces, current, full)`
-returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+**The transverse edge.** `NumpyWorkspace.edge_reading(edge, *, faces, current, full)`
+(native's `NativeBackend._edge_reading`) returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
 line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
-`_HostEdgeReduction` on a host copy. An override takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
+`_HostEdgeReduction` on a host copy. Native's takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
 reads the state at a committed position, so it may use scratch that a step writes before reading, and it must leave the march
 as it was. `HostDriver.edge_memory(space)` says what binding holds, from the grid alone, for `estimate`: the default holds
 nothing beyond the state, and native's is `_transverse_edge_bytes`, equal to its `transverse_edge` ledger row.
 
-**Source reservations in the shared Adams march.** The protected hooks
-`HostDriver._reserve_source_calls(count)` and `HostDriver._release_source_calls()`
-bound the source evaluations of a trial. Before starting a trial, the shared march
-reserves its required source evaluations through these hooks; on every exit it
-releases unused capacity. The ordinary backend implementation needs no atomic
-reservation. NumPy's TDSE implementation translates the reservation into the
+**Source reservations in the Adams march.** The engine protocol's
+`begin_attempt(cost)` and `end_attempt(outcome)` (`solprop.backends.engines.AdamsEngine`,
+SEP 52 §5.2) bound the source evaluations of a trial. Before starting a trial, after the
+budget check, the march begins an attempt with its required source evaluations; it ends
+it with its decision once the attempt is recorded, or abandoned on any other exit, which
+only releases unused capacity. The reference's engine (`HostHistory`) forwards them to
+its workspace (`NumpyWorkspace.reserve_calls`, `record_trial`, `release_calls`), a no-op
+without a host source. NumPy's TDSE implementation translates the reservation into the
 required persistent-plan chunks, while provider attempts remain charged before
-invocation, including failures. Logical source-call and atomic-attempt ledgers
-remain separate. The base driver owns `_adams`, initially `None`, and exports and
-restores its logical ledger on every Adams backend. Loading a checkpoint resets
-numerical history but preserves charged calls; startup is charged again. Atomic
-ledger restoration needs a bound TDSE binding, on either backend.
+invocation, including failures. Logical source-call and atomic-attempt ledgers remain
+separate. The march owns its logical ledger, which the driver exports and restores on
+every Adams backend. Loading a checkpoint resets numerical history but preserves charged
+calls; startup is charged again. Atomic ledger restoration needs a bound TDSE binding, on
+either backend.
 
 **The lab-frame source of the exponential formulation.**
-`HostDriver._adams_lab_source(lab, position, *, purpose)` is the complete source
-assembly at a lab-frame field and position -- the `modified` noise draw advanced to
-that position's absolute phase, the in-stage absorbers and, on the reference backend,
-the TDSE adapter with its labels -- returned in the lab frame, with no propagator
-applied. The exponential Adams formulation
-([SEP 16](seps/archive/sep-0016-unified-multistep.md)) stores these untransported samples and
-integrates their polynomial against the linear flow; the base driver's hook refuses,
-naming the backend, so a backend that has not implemented it refuses the formulation
-rather than stepping it with another method. `Multistep.formulation` is
-`"interaction"` or `"exponential"`.
+`NumpyWorkspace.lab_source(lab, position, *, purpose)` is the complete source assembly
+at a lab-frame field and position -- the `modified` noise draw advanced to that
+position's absolute phase, the in-stage absorbers and the TDSE adapter with its labels --
+returned in the lab frame, with no propagator applied. The exponential Adams formulation
+([SEP 16](seps/archive/sep-0016-unified-multistep.md)) stores these untransported
+samples and integrates their polynomial against the linear flow, and the low-storage
+step's passes evaluate it too. `Multistep.formulation` is `"interaction"` or
+`"exponential"`.
 
-**The Adams engine.** With `HostDriver._adams_engine(method, compensation)`,
-`HostAdamsMarch` keeps the controller -- orders, slots, rejection,
-restarts, the call budget and the ledger -- and hands every state-sized operation of
-its fused and exponential paths to an engine
-(`solprop.backends.numpy_ref.multistep.AdamsEngine`): the startup sample, a trial's predictor,
-source, corrector and scored defect norms, the adoption and transport of an accepted
-step, holding and restoring the accepted state around a dense observation, and the
-observation itself. Only scalars, the coefficient tables and the norms cross the
-interface. The default returns `None`, and the march uses `HostHistory`, the host
-engine, over the other Adams hooks; `native` always returns one resident in its native
-state, and refuses the untransported compensation witness by name (SEP 47 phase 5
-deleted its host-engine fallback, and with it its `_adams_source`, `_adams_lab_source`,
-`_adams_propagator`, `_adams_block` and `_adams_adopt` overrides).
+**The Adams engine.** `HostAdamsMarch` keeps the controller -- orders, the history's
+entries, rejection, restarts, the call budget and the ledger -- in its own state, and
+hands every state-sized operation to an engine of the protocol
+`solprop.backends.engines.AdamsEngine`, native's `march::Engine` one-to-one: the startup
+sample, a trial's predictor, source, corrector and scored defect norms (`trial(z, dz,
+stencil)`), and the adoption and transport of an accepted step, which receives the
+retained entries oldest first (`accept(dz, free, stencil, kept)`). Only scalars, the
+coefficient tables and the norms cross the interface. The reference's engine is
+`HostHistory` over the workspace; it still holds and restores the accepted state around
+a dense observation, and the observation itself, until SEP 52 moves them to the session.
+`native` keeps its engine resident in its native state and refuses the untransported
+compensation witness by name.
 
-`HostDriver._adams_source(lab, anchor, position, *, purpose)` takes a
-`TDSEPurpose` label so startup, predictor, corrected-field and diagnostic
-observations retain their actual provenance. This is a host seam operation:
-the shared march neither accesses NumPy's private binding nor adds atomic
-physics to a compiled backend. The native backend's march reaches the same binding
-through its host source hook (§6).
-A corrected-field diagnostic still needs an identical cached response or a
+`NumpyWorkspace.source(lab, anchor, position, *, purpose)` takes a `TDSEPurpose` label
+so startup, predictor, corrected-field and diagnostic observations retain their actual
+provenance. The native backend's march reaches the same binding through its host source
+hook (§6). A corrected-field diagnostic still needs an identical cached response or a
 separately charged solve; a predictor label never implies accepted-field data.
-If the corrected-field solve fails after candidate adoption, `_adams_restore`
-restores the previous accepted field and position before a checkpoint is written.
 
 **A `ZProfile` table** is how anything that varies along z crosses the seam: a
 scalar-valued `translate.chebyshev.PiecewiseChebyshev` over the same z range as `Phi`,
@@ -1353,7 +1347,7 @@ not, on CPU and device builds. `PIController` is final (ADR-077), so its decisio
 the only ones either backend takes.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
-reference implementation, solprop's `HostDriver._march_to` and the controller core it
+reference implementation, solprop's `RungeKuttaMarch.march_to` and the controller core it
 calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
 as §11's Adams march is executed. It then receives every number the algorithm reads in
 one record and holds no default and no constant of its own (`native/AGENTS.md`).
@@ -1413,7 +1407,7 @@ reference holds it there.
 planes to the run's end, and the call returns the accepted step that crosses its target
 unfinished (`dense`), with its equivalent norm; solprop records the step's extension from
 the state before it and finishes it with the reference's acceptance. *Replay:*
-`HostDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
+`RungeKuttaMarch.replay_to`, a call of steps at a time from the schedule's cursor: never a
 rejection, each step recorded after its commit with its raw norm, the edges within the
 replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
 flow:* the stage rows carry the anchor's section and each stage's residual weights, and the

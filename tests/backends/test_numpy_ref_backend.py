@@ -21,7 +21,7 @@ from sessions.executors import IDENTITY, Started, drive, entrance
 from solprop.backends import Backend
 from solprop.backends.events import ObservationReady
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import backend as backend_module
+from solprop.backends.numpy_ref import workspace as workspace_module
 from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
@@ -706,7 +706,7 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     backend = NumpyRefBackend(problem, run_request, grid=field_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(0.1)
-    bundle = backend._last_bundle
+    bundle = backend.workspace._last_bundle
     assert bundle is not None
     stage_z = bundle.z1
     # The stage the alarm was scored from is the last one of the last accepted step,
@@ -873,14 +873,14 @@ def test_a_harmonic_term_without_its_carrier_is_refused(thg_problem):
     stripped = dataclasses.replace(problem)
     object.__setattr__(stripped, "grids", grids)
     with pytest.raises(BackendError, match="carrier_2w0 is absent"):
-        backend_module._harmonic_carrier(stripped)
+        workspace_module._harmonic_carrier(stripped)
 
 
 def test_the_harmonic_carrier_comes_from_the_contract(thg_problem):
     problem, _ = thg_problem(thg=True)
     assert problem.grids.carrier_2w0 is not None
-    assert backend_module._harmonic_carrier(problem) is problem.grids.carrier_2w0
-    assert backend_module._harmonic_carrier(thg_problem(thg=False).problem) is None
+    assert workspace_module._harmonic_carrier(problem) is problem.grids.carrier_2w0
+    assert workspace_module._harmonic_carrier(thg_problem(thg=False).problem) is None
 
 
 def test_the_z_table_answers_the_noise_phase_too(tabulated_problem, field_grid):
@@ -892,9 +892,9 @@ def test_the_z_table_answers_the_noise_phase_too(tabulated_problem, field_grid):
     """
     backend = NumpyRefBackend(*tabulated_problem, grid=field_grid)
     try:
-        bundle = backend._stage_scalars(0.0, 0.05)
+        bundle = backend.workspace.stage_scalars(0.0, 0.05)
         assert bundle.phi_at is None
-        got = backend._unitary_phase(bundle)
+        got = backend.workspace.unitary_phase(bundle)
         want = unitary_phase(tabulated_problem.problem.linear, 0.05)
     finally:
         backend.close()

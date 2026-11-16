@@ -46,7 +46,6 @@ from solprop import stats as stats_module
 from solprop.backends import select
 from solprop.backends.node_chunk import general_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.backend import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     delayed_polarisation,
@@ -57,6 +56,7 @@ from solprop.backends.numpy_ref.general_modal import (
     symmetric_kerr_coefficients,
     symmetric_monomials,
 )
+from solprop.backends.numpy_ref.workspace import _GENERAL_LEDGER_ROWS, _general_maps
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, TranslationError
@@ -1303,16 +1303,16 @@ def test_a_linear_guide_does_not_run_the_source_pass(strand, monkeypatch):
         return field
 
     forced = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not forced._general_responds
-    forced._general_responds = True
+    assert not forced.workspace._general_responds
+    forced.workspace._general_responds = True
     expected = step(forced)
 
     def refuse(*arguments, **keywords):
         raise AssertionError("the general source pass ran for a linear guide")
 
-    monkeypatch.setattr("solprop.backends.numpy_ref.backend.general_source", refuse)
+    monkeypatch.setattr("solprop.backends.numpy_ref.workspace.general_source", refuse)
     short = NumpyRefBackend(problem, run_request, grid=case.grid)
-    assert not short._general_responds
+    assert not short.workspace._general_responds
     field = step(short)
     assert np.any(field)
     np.testing.assert_array_equal(field.view(np.uint8), expected.view(np.uint8))

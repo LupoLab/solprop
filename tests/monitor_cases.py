@@ -222,7 +222,8 @@ def reading(backend: Backend) -> BoundaryEnergies:
         For a backend other than the reference (:func:`as_driver`).
     """
     driver = as_driver(backend)
-    return driver._boundary_energies(driver._require_state())
+    driver._require_state()
+    return driver._boundary_energies()
 
 
 def record_after_march(

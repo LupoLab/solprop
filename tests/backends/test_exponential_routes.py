@@ -76,8 +76,8 @@ def test_the_lab_frame_sample_is_the_route_source(route):
         rng = np.random.default_rng(5)
         field = problem.initial.field0 * (1.0 + 0.1 * rng.standard_normal())
         position = 0.3 * float(run_request.stepper.save_planes[-1])
-        lab = backend._adams_lab_source(field, position)
-        transported, propagator = backend._adams_source(field, position, position)
+        lab = backend.workspace.lab_source(field, position)
+        transported, propagator = backend.workspace.source(field, position, position)
     finally:
         backend.close()
     # At equal anchor and position the transported source is multiplied by

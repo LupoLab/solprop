@@ -33,7 +33,12 @@ from typing import Any
 
 import numpy as np
 
-from solprop.backends.host.driver import HostDriver
+from solprop.backends import rk_core
+from solprop.backends.engines import AcceptRecord
+from solprop.backends.host.driver import HostDriver, _SessionHooks
+from solprop.backends.host.marches import MarchState
+from solprop.backends.host.runge_kutta import RungeKuttaMarch
+from solprop.backends.records import runge_kutta_policy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.controller import PIController
 from solprop.stepper.schedule import FixedSchedule, reached
@@ -209,9 +214,14 @@ class _Scripted:
                 hard_kinks=np.array(scenario.kinks, dtype=np.float64),
             ),
         )
-        self._z = scenario.z0
-        self._proposal = scenario.proposal
-        self._accepted_norms = deque(maxlen=controller.lag + 2)
+        # The march's state, which the native adapter reads and writes through the
+        # driver's names (the properties below); the reference's march holds it.
+        self._shadow = MarchState(
+            z=scenario.z0,
+            proposal=scenario.proposal,
+            norms=deque(maxlen=controller.lag + 2),
+        )
+        self.march: RungeKuttaMarch | None = None
         self._collar_quiet = scenario.quiet.get(0, False)
         monitor = None
         if scenario.quiet_interval is not None or scenario.ceiling or scenario.split:
@@ -235,22 +245,59 @@ class _Scripted:
         self._halt_ahead = False
         self._halt_check = None
         self._natural_due = False
-        self._schedule_index = 0
         self._state: object = "state"
         self.accepted = 0
         self.attempts = 0
         self.pending: dict[str, Any] = {}
         self.events: list[dict[str, Any]] = []
 
-    # The driver's abstract members the march does not call.
+    def _held_state(self) -> MarchState:
+        return self._shadow if self.march is None else self.march.state
 
-    def _apply_mask(self, state: Any) -> Any:
-        raise NotImplementedError
+    @property
+    def _z(self) -> float:
+        return self._held_state().z
+
+    @_z.setter
+    def _z(self, value: float) -> None:
+        self._held_state().z = value
+
+    @property
+    def _proposal(self) -> float:
+        return self._held_state().proposal
+
+    @_proposal.setter
+    def _proposal(self, value: float) -> None:
+        self._held_state().proposal = value
+
+    @property
+    def _schedule_index(self) -> int:
+        return self._held_state().cursor
+
+    @_schedule_index.setter
+    def _schedule_index(self, value: int) -> None:
+        self._held_state().cursor = value
+
+    @property
+    def _accepted_norms(self) -> deque[float]:
+        return self._held_state().norms
 
     def stats(self, spec: Any) -> Any:
         raise NotImplementedError
 
-    # The driver surface the march uses.
+    def _controller_policy(self) -> Any:
+        return runge_kutta_policy(self._problem, self._stepper)  # pyright: ignore[reportArgumentType]
+
+    def _on_accepted_step(self) -> None:
+        pass
+
+    def _start_up(self, norm: float) -> None:
+        state = self._held_state()
+        state.proposal, state.norms[-1] = rk_core.start_up(
+            self._controller_policy(), state.proposal, norm
+        )
+
+    # The march's engine, the script.
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, object]:
         self.close()
@@ -308,8 +355,49 @@ class _Scripted:
         }
 
 
+class _ScriptedEngine:
+    """The Runge-Kutta engine the reference's march asks, replaced by the script."""
+
+    in_flight = False
+
+    def __init__(self, harness: _Scripted) -> None:
+        self.harness = harness
+
+    def trial(self, z: float, dz: float) -> float:
+        norm, _ = self.harness._trial_step(z, dz)
+        return norm
+
+    def accept(self, dz: float) -> AcceptRecord:
+        del dz
+        return AcceptRecord()
+
+    def extend(self, z: float, dz: float) -> None:
+        raise NotImplementedError
+
+    def reading(self) -> Any:
+        raise NotImplementedError
+
+    def reset(self) -> None:
+        pass
+
+
 class _HostHarness(_Scripted, HostDriver):
-    """The stub over the reference's own driver."""
+    """The stub over the reference's own driver and its Runge-Kutta march."""
+
+    def __init__(self, scenario: Scenario) -> None:
+        super().__init__(scenario)
+        self._hooks = _SessionHooks(self)
+        march = RungeKuttaMarch(
+            _ScriptedEngine(self),
+            self._controller_policy(),
+            self._hooks,
+            schedule=None,
+            proposal=scenario.proposal,
+            name=self.name,
+        )
+        march.state.z = scenario.z0
+        march.state.norms = self._shadow.norms
+        self.march = march
 
 
 def run_scenario(scenario: Scenario) -> dict[str, Any]:
@@ -344,10 +432,12 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
     try:
         for target in targets:
             while True:
+                march = harness.march
+                assert march is not None
                 if schedule is None:
-                    harness._march_to(target)
+                    march.march_to(target)
                 else:
-                    harness._replay_to(schedule, target)
+                    march.replay_to(schedule, target)
                 harness.close()
                 harness.events.append({"target": target, **harness.snapshot()})
                 # A natural stop returns short of the target; carry on to it.

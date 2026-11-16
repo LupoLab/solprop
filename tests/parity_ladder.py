@@ -279,7 +279,7 @@ def source(backend_class: type, built: Built, *, z: float = 0.0) -> np.ndarray:
         if backend.name == "native":
             return native_source(backend, launch, z)
         backend.set_initial(launch, None)
-        return np.array(backend._adams_lab_source(launch, z))
+        return np.array(backend.workspace.lab_source(launch, z))
     finally:
         backend.close()
 
@@ -345,10 +345,10 @@ def projected(backend_class: type, built: Built) -> list[np.ndarray | None]:
         # The launch native loads (:func:`masked_launch`).
         launch = masked_launch(problem)
         backend.set_initial(launch, None)
-        backend._adams_lab_source(launch, 0.0)
-        coarse = backend._last_coarse
+        backend.workspace.lab_source(launch, 0.0)
+        coarse = backend.workspace._last_coarse
         return [
-            forward(np.asarray(backend._last_projected), axis=-1),
+            forward(np.asarray(backend.workspace._last_projected), axis=-1),
             None if coarse is None else forward(np.asarray(coarse), axis=-1),
         ]
     finally:

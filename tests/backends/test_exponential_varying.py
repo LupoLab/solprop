@@ -15,14 +15,13 @@ the compiled backends' parity.
 
 import dataclasses
 import math
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
 from sessions.runs import run as session_run
-from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.ledger import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
@@ -87,7 +86,7 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
     )
     if compensation is not None:
         method = run_request.stepper.integrator
-        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
+        backend._use_adams(method, compensation=compensation)
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, fields = [], []
@@ -165,7 +164,7 @@ def test_a_structurally_absent_source_takes_the_exact_flow():
     problem = simulation.translate()
     assert len(problem.responses.response_order) == 1
     field, adams, _ = march(simulation)
-    assert adams is not None and not adams._engine.compensated
+    assert adams is not None and not cast("Any", adams._engine).compensated
     start = problem.initial.field0 * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * start
     # Round-off of the flows' products, step by step.
@@ -375,7 +374,7 @@ def test_an_adiabatic_taper():
     taper = Linear(100e-6, 80e-6, LENGTH)
     reference, _, _ = march(gradient(integrator=RungeKutta(), rtol=1e-11, radius=taper))
     field, adams, _ = march(gradient(radius=taper))
-    assert adams is not None and adams._engine.compensated
+    assert adams is not None and cast("Any", adams._engine).compensated
     error = np.linalg.norm(field - reference) / np.linalg.norm(reference)
     assert error < 1e-5, error
 

@@ -127,10 +127,10 @@ def evaluate(
             stage = np.asarray(_testing.stage_to_host(state, 0)).reshape(problem.shape)
         else:
             backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
-            stage = backend._nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
+            backend.workspace.hoist(0.0)
+            stage = backend.workspace.nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
                 backend._require_state(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
-                backend._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
+                backend.workspace.stage_scalars(0.0, 0.0),  # pyright: ignore[reportAttributeAccessIssue]
                 np.ones(problem.shape, complex),
             )
         return stage, statistics  # pyright: ignore[reportUnknownVariableType]
@@ -147,7 +147,7 @@ def node_magnitude(
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         nodes = np.concatenate(
-            list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
+            list(reference.workspace._plasma_nodes(state, reference._z))  # pyright: ignore[reportPrivateUsage]
         )
         return float(np.max(np.abs(nodes)))
     finally:

@@ -282,8 +282,8 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     # PEC needs one call a trial: the stop leaves none unspent.
     assert ledger.total == budget
     assert 0.0 < caught.value.z < SOLITON_PERIOD
-    assert backend._state is not None
-    np.testing.assert_array_equal(caught.value.field, backend._state)
+    assert backend.workspace.state is not None
+    np.testing.assert_array_equal(caught.value.field, backend.workspace.state)
     backend.close()
 
 

@@ -116,10 +116,10 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
     try:
         if isinstance(backend, NumpyRefBackend):
             backend.set_initial(problem.initial.field0, None)
-            backend._hoist(0.0)
-            measured = backend._nonlinear(
+            backend.workspace.hoist(0.0)
+            measured = backend.workspace.nonlinear(
                 problem.initial.field0,
-                backend._stage_scalars(0.0, 0.0),
+                backend.workspace.stage_scalars(0.0, 0.0),
                 np.ones(problem.shape, complex),
             )
         else:
