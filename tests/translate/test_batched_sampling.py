@@ -49,7 +49,7 @@ def _unbatched(monkeypatch):
 def _unshared(monkeypatch):
     """Sample every mode's terms afresh: no frozen copy shares, no scope shares."""
     monkeypatch.setattr(capillary_module, "_same_rows", lambda first, second: False)
-    monkeypatch.setattr(assembly_module, "_shared_sampling", contextlib.nullcontext)
+    monkeypatch.setattr(assembly_module, "shared_sampling", contextlib.nullcontext)
 
 
 def _assert_coefficients_close(one, other, what: str):
@@ -236,7 +236,7 @@ def test_a_frozen_copy_shares_its_origins_terms_bitwise():
     frozen = mode.at_parameters(values)
     assert frozen._terms_origin is mode
     assert frozen.at_parameters(values)._terms_origin is mode
-    with capillary_module._shared_sampling():
+    with capillary_module.shared_sampling():
         shared = frozen.sampled_terms(omega)
         assert mode.sampled_terms(omega) is shared
         own = frozen._sample_terms(omega.copy())

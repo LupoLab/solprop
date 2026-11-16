@@ -36,8 +36,9 @@ from solprop.coupling import (
 )
 from solprop.exceptions import CouplingError, TranslationError
 from solprop.grid import TimeGrid
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.spatial import FluxSide, SpatialMedium
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.coupled import metric_at
@@ -308,7 +309,7 @@ def step_index_frequency(
     numpy.ndarray or None
         V at each bin, shape ``(n_omega,)``, zero off the active positive band;
         None for a guide whose provider is not a
-        :class:`~solprop.modes.guide.StepIndexProvider`.
+        :class:`~solprop.modes.stepindex_vector.StepIndexProvider`.
     """
     provider = guide.field_provider
     if not isinstance(provider, StepIndexProvider):

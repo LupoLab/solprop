@@ -20,7 +20,7 @@ A **provider** ({mod}`solprop.modes.vector`) solves one frequency and position o
 declared rule of Cartesian nodes and returns the three complex Cartesian components of
 $\mathbf E$ and $\mathbf H$ per √W, the generator $-i\beta$, the Hermitian flux metric
 and its reciprocal partners, all in the internal Fourier convention. A
-{class}`~solprop.translate.modal_tables.DenseModalTable` samples a provider over a band,
+{class}`~solprop.modes.tables.DenseModalTable` samples a provider over a band,
 tracks each channel through it and **refuses a basis whose sampled Gram is further from
 the identity than its declared budget** — a rule that truncates or under-resolves the
 fields returns a basis that is not orthonormal where it is sampled, and no provider

@@ -33,12 +33,9 @@ from solprop.modes.base import (
 )
 from solprop.modes.capillary import (
     EVANESCENT_INDEX_FLOOR,
-    CoherentWall,
     MarcatiliMode,
     MarcatiliModel,
     ModeKind,
-    vector_wall_operator,
-    wall_operator,
 )
 from solprop.modes.collection import (
     ModeCollection,
@@ -50,12 +47,7 @@ from solprop.modes.graded_index import (
     PowerLawPermittivity,
     RadialPermittivity,
 )
-from solprop.modes.guide import (
-    ModalGuide,
-    ModalSampling,
-    ProviderChannelMode,
-    StepIndexProvider,
-)
+from solprop.modes.guide import ModalGuide, ModalSampling, ProviderChannelMode
 from solprop.modes.material import (
     GasKerr,
     IndexMaterial,
@@ -83,6 +75,7 @@ from solprop.modes.slab import (
     per_unit_width_to_gaussian,
 )
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.modes.tabulated import (
     IndexTable,
     TabulatedHollowMode,
@@ -93,6 +86,7 @@ from solprop.modes.vector import (
     ModalProvider,
     ModalSample,
 )
+from solprop.modes.wall import CoherentWall, vector_wall_operator, wall_operator
 
 __all__ = [
     "EVANESCENT_INDEX_FLOOR",

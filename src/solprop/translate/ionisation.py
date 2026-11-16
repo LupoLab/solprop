@@ -58,6 +58,7 @@ __all__ = [
     "RateTable",
     "build_rate_table",
     "clear_rate_table_cache",
+    "frozen_table",
     "rate_table_key",
 ]
 
@@ -611,13 +612,24 @@ def _finalise(table: RateTable, error: float) -> RateTable:
     )
 
 
-def _frozen_table(table: RateTable) -> RateTable:
+def frozen_table(table: RateTable) -> RateTable:
     """Return the table with read-only arrays solprop holds.
 
     The contract promises read-only arrays and ``validate`` checks it.
     :func:`build_rate_table` freezes its tables once,
     before its memo hands them out, so a built table crosses as it stands; a table
     made any other way crosses as a frozen copy.
+
+    Parameters
+    ----------
+    table : RateTable
+        A rate table, built here or elsewhere.
+
+    Returns
+    -------
+    RateTable
+        `table` itself when its arrays are already held, otherwise a copy whose
+        ``log_rate`` and ``coefficients`` are frozen copies.
     """
     log_rate = frozen_copy(table.log_rate)
     coefficients = frozen_copy(table.coefficients)

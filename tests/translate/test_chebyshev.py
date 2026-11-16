@@ -830,7 +830,7 @@ def test_positions_taken_together_are_the_values_taken_alone(
     table = PiecewiseChebyshev(
         coefficients, edges, np.full(3, degree), np.array([edges[1]])
     )
-    slack = 0.5 * chebyshev._EDGE_SLACK_FRACTION * (edges[-1] - edges[0])
+    slack = 0.5 * chebyshev.EDGE_SLACK_FRACTION * (edges[-1] - edges[0])
     inner = rng.uniform(edges[0], edges[-1], 7)
     positions = np.concatenate(
         [

@@ -23,7 +23,7 @@ constant and differ only in the nonlinear one:
 * **rescaled area**: the GNLSE, through ``prop_gnlse``, with the channel's own
   dispersion and its **scalar** effective area at the reference frequency
   (:meth:`solprop.nonlinear.gnlse.SpecifiedMode.from_mode` with
-  :func:`solprop.translate.modal_tables.channel_area`), ``n2`` from the core's
+  :func:`solprop.modes.tables.channel_area`), ``n2`` from the core's
   ``chi3`` at its index, and the shock term -- what a user who has only an area
   would run.
 
@@ -44,6 +44,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
 from solprop.driver import prop_gnlse
 from solprop.grid import EnvelopeGrid, FieldGrid
+from solprop.modes.tables import channel_area, sample_modal_table
 from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.normalisation import modal_kerr_coefficient
 from solprop.output.memory import MemoryOutput
@@ -53,7 +54,6 @@ from solprop.stats import analytic_field
 from solprop.stepper import PIController
 from solprop.translate.assembly import assemble
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import channel_area, sample_modal_table
 
 LENGTH = 1e-3
 """Propagated length, m: a millimetre."""

@@ -43,10 +43,11 @@ from solprop.modes.antiresonant import TubeLattice, VincettiMode
 from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.graded_index import GradedIndexProvider
-from solprop.modes.guide import ModalGuide, StepIndexProvider
+from solprop.modes.guide import ModalGuide
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.stepindex_vector import StepIndexProvider
 from solprop.profiles import ZProfile, as_profile
 
 __all__ = [

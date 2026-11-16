@@ -42,7 +42,7 @@ from solprop.grid import (
     TimeGrid,
 )
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import CoherentWall, MarcatiliMode
+from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
 from solprop.modes.guide import ModalGuide
@@ -50,6 +50,7 @@ from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate

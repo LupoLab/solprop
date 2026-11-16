@@ -28,10 +28,11 @@ recorded bounds; the manual page ``docs/guide/workflows/coupling.md`` describes 
   covers any beam shape, alignment and polarisation; it scales linearly with the
   fibre's contrast.
 - :data:`VECTOR_STEP_INDEX_ENVELOPE`: the vector model's flux recovery into a
-  :class:`~solprop.modes.guide.StepIndexProvider` guide against an independent
-  full-vector mode-matching solution of the planar entrance facet, the reflection
-  and backward fields the model omits, maximised over every incident field inside the
-  widest admitted cone. Its bound scales with the square of the guide's contrast.
+  :class:`~solprop.modes.stepindex_vector.StepIndexProvider` guide against an
+  independent full-vector mode-matching solution of the planar entrance facet, the
+  reflection and backward fields the model omits, maximised over every incident field
+  inside the widest admitted cone. Its bound scales with the square of the guide's
+  contrast.
 """
 
 from collections.abc import Mapping

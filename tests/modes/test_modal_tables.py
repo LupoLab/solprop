@@ -26,33 +26,32 @@ from solprop.modes.guide import (
     ChannelBasis,
     ModalGuide,
     ProviderChannelMode,
-    StepIndexProvider,
     circular_pair,
     provider_channels,
-    radial_node_rule,
 )
 from solprop.modes.material import IndexMaterial, MaterialRegion
 from solprop.modes.protocol import ChannelLabel
-from solprop.modes.tabulated import _SampledIndexTable, sample_index_table
-from solprop.modes.vector import ModalSample
-from solprop.profiles import Linear
-from solprop.translate.modal_tables import (
+from solprop.modes.stepindex_vector import StepIndexProvider
+from solprop.modes.tables import (
     DEFAULT_GRAM_ATOL,
     MAX_GENERATOR_COUPLING,
     MIN_OVERLAP_DOMINANCE,
     DenseModalTable,
-    _channel_index_table,
     _check_transformed_passivity,
-    _overlap,
     align_modal_sample,
     apply_channel_basis,
     channel_area,
+    channel_index_table,
     composed_gauge,
+    cross_poynting,
     sample_modal_table,
     sample_provider_table,
     solved_in_table_basis,
     validate_modal_table,
 )
+from solprop.modes.tabulated import SampledIndexTable, sample_index_table
+from solprop.modes.vector import ModalSample, radial_node_rule
+from solprop.profiles import Linear
 
 GRIN_OMEGA = 2 * np.pi * C / 1.03e-6
 """The graded-index reference frequency, beside the strand's OMEGA."""
@@ -264,7 +263,7 @@ def test_sampled_table_prints_and_rebuilds_on_replace():
     table = sample_index_table(mode, frequencies)
     # The sampler returns an IndexTable subclass that carries the source slopes
     # and the snapshot provenance beside the public table's own surface.
-    assert isinstance(table, _SampledIndexTable)
+    assert isinstance(table, SampledIndexTable)
     # The subclass must not regenerate a dataclass repr over its arrays.
     assert "\n" not in repr(table) and "array(" not in repr(table)
     assert repr(table).startswith("IndexTable(")
@@ -562,7 +561,7 @@ def test_overlap_dominance_separates_a_mistrack_from_a_coarse_knot():
     # 1.2 and 2.0: 0.99999988, 0.99999936, 0.99985 and 0.99872 -- three orders
     # above the floor, which is what lets a dominance criterion be this strict.
     dominance = [
-        float(np.min(abs(np.diag(_overlap(reference, other, nodes)))))
+        float(np.min(abs(np.diag(cross_poynting(reference, other, nodes)))))
         for other in (
             p.solve(ratio * OMEGA, 0.0, nodes=nodes) for ratio in (1.0, 1.01, 1.2, 2.0)
         )
@@ -676,7 +675,7 @@ def test_a_provider_channel_table_reads_beta_off_the_tracked_generator():
         rtol=64 * np.finfo(float).eps,
         atol=0,
     )
-    identity = dict(cast("_SampledIndexTable", table).source_identity)
+    identity = dict(cast("SampledIndexTable", table).source_identity)
     assert identity["channel"] == 1
     assert identity["derivative_model"] == "dense-table-interpolant"
     assert identity["area_model"] == "sampled-vector-surrogate"
@@ -696,7 +695,7 @@ def test_a_provider_channel_table_refuses_what_it_cannot_sample():
     with pytest.raises(ModeError, match="outside the 2 tracked channels"):
         sample_provider_table(provider, 2, omega)
     without = cast(
-        "_SampledIndexTable",
+        "SampledIndexTable",
         sample_provider_table(provider, 0, omega, include_area=False),
     )
     assert without.area is None
@@ -710,7 +709,7 @@ def test_a_provider_channel_table_refuses_what_it_cannot_sample():
         nodes,
     )
     with pytest.raises(ModeError, match="snapshot"):
-        _channel_index_table(table, 0, include_area=True)
+        channel_index_table(table, 0, include_area=True)
 
 
 def _solved_betas(provider, nodes, omega, reference):
@@ -925,9 +924,9 @@ def test_tracking_follows_the_physical_channel_through_an_avoided_crossing():
     assert tracked[0, 0] < tracked[0, 1] and tracked[-1, 0] > tracked[-1, 1]
     assert not np.array_equal(tracked, np.sort(declared, axis=1))
     # The bridge reads the same branch, and each channel keeps its own field.
-    first = _channel_index_table(table, 0, include_area=True)
+    first = channel_index_table(table, 0, include_area=True)
     np.testing.assert_array_equal(first.beta(omega), declared[:, 0])
-    assert first.effective_area(omega[:1]) != _channel_index_table(
+    assert first.effective_area(omega[:1]) != channel_index_table(
         table, 1, include_area=True
     ).effective_area(omega[:1])
 
@@ -948,7 +947,7 @@ def test_a_channel_table_refuses_a_generator_that_declares_gain():
     )
     assert np.real(table.samples[0][0].generator[0, 0]) > 0
     with pytest.raises(ModeError, match="declares gain"):
-        _channel_index_table(table, 0, include_area=False)
+        channel_index_table(table, 0, include_area=False)
 
 
 def test_a_channel_table_refuses_a_generator_that_couples_its_channels():
@@ -971,7 +970,7 @@ def test_a_channel_table_refuses_a_generator_that_couples_its_channels():
         for row in table.samples
     )
     with pytest.raises(ModeError, match="diagonal generator"):
-        _channel_index_table(replace_table(table, coupled), 0, include_area=False)
+        channel_index_table(replace_table(table, coupled), 0, include_area=False)
 
 
 def test_a_channel_table_carries_loss_from_the_generator_to_the_operator():
@@ -1001,7 +1000,7 @@ def test_a_channel_table_carries_loss_from_the_generator_to_the_operator():
         )
         for frequency in omega
     )
-    table = _channel_index_table(
+    table = channel_index_table(
         DenseModalTable(omega, np.array([0.0]), (samples,), nodes, ()),
         0,
         include_area=False,
@@ -1079,7 +1078,7 @@ def test_a_channel_table_measures_coupling_against_the_channel_splitting():
     old_scale = float(np.linalg.norm(np.diag(record.samples[0][0].generator)))
     assert off_diagonal < MAX_GENERATOR_COUPLING * old_scale
     with pytest.raises(ModeError, match="smallest splitting"):
-        _channel_index_table(record, 0, include_area=False)
+        channel_index_table(record, 0, include_area=False)
 
 
 def replace_table(table, samples):

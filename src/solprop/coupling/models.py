@@ -52,7 +52,7 @@ from solprop.exceptions import CouplingError
 from solprop.grid import TimeGrid
 from solprop.modes.capillary import MarcatiliMode
 from solprop.modes.protocol import Mode
-from solprop.modes.stepindex import StepIndexMode, _material
+from solprop.modes.stepindex import StepIndexMode, real_index_and_slope
 
 __all__ = [
     "MODEL_KINDS",
@@ -803,15 +803,17 @@ class ScalarModeBasis:
                 raise CouplingError(msg)
         radius = float(first._radius(z))
         omega_p = 2.0 * math.pi * 299792458.0 / first.profile_wavelength
-        core_p = float(_material(first._core, np.array([omega_p]))[0][0])
-        cladding_p = float(_material(first._cladding, np.array([omega_p]))[0][0])
+        core_p = float(real_index_and_slope(first._core, np.array([omega_p]))[0][0])
+        cladding_p = float(
+            real_index_and_slope(first._cladding, np.array([omega_p]))[0][0]
+        )
         v = omega_p / 299792458.0 * radius * math.sqrt(core_p**2 - cladding_p**2)
         parameters = [_lp_parameter(v, mode.m) for mode in modes]
         live = grid.active_mask & (grid.omega > 0)
         core = np.zeros(grid.n_omega)
         cladding = np.zeros(grid.n_omega)
-        core[live] = _material(first._core, grid.omega[live])[0]
-        cladding[live] = _material(first._cladding, grid.omega[live])[0]
+        core[live] = real_index_and_slope(first._core, grid.omega[live])[0]
+        cladding[live] = real_index_and_slope(first._cladding, grid.omega[live])[0]
         jones = np.array(
             [[1.0, 0.0] if mode.parity == "even" else [0.0, 1.0] for mode in modes]
         )

@@ -42,17 +42,14 @@ from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliModel,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliModel
 from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.raman import MolecularOptions

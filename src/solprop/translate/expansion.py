@@ -67,8 +67,8 @@ from solprop.translate.chebyshev import (
     INITIAL_DEGREE,
     SAMPLING_NOISE_FACTOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
+    held_table,
     interleave_axis,
     lobatto_points,
     refinement_points,
@@ -969,7 +969,7 @@ def _weight_tables(  # noqa: PLR0917 - called positionally
     )
     if integrate:
         table = table.integral()
-    return _held_table(table)
+    return held_table(table)
 
 
 def _mapping_noise(ranges: Float[np.ndarray, "n_params two"]) -> float:

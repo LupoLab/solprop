@@ -1663,9 +1663,9 @@ def _vector_envelope_item(
 ) -> AdmissionItem:
     r"""Return the vector model's recorded facet envelope item, or refuse the guide.
 
-    Only a :class:`~solprop.modes.guide.StepIndexProvider` guide has a recorded
-    envelope (:data:`~solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`); its
-    port carries the guide's normalised frequency. Its parameters are the contrast,
+    Only a :class:`~solprop.modes.stepindex_vector.StepIndexProvider` guide has a
+    recorded envelope (:data:`~solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`);
+    its port carries the guide's normalised frequency. Its parameters are the contrast,
     V and squared contrast weighted by the incident energy, as the other per-bin
     items are: the allowance is linear in the squared contrast, so the weighted
     mean bounds the whole field over the bins inside the range. Bins whose contrast

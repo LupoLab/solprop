@@ -39,7 +39,7 @@ alone moves no power. Zeroing the diagonal -- which the Bessel formula for the
 capillary does, correctly, for *its* basis -- breaks that identity. For diagonal
 :math:`W`, the resulting norm defect is
 :math:`\sum_n |c_n|^2 W'_{nn}`, which is why
-:func:`solprop.modes.capillary.wall_connection`'s formula is **not** transplanted
+:func:`solprop.modes.wall.wall_connection`'s formula is **not** transplanted
 here.
 
 The diagonal splits into the two pieces the identity names:
@@ -50,7 +50,7 @@ The diagonal splits into the two pieces the identity names:
   metric the full matrix identity must be used;
 * its imaginary part is the **gauge phase rate**, a geometric (Berry) connection.
   It vanishes only in a gauge that parallel-transports the phase, which is what
-  :func:`solprop.translate.modal_tables.align_modal_sample` does to first order by
+  :func:`solprop.modes.tables.align_modal_sample` does to first order by
   making the overlap with the previous knot real and positive.
 
 Neither is zero in general for a moving interface, and a declared z-varying change
@@ -97,9 +97,15 @@ from jaxtyping import Complex, Float
 
 from solprop._display import Displayed, engineering, line
 from solprop.exceptions import GeneralModalBasisWarning, ModeError
-from solprop.modes.guide import ChannelBasis, radial_node_rule
 from solprop.modes.material import JsonValue
-from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample
+from solprop.modes.tables import align_modal_sample, apply_channel_basis
+from solprop.modes.vector import (
+    ChannelBasis,
+    ModalNodeRule,
+    ModalProvider,
+    ModalSample,
+    radial_node_rule,
+)
 from solprop.profiles import as_profile
 
 __all__ = [
@@ -539,7 +545,7 @@ def modal_connection(
     The derivation is this module's own docstring: ``Gamma = W^-1 S`` with
     ``S_mn = <psi_m | d_z psi_n>`` on the package's flux metric, with the flux
     self-terms kept. The three samples of the difference stencil are put in **one
-    gauge** by :func:`solprop.translate.modal_tables.align_modal_sample` against the
+    gauge** by :func:`solprop.modes.tables.align_modal_sample` against the
     centre, so the phase the derivative measures is the parallel-transported one and
     not the solver's arbitrary one, and a declared `basis` is applied after it in the
     same fixed order the tables compose.
@@ -566,7 +572,7 @@ def modal_connection(
         kinks `z` lies between.
     degenerate_blocks : sequence of sequence of int, optional
         Channel blocks the tracking may rotate inside, as
-        :func:`solprop.translate.modal_tables.sample_modal_table` takes them.
+        :func:`solprop.modes.tables.sample_modal_table` takes them.
     basis : solprop.modes.guide.ChannelBasis or None, optional
         A declared unitary change of the channel coordinates, applied after the
         tracking gauge. It is a **constant** declaration: a transform that varies
@@ -738,13 +744,6 @@ def _measured_connection(
     - ``stencil``: the three positions in m, the step in m and one rule per position,
       from :func:`_stencil` and :func:`connection_nodes`.
     """
-    # Imported here: solprop.translate imports solprop.modes, so a module-level
-    # import of the tracking would close a cycle through the translate package body.
-    from solprop.translate.modal_tables import (  # noqa: PLC0415
-        align_modal_sample,
-        apply_channel_basis,
-    )
-
     at, span, rules = stencil
     middle = int(np.argmin(np.abs(np.asarray(at) - float(z))))
     solved = [

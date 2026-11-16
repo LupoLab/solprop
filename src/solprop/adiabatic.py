@@ -60,13 +60,17 @@ cutoff, amplified by the ``log1p`` condition number. The certificate is of the
 represented path, the function the profile evaluates; how well that represents a
 physical medium (an equation-of-state table, a measured profile) is a separate
 envelope.
+
+A certificate, :class:`AdiabaticAdmission`, is kept with a run's output as plain
+values: :func:`admission_record` writes it and :func:`admission_from_record` reads it
+back.
 """
 
 import itertools
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, cast
 
 import numpy as np
 from jaxtyping import Bool, Float, Num
@@ -81,6 +85,8 @@ from solprop.spatial import SpatialDispersion
 __all__ = [
     "AdiabaticAccuracy",
     "AdiabaticAdmission",
+    "admission_from_record",
+    "admission_record",
     "certify_radial_path",
     "certify_wave_path",
     "field_error_bound",
@@ -722,3 +728,114 @@ def certify_radial_path(
         accuracy,
         identity=identity,
     )
+
+
+def admission_record(admission: AdiabaticAdmission) -> dict[str, object]:
+    """Return a path certificate as plain values, for a record that outlives the run.
+
+    The certificate's scope is the linear background's forward coordinates, not the
+    nonlinear run or an omitted reflected field (SEP 34 section 4.5). Its path identity
+    is kept as text, and a certificate already read from a record keeps that text.
+
+    Parameters
+    ----------
+    admission : solprop.adiabatic.AdiabaticAdmission
+        The certificate.
+
+    Returns
+    -------
+    dict
+        The values :func:`admission_from_record` rebuilds it from.
+    """
+    identity = admission.identity
+    return {
+        "scope": "linear-background forward field",
+        "z_span": admission.z_span,
+        "field_error_budget": admission.accuracy.field_error,
+        "reflected_energy_budget": admission.accuracy.reflected_energy,
+        "variation": admission.variation,
+        "field_error": admission.field_error,
+        "reflection": admission.reflection,
+        "worst_kperp_sq": admission.worst_kperp_sq,
+        "worst_omega": admission.worst_omega,
+        "exact": admission.exact,
+        "jumps": admission.jumps,
+        "interpolation_envelope": admission.interpolation_envelope,
+        "identity": identity["recorded"]
+        if set(identity) == {"recorded"}
+        else repr(dict(identity)),
+        "omega": admission.omega,
+        "spectral_variation": admission.spectral_variation,
+        "support": admission.support,
+    }
+
+
+def admission_from_record(record: Mapping[str, object]) -> AdiabaticAdmission:
+    """Rebuild a varying path's certificate from its output record.
+
+    The inverse of :func:`admission_record`. The path's structural identity is kept
+    as the text it was recorded as.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        The ``admission`` entry of a ``flux_plan`` record, as held in memory or as
+        read back from a file.
+
+    Returns
+    -------
+    AdiabaticAdmission
+        The certificate.
+    """
+
+    def _number(name: str) -> float:
+        """Return one stored scalar."""
+        return float(cast("float", record[name]))
+
+    def _optional(name: str) -> float | None:
+        """Return one stored scalar that may be absent.
+
+        - Returns: the value, or None where it was not recorded.
+        """
+        value = record.get(name)
+        return None if value is None else float(cast("float", value))
+
+    span = cast("Sequence[float]", record["z_span"])
+    return AdiabaticAdmission(
+        identity={"recorded": record["identity"]},
+        z_span=(float(span[0]), float(span[1])),
+        accuracy=AdiabaticAccuracy(
+            field_error=_number("field_error_budget"),
+            reflected_energy=_number("reflected_energy_budget"),
+        ),
+        variation=_number("variation"),
+        reflection=_number("reflection"),
+        field_error=_number("field_error"),
+        worst_kperp_sq=_optional("worst_kperp_sq"),
+        worst_omega=_optional("worst_omega"),
+        omega=_recorded_array(record["omega"], float),
+        spectral_variation=_recorded_array(record["spectral_variation"], float),
+        support=_recorded_array(record["support"], bool),
+        jumps=_recorded_array(record["jumps"], float),
+        exact=bool(record["exact"]),
+        interpolation_envelope=_number("interpolation_envelope"),
+    )
+
+
+def _recorded_array(value: object, dtype: type) -> np.ndarray:
+    """Return an array as held in memory or as read back from a file.
+
+    A record written to JSON or HDF5 and read back nests each array as the
+    ``{"__ndarray__": ..., "__imaginary__": ...}`` form of
+    :func:`solprop.output.serialisation.serialise`. The same reading as
+    ``solprop.translate.flux``'s for its coefficients; kept here because this module
+    sits below the output layer and must not import it.
+    """
+    if isinstance(value, Mapping) and "__ndarray__" in value:
+        real = np.asarray(value["__ndarray__"], dtype=float)
+        if "__imaginary__" in value:
+            return np.asarray(
+                real + 1j * np.asarray(value["__imaginary__"], dtype=float), dtype
+            )
+        return np.asarray(value["__ndarray__"], dtype=dtype)
+    return np.asarray(value, dtype=dtype)

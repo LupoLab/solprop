@@ -92,8 +92,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_MAX_INTERVALS,
     DEFAULT_TOL,
     PiecewiseChebyshev,
-    _held_table,
     build_from_paths,
+    held_table,
 )
 from solprop.translate.envelope_plasma import (
     EnvelopePlasmaAssembly,
@@ -106,7 +106,7 @@ from solprop.translate.expansion import (
     build_expansion,
     reweight_expansion,
 )
-from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
+from solprop.translate.ionisation import RateTable, build_rate_table, frozen_table
 from solprop.translate.linop import (
     DEFAULT_MARGIN,
     PhiRepresentation,
@@ -864,7 +864,7 @@ def plasma_coefficients(
             raise TranslationError(msg)
         # A table the builder made is frozen and held already and crosses as it
         # stands; one made any other way crosses as a frozen copy.
-        table = _frozen_table(rate)
+        table = frozen_table(rate)
     elif not isinstance(rate, IonisationRate):
         # A bare callable satisfies the response's own EvaluableRate, but a table needs
         # a threshold to clip against and named parameters to key its cache on.
@@ -2319,7 +2319,7 @@ def _prefactor_table(
             span,
             tol,
         )
-    return _held_table(table)
+    return held_table(table)
 
 
 def _log_prefactor(compiled: "CompiledResponses", z_max: float) -> None:
@@ -3253,7 +3253,7 @@ def _tabulate_rate(rate: IonisationRate, field_range: tuple[float, float]) -> Ra
     - ``field_range``: lower and upper field amplitude in V/m the table must cover.
     - Returns: the converged table, with read-only arrays.
     """
-    return _frozen_table(build_rate_table(rate, field_range))
+    return frozen_table(build_rate_table(rate, field_range))
 
 
 def raman_coefficients(

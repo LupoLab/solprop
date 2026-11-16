@@ -21,7 +21,7 @@ from solprop.modes import (
     TubeLattice,
     VincettiMode,
 )
-from solprop.modes.capillary import _wall_channel_settings
+from solprop.modes.wall import _wall_channel_settings
 from solprop.physdata import Mixture, Species, species
 from solprop.profiles import (
     Constant,
