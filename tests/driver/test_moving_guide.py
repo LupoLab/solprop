@@ -134,7 +134,7 @@ def test_the_problem_carries_moving_maps_a_frozen_flow_and_the_kink(kinked_probl
     assert problem.linear.hard_kinks.tolist() == [KINK]
     phi = problem.linear.phi_expansion
     assert phi is not None
-    assert np.array_equal(phi.terms[:, :, 0], phi.terms[:, :, 1])
+    assert np.array_equal(phi.terms[:, 0], phi.terms[:, 1])
     bundle = scalars(problem, 0.0, 0.55 * LENGTH)
     assert bundle.transform_weights is not None
     assert bundle.transform_weights.shape == (10,)

@@ -44,7 +44,7 @@ def test_free_transform_and_separable_storage(free_inputs):
     # A chunk is the same elementwise evaluation on fewer columns; a vector loop may
     # round its tail differently, so it is held to a few roundings of the values.
     np.testing.assert_allclose(
-        chunk, full[:, 2:7], rtol=0, atol=gamma(4) * np.max(np.abs(full))
+        chunk, full[2:7], rtol=0, atol=gamma(4) * np.max(np.abs(full))
     )
     np.testing.assert_allclose(
         selected, prefactor[2:7], rtol=0, atol=gamma(4) * np.max(np.abs(prefactor))

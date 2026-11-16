@@ -99,12 +99,12 @@ __all__ = [
 
 
 def stage_input(
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    stage_sum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    stage_sum: Complex[np.ndarray, "n_modes n_pol n_omega"],
     dz: float,
-    propagator: Complex[np.ndarray, "n_batch_p n_modes_p n_pol_p n_omega_p"],
-    noise: Complex[np.ndarray, "n_batch_n n_modes_n n_pol_n n_omega_n"] | None,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    propagator: Complex[np.ndarray, "n_modes_p n_pol_p n_omega_p"],
+    noise: Complex[np.ndarray, "n_modes_n n_pol_n n_omega_n"] | None,
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Combine the stages, return to the lab frame and add the noise.
 
     ``u = exp(dPhi_i) (y + h sum_j a_ij k_j) + N(z_n + c_i h)``, the first pass of
@@ -117,15 +117,14 @@ def stage_input(
     ----------
     state : numpy.ndarray
         The state at the anchor, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts.
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts.
     stage_sum : numpy.ndarray
         ``sum_j a_ij k_j`` in the interaction variable, same shape and dtype, in the
         square root of watts per metre.
     dz : float
         Length of the step, m, positive.
     propagator : numpy.ndarray
-        ``exp(dPhi_i)``, dimensionless, broadcastable against the state, whose leading
-        axis of one it shares.
+        ``exp(dPhi_i)``, dimensionless, broadcastable against the state.
     noise : numpy.ndarray or None
         The shot-noise field already advanced to this position,
         ``N0 exp(i Im Phi(omega, z))``, in the square root of watts, or ``None`` when no
@@ -140,7 +139,7 @@ def stage_input(
     --------
     >>> import numpy as np
     >>> from solprop.backends.numpy_ref.passes import stage_input
-    >>> state = np.ones((1, 1, 1, 2), dtype=complex)
+    >>> state = np.ones((1, 1, 2), dtype=complex)
     >>> zero = np.zeros_like(state)
     >>> stage_input(state, zero, 0.1, 2.0 * np.ones_like(state), None).ravel()
     array([2.+0.j, 2.+0.j])
@@ -1780,9 +1779,9 @@ def stage_output(
     polarisation: Complex[np.ndarray, "n_modes n_pol n_omega"],
     prefactor: Complex[np.ndarray, "n_modes_p n_pol_p n_omega_p"],
     omega_window: Float[np.ndarray, " n_window"],
-    inverse_propagator: Complex[np.ndarray, "n_batch_i n_modes_i n_pol_i n_omega_i"],
+    inverse_propagator: Complex[np.ndarray, "n_modes_i n_pol_i n_omega_i"],
     absorber: Complex[np.ndarray, "n_modes_a n_pol_a n_omega_a"] | None = None,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Normalise the polarisation and return it to the interaction picture.
 
     ``k_i = exp(-dPhi_i) (p(omega, z) W(omega) crop(Ptilde) + A_i)``, pass 7 of
@@ -1817,7 +1816,7 @@ def stage_output(
     -------
     numpy.ndarray
         The stage derivative in the interaction variable, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts per metre.
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts per metre.
 
     Examples
     --------
@@ -1825,7 +1824,7 @@ def stage_output(
     >>> from solprop.backends.numpy_ref.passes import stage_output
     >>> polarisation = np.ones((1, 1, 2), dtype=complex)
     >>> prefactor = np.array([[[-2.0j, 0.0j]]])
-    >>> unit = np.ones((1, 1, 1, 2), dtype=complex)
+    >>> unit = np.ones((1, 1, 2), dtype=complex)
     >>> stage_output(polarisation, prefactor, np.ones(2), unit).ravel().tolist()
     [-2j, 0j]
     """
@@ -1836,10 +1835,10 @@ def stage_output(
 
 
 def accumulate(
-    total: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    stage: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    total: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    stage: Complex[np.ndarray, "n_modes n_pol n_omega"],
     weight: float,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Add one weighted stage derivative to a running accumulator.
 
     ``total + w k_i``. The solution and the embedded error are running accumulators
@@ -1850,7 +1849,7 @@ def accumulate(
     ----------
     total : numpy.ndarray
         The accumulator so far, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts per metre.
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts per metre.
     stage : numpy.ndarray
         The stage derivative ``k_i``, same shape and units.
     weight : float
@@ -1865,7 +1864,7 @@ def accumulate(
     --------
     >>> import numpy as np
     >>> from solprop.backends.numpy_ref.passes import accumulate
-    >>> total = np.zeros((1, 1, 1, 2), dtype=complex)
+    >>> total = np.zeros((1, 1, 2), dtype=complex)
     >>> accumulate(total, np.ones_like(total), 0.5).ravel()
     array([0.5+0.j, 0.5+0.j])
     """
@@ -1873,9 +1872,9 @@ def accumulate(
 
 
 def error_norm(
-    error: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    state_new: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    error: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    state_new: Complex[np.ndarray, "n_modes n_pol n_omega"],
     norm_mask: Bool[np.ndarray, " n_norm"],
     controller: PIController,
 ) -> float:
@@ -1892,7 +1891,7 @@ def error_norm(
     ----------
     error : numpy.ndarray
         The embedded difference of the propagated state, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts.
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts.
     state, state_new : numpy.ndarray
         The state before and after the trial step, same shape and units.
     norm_mask : numpy.ndarray
@@ -1911,7 +1910,7 @@ def error_norm(
     >>> import numpy as np
     >>> from solprop.stepper import PIController
     >>> from solprop.backends.numpy_ref.passes import error_norm
-    >>> state = np.ones((1, 1, 1, 2), dtype=complex)
+    >>> state = np.ones((1, 1, 2), dtype=complex)
     >>> mask = np.ones(2, dtype=bool)
     >>> control = PIController(rtol=1e-2, atol=0.0)
     >>> round(error_norm(1e-2 * state, state, state, mask, control), 12)
@@ -1930,11 +1929,11 @@ def error_norm(
 
 
 def accept_step(
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    propagator: Complex[np.ndarray, "n_batch_p n_modes_p n_pol_p n_omega_p"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    propagator: Complex[np.ndarray, "n_modes_p n_pol_p n_omega_p"],
     dz: float,
-    accumulated: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    accumulated: Complex[np.ndarray, "n_modes n_pol n_omega"],
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Advance the state over a completed step.
 
     ``y <- exp(dPhi) (y + h sum_i b_i k_i)``. The interaction picture is anchored at the
@@ -1947,7 +1946,7 @@ def accept_step(
     ----------
     state : numpy.ndarray
         The state at the anchor, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts.
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts.
     propagator : numpy.ndarray
         ``exp(dPhi)`` over the whole step, dimensionless, broadcastable against the
         state.
@@ -1966,7 +1965,7 @@ def accept_step(
     --------
     >>> import numpy as np
     >>> from solprop.backends.numpy_ref.passes import accept_step
-    >>> state = np.ones((1, 1, 1, 2), dtype=complex)
+    >>> state = np.ones((1, 1, 2), dtype=complex)
     >>> accept_step(state, 2.0 * np.ones_like(state), 0.5, state).ravel()
     array([3.+0.j, 3.+0.j])
     """
@@ -1974,9 +1973,9 @@ def accept_step(
 
 
 def apply_hard_mask(
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     active_mask: Bool[np.ndarray, " n_active"],
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Zero the state outside the active band.
 
     ``y <- y * active_mask``, once per accepted step. The hard band limit is the one
@@ -1989,7 +1988,7 @@ def apply_hard_mask(
     Parameters
     ----------
     state : numpy.ndarray
-        The state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
+        The state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the
         square root of watts.
     active_mask : numpy.ndarray
         The active band, ``omega_min/2 < omega < 1.1 omega_max``, Boolean, shape
@@ -2004,7 +2003,7 @@ def apply_hard_mask(
     --------
     >>> import numpy as np
     >>> from solprop.backends.numpy_ref.passes import apply_hard_mask
-    >>> state = np.ones((1, 1, 1, 3), dtype=complex)
+    >>> state = np.ones((1, 1, 3), dtype=complex)
     >>> apply_hard_mask(state, np.array([True, True, False])).ravel()
     array([1.+0.j, 1.+0.j, 0.+0.j])
     """
@@ -2012,12 +2011,12 @@ def apply_hard_mask(
 
 
 def apply_temporal_rate(
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     rate: Float[np.ndarray, " n_rate"],
     dz: float,
     *,
     kind: GridKind,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     r"""Apply the temporal absorber as an exact rate over one accepted step.
 
     ``y <- F[F^-1[y] exp(-alpha(t) h / 2)]``, the split-step absorber scheme. The
@@ -2033,7 +2032,7 @@ def apply_temporal_rate(
     ----------
     state : numpy.ndarray
         The state, complex128, shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts. On a
+        ``(n_modes, n_pol, n_omega)``, in the square root of watts. On a
         field grid its DC and Nyquist bins are real (above).
     rate : numpy.ndarray
         ``alpha(t)`` on the coarse time grid, float64, shape ``(n_t,)``, in 1/m,
@@ -2052,7 +2051,7 @@ def apply_temporal_rate(
     --------
     >>> import numpy as np
     >>> from solprop.backends.numpy_ref.passes import apply_temporal_rate
-    >>> state = np.array([[[[4.0 + 0.0j, 0.0j, 0.0j]]]])
+    >>> state = np.array([[[4.0 + 0.0j, 0.0j, 0.0j]]])
     >>> absorbed = apply_temporal_rate(state, np.zeros(4), 1.0, kind="field")
     >>> bool(np.allclose(absorbed, state))
     True

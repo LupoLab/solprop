@@ -197,8 +197,8 @@ def nonlinear_rate(problem, run_request, grid):
         stage = reference._nonlinear(
             state,
             reference._stage_scalars(0.0, 0.0),
-            np.ones((1, *problem.shape), complex),
-        )[0]
+            np.ones(problem.shape, complex),
+        )
         return 3.0 * float(np.max(np.abs(stage)) / np.max(np.abs(state)))
     finally:
         reference.close()

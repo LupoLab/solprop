@@ -2060,7 +2060,7 @@ class CompiledResponses:
         ``(n_modes, n_pol, n_omega)``, whichever representation carries it.
         """
         if self.separable is not None:
-            return self.separable.value_shape[1:]
+            return self.separable.value_shape
         if self.prefactor_expansion is not None:
             return self.prefactor_expansion.value_shape
         # `_check_prefactor_representation` has already made the narrowing true; a cast

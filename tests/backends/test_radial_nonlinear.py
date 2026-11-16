@@ -114,7 +114,7 @@ def derivative(spatial_backend_class, problem, run_request, grid, options=None):
     backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
     try:
         if isinstance(backend, NumpyRefBackend):
-            return launch_derivative(backend, problem)[0]
+            return launch_derivative(backend, problem)
         return _native_first_stage(backend, problem)
     finally:
         backend.close()

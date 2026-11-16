@@ -72,8 +72,7 @@ def test_a_separable_exponent_is_the_host_volume():
         backend.close()
     assert [event.z for event in landed.observations] == [0.0, end]
     loaded, got = landed.fields[0], landed.fields[-1]
-    # The exponent keeps the operator tables' leading axis of one.
-    exponent = delta_phi(problem.linear, 0.0, end)[0]
+    exponent = delta_phi(problem.linear, 0.0, end)
     assert_within(
         got,
         np.exp(exponent) * loaded,

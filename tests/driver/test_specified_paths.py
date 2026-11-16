@@ -157,7 +157,7 @@ def test_a_linear_beta1_path_accumulates_its_exact_walk_off(grid):
     worst = 0.0
     for fraction in (0.25, 0.5, 0.75, 1.0):
         distance = fraction * LENGTH
-        accumulated = delta_phi(table, 0.0, distance)[0, 0, 0][active]
+        accumulated = delta_phi(table, 0.0, distance)[0, 0][active]
         expected = -1j * GRADIENT * distance**2 / 2.0 * detuning
         assert_allclose(accumulated[outer], expected[outer], rtol=rtol, atol=0.0)
         scale = np.max(np.abs(expected))
@@ -197,7 +197,7 @@ def test_a_kinked_beta1_path_lands_the_schedule_on_its_corner(grid):
     # That triangle's area: half its height times its base, the two legs together.
     delay = 0.5 * GRADIENT * corner * LENGTH
     outer = np.abs(detuning) > 0.5 * np.abs(detuning).max()
-    accumulated = delta_phi(table, 0.0, LENGTH)[0, 0, 0][active]
+    accumulated = delta_phi(table, 0.0, LENGTH)[0, 0][active]
     expected = -1j * delay * detuning
     assert_allclose(accumulated[outer], expected[outer], rtol=rtol, atol=0.0)
 

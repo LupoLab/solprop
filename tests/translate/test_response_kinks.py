@@ -64,7 +64,7 @@ def test_constant_phi_split_at_kinks_stays_exact_and_keeps_its_constant():
     z = np.array([0.0, 0.1, 0.25, 0.4, 0.61, 0.9, 1.05])
     values = np.stack([split.polynomial(float(one)) for one in z])
     assert whole.phi_constant is not None
-    expected = z[:, None, None, None, None] * whole.phi_constant[None]
+    expected = z[:, None, None, None] * whole.phi_constant[None]
     np.testing.assert_allclose(values, expected, rtol=0, atol=8 * np.finfo(float).eps)
 
 

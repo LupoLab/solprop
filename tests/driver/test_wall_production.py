@@ -100,7 +100,7 @@ def pinned_final():
     assert flow is not None
     assert flow.generator is not None
     span = float(problem.linear.phi_breakpoints[-1])
-    rate = complex(delta_phi(problem.linear, 0.0, span)[0, 0, 0, index]) / span
+    rate = complex(delta_phi(problem.linear, 0.0, span)[0, 0, index]) / span
     single = np.zeros_like(grid.active_mask)
     single[index] = True
     block = wall_operator(

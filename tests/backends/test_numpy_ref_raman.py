@@ -303,7 +303,7 @@ def reference_nonlinear(problem, grid, kerr, raman, state, z):
     fine = np.zeros(
         (transform.n_modes, fourier.n_omega_for(grids.n_to, "field")), dtype=complex
     )
-    fine[..., grids.crop_index] = state[0, :, 0, :]
+    fine[..., grids.crop_index] = state[:, 0, :]
     modal = fourier.inverse(fine, kind="field")
     nodes = transform.synthesis @ modal
     density = float(responses.density(z))
@@ -338,7 +338,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     problem, run_request, kerr, raman = raman_capillary()
     backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
-    state = problem.initial.field0[None]
+    state = problem.initial.field0
     got = backend._nonlinear(state, backend._stage_scalars(0.0, z), np.ones_like(state))
     want = reference_nonlinear(problem, raman_field_grid, kerr, raman, state, z)
     # The Raman half is one convolution's rounding -- its kernel spectrum and its
@@ -617,10 +617,10 @@ def stage_derivative(problem, grid, field):
     )
     projected = passes.project(polarisation, transform.projection, 1.0, transform.n_pol)
     coarse = passes.to_frequency(projected, grids.crop_index, kind=grid.kind)
-    unit = np.ones((1, 1, 1, grid.n_omega), dtype=complex)
+    unit = np.ones((1, 1, grid.n_omega), dtype=complex)
     return passes.stage_output(
         coarse, prefactor_at(responses, 0.0), grids.omega_window, unit
-    )[0, 0, 0]
+    )[0, 0]
 
 
 @pytest.mark.parametrize(("trange", "bound"), [(3.5e-11, 2.5e-2), (7.0e-11, 1.0e-2)])

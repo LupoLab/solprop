@@ -96,7 +96,7 @@ def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_pro
     )
     field, ledger = run(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0] * start
     # A zero source leaves only the propagators' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
     assert ledger is not None and ledger.rejected_steps == 0
@@ -190,7 +190,7 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
     for plane in planes:
         backend.propagate_to(plane)
         field = backend.observe().require_field()[0, 0]
-        exact = np.exp(delta_phi(problem.linear, 0.0, plane))[0, 0, 0] * start
+        exact = np.exp(delta_phi(problem.linear, 0.0, plane))[0, 0] * start
         # With no source the interaction variable is constant across the step, so
         # the interpolant reproduces it: round-off in the propagators only.
         np.testing.assert_allclose(
@@ -283,7 +283,7 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     assert ledger.total == budget
     assert 0.0 < caught.value.z < SOLITON_PERIOD
     assert backend._state is not None
-    np.testing.assert_array_equal(caught.value.field, backend._state[0])
+    np.testing.assert_array_equal(caught.value.field, backend._state)
     backend.close()
 
 

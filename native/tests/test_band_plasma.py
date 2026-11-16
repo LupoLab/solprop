@@ -437,8 +437,8 @@ def test_one_evaluation_matches_the_reference() -> None:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=grid)
@@ -485,7 +485,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
         reference.set_initial(problem.initial.field0, None)
         reference._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage] - oracle
         expected = [
-            np.asarray(stage)[0]
+            np.asarray(stage)
             for stage in reference._last_stages  # pyright: ignore[reportPrivateUsage]
         ]
     finally:

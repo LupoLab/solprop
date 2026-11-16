@@ -199,9 +199,9 @@ _AGREEMENT_PROBES = 17
 _FLOOR_PROBES = 3
 _FLOOR_STEP_FRACTION = 1e-9
 
-_OperatorAt = Callable[[float], Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]
+_OperatorAt = Callable[[float], Complex[np.ndarray, "n_modes n_pol n_omega"]]
 _OperatorOf = Callable[
-    [Mapping[str, float]], Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    [Mapping[str, float]], Complex[np.ndarray, "n_modes n_pol n_omega"]
 ]
 
 
@@ -229,11 +229,9 @@ class LinearOperator:
         the schedule read the same field either way.
     phi_coefficients : numpy.ndarray or None
         Chebyshev coefficients of ``Phi``, complex128, shape ``(n_intervals, n_deg,
-        1, n_modes, n_pol, n_omega)``, present when `phi_representation` is
-        ``"table"`` and also for ``"constant"``, whose one interval of degree 1 is
-        exact; absent for ``"expansion"``. The axis of one is the value layout the
-        native build reads; the state has none. Units are dimensionless: ``Phi`` is an
-        exponent.
+        n_modes, n_pol, n_omega)``, present when `phi_representation` is ``"table"``
+        and also for ``"constant"``, whose one interval of degree 1 is exact; absent
+        for ``"expansion"``. Units are dimensionless: ``Phi`` is an exponent.
     phi_degrees : numpy.ndarray
         Degree used on each interval, ``numpy.intp``, shape ``(n_intervals,)``.
         Diagnostic: the zero padding makes it unnecessary for evaluation.
@@ -242,7 +240,7 @@ class LinearOperator:
         Steps land on them; the far more numerous split edges are not tracked
         here and nothing lands on those.
     phi_constant : numpy.ndarray or None
-        ``D`` itself, complex128, shape ``(1, n_modes, n_pol, n_omega)``,
+        ``D`` itself, complex128, shape ``(n_modes, n_pol, n_omega)``,
         present exactly when `phi_representation` is ``"constant"``, so that
         :func:`delta_phi` returns ``D (z2 - z1)`` to the last bit rather than the
         difference of two Clenshaw sums.
@@ -297,18 +295,18 @@ class LinearOperator:
     >>> table = constant_phi(np.full(4, -1j), 2.0)
     >>> table.phi_representation, table.phi_degrees.tolist()
     ('constant', [1])
-    >>> bool(np.array_equal(delta_phi(table, 0.0, 0.5), np.full((1, 1, 1, 4), -0.5j)))
+    >>> bool(np.array_equal(delta_phi(table, 0.0, 0.5), np.full((1, 1, 4), -0.5j)))
     True
     """
 
     phi_representation: PhiRepresentation
     phi_breakpoints: Float[np.ndarray, " n_edges"]
     phi_coefficients: (
-        Complex[np.ndarray, "n_intervals n_deg n_batch n_modes n_pol n_omega"] | None
+        Complex[np.ndarray, "n_intervals n_deg n_modes n_pol n_omega"] | None
     )
     phi_degrees: Int[np.ndarray, " n_degrees"]
     hard_kinks: Float[np.ndarray, " n_kinks"]
-    phi_constant: Complex[np.ndarray, "n_batch_c n_modes_c n_pol_c n_omega_c"] | None
+    phi_constant: Complex[np.ndarray, "n_modes_c n_pol_c n_omega_c"] | None
     phi_expansion: ParameterExpansion | None = field(default=None)
     beta0: PiecewiseChebyshev | None = field(default=None)
     beta1: PiecewiseChebyshev | None = field(default=None)
@@ -450,7 +448,7 @@ class LinearOperator:
     def value_shape(self) -> tuple[int, ...]:  # numpydoc ignore=RT01
         """Shape of ``Phi`` at one position.
 
-        ``(1, n_modes, n_pol, n_omega)``, whichever representation
+        ``(n_modes, n_pol, n_omega)``, whichever representation
         carries it.
 
         Examples
@@ -458,7 +456,7 @@ class LinearOperator:
         >>> import numpy as np
         >>> from solprop.translate.linop import constant_phi
         >>> constant_phi(np.full(4, -1j), 2.0).value_shape
-        (1, 1, 1, 4)
+        (1, 1, 4)
         """
         if self.separable is not None:
             return self.separable.value_shape
@@ -584,31 +582,24 @@ class LinearOperator:
 
 def _value_shape(
     operator: Complex[np.ndarray, "*value n_omega"], n_pol: int
-) -> Complex[np.ndarray, "1 n_modes n_pol n_omega"]:
-    """Bring an operator to the value layout ``(1, n_modes, n_pol, n_omega)``.
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Bring an operator to the state layout ``(n_modes, n_pol, n_omega)``.
 
-    The operator's values keep a leading broadcast axis of one, the layout the native
-    build reads; the state itself has none (SEP 47 section 6.2).
-
-    - ``operator``: ``D`` as ``(n_omega,)``, in the state's ``(n_modes, n_pol,
-      n_omega)`` or already in the value layout.
-    - Returns: the operator with four axes.
+    - ``operator``: ``D`` as ``(n_omega,)`` or already in the state layout.
     """
     values = np.asarray(operator)
-    if values.ndim == 4:
-        return values
     if values.ndim == 3:
-        return values[np.newaxis]
+        return values
     if values.ndim != 1:
         msg = (
-            "the operator must have shape (n_omega,), (n_modes, n_pol, n_omega) or "
-            f"(1, n_modes, n_pol, n_omega), got {values.shape}"
+            "the operator must have shape (n_omega,) or (n_modes, n_pol, n_omega), "
+            f"got {values.shape}"
         )
         raise TranslationError(msg)
     if n_pol not in (1, 2):
         msg = f"n_pol must be 1 or 2 (conventions.md section 5), got {n_pol!r}"
         raise TranslationError(msg)
-    return np.broadcast_to(values, (1, 1, n_pol, values.size))
+    return np.broadcast_to(values, (1, n_pol, values.size))
 
 
 def tabulate(
@@ -788,8 +779,8 @@ def constant_phi(
     Parameters
     ----------
     operator : numpy.ndarray
-        ``D(omega)`` in 1/m, complex, shape ``(n_omega,)`` or ``(n_batch, n_modes,
-        n_pol, n_omega)``.
+        ``D(omega)`` in 1/m, complex, shape ``(n_omega,)`` or ``(n_modes, n_pol,
+        n_omega)``.
     z_max : float
         Length the run covers, m, positive and finite.
     n_pol : int, optional
@@ -822,7 +813,7 @@ def constant_phi(
     >>> from solprop.translate.linop import constant_phi
     >>> table = constant_phi(np.array([0.0, -1j, -2j]), 1.0)
     >>> table.phi_coefficients.shape, table.z_span
-    ((1, 2, 1, 1, 1, 3), (0.0, 1.05))
+    ((1, 2, 1, 1, 3), (0.0, 1.05))
     >>> table.phi_representation
     'constant'
     """
@@ -1264,7 +1255,7 @@ def with_power_weight(
     LinearOperator
         Operator with a constant, parameter-expansion or z-table weight row.
     """
-    n_pol = linear.value_shape[2]
+    n_pol = linear.value_shape[1]
     sample = _weight_sampler(modes, grid, n_pol, index)
     if index is not None or all(mode.z_constant for mode in modes):
         constant = hold(sample(0.0))
@@ -1464,14 +1455,14 @@ def _log_weight_sampler(
     - Returns: minus one half the logarithmic weight in canonical state shape.
     """
 
-    def sample(z: float) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    def sample(z: float) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Sample the index at the requested position.
 
         - ``z``: positions within the translated span, in metres.
         """
-        columns = np.zeros((1, len(modes), n_pol, grid.n_omega), dtype=complex)
+        columns = np.zeros((len(modes), n_pol, grid.n_omega), dtype=complex)
         for number, mode in enumerate(modes):
-            columns[0, number][:, grid.active_mask] = -0.5 * log_power_weight(
+            columns[number][:, grid.active_mask] = -0.5 * log_power_weight(
                 mode, grid.omega[grid.active_mask], z, index=index
             )
         return columns
@@ -1491,12 +1482,12 @@ def _power_phi(
     """
     if linear.phi_representation == "constant" or index is not None:
         return linear
-    n_pol = linear.value_shape[2]
+    n_pol = linear.value_shape[1]
     frozen = [mode for mode in modes if isinstance(mode, ParameterisedMode)]
 
     def value_at(
         values: Mapping[str, float],
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Sample the weight inside the declared parameter box.
 
         - Returns: weight values in the mode and frequency layout.
@@ -1597,7 +1588,7 @@ def endpoint_phi(
 
     def _correction(
         z: Float[np.ndarray, " n_z"],
-    ) -> Complex[np.ndarray, "n_z n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_z n_modes n_pol n_omega"]:
         """Sample the endpoint function along z.
 
         - ``z``: positions within the translated span, in metres.
@@ -1809,7 +1800,7 @@ def _z_table_operator(
 
     def sample(
         z: Float[np.ndarray, " n_z"], *_: object
-    ) -> Complex[np.ndarray, "n_z n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_z n_modes n_pol n_omega"]:
         """Return the operator at every position of a Chebyshev node set.
 
         - ``z``: positions along the waveguide, m, shape ``(n_z,)``.
@@ -1889,14 +1880,14 @@ def _operator_sampler(  # noqa: PLR0917 - called positionally
 ) -> _OperatorAt:
     """Return a callable giving ``D`` in the canonical layout at one position.
 
-    - Returns: ``z -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
+    - Returns: ``z -> D`` of shape ``(n_modes, n_pol, n_omega)``.
     """
 
-    def operator_at(z: float) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    def operator_at(z: float) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the linear operator at one position, in the canonical layout.
 
         - ``z``: position along the waveguide, m.
-        - Returns: ``D(omega, z)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
+        - Returns: ``D(omega, z)`` in 1/m, shape ``(n_modes, n_pol, n_omega)``.
         """
         shared = _shared_frame(modes[0], frame, z)
         columns = [
@@ -1932,16 +1923,16 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
     - ``frame``: its ``beta_0`` and ``beta_1`` follow the frozen reference mode, so the
       frame subtraction is a function of the same parameters and needs no dimension
       of its own.
-    - Returns: ``values -> D`` of shape ``(1, n_modes, n_pol, n_omega)``.
+    - Returns: ``values -> D`` of shape ``(n_modes, n_pol, n_omega)``.
     """
     parameterised = [one for one in modes if isinstance(one, ParameterisedMode)]
 
     def operator_of(
         values: Mapping[str, float],
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the linear operator at one point of the parameter space.
 
-        - Returns: ``D(omega; values)`` in 1/m, shape ``(1, n_modes, n_pol, n_omega)``.
+        - Returns: ``D(omega; values)`` in 1/m, shape ``(n_modes, n_pol, n_omega)``.
         """
         frozen = [one.at_parameters(values) for one in parameterised]
         # One frame for the whole set, from the reference mode at *these* parameter
@@ -1962,7 +1953,7 @@ def _operator_of_parameters(  # noqa: PLR0917 - called positionally
 
 def _canonical(
     columns: Sequence[Complex[np.ndarray, " n_omega"]], n_pol: int
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Stack one operator per mode into the canonical state layout.
 
     - ``n_pol``: polarisation components; ``D`` is the same for both components of one
@@ -1970,8 +1961,8 @@ def _canonical(
     """
     # The repeat makes the array that owns the result's memory, so that a caller can
     # hold it (solprop._ownership.hold), as it could not hold a view of it.
-    stacked = np.stack(columns)[np.newaxis, :, np.newaxis, :]
-    return np.repeat(stacked, n_pol, axis=2)
+    stacked = np.stack(columns)[:, np.newaxis, :]
+    return np.repeat(stacked, n_pol, axis=1)
 
 
 def _shared_frame(reference: Mode, frame: Frame, z: float) -> Frame:
@@ -2302,7 +2293,7 @@ def _frame_tables(
 
 def delta_phi(
     table: LinearOperator, z1: float, z2: float, *, helpers: Helpers | None = None
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return the exponent of the exact linear flow between two positions.
 
     ``Phi(z2) - Phi(z1)``, so that ``exp(delta_phi(table, z1, z2))`` is the linear
@@ -2326,7 +2317,7 @@ def delta_phi(
     Returns
     -------
     numpy.ndarray
-        Dimensionless exponent, complex, shape ``(n_batch, n_modes, n_pol, n_omega)``.
+        Dimensionless exponent, complex, shape ``(n_modes, n_pol, n_omega)``.
 
     Raises
     ------
@@ -2361,7 +2352,7 @@ def phi_rate(
     *,
     before: bool = False,
     helpers: Helpers | None = None,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return the rate ``D(z) = dPhi/dz`` of the representation that defines the flow.
 
     A constant or separable operator returns ``D`` itself. A table's interval edges
@@ -2385,7 +2376,7 @@ def phi_rate(
     Returns
     -------
     numpy.ndarray
-        ``D(z)`` in 1/m, shape ``(n_batch, n_modes, n_pol, n_omega)``.
+        ``D(z)`` in 1/m, shape ``(n_modes, n_pol, n_omega)``.
 
     Examples
     --------
@@ -2510,10 +2501,10 @@ def _separable_phase(
     # Six complex-equivalent arrays cover square root, masks and products.
     # This independent host evaluation uses the same 64 MiB workspace ceiling.
     chunk = max(1, (64 << 20) // (8 * 16 * len(coefficients.k_squared)))
-    for first in range(0, coefficients.value_shape[1], chunk):
+    for first in range(0, coefficients.value_shape[0], chunk):
         rows = slice(first, first + chunk)
         operator, _ = separable_values(coefficients, rows)
-        result[:, rows] = (np.imag(operator) if imaginary else operator) * distance
+        result[rows] = (np.imag(operator) if imaginary else operator) * distance
     return result
 
 
@@ -2643,11 +2634,11 @@ def walk_off_buckets(
     widest: np.ndarray | None = None
     for z, before, section in _rate_positions(table):
         rate = _channel_rate(table, z, before, section)
-        n_batch, n_modes, n_pol, n_omega = rate.shape
+        n_modes, n_pol, n_omega = rate.shape
         phase = -np.imag(rate.reshape(-1, n_omega))[:, order]
         valid = np.broadcast_to(sorted_active[None, :], phase.shape)
-        each = _rates(phase, valid).reshape(n_batch, n_modes, n_pol, n_omega)
-        each = each.max(axis=(0, 2))
+        each = _rates(phase, valid).reshape(n_modes, n_pol, n_omega)
+        each = each.max(axis=1)
         widest = each if widest is None else np.maximum(widest, each)
     assert widest is not None
     buckets = np.empty(widest.shape, dtype=np.uint8)
@@ -2695,7 +2686,7 @@ def _rate_positions(
 
 def _channel_rate(
     table: LinearOperator, z: float, before: bool, section: int | None
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return each channel's own operator at one position, ``D`` plus its flow's.
 
     A coupled flow's channels share the carrier's ``D``: each one's own propagation
@@ -2720,12 +2711,12 @@ def _channel_rate(
     diagonal = np.diagonal(flow.generator, axis1=2, axis2=3)  # (i, d, w, m)
     flat = diagonal.reshape(-1, *diagonal.shape[2:])
     own = np.tensordot(flow_weights(flow, z, section), flat, axes=1).T
-    return rate + own[None, :, None, :]
+    return rate + own[:, None, :]
 
 
 def unitary_phase(
     table: LinearOperator, z: float
-) -> Float[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Float[np.ndarray, "n_modes n_pol n_omega"]:
     """Return the phase that advances the shot-noise field to a position.
 
     The modified noise realisation is drawn once and carried along the fibre by the
@@ -2745,7 +2736,7 @@ def unitary_phase(
     Returns
     -------
     numpy.ndarray
-        Phase in radians, shape ``(n_batch, n_modes, n_pol, n_omega)``.
+        Phase in radians, shape ``(n_modes, n_pol, n_omega)``.
 
     Raises
     ------

@@ -1167,14 +1167,9 @@ class PropagationProblem:
                 "match the state"
             )
             raise TranslationError(msg)
-        # The operator's values keep a leading broadcast axis of one, the layout the
-        # native build reads; the state has none (SEP 47 section 6.2).
         value = self.linear.value_shape
-        if value != (1, n_modes, n_pol, n_omega):
-            msg = (
-                f"linear carries values of shape {value}, expected "
-                f"{(1, n_modes, n_pol, n_omega)}"
-            )
+        if value != self.shape:
+            msg = f"linear carries values of shape {value}, expected {self.shape}"
             raise TranslationError(msg)
         value = self.responses.prefactor_value_shape
         if value != (n_modes, n_pol, n_omega):

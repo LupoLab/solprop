@@ -231,8 +231,8 @@ def stages(
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones((1, *problem.shape), complex),
-        )[0]
+            np.ones(problem.shape, complex),
+        )
     finally:
         reference.close()
     backend = NativeBackend(problem, run_request, grid=GRID)
@@ -280,7 +280,7 @@ def launch_fraction_bound(
         bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
             )
         )
         field_error = node_field_error(reference, problem, fields)

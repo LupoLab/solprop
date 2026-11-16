@@ -425,7 +425,7 @@ def test_the_route_records_its_flow_on_the_modal_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 2
+    assert metadata.schema_version == 3
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -444,9 +444,7 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
     assert simulation.metadata().modal is None
     assert problem.linear.phi_constant is not None
     constant = problem.linear.phi_constant
-    assert not np.array_equal(
-        constant, np.broadcast_to(constant[:, :1], constant.shape)
-    )
+    assert not np.array_equal(constant, np.broadcast_to(constant[:1], constant.shape))
 
 
 LATTICE = TubeLattice(180e-9, 10.38e-6, 6)
@@ -854,7 +852,7 @@ def test_the_reference_refuses_a_problem_the_flow_cannot_sit_beside():
     constant = problem.linear.phi_constant
     assert constant is not None
     varied = constant.copy()
-    varied[0, 1] *= 1.0000001
+    varied[1] *= 1.0000001
     with pytest.raises(TranslationError, match="mode-independent Phi"):
         NumpyRefBackend(
             replace(problem, linear=replace(problem.linear, phi_constant=varied)),
@@ -1059,7 +1057,7 @@ def test_a_diagonal_generator_matches_the_same_diagonal_inside_phi():
     constant = problem.linear.phi_constant
     assert constant is not None
     folded = constant.copy()
-    folded[0, :, 0, :] += diagonal[index, index]
+    folded[:, 0, :] += diagonal[index, index]
     inside = replace(
         problem,
         linear=replace(problem.linear, phi_constant=folded, coupled_flow=None),
@@ -1110,7 +1108,7 @@ def test_ten_steps_apply_the_block_the_translation_layer_declared():
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
     final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = 1e-9 * np.exp(carrier + rate * LENGTH)
@@ -1168,7 +1166,7 @@ def test_each_channel_keeps_its_own_rate_in_the_weakly_coupled_limit():
     assert flow is not None
     index, launched = linear_launch(problem, simulation.grid)
     final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     assert flow.generator is not None
     rate = complex(flow.generator[0, 0, 0, 0, index])
     expected = abs(1e-9 * np.exp(carrier + rate * LENGTH))
@@ -1250,7 +1248,7 @@ def test_the_transmission_of_one_physical_launch_converges_with_the_channel_coun
             problem, initial=replace(problem.initial, field0=state, noise0=None)
         )
         final = propagated(launched, simulation._run_request(), simulation.grid)
-        carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index]))
+        carrier = float(np.real(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index]))
         transmissions[count] = float(np.sum(abs(final[:, 0, index]) ** 2)) / (
             1e-18 * total * math.exp(2.0 * carrier)
         )
@@ -2618,7 +2616,7 @@ def test_ten_steps_of_mixed_family_propagation_match_an_independent_solve():
     assert flow is not None and flow.generator is not None
     index, launched = linear_launch(problem, simulation.grid)
     final = propagated(launched, simulation._run_request(), simulation.grid)
-    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, 0, index])
+    carrier = complex(delta_phi(problem.linear, 0.0, LENGTH)[0, 0, index])
     block = np.asarray(flow.generator[0, 0, :, :, index], dtype=complex)
     start = np.zeros(4, dtype=complex)
     start[0] = 1e-9

@@ -69,9 +69,7 @@ def source_at(implementation, problem, run_request, grid, positions):
         backend = implementation(problem, run_request, grid=grid)
         try:
             backend.set_initial(state, None)
-            # The backend's private hook keeps the state's leading axis of one.
-            held = state[np.newaxis]
-            return [np.array(backend._adams_lab_source(held, z)) for z in positions]
+            return [np.array(backend._adams_lab_source(state, z)) for z in positions]
         finally:
             backend.close()
     # Native's resident Adams engine, on the same problem under the Adams march: its

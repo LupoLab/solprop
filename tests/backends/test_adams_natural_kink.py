@@ -86,7 +86,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     }
     assert orders[steps_before_restart] == 1
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0] * start
     # Four exact linear steps differ only by propagator multiplication roundoff.
     assert_allclose(
         result.fields[-1][0, 0],

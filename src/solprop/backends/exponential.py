@@ -316,28 +316,27 @@ class CarrierChord:
     """The reference element's cumulative operator alone (SEP 35 sections 6.1, 6.4).
 
     The operator's own representation restricted to column 0, polarisation 0 and the
-    reference bin, every batch member kept: its chord over a step is the reference
-    element's exponent, to rounding the one the backend forms, at one scalar per
-    member. The step cap reads it for every proposal, and a backend that forms its
-    exponent elsewhere (the native engine, on a device too) takes its shift from it
-    with nothing read back.
+    reference bin: its chord over a step is the reference element's exponent, to
+    rounding the one the backend forms, at one scalar. The step cap reads it for every
+    proposal, and a backend that forms its exponent elsewhere (the native engine, on a
+    device too) takes its shift from it with nothing read back.
 
     Attributes
     ----------
     constant : numpy.ndarray or None
-        ``D`` at the element, 1/m, shape ``(n_batch_c,)``, for a constant operator.
+        ``D`` at the element, 1/m, shape ``()``, for a constant operator.
     expansion : solprop.translate.expansion.ParameterExpansion or None
         The expansion with its terms at the element, for an expansion.
     table : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The z table at the element, for a table.
     """
 
-    constant: Complex[np.ndarray, " n_batch_c"] | None = None
+    constant: Complex[np.ndarray, ""] | None = None
     expansion: ParameterExpansion | None = None
     table: PiecewiseChebyshev | None = None
 
-    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, " n_batch_c"]:
-        """Return ``Phi(z2) - Phi(z1)`` at the element, per batch member.
+    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, ""]:
+        """Return ``Phi(z2) - Phi(z1)`` at the element.
 
         Parameters
         ----------
@@ -347,10 +346,10 @@ class CarrierChord:
         Returns
         -------
         numpy.ndarray
-            Dimensionless, shape ``(n_batch_c,)``.
+            Dimensionless, shape ``()``.
         """
         if self.constant is not None:
-            return self.constant * (z2 - z1)
+            return np.asarray(self.constant * (z2 - z1))
         if self.expansion is not None:
             return np.asarray(self.expansion.delta(z1, z2), dtype=np.complex128)
         assert self.table is not None
@@ -375,14 +374,14 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
     """
 
     def _element(values: np.ndarray) -> np.ndarray:
-        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch.
+        """Return ``values[..., 0, 0, index]`` over its leading axes.
 
-        - ``values``: a representation's array, its last four axes the state's layout.
+        - ``values``: a representation's array, its last three axes the state's layout.
         - Returns: column 0, polarisation 0 and the reference bin, every leading axis
           kept.
         """
         column = min(index, values.shape[-1] - 1)
-        return np.ascontiguousarray(values[..., 0, 0, column])
+        return np.array(values[..., 0, 0, column], order="C", copy=True)
 
     if linear.phi_constant is not None:
         return CarrierChord(constant=_element(linear.phi_constant))
@@ -403,7 +402,7 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
 class CarrierReference:
     """Where a run's carrier frame takes its shift, fixed for the run (SEP 35 6.1).
 
-    The shift of batch member ``b`` is ``sigma_b = i Im x[b, 0, 0, bin]``, ``x`` the
+    The shift is ``sigma = i Im x[0, 0, bin]``, ``x`` the
     trial's own exponent ``Phi(z + h) - Phi(z)``: column 0 is the frame's mode
     (``build_phi`` fixes the frame on the first mode; a coupled route's carrier is the
     same in every channel), polarisation 0. The change of variable is exact for any
@@ -440,9 +439,9 @@ class CarrierReference:
         return self.bin is not None
 
     def shift(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch 1 1 1"]:
-        """Return each batch member's shift for a trial's exponent.
+        self, exponent: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "1 1 1"]:
+        """Return the shift for a trial's exponent.
 
         Parameters
         ----------
@@ -452,8 +451,7 @@ class CarrierReference:
         Returns
         -------
         numpy.ndarray
-            Purely imaginary, shape ``(n_batch, 1, 1, 1)``, broadcasting against the
-            state.
+            Purely imaginary, shape ``(1, 1, 1)``, broadcasting against the state.
 
         Raises
         ------
@@ -464,13 +462,11 @@ class CarrierReference:
             msg = f"the carrier frame is inert for this run: {self.reason}"
             raise BackendError(msg)
         # The real part (loss) is never shifted (SEP 35 section 10).
-        phase = np.imag(exponent[:, 0, 0, self.bin]).reshape((-1, 1, 1, 1))
+        phase = np.imag(exponent[0, 0, self.bin]).reshape((1, 1, 1))
         return 1j * phase
 
-    def phase(
-        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> float:
-        """Return the largest carrier phase over the batch, for the step cap.
+    def phase(self, exponent: Complex[np.ndarray, "n_modes n_pol n_omega"]) -> float:
+        """Return the carrier phase, for the step cap.
 
         Parameters
         ----------
@@ -480,14 +476,14 @@ class CarrierReference:
         Returns
         -------
         float
-            ``max_b |Im x[b, 0, 0, bin]|``, rad; 0 when the policy is inert.
+            ``|Im x[0, 0, bin]|``, rad; 0 when the policy is inert.
         """
         if self.bin is None:
             return 0.0
-        return float(np.max(np.abs(np.imag(exponent[:, 0, 0, self.bin]))))
+        return float(np.abs(np.imag(exponent[0, 0, self.bin])))
 
     def chord_phase(self, z1: float, z2: float) -> float:
-        """Return the largest carrier phase over the batch from the chord alone.
+        """Return the carrier phase from the chord alone.
 
         Parameters
         ----------
@@ -497,7 +493,7 @@ class CarrierReference:
         Returns
         -------
         float
-            ``max_b |Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
+            ``|Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
             the policy is inert.
 
         Raises
@@ -510,7 +506,7 @@ class CarrierReference:
         if self.chord is None:
             msg = "the carrier frame's reference has no chord on this operator"
             raise BackendError(msg)
-        return float(np.max(np.abs(np.imag(self.chord.exponent(z1, z2)))))
+        return float(np.abs(np.imag(self.chord.exponent(z1, z2))))
 
 
 def carrier_reference(

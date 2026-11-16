@@ -121,12 +121,11 @@ def linear_bound(problem, schedule):
         for a, b in itertools.pairwise(edges)
     )
     final = np.abs(delta_phi(problem.linear, float(edges[0]), float(edges[-1])))
-    # The exponent keeps the operator tables' leading axis of one.
-    shape = (1, *problem.shape)
+    shape = problem.shape
     return EPS * (
         4 * steps
         + ARGUMENT_FACTOR
-        * (np.broadcast_to(swept, shape)[0] + np.broadcast_to(final, shape)[0])
+        * (np.broadcast_to(swept, shape) + np.broadcast_to(final, shape))
     )
 
 
@@ -259,7 +258,7 @@ ORDER_SPREAD_CAP = 0.3
 def driven_phase(problem, step, bins):
     """Return ``max |Im D| h / 2`` over `bins`: section 4.4's asymptotic range."""
     exponent = delta_phi(problem.linear, 0.0, step)
-    rate = np.broadcast_to(exponent / step, (1, *problem.shape))[0]
+    rate = np.broadcast_to(exponent / step, problem.shape)
     selected = np.broadcast_to(bins, problem.shape)
     return float(np.max(np.abs(np.imag(rate))[selected]) * step / 2)
 
@@ -488,9 +487,9 @@ def evaluation_difference(problem, run_request, grid, gnlse):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     state = backend._require_state()
-    march = backend._adams_lab_source(state, 0.0)[0, 0, 0]
+    march = backend._adams_lab_source(state, 0.0)[0, 0]
     backend.close()
-    scaffold = gnlse_source(gnlse, grid)(state[0, 0, 0])
+    scaffold = gnlse_source(gnlse, grid)(state[0, 0])
     assert np.linalg.norm(scaffold) > 0
     return float(np.linalg.norm(march - scaffold) / np.linalg.norm(scaffold)), state
 
@@ -543,7 +542,7 @@ def test_whole_runs_agree_with_the_scaffold_far_below_the_truncation_error(
     difference, start = evaluation_difference(problem, run_request, soliton_grid, gnlse)
     final, backend = run(problem, run_request, soliton_grid)
     backend.close()
-    start = start[0, 0, 0]
+    start = start[0, 0]
     scaffold = propagate_fixed_rk4(gnlse, soliton_grid, start, period, steps)[1][-1]
     gap = float(np.linalg.norm(final[0, 0] - scaffold) / np.linalg.norm(start))
     exact = np.exp(1j * scales.recurrence_phase) * start
@@ -1300,7 +1299,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         ] * np.exp(1j * phase[:, None, :])
         bound = gamma(128 * (space.n_columns + grid.n_to))
         bound += gamma(64) * position * float(grid.omega.max()) / C
-        drawn = (field_in - lab)[0]
+        drawn = field_in - lab
         scale = np.max(np.abs(expected))
         assert np.max(np.abs(drawn - expected)) <= bound * scale
 
@@ -1518,7 +1517,7 @@ def test_a_linear_step_is_rk4_s_stability_function_and_reads_its_stiffness(rate)
     roundings of the passes.
     """
     rng = np.random.default_rng(5)
-    state = rng.standard_normal((1, 1, 1, 64)) + 1j * rng.standard_normal((1, 1, 1, 64))
+    state = rng.standard_normal((1, 1, 64)) + 1j * rng.standard_normal((1, 1, 64))
     start = state.copy()
     step = 0.05
     backend = LinearSource(rate, state)

@@ -187,7 +187,7 @@ to it; a function that departs from it says so in the first line of its docstrin
 | Linear operator (internal) | `D = −i(β − β₀ − β₁(ω − ω₀)) − α/2`, `Im n_eff > 0` is loss |
 | Amplitudes | interface modal amplitude `b = sqrt(Re n_eff) a` in true √W; the internal `a` is vacuum-normalised (`conventions.md §4`) |
 | Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory (a group is a sequence of problems); saved fields `(n_z, n_modes, n_pol, n_omega)` |
-| Axis names | `n_batch n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
+| Axis names | `n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
 
 ## Backends, kernels and hot paths
 

@@ -62,7 +62,7 @@ def launch_derivative(backend: NumpyRefBackend, problem: PropagationProblem) -> 
     return backend._nonlinear(
         backend._require_state(),
         backend._stage_scalars(0.0, 0.0),
-        np.ones((1, *problem.shape), complex),
+        np.ones(problem.shape, complex),
     )
 
 

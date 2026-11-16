@@ -130,7 +130,7 @@ __all__ = ["BlockResidual", "NumpyRefBackend", "SourceTables"]
 logger = logging.getLogger(__name__)
 
 
-class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
+class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_modes n_pol n_omega"]]):
     """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
 
     The oracle of ``docs/dev/backends.md`` section 2. It implements
@@ -314,7 +314,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         # The lab-frame source's unit "propagator": one element broadcast to the state's
         # shape, so it holds no volume beside the state.
         self._lab_frame = np.broadcast_to(
-            np.ones((), dtype=np.complex128), (1, *problem.shape)
+            np.ones((), dtype=np.complex128), problem.shape
         )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -364,9 +364,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _error_norm(
         self,
-        error: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        advanced: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        error: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        advanced: Complex[np.ndarray, "n_modes n_pol n_omega"],
     ) -> float:
         """Return the controller's scaled norm of a trial step's embedded difference."""
         return passes.error_norm(
@@ -380,8 +380,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
 
-        The trajectory's statistics, without the leading axis of one the march holds
-        its state with (SEP 47 section 6.2), which ``_stacked_statistics`` evaluates.
+        The statistics of the saved field go to :func:`solprop.stats.collect`; there is
+        exactly one definition of each in the package and that is it. The statistics
+        :class:`solprop.stats.StatDefinition` marks ``backend`` are of quantities a
+        saved plane does not carry -- the electron density, the peak ionisation rate,
+        the on-axis intensity, the quadrature error -- and are formed here from the
+        backend's own buffers.
 
         Parameters
         ----------
@@ -392,25 +396,6 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         -------
         dict
             Small host arrays keyed by statistic name.
-        """
-        return {
-            name: np.asarray(value[0])
-            for name, value in self._stacked_statistics(spec).items()
-        }
-
-    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect the statistics with the leading axis of one of the held state.
-
-        The statistics of the saved field go to :func:`solprop.stats.collect`, one call
-        per row of the held state, stacked along its leading axis; there is exactly one
-        definition of each in the package and that is it. The
-        statistics :class:`solprop.stats.StatDefinition` marks ``backend`` are of
-        quantities a saved plane does not carry -- the electron density, the peak
-        ionisation rate, the on-axis intensity, the quadrature error -- and are formed
-        here from the backend's own buffers.
-
-        - Returns: small host arrays keyed by statistic name, each with a leading axis
-          of one.
         """
         state = self._require_state()
         grid = self._require_grid()
@@ -436,24 +421,20 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 periodic=(),
             )
             tables = self._far_field.for_spec(spatial_spec)
-            members = [
-                collect_spatial(
-                    spatial_spec,
-                    grid,
-                    self._problem.transform,
-                    one,
-                    z=self._z,
-                    flux=flux_of(self._problem.route),
-                    profiles=self._profiles,
-                    tables=tables,
-                    operator=self._problem.linear.separable,
-                    node_chunk=self.node_chunk,
-                )
-                for one in state
-            ]
+            spatial = collect_spatial(
+                spatial_spec,
+                grid,
+                self._problem.transform,
+                state,
+                z=self._z,
+                flux=flux_of(self._problem.route),
+                profiles=self._profiles,
+                tables=tables,
+                operator=self._problem.linear.separable,
+                node_chunk=self.node_chunk,
+            )
             return {
-                name: np.stack([one[name] for one in members])
-                for name in spatial_spec.names
+                name: np.array(spatial[name]) for name in spatial_spec.names
             } | self._backend_statistics(
                 tuple(name for name in spec.names if name in response_names), state
             )
@@ -481,14 +462,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 raise BackendError(msg)
             axis = self._on_axis_synthesis(self._modes)
         power_values = (
-            [
-                _poynting_statistics(
-                    spec, grid, member, self._statistics_power_weight, axis
-                )
-                for member in state
-            ]
+            _poynting_statistics(spec, grid, state, self._statistics_power_weight, axis)
             if weighted
-            else []
+            else {}
         )
         owned = tuple(
             name
@@ -508,7 +484,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 if name not in owned and name not in power_names
             ),
         )
-        # The basis metric at this plane, evaluated once for every member: the
+        # The basis metric at this plane: the
         # statistics of `METRIC_WEIGHTED_STATISTICS` are functionals of the physical
         # same-frequency flux `a.H W a`, and on a declared change of basis W is not
         # the identity. `metric_at` returns None for an identity metric, which is
@@ -519,39 +495,27 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             if set(delegated.names) & METRIC_WEIGHTED_STATISTICS
             else None
         )
-        members = [
-            collect(
-                delegated,
-                grid,
-                SavedPlane(z=self._z, field=state[member]),
-                modes=self._modes,
-                profiles=self._profiles,
-                metric=metric,
-            )
-            for member in range(state.shape[0])
-        ]
-        values = {
-            name: np.stack([member[name] for member in members])
-            for name in delegated.names
-        }
-        values.update(
-            {
-                name: np.stack([member[name] for member in power_values])
-                for name in power_names
-            }
+        collected = collect(
+            delegated,
+            grid,
+            SavedPlane(z=self._z, field=state),
+            modes=self._modes,
+            profiles=self._profiles,
+            metric=metric,
         )
+        values = {name: np.array(collected[name]) for name in delegated.names}
+        values.update({name: np.array(power_values[name]) for name in power_names})
         return values | self._backend_statistics(owned, state)
 
     def _backend_statistics(
         self,
         names: tuple[str, ...],
-        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     ) -> dict[str, np.ndarray]:
         """Share each fresh envelope population scan among the requested statistics.
 
-        - ``state``: accepted state at this plane with its leading axis of one.
-        - Returns: requested values with a leading axis of one and no retained field
-          cache.
+        - ``state``: accepted state at this plane.
+        - Returns: requested values, with no retained field cache.
         """
         population_names = (
             tuple(
@@ -574,10 +538,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             population_names = tuple(
                 name for name in names if name.startswith("species_")
             )
-        # Node scans of this observation only, by batch member: a rule with a node on
-        # the axis hands its row to the on-axis statistics, and nothing outlives the
-        # call, so no stale stage or rejected step can be reused.
-        scans: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        # Node scans of this observation only: a rule with a node on the axis hands
+        # its row to the on-axis statistics, and nothing outlives the call, so no
+        # stale stage or rejected step can be reused.
+        scans: list[tuple[np.ndarray, np.ndarray]] = []
         result = {
             name: self._backend_stat(name, state)
             for name in names
@@ -586,74 +550,45 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             and name not in axis_names
         }
         if integration_names:
-            diagnostics = [self._integration_diagnostics(member) for member in state]
+            diagnostics = self._integration_diagnostics(state)
             result.update(
-                {
-                    name: np.stack([member[name] for member in diagnostics])
-                    for name in integration_names
-                }
+                {name: np.array(diagnostics[name]) for name in integration_names}
             )
         if population_names:
-            members = [
-                self._species_statistics(member, scans, index)
-                for index, member in enumerate(state)
-            ]
-            result.update(
-                {
-                    name: np.stack([member[name] for member in members])
-                    for name in population_names
-                }
-            )
+            species = self._species_statistics(state, scans)
+            result.update({name: np.array(species[name]) for name in population_names})
         if axis_names:
-            axis = [
-                self._axis_statistics(member, scans.get(index))
-                for index, member in enumerate(state)
-            ]
-            result.update(
-                {
-                    name: np.stack([member[name] for member in axis])
-                    for name in axis_names
-                }
-            )
+            axis = self._axis_statistics(state, scans[0] if scans else None)
+            result.update({name: np.array(axis[name]) for name in axis_names})
         return result
 
     def _backend_stat(
         self,
         name: str,
-        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     ) -> np.ndarray:
-        """Compute one backend-owned statistic over the batch.
-
-        - Returns: the value with a leading axis of one.
-        """
+        """Compute one backend-owned statistic."""
         if name == "quadrature_error":
-            return np.full(state.shape[0], self._alarm)
+            return np.full((), self._alarm)
         if name == "peak_intensity":
-            return np.stack(
-                [self._peak_intensity(state[member]) for member in range(len(state))]
-            )
+            return np.array(self._peak_intensity(state))
         if (
             name.startswith("species_")
             or self._problem.flags.n_channels > 1
             or self._problem.responses.envelope_plasma is not None
         ):
-            return np.stack(
-                [self._species_statistics(member)[name] for member in state]
-            )
-        ionised = [self._ionisation(state[member]) for member in range(len(state))]
-        index = 0 if name == "electron_density" else 1
-        return np.stack([one[index] for one in ionised])
+            return np.array(self._species_statistics(state)[name])
+        return np.array(self._ionisation(state)[0 if name == "electron_density" else 1])
 
     def _species_statistics(
         self,
         field: Complex[np.ndarray, "n_modes n_pol n_omega"],
-        scans: dict[int, tuple[np.ndarray, np.ndarray]] | None = None,
-        member: int = 0,
+        scans: list[tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> dict[str, np.ndarray]:
         """Evaluate independent populations on the actual nonlinear nodes.
 
         - ``scans``: where to leave this observation's channel fractions and peak rates
-          at every node, keyed by `member`, for the on-axis statistics to reuse.
+          at every node, for the on-axis statistics to reuse.
         - Returns: the five species statistics and the two total plasma statistics.
         """
         responses = self._problem.responses
@@ -686,7 +621,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     nodes, tuple(float(c.preionisation(self._z)) for c in channels)
                 )
                 if scans is not None:
-                    scans[member] = (fractions, peaks)
+                    scans.append((fractions, peaks))
                 return population_statistics(self._problem, self._z, fractions, peaks)
             rates, population = passes.plasma_channel_fractions(
                 nodes,
@@ -696,7 +631,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 responses.plasma_integral,
             )
             if scans is not None:
-                scans[member] = (population[:, :, -1], rates.max(axis=-1))
+                scans.append((population[:, :, -1], rates.max(axis=-1)))
             return population_statistics(
                 self._problem, self._z, population[:, :, -1], rates.max(axis=-1)
             )
@@ -1107,7 +1042,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 f"at z = {self._z:.6g} m ({error.calls} charged); "
                 "the run stops at its last accepted step, unfinished",
                 z=self._z,
-                field=self._adams_state()[0].copy(),
+                field=self._adams_state().copy(),
                 calls=error.calls,
             ) from None
 
@@ -1118,14 +1053,14 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _adams_source(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         anchor: float,
         position: float,
         *,
         purpose: TDSEPurpose = "predictor",
     ) -> tuple[
-        Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        Complex[np.ndarray, "n_modes n_pol n_omega"],
+        Complex[np.ndarray, "n_modes n_pol n_omega"],
     ]:
         """Evaluate the source once through the reference passes.
 
@@ -1192,11 +1127,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _adams_lab_source(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         position: float,
         *,
         purpose: TDSEPurpose = "predictor",
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Evaluate the source once through the reference passes, untransported.
 
         The same passes as :meth:`_adams_source`, with the stage's inverse propagator
@@ -1225,7 +1160,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _adams_propagator(
         self, anchor: float, position: float
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return ``U(position, anchor)``, held for the Adams step's source call.
 
         Only an Adams march reads it back (:meth:`_adams_source`), so only an Adams
@@ -1242,7 +1177,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _trial_step(
         self, z: float, dz: float
-    ) -> tuple[float, Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]:
+    ) -> tuple[float, Complex[np.ndarray, "n_modes n_pol n_omega"]]:
         """Take one interaction-picture Runge-Kutta step and score it.
 
         Every stage is evaluated. The tableau's first-same-as-last property would let
@@ -1283,7 +1218,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         exponents = self._exponents(z, dz)
         step = self._stage_scalars(z, z + dz)
         actions = self._flow_actions(step.flow_section, dz)
-        stages: list[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]] = []
+        stages: list[Complex[np.ndarray, "n_modes n_pol n_omega"]] = []
         solution = np.zeros_like(state)
         error = np.zeros_like(state)
         for index, node in enumerate(tableau.nodes):
@@ -1337,9 +1272,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _channels(
         self,
-        values: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        values: Complex[np.ndarray, "n_modes n_pol n_omega"],
         action: Complex[np.ndarray, "n_active_c n_modes_c_out n_modes_c_in"] | None,
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Mix the channel axis by one coupled-flow action, or return the values.
 
         - ``values``: any array of the state's layout.
@@ -1352,10 +1287,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _residual(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         section: int,
         bundle: StageScalars,
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return the explicit residual's lab-frame source term, or nothing.
 
         ``None`` for every problem but a ``"frozen_residual"`` coupled flow: the
@@ -1439,8 +1374,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         return action
 
     def _apply_mask(
-        self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        self, state: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Zero the state outside the active band.
 
         - ``state``: the state in the canonical layout.
@@ -1474,9 +1409,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _finish(
         self,
-        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
         dz: float,
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Apply the once-per-accepted-step boundary treatments to a kept step.
 
         - ``dz``: length of the step, m.
@@ -1503,26 +1438,26 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # A (p, y) row is a modal amplitude whose time signal is a real field's,
             # and the rate is the same at every node, so it is applied row by row.
             transform = self._problem.transform
-            physical = slab_rows(transform, masked[0])
+            physical = slab_rows(transform, masked)
             chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
                 physical[rows] = passes.apply_temporal_rate(
-                    physical[rows][None], rate, dz, kind=self._kind
-                )[0]
-            return self._apply_mask(slab_columns(transform, physical)[None])
+                    physical[rows], rate, dz, kind=self._kind
+                )
+            return self._apply_mask(slab_columns(transform, physical))
         if geometry is not None and geometry.kind == "free":
             nx, ny = geometry.shape
-            shape = (ny, nx, *masked.shape[2:])
-            physical = np.fft.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
-                masked.shape[1:]
+            shape = (ny, nx, *masked.shape[1:])
+            physical = np.fft.ifft2(masked.reshape(shape), axes=(0, 1)).reshape(
+                masked.shape
             )
             chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
                 physical[rows] = passes.apply_temporal_rate(
-                    physical[rows][None], rate, dz, kind=self._kind
-                )[0]
+                    physical[rows], rate, dz, kind=self._kind
+                )
             result = np.fft.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
                 masked.shape
             )
@@ -1599,12 +1534,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _nonlinear(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         bundle: StageScalars,
-        inverse_propagator: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        inverse_propagator: Complex[np.ndarray, "n_modes n_pol n_omega"],
         *,
         purpose: TDSEPurpose = "predictor",
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Evaluate one stage derivative through the transform passes.
 
         The pipeline of ``architecture.md`` section 8 for any node count: one batched
@@ -1636,17 +1571,15 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # would otherwise be dropped from a problem that has no response at all.
             if not self._in_stage_absorber:
                 return np.zeros_like(lab)
-            alone = passes.to_time(
-                lab[0], grids.crop_index, grids.n_to, kind=self._kind
-            )
+            alone = passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
             return passes.stage_output(
-                np.zeros_like(lab[0]),
-                np.zeros_like(lab[0]),
+                np.zeros_like(lab),
+                np.zeros_like(lab),
                 self._tables.omega_window,
                 inverse_propagator,
                 self._absorber_term(alone, may_quiet=True),
             )
-        modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind=self._kind)
+        modal_t = passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
         geometry = self._problem.transform.geometry
         if (
             geometry is not None
@@ -1684,11 +1617,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _nonlinear_tdse(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         bundle: StageScalars,
-        inverse_propagator: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        inverse_propagator: Complex[np.ndarray, "n_modes n_pol n_omega"],
         purpose: TDSEPurpose,
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Evaluate the declared atomic binding and combine independent P/J sources.
 
         Steps 1 to 4 are :mod:`solprop.backends.tdse_source`'s, shared with native;
@@ -1698,8 +1631,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         grids = problem.grids
         binding = self._tdse_binding
         assert binding is not None and tdse_of(problem.route) is not None
-        modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind="field")
-        fields = tdse_source.node_fields(problem, lab[0], bundle)
+        modal_t = passes.to_time(lab, grids.crop_index, grids.n_to, kind="field")
+        fields = tdse_source.node_fields(problem, lab, bundle)
         result = binding.evaluate(
             fields, z=bundle.z1, purpose=purpose, density=bundle.density
         )
@@ -1727,10 +1660,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _nonlinear_general(
         self,
-        lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
         bundle: StageScalars,
-        inverse_propagator: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        inverse_propagator: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Evaluate one stage derivative through a general modal guide's maps.
 
         The route's own execution path, in
@@ -1759,7 +1692,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         # is not dropped with it.
         spectrum = (
             general_source(
-                lab[0],
+                lab,
                 self._general,
                 grids.crop_index,
                 n_to=grids.n_to,
@@ -1768,12 +1701,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 dispersive_densities=bundle.dispersive_kerr_densities,
             )
             if self._general_responds
-            else np.zeros_like(lab[0])
+            else np.zeros_like(lab)
         )
         absorber = None
         if self._in_stage_absorber:
             absorber = self._absorber_term(
-                passes.to_time(lab[0], grids.crop_index, grids.n_to, kind=self._kind)
+                passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
             )
         return passes.stage_output(
             spectrum,
@@ -1884,7 +1817,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> np.ndarray:
         """Apply transverse FFTs before bounded temporal response transforms.
 
-        - ``lab``: Lab-frame stage spectrum, with the state's leading axis of one.
+        - ``lab``: Lab-frame stage spectrum.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -1896,15 +1829,13 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if geometry is None:
             msg = "Cartesian nonlinear evaluation requires spatial geometry"
             raise BackendError(msg)
-        shape = (geometry.shape[1], geometry.shape[0], *lab.shape[2:])
+        shape = (geometry.shape[1], geometry.shape[0], *lab.shape[1:])
         result = np.zeros_like(lab)
         if len(responses.response_order) == 1 and not self._in_stage_absorber:
             return result
-        scratch = np.empty_like(lab[0])
+        scratch = np.empty_like(lab)
         if len(responses.response_order) > 1:
-            scratch.reshape(shape)[...] = np.fft.ifft2(
-                lab[0].reshape(shape), axes=(0, 1)
-            )
+            scratch.reshape(shape)[...] = np.fft.ifft2(lab.reshape(shape), axes=(0, 1))
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
@@ -1934,13 +1865,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
-                result[0, rows] = prefactor * self._tables.omega_window * scratch[rows]
+                result[rows] = prefactor * self._tables.omega_window * scratch[rows]
         if self._in_stage_absorber:
             # The rate is additive to the normalised material term. Reusing the
             # transverse scratch avoids a second retained physical spectral volume.
-            scratch.reshape(shape)[...] = np.fft.ifft2(
-                lab[0].reshape(shape), axes=(0, 1)
-            )
+            scratch.reshape(shape)[...] = np.fft.ifft2(lab.reshape(shape), axes=(0, 1))
             temporal = self._tables.temporal_rate
             timed = temporal is not None and responses.absorber_scheme == "nonlinear"
             for first in range(0, transform.n_nodes, self.node_chunk):
@@ -1961,7 +1890,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 )
             view = scratch.reshape(shape)
             view[...] = np.fft.fft2(view, axes=(0, 1))
-            result[0] += grids.active_mask * scratch
+            result += grids.active_mask * scratch
         return result * inverse_propagator
 
     def _nonlinear_slab(
@@ -1983,7 +1912,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         (kernel schema 15). The y collar's in-stage rate depends on y alone, so it
         acts on the rows directly.
 
-        - ``lab``: Lab-frame stage spectrum, with the state's leading axis of one.
+        - ``lab``: Lab-frame stage spectrum.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -1998,7 +1927,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return result
         n_x, n_y = geometry.shape
         n_p = transform.synthesis.shape[1]
-        rows_f = slab_rows(transform, lab[0])
+        rows_f = slab_rows(transform, lab)
         temporal = responses.temporal_absorber_fine
         timed = temporal is not None and responses.absorber_scheme == "nonlinear"
         rows_t = (
@@ -2070,9 +1999,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             for first in range(0, transform.n_modes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
-                result[0, rows] = prefactor * grids.omega_window * columns[rows]
+                result[rows] = prefactor * grids.omega_window * columns[rows]
         if self._in_stage_absorber:
-            result[0] += self._slab_absorber(rows_f, rows_t)
+            result += self._slab_absorber(rows_f, rows_t)
         return result * inverse_propagator
 
     def _slab_absorber(
@@ -2309,9 +2238,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def _exponents(
         self, z: float, dz: float
-    ) -> Callable[
-        [float, StageScalars], Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ]:
+    ) -> Callable[[float, StageScalars], Complex[np.ndarray, "n_modes n_pol n_omega"]]:
         """Return the memoised ``dPhi`` of a step, keyed by the stage fraction.
 
         The anchor is hoisted once per step and each exponent is evaluated once and
@@ -2328,11 +2255,11 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         del z, dz
         if self._propagator_mode == "recompute":
             return lambda fraction, bundle: self._delta_phi(bundle)  # noqa: ARG005
-        cache: dict[float, Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]] = {}
+        cache: dict[float, Complex[np.ndarray, "n_modes n_pol n_omega"]] = {}
 
         def exponent(
             fraction: float, bundle: StageScalars
-        ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
             """Return ``dPhi`` at a stage fraction, computing it at most once.
 
             - ``fraction``: the tableau node ``c_i``, dimensionless, in ``[0, 1]``.
@@ -2754,9 +2681,9 @@ class BlockResidual:
     def __call__(
         self,
         section: int,
-        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_modes n_pol n_omega"],
         weights: Float[np.ndarray, " n_flow_terms"],
-    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return ``R_s(z) state`` for the flow weights of a position.
 
         Parameters
@@ -2787,11 +2714,11 @@ class BlockResidual:
 
 
 def _residual_drive(
-    lab: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    lab: Complex[np.ndarray, "n_modes n_pol n_omega"],
     action: Complex[np.ndarray, "n_active_d n_modes_d_out n_modes_d_in"],
     active: Bool[np.ndarray, " n_omega"],
     scored: Bool[np.ndarray, " n_omega_scored"],
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return the explicit residual's contribution to one stage's lab-frame source.
 
     Unlike :func:`_apply_flow`, which *transforms* a state and therefore leaves the
@@ -2811,17 +2738,17 @@ def _residual_drive(
     - Returns: ``R_s(z_1) u`` in the state's layout, zero off the scored active bins.
     """
     drive = np.zeros_like(lab)
-    drive[:, :, :, scored] = np.einsum(
-        "wij,bjpw->bipw", action[scored[active]], lab[:, :, :, scored]
+    drive[:, :, scored] = np.einsum(
+        "wij,jpw->ipw", action[scored[active]], lab[:, :, scored]
     )
     return drive
 
 
 def _apply_flow(
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"],
     action: Complex[np.ndarray, "n_active_a n_modes_a_out n_modes_a_in"],
     active: Bool[np.ndarray, " n_omega"],
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Apply a per-frequency channel action to the canonical state.
 
     The identity case is the caller's: a problem with no coupled flow, or the zero
@@ -2832,9 +2759,7 @@ def _apply_flow(
       off them, where the block is zero and the action is the identity.
     """
     carried = state.copy()
-    carried[:, :, :, active] = np.einsum(
-        "wij,bjpw->bipw", action, state[:, :, :, active]
-    )
+    carried[:, :, active] = np.einsum("wij,jpw->ipw", action, state[:, :, active])
     return carried
 
 

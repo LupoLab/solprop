@@ -361,7 +361,7 @@ def synthetic_expansion():
             build(weights_of, z0, z1, tol=tol, mandatory_breakpoints=kinks)
         )
         stacked = np.stack(
-            [np.asarray(one, dtype=complex).reshape(1, 1, 1, -1) for one in terms]
+            [np.asarray(one, dtype=complex).reshape(1, 1, -1) for one in terms]
         )
         expansion = ParameterExpansion(
             parameters=("synthetic",),

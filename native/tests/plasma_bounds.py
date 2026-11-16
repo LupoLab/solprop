@@ -241,7 +241,7 @@ def node_field_error(
         # within fft_bound of the field's 2-norm over every node and sample.
         size = grids.n_to * transform.n_nodes
         return np.full(fields.shape, fft_bound(size) * float(np.linalg.norm(fields)))
-    state = reference._require_state()[0]  # pyright: ignore[reportPrivateUsage]
+    state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
     kind = reference._kind  # pyright: ignore[reportPrivateUsage]
     bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
     taper = float(bundle.taper_scale)
@@ -414,11 +414,11 @@ def plasma_stage_bound(
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         stage = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            state, bundle, np.ones((1, *problem.shape), complex)
-        )[0]
+            state, bundle, np.ones(problem.shape, complex)
+        )
         fields = np.real(
             np.concatenate(
-                list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+                list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
             )
         )
         field_error = node_field_error(reference, problem, fields)

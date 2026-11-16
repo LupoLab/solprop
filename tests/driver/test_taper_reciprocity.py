@@ -104,7 +104,7 @@ def transfer(radii, steps, name="numpy_ref"):
         driver = backend(launched, run_request, grid=grid)
         final = final_field(driver, launched, bare(run_request), ended=True, owns=True)
         columns.append(final[:, 0, index] / 1e-9)
-    carrier = delta_phi(problem.linear, 0.0, LENGTH)[0, :, 0, index]
+    carrier = delta_phi(problem.linear, 0.0, LENGTH)[:, 0, index]
     assert np.all(carrier == carrier[0])
     root = {z: np.sqrt(power_weight_at(problem, z)[:, 0, index]) for z in (0, LENGTH)}
     vacuum = np.stack(columns, axis=1)

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 __all__ = ["CallLedger", "Derivative", "budget_error", "source_absent"]
 
-_State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+_State = Complex[np.ndarray, "n_modes n_pol n_omega"]
 
 
 @dataclass
@@ -257,7 +257,7 @@ class Derivative:
         Where the derivative was evaluated, m.
     value : numpy.ndarray or None
         The history store's row, complex128 of shape
-        ``(n_batch, n_modes, n_pol, n_omega)``, or ``None`` for an engine that keeps
+        ``(n_modes, n_pol, n_omega)``, or ``None`` for an engine that keeps
         its rows resident (the native state).
     identity : str
         Which field it was evaluated at: ``"accepted"``, or ``"predicted"`` for the

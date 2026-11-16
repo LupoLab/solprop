@@ -402,11 +402,11 @@ def _block_departure(
     )[1].shape[0]
     assert bool(shift.size) is carrier
     expected = coupled_moments(
-        _testing.adams_exponent_to_host(state).reshape(1, *shape),
+        _testing.adams_exponent_to_host(state).reshape(shape),
         count,
         block,
         dz,
-        carrier=np.full((1, 1, 1, 1), 1j * float(shift[0])) if carrier else None,
+        carrier=np.full((1, 1, 1), 1j * float(shift[0])) if carrier else None,
     )
     active = int(np.count_nonzero(block.active))
     native = _testing.adams_block_to_host(state).reshape(-1, active, shape[0], shape[0])
@@ -641,7 +641,7 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
     steps = request.stepper.schedule.steps
     anchors = np.concatenate(([0.0], np.cumsum(steps)[:-1]))
     carrier = max(
-        float(np.max(np.abs(np.imag(reference.chord.exponent(z, z + dz)))))
+        float(np.abs(np.imag(reference.chord.exponent(z, z + dz))))
         for z, dz in zip(anchors, steps, strict=True)
     )
     assert carrier > 0.0

@@ -408,7 +408,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         * np.sum(
             geometry.spectral_weights[:, None, None]
             * np.real(axial_admittance(data, grid.omega, slice(None)))[:, None]
-            * (-2 * np.real(operator[0]))
+            * (-2 * np.real(operator))
             * np.abs(problem.initial.field0) ** 2
             * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
         )

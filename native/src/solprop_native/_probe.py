@@ -93,8 +93,8 @@ class NativeProbe:
         native = backend._native_state  # pyright: ignore[reportPrivateUsage]
         kept = np.array(backend._observed_field(native))  # pyright: ignore[reportPrivateUsage]
         finished = backend._finish(native, self._length)  # pyright: ignore[reportPrivateUsage]
-        field = np.array(backend._observed_field(finished)[0])  # pyright: ignore[reportPrivateUsage]
+        field = np.array(backend._observed_field(finished))  # pyright: ignore[reportPrivateUsage]
         # The kept state already carries any `input` draw: a resume adds none.
-        backend._load(kept[0], self._noise, z=self._loaded.z, resume=True)  # pyright: ignore[reportPrivateUsage]
+        backend._load(kept, self._noise, z=self._loaded.z, resume=True)  # pyright: ignore[reportPrivateUsage]
         self._length = None
         return field

@@ -289,7 +289,7 @@ def _launch(pair: Pair, *, floor: np.ndarray | None = None) -> int:
     """Launch a centred pulse, its reading the host reduction's."""
     grid = _grid()
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    energies = pair.python.energies(np.fft.fft(pulse)[None, None, None, :])
+    energies = pair.python.energies(np.fft.fft(pulse)[None, None, :])
     if pair.python.split:
         energies = BoundaryEnergies(
             energies.total,
@@ -394,7 +394,7 @@ def test_a_resume_continues_the_record_as_solprop_does(
     pair.resume(record, plane=plane, unwatched=[(z, z + 1e-3), (z, z)])
     grid = _grid()
     pulse = np.exp(-((grid.t / 20e-15) ** 2)).astype(complex)
-    energies = pair.python.energies(np.fft.fft(pulse)[None, None, None, :])
+    energies = pair.python.energies(np.fft.fft(pulse)[None, None, :])
     pair.launch(energies, z)
     _, ended = _run(pair, then, z)
     pair.records()
@@ -487,7 +487,7 @@ def test_the_floor_s_split_removal_is_within_its_bound(steps, seed):
     floor = 1e-6 * (
         rng.standard_normal(grid.n_omega) + 1j * rng.standard_normal(grid.n_omega)
     )
-    if _launch(pair, floor=floor[None, None, None, :]) == STOP:
+    if _launch(pair, floor=floor[None, None, :]) == STOP:
         return
     _run(pair, steps)
     pair.records(floor_steps=pair.steps)

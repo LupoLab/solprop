@@ -592,7 +592,7 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     )
     amplitude = fourier.analytic_signal(fourier.inverse(state[0], kind="field"))
     power = float(np.abs(amplitude[0, 0]) ** 2)
-    linear = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0, index]
+    linear = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, index]
     turned = final / (state[0, 0, index] * linear)
     expected = -gamma * power * length
     assert abs(expected) > 1.0

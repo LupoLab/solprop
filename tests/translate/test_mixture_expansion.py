@@ -97,7 +97,7 @@ def test_independent_radial_profiles_use_the_general_table(optical_population):
         integral - wave_numbers * index_integral
     )
     assert_allclose(
-        delta_phi(operator, 0.0, grid.length)[0, :, 0],
+        delta_phi(operator, 0.0, grid.length)[:, 0],
         reference,
         atol=bound + 1e-9 * float(np.max(np.abs(amplitude))),
         rtol=0,
