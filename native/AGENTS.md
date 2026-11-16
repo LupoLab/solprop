@@ -198,7 +198,9 @@ the gate.
   (`src/bindings/records.hpp`), never by a hand-written dictionary reader; `_core.schemas()`
   exports the tables, which a test holds to the Python records. A binding only
   converts, releases the GIL and forwards: logic goes in the C++ library, where ctest
-  reaches it.
+  reaches it. The bindings live in `src/bindings/`, one file a bound concept;
+  `module.cpp` holds `NB_MODULE` and calls each file's entry point in the order
+  `bind.hpp` records, which later signatures and the stubs depend on.
 - Accept the documented NumPy dtype, rank, shape and C-contiguity exactly and refuse
   hidden O(n) conversions. Read-only input is valid. Returned host arrays own their
   memory.
