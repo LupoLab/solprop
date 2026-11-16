@@ -2,7 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Describe material laws and region ownership independently of longitudinal paths."""
+"""Describe material laws and region ownership independently of longitudinal paths.
+
+The material vocabulary of a general modal guide
+(:class:`~solprop.modes.guide.ModalGuide`): what each annular region is made of and
+which nonlinear responses it carries, with no reference to how the geometry moves.
+
+- :class:`PermittivityLaw` is the protocol of a relative-permittivity law;
+  :class:`IndexMaterial` adapts a glass or a constant index to it.
+- :class:`MaterialRegion` assigns one law and its responses to an annulus; the
+  responses (:data:`MaterialResponse`) are :class:`MaterialKerr` (a declared
+  ``chi3``), :class:`GasKerr` (the fill's own) and the silica Raman pair.
+- :data:`MEASURED_DIGITS` and :func:`quantised_measurement` round measured floats
+  before they enter a run's identity. The module also owns the structural
+  ``JsonValue`` alias, as the leaf both the modes package and the output layer import.
+"""
 
 from collections.abc import Mapping
 from dataclasses import dataclass

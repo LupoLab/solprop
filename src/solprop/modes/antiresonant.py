@@ -4,15 +4,20 @@
 
 """Single-ring tube-lattice modes with the Vincetti empirical fits.
 
-The transverse field and protocol area remain Marcatili's. The spectral model follows
-the published Vincetti fits (``docs/guide/waveguides/antiresonant.md``): where the
-printed papers and earlier published implementations of them, pyJCMwave among them,
-differ,
-``CONVENTIONS`` names the choice and ``LEGACY_CONVENTIONS`` the form those
-implementations share, so that a test can assemble the latter from the same building
-blocks. The constants are transcribed from the three papers; the 2016 paper's
-equations were read from a degraded text extraction and have not been checked against
-the typeset page.
+:class:`VincettiMode` is a :class:`~solprop.modes.capillary.MarcatiliMode` whose loss
+and dispersion follow the published Vincetti fits for the ring of tubes a
+:class:`TubeLattice` describes; the transverse field and protocol area remain
+Marcatili's. :func:`tube_gap`, :func:`core_radius_from_gap` and
+:func:`tube_radius_from_gap` convert between the lattice's radii and gap. The
+module-level constants are the fits' coefficients, transcribed from the three papers,
+and the ``VALIDATED_*`` ranges of the fibres they were validated on.
+
+Where the printed papers and earlier published implementations of them, pyJCMwave
+among them, differ, ``CONVENTIONS`` names the choice and ``LEGACY_CONVENTIONS`` the
+form those implementations share, so that a test can assemble the latter from the same
+building blocks. The 2016 paper's equations were read from a degraded text extraction
+and have not been checked against the typeset page. The manual page is
+``docs/guide/waveguides/antiresonant.md``.
 """
 
 import logging

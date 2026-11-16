@@ -4,9 +4,13 @@
 
 """Build waveguide modes from loaded effective-index arrays.
 
-An evacuated table gains its fill through ``n_eff**2 = n_v**2 + chi_g``;
-a filled table already contains the whole linear response. Both hollow modes
-retain Marcatili's transverse field. See ``docs/guide/waveguides/tabulated-modes.md``.
+:class:`IndexTable` interpolates a passive mode's complex index (and optional
+effective area) in angular frequency, from at least :data:`MIN_TABLE_POINTS` samples.
+Two hollow modes are built on one: :class:`TabulatedHollowMode` gives an evacuated
+table its fill through ``n_eff**2 = n_v**2 + chi_g``, and :class:`TabulatedMode`
+takes a filled table as the whole linear response; both retain Marcatili's transverse
+field. :func:`sample_index_table` samples any mode into a dense table with analytic
+Hermite slopes. See ``docs/guide/waveguides/tabulated-modes.md``.
 """
 
 import logging

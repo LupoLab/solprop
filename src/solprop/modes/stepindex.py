@@ -4,11 +4,16 @@
 
 """Solve the exact, lossless vector eigenproblem of a circular step-index fibre.
 
-The characteristic equation is evaluated after clearing its Bessel denominators;
-sign changes at Bessel poles are therefore never accepted as eigenvalues.
-TE means ``A + B = 0`` and TM means ``A + (n_cl/n_co)**2 B = 0``.
-The transverse profile is evaluated at an explicitly declared wavelength.
-See ``docs/guide/waveguides/step-index.md`` for the Snyder and Love references.
+:class:`StepIndexMode` is one exact vector mode (Snyder and Love) of a step-index
+fibre, solved on the real parts of the core and cladding indices that
+:func:`real_index_and_slope` samples with their analytic slopes, with its transverse
+profile evaluated at an explicitly declared wavelength (and at a cladding decay no
+smaller than :data:`PROFILE_MIN_W`). The characteristic equation is evaluated after
+clearing its Bessel denominators, so sign changes at Bessel poles are never accepted
+as eigenvalues; TE means ``A + B = 0`` and TM means ``A + (n_cl/n_co)**2 B = 0``. The
+vector E/H fields and the modal provider built from these modes are in
+:mod:`solprop.modes.stepindex_vector`. See ``docs/guide/waveguides/step-index.md``
+for the references.
 """
 
 import logging

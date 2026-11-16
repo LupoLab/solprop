@@ -4,7 +4,8 @@
 
 """Model gas-filled rectangular waveguides with dielectric or metallic walls.
 
-The two wall pairs use the TE-like and TM-like reflection corrections of
+:class:`RectMode` is one mode of a gas-filled rectangular hollow guide; its
+two wall pairs use the TE-like and TM-like reflection corrections of
 Laakmann and Steier (1976), with the filled-core contrast ``eps_cl - eps_co`` and
 the TM-like permittivity ratio ``eps_cl / eps_co``. Complex wall corrections contribute
 to both phase and attenuation. This is an asymptotic model, not exact boundary
@@ -12,6 +13,7 @@ matching: squaring the first-order boundary factor keeps a real second-order ter
 expansion does not control, and the normalisation carries the vacuum admittance where
 the modal power strictly carries the filled core's, a choice of the order of the gas
 susceptibility. The indices follow one convention: m runs along x and n along y.
+The manual page is ``docs/guide/waveguides/rectangular.md``.
 
 One wall pair's decrement (``_transverse_term``) and the material sampling and
 TE-like/TM-like reflection coefficients (``_WallPairFill``) are shared with
