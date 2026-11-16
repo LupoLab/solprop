@@ -193,7 +193,7 @@ class TraceAdamsMarch(backend_module._NativeAdamsMarch):
             self.ledger.total,
             backend._z,
             cost,
-            backend._adams_state()[0].copy(),
+            backend._adams_state().copy(),
         )
 
     def march_to(self, target: float) -> None:

@@ -131,8 +131,8 @@ def evaluate(
             stage = backend._nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
                 backend._require_state(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
                 backend._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones((1, *problem.shape), complex),
-            )[0]
+                np.ones(problem.shape, complex),
+            )
         return stage, statistics  # pyright: ignore[reportUnknownVariableType]
     finally:
         backend.close()
@@ -147,7 +147,7 @@ def node_magnitude(
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         nodes = np.concatenate(
-            list(reference._plasma_nodes(state[0]))  # pyright: ignore[reportPrivateUsage]
+            list(reference._plasma_nodes(state))  # pyright: ignore[reportPrivateUsage]
         )
         return float(np.max(np.abs(nodes)))
     finally:

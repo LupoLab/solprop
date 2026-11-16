@@ -81,7 +81,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+_State = Complex[np.ndarray, "n_modes n_pol n_omega"]
 
 
 def table_steps(schedule: FixedSchedule) -> Float[np.ndarray, " n_steps"]:

@@ -340,7 +340,7 @@ def test_the_chord_is_a_varying_table_the_session_admits():
     assert reference.chord is not None and reference.chord.table is not None
     assert reference.chord.table.coefficients.shape[0] > 1
     rates = [
-        float(np.imag(reference.chord.exponent(z, z + 1e-4))[0]) / 1e-4
+        float(np.imag(reference.chord.exponent(z, z + 1e-4))) / 1e-4
         for z in (0.0, LENGTH - 1e-4)
     ]
     assert abs(rates[0] - rates[1]) > 1e-6 * abs(rates[0])

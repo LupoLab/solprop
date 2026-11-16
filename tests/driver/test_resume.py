@@ -365,13 +365,11 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
             rtol=0.0,
             atol=1e-12 * np.linalg.norm(draw),
         )
-        # The floor is the draw itself, behind the march's private axis of one.
-        assert engine._input_floor is not None
-        assert engine._input_floor.base is draw
+        # The floor is the draw itself.
+        assert engine._input_floor is draw
         engine.set_initial(launched, None, z=0.0, resume=True)
         np.testing.assert_array_equal(engine.observe().require_field(), launched)
-        assert engine._input_floor is not None
-        assert engine._input_floor.base is draw
+        assert engine._input_floor is draw
     finally:
         engine.close()
 

@@ -36,7 +36,7 @@ def axis_populations(
     problem : PropagationProblem
         The translated problem.
     field : numpy.ndarray
-        One batch member's state, shape (n_modes, n_pol, n_omega).
+        The state, shape (n_modes, n_pol, n_omega).
     z : float
         Plane position in m.
     axis : numpy.ndarray

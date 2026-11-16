@@ -55,7 +55,7 @@ def oracle(kerr, n_pol):
         reference._hoist(0.0)
         bundle = reference._stage_scalars(0.0, 0.0)
         fields = np.real(
-            np.concatenate(list(reference._plasma_nodes(reference._require_state()[0])))
+            np.concatenate(list(reference._plasma_nodes(reference._require_state())))
         )
     finally:
         reference.close()

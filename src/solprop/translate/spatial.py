@@ -499,12 +499,12 @@ class SeparableOperator:
         return 1 if self.kappa_sq is None else int(self.kappa_sq.shape[0])
 
     @property
-    def value_shape(self) -> tuple[int, int, int, int]:  # numpydoc ignore=RT01
+    def value_shape(self) -> tuple[int, int, int]:  # numpydoc ignore=RT01
         """Full state shape represented by these shared coefficients.
 
-        ``(1, n_modes, n_pol, n_omega)`` without allocating that volume.
+        ``(n_modes, n_pol, n_omega)`` without allocating that volume.
         """
-        return (1, self.kperp_sq.size, self.n_pol, self.k_squared.size)
+        return (self.kperp_sq.size, self.n_pol, self.k_squared.size)
 
 
 @dataclass(frozen=True)
@@ -641,7 +641,7 @@ def separable_values(
     coefficients: SeparableOperator,
     columns: slice | None = None,
 ) -> tuple[
-    Complex[np.ndarray, "1 n_modes n_pol n_omega"],
+    Complex[np.ndarray, "n_modes n_pol n_omega"],
     Complex[np.ndarray, "n_modes n_pol n_omega"],
 ]:
     """Evaluate a separable operator and prefactor for the host reference.
@@ -659,7 +659,7 @@ def separable_values(
     Returns
     -------
     tuple of numpy.ndarray
-        Linear rate in m^-1, shape ``(1, n_modes, n_pol, n_omega)``, and nonlinear
+        Linear rate in m^-1, shape ``(n_modes, n_pol, n_omega)``, and nonlinear
         prefactor, shape ``(n_modes, n_pol, n_omega)``.
     """
     root, propagating, attenuation = longitudinal_root(coefficients, columns)
@@ -681,7 +681,7 @@ def separable_values(
     prefactor *= coefficients.active
     shape = (root.shape[0], coefficients.n_pol, len(coefficients.k_squared))
     return (
-        np.broadcast_to(operator[:, None, :], shape)[None],
+        np.broadcast_to(operator[:, None, :], shape),
         np.broadcast_to(prefactor[:, None, :], shape),
     )
 

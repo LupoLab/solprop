@@ -59,7 +59,7 @@ def test_the_lab_frame_sample_is_the_hoisted_derivative_on_the_masked_launch():
     )
     try:
         hoisted = np.array(launch_derivative(backend, problem))
-        launch = problem.initial.field0[None]
+        launch = problem.initial.field0
         masked = apply_hard_mask(launch, problem.grids.active_mask)
         assert np.any(masked != launch)
         backend._hoist(1e-3)

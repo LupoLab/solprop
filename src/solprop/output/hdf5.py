@@ -79,7 +79,7 @@ from solprop import fourier
 from solprop._display import Displayed, line, tail
 from solprop.exceptions import OutputError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.metadata import RunMetadata
+from solprop.output.metadata import SCHEMA_VERSION, RunMetadata
 from solprop.output.records import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
@@ -197,11 +197,7 @@ def _overwrite_text(file: h5py.File, name: str, text: str) -> None:
 def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
     """Store a march snapshot, its position last, so that a torn write reads as none."""
     group.attrs["z"] = math.nan
-    # The dataset keeps the leading axis of one it has always had, so that every
-    # reader of the format reads it (SEP 47 section 6.7).
-    _overwrite(
-        group, "state", np.asarray(snapshot.state, dtype=np.complex128)[np.newaxis]
-    )
+    _overwrite(group, "state", np.asarray(snapshot.state, dtype=np.complex128))
     _overwrite(group, "positions", np.asarray(snapshot.positions, dtype=np.float64))
     _overwrite(group, "slots", np.asarray(snapshot.slots, dtype=np.int64))
     rows = group.require_group("rows")
@@ -234,10 +230,17 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     if stored != z:
         return None
     try:
+        held = np.asarray(_dataset(group, "state")[()])
+    except OutputError as error:
+        logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
+        return None
+    # Outside the tolerant reads: an earlier layout is refused, not ignored.
+    state = _trajectory_state(held)
+    try:
         rows = _group(group, "rows")
         return MarchSnapshot(
             z=stored,
-            state=_trajectory_state(np.asarray(_dataset(group, "state")[()])),
+            state=state,
             proposal=float(np.asarray(group.attrs["proposal"])),
             method=str(group.attrs["method"]),
             order=int(np.asarray(group.attrs["order"])),
@@ -260,20 +263,25 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
 def _trajectory_state(
     stored: Complex[np.ndarray, "*shape"],
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-    """Return a stored march state without the leading axis of one its file keeps.
+    """Return a stored march state, ``(n_modes, n_pol, n_omega)``, refusing any other.
 
-    Every file writes ``(1, n_modes, n_pol, n_omega)``; ``(n_modes, n_pol, n_omega)``
-    is taken as it is. A leading axis longer than one is a stacked group, which a
-    single trajectory's snapshot never is, and is refused rather than squeezed.
+    Before output schema 3 a file kept the state with a leading axis of one, ``(1,
+    n_modes, n_pol, n_omega)``; such a snapshot is refused by name, not squeezed.
     """
-    if stored.ndim == 4 and stored.shape[0] == 1:
-        return stored[0]
     if stored.ndim == 3:
         return stored
-    msg = (
-        f"the march snapshot's state has shape {stored.shape}, expected one "
-        "trajectory's (1, n_modes, n_pol, n_omega)"
-    )
+    if stored.ndim == 4 and stored.shape[0] == 1:
+        msg = (
+            f"the march snapshot's state has the layout {stored.shape} of a file "
+            f"written before output schema {SCHEMA_VERSION}, with a leading axis of "
+            "one; this version of solprop reads (n_modes, n_pol, n_omega) only. "
+            "Resume the file with the solprop version that wrote it"
+        )
+    else:
+        msg = (
+            f"the march snapshot's state has shape {stored.shape}, expected one "
+            "trajectory's (n_modes, n_pol, n_omega)"
+        )
     raise OutputError(msg)
 
 

@@ -670,7 +670,7 @@ def launch_phase(problem: PropagationProblem, run_request: Any, grid: Any) -> fl
     """
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
-        state = problem.initial.field0[None]
+        state = problem.initial.field0
         backend._hoist(0.0)
         source = backend._nonlinear(
             state, backend._stage_scalars(0.0, 0.0), np.ones_like(state)

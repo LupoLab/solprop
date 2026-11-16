@@ -107,10 +107,10 @@ def test_envelope_population_values_do_not_depend_on_retaining_node_scans(host_c
         backend.set_initial(problem.initial.field0, None)
         field = problem.initial.field0
         plain = backend._species_statistics(field)
-        scans = {}
-        retained = backend._species_statistics(field, scans, member=3)
-        assert set(scans) == {3}
-        fractions, peaks = scans[3]
+        scans = []
+        retained = backend._species_statistics(field, scans)
+        assert len(scans) == 1
+        fractions, peaks = scans[0]
         assert (
             fractions.shape
             == peaks.shape
@@ -165,7 +165,7 @@ def test_prescribed_density_off_carrier_drude_assembly(host_case):
     backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         bundle = scalars(problem, 0.0, 0.0)
-        lab = problem.initial.field0[None]
+        lab = problem.initial.field0
         actual = backend._nonlinear(lab, bundle, np.ones_like(lab))
         assembly = problem.responses.envelope_plasma
         assert assembly is not None

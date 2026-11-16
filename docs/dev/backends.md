@@ -452,8 +452,8 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
 name and with `BackendError`: a spectral response other than
 the compiled envelope-plasma assembly; scalar-only Raman on a two-component
-problem; general z-dependent response data; a transform and a state that
-would both carry the transverse components; and a batch axis above one.
+problem; general z-dependent response data; and a transform and a state that
+would both carry the transverse components.
 
 Measured on the verification ladder: P0 exact to 4.8e-16 for a constant operator and
 6.4e-16 for a z-varying one and independent of the step count; P1 order 5.10 and 5.82 over

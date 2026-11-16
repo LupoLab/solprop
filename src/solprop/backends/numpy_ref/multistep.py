@@ -86,11 +86,11 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-_StoreRows = Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"]
-_Shift = Complex[np.ndarray, "#n_batch 1 1 #n_omega"]
-"""A carrier frame's shift: one per batch member (SEP 35); a bin axis broadcasts."""
-_Factors = Complex[np.ndarray, "n_used #n_batch 1 1 #n_omega"]
+_State = Complex[np.ndarray, "n_modes n_pol n_omega"]
+_StoreRows = Complex[np.ndarray, "n_slots n_modes n_pol n_omega"]
+_Shift = Complex[np.ndarray, "1 1 #n_omega"]
+"""A carrier frame's shift (SEP 35); a bin axis broadcasts."""
+_Factors = Complex[np.ndarray, "n_used 1 1 #n_omega"]
 """A carrier frame's rotation of each history row a trial reads, in its slots' order."""
 
 
@@ -148,7 +148,7 @@ class AdamsKernels:
         self,
         state: _State,
         propagator: _State,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         weights: np.ndarray,
         dz: float,
@@ -185,7 +185,7 @@ class AdamsKernels:
         state: _State,
         propagator: _State,
         source: _State,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         corrector: np.ndarray,
         rows: np.ndarray,
@@ -240,7 +240,7 @@ class AdamsKernels:
 
     def transport(
         self,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         propagator: _State,
         new_slot: int,
@@ -315,7 +315,7 @@ class _MatrixMoments:
 
     Off the block's bins the step's flow and moments are the diagonal ones, per
     element; on them each is a matrix in the channel axis, applied to the channel
-    vector of every batch row and polarisation. ``matrices`` and ``flow_matrix`` are
+    vector of every polarisation. ``matrices`` and ``flow_matrix`` are
     laid out by bin, ``(..., n_bins, n_modes, n_modes)``; the products read the same
     matrices with the bin axis last, as the state holds it.
     """
@@ -349,12 +349,9 @@ class _MatrixMoments:
         """
         out = scalar * values
         selected = values[..., self.active]
-        block = columns[:, 0][np.newaxis, :, np.newaxis] * selected[:, np.newaxis, 0]
+        block = columns[:, 0][:, np.newaxis] * selected[np.newaxis, 0]
         for column in range(1, columns.shape[1]):
-            block += (
-                columns[:, column][np.newaxis, :, np.newaxis]
-                * selected[:, np.newaxis, column]
-            )
+            block += columns[:, column][:, np.newaxis] * selected[np.newaxis, column]
         out[..., self.active] = block
         return out
 
@@ -477,7 +474,7 @@ def coupled_moments(
         )
     flow_scalar = np.exp(unshifted)
     n_modes = block.triangular.shape[-1]
-    shift = exponent[0, 0, 0, active]
+    shift = exponent[0, 0, active]
     matrices = np.empty((count, *block.triangular.shape), dtype=np.complex128)
     flow_matrix = np.empty(block.triangular.shape, dtype=np.complex128)
     size = n_modes * (count + 1)
@@ -507,7 +504,7 @@ def coupled_moments(
                 @ adjoint
             )
     if carrier is not None:
-        factor = np.exp(np.broadcast_to(carrier, unshifted.shape)[0, 0, 0, active])
+        factor = np.exp(np.broadcast_to(carrier, unshifted.shape)[0, 0, active])
         flow_matrix = factor[:, np.newaxis, np.newaxis] * flow_matrix
     return _MatrixMoments(scalar, flow_scalar, matrices, flow_matrix, active)
 
@@ -563,7 +560,7 @@ class ExponentialKernels:
 
     def moments(
         self, exponent: _State, count: int, *, shift: _Shift | None = None
-    ) -> Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_k n_modes n_pol n_omega"]:
         """Return ``k! phi_{k+1}(x)`` for ``k < count`` along a new leading axis.
 
         Parameters
@@ -591,11 +588,11 @@ class ExponentialKernels:
         self,
         exponent: _State,
         dz: float,
-        rates: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
-        states: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        rates: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
+        states: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         spans: np.ndarray,
-    ) -> Complex[np.ndarray, "n_used n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_used n_modes n_pol n_omega"]:
         """Return each history sample's compensation carried to the step's end.
 
         ``exp(s_j x) (D(z_j) - x / dz) u_j`` with ``s_j = 1 - theta_j``, the
@@ -644,7 +641,7 @@ class ExponentialKernels:
 
     def apply(
         self,
-        moments: Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"],
+        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
         coefficients: np.ndarray,
         values: list[_State],
         dz: float,
@@ -693,8 +690,8 @@ class ExponentialKernels:
         self,
         state: _State,
         flow: _State,
-        moments: Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"],
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
@@ -737,7 +734,7 @@ class ExponentialKernels:
         state: _State,
         flow: Any,
         moments: Any,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
@@ -779,9 +776,9 @@ class ExponentialKernels:
         self,
         state: _State,
         flow: _State,
-        moments: Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"],
+        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"],
         source: _State,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         corrector: np.ndarray,
         rows: np.ndarray,
@@ -957,7 +954,7 @@ class CoupledExponentialKernels(ExponentialKernels):
         slots: np.ndarray,
         spans: np.ndarray,
         block: CoupledBlock,
-    ) -> Complex[np.ndarray, "n_used n_batch n_modes n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_used n_modes n_pol n_omega"]:
         """Return each sample's compensation carried to the step's end (SEP 16 4.5).
 
         ``C_j = (D(z_j) - x / h) u_j + R_s(z_j) u_j``: the diagonal chord's
@@ -1004,9 +1001,8 @@ class CoupledExponentialKernels(ExponentialKernels):
         self,
         state: _State,
         flow: _State | _MatrixMoments,
-        moments: Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"]
-        | _MatrixMoments,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"] | _MatrixMoments,
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
@@ -1045,10 +1041,9 @@ class CoupledExponentialKernels(ExponentialKernels):
         self,
         state: _State,
         flow: _State | _MatrixMoments,
-        moments: Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"]
-        | _MatrixMoments,
+        moments: Complex[np.ndarray, "n_k n_modes n_pol n_omega"] | _MatrixMoments,
         source: _State,
-        store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+        store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
         slots: np.ndarray,
         corrector: np.ndarray,
         rows: np.ndarray,
@@ -1173,7 +1168,7 @@ class _Compensation:
     moments: Any
     """The trial's moments, read by the untransported witness only."""
     nodes: list[float]
-    carried: Complex[np.ndarray, "n_used n_batch n_modes n_pol n_omega"]
+    carried: Complex[np.ndarray, "n_used n_modes n_pol n_omega"]
     dz: float
     treatment: str
     helpers: Helpers
@@ -2270,7 +2265,7 @@ def _carrier_factors(nodes: list[float], count: int, shift: _Shift) -> _Factors:
 
 
 def _rows_read(
-    store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+    store: Complex[np.ndarray, "n_slots n_modes n_pol n_omega"],
     slots: np.ndarray,
     factors: _Factors | None,
 ) -> list[_State]:

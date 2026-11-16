@@ -517,7 +517,7 @@ class _AdiabaticAmplitude:
 
     def _log_ratio(
         self, model: SpatialDispersion, z: float
-    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Return ``-1/2 ln(Re k_z / Re k_z(0))`` in the canonical layout.
 
         - ``z``: position in m at which to evaluate it.
@@ -534,10 +534,10 @@ class _AdiabaticAmplitude:
             np.log(wave / reference),
         )
         values = np.where(self._mask, -0.5 * ratio, 0.0)
-        shape = (1, values.shape[0], self._n_pol, values.shape[1])
-        return np.broadcast_to(values[None, :, None, :], shape).astype(np.complex128)
+        shape = (values.shape[0], self._n_pol, values.shape[1])
+        return np.broadcast_to(values[:, None, :], shape).astype(np.complex128)
 
-    def sample(self, z: float) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    def sample(self, z: float) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Evaluate the term's endpoint function along the run path.
 
         - ``z``: position in m.
@@ -547,7 +547,7 @@ class _AdiabaticAmplitude:
 
     def value_at(
         self, values: Mapping[str, float]
-    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+    ) -> Complex[np.ndarray, "n_r n_pol n_omega"]:
         """Evaluate the endpoint function at one point of the parameter box.
 
         - Returns: dimensionless endpoint function, canonical layout.
@@ -605,7 +605,7 @@ def _linear_roundoff_target(
             errors, rounding * (conditioning + absolute + np.abs(frame))
         )
         operator, _ = sampled(dispersion, z)
-        peaks = np.maximum(peaks, np.abs(operator[0, :, 0]))
+        peaks = np.maximum(peaks, np.abs(operator[:, 0]))
     denominator = np.maximum(peaks, ENVELOPE_FLOOR * float(peaks.max()))
     active = dispersion.grid.active_mask[None, :] & (denominator > 0)
     relative = np.zeros_like(peaks)

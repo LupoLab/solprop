@@ -180,8 +180,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     run_request = simulation._run_request()
     backend = NumpyRefBackend(problem, run_request, grid=simulation.grid)
     try:
-        # The backend's private state keeps its leading axis of one.
-        state = problem.initial.field0[np.newaxis]
+        state = problem.initial.field0
         bundle = backend._stage_scalars(0.0, 0.0)
         source = backend._nonlinear(state, bundle, np.ones_like(state))
     finally:
@@ -191,9 +190,7 @@ def measured_scales(simulation) -> tuple[float, float]:
     maps = _general_maps(problem)
     kappa = 1.0
     if maps is not None:
-        kappa = conditioning(
-            maps.at(bundle.transform_weights), state[0], simulation.grid
-        )
+        kappa = conditioning(maps.at(bundle.transform_weights), state, simulation.grid)
     return phi, kappa
 
 

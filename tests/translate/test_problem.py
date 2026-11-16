@@ -268,7 +268,7 @@ def test_every_page_states_the_schema_the_code_writes():
     is not a statement of the current one; the SEP records are history throughout. The
     kernel contract no longer has a number (ADR-068): it names the last one as history.
     """
-    assert OUTPUT_SCHEMA_VERSION == 2
+    assert OUTPUT_SCHEMA_VERSION == 3
     stated: dict[str, list[str]] = {}
     for page in sorted(DOCS.rglob("*.md")):
         name = page.relative_to(DOCS).as_posix()

@@ -123,7 +123,7 @@ def test_free_interface_separable_flow_and_metadata(free_case, request, backend)
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     start, finish = output.fields("fft")
-    expected = start * np.exp(delta_phi(problem.linear, 0, grid.length))[0]
+    expected = start * np.exp(delta_phi(problem.linear, 0, grid.length))
     defect = np.max(np.abs(finish - expected)) / np.max(np.abs(start))
     assert defect < field_bound
     energy_error = abs(
@@ -218,7 +218,7 @@ def test_free_simulation_records_noise_model_and_seed(
     # With no nonlinear source, both noise models obey the exact linear flow
     # of their saved entrance. The phase subtraction and complex exponential
     # cost fewer than 64 rounded operations per optical phase magnitude.
-    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)[0]
+    phase = delta_phi(simulation.translate().linear, 0.0, grid.length)
     bound = 64 * EPS * (1 + float(np.max(np.abs(phase))))
     fields = simulation.run().fields("fft")
     expected = np.exp(phase) * fields[0]
@@ -346,7 +346,7 @@ def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     current = simulation.metadata()
-    assert current.schema_version == 2
+    assert current.schema_version == 3
     assert current.configuration["spatial_arithmetic"] == "split-square-v1"
     legacy_configuration = dict(current.configuration)
     del legacy_configuration["spatial_arithmetic"]

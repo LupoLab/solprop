@@ -300,7 +300,7 @@ def test_the_reference_s_plasma_statistics_refuse_a_problem_with_no_plasma(
         "numpy_ref", problem, simulation._run_request(), grid=simulation.grid
     )
     try:
-        state = simulation._field0[np.newaxis]
+        state = simulation._field0
         with pytest.raises(BackendError, match=message):
             cast("NumpyRefBackend", backend)._backend_statistics((name,), state)
     finally:

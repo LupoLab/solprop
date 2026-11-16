@@ -235,8 +235,7 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
     problem, request, first = opened(simulation, "native")
     engine = first._resident
     assert type(engine).__name__ == "_ResidentAdams"
-    # The engine's own layout keeps a leading axis of one after the row axis.
-    shape = (engine.n_slots, 1, *problem.shape)
+    shape = (engine.n_slots, *problem.shape)
     whole = Snapshots()
     baseline = run_session(first, problem, request, owns=True, between=whole)
     stored = whole.at_plane(0)

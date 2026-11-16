@@ -124,7 +124,7 @@ def test_a_constant_operator_is_one_interval_of_degree_one():
     assert table.phi_degrees.tolist() == [1]
     assert table.phi_representation == "constant"
     assert table.phi_coefficients is not None
-    assert table.phi_coefficients.shape == (1, 2, 1, 1, 1, 3)
+    assert table.phi_coefficients.shape == (1, 2, 1, 1, 3)
     assert table.z_span == (0.0, 2.0 * (1.0 + DEFAULT_MARGIN))
 
 
@@ -155,14 +155,14 @@ def test_a_z_constant_mode_takes_the_constant_path():
 
 def test_the_constant_path_broadcasts_over_polarisation():
     table = constant_phi(np.array([-1j, -2j]), 1.0, n_pol=2)
-    assert table.value_shape == (1, 1, 2, 2)
+    assert table.value_shape == (1, 2, 2)
     assert table.phi_constant is not None
-    assert np.array_equal(table.phi_constant[0, 0, 0], table.phi_constant[0, 0, 1])
+    assert np.array_equal(table.phi_constant[0, 0], table.phi_constant[0, 1])
 
 
 def test_the_constant_path_accepts_the_canonical_layout():
-    operator = np.zeros((1, 2, 1, 4), dtype=complex)
-    assert constant_phi(operator, 1.0).value_shape == (1, 2, 1, 4)
+    operator = np.zeros((2, 1, 4), dtype=complex)
+    assert constant_phi(operator, 1.0).value_shape == (2, 1, 4)
 
 
 def test_the_unitary_phase_of_a_constant_operator_is_the_imaginary_exponent():
@@ -378,7 +378,7 @@ def test_the_comoving_frame_holds_the_pulse_in_the_window(field_grid, gradient_m
 
     def centroid(frame):
         table = build_phi(gradient_mode, field_grid, frame, z_max=0.2)
-        state = np.exp(delta_phi(table, 0.0, 0.2)[0, 0, 0]) * start[0, 0]
+        state = np.exp(delta_phi(table, 0.0, 0.2)[0, 0]) * start[0, 0]
         signal = fourier.analytic_signal(fourier.inverse(state, kind="field"))
         power = np.abs(signal) ** 2
         return float(np.sum(field_grid.t * power) / np.sum(power))
@@ -435,7 +435,7 @@ def test_every_mode_of_a_set_is_written_in_the_first_mode_s_frame(field_grid):
     modes = tuple(MarcatiliMode(125e-6, "He", 1.0, m=m) for m in (1, 2, 3))
     frame = Frame.comoving(field_grid)
     sampler = _operator_sampler(modes, field_grid, frame, 1, DEFAULT_LOSS_POLICY, None)
-    operator = sampler(0.0)[0, :, 0, :]
+    operator = sampler(0.0)[:, 0, :]
     active = field_grid.active_mask
     omega = field_grid.omega[active]
     shared = frame_quantities(modes[0], frame, 0.0)[1]
@@ -479,7 +479,7 @@ def test_an_envelope_set_shares_the_first_mode_s_carrier_phase_too():
     assert frame.subtract_beta0
     operator = _operator_sampler(modes, grid, frame, 1, DEFAULT_LOSS_POLICY, None)(0.0)
     carrier = int(np.argmin(abs(grid.omega - grid.omega0)))
-    columns = operator[0, :, 0, carrier]
+    columns = operator[:, 0, carrier]
     # The reference mode is exactly in its own frame at the carrier; the loss is all
     # that is left of it, and the bound is the round-off of beta ~ 8e6 - beta_0.
     assert abs(np.imag(columns[0])) < 1e-6
@@ -499,7 +499,7 @@ def test_a_frame_given_both_quantities_is_used_as_it_is(field_grid):
     fixed = Frame(field_grid.omega0, subtract_beta0=False, beta0=0.0, beta1=0.0)
     operator = _operator_sampler(
         modes, field_grid, fixed, 1, DEFAULT_LOSS_POLICY, None
-    )(0.0)[0, :, 0, :]
+    )(0.0)[:, 0, :]
     active = field_grid.active_mask
     omega = field_grid.omega[active]
     for index, mode in enumerate(modes):
@@ -532,13 +532,13 @@ def test_the_tolerance_is_raised_to_the_measured_round_off_floor(
 
 
 def test_the_round_off_floor_of_an_exact_operator_is_zero():
-    constant = np.array([[[[1.0 + 0j, 2.0]]]])
+    constant = np.array([[[1.0 + 0j, 2.0]]])
     assert _roundoff_floor(lambda z: constant, 1.0) == 0.0
 
 
 def test_the_round_off_floor_of_a_vanishing_operator_is_zero():
     """A probe where the operator is identically zero has no scale, and is skipped."""
-    zeros = np.zeros((1, 1, 1, 4), dtype=complex)
+    zeros = np.zeros((1, 1, 4), dtype=complex)
     assert _roundoff_floor(lambda z: zeros, 1.0) == 0.0
 
 
@@ -681,13 +681,13 @@ def test_a_square_root_vacuum_end_keeps_its_fitted_table():
 
 
 def test_verify_phi_reports_agreement_for_an_exact_table():
-    operator = np.array([[[[-1j, -2j]]]])
+    operator = np.array([[[-1j, -2j]]])
     table = constant_phi(operator, 1.0)
     assert verify_phi(table, lambda z: operator, [(0.0, 1.0), (0.2, 0.6)]) < 1e-14
 
 
 def test_verify_phi_reports_the_absolute_deviation_when_the_operator_vanishes():
-    zeros = np.zeros((1, 1, 1, 2), dtype=complex)
+    zeros = np.zeros((1, 1, 2), dtype=complex)
     table = constant_phi(zeros, 1.0)
     assert verify_phi(table, lambda z: zeros, [(0.0, 1.0)]) == 0.0
 
@@ -784,18 +784,18 @@ def test_the_tables_translation_builds_are_held_and_not_copied_again():
     [
         ({"phi_breakpoints": np.array([0.0, 0.5, 1.0])}, "phi_breakpoints has"),
         (
-            {"phi_coefficients": np.zeros((2, 2, 1, 1, 1, 3), dtype=complex)},
+            {"phi_coefficients": np.zeros((2, 2, 1, 1, 3), dtype=complex)},
             "phi_degrees has",
         ),
         ({"phi_representation": "constant"}, "phi_constant must be present"),
         (
-            {"phi_constant": np.zeros((1, 1, 1, 3), dtype=complex)},
+            {"phi_constant": np.zeros((1, 1, 3), dtype=complex)},
             "phi_constant must be present",
         ),
         (
             {
                 "phi_representation": "constant",
-                "phi_constant": np.zeros((1, 1, 1, 4), dtype=complex),
+                "phi_constant": np.zeros((1, 1, 4), dtype=complex),
             },
             "phi_constant has shape",
         ),
@@ -805,7 +805,7 @@ def test_the_group_refuses_inconsistent_members(changes, message):
     members = {
         "phi_representation": "table",
         "phi_breakpoints": np.array([0.0, 1.0]),
-        "phi_coefficients": np.zeros((1, 2, 1, 1, 1, 3), dtype=complex),
+        "phi_coefficients": np.zeros((1, 2, 1, 1, 3), dtype=complex),
         "phi_degrees": np.array([1]),
         "hard_kinks": np.empty(0),
         "phi_constant": None,
@@ -850,7 +850,7 @@ def test_a_path_shared_by_two_modes_is_resolved_once(field_grid):
     # table carries the operator of both modes.
     assert len(paths) == 2
     table = build_phi(modes, field_grid, Frame.comoving(field_grid), z_max=0.2, n_pol=1)
-    assert table.value_shape[1] == 2
+    assert table.value_shape[0] == 2
     same = declared_paths([modes[0], modes[0]])
     assert len(same) == 1
 
@@ -1019,7 +1019,7 @@ def test_two_modes_of_one_fibre_share_one_parameter_axis(field_grid):
     assert sorted(varying) == ["density"]
     table = build_phi(modes, field_grid, Frame.comoving(field_grid), z_max=0.2)
     assert table.phi_representation == "expansion"
-    assert table.value_shape[1] == 2
+    assert table.value_shape[0] == 2
 
 
 def test_an_expansion_that_cannot_be_built_is_refused_when_it_is_demanded(field_grid):
@@ -1067,8 +1067,8 @@ def test_the_floor_is_measured_in_the_acceptance_tests_own_norm():
     small = 1.0
 
     def operator_at(z):
-        noise = rng.normal(scale=1e-4, size=(1, 1, 1, 2))
-        return np.array([[[[large, small]]]]) * (1.0 + 1e-9 * z) + noise
+        noise = rng.normal(scale=1e-4, size=(1, 1, 2))
+        return np.array([[[large, small]]]) * (1.0 + 1e-9 * z) + noise
 
     floor = _roundoff_floor(operator_at, 1.0)
     # The small column's own noise is 1e-4 of itself; the large column's is 1e-8 of

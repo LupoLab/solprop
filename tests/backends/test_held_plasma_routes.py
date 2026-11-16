@@ -54,10 +54,10 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
     )
     try:
         bundle = backend._stage_scalars(0.0, 0.0)
-        state = problem.initial.field0[None]
+        state = problem.initial.field0
         ones = np.ones_like(state)
         backend._hoist(0.0)
-        result = backend._nonlinear(state, bundle, ones)[0]
+        result = backend._nonlinear(state, bundle, ones)
         allowance = relative * np.max(abs(reference))
         assert allowance > 0
         assert np.max(abs(result - reference)) <= allowance
@@ -168,8 +168,8 @@ def test_mixture_production_assembles_both_current_channels():
         weight = backend._prefactor(bundle) * grids.omega_window
         expected *= weight
         actual = backend._nonlinear(
-            problem.initial.field0[None], bundle, np.ones((1, *problem.shape), complex)
-        )[0]
+            problem.initial.field0, bundle, np.ones(problem.shape, complex)
+        )
         # Projection chunk order, three FFTs and assembly of identical currents.
         allowance = gamma(64 * grids.n_to + 32 * transform.n_nodes) * np.linalg.norm(
             expected

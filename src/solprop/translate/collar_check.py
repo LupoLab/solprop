@@ -520,7 +520,7 @@ def _half(  # noqa: PLR0917 - called positionally
 def design_check(  # noqa: PLR0917 - called positionally
     space: RadialGrid | FreeGrid | PlanarGrid,
     rate: Float[np.ndarray, " n_nodes"],
-    launch: Complex[np.ndarray, "n_batch n_columns n_pol n_omega"],
+    launch: Complex[np.ndarray, "n_columns n_pol n_omega"],
     dispersion: SpatialDispersion,
     z_max: float,
     width: float,
@@ -534,7 +534,7 @@ def design_check(  # noqa: PLR0917 - called positionally
     rate : numpy.ndarray
         The collar's power rate on the nodes, 1/m.
     launch : numpy.ndarray
-        The noise-free launch, canonical layout; its first batch member is checked.
+        The noise-free launch, canonical layout.
     dispersion : solprop.spatial.SpatialDispersion
         The medium and the temporal grid.
     z_max : float
@@ -548,7 +548,7 @@ def design_check(  # noqa: PLR0917 - called positionally
         The verdict, ``"pending"`` for a launch that is zero everywhere.
     """
     started = time.perf_counter()
-    columns = np.asarray(launch[0], dtype=np.complex128)
+    columns = np.asarray(launch, dtype=np.complex128)
     if not np.any(columns):
         return CheckResult("pending", reason="no launch to check yet")
     returned, nodes, planes, outgrown = _estimate(

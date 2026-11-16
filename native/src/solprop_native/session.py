@@ -675,7 +675,7 @@ class NativeSession:
             "dict[str, object]", self._continuation(start.monitor)["edge_record"]
         )
         clean = None if resumed else driver._launch_clean_columns(edge)
-        return _transverse.noise_readings(edge, np.asarray(drawn[0]), clean)
+        return _transverse.noise_readings(edge, np.asarray(drawn), clean)
 
     @staticmethod
     def _driver(backend: NativeBackend | None) -> Any:
@@ -1122,11 +1122,10 @@ class NativeSession:
                 # Too many positions, one outside the table's span, or no table of
                 # `Phi`: the backend's error, as `_ZTables.load` raises the first.
                 raise BackendError(str(error)) from error
-            phase = np.imag(values).reshape(driver._layout)
+            phase = np.imag(values).reshape(self._problem.shape)
         else:
             phase = driver._unitary_phase(driver._stage_scalars(z, z))
-        # The phase keeps the operator table's leading axis of one.
-        return np.array(np.broadcast_to(phase, (1, *self._problem.shape))[0])
+        return np.array(np.broadcast_to(phase, self._problem.shape))
 
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot for the next eligible accepted endpoint.
@@ -1200,8 +1199,6 @@ class NativeSession:
         history = state["history"]
         return MarchSnapshot(
             z=float(state["z"]),
-            # The trajectory's state; the history rows keep the engine's layout, a
-            # leading axis of one after the row axis (solprop SEP 47 section 6.7).
             state=field.reshape(shape),
             proposal=float(state["proposal"]),
             method=repr(method),
@@ -1213,7 +1210,7 @@ class NativeSession:
                 "predicted" if entry[1] else "accepted" for entry in history
             ),
             slots=np.array([entry[2] for entry in history], dtype=np.int64),
-            rows={name: row.reshape(len(row), 1, *shape) for name, row in rows.items()},
+            rows={name: row.reshape(len(row), *shape) for name, row in rows.items()},
             collar_was_quiet=bool(state["collar_was_quiet"]),
             history_key=method.history_key,
         )

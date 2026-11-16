@@ -259,9 +259,9 @@ class NativeBackend:
     Parameters
     ----------
     problem
-        Validated kernel problem. Accepts one batch member,
-        modal or spatial scalar or two-component propagation (radial, Cartesian, or
-        the hybrid planar kind of slab modes in x times an FFT in y), instantaneous
+        Validated kernel problem. Accepts modal or spatial scalar or two-component
+        propagation (radial, Cartesian, or the hybrid planar kind of slab modes in x
+        times an FFT in y), instantaneous
         Kerr, plasma, scalar time-domain Raman, weighted control, both absorber
         schemes, and device-owned statistics; and solprop's general modal route, on a
         constant guide or a moving one whose maps are combined per stage. Statistics
@@ -511,16 +511,6 @@ class NativeBackend:
         """Whether the backend has released its buffers and can run no other input."""
         return self._closed
 
-    @property
-    def _layout(self) -> tuple[int, int, int, int]:
-        """Return the build's state layout: the shape behind a unit axis.
-
-        The C++ kernels keep their four-axis layouts; a single trajectory crosses the
-        Python seam without the axis (solprop SEP 47 section 6.2).
-        """
-        n_modes, n_pol, n_omega = self._problem.shape
-        return (1, n_modes, n_pol, n_omega)
-
     def _load(
         self,
         field: ComplexArray,
@@ -616,7 +606,7 @@ class NativeBackend:
         reason = adams.resume(snapshot, loaded.z)
         if reason is not None:
             return reason, proposal
-        self._install(np.array(snapshot.state, copy=True)[None])
+        self._install(np.array(snapshot.state, copy=True))
         return None, float(snapshot.proposal)
 
     def _adams_engine(
@@ -654,7 +644,7 @@ class NativeBackend:
             native=self._native_state,
             method=method,
             controller=self._stepper.controller,
-            shape=self._layout,
+            shape=self._problem.shape,
             compensated=compensated,
             interpolate=self._stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
@@ -944,7 +934,7 @@ class NativeBackend:
         if tables is not None and tables.phi:
             here = tables.values("phi", bundle.z1)
             anchored = tables.values("phi", bundle.z0)
-            return (here - anchored).reshape(self._layout)
+            return (here - anchored).reshape(self._problem.shape)
         if bundle.phi_delta is None or self._terms.phi is None:
             return delta_phi(
                 self._problem.linear, bundle.z0, bundle.z1, helpers=self.helpers
@@ -959,7 +949,7 @@ class NativeBackend:
         """
         tables = self._z_tables
         if tables is not None and tables.phi:
-            return np.imag(tables.values("phi", bundle.z1)).reshape(self._layout)
+            return np.imag(tables.values("phi", bundle.z1)).reshape(self._problem.shape)
         if bundle.phi_at is None or self._terms.phi is None:
             return unitary_phase(self._problem.linear, bundle.z1)
         return np.imag(combine(bundle.phi_at, self._terms.phi))
@@ -1173,8 +1163,8 @@ class NativeBackend:
             return None
         if loaded.clean_columns is not None:
             return loaded.clean_columns
-        state = np.asarray(self._observed_field(self._native_state)[0])
-        return edge.reduction.column_power(state - np.asarray(floor[0]))
+        state = np.asarray(self._observed_field(self._native_state))
+        return edge.reduction.column_power(state - np.asarray(floor))
 
     def timing_probe(self, start: Start) -> TimingProbe:
         """Load a start and return single trials of this run's march from it.
@@ -1206,7 +1196,7 @@ class NativeBackend:
     def _observed_field(self, state: _core.State) -> ComplexArray:
         if state is not self._native_state:
             raise BackendError("the observed state does not belong to this backend")
-        field = state.field_to_host().reshape(self._layout)
+        field = state.field_to_host().reshape(self._problem.shape)
         if (counters := _counters.active) is not None:
             counters.crossing("plane", field.nbytes)
         return field
@@ -1559,7 +1549,7 @@ class _ResidentAdams:
     method: Multistep
     controller: PIController
     shape: tuple[int, ...]
-    """The state layout, ``(1, n_modes, n_pol, n_omega)``."""
+    """The state layout, ``(n_modes, n_pol, n_omega)``."""
     interpolate: bool
     compensated: bool = False
     """Whether trials carry a varying operator's transported compensation."""
@@ -1605,8 +1595,8 @@ class _ResidentAdams:
     def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
         """Install a snapshot's rows, for a state of `shape`.
 
-        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_batch,
-        n_modes, n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
+        The rows keep ``HostHistory``'s names and layout, ``(n_slots, n_modes,
+        n_pol, n_omega)``: ``"store"`` and, compensated, ``"states"`` and
         ``"rates"``. A frozen-residual flow's history holds each sample's generator
         applied to its state, ``"applied"``, where the host engine holds the sample's
         weights (``"weights_<row>"``); the two are not interchangeable, and each engine
@@ -1696,8 +1686,8 @@ def _section_tables(
 def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     """Return the carrier frame's chord as the native stage tables take it.
 
-    The imaginary part of the reference element's operator for the one batch member
-    (`CarrierChord`): a constant's rate, an expansion's terms over the ``Phi`` weights
+    The imaginary part of the reference element's operator (`CarrierChord`): a
+    constant's rate, an expansion's terms over the ``Phi`` weights
     the tables already hold, or a z table's reference-element column as a scalar table
     of its own (solprop issue #255), packed as its batch pass reads it. None without an
     active frame.
@@ -1706,12 +1696,12 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     if chord is not None and chord.constant is not None:
         return {
             "chord": 1,
-            "chord_rate": float(np.imag(chord.constant)[0]),
+            "chord_rate": float(np.imag(chord.constant)),
             "chord_terms": [],
             "chord_table": None,
         }
     if chord is not None and chord.expansion is not None:
-        terms = np.imag(np.asarray(chord.expansion.terms))[:, 0]
+        terms = np.imag(np.asarray(chord.expansion.terms))
         return {
             "chord": 2,
             "chord_rate": 0.0,
@@ -1720,9 +1710,9 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
         }
     if chord is not None and chord.table is not None:
         edges, lower, upper, coefficients = chord.table.packed()
-        # The one batch member's column: the imaginary part a complex Clenshaw pass
-        # forms at a real position, by the same operations (`stage::chord`).
-        column = np.ascontiguousarray(np.imag(coefficients[:, :, :1]))
+        # The imaginary part a complex Clenshaw pass forms at a real position, by the
+        # same operations (`stage::chord`).
+        column = np.ascontiguousarray(np.imag(coefficients))
         return {
             "chord": 3,
             "chord_rate": 0.0,
@@ -2082,10 +2072,8 @@ class _NativeAdamsMarch:
         reason = self._refusal(snapshot, z)
         if reason is not None:
             return reason
-        # The rows keep the engine's layout, a leading axis of one beside their own
-        # (the snapshot's disk format, SEP 47 section 6.7).
         try:
-            self._engine.load_rows(snapshot.rows, (1, *self._backend._problem.shape))
+            self._engine.load_rows(snapshot.rows, self._backend._problem.shape)
         except BackendError as error:
             return str(error)
         self._history = [

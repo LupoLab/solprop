@@ -912,7 +912,7 @@ class HostStepping(Backend, Protocol):
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, without a batch axis.
+            Small host arrays keyed by statistic name.
         """
         ...
 

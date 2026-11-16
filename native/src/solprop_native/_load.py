@@ -78,7 +78,7 @@ class Loaded:
         in the record a backend keeps once its native state holds it, so no host copy
         outlives the load.
     noise : numpy.ndarray or None
-        The ``modified`` model's realisation, shape ``(1, n_modes, n_pol, n_omega)``,
+        The ``modified`` model's realisation, shape ``(n_modes, n_pol, n_omega)``,
         which every stage adds; ``None`` under the other models.
     floor : numpy.ndarray or None
         The ``input`` model's draw, the same shape, which rides in the state; the
@@ -133,8 +133,6 @@ def load(
             f"{problem.shape} from the contract"
         )
         raise BackendError(msg)
-    # The kernels' layout, a leading axis of one (SEP 47 section 6.2).
-    values = values[np.newaxis]
     position = _checked_position(problem, float(z))
     drawn = _noise_field(problem, noise)
     model = problem.initial.noise_model
@@ -146,9 +144,7 @@ def load(
         and position == problem.initial.z
     ):
         if transverse_of(problem.route) is not None:
-            clean = _clean_launch_columns(
-                values[0], drawn[0], problem.grids.active_mask
-            )
+            clean = _clean_launch_columns(values, drawn, problem.grids.active_mask)
         values = values + drawn
     return Loaded(
         field=np.ascontiguousarray(values.reshape(-1)),
@@ -195,13 +191,12 @@ def _checked_position(problem: PropagationProblem, z: float) -> float:
 def _noise_field(
     problem: PropagationProblem, noise: NoiseRealisation | None
 ) -> ComplexArray | None:
-    """Return the realisation to carry with a leading axis of one, or ``None``."""
+    """Return the realisation to carry, or ``None``."""
     if problem.initial.noise_model == "none":
         return None
     if noise is not None:
-        return noise_spectrum(noise, problem.shape)[np.newaxis]
-    noise0 = problem.initial.noise0
-    return None if noise0 is None else noise0[np.newaxis]
+        return noise_spectrum(noise, problem.shape)
+    return problem.initial.noise0
 
 
 def _clean_launch_columns(

@@ -335,8 +335,9 @@ Cartesian one).
 ## 6. Array layout and axis names
 
 Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order): one trajectory. A backend may hold its state privately with a leading axis of one (the native build's four-axis
-layout), and a march snapshot's file keeps that axis. Every backend computes in binary64
+contiguous (C order): one trajectory, with no leading axis of one anywhere: not in a
+backend's state, the operator's value tables (§3 of the kernel contract), the memory
+ledgers or a march snapshot's stored state (SEP 52). Every backend computes in binary64
 (ADR-077). Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a scan stores each point separately.
 Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
@@ -345,7 +346,6 @@ Standard axis names, reused verbatim in every jaxtyping annotation and docstring
 
 | name | meaning |
 |---|---|
-| `n_batch` | the leading axis of one of a backend's private state layout, the operator's value tables (§3 of the kernel contract) and a march snapshot's stored state; never part of a single trajectory's seam |
 | `n_modes` | modes (1 for mode-averaged) |
 | `n_pol` | polarisation components of the kernel state (1 or 2) |
 | `n_components` | Cartesian components of a local physical field (1, 2 or 3); a general modal guide carries `n_pol = 1` and `n_components = 3` |

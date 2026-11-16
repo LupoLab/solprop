@@ -381,7 +381,7 @@ def _split_crossing(
     crossing = SplitCrossing(buckets, width, fastest=fastest)
     return replace(
         crossing,
-        launch_limit=crossing.limit(crossing.occupancy(launch[np.newaxis], columns)),
+        launch_limit=crossing.limit(crossing.occupancy(launch, columns)),
     )
 
 
@@ -880,7 +880,7 @@ def _general_prefactor(
     - Returns: one interval of degree zero with value shape ``(n_modes, n_pol,
       n_omega)``.
     """
-    n_modes = linear.value_shape[1]
+    n_modes = linear.value_shape[0]
     values = np.zeros((1, 1, n_modes, n_pol, grid.n_omega), dtype=np.complex128)
     values[:, :, :, :, grid.active_mask] = grid.crop_scale
     return PiecewiseChebyshev(

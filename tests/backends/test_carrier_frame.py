@@ -84,7 +84,7 @@ def reference_rate(problem) -> float:
     """Return ``Im D`` at the reference bin of a constant operator, 1/m (``-kappa``)."""
     grids = problem.grids
     index = _nearest_bin(grids.omega, grids.omega0)
-    return float(problem.linear.phi_constant[0, 0, 0, index].imag)
+    return float(problem.linear.phi_constant[0, 0, index].imag)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -400,22 +400,21 @@ def test_the_policy_is_inert_where_no_carrier_phase_is_kept():
     assert inactive is not None and not inactive.active
     assert f"({nearest}) is inactive" in inactive.reason
     with pytest.raises(BackendError, match="inert"):
-        inactive.shift(np.zeros((1, 1, 1, 3), dtype=complex))
-    assert inactive.phase(np.ones((1, 1, 1, 3), dtype=complex)) == 0.0
+        inactive.shift(np.zeros((1, 1, 3), dtype=complex))
+    assert inactive.phase(np.ones((1, 1, 3), dtype=complex)) == 0.0
 
 
-def test_the_shift_is_per_member_and_the_cap_reads_the_largest():
-    exponent = np.zeros((2, 3, 2, 4), dtype=complex)
-    exponent[0, 0, 0, 1] = -0.1 + 0.3j
-    exponent[1, 0, 0, 1] = -0.2 - 0.7j
+def test_the_shift_and_the_cap_read_the_reference_element():
+    exponent = np.zeros((3, 2, 4), dtype=complex)
+    exponent[0, 0, 1] = -0.2 - 0.7j
     # Other modes and polarisations never set the shift.
-    exponent[:, 1:, :, :] = 5j
-    exponent[:, :, 1, :] = 9j
+    exponent[1:, :, :] = 5j
+    exponent[:, 1, :] = 9j
     reference = CarrierReference("scalar", 1, 1.0, "")
     shift = reference.shift(exponent)
-    assert shift.shape == (2, 1, 1, 1)
+    assert shift.shape == (1, 1, 1)
     # Imaginary only: the loss is never shifted (section 10).
-    assert shift.ravel().tolist() == [0.3j, -0.7j]
+    assert shift.ravel().tolist() == [-0.7j]
     assert reference.phase(exponent) == pytest.approx(0.7)
 
 
@@ -478,10 +477,10 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
     # nodes, a lossy rotating exponent and an imaginary shift, at interior fractions
     # and the endpoint: the production moments and passes.
     nodes = np.array([1.0, 0.0, -0.7, -1.9])
-    x = np.array([-0.4 + 7.0j, -1.5 + 0.3j]).reshape((1, 1, 1, 2))
+    x = np.array([-0.4 + 7.0j, -1.5 + 0.3j]).reshape((1, 1, 2))
     sigma = 2.3j
     rng = np.random.default_rng(4)
-    samples = rng.normal(size=(4, 1, 1, 1, 2)) + 1j * rng.normal(size=(4, 1, 1, 1, 2))
+    samples = rng.normal(size=(4, 1, 1, 2)) + 1j * rng.normal(size=(4, 1, 1, 2))
     rotated = [
         np.exp(sigma * (1 - node)) * one
         for node, one in zip(nodes, samples, strict=True)
@@ -493,18 +492,18 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
     def polynomial(theta, element):
         """The rotated samples' interpolant at ``theta``."""
         basis = np.array([theta**k for k in range(count)])
-        values = np.array([one[0, 0, 0, element] for one in rotated])
+        values = np.array([one[0, 0, element] for one in rotated])
         return (coefficients @ basis) @ values
 
     for xi in (0.2, 0.63, 1.0):
         moments = kernels.moments(xi * (x - sigma), count)
         powers = np.array([xi ** (k + 1) for k in range(count)])
-        scaled = moments * powers.reshape((count, 1, 1, 1, 1))
+        scaled = moments * powers.reshape((count, 1, 1, 1))
         found = np.exp(-sigma * (1 - xi)) * kernels.apply(
             scaled, coefficients, rotated, 1.0
         )
         for element in range(2):
-            rate = complex(x[0, 0, 0, element])
+            rate = complex(x[0, 0, element])
 
             def integrand(s, part, rate=rate, element=element, xi=xi):
                 value = (
@@ -518,7 +517,7 @@ def test_the_dense_formula_is_the_integral_it_stands_for():
                 quad(integrand, 0.0, xi, args=(0,), epsabs=1e-15, epsrel=1e-13)[0],
                 quad(integrand, 0.0, xi, args=(1,), epsabs=1e-15, epsrel=1e-13)[0],
             )
-            assert abs(found[0, 0, 0, element] - exact) <= 1e-13 * max(1.0, abs(exact))
+            assert abs(found[0, 0, element] - exact) <= 1e-13 * max(1.0, abs(exact))
 
 
 # --- aliasing and resolution (section 4.3) --------------------------------------------
@@ -900,8 +899,8 @@ def test_the_shifted_block_keeps_the_true_flow():
     generator[np.tril_indices(3, -1)] *= 0.05
     vectors, triangular = schur_blocks(generator[:, :, np.newaxis])
     diagonal = -0.4 + 2.5j
-    exponent = np.full((1, 3, 1, 1), diagonal)
-    sigma = np.full((1, 1, 1, 1), 2.1j)
+    exponent = np.full((3, 1, 1), diagonal)
+    sigma = np.full((1, 1, 1), 2.1j)
     block = CoupledBlock(
         active=np.array([True]), vectors=vectors, triangular=triangular, section=0
     )
@@ -1035,14 +1034,12 @@ def test_the_rounding_budget_bounds_one_shifted_increment():
     count = len(nodes)
     exponent = (
         rng.normal(size=6) * 0.3 - 0.05 + 1j * rng.uniform(-40.0, 40.0, size=6)
-    ).reshape((1, 1, 1, 6))
+    ).reshape((1, 1, 6))
     sigma = 0.9j  # under the cap
-    samples = rng.normal(size=(count, 1, 1, 1, 6)) + 1j * rng.normal(
-        size=(count, 1, 1, 1, 6)
-    )
+    samples = rng.normal(size=(count, 1, 1, 6)) + 1j * rng.normal(size=(count, 1, 1, 6))
     shifted = exponent - sigma
     moments = ExponentialKernels().moments(shifted, count)
-    rotated = np.exp(sigma * (1.0 - nodes)).reshape((count, 1, 1, 1, 1)) * samples
+    rotated = np.exp(sigma * (1.0 - nodes)).reshape((count, 1, 1, 1)) * samples
     found = sum(
         moments[k] * np.tensordot(coefficients[:, k], rotated, axes=1)
         for k in range(count)
@@ -1051,15 +1048,15 @@ def test_the_rounding_budget_bounds_one_shifted_increment():
         exact = np.array(
             [
                 exact_increment(
-                    complex(exponent[0, 0, 0, element]) - sigma,
+                    complex(exponent[0, 0, element]) - sigma,
                     sigma,
                     nodes,
                     coefficients,
-                    samples[:, 0, 0, 0, element],
+                    samples[:, 0, 0, element],
                 )
                 for element in range(6)
             ]
-        ).reshape((1, 1, 1, 6))
+        ).reshape((1, 1, 6))
     budget = carrier_increment_budget(
         coefficients, moments, samples, nodes, sigma, shifted
     )
@@ -1176,7 +1173,7 @@ def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, opera
             # backend's own exponent of them.
             bundle = scalars(problem, z1, z2, helpers=backend.helpers)
             full = backend._delta_phi(bundle)
-            expected = np.asarray(full)[:, 0, 0, reference.bin]
+            expected = np.asarray(full)[0, 0, reference.bin]
             found = reference.chord.exponent(z1, z2)
             # The same representation evaluated at one element: a few roundings of the
             # exponent (an expansion's combination, a constant's product).
