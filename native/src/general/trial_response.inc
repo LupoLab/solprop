@@ -1298,7 +1298,10 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                        band_team_policy(node_count, column), column);
 }
 
-namespace {
+// BandField and BandRate are not in an anonymous namespace: the band columns' lambdas
+// capture them, and GCC's -Wsubobject-linkage treats a type with internal linkage
+// captured in an included file (this fragment of trial.cpp) as a header's ODR hazard.
+
 /**
  * A band column's node field: `scale` times the real row of a field-family node (or of
  * the folded single node's modal row), and its magnitude over a node's components.
@@ -1343,7 +1346,6 @@ template <bool Multiple> struct BandRate {
                              field_min, field_max, rate_max, intervals);
   }
 };
-} // namespace
 
 template <class Functor>
 Kokkos::TeamPolicy<ExecutionSpace>
