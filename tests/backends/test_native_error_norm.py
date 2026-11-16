@@ -116,7 +116,7 @@ def _difference(stages, weights, propagator, dz):
 def test_the_rk_norm_is_the_reference_norm_of_native_s_operands(
     capillary_problem, field_grid, dz, record_property
 ):
-    """The masked norm against ``passes.error_norm``, the bound fixed from operands."""
+    """The masked norm against ``error_norm``, the bound fixed from operands."""
     problem, run_request = _problem(capillary_problem)
     assert not np.all(problem.grids.norm_mask), "the mask has to act"
     reference = NumpyRefBackend(problem, run_request, grid=field_grid)

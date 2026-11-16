@@ -15,7 +15,7 @@ from bounds import EPS, assert_within
 from builders import launch_derivative
 from optmat_parity_cases import build_case
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_hard_mask
+from solprop.backends.numpy_ref.passes.stepping import apply_hard_mask
 
 
 @pytest.mark.medium

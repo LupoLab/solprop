@@ -8,7 +8,7 @@
 (``docs/dev/backends.md`` section 2), and the three analytic cases that pin *it* --
 the constant field and rate with its closed form, the Drude limit of a pre-ionised gas,
 and the energy identity -- are reproduced here through
-:func:`~solprop.backends.numpy_ref.passes.ionisation_rate`,
+:func:`~solprop.backends.numpy_ref.passes.plasma.ionisation_rate`,
 :func:`~solprop.backends.numpy_ref.passes.plasma_scan` and
 :func:`~solprop.backends.numpy_ref.passes.plasma_current` at a quadrature node. They are
 imported from ``tests/plasma_cases.py`` rather than restated, so there is one statement
@@ -38,7 +38,13 @@ from plasma_cases import (
 from rate_oracles import adk_oracle
 from sessions.runs import launched, run
 from solprop import fourier
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import (
+    ionisation_rate,
+    plasma_current,
+    plasma_scan,
+)
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.backends.session import Start
 from solprop.constants import CHARGE_MASS_RATIO as COMPILED_CHARGE_MASS_RATIO
 from solprop.constants import E_CHARGE, EPS0, M_E, C
@@ -99,14 +105,14 @@ def coefficients_for(gas, preionisation=0.0, *, span=1.0):
 def through_the_passes(field, rate_values, coefficients, density, dt, preionisation):
     """Return the plasma polarisation of one node, through the three passes."""
     column = np.asarray(field)[np.newaxis]
-    fraction, free_current = passes.plasma_scan(
+    fraction, free_current = plasma_scan(
         column,
         np.asarray(rate_values)[np.newaxis],
         coefficients,
         preionisation=preionisation,
         dt=dt,
     )
-    polarisation = passes.plasma_current(
+    polarisation = plasma_current(
         column,
         np.asarray(rate_values)[np.newaxis],
         fraction,
@@ -242,14 +248,14 @@ def test_the_energy_identity_converges_at_second_order():
 def test_the_rate_pass_is_the_table_on_the_magnitude_of_the_field():
     table = build_rate_table(adk_oracle(Gas.Ar), FIELD_RANGE)
     _, _, field = pulse()
-    scalar = passes.ionisation_rate(field[np.newaxis, np.newaxis], table)
+    scalar = ionisation_rate(field[np.newaxis, np.newaxis], table)
     # Structural: the pass is the table, called on the magnitude, so exactly it.
     assert np.array_equal(scalar[0], table(np.abs(field)))
     # Two components go through hypot, not a sum of squares: the tunnelling exponent
     # turns one unit in the last place of |E| into 1e-13 of the rate.
     angle = 0.7
     vector = np.stack([math.cos(angle) * field, math.sin(angle) * field])
-    rotated = passes.ionisation_rate(vector[np.newaxis], table)
+    rotated = ionisation_rate(vector[np.newaxis], table)
     assert np.array_equal(
         rotated[0], table(np.hypot(*(vector[index] for index in (0, 1))))
     )
@@ -499,15 +505,15 @@ def test_the_electron_density_is_the_fraction_the_pulse_leaves(ionised_backend):
     taper = (
         1.0 if transform.taper_scale is None else float(transform.taper_scale(plane.z))
     )
-    modal = passes.to_time(
+    modal = to_time(
         plane.field,
         problem.grids.crop_index,
         problem.grids.n_to,
         kind=problem.grid_kind,
     )
-    nodes = passes.synthesise(modal, transform.synthesis, taper, transform.n_pol)
-    rate = passes.ionisation_rate(nodes, plasma.rate)
-    fraction, _ = passes.plasma_scan(
+    nodes = synthesise(modal, transform.synthesis, taper, transform.n_pol)
+    rate = ionisation_rate(nodes, plasma.rate)
+    fraction, _ = plasma_scan(
         nodes,
         rate,
         plasma,

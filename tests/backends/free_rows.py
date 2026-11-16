@@ -96,7 +96,8 @@ from backends.spatial_cases import CHI3, LENGTH, QuadraticRate, make_problem
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from parity_ladder import Built, Reading, Row, Statistic, reference
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.transforms import to_time
 from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -599,7 +600,7 @@ def ramped_rate_bound(built: Built) -> float:
         backend.close()
     rate = problem.responses.temporal_absorber_fine
     assert rate is not None
-    samples = passes.to_time(
+    samples = to_time(
         problem.initial.field0,
         problem.grids.crop_index,
         grid.n_to,

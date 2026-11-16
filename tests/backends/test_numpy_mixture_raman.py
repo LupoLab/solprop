@@ -17,7 +17,12 @@ from numpy.testing import assert_allclose
 
 from mixture_cases import raman_mixture
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.responses import (
+    mixture_raman_spectrum,
+    raman_polarisation,
+    raman_spectrum,
+)
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule
 from solprop.translate.stage import scalars
@@ -81,25 +86,21 @@ def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
     for term, density in zip(
         problem.responses.raman_terms, bundle.raman_densities, strict=True
     ):
-        kernel = passes.raman_spectrum(
+        kernel = raman_spectrum(
             term.undamped, (0.0,), term.fraction, problem.grids.dt_fine
         )
         separate.append(
-            passes.raman_polarisation(
-                field, kernel, kind="field", thg=False, density=density
-            )
+            raman_polarisation(field, kernel, kind="field", thg=False, density=density)
         )
     bound = rounding * sum(float(np.max(np.abs(value))) for value in separate)
     assert bound > 0
-    kernel = passes.mixture_raman_spectrum(
+    kernel = mixture_raman_spectrum(
         problem.responses.raman_terms,
         bundle.raman_rates,
         bundle.raman_densities,
         problem.grids.dt_fine,
     )
-    actual = passes.raman_polarisation(
-        field, kernel, kind="field", thg=False, density=1.0
-    )
+    actual = raman_polarisation(field, kernel, kind="field", thg=False, density=1.0)
     assert_allclose(actual, sum(separate), rtol=0, atol=bound)
 
 
@@ -133,14 +134,14 @@ def test_raman_component_extents_are_checked(case):
     _, problem, _ = case
     bundle = scalars(problem, 0.0, 0.0)
     with pytest.raises(BackendError, match="Raman"):
-        passes.mixture_raman_spectrum(
+        mixture_raman_spectrum(
             problem.responses.raman_terms,
             (),
             bundle.raman_densities,
             problem.grids.dt_fine,
         )
     with pytest.raises(BackendError, match="Raman"):
-        passes.mixture_raman_spectrum(
+        mixture_raman_spectrum(
             problem.responses.raman_terms, bundle.raman_rates, (), problem.grids.dt_fine
         )
 

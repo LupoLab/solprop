@@ -18,7 +18,11 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop.backends.engines import AcceptRecord, BoundaryReading
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.stepping import (
+    accept_step,
+    accumulate,
+    stage_input,
+)
 from solprop.backends.numpy_ref.workspace import NumpyWorkspace
 from solprop.exceptions import BackendError
 from solprop.stepper.tableau import Tableau, extension_coefficients
@@ -121,7 +125,7 @@ class NumpyRungeKutta:
             fraction = float(node)
             combination = np.zeros_like(state)
             for previous in range(index):
-                combination = passes.accumulate(
+                combination = accumulate(
                     combination,
                     stages[previous],
                     float(tableau.matrix[index, previous]),
@@ -129,7 +133,7 @@ class NumpyRungeKutta:
             bundle = workspace.stage_scalars(z, z + fraction * dz)
             exponent = exponents(fraction, bundle)
             forward, inverse = actions(fraction)
-            lab = passes.stage_input(
+            lab = stage_input(
                 workspace.channels(state, forward),
                 workspace.channels(combination, forward),
                 dz,
@@ -144,13 +148,13 @@ class NumpyRungeKutta:
                 drive = drive + back * residual
             stage = workspace.channels(drive, inverse)
             stages.append(stage)
-            solution = passes.accumulate(
+            solution = accumulate(
                 solution, stage, float(tableau.solution_weights[index])
             )
-            error = passes.accumulate(error, stage, float(tableau.error_weights[index]))
+            error = accumulate(error, stage, float(tableau.error_weights[index]))
         propagator = np.exp(exponents(1.0, step))
         whole = actions(1.0)[0]
-        advanced = passes.accept_step(
+        advanced = accept_step(
             workspace.channels(state, whole),
             propagator,
             dz,

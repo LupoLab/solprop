@@ -31,7 +31,7 @@ from sessions.runs import launch_statistics, native_source, saved, to_planes
 from sessions.runs import run as session_run
 from sessions.runs import summary as run_summary
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.passes import apply_hard_mask
+from solprop.backends.numpy_ref.passes.stepping import apply_hard_mask
 from solprop.backends.session import ExecutionOptions, Start
 from solprop.driver import Simulation
 from solprop.stats import StatsSpec

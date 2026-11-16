@@ -42,15 +42,40 @@ from solprop.backends.node_chunk import (
     general_planned_chunk,
     plan_node_chunk,
 )
-from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.envelope_plasma import (
-    envelope_populations,
-    envelope_sources,
-)
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
     general_memory,
     general_source,
+)
+from solprop.backends.numpy_ref.passes.plasma import (
+    envelope_populations,
+    envelope_sources,
+    held_plasma_spectrum,
+    ionisation_rate,
+    plasma_channel_fractions,
+    plasma_integration_diagnostics,
+    plasma_integration_statistics,
+    plasma_scan,
+)
+from solprop.backends.numpy_ref.passes.responses import (
+    NonlinearSources,
+    mixture_raman_spectrum,
+    nonlinear_sources,
+    raman_spectrum,
+    tensor_raman_spectrum,
+)
+from solprop.backends.numpy_ref.passes.stepping import (
+    absorber_term,
+    apply_hard_mask,
+    apply_temporal_rate,
+    error_norm,
+    stage_output,
+)
+from solprop.backends.numpy_ref.passes.transforms import (
+    project,
+    synthesise,
+    to_frequency,
+    to_time,
 )
 from solprop.backends.populations import axis_refusal, population_statistics
 from solprop.backends.spatial import (
@@ -503,7 +528,7 @@ class NumpyWorkspace:
         numpy.ndarray
             A new masked array.
         """
-        return passes.apply_hard_mask(state, self._problem.grids.active_mask)
+        return apply_hard_mask(state, self._problem.grids.active_mask)
 
     def committed(self) -> _State:
         """Return the committed state, refusing an unloaded workspace.
@@ -1166,7 +1191,7 @@ class NumpyWorkspace:
             chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
-                physical[rows] = passes.apply_temporal_rate(
+                physical[rows] = apply_temporal_rate(
                     physical[rows], rate, dz, kind=self._kind
                 )
             return self.mask(slab_columns(transform, physical))
@@ -1179,7 +1204,7 @@ class NumpyWorkspace:
             chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
-                physical[rows] = passes.apply_temporal_rate(
+                physical[rows] = apply_temporal_rate(
                     physical[rows], rate, dz, kind=self._kind
                 )
             result = np.fft.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
@@ -1188,7 +1213,7 @@ class NumpyWorkspace:
             return self.mask(result)
         # The product in time spreads content across every bin, the DC among them, so
         # the band is imposed again after it, as the in-stage term is masked.
-        return self.mask(passes.apply_temporal_rate(masked, rate, dz, kind=self._kind))
+        return self.mask(apply_temporal_rate(masked, rate, dz, kind=self._kind))
 
     def score_quadrature(self) -> tuple[float, float]:
         """Score the quadrature from the last stage of an accepted step.
@@ -1225,10 +1250,10 @@ class NumpyWorkspace:
             return self._alarm, math.nan
         grids = self._problem.grids
         weight = self.prefactor(self._last_bundle) * self._tables.omega_window
-        fine = weight * passes.to_frequency(
+        fine = weight * to_frequency(
             self._last_projected, grids.crop_index, kind=self._kind
         )
-        coarse = weight * passes.to_frequency(
+        coarse = weight * to_frequency(
             self._last_coarse, grids.crop_index, kind=self._kind
         )
         if self._last_envelope is not None:
@@ -1243,12 +1268,12 @@ class NumpyWorkspace:
                 fine += (
                     weight
                     * factor
-                    * passes.to_frequency(full, grids.crop_index, kind=self._kind)
+                    * to_frequency(full, grids.crop_index, kind=self._kind)
                 )
                 coarse += (
                     weight
                     * factor
-                    * passes.to_frequency(reduced, grids.crop_index, kind=self._kind)
+                    * to_frequency(reduced, grids.crop_index, kind=self._kind)
                 )
         if self._last_plasma is not None:
             gated, edge, coarse_gated, coarse_edge = self._last_plasma
@@ -1318,7 +1343,7 @@ class NumpyWorkspace:
         float
             The scaled norm.
         """
-        return passes.error_norm(
+        return error_norm(
             error,
             state,
             advanced,
@@ -1554,7 +1579,7 @@ class NumpyWorkspace:
                 physical = np.fft.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
-                nodes = passes.to_time(
+                nodes = to_time(
                     physical * grids.pad_scale,
                     grids.crop_index,
                     grids.n_to,
@@ -1562,7 +1587,7 @@ class NumpyWorkspace:
                 )
             elif transform.geometry is not None and transform.geometry.kind == "slab":
                 # The slab synthesis carries the pad scale already.
-                nodes = passes.to_time(
+                nodes = to_time(
                     slab_synthesis(transform, field),
                     grids.crop_index,
                     grids.n_to,
@@ -1577,7 +1602,7 @@ class NumpyWorkspace:
                 if scans is not None:
                     scans.append((fractions, peaks))
                 return population_statistics(self._problem, z, fractions, peaks)
-            rates, population = passes.plasma_channel_fractions(
+            rates, population = plasma_channel_fractions(
                 nodes,
                 responses.plasma_channels,
                 tuple(float(c.preionisation(z)) for c in channels),
@@ -1617,7 +1642,7 @@ class NumpyWorkspace:
         for nodes in self._plasma_nodes(field, z):
             parts = np.maximum(
                 parts,
-                passes.plasma_integration_diagnostics(
+                plasma_integration_diagnostics(
                     nodes,
                     channels,
                     initial,
@@ -1625,7 +1650,7 @@ class NumpyWorkspace:
                     responses.plasma_integral,
                 ),
             )
-        undershoot, defect, boundary = passes.plasma_integration_statistics(parts)
+        undershoot, defect, boundary = plasma_integration_statistics(parts)
         return {
             "plasma_undershoot": np.asarray(undershoot),
             "plasma_work_defect": np.asarray(defect),
@@ -1658,7 +1683,7 @@ class NumpyWorkspace:
         )
         chunk = self.node_chunk
         for first in range(0, len(physical), chunk):
-            yield passes.to_time(
+            yield to_time(
                 physical[first : first + chunk] * grids.pad_scale,
                 grids.crop_index,
                 grids.n_to,
@@ -1709,14 +1734,14 @@ class NumpyWorkspace:
             grids = self._problem.grids
             chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
-                nodes = passes.to_time(
+                nodes = to_time(
                     physical[first : first + chunk] * grids.pad_scale,
                     grids.crop_index,
                     grids.n_to,
                     kind=self._kind,
                 )
-                rate = passes.ionisation_rate(nodes, plasma.rate)
-                fraction, _ = passes.plasma_scan(
+                rate = ionisation_rate(nodes, plasma.rate)
+                fraction, _ = plasma_scan(
                     nodes,
                     rate,
                     plasma,
@@ -1730,8 +1755,8 @@ class NumpyWorkspace:
                     peak = float(np.max(rate[densest]))
             return np.asarray(float(plasma.density(z)) * largest), np.asarray(peak)
         nodes = self._nodes_at(field, z)
-        rate = passes.ionisation_rate(nodes, plasma.rate)
-        fraction, _ = passes.plasma_scan(
+        rate = ionisation_rate(nodes, plasma.rate)
+        fraction, _ = plasma_scan(
             nodes,
             rate,
             plasma,
@@ -1791,8 +1816,8 @@ class NumpyWorkspace:
         taper = (
             1.0 if transform.taper_scale is None else float(transform.taper_scale(z))
         )
-        modal_t = passes.to_time(field, grids.crop_index, grids.n_to, kind=self._kind)
-        return passes.synthesise(modal_t, transform.synthesis, taper, transform.n_pol)
+        modal_t = to_time(field, grids.crop_index, grids.n_to, kind=self._kind)
+        return synthesise(modal_t, transform.synthesis, taper, transform.n_pol)
 
     def _axis_statistics(
         self,
@@ -1959,15 +1984,15 @@ class NumpyWorkspace:
             # would otherwise be dropped from a problem that has no response at all.
             if not self._in_stage_absorber:
                 return np.zeros_like(lab)
-            alone = passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
-            return passes.stage_output(
+            alone = to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
+            return stage_output(
                 np.zeros_like(lab),
                 np.zeros_like(lab),
                 self._tables.omega_window,
                 inverse_propagator,
                 self._absorber_term(alone, may_quiet=True),
             )
-        modal_t = passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
+        modal_t = to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
         geometry = self._problem.transform.geometry
         if (
             geometry is not None
@@ -1981,7 +2006,7 @@ class NumpyWorkspace:
             self._last_projected = projected
             self._last_coarse = coarse
             self._last_bundle = bundle
-            spectrum = passes.to_frequency(projected, grids.crop_index, kind=self._kind)
+            spectrum = to_frequency(projected, grids.crop_index, kind=self._kind)
             if self._last_plasma is not None:
                 gated, edge, _, _ = self._last_plasma
                 spectrum += self._held_streams(gated, edge)
@@ -1989,13 +2014,13 @@ class NumpyWorkspace:
                 assert self._last_envelope is not None
                 drive, loss, _, _ = self._last_envelope
                 factors = responses.envelope_plasma.factors
-                spectrum += factors.drude * passes.to_frequency(
+                spectrum += factors.drude * to_frequency(
                     drive, grids.crop_index, kind=self._kind
                 )
-                spectrum += factors.loss * passes.to_frequency(
+                spectrum += factors.loss * to_frequency(
                     loss, grids.crop_index, kind=self._kind
                 )
-        return passes.stage_output(
+        return stage_output(
             spectrum,
             self.prefactor(bundle),
             self._tables.omega_window,
@@ -2019,7 +2044,7 @@ class NumpyWorkspace:
         grids = problem.grids
         binding = self._tdse_binding
         assert binding is not None and tdse_of(problem.route) is not None
-        modal_t = passes.to_time(lab, grids.crop_index, grids.n_to, kind="field")
+        modal_t = to_time(lab, grids.crop_index, grids.n_to, kind="field")
         fields = tdse_source.node_fields(problem, lab, bundle)
         result = binding.evaluate(
             fields, z=bundle.z1, purpose=purpose, density=bundle.density
@@ -2038,7 +2063,7 @@ class NumpyWorkspace:
         )
         self._tdse_last_purpose, self._tdse_last_z = purpose, bundle.z1
         self._tdse_last_projection = projection
-        return passes.stage_output(
+        return stage_output(
             source,
             np.ones_like(source),
             grids.omega_window,
@@ -2094,9 +2119,9 @@ class NumpyWorkspace:
         absorber = None
         if self._in_stage_absorber:
             absorber = self._absorber_term(
-                passes.to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
+                to_time(lab, grids.crop_index, grids.n_to, kind=self._kind)
             )
-        return passes.stage_output(
+        return stage_output(
             spectrum,
             self.prefactor(bundle),
             grids.omega_window,
@@ -2109,7 +2134,7 @@ class NumpyWorkspace:
         field_t: np.ndarray,
         bundle: StageScalars,
         raman: np.ndarray | None,
-    ) -> passes.NonlinearSources:
+    ) -> NonlinearSources:
         """Evaluate one column; the historical integral is benchmark-only.
 
         - ``field_t``: physical node fields in V/m, with time last.
@@ -2118,7 +2143,7 @@ class NumpyWorkspace:
           A/m².
         """
         responses, grids = self._problem.responses, self._problem.grids
-        sources = passes.nonlinear_sources(
+        sources = nonlinear_sources(
             field_t,
             responses,
             self._tables.t_window,
@@ -2132,7 +2157,7 @@ class NumpyWorkspace:
         )
         if not self._gated_plasma or sources.current is None:
             return sources
-        return passes.NonlinearSources(
+        return NonlinearSources(
             sources.polarisation
             + self._tables.t_window
             * responses.plasma_integral.integrate(sources.current, grids.dt_fine),
@@ -2148,7 +2173,7 @@ class NumpyWorkspace:
           bins.
         """
         grids = self._problem.grids
-        return passes.held_plasma_spectrum(
+        return held_plasma_spectrum(
             gated, edge, grids.omega, grids.crop_index, grids.active_mask
         )
 
@@ -2177,7 +2202,7 @@ class NumpyWorkspace:
                 first * transform.n_pol,
                 (first + self.node_chunk) * transform.n_pol,
             )
-            field = passes.synthesise(
+            field = synthesise(
                 modal_t,
                 self._tables.synthesis[rows],
                 bundle.taper_scale,
@@ -2185,11 +2210,9 @@ class NumpyWorkspace:
             )
             sources = self._column_sources(field, bundle, raman)
             assert sources.current is not None
-            nodal = passes.to_frequency(
-                sources.polarisation, grids.crop_index, kind="field"
-            )
+            nodal = to_frequency(sources.polarisation, grids.crop_index, kind="field")
             nodal += self._held_current(sources.current)
-            spectrum += passes.project(
+            spectrum += project(
                 nodal,
                 self._tables.projection[:, rows],
                 bundle.taper_scale,
@@ -2227,12 +2250,12 @@ class NumpyWorkspace:
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             for first in range(0, transform.n_nodes, self.node_chunk):
                 rows = slice(first, first + self.node_chunk)
-                field_t = grids.pad_scale * passes.to_time(
+                field_t = grids.pad_scale * to_time(
                     scratch[rows], grids.crop_index, grids.n_to, kind=self._kind
                 )
                 sources = self._column_sources(field_t, bundle, raman)
                 polarisation_t = sources.polarisation
-                scratch[rows] = passes.to_frequency(
+                scratch[rows] = to_frequency(
                     polarisation_t, grids.crop_index, kind=self._kind
                 )
                 if sources.current is not None:
@@ -2240,10 +2263,10 @@ class NumpyWorkspace:
                 if responses.envelope_plasma is not None:
                     drive, loss = self._envelope_sources(field_t, bundle)
                     factors = responses.envelope_plasma.factors
-                    scratch[rows] += factors.drude * passes.to_frequency(
+                    scratch[rows] += factors.drude * to_frequency(
                         drive, grids.crop_index, kind=self._kind
                     )
-                    scratch[rows] += factors.loss * passes.to_frequency(
+                    scratch[rows] += factors.loss * to_frequency(
                         loss, grids.crop_index, kind=self._kind
                     )
             view = scratch.reshape(shape)
@@ -2268,10 +2291,10 @@ class NumpyWorkspace:
                     # a spatial-only pass needs no temporal pair (SEP 40 section 4.7).
                     scratch[rows] = -0.5 * rate * scratch[rows]
                     continue
-                field_t = passes.to_time(
+                field_t = to_time(
                     scratch[rows], grids.crop_index, grids.n_to, kind=self._kind
                 )
-                scratch[rows] = passes.to_frequency(
+                scratch[rows] = to_frequency(
                     -0.5 * (rate + temporal) * field_t,
                     grids.crop_index,
                     kind=self._kind,
@@ -2319,7 +2342,7 @@ class NumpyWorkspace:
         temporal = responses.temporal_absorber_fine
         timed = temporal is not None and responses.absorber_scheme == "nonlinear"
         rows_t = (
-            passes.to_time(rows_f, grids.crop_index, grids.n_to, kind=self._kind)
+            to_time(rows_f, grids.crop_index, grids.n_to, kind=self._kind)
             if len(responses.response_order) > 1 or timed
             else None
         )
@@ -2369,14 +2392,14 @@ class NumpyWorkspace:
                     target[rows] = np.matmul(
                         transform.projection, source.reshape(count, n_x, -1)
                     ).reshape(count * n_p, *rows_t.shape[1:])
-            spectrum = passes.to_frequency(projected, grids.crop_index, kind=self._kind)
+            spectrum = to_frequency(projected, grids.crop_index, kind=self._kind)
             if envelope:
                 assert responses.envelope_plasma is not None
                 factors = responses.envelope_plasma.factors
-                spectrum += factors.drude * passes.to_frequency(
+                spectrum += factors.drude * to_frequency(
                     drives[0], grids.crop_index, kind=self._kind
                 )
-                spectrum += factors.loss * passes.to_frequency(
+                spectrum += factors.loss * to_frequency(
                     drives[1], grids.crop_index, kind=self._kind
                 )
             if plasma:
@@ -2422,7 +2445,7 @@ class NumpyWorkspace:
         temporal = responses.temporal_absorber_fine
         if temporal is not None and responses.absorber_scheme == "nonlinear":
             assert rows_t is not None
-            term = passes.to_frequency(
+            term = to_frequency(
                 -0.5 * (rate + temporal) * rows_t, grids.crop_index, kind=self._kind
             )
         else:
@@ -2454,7 +2477,7 @@ class NumpyWorkspace:
         rate = self._tables.temporal_rate
         in_stage = self._problem.responses.absorber_scheme == "nonlinear"
         grids = self._problem.grids
-        return passes.absorber_term(
+        return absorber_term(
             modal_t,
             rate if in_stage else None,
             radial,
@@ -2520,16 +2543,14 @@ class NumpyWorkspace:
         )
         for first in range(0, transform.n_nodes, self.node_chunk):
             rows = slice(first * n_pol, (first + self.node_chunk) * n_pol)
-            field_t = passes.synthesise(
-                modal_t, self._tables.synthesis[rows], taper, n_pol
-            )
+            field_t = synthesise(modal_t, self._tables.synthesis[rows], taper, n_pol)
             sources = self._column_sources(field_t, bundle, raman)
             polarisation_t = sources.polarisation
-            projected = projected + passes.project(
+            projected = projected + project(
                 polarisation_t, self._tables.projection[:, rows], taper, n_pol
             )
             if coarse is not None and self._embedded is not None:
-                coarse = coarse + passes.project(
+                coarse = coarse + project(
                     polarisation_t, self._embedded[:, rows], taper, n_pol
                 )
             if sources.current is not None and plasma_projected is not None:
@@ -2539,20 +2560,20 @@ class NumpyWorkspace:
                     (edge, coarse_edge, self._tables.t_window_derivative),
                 ):
                     current = window * sources.current
-                    target[...] += passes.project(
+                    target[...] += project(
                         current, self._tables.projection[:, rows], taper, n_pol
                     )
                     if reduced is not None and self._embedded is not None:
-                        reduced[...] += passes.project(
+                        reduced[...] += project(
                             current, self._embedded[:, rows], taper, n_pol
                         )
             if envelope is not None and envelope_projected is not None:
                 drive, loss = self._envelope_sources(field_t, bundle)
                 full_drive, full_loss, coarse_drive, coarse_loss = envelope_projected
-                full_drive += passes.project(
+                full_drive += project(
                     drive, self._tables.projection[:, rows], taper, n_pol
                 )
-                full_loss += passes.project(
+                full_loss += project(
                     loss, self._tables.projection[:, rows], taper, n_pol
                 )
                 if (
@@ -2560,12 +2581,10 @@ class NumpyWorkspace:
                     and coarse_drive is not None
                     and coarse_loss is not None
                 ):
-                    coarse_drive += passes.project(
+                    coarse_drive += project(
                         drive, self._embedded[:, rows], taper, n_pol
                     )
-                    coarse_loss += passes.project(
-                        loss, self._embedded[:, rows], taper, n_pol
-                    )
+                    coarse_loss += project(loss, self._embedded[:, rows], taper, n_pol)
         self._last_plasma = plasma_projected
         self._last_envelope = envelope_projected
         return projected, coarse
@@ -2600,7 +2619,7 @@ class NumpyWorkspace:
             or self._raman_densities != amplitudes
         ):
             if self._problem.transform.n_pol * self._problem.shape[1] == 2:
-                self._raman_kernel = passes.tensor_raman_spectrum(
+                self._raman_kernel = tensor_raman_spectrum(
                     components,
                     rates,
                     densities if len(components) > 1 else (1.0,),
@@ -2608,14 +2627,14 @@ class NumpyWorkspace:
                 )
             elif len(components) == 1:
                 compiled = components[0]
-                self._raman_kernel = passes.raman_spectrum(
+                self._raman_kernel = raman_spectrum(
                     compiled.undamped,
                     rates,
                     compiled.fraction,
                     self._problem.grids.dt_fine,
                 )
             else:
-                self._raman_kernel = passes.mixture_raman_spectrum(
+                self._raman_kernel = mixture_raman_spectrum(
                     components, rates, densities, self._problem.grids.dt_fine
                 )
             self._raman_rates = rates

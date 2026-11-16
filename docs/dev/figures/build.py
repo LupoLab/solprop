@@ -758,12 +758,14 @@ MODULES = {
                 "workspace",
                 "engines",
                 "dense",
-                "passes",
                 "multistep",
                 "populations",
-                "envelope_plasma",
                 "general_modal",
             ),
+        ),
+        Module(
+            "backends/numpy_ref/passes/",
+            ("transforms", "responses", "plasma", "stepping"),
         ),
     ),
     "D": (
@@ -1186,6 +1188,7 @@ RESPONSE_COLUMN = (
         (
             "plasma_scan",
             "plasma_channel_fractions",
+            "envelope_populations",
             "plasma_integration_diagnostics",
             "plasma_integration_statistics",
         ),
@@ -1193,7 +1196,13 @@ RESPONSE_COLUMN = (
     (
         "plasma_current",
         "weighted currents; physical P retained for direct response evaluation",
-        ("plasma_current", "plasma_channels_polarisation"),
+        (
+            "plasma_total_current",
+            "plasma_channels_current",
+            "envelope_sources",
+            "plasma_current",
+            "plasma_channels_polarisation",
+        ),
     ),
     (
         "kerr",
@@ -2363,7 +2372,7 @@ def one_stage() -> drawsvg.Drawing:
     ]
     subtitle = (
         "architecture.md §8: each numbered line is one pass over its data, and each "
-        "is a named function in backends/numpy_ref/passes.py. stepper.md §2 is the "
+        "is a named function in backends/numpy_ref/passes/. stepper.md §2 is the "
         "step the seven passes sit inside."
     )
     tops: list[float] = []

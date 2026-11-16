@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from solprop.backends.host.session import HostSession
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes import plasma, responses, stepping, transforms
 from solprop.backends.protocol import Backend
 from solprop.output.metadata import RunMetadata
 from solprop.output.records import HISTORY_FIELDS
@@ -160,6 +160,14 @@ def test_the_seam_figure_draws_the_whole_protocol():
     assert declared == {name for name, _ in build.SEAM_METHODS}
 
 
+PASSES = frozenset(
+    name
+    for module in (transforms, responses, plasma, stepping)
+    for name in module.__all__
+)
+"""Every reference pass: the public functions of `numpy_ref.passes`' four modules."""
+
+
 @pytest.mark.parametrize(
     "name",
     [name for step in build.STAGE_PASSES for name in step.functions]
@@ -168,7 +176,7 @@ def test_the_seam_figure_draws_the_whole_protocol():
 )
 def test_every_pass_a_figure_names_is_a_reference_pass(name):
     """Figure 4 labels each pass with a function of `numpy_ref.passes`."""
-    assert name in passes.__all__
+    assert name in PASSES
 
 
 def test_the_stage_figure_draws_every_reference_pass():
@@ -178,7 +186,7 @@ def test_the_stage_figure_draws_every_reference_pass():
         | {name for _, _, funcs in build.RESPONSE_COLUMN for name in funcs}
         | {name for name, _ in build.STEP_PASSES}
     )
-    assert set(passes.__all__) == drawn
+    assert drawn == PASSES
 
 
 @pytest.mark.parametrize(

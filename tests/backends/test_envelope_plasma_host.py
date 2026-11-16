@@ -22,7 +22,7 @@ from builders import grid_at, load_reference
 from sessions.runs import run as session_run
 from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref.envelope_plasma import (
+from solprop.backends.numpy_ref.passes.plasma import (
     _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
     envelope_sources,
 )

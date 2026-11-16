@@ -35,7 +35,8 @@ from flow_parity import QUIET, STEPS, UNIT, build, reference_formation_bound
 from native_flow_guards import check_flow_conditioning as check_native
 from sessions.runs import load_native, native_trial
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import passes as reference_passes
+from solprop.backends.numpy_ref import workspace as workspace_module
+from solprop.backends.numpy_ref.passes.stepping import error_norm
 from solprop.backends.numpy_ref.workspace import (
     _check_flow_conditioning,
     _coupled_flow_maps,
@@ -241,7 +242,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
     partials = _native_partials(problem, run_request, grid, field, dz)
 
     captured = {}
-    original = reference_passes.error_norm
+    original = error_norm
 
     def capture(error, state, advanced, reference_mask, controller):
         captured["partials"] = [
@@ -251,7 +252,7 @@ def test_the_partials_read_a_mask_with_a_hard_zero_and_the_old_norm_before_the_a
         return original(error, state, advanced, reference_mask, controller)
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(reference_passes, "error_norm", capture)
+        patch.setattr(workspace_module, "error_norm", capture)
         reference = NumpyRefBackend(problem, run_request, grid=grid)
         try:
             expected_state = load_reference(reference, field).copy()

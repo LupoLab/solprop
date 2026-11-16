@@ -16,7 +16,8 @@ from bounds import assert_within, gamma
 from builders import load_reference
 from mixture_cases import mixture_translation
 from sessions.runs import run as session_run
-from solprop.backends.numpy_ref import NumpyRefBackend, passes
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.passes.plasma import plasma_channel_fractions
 from solprop.backends.populations import population_statistics
 from solprop.exceptions import BackendError, OutputError
 from solprop.grid import FreeGrid, RadialGrid
@@ -104,7 +105,7 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
         StatsSpec(names=names, periodic=names[:2]), problem.initial.z
     )
     nodes = backend.workspace._nodes_at(state, problem.initial.z)
-    rates, fractions = passes.plasma_channel_fractions(
+    rates, fractions = plasma_channel_fractions(
         nodes,
         problem.responses.plasma_channels,
         tuple(float(c.preionisation(0.0)) for c in problem.responses.plasma_channels),

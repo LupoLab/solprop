@@ -66,7 +66,7 @@ from solprop.backends.exponential import (
     phi_functions,
 )
 from solprop.backends.ledger import source_absent
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref.passes.stepping import accumulate
 from solprop.exceptions import BackendError
 from solprop.stepper.multistep import (
     Multistep,
@@ -190,7 +190,7 @@ class AdamsKernels:
         """
         total = np.zeros_like(state)
         for weight, slot in zip(weights, slots, strict=True):
-            total = passes.accumulate(total, store[slot], float(weight))
+            total = accumulate(total, store[slot], float(weight))
         return propagator * (state + dz * total)
 
     def correct(  # noqa: PLR0917 - buffers are a kernel's parameters
@@ -241,12 +241,12 @@ class AdamsKernels:
         values = [source, *(store[slot] for slot in slots)]
         total = np.zeros_like(state)
         for weight, value in zip(corrector, values, strict=True):
-            total = passes.accumulate(total, value, float(weight))
+            total = accumulate(total, value, float(weight))
         norms = np.empty(rows.shape[0])
         for index, row in enumerate(rows):
             defect = np.zeros_like(state)
             for weight, value in zip(row, values, strict=True):
-                defect = passes.accumulate(defect, value, float(weight))
+                defect = accumulate(defect, value, float(weight))
             scaled = (propagator * (dz * defect))[..., mask] / divisor[mask]
             norms[index] = float(np.linalg.norm(scaled))
         return propagator * (state + dz * total), norms
@@ -695,7 +695,7 @@ class ExponentialKernels:
             combined = np.zeros_like(values[0])
             for weight, value in zip(coefficients[:, k], values, strict=True):
                 if weight != 0.0:
-                    combined = passes.accumulate(combined, value, float(weight))
+                    combined = accumulate(combined, value, float(weight))
             total += self._times_moment(moments, k, combined)
         return dz * total
 
@@ -2507,5 +2507,5 @@ def _combine(weights: np.ndarray, values: list[_State], dz: float) -> _State:
     """
     total = np.zeros_like(values[0])
     for weight, value in zip(weights, values, strict=True):
-        total = passes.accumulate(total, value, float(weight))
+        total = accumulate(total, value, float(weight))
     return dz * total

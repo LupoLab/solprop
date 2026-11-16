@@ -49,7 +49,7 @@ The pipeline of one stage, for a chunk of quadrature nodes:
 The crop scale ``n_t / n_to`` stays in ``responses.prefactor``, where it is on every
 route, and the spectral collar
 and the interaction picture are applied by the shared
-:func:`solprop.backends.numpy_ref.passes.stage_output`.
+:func:`solprop.backends.numpy_ref.passes.stepping.stage_output`.
 
 **The delayed response.** A material region may declare the silica tensor Raman model
 beside its Kerr response (:class:`solprop.nonlinear.raman.SilicaTensorResponse`), and

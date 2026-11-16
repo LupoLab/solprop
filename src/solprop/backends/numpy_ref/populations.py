@@ -7,8 +7,11 @@
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
-from solprop.backends.numpy_ref import passes
-from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
+from solprop.backends.numpy_ref.passes.plasma import (
+    envelope_populations,
+    plasma_channel_fractions,
+)
+from solprop.backends.numpy_ref.passes.transforms import synthesise, to_time
 from solprop.backends.populations import axis_row_matrix
 from solprop.translate.problem import PropagationProblem
 
@@ -50,10 +53,8 @@ def axis_populations(
         envelope grid) on the axis, one per channel.
     """
     grids = problem.grids
-    modal_t = passes.to_time(
-        field, grids.crop_index, grids.n_to, kind=problem.grid_kind
-    )
-    row = passes.synthesise(
+    modal_t = to_time(field, grids.crop_index, grids.n_to, kind=problem.grid_kind)
+    row = synthesise(
         modal_t, axis_row_matrix(problem, axis), 1.0, 2 if field.shape[1] == 1 else 1
     )
     return _scan_axis_row(problem, row, z)
@@ -80,7 +81,7 @@ def _scan_axis_row(
             row, responses.envelope_plasma, preionisation, grids.dt_fine
         )
         return fractions[:, 0], peaks[:, 0]
-    rates, population = passes.plasma_channel_fractions(
+    rates, population = plasma_channel_fractions(
         row,
         responses.plasma_channels,
         preionisation,
