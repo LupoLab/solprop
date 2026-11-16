@@ -63,7 +63,7 @@ from solprop.output.records import Convention
 from solprop.output.store import Output
 from solprop.processing.axes import _plane_field, _plane_index, grid_of
 from solprop.translate import general
-from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
+from solprop.translate.chebyshev import EDGE_SLACK_FRACTION
 from solprop.translate.modal_tables import ModalTransformTables
 
 __all__ = [
@@ -344,7 +344,7 @@ def _moved_rule(guide: ModalGuide, position: float) -> tuple[float, ModalNodeRul
     # path's end rather than on it; within the edge slack a schedule is matched to
     # its kinks with, it is the end.
     edges = sampling.path.z_edges
-    slack = _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
+    slack = EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
     if edges[0] - slack <= position <= edges[-1] + slack:
         position = min(max(position, float(edges[0])), float(edges[-1]))
     return position, path_rule(guide.field_provider, sampling.nodes, position)

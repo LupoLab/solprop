@@ -27,7 +27,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IonisationRate
 from solprop.translate.chebyshev import PiecewiseChebyshev
-from solprop.translate.ionisation import RateTable, _frozen_table, build_rate_table
+from solprop.translate.ionisation import RateTable, build_rate_table, frozen_table
 
 __all__ = [
     "AngularRule",
@@ -181,7 +181,7 @@ class CycleIntegralData:
             raise TranslationError("unvalidated envelope plasma cycle representation")
         # A table solprop already holds, as a material update reuses, is taken as it
         # stands; a caller's table is copied.
-        object.__setattr__(self, "rate", _frozen_table(self.rate))
+        object.__setattr__(self, "rate", frozen_table(self.rate))
 
 
 @dataclass(frozen=True, eq=False)

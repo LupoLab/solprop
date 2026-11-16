@@ -34,7 +34,11 @@ from solprop.modes.protocol import ChannelLabel, CrossSection
 from solprop.physdata.glasses import GlassIndex, fused_silica, lossless_index
 from solprop.profiles import ZProfile, as_profile
 
-__all__ = ["PROFILE_MIN_W", "StepIndexMode"]
+__all__ = [
+    "PROFILE_MIN_W",
+    "StepIndexMode",
+    "real_index_and_slope",
+]
 
 PROFILE_MIN_W = 0.1
 """Smallest cladding decay the frozen transverse profile is evaluated at.

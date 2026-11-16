@@ -1018,7 +1018,7 @@ def _moving_route(
     # Imported here: modal_path imports this module's siblings only, but keeping the
     # moving machinery out of the snapshot route's import path keeps that route's
     # import graph what it was.
-    from solprop.translate.coupled import _coefficient_tail  # noqa: PLC0415
+    from solprop.translate.coupled import coefficient_tail  # noqa: PLC0415
     from solprop.translate.modal_path import (  # noqa: PLC0415
         in_frequency,
         path_connections,
@@ -1099,7 +1099,7 @@ def _moving_route(
     error = max(
         float(path.z_error),
         *(
-            _coefficient_tail(expansion[section])
+            coefficient_tail(expansion[section])
             for expansion in (generator, connection)
             for section in range(kept)
         ),

@@ -77,10 +77,10 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
     build_from_paths,
     clenshaw,
+    held_table,
     lobatto_points,
     resolve_axis,
 )
@@ -648,7 +648,7 @@ def tabulate(
             if z0 < float(value) < z1
         }
     )
-    return _held_table(build(func, z0, z1, tol=tol, mandatory_breakpoints=edges))
+    return held_table(build(func, z0, z1, tol=tol, mandatory_breakpoints=edges))
 
 
 def profile_table(
@@ -1313,7 +1313,7 @@ def with_power_weight(
         mandatory_breakpoints=linear.hard_kinks,
     )
     return replace(
-        linear, power_weight_representation="table", power_weight=_held_table(table)
+        linear, power_weight_representation="table", power_weight=held_table(table)
     )
 
 
@@ -1607,7 +1607,7 @@ def endpoint_phi(
     coefficients = endpoint.coefficients.copy()
     coefficients[:, 0] -= entrance
     endpoint = replace(endpoint, coefficients=coefficients)
-    combined = _held_table(_add_phi_tables(linear.polynomial, endpoint))
+    combined = held_table(_add_phi_tables(linear.polynomial, endpoint))
     return replace(
         linear,
         phi_coefficients=combined.coefficients,
@@ -1837,7 +1837,7 @@ def _z_table_operator(
             n_max=n_max,
             max_intervals=max_intervals,
         )
-    phi = _held_table(resolved.integral())
+    phi = held_table(resolved.integral())
     if resolved.budget_exceeded:
         logger.warning(
             "Phi: the interval budget of %d is exhausted even at %.1e over [0, %.6g] "

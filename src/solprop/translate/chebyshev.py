@@ -42,6 +42,7 @@ __all__ = [
     "DEFAULT_MAX_DEGREE",
     "DEFAULT_MAX_INTERVALS",
     "DEFAULT_TOL",
+    "EDGE_SLACK_FRACTION",
     "ENVELOPE_FLOOR",
     "INITIAL_DEGREE",
     "MIN_WIDTH_FRACTION",
@@ -50,6 +51,7 @@ __all__ = [
     "build",
     "build_from_paths",
     "clenshaw",
+    "held_table",
     "interleave_axis",
     "lobatto_coefficients",
     "lobatto_points",
@@ -196,7 +198,17 @@ def _clenshaw_points(  # noqa: PLR0912, PLR0917 - one loop, its cases inline; ca
 _RECENT_POSITIONS: Final = 8
 """Positions whose values a table keeps; a march revisits only the last few."""
 
-_EDGE_SLACK_FRACTION: Final = 1e-10
+EDGE_SLACK_FRACTION: Final = 1e-10
+"""Fraction of a table's span a position may lie outside it, or off a breakpoint.
+
+A position reached by summing steps arrives within a few ulp of the span's end or of
+a declared kink rather than on it, so a table admits ``1e-10`` of its span past each
+end and matches a breakpoint within the same window: which interval a stage reads
+then follows the schedule's intent, not its last bits. The coupled flow
+(:func:`solprop.translate.coupled.flow_edge_slack`), a moving guide's maps
+(:func:`solprop.translate.modal_path.transform_section`) and the backends' lowered
+tables use the same fraction, so every table in a run agrees on where its edges are.
+"""
 _TRIM_NOISE_FACTOR: Final = 8.0
 _MIN_WIDTH_ULPS: Final = 8.0
 
@@ -297,7 +309,7 @@ class PiecewiseChebyshev:
         # straight through the kink, which is the one thing this representation exists
         # to prevent.
         interior = self.breakpoints[1:-1]
-        slack = _EDGE_SLACK_FRACTION * (self.z_span[1] - self.z_span[0])
+        slack = EDGE_SLACK_FRACTION * (self.z_span[1] - self.z_span[0])
         for kink in self.hard_kinks:
             if interior.size == 0 or np.min(np.abs(interior - kink)) > slack:
                 msg = (
@@ -463,7 +475,7 @@ class PiecewiseChebyshev:
         if held is None:
             n_intervals, n_deg = self.coefficients.shape[:2]
             lo, hi = self.z_span
-            slack = _EDGE_SLACK_FRACTION * (hi - lo)
+            slack = EDGE_SLACK_FRACTION * (hi - lo)
             held = (
                 np.ascontiguousarray(self.breakpoints),
                 lo - slack,
@@ -504,7 +516,7 @@ class PiecewiseChebyshev:
         1
         """
         lo, hi = self.z_span
-        slack = _EDGE_SLACK_FRACTION * (hi - lo)
+        slack = EDGE_SLACK_FRACTION * (hi - lo)
         if z < lo - slack or z > hi + slack:
             msg = f"z = {z!r} is outside the represented span [{lo}, {hi}]"
             raise TranslationError(msg)
@@ -563,7 +575,7 @@ class PiecewiseChebyshev:
         (0.4, None)
         """
         lo, hi = self.z_span
-        slack = _EDGE_SLACK_FRACTION * (hi - lo)
+        slack = EDGE_SLACK_FRACTION * (hi - lo)
         beyond = self.hard_kinks[self.hard_kinks > z + slack]
         return float(np.min(beyond)) if beyond.size > 0 else None
 
@@ -1618,11 +1630,29 @@ def trim_axis(
     return np.moveaxis(_trim(np.moveaxis(coefficients, axis, 0)), 0, axis)
 
 
-def _held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
+def held_table(table: PiecewiseChebyshev) -> PiecewiseChebyshev:
     """Hold the arrays of a table solprop has just built, in place, and return it.
 
     Only for a table no one else refers to, such as what :func:`build` or
-    :meth:`PiecewiseChebyshev.integral` just returned.
+    :meth:`PiecewiseChebyshev.integral` just returned: its coefficients, breakpoints,
+    degrees and kinks are made read-only where they lie, without a copy.
+
+    Parameters
+    ----------
+    table : PiecewiseChebyshev
+        A freshly built table.
+
+    Returns
+    -------
+    PiecewiseChebyshev
+        The same object, its arrays now read-only.
+
+    Examples
+    --------
+    >>> from solprop.translate.chebyshev import build, held_table
+    >>> table = held_table(build(lambda z: z, 0.0, 1.0))
+    >>> table.coefficients.flags.writeable
+    False
     """
     for values in (
         table.coefficients,

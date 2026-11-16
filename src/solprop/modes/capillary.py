@@ -99,6 +99,9 @@ __all__ = [
     "MarcatiliTerms",
     "ModeKind",
     "bessel_zero",
+    "cladding_term_and_derivative",
+    "core_susceptibility_at",
+    "shared_sampling",
 ]
 
 logger = logging.getLogger(__name__)

@@ -30,7 +30,7 @@ from solprop.modes.connection import ModalConnection, band_connection
 from solprop.modes.path import ModalPathTable
 from solprop.modes.quadrature import lobatto_coefficients
 from solprop.modes.vector import ChannelBasis, ModalProvider
-from solprop.translate.chebyshev import _EDGE_SLACK_FRACTION
+from solprop.translate.chebyshev import EDGE_SLACK_FRACTION
 from solprop.translate.modal_tables import (
     ModalTransformTables,
     coordinate_dual,
@@ -101,7 +101,7 @@ def transform_section(tables: ModalTransformTables, z: float) -> int:
         The section index, in ``[0, n_intervals)``.
     """
     edges = tables.z_edges
-    slack = _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
+    slack = EDGE_SLACK_FRACTION * float(edges[-1] - edges[0])
     raw = int(np.searchsorted(edges, float(z) + slack, side="right")) - 1
     return min(max(raw, 0), edges.size - 2)
 

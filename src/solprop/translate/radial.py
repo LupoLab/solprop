@@ -21,8 +21,8 @@ from solprop.translate.chebyshev import (
     DEFAULT_TOL,
     ENVELOPE_FLOOR,
     PiecewiseChebyshev,
-    _held_table,
     build,
+    held_table,
 )
 from solprop.translate.expansion import (
     MAX_PARAMETERS,
@@ -291,8 +291,8 @@ def radial_operators(
             )
         # Frozen, as every array crossing the seam is: the problem's validation
         # refuses a writeable table.
-        _held_table(prefactor_table)
-        phi = _held_table(linear_table.integral())
+        held_table(prefactor_table)
+        phi = held_table(linear_table.integral())
         return adiabatic.add(
             LinearOperator(
                 phi_representation="table",
