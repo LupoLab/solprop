@@ -11,7 +11,7 @@
 #include "solprop_native/dense_output.hpp"
 #include "solprop_native/engines.hpp"
 #include "solprop_native/execution.hpp"
-#include "solprop_native/fft_plan.hpp"
+#include "solprop_native/fftw_wisdom.hpp"
 #include "solprop_native/fields.hpp"
 #include "solprop_native/general_state.hpp"
 #include "solprop_native/host_source.hpp"
@@ -2749,10 +2749,7 @@ void bind_testing(nb::module_& testing) {
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   // solprop SEP 46: forget FFTW's process-wide wisdom, for a test of the planning
   // transaction.
-  testing.def("forget_fftw_wisdom", [] {
-    fftw_init_threads();
-    fftw_forget_wisdom();
-  });
+  testing.def("forget_fftw_wisdom", [] { native::forget_fftw_wisdom(); });
 #else
   testing.def("forget_fftw_wisdom", [] {});
 #endif

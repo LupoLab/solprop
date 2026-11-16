@@ -639,43 +639,6 @@ void tiled_update(const char* label, const ExecutionSpace& execution,
 }
 #endif
 
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-// Plan, then discard, a batched complex transform of transverse planes at the plan
-// policy's effort, leaving its wisdom. It overwrites both arrays; the caller clears
-// them. Row transforms are seeded by `seed_row_fft_wisdom` (fft_plan.hpp).
-inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
-                             Complex* output, const std::vector<int>& extents,
-                             const int howmany, const int input_distance,
-                             const int output_distance, const int sign) {
-  std::string sizes;
-  for (const int extent : extents)
-    sizes += (sizes.empty() ? "" : "x") + std::to_string(extent);
-  const std::string key = fft_plan_key(
-      sign == FFTW_FORWARD ? "planes-forward" : "planes-backward", sizes, howmany,
-      input_distance, output_distance, input, output, space.concurrency());
-  fftw_init_threads();
-  const auto chosen = begin_seed(key, FftShape::planes, space.concurrency());
-  if (!chosen)
-    return;
-  fftw_plan_with_nthreads(space.concurrency());
-  auto* in = reinterpret_cast<fftw_complex*>(input);
-  auto* out = reinterpret_cast<fftw_complex*>(output);
-  auto* const seeded = fftw_plan_many_dft(
-      static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
-      input_distance, out, nullptr, 1, output_distance, sign, *chosen);
-  // The policy has always tolerated a plane it cannot seed; a profile records it.
-  if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
-      (detail::planning == nullptr ||
-       detail::planning->mode == FftPlanning::Mode::legacy)) {
-    release_seed(key, false);
-    return;
-  }
-  end_seed(key, *chosen, seeded != nullptr);
-  if (seeded != nullptr)
-    fftw_destroy_plan(seeded);
-}
-#endif
-
 // Where a separable geometry's column (or a temporal row, which is the same index)
 // lives in the transverse scratch. Free space: (.., n_y, n_x), x fastest. The hybrid
 // planar kind: (.., n_p, n_y) with the y transform trailing, the channel fastest in

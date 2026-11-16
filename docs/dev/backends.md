@@ -1449,7 +1449,7 @@ use separate FFT plans for the final partial chunk, aliased onto existing storag
 Kokkos-FFT plans at `FFTW_ESTIMATE` and consumes measured wisdom in the linked FFTW
 library, which the workspace seeds before it makes its first plan: a plan made before
 its wisdom stays at estimate for the run. One policy (`fftw_seed_effort`,
-`include/solprop_native/fft_plan.hpp`) decides every seed by the transform's shape and
+`include/solprop_native/fftw_wisdom.hpp`) decides every seed by the transform's shape and
 width. Unset, row transforms (temporal, modal, Raman and plasma) are measured on one
 thread and left at estimate when threaded, because measured wisdom can select slower
 threaded plans; free space's transverse planes are measured at any width. An explicit
@@ -1486,7 +1486,7 @@ atomic rename; writers serialise on `<file>.lock` (`flock` on POSIX), merge the 
 plans with their own and replace it only when that adds or changes one. A calibration's
 own workspaces (given `fft_planning`) and its children (`off`) neither read nor write
 the store. The C++ side only converts wisdom to and from text (`export_fftw_wisdom`,
-`import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's threaded solvers first,
+`import_fftw_wisdom` in `fftw_wisdom.hpp`), registering FFTW's threaded solvers first,
 since they are part of the planner signature an import must match. Metadata records
 `wisdom_loaded` (the file held plans) and `wisdom_digest` (of the plans the workspace
 built from wisdom or measured).

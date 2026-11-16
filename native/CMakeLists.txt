@@ -816,7 +816,7 @@ add_library(solprop_native_core STATIC src/cpu_execution.cpp src/crossing.cpp
   src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp src/session.cpp
   src/session_statistics.cpp src/session_widths.cpp src/low_storage.cpp src/transverse.cpp
   src/session_edge.cpp src/dense.cpp src/workspace.cpp src/problem.cpp
-  src/reference_timing.cpp)
+  src/reference_timing.cpp src/fftw_wisdom.cpp)
 # solprop SEP 39, SEP 45 and SEP 47: the Adams march's decisions, the boundary watch's
 # predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
 # positions and table keys, the native session's scheduling, export, statistics

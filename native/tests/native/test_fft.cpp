@@ -5,6 +5,7 @@
 #include "solprop_native/cpu_execution.hpp"
 #include "solprop_native/execution.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/fftw_wisdom.hpp"
 #include "solprop_native/raman_fft.hpp"
 
 #include <KokkosFFT.hpp>
