@@ -999,7 +999,7 @@ class NativeSession:
         """Return the noise phase at a pending observation, ``Im Phi`` there.
 
         Formed on the host from the problem's scalar tables, as the backend's own
-        observation forms it (``HostDriver._noise_phase``); a z table's, which the
+        observation forms it (``NumpyWorkspace.noise_phase``); a z table's, which the
         leased state holds, is its slot at the plane, read through the native session
         under its lock as the backend reads it (``NativeBackend._unitary_phase``).
 
@@ -1209,7 +1209,7 @@ class NativeSession:
         record["native_session"] = native
         monitor = self.monitor_record()
         if monitor is not None:
-            # Where the driver's record carries its monitor's (`HostDriver.metadata`).
+            # Where the driver's record carries its monitor's (`HostSession.metadata`).
             record["boundary_monitor"] = monitor
         return record
 

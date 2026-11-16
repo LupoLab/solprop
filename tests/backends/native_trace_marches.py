@@ -519,8 +519,8 @@ class TraceRungeKuttaMarch:
     def replay_to(self, schedule: FixedSchedule, target: float) -> None:
         """Replay the contract's schedule to `target` on the native march.
 
-        ``HostDriver._replay_to``, a call of steps at a time: the steps as given, never
-        rejected, the edges hit exactly.
+        ``RungeKuttaMarch.replay_to``, a call of steps at a time: the steps as given,
+        never rejected, the edges hit exactly.
 
         Parameters
         ----------
@@ -684,7 +684,7 @@ class TraceRungeKuttaMarch:
     ) -> bool:
         """Finish the accepted step across an interpolated plane, as the reference.
 
-        `HostDriver._march_to`'s acceptance, line for line: the accepted-step hook
+        `RungeKuttaMarch.march_to`'s acceptance, line for line: the accepted-step hook
         `_record` makes, the step's extension from the state before it, the finish and
         the commit, the norm, the start-up rule, the proposal, the statistics and the
         natural stop. The native march returned the step accepted and unfinished.

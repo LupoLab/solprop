@@ -3304,12 +3304,6 @@ void bind_testing(nb::module_& testing) {
       "clear_fsal",
       [](BoundWorkspace& owner) { owner.workspace().state().clear_fsal(); },
       "workspace"_a);
-  testing.def(
-      "set_absorber_quiet",
-      [](BoundWorkspace& owner, const bool quiet) {
-        owner.workspace().state().set_absorber_quiet(quiet);
-      },
-      "workspace"_a, "quiet"_a);
   // A Runge-Kutta trial on the stage tables at the setup's nodes, as the march takes
   // it (solprop SEP 45 phase 2): its partials `(3, slots)`, its stages kept in the
   // state.

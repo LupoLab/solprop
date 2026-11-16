@@ -4759,7 +4759,7 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
 //
 // DOPRI5's continuous extension (Hairer, Norsett and Wanner, II.6) in the step's
 // interaction picture, as solprop's `extension_coefficients`, `extension_value` and
-// `HostDriver._observe_inside` form it: with `v0` the state at the step's anchor, `k_i`
+// `RungeKuttaDense.observe` form it: with `v0` the state at the step's anchor, `k_i`
 // its stages in the anchor's frame and `v1 - v0 = h sum_i b_i k_i`, the coefficients
 // `v0`, `v1 - v0`, `h k1 - (v1 - v0)`, `(v1 - v0) - h k7 - (h k1 - (v1 - v0))` and
 // `h sum_i d_i k_i`, evaluated at the fraction theta as `r1 + theta (r2 + (1 - theta)

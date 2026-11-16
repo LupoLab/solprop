@@ -124,7 +124,7 @@ class TDSEHostSource:
         return error
 
     def _prefactor(self, bundle: StageScalars) -> Any:
-        """Return the stage prefactor as the reference forms it (`HostDriver`)."""
+        """Return the stage prefactor as the reference's workspace forms it."""
         if bundle.prefactor is None or self._terms.prefactor is None:
             return prefactor_at(self._problem.responses, bundle.z1)
         return combine(bundle.prefactor, self._terms.prefactor)
