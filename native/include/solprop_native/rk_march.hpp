@@ -88,6 +88,15 @@ struct State {
   std::uint64_t cursor = 0;
 };
 
+/** The state's field table (solprop SEP 52 section 5.3). */
+[[nodiscard]] constexpr auto describe(const State* /*unused*/) {
+  return fields::table<State>("rk.State", fields::value("z", &State::z),
+                              fields::value("proposal", &State::proposal),
+                              fields::value("norms", &State::norms),
+                              fields::value("watch", &State::watch),
+                              fields::value("cursor", &State::cursor));
+}
+
 /** The field arithmetic a Runge-Kutta march hands its trials to. */
 class Engine {
 public:
