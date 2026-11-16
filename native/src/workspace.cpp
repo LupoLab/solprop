@@ -6,6 +6,7 @@
 
 #include "solprop_native/dense_output.hpp"
 #include "solprop_native/refuse.hpp"
+#include "solprop_native/run_records.hpp"
 
 #include <algorithm>
 #include <array>

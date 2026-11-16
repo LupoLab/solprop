@@ -7,6 +7,7 @@
 // timing probe, each moved out of the binding unit and tested here.
 
 #include "execution.hpp"
+#include "solprop_native/run_records.hpp"
 #include "solprop_native/workspace.hpp"
 
 #include <gtest/gtest.h>

@@ -22,6 +22,7 @@
 #include "solprop_native/reference_timing.hpp"
 #include "solprop_native/refuse.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/run_records.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"

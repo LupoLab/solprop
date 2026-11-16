@@ -341,7 +341,7 @@ struct Problem {
   /** The set-once data a workspace applies once it has built its state (solprop SEP
       52 section 5.3): the stage, z and flux tables, the flow guard, the controllers,
       the low-storage settings, the monitor's weights and the edge's geometry
-      (`workspace.hpp`). Shared, so that a copy of the problem copies none of it. */
+      (`run_records.hpp`). Shared, so that a copy of the problem copies none of it. */
   std::shared_ptr<const Setup> setup;
 
   /** Refuse, naming the field, data whose presence or extents disagree with the
