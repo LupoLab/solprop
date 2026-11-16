@@ -132,6 +132,61 @@ field's content in the collar.
 for two-colour and multi-colour inputs, on every keyword entry point of this page
 ([several pulses at once](pulses.md#several-pulses-at-once)).
 
+### The length and the saved planes
+
+Every run marches from its entrance, `initial_z` (zero unless an interior launch sets
+it), to its length, and always records both. The length is stated once. On a keyword
+route it is `length`, or the length of a `grid=` passed instead; given both, they must
+agree to within the marches' landing slack of eight ulps
+({py:data}`~solprop.stepper.schedule.LANDING_ULPS`), and the grid's is then used, while
+a disagreement is refused naming both values, as is a call with neither. On
+{py:class}`~solprop.driver.simulation.Simulation` and the free-space and planar
+constructors the length is `grid.length`. Everything that depends on the length uses
+that one value: the run's end, the default steps and profiles, and the default
+absorber's strength ([boundaries](../numerics/boundaries.md)).
+
+What is recorded in between is chosen by one of two selectors, on every route and in
+{py:class}`~solprop.driver.settings.SimulationSettings` alike:
+
+- `n_save=N`, an integer of at least 2: `N` evenly spaced observations over
+  `[initial_z, length]`, both ends included;
+- `save_planes=[...]`, positions in metres, finite and strictly increasing, inside that
+  interval. The entrance and the end are added when absent, and either may be listed;
+  `save_planes=[]` records the two endpoints alone.
+
+Given neither, a run records 201 (the TDSE capillary, its entrance and end with every
+natural step). Giving both is refused, as are a bare number (`save_planes=80` says
+"pass `n_save=80`"), a count below two and a position outside the interval:
+
+```{code-block} python
+from solprop.driver import SimulationSettings
+
+SimulationSettings(n_save=81, dz_max=1e-3, dz_init=1e-6)    # 81 over [0, grid.length]
+SimulationSettings(save_planes=[0.05], dz_max=1e-3, dz_init=1e-6)  # 0, 0.05 m, the end
+SimulationSettings(save_planes=[], dz_max=1e-3, dz_init=1e-6)      # the entrance and end
+```
+
+A position within eight ulps of an endpoint is that endpoint: `0.1 + 0.2` and the float
+just below `0.3` both end a run of length `0.3`, and each endpoint is recorded once.
+Settings are resolved when a simulation adopts them — at construction, on assigning
+{py:attr}`~solprop.driver.simulation.Simulation.settings`, and in
+{py:meth}`~solprop.driver.simulation.Simulation.with_input` — into the positions after
+the entrance, the last exactly the length, so a count and the positions it stands for
+are one run with one configuration hash. Resolved settings reused on a run of another
+length are checked again: a position beyond the new end is refused and a shorter list
+gains the new end. To carry a count instead, pass
+`dataclasses.replace(settings, n_save=N, save_planes=None)`. An interior launch counts
+over its own interval, and `with_input(..., initial_z=z)` keeps the observations
+already resolved beyond `z`. A replayed `schedule=` must cover the run: its start at the
+entrance, its end at the length to within the rounding its step sum accumulates
+({py:func}`~solprop.stepper.schedule.replay_tolerance`).
+
+Every observation obeys `fields` and `field_planes`, so `fields="none"` still records
+statistics at both ends without storing a field
+([output](../results/output.md#statistics-only-planes-which-planes-keep-their-field)).
+A short window of a long setup is therefore a shorter grid: shorten it and pin what the
+longer length set, such as the absorber's `boundary_length`.
+
 ### A table or mode as the GNLSE fibre
 
 Give exactly one of `betas`, `beta` and `fibre`, and one of `gamma` and `n2`.
@@ -397,7 +452,7 @@ simulation = Simulation(
     pulse,
     settings=SimulationSettings(
         controller=PIController(rtol=1e-9, atol=1e-18),
-        save_planes=[0.25, 0.5, 0.75, 1.0],
+        n_save=5,                     # the entrance, 0.25, 0.5, 0.75 and grid.length
         dz_max=0.1,
         dz_init=1e-4,
     ),

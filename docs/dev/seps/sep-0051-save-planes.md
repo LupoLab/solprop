@@ -16,7 +16,7 @@
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | Opus 5.5 (AI), for John Travers, on `feature/sep-0051-save-planes` |
-| **Manual pages** | — |
+| **Manual pages** | `guide/setup/running.md`, `guide/setup/recipes.md`, `guide/free-space/beams.md` |
 
 ## Part I — Proposal
 
@@ -523,6 +523,181 @@ None beyond solprop's own documentation and issues, cited where used.
 
 ## Part II — Implementation record
 
+### Phase 1 — Driver and recipes
+
+**Scope.** 2026-11-16; Opus 5.5 (AI) for John Travers; branch
+`feature/sep-0051-save-planes`, commits from `ebff016c` (the helper and adoption) to the
+commit that appends this report. The front end (§5.10, phase 2) is untouched.
+
+**Survey (§11), before any call site was edited.** An instrumented `Simulation.settings`
+setter and the two grid helpers recorded, for every run the default test lane builds,
+what the new rule would do. The lane was cancelled from outside at 91 % (twice; the
+numbers are of the second run); the slow lane and `native/tests` were not run.
+
+| What the rule changes | Count |
+|---|---|
+| The run's end moves later (last plane before `grid.length`) | 371 adoptions, 189 tests, 52 call sites in 25 files |
+| A plane beyond the end, refused | 1 (`tests/output/test_record_arrays.py`, a `length` of 1 cm on a 10 µm grid) |
+| A plane before an interior launch, refused | 1 (already a refusal test) |
+| A replay schedule not covering the run, refused | 92 adoptions, 32 tests, 16 sites in 10 files |
+| A replay start that is not the entrance | 0 |
+| A plane normalized onto the end | 0 |
+| A keyword call with both `length` and `grid` | 2199 calls at 224 sites; 43 calls at 13 sites disagree |
+
+A static scan of the tree (Python files and the Python blocks of Markdown pages) found 509
+keyword-route calls that pass `length` positionally, in 227 hand-written files (150 test
+files, 43 gallery scripts, 12 guide pages, 12 native tests, 5 benchmarks, the README, two
+package files and one design page), and 185 call sites passing `length` beside `grid=`.
+That count is what decided the first deviation below.
+
+**Delivered.**
+
+- `src/solprop/driver/settings.py`: `SimulationSettings.n_save`, an optional
+  `save_planes`, and four private helpers: `_selectors` (the refusals that need no
+  interval), `_observation_planes` (placement, endpoint normalization within
+  `LANDING_ULPS` ulps of each endpoint, the interval refusals; it replaces
+  `_save_planes`), `_run_length` (the length/grid table of §5.1) and `_adopted` (the
+  entrance check, the replay check of §5.7 with `replay_tolerance`, and resolution).
+- `src/solprop/driver/simulation.py`: the `settings` setter adopts every settings object
+  through `_adopted` before any comparison, so the constructor, the keyword builders,
+  `with_input`, `with_mixture` and anything else that builds a `Simulation` share one
+  rule; `length` is optional on `from_gnlse`, `from_capillary` and `from_waveguide` and
+  resolved by `_run_length` before anything uses it; the keyword routes pass `n_save` and
+  `save_planes` through unresolved. `src/solprop/driver/interface.py`: the same
+  signatures on `prop_*`. `src/solprop/driver/routes/general.py`: the general modal
+  route's tables span `grid.length`, the run's end.
+- `src/solprop/recipe/`: the settings metadata drops the integer form of `save_planes`
+  and gains `n_save`; `refuse_plane_count` refuses `save_planes = N` with "write
+  `n_save = N`" on every route; `plane_parameter` turns the driver's refusals of the
+  planes, the length and replay into a `RecipeError` naming the keyword, in
+  `build_object` and `Recipe.build`; a keyword-route recipe with neither `length` nor
+  `grid` is refused before the route is called; `resolved_document` writes the resolved
+  positions in `[build.settings]` on an object route (and at the top level otherwise)
+  and drops `n_save`.
+- `benchmarks/builders.py`: `window`, which runs a case to a shorter stop (`ab
+  --length`) by rebuilding it on its grid cut at the stop, carrying the whole case's
+  collar, steps and profiles; `benchmarks/sessions.py` and the linear GRIN case use it or
+  cut their own grid.
+- Tests: `tests/driver/test_save_planes.py` (the refusal table, placement and endpoints,
+  the rounding cases, count/positions parity of planes and hash, interior launches on and
+  off a zero-based lattice, `with_input`, setter replacement and reuse at other lengths,
+  the length/grid table on all three keyword routes, replay drift and refusals) and
+  `tests/recipe/test_save_planes.py` (refusals as `RecipeError` with their paths on
+  object and keyword routes, `n_save` in settings, the resolved recipe for a count, a
+  list, a short list and no selector, and its independence of the default count).
+  `tests/builders.py` gains `grid_at` and `held_collar`.
+- Pages: `docs/guide/setup/running.md` (a section on the length and the saved planes),
+  `docs/guide/setup/recipes.md` (the settings' selectors and the resolved recipe),
+  `docs/guide/free-space/beams.md` (the `linspace` idiom becomes `n_save`); docstrings of
+  `SimulationSettings`, `Simulation`, its setter, `with_input`, `from_free`,
+  `from_planar` and the keyword routes. Changelog: `changelog.d/sep-0051-save-planes.changed.md`
+  (the migration) and `changelog.d/533-save-planes-count.fixed.md`.
+
+**Existing tests changed (Q7's closing paragraph).** No tolerance was changed.
+
+- *A short window of a longer grid, physics kept* (the grid cut at the run's end with
+  `grid_at`, the collar the longer grid gave with `held_collar` or by building it on the
+  longer grid, and a length-derived default step pinned where one applied): the
+  sixth-order soliton of `tests/driver/test_prop_gnlse.py`; the general modal fixtures of
+  `test_general_modal.py`, `test_modal_metrics.py`, `test_modal_resume.py`,
+  `test_material_manifest.py`, `test_modal_launch.py` (also `dz_max`) and
+  `test_route_keywords.py`; the far-field cases of `test_far_field_statistics.py` and
+  `test_native_far_field.py`; two planar-hybrid runs; `tests/record_routes.py`.
+- *A `length` that disagreed with `grid`* (the run's own end kept, the grid built there,
+  the collar pinned): `tests/backends/adams_source_cases.py` (the Adams source ladder),
+  the general entry point of `tests/backends/general_rows.py`, the native noisy-run
+  reference of `test_native_session_history.py`, the two capillary receivers of
+  `tests/coupling/test_workflows.py`, the wide case of `tests/coupled_flow_cases.py`
+  (its collar was already pinned), `test_vector_coupling.py` and the linear GRIN
+  benchmark.
+- *Construction or refusal only, shortened freely*: three cases of
+  `test_simulation.py`, `test_backend_default.py`, `test_record_arrays.py`, one refusal
+  of `test_coherent_capillary.py`, `tests/translate/test_routes.py` and two far-field
+  geometry refusals.
+- *Replay*: the dispersive capillary's one-step row now records its whole replayed
+  schedule (the rung takes the first step alone, so the step is unchanged);
+  `tests/sessions/test_group.py`'s schedule past the last plane, which existed to test
+  the ignored tail, is now a refusal test.
+- *Messages and harness*: `tests/recipe/test_pins.py` (the refusal of a recipe with
+  neither length nor grid), `tests/test_benchmark_cases.py` and
+  `tests/test_benchmark_guides.py` (a shortened case's grid is cut at its stop, with the
+  whole case's collar and steps).
+
+**Deviations from the proposal.**
+
+1. *`length` is optional but stays positional-or-keyword* (§5.1, Q7 item 6). Making it
+   keyword-only would edit about 509 calls in 227 files and regenerate 43 galleries. This
+   is an interim decision of the coordinator, pending with the maintainer; the signature
+   change is one commit, so the keyword-only form can follow as one mechanical commit.
+   Because Python allows no required parameter after an optional one,
+   `from_capillary`'s and `prop_capillary`'s `gas` now defaults to `None` and is refused
+   when omitted. A hazard for the keyword-only form: with `length` keyword-only, the next
+   positional parameter (`betas` on the GNLSE routes, `gas` on the capillary and
+   waveguide routes) takes the freed slot, so `from_capillary(r, 0.2, "Ar")` would bind
+   `0.2` to `gas` instead of failing with Python's own error; a guaranteed failure would
+   need those parameters keyword-only as well.
+2. *A recipe with neither `length` nor `grid`* is refused by the recipe before the route
+   is called, as "a length or a grid is required" against `length`, rather than by the
+   route; otherwise a recipe with pins reported it against the pinned keyword.
+3. *A recipe's integer `save_planes`* says "write `n_save = 80`", the recipe's spelling,
+   where Python says "pass `n_save=80`".
+4. *Endpoint slack* is `LANDING_ULPS` ulps of the endpoint itself (§5.4, D5), so at an
+   entrance of zero it is exact; the replay check is skipped for an interior launch,
+   which the existing rule refuses with its own message.
+
+**Decisions.**
+
+- Resolution returns the same settings object when they are already resolved for the
+  run, so a repeated adoption is free and a translated run's settings compare by identity.
+- The default count is read when the planes are resolved, not when the helper is
+  defined, so the resolved-recipe test can change it.
+- The benchmark harness rebuilds a shortened case rather than running the whole one, and
+  refuses to shorten `grin_nonlinear`, which is translated at construction.
+
+**Verification.** `numpy_ref` and the native CPU build on the Xeon, eight logical CPUs,
+one thread per worker. Passing: the 29 modules the survey flagged and every module
+edited, the two new modules, `tests/recipe`, the resume and scan modules of
+`tests/driver`, `tests/test_guide_snippets.py`, and the doctests of the edited source
+modules, `tests/backends/test_parity_catalogue.py` (737 tests with `test_coherent_capillary.py`), and the 15 modules touched only to satisfy the type checker. Repository-wide `ruff check`, `ruff format --check` and `basedpyright` (0 errors) pass; numpydoc, codespell, `reuse` and `tests/test_seps.py` pass on the touched files. Not run locally: the full default lane, the slow lane, the
+coverage lane, `native/tests`, the front-end gate and the galleries; CI is the gate.
+
+**Sources checked.** None needed: no constant, coefficient or citation was transcribed.
+
+**Limitations.**
+
+- The survey covers 91 % of the default lane.
+- Other setup depends on `grid.length` besides the default absorber, and is not pinned
+  when a test's grid is cut: `LossPolicy.limit(grid.length)` clamps a mode's attenuation
+  (`src/solprop/linear.py`), the boundary monitor's quiet-window spacing is
+  `grid.length / CHECKS`, and the walk-off warning integrates over `grid.length`. None of
+  the changed tests moved; §3 does not list them.
+- `test_modal_launch.py`'s general runs keep the default first step, which is a fraction
+  of the length and refined by the start-up rule; their checks are of the launch.
+- No new test resumes a file to its declared end: resume already reads the last
+  requested plane of the request, which now ends at the length, and the existing resume
+  modules pass. Replay from `FixedSchedule.from_history` and the TDSE capillary's
+  resolved recipe are not tested here.
+
+**Open questions.**
+
+- Q8: keyword-only `length` (deviation 1), with the slide of `betas`/`gas` into its
+  slot. Owner: the maintainer.
+- Q9: `driver/scaffold.py`'s fixed-step tool has its own `n_save`, which does not count
+  the entrance; it is a separate tool and left unchanged. Owner: the maintainer.
+- Q10: whether the loss clamp and the monitor spacing should follow a pinned reference
+  length, as the absorber's does. Owner: an issue.
+
+**Cost** (`git diff --numstat` against `094a7fb8`): package code and
+docstrings +473 −113 lines (`src/`), benchmarks +94 −12, tests +758 −121 (of which
+507 in the two new modules and 29 in `tests/builders.py`), manual pages +72 −2. The
+proposal estimated about 250 code lines, 100 docstring lines and 450 test lines, and 10–30
+edited tests; about 45 existing test and benchmark files were edited, about a third of
+them only to wrap a now-optional `save_planes` for the type checker.
+
+**Handoff.** Phase 2 (§5.10) needs the object sheets to stop expanding a count into a
+list over `grid.length`: the settings metadata now offers `n_save` beside `save_planes`
+(an array only), and the resolved planes always end at the length.
+
 ## Part III — History
 
 - 2026-11-15: Drafted, after the investigation of #533 found that no route ties the
@@ -534,6 +709,8 @@ None beyond solprop's own documentation and issues, cited where used.
   drafting agent revised Part I to match and responded to R1–R10.
 - 2026-11-15: Accepted by John Travers in PR #847. Part I is frozen.
 - 2026-11-15: Implementation started on `feature/sep-0051-save-planes`.
+- 2026-11-16: Phase 1 (driver and recipes) reported in Part II, with an interim
+  deviation on keyword-only `length` pending with the maintainer.
 
 ### AI review — 2026-11-15
 
