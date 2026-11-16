@@ -251,7 +251,7 @@ independently, and power never moves between them through the wall.
 $\partial_rE = ik_{\rm eff}E$ of the exact radial problem onto the retained basis
 $\mathrm{HE}_{11}\ldots\mathrm{HE}_{1N}$. The result is the rank-one generator
 $G = D + g(a)\,hh^{\rm T}$, where $h_m$ is the $m$-th mode's slope at the wall. It is
-carried as the `linear.coupled_flow` leaf ({class}`~solprop.modes.capillary.CoherentWall`,
+carried as the `linear.coupled_flow` leaf ({class}`~solprop.modes.wall.CoherentWall`,
 [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall)). `impedance="te_tm"` condenses the two
 conditions the glass really imposes, one for the tangential and one for the normal field.
 It couples the two radial families of one azimuthal order
@@ -267,7 +267,7 @@ taper's connection between the channels ([below](#guides-that-move-along-z)).
 **Valid when** the condensation is: it is quasi-static and paraxial. Three ratios —
 $u_N/(ka)$, $u_N/(k_0a)$ and $2N/|ak_{\rm eff}|$ — are computed over the active band and
 recorded. The run warns within a factor ten of
-{attr}`~solprop.modes.capillary.CoherentWall.validity_limit` and refuses above it.
+{attr}`~solprop.modes.wall.CoherentWall.validity_limit` and refuses above it.
 
 **Not valid when** the set is not contiguous from `HE_11`, spans two azimuthal orders or
 two polarisations, sits beside a tube lattice or a noise model, or declares a loss other

@@ -31,11 +31,7 @@ from solprop.boundaries import (
 from solprop.exceptions import TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import DEFAULT_LOSS_POLICY, Frame, LossPolicy
-from solprop.modes.capillary import (
-    CoherentWall,
-    _shared_sampling,
-    taper_coupling_block,
-)
+from solprop.modes.capillary import shared_sampling
 from solprop.modes.protocol import (
     ChannelLabel,
     CrossSection,
@@ -44,6 +40,7 @@ from solprop.modes.protocol import (
 )
 from solprop.modes.quadrature import TransverseQuadrature
 from solprop.modes.slab import PlanarGrid
+from solprop.modes.wall import CoherentWall, taper_coupling_block
 from solprop.noise import NoiseRealisation
 from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
@@ -838,16 +835,16 @@ def _modal_linear(
     if wall is not None:
         # Every channel's frequency-only terms are sampled once for the whole wall
         # assembly rather than at each of its positions.
-        with _shared_sampling():
+        with shared_sampling():
             return _wall_assembly(wall, modes, grid, frame, build)
     block = taper_coupling_block(modes) if build.taper_coupling else None
     if block is not None:
-        with _shared_sampling():
+        with shared_sampling():
             return _taper_assembly(block, grid, frame, build)
     # The frame tables read the reference mode at every sample along z, and each
     # read would sample its fill and wall again (SEP 3, Q22): once per frequency
     # vector here too.
-    with _shared_sampling():
+    with shared_sampling():
         _, linear = _coupled_assembly(
             modes,
             modes,
@@ -1138,7 +1135,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         `prefactor_index`, declared `responses` or ``shock=False`` is refused beside
         it by name, and the grid must be a field grid whose active band lies inside
         the guide's support.
-    wall : solprop.modes.capillary.CoherentWall or None, optional
+    wall : solprop.modes.wall.CoherentWall or None, optional
         The declaration of a scalar coherent wall block on the capillary route
         or, with ``impedance="te_tm"``, of one azimuthal order, on a constant or a
         varying guide. With it ``Phi`` carries the mode-independent carrier alone
@@ -1151,7 +1148,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
         z: the moving-basis connection between the ``HE_1m`` channels, in a
         frozen-residual ``linear.coupled_flow`` whose diagonal is each channel's own
         propagation constant, lossless or not
-        (:func:`solprop.modes.capillary.taper_coupling_block` says which sets). The
+        (:func:`solprop.modes.wall.taper_coupling_block` says which sets). The
         default ``True``; ``False`` keeps the adiabatic diagonal route, in which each
         channel propagates on its own. It has no effect on any other mode set or
         route, and ``False`` beside a `wall` is refused, because the wall always
@@ -1319,7 +1316,7 @@ def assemble(  # noqa: PLR0915 - one keyword per physics object of a run
     )
     # Each mode's frequency-only terms are sampled once per frequency vector for the
     # whole assembly: the dispersion, power-weight and prefactor tables all read them.
-    with _shared_sampling():
+    with shared_sampling():
         translated_prefactor = None
         flux = None
         design = None

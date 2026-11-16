@@ -168,14 +168,7 @@ from solprop.log import (
     StopFlag,
 )
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliMode,
-    MarcatiliModel,
-    taper_coupling_block,
-    worst_wall_limits,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliMode, MarcatiliModel
 from solprop.modes.fill import LossFunction
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import JsonValue
@@ -183,6 +176,7 @@ from solprop.modes.protocol import Mode, ParameterisedMode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.modes.wall import CoherentWall, taper_coupling_block, worst_wall_limits
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
@@ -366,7 +360,7 @@ class Simulation(Displayed):
         The general modal guide `general` was built from, kept so that the run's
         material manifest finds what its regions hold (their laws and delayed
         responses); it enters no translation. Set by :meth:`from_waveguide`.
-    wall : solprop.modes.capillary.CoherentWall or None, optional
+    wall : solprop.modes.wall.CoherentWall or None, optional
         The declaration of a coherent wall block. Built by :meth:`from_capillary`
         from a ``wall=``; with it the mode set must be the contiguous ``HE_11`` to
         ``HE_1N`` block -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
@@ -380,7 +374,7 @@ class Simulation(Displayed):
         ``True``, the default; ``False`` is the explicit opt-out to the **adiabatic**
         route, on which each channel follows its local mode and no power is exchanged.
         No effect on a set the coupling does not apply to
-        (:func:`solprop.modes.capillary.taper_coupling_block`); ``False`` beside a
+        (:func:`solprop.modes.wall.taper_coupling_block`); ``False`` beside a
         `wall` is refused, because the wall carries its connection.
     materials : solprop.physdata.selection.MaterialSelection or None, optional
         The material selection the run was built with, recorded in its material
@@ -1668,7 +1662,7 @@ class Simulation(Displayed):
         entrance's, and they are the geometry the admission check warns about. Scanning
         the midpoints alone would record a radius the run merely passes through -- on a
         50 to 30 micrometre linear taper, 40 rather than 30 micrometres, a third
-        optimistic in every ratio (:func:`solprop.modes.capillary.worst_wall_limits`).
+        optimistic in every ratio (:func:`solprop.modes.wall.worst_wall_limits`).
 
         - Returns: the ``modal`` record, or ``None``.
         """
@@ -3854,7 +3848,7 @@ def _warn_adiabatic_taper(modes: Sequence[Mode]) -> None:
     radius alone -- has none. The coherent wall route carries the connection and never
     reaches here, and neither does a run that declined it (``taper_coupling=False``); a
     capillary's contiguous ``HE_1m`` set carries it by default
-    (:func:`solprop.modes.capillary.taper_coupling_block`), so what warns is a moving
+    (:func:`solprop.modes.wall.taper_coupling_block`), so what warns is a moving
     set the coupling is not derived for.
     """
     channels = tuple(modes)

@@ -60,12 +60,7 @@ from solprop.gasflow import VacuumEnd
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.linear import Frame, frame_quantities
 from solprop.modes.antiresonant import TubeLattice
-from solprop.modes.capillary import (
-    CoherentWall,
-    GlassIndex,
-    MarcatiliMode,
-    MarcatiliModel,
-)
+from solprop.modes.capillary import GlassIndex, MarcatiliMode, MarcatiliModel
 from solprop.modes.collection import ModeCollection
 from solprop.modes.fill import LossFunction
 from solprop.modes.protocol import Mode
@@ -77,6 +72,7 @@ from solprop.modes.quadrature import (
 )
 from solprop.modes.slab import SlabMode
 from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.wall import CoherentWall
 from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
@@ -882,7 +878,7 @@ def _check_wall_declaration(
     argument rather than the object it became: the backend selection, the loss
     setting the block would replace, the capillary model it is not derived for and
     the structured cladding it does not describe. Each is refused again further
-    down -- in :func:`solprop.modes.capillary.wall_operator` and at the backend --
+    down -- in :func:`solprop.modes.wall.wall_operator` and at the backend --
     so nothing depends on this one being reached.
 
     - ``wall``: what was declared. ``None`` leaves every other argument alone.

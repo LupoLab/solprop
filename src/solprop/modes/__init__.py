@@ -33,12 +33,9 @@ from solprop.modes.base import (
 )
 from solprop.modes.capillary import (
     EVANESCENT_INDEX_FLOOR,
-    CoherentWall,
     MarcatiliMode,
     MarcatiliModel,
     ModeKind,
-    vector_wall_operator,
-    wall_operator,
 )
 from solprop.modes.collection import (
     ModeCollection,
@@ -93,6 +90,7 @@ from solprop.modes.vector import (
     ModalProvider,
     ModalSample,
 )
+from solprop.modes.wall import CoherentWall, vector_wall_operator, wall_operator
 
 __all__ = [
     "EVANESCENT_INDEX_FLOOR",

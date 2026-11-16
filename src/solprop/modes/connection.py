@@ -39,7 +39,7 @@ alone moves no power. Zeroing the diagonal -- which the Bessel formula for the
 capillary does, correctly, for *its* basis -- breaks that identity. For diagonal
 :math:`W`, the resulting norm defect is
 :math:`\sum_n |c_n|^2 W'_{nn}`, which is why
-:func:`solprop.modes.capillary.wall_connection`'s formula is **not** transplanted
+:func:`solprop.modes.wall.wall_connection`'s formula is **not** transplanted
 here.
 
 The diagonal splits into the two pieces the identity names:

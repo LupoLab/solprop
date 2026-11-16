@@ -31,7 +31,7 @@ channel's normalisation term, frozen per section of the operator's own table wit
 variation and $\sqrt{w_n/w_m}\,C_{mn}$ in the explicit residual. It applies to the
 contiguous $\mathrm{HE}_{11}$ to $\mathrm{HE}_{1N}$ set of plain capillary modes,
 $N \ge 2$, whose radius varies
-({py:func}`~solprop.modes.capillary.taper_coupling_block`); a pressure gradient moves no
+({py:func}`~solprop.modes.wall.taper_coupling_block`); a pressure gradient moves no
 mode shape and needs none. `taper_coupling=False` on
 {py:func}`~solprop.driver.interface.prop_capillary`,
 {py:func}`~solprop.driver.interface.prop_waveguide`,

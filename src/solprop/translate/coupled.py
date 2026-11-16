@@ -40,9 +40,9 @@ from scipy.linalg import schur
 from solprop._display import Displayed, engineering, line
 from solprop._ownership import frozen_copy
 from solprop.exceptions import TranslationError
-from solprop.modes.capillary import WallImpedance, WallLimits
 from solprop.modes.material import JsonValue, quantised_measurement
 from solprop.modes.protocol import ChannelLabel
+from solprop.modes.wall import WallImpedance, WallLimits
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,
     INITIAL_DEGREE,
@@ -2318,7 +2318,7 @@ def wall_identity(
     the two identity strings, the three validity ratios, the band they were taken over,
     the three certificate rows reduced to their extremes and the advisory step they
     imply (:func:`advisory_step`). The radius and the ratios are the **worst** section's
-    (:func:`solprop.modes.capillary.worst_wall_limits`), which for a constant guide is
+    (:func:`solprop.modes.wall.worst_wall_limits`), which for a constant guide is
     the only one there is, taken over the error norm's scored band as the run's
     admission takes them.
 
@@ -2331,7 +2331,7 @@ def wall_identity(
     ----------
     flow : CoupledFlowTables
         The leaf the run carries.
-    limits : solprop.modes.capillary.WallLimits
+    limits : solprop.modes.wall.WallLimits
         The validity ratios the block was admitted under.
     channels : sequence of solprop.modes.protocol.ChannelLabel
         The channel labels in state order.
