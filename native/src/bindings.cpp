@@ -1759,6 +1759,16 @@ public:
                               : std::vector<std::string>{};
     return out;
   }
+  // The live counters alone, cheap enough to read at every run's start and close: the
+  // on-axis row scans, the Runge-Kutta stage evaluations and the z-table positions.
+  [[nodiscard]] nb::dict counters() const {
+    const auto& state = workspace_->built();
+    nb::dict out;
+    out["axis_scans"] = state.axis_scans();
+    out["rk_source_evaluations"] = state.rk_source_evaluations();
+    out["table_evaluations"] = workspace_->z_slots().evaluations;
+    return out;
+  }
   [[nodiscard]] bool closed() const noexcept { return workspace_->closed(); }
   // Closes a session or probe that leases the workspace first. Python-free: the runtime
   // calls it at shutdown, after the interpreter.
@@ -3821,6 +3831,7 @@ NB_MODULE(_core, module_) {
            nb::sig("def probe(self, start: collections.abc.Mapping[str, object], "
                    "host_source: object | None = None) -> Probe"))
       .def("diagnostics", &BoundWorkspace::diagnostics)
+      .def("counters", &BoundWorkspace::counters)
       .def_prop_ro("closed", &BoundWorkspace::closed)
       .def("close", &BoundWorkspace::close_from_python);
   module_.def("configure_runtime", &configure_runtime, "record"_a,

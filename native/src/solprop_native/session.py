@@ -529,7 +529,7 @@ class NativeSession:
             driver = self._driver(backend)
             # The on-axis row scans this session's statistics make: the workspace's
             # count, less what earlier runs on the backend made (SEP 19).
-            self._axis_scans = int(driver._diagnostics()["axis_scans"])
+            self._axis_scans = int(driver._workspace.counters()["axis_scans"])
             with _envelope_errors():
                 self._native = driver._take_workspace().start(
                     run, host_source=driver._host_source
@@ -1222,7 +1222,7 @@ class NativeSession:
         if backend is None or backend.closed:
             return self._axis_scans_closed
         try:
-            scans = int(backend._diagnostics()["axis_scans"])  # pyright: ignore[reportPrivateUsage]
+            scans = int(backend._workspace.counters()["axis_scans"])  # pyright: ignore[reportPrivateUsage]
         except RuntimeError:
             # The state was closed under the session.
             return self._axis_scans_closed
