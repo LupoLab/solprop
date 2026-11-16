@@ -2,27 +2,27 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Linear optical elements applied to a pulse outside a propagation.
+"""Linear optical elements applied to a pulse outside a propagation.
 
-Every element is a **transfer function**: a callable ``H(omega)`` giving the complex
-amplitude response in the optics convention of ``docs/dev/conventions.md`` section 2,
-so that a spectrum is multiplied by
+Every element is a :class:`TransferFunction`, a callable ``H(omega)`` giving the complex
+amplitude response in the optics convention (``docs/dev/conventions.md`` §2): a spectrum
+is multiplied by ``|H| exp(+i phi(omega))``, the group delay is ``+d phi/d omega``, and
+a positive second derivative chirps a pulse positively.
 
-.. math:: H(\omega) = |H|\,e^{+i\varphi(\omega)},
+- **Elements**: :class:`TaylorPhase` (a polynomial spectral phase, evaluated by
+  :func:`taylor_phase`), :class:`Material` (a thickness of glass or a path through a
+  gas, of a :data:`Medium`), :class:`ChirpedMirror` (a dispersive mirror known by its
+  measured dispersion; :func:`chirped_mirrors` names the shipped data),
+  :class:`GratingPair`, :class:`PrismPair` (with :class:`PrismGeometry` and the central
+  ray's :class:`PrismPaths`), and :class:`Chain`, several in series.
+- **Geometry**: :func:`littrow_angle`, :func:`brewster_angle` and :func:`brewster_apex`.
+- **The convention crossing**: :func:`stored_factor` applies a transfer function to a
+  stored FFT-convention spectrum, conjugating once through
+  :func:`solprop.fourier.to_internal`; a transfer function is diagonal in frequency, so
+  it commutes with the stored spectrum's origin shift.
 
-the group delay is :math:`+d\varphi/d\omega`, and a positive second derivative chirps a
-pulse positively, as in any textbook. A spectrum in the FFT convention needs
-``exp(-i phi)`` instead; that crossing is made once, in :func:`stored_factor`, through
-:func:`solprop.fourier.to_internal`. A transfer function is diagonal in frequency, so it
-commutes with the half-window origin shift of a stored spectrum and the conjugation is
-all the crossing needs.
-
-The elements are :class:`TaylorPhase` (a polynomial spectral phase: GDD, TOD, ...),
-:class:`Material` (a thickness of glass, or a path through a gas),
-:class:`ChirpedMirror` (reflections from a dispersive mirror known by its measured
-group-delay dispersion), :class:`GratingPair`, :class:`PrismPair` and :class:`Chain`.
-``docs/guide/workflows/compression.md`` describes each and how the compressors in
-:mod:`solprop.processing.compression` use them.
+``docs/guide/workflows/compression.md`` describes each element and how the compressors
+of :mod:`solprop.processing.compression` use them.
 """
 
 import logging

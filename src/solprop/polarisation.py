@@ -4,17 +4,20 @@
 
 """Construct Jones optics and describe transverse polarisation in the optics convention.
 
-Jones vectors are ``[E_x, E_y]``. Stokes vectors are ``[I, Q, U, V]`` with
-``V = -2 Im(E_x conj(E_y))``, so ``(x + i y)/sqrt(2)`` has positive V. A waveplate's
-fast axis is x: its retardance delays the vertical component relative to the
-horizontal one, and in the optics convention a delay is a positive phase
-(``conventions.md`` §2), so a quarter-wave plate turns light linear at +45° into
-``(x + i y)/sqrt(2)``. Convert internal FFT-convention fields at the existing Fourier
-boundary before using these helpers.
+Jones elements: :func:`horizontal`, :func:`linear_polariser`, :func:`waveplate`,
+:func:`rotation` (of the coordinate axes) and :func:`rotate` (of an element). Stokes
+description: :func:`stokes`, :func:`cartesian` (normalised Poincaré coordinates),
+:func:`ellipse`, which returns a :class:`PolarisationEllipse`, and :func:`ellipticity`.
 
-The ellipse orientation is ``atan2(U, Q)/2``, which keeps the sign of ``U``. Circular
-and zero fields use zero orientation by convention; normalised Stokes coordinates
-require nonzero intensity.
+Jones vectors are ``[E_x, E_y]``. Stokes vectors are ``[I, Q, U, V]`` with ``V = -2
+Im(E_x conj(E_y))``, so ``(x + i y)/sqrt(2)`` has positive V. A waveplate's fast axis is
+x: its retardance delays the vertical component relative to the horizontal one, and in
+the optics convention a delay is a positive phase (``docs/dev/conventions.md`` §2), so a
+quarter-wave plate turns light linear at +45° into ``(x + i y)/sqrt(2)``. The ellipse
+orientation is ``atan2(U, Q)/2``, which keeps the sign of ``U``; circular and zero
+fields take orientation zero, and normalised Stokes coordinates need a nonzero
+intensity. Convert an internal FFT-convention field at the Fourier boundary
+(:func:`solprop.fourier.to_optics`) before using these helpers.
 """
 
 import math

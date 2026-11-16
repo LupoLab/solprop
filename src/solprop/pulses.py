@@ -4,27 +4,27 @@
 
 """Initial pulses on either grid: shape, exact scaling and the user's spectral phase.
 
-Every builder here is a frozen dataclass with one method, ``build(grid)``, which returns
-the initial spectrum in the canonical ``(n_modes, n_pol, n_omega)`` layout of
-``docs/dev/conventions.md`` §6 with both leading axes equal to one. The spectrum is in
-the internal FFT convention, ready to be handed to the translation layer.
+Every builder is a frozen dataclass whose ``build(grid)`` returns the initial spectrum
+in the canonical ``(n_modes, n_pol, n_omega)`` layout (``docs/dev/conventions.md`` §6),
+both leading axes one, in the internal FFT convention.
 
-**Signs.** Spectral phases, Taylor coefficients and delays are given in the **optics**
-convention (``docs/dev/conventions.md`` §2): a positive group-delay dispersion
-chirps the pulse positively, and a positive ``t0`` makes it arrive later. They are
-converted to the internal convention exactly once, when the phase factor is formed, with
-:func:`solprop.fourier.to_internal`; a measured *absolute* spectrum additionally needs
-the half-window origin shift and goes through
-:func:`solprop.fourier.spectrum_to_internal`. This module is the first of the three
-boundary places where the optics sign convention meets the internal FFT convention
-(see ``docs/dev/decisions.md``), and nothing else in it conjugates anything.
+- **Temporal pulses** (:class:`Pulse`): :class:`GaussianPulse`, :class:`SechPulse` and
+  :class:`CustomPulse` share :class:`ShapedPulse`'s build path; :class:`DataPulse` and
+  :class:`TimeDataPulse` take a measured spectrum or field, read from a text file by
+  :func:`load_spectrum`; :class:`CWPulse` is a continuous wave; :class:`PulseSum` adds
+  pulses.
+- **Beams**: :class:`SpatialPulse` and :class:`SpatialPulseSum` wrap a temporal pulse in
+  transverse beams, :class:`IncidentField` samples an incident beam at given points, and
+  :class:`PlanarPulse` launches into the hybrid planar grid.
 
-**Scaling.** A pulse is specified by its ``energy`` or by its ``peak_power``, never
-both. Both are realised exactly on the grid, to the round-off of one rescaling, and
-both are applied *after* the spectral phase, so the peak power of a chirped pulse is the
-peak power the caller asked for.
-
-The manual page is ``docs/guide/setup/pulses.md``.
+**Signs.** Spectral phases, Taylor coefficients and delays are in the **optics**
+convention (§2): a positive group-delay dispersion chirps positively and a positive
+``t0`` arrives later. They are converted exactly once, when the phase factor is formed,
+through :func:`solprop.fourier.to_internal` (or
+:func:`solprop.fourier.spectrum_to_internal` for an absolute measured spectrum); nothing
+else here conjugates. **Scaling.** A pulse takes ``energy`` or ``peak_power``, never
+both, realised exactly on the grid after the phase is applied. The manual page is
+``docs/guide/setup/pulses.md``.
 """
 
 import io

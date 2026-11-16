@@ -2,22 +2,24 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Time and frequency grids for field-resolved and envelope propagation.
+"""Time, frequency and transverse grids for field-resolved and envelope propagation.
 
-Two grids implement one protocol. :class:`FieldGrid` carries a real field ``E(t)`` and
-stores its one-sided spectrum; :class:`EnvelopeGrid` carries a complex envelope ``A(t)``
-and stores the full spectrum in FFT order. Both carry an oversampled *fine* grid on
-which nonlinear responses are evaluated, the masks that say which bins are physical, and
-the Planck-taper collars that absorb what leaves the window.
+Key types: :class:`FieldGrid` carries a real field ``E(t)`` and stores its one-sided
+spectrum; :class:`EnvelopeGrid` carries a complex envelope ``A(t)`` and stores the full
+spectrum in FFT order. Both derive from :class:`TimeGrid`, which holds the oversampled
+*fine* grid the nonlinear responses are evaluated on, the masks that say which bins are
+physical, and the Planck-taper collars (:class:`Collar`) that absorb what leaves the
+window. :class:`RadialGrid`, :class:`FreeGrid` and :class:`LineGrid` are the transverse
+grids of free-space propagation.
 
-The construction arithmetic, the invariants, the layout rules and the sign convention
-are fixed by ``docs/dev/conventions.md`` §2-§3, and the manual page
-``docs/guide/setup/grids.md`` derives them. Four hazards are guarded against, each noted
-where
-it is handled: overlapping coarse spectral bins when the transform size is not a power
-of two, a degenerate temporal collar when the realised window equals the requested one,
-an envelope fine spacing that ignores the low-frequency edge, and an envelope crop that
-is derived from the upper edge alone and then applied symmetrically.
+Key functions: :func:`planck_taper` and its derivative, the collar profile;
+:func:`fft_cost`, the transform-cost model behind ``fft_size="auto"``; and
+:func:`suggest`, which proposes ``wavelength_limits`` and ``trange`` for an input
+(:class:`GridSuggestion`).
+
+The construction arithmetic, the invariants, the layouts and the sign convention are
+fixed by ``docs/dev/conventions.md`` §2-§3, which also lists the hazards the
+construction guards against; the manual page ``docs/guide/setup/grids.md`` derives them.
 """
 
 import logging

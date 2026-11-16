@@ -4,32 +4,25 @@
 
 """Fourier conventions, transforms, oversampling and energy functionals.
 
-This module owns the sign convention of ``docs/dev/conventions.md`` §2 and the discrete
-energy functionals of §4. Every array is a plain NumPy array and the frequency or time
-axis is always the **last** one, because the kernel state is
-``(n_modes, n_pol, n_omega)`` with that axis contiguous (§6).
+The one home of the sign convention of ``docs/dev/conventions.md`` §2 and the discrete
+energy functionals of §4. Arrays are plain NumPy arrays with the time or frequency axis
+**last**, as in the kernel state ``(n_modes, n_pol, n_omega)`` (§6).
 
-Two Fourier conventions are in play. User-facing spectra and phases use the **optics**
-convention ``E(omega) = int E(t) exp(+i omega t) dt``; everything stored internally uses
-the **FFT** convention that NumPy and FFTW implement directly. The boundary between them
-is a conjugation, and :func:`to_optics` and :func:`to_internal` are the only sanctioned
-place where it happens (``docs/dev/conventions.md`` §2). For a **spectrum** the boundary
-also moves the phase origin to the window centre, which is a factor ``(-1)**k`` on the
-storage index; :func:`spectrum_to_optics` and :func:`spectrum_to_internal` do both
-steps.
+- **The convention boundary**: :func:`to_optics` and :func:`to_internal`, the
+  conjugation between the user-facing optics convention and the internal FFT one, and
+  the only sanctioned place it happens; :func:`spectrum_to_optics` and
+  :func:`spectrum_to_internal` also move a spectrum's phase origin to the window centre.
+- **Transforms**: :func:`forward`, :func:`inverse` and :func:`analytic_signal`, with
+  :func:`n_omega_for`; :func:`power_amplitude` converts a modal amplitude to true power.
+- **Oversampling**: :func:`oversample` and :func:`crop` between the coarse and fine
+  grids, with :func:`pad_scale`, :func:`crop_scale` and :func:`crop_index`.
+- **Energies**: :func:`energy_t`, :func:`energy_omega`, :func:`energy_weights` and
+  :func:`spectral_density`.
 
-Stored spectra are **raw forward DFTs**: no ``1/N`` and no factor of the sample spacing.
-The transform is taken over the sample array as it stands, so the phase origin is the
-first sample rather than ``t = 0``; the sample spacing enters only where a physical
-density does, in :func:`energy_omega` and :func:`spectral_density`.
-
-**The layout is always passed in, never inferred.** A field grid stores the one-sided
-spectrum of a real field (``n_omega = n_t/2 + 1``) and an envelope grid the full
-FFT-order spectrum of a complex envelope (``n_omega = n_t``). Neither dtype nor array
-length identifies the two reliably — a real-valued envelope is an ordinary unchirped
-pulse, and a real field cast to complex is indistinguishable from an analytic signal —
-so every function that needs to know takes an explicit ``kind`` and checks the array
-against it.
+Stored spectra are raw forward DFTs, with no ``1/N`` and no sample spacing. The layout
+is passed in, never inferred: every function that needs it takes an explicit ``kind``
+(:data:`GridKind`), because neither dtype nor length tells a field grid's one-sided
+spectrum from an envelope grid's full one (``docs/dev/conventions.md`` §6).
 """
 
 from typing import Literal
