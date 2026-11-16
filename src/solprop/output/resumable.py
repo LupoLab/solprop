@@ -25,7 +25,7 @@ import h5py
 import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
-from solprop.output._writer_lock import WriterLock
+from solprop.output._writer_lock import WriterHeldError, WriterLock
 from solprop.output.hdf5 import ResumeState, _file_path, resume
 from solprop.output.metadata import SCHEMA_VERSION
 from solprop.output.serialisation import _decode
@@ -94,8 +94,10 @@ def _writer_alive(path: Path) -> bool:
     lock = WriterLock(path)
     try:
         lock.acquire()
-    except OutputError as error:
-        return "another writer" in str(error)
+    except WriterHeldError:
+        return True
+    except OutputError:
+        return False
     lock.release()
     return False
 
